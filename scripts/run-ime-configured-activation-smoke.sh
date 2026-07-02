@@ -11,6 +11,7 @@ daemon_path="${stage_abs}/usr/local/bin/vinput-daemon"
 config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo-config.json"
 wav_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo.wav"
 smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
+addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
 service_file="${stage_abs}/share/dbus-1/services/org.fcitx.Vinput.service"
 
 rm -rf "${build_dir}" "${stage_dir}"
@@ -26,6 +27,7 @@ cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DVINPUT_DAEMON_ARGS="--dbus --configured-backends --config ${config_path} --wav ${wav_path}"
 cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
+cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
 cmake --install "${build_dir}" --prefix "${stage_dir}"
 
 test -x "${daemon_path}"
@@ -39,4 +41,5 @@ grep -qx "Exec=${daemon_path} --dbus --configured-backends --config ${config_pat
 XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
 VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
-  timeout 20s dbus-run-session -- "${smoke_bin}"
+  timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
+    bash "${smoke_bin}" "${addon_smoke_bin}"

@@ -87,9 +87,9 @@ just ime-configured-install-smoke # stage demo config plus activation for config
 just addon-lint   # require Fcitx5Core and lint all C++ addon sources with clang-tidy
 just addon-test   # run CTest for the C++ Fcitx bridge core
 just addon-smoke  # addon-format-check plus addon-lint plus addon-test
-just addon-dbus-smoke # run C++ bridge against Rust daemon over DBus
+just addon-dbus-smoke # run C++ bridge and retained addon triggers against Rust daemon over DBus
 just addon-dbus-pipewire-live # run C++ bridge over DBus with the live PipeWire recorder
-just addon-dbus-activation-smoke # verify DBus activation starts the Rust daemon for the C++ bridge
+just addon-dbus-activation-smoke # verify DBus activation starts the Rust daemon for bridge/addon trigger smokes
 just addon-dbus-configured-activation-smoke # verify DBus activation starts configured command backends
 just ime-configured-activation-smoke # verify staged daemon/addon/config/WAV activate together
 just ime-pipewire-live # explicit staged IME activation with live PipeWire capture

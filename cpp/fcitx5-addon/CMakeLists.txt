@@ -178,6 +178,21 @@ if(Fcitx5Core_FOUND)
     COMMAND vinput_fcitx_bridge_selection_smoke
   )
 
+  add_executable(
+    vinput_fcitx_addon_dbus_smoke
+    tests/fcitx_addon_dbus_smoke.cpp
+    src/fcitx_addon.cpp
+    src/fcitx_key_trigger.cpp
+    src/fcitx_selection.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_addon_dbus_smoke
+    PRIVATE
+      vinput_fcitx_bridge::sdbus
+      Fcitx5::Core
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_addon_dbus_smoke)
+
   vinput_bridge_install_dir(
     VINPUT_FCITX_MODULE_INSTALL_DIR
     "${FCITX_INSTALL_LIBDIR}/fcitx5"
