@@ -225,3 +225,7 @@ ime-e2e-smoke:
 # Run user-profile IME install plus D-Bus activation smoke with command-demo backends.
 user-ime-command-demo-smoke:
     scripts/run-user-ime-command-demo-smoke.sh
+
+# Probe an explicit live desktop Fcitx5 session without adding CI dependencies.
+ime-fcitx-live-probe:
+    scripts/run-ime-fcitx-live-probe.sh
