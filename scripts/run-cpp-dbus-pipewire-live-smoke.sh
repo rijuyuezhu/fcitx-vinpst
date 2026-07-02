@@ -13,6 +13,8 @@ mkdir -p "$(dirname "${log_file}")"
 
 ${bus_runner} -- bash -euo pipefail <<'INNER'
 log_file="target/tmp/vinput-cpp-dbus-pipewire-live-smoke-daemon.log"
+bridge_smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_bridge_dbus_smoke"
+addon_smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_addon_dbus_smoke"
 echo "PipeWire audio diagnostics from daemon build:"
 target/debug/vinput-daemon audio-devices
 target/debug/vinput-daemon --dbus --audio-backend pipewire >"${log_file}" 2>&1 &
@@ -25,8 +27,15 @@ trap cleanup EXIT
 sleep 0.5
 export VINPUT_DBUS_SMOKE_RECORD_MS=100
 
+run_smokes() {
+  "${bridge_smoke_bin}" || return 1
+  if [[ -x "${addon_smoke_bin}" ]]; then
+    "${addon_smoke_bin}" || return 1
+  fi
+}
+
 for _ in $(seq 1 50); do
-  if target/cpp/fcitx5-addon/vinput_fcitx_bridge_dbus_smoke; then
+  if run_smokes; then
     exit 0
   fi
   if ! kill -0 "${daemon_pid}" >/dev/null 2>&1; then
