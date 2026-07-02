@@ -243,6 +243,9 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "start/wait/stop smoke",
         "staged D-Bus activation starts the PipeWire-enabled daemon",
         "--dbus --audio-backend pipewire",
+        "Live desktop PipeWire validation",
+        "target/tmp/fcitx-ime-pipewire-live-smoke",
+        "Recorder setup errors are expected to include the same target/format/sample-rate/channel plan",
     ] {
         assert!(
             development.contains(required),
