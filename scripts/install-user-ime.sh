@@ -19,13 +19,49 @@ module_path="${lib_dir}/fcitx5-vinput.so"
 addon_conf_path="${addon_dir}/vinput.conf"
 build_dir="target/cpp/fcitx5-user-ime"
 
-activation_status() {
-  if [[ -x target/debug/vinput ]]; then
-    target/debug/vinput activation-service --user-status
-  else
+doctor_status() {
+  if [[ ! -x target/debug/vinput ]]; then
     cargo build -q -p vinput-cli
-    target/debug/vinput activation-service --user-status
   fi
+
+  local status_config="${config_path:-}"
+  if [[ -z "${status_config}" ]]; then
+    case "${profile}" in
+      command-demo)
+        status_config="${VINPUT_USER_CONFIG:-${config_dir}/e2e-command-demo-config.json}"
+        ;;
+      configured-pipewire-live)
+        status_config="${VINPUT_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
+        ;;
+    esac
+  fi
+  if [[ -z "${status_config}" ]]; then
+    local service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
+    if [[ -f "${service_file}" ]]; then
+      status_config="$(python3 - "${service_file}" <<'PY'
+import shlex
+import sys
+
+path = sys.argv[1]
+for line in open(path, encoding="utf-8"):
+    if not line.startswith("Exec="):
+        continue
+    parts = shlex.split(line.removeprefix("Exec=").strip())
+    for index, part in enumerate(parts):
+        if part == "--config" and index + 1 < len(parts):
+            print(parts[index + 1])
+            raise SystemExit(0)
+raise SystemExit(0)
+PY
+)"
+    fi
+  fi
+
+  local args=(doctor)
+  if [[ -n "${status_config}" && -f "${status_config}" ]]; then
+    args+=(--config "${status_config}")
+  fi
+  target/debug/vinput "${args[@]}"
 }
 
 if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
@@ -43,7 +79,7 @@ if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   printf '  module: %s (%s)\n' "${module_path}" "$([[ -f "${module_path}" ]] && echo present || echo missing)"
   printf '  addon metadata: %s (%s)\n' "${addon_conf_path}" "$([[ -f "${addon_conf_path}" ]] && echo present || echo missing)"
   printf '  daemon: %s (%s)\n' "${daemon_path}" "$([[ -x "${daemon_path}" ]] && echo executable || echo missing)"
-  activation_status
+  doctor_status
   exit 0
 fi
 
@@ -123,4 +159,4 @@ For most desktop sessions, make sure these user paths are visible to Fcitx5:
   user module dir=${lib_dir}
 EOF
 
-activation_status
+doctor_status
