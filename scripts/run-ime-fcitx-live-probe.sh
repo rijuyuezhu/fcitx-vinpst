@@ -39,7 +39,7 @@ echo "Fcitx DBus address: $(fcitx5-remote -a 2>/dev/null || true)"
 echo "Current input method group: $(fcitx5-remote -q 2>/dev/null || true)"
 echo "Current input method: $(fcitx5-remote -n 2>/dev/null || true)"
 
-scripts/install-user-ime.sh >/tmp/vinput-ime-live-status.log 2>&1 || {
+VINPUT_USER_STATUS=1 scripts/install-user-ime.sh >/tmp/vinput-ime-live-status.log 2>&1 || {
   cat /tmp/vinput-ime-live-status.log >&2
   echo "User IME install/status check failed." >&2
   exit 1
