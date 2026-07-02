@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
