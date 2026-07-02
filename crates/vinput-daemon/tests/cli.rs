@@ -101,6 +101,13 @@ fn e2e_demo_config_path() -> PathBuf {
     path
 }
 
+fn live_demo_config_path() -> PathBuf {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("../../data/e2e-configured-pipewire-live.json");
+    assert!(path.exists(), "live demo config fixture should exist");
+    path
+}
+
 fn daemon_command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_vinput-daemon"))
 }
@@ -1029,6 +1036,34 @@ fn once_runs_committed_e2e_demo_config_with_wav() {
     );
     assert_eq!(value["commit_text"], "demo final: demo heard 8 bytes");
 }
+#[test]
+fn once_runs_live_demo_config_with_wav() {
+    let wav = TempBytes::write(
+        "live-demo",
+        "wav",
+        &wav_pcm16le_bytes(16_000, 1, &[1_000, -1_000, 2_000, -2_000]),
+    );
+    let wav_path = wav.path.to_string_lossy().into_owned();
+
+    let value = assert_json_success(
+        run_daemon_with_config(
+            live_demo_config_path(),
+            &[
+                "--configured-backends",
+                "--once",
+                "--wav",
+                wav_path.as_str(),
+            ],
+            "run live demo config with WAV input",
+        ),
+        "recognition payload",
+    );
+    assert_eq!(
+        value["commit_text"],
+        "live final: live pipewire command result"
+    );
+}
+
 #[test]
 fn dbus_allows_wav_file_argument_for_service_runtime() {
     let wav = TempBytes::write(
