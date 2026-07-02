@@ -129,6 +129,10 @@ ime-configured-pipewire-live:
 user-activation-service:
     scripts/install-user-activation-service.sh
 
+# Clear the per-user D-Bus activation service installed for local desktop testing.
+user-activation-service-clear:
+    VINPUT_USER_REMOVE=1 scripts/install-user-activation-service.sh
+
 addon-dbus-activation-smoke:
     scripts/run-cpp-dbus-activation-smoke.sh
 
