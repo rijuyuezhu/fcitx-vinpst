@@ -41,6 +41,8 @@ public:
   // Rust-only diagnostic extensions; not used by the frontend bridge hot path.
   bool GetAsrBackendState(AsrBackendStateSnapshot *state, std::string *error);
   bool GetTextAdapterState(std::string *state_json, std::string *error);
+  bool StartAdapter(std::string_view adapter_id, std::string *error);
+  bool StopAdapter(std::string_view adapter_id, std::string *error);
   bool GetRuntimeStatus(std::string *status_json, std::string *error);
 
 private:

@@ -124,6 +124,77 @@ bool ExpectConfiguredDiagnostics(SdBusDaemonClient *client, std::string *error) 
   return true;
 }
 
+bool ExpectAdapterLifecycle(SdBusDaemonClient *client, std::string_view adapter_id,
+                            std::string *error) {
+  std::string state_json;
+  if (!client->GetTextAdapterState(&state_json, error)) {
+    return false;
+  }
+  const std::string adapter_marker = "\"id\":\"" + std::string(adapter_id) + "\"";
+  if (!Contains(state_json, adapter_marker)) {
+    if (error != nullptr) {
+      *error = "text adapter lifecycle state missing adapter: ";
+      *error += adapter_id;
+      *error += " in ";
+      *error += state_json;
+    }
+    return false;
+  }
+
+  if (!client->StartAdapter(adapter_id, error)) {
+    return false;
+  }
+  if (!client->GetTextAdapterState(&state_json, error)) {
+    return false;
+  }
+  if (!Contains(state_json, adapter_marker) ||
+      !Contains(state_json, "\"is_running\":true") ||
+      !Contains(state_json, "\"pid\":")) {
+    if (error != nullptr) {
+      *error = "text adapter lifecycle start did not report running adapter in ";
+      *error += state_json;
+    }
+    std::string stop_error;
+    client->StopAdapter(adapter_id, &stop_error);
+    return false;
+  }
+
+  std::string duplicate_error;
+  if (client->StartAdapter(adapter_id, &duplicate_error)) {
+    if (error != nullptr) {
+      *error = "duplicate text adapter lifecycle start unexpectedly succeeded";
+    }
+    client->StopAdapter(adapter_id, &duplicate_error);
+    return false;
+  }
+  if (!Contains(duplicate_error, "already running")) {
+    if (error != nullptr) {
+      *error = "duplicate text adapter lifecycle start produced unexpected error: ";
+      *error += duplicate_error;
+    }
+    client->StopAdapter(adapter_id, &duplicate_error);
+    return false;
+  }
+
+  if (!client->StopAdapter(adapter_id, error)) {
+    return false;
+  }
+  if (!client->GetTextAdapterState(&state_json, error)) {
+    return false;
+  }
+  if (!Contains(state_json, adapter_marker) ||
+      !Contains(state_json, "\"is_running\":false") ||
+      !Contains(state_json, "\"pid\":null")) {
+    if (error != nullptr) {
+      *error = "text adapter lifecycle stop did not report stopped adapter in ";
+      *error += state_json;
+    }
+    return false;
+  }
+
+  return true;
+}
+
 std::chrono::milliseconds RecordDelay() {
   const char *value = std::getenv("VINPUT_DBUS_SMOKE_RECORD_MS");
   if (value == nullptr) {
@@ -162,6 +233,17 @@ int main() {
   if (!ExpectConfiguredDiagnostics(client.get(), &error)) {
     std::cerr << "configured diagnostics check failed: " << error << '\n';
     return 1;
+  }
+  const auto lifecycle_adapter =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_LIFECYCLE_ADAPTER");
+  if (!lifecycle_adapter.empty()) {
+    if (!ExpectAdapterLifecycle(client.get(), lifecycle_adapter, &error)) {
+      std::cerr << "adapter lifecycle check failed: " << error << '\n';
+      return 1;
+    }
+    if (!OptionalExpectedText("VINPUT_DBUS_SMOKE_LIFECYCLE_ONLY").empty()) {
+      return 0;
+    }
   }
 
   FrontendBridge normal_bridge;

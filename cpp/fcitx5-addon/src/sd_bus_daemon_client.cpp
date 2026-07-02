@@ -194,6 +194,14 @@ bool SdBusDaemonClient::GetTextAdapterState(std::string *state_json,
   return CallStringReply(dbus::kMethodGetTextAdapterState, state_json, error);
 }
 
+bool SdBusDaemonClient::StartAdapter(std::string_view adapter_id, std::string *error) {
+  return CallNoReplyWithString(dbus::kMethodStartAdapter, adapter_id, error);
+}
+
+bool SdBusDaemonClient::StopAdapter(std::string_view adapter_id, std::string *error) {
+  return CallNoReplyWithString(dbus::kMethodStopAdapter, adapter_id, error);
+}
+
 bool SdBusDaemonClient::GetRuntimeStatus(std::string *status_json, std::string *error) {
   return CallStringReply(dbus::kMethodGetRuntimeStatus, status_json, error);
 }
