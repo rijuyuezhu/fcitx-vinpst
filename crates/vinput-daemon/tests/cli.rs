@@ -422,6 +422,9 @@ fn runtime_status_reports_initialized_mock_runtime() {
     assert_eq!(value["status"], "idle");
     assert_eq!(value["configured_backends"], false);
     assert_eq!(value["audio_backend"], "mock");
+    assert_eq!(value["dbus"]["service"], "org.fcitx.Vinput");
+    assert_eq!(value["dbus"]["object_path"], "/org/fcitx/Vinput");
+    assert_eq!(value["dbus"]["interface"], "org.fcitx.Vinput.Service");
     assert_eq!(value["config"]["ok"], true);
     assert_eq!(value["asr"]["effective_provider_id"], "mock");
     assert_eq!(value["asr"]["target_provider_id"], "sherpa-onnx");

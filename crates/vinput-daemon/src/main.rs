@@ -208,6 +208,11 @@ fn runtime_status_summary(
         "uptime_ms": runtime.uptime().as_millis(),
         "configured_backends": args.configured_backends,
         "audio_backend": args.audio_backend.as_str(),
+        "dbus": {
+            "service": vinput_protocol::dbus::SERVICE_BUS_NAME,
+            "object_path": vinput_protocol::dbus::SERVICE_OBJECT_PATH,
+            "interface": vinput_protocol::dbus::SERVICE_INTERFACE,
+        },
         "config": config.summary(),
         "asr": runtime.asr_backend_state(),
         "text_adapters": runtime.configured_text_adapter_state_for_runtime(),
