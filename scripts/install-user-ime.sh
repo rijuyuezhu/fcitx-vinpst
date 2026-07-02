@@ -13,6 +13,7 @@ bin_dir="${VINPUT_USER_BIN_DIR:-${home_dir}/.local/bin}"
 lib_dir="${VINPUT_USER_FCITX_LIB_DIR:-${home_dir}/.local/lib/fcitx5}"
 addon_dir="${VINPUT_USER_FCITX_ADDON_DIR:-${data_home}/fcitx5/addon}"
 config_dir="${VINPUT_USER_CONFIG_DIR:-${data_home}/fcitx-vinput}"
+env_file="${config_dir}/fcitx-vinput.env"
 
 daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
 module_path="${lib_dir}/fcitx5-vinput.so"
@@ -71,6 +72,7 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   echo "Removed user IME files if present:"
   echo "  ${module_path}"
   echo "  ${addon_conf_path}"
+  echo "  ${env_file}"
   exit 0
 fi
 
@@ -126,6 +128,12 @@ cmake -S cpp/fcitx5-addon -B "${build_dir}" \
 cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 install -Dm755 "${build_dir}/fcitx5-vinput.so" "${module_path}"
 install -Dm644 "${build_dir}/vinput-addon.conf" "${addon_conf_path}"
+mkdir -p "$(dirname "${env_file}")"
+cat >"${env_file}" <<EOF
+# Source this before launching Fcitx5 when using the user-installed fcitx-vinput addon.
+export FCITX_ADDON_DIRS="${lib_dir}:${FCITX_ADDON_DIRS:-/usr/lib/fcitx5}"
+export XDG_DATA_HOME="${data_home}"
+EOF
 
 activation_args=(activation-service --daemon "${daemon_path}" --user)
 if [[ "${configured_backends}" == "1" || "${configured_backends}" == "true" || -n "${config_path}" ]]; then
@@ -145,6 +153,7 @@ Installed user IME files:
   daemon: ${daemon_path}
   addon module: ${module_path}
   addon metadata: ${addon_conf_path}
+  environment file: ${env_file}
 
 Restart Fcitx5, then use the retained addon triggers:
   Right Ctrl press/release: start/stop normal dictation
@@ -154,9 +163,8 @@ Override trigger keys before launching Fcitx5 if needed:
   VINPUT_FCITX_NORMAL_TRIGGER=F8
   VINPUT_FCITX_COMMAND_TRIGGER=F9
 
-For most desktop sessions, make sure these user paths are visible to Fcitx5:
-  XDG_DATA_HOME=${data_home}
-  user module dir=${lib_dir}
+For most desktop sessions, source this before launching Fcitx5:
+  . ${env_file}
 EOF
 
 doctor_status
