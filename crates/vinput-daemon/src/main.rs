@@ -76,6 +76,15 @@ enum AudioBackendArg {
 
 const DEFAULT_FILE_AUDIO_FRAMES: usize = 4;
 
+impl AudioBackendArg {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mock => "mock",
+            Self::Pipewire => "pipewire",
+        }
+    }
+}
+
 /// One-shot utility commands useful while bootstrapping the daemon.
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -87,6 +96,8 @@ enum Command {
     TextAdapters,
     /// Print configured audio capture diagnostics as JSON.
     AudioDevices,
+    /// Build the selected runtime and print runtime status diagnostics as JSON.
+    RuntimeStatus,
 }
 
 #[tokio::main]
@@ -132,6 +143,16 @@ async fn main() -> anyhow::Result<()> {
                     serde_json::to_string_pretty(&audio_devices_summary(&config)?)?
                 );
             }
+            Command::RuntimeStatus => {
+                let runtime =
+                    build_runtime(&args, config.clone()).context("initialize runtime status")?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&runtime_status_summary(
+                        &runtime, &config, &args
+                    )?)?
+                );
+            }
         }
         return Ok(());
     }
@@ -174,6 +195,24 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn runtime_status_summary(
+    runtime: &RuntimeState,
+    config: &VinputConfig,
+    args: &Args,
+) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "ok": true,
+        "status": runtime.status(),
+        "uptime_ms": runtime.uptime().as_millis(),
+        "configured_backends": args.configured_backends,
+        "audio_backend": args.audio_backend.as_str(),
+        "config": config.summary(),
+        "asr": runtime.asr_backend_state(),
+        "text_adapters": runtime.configured_text_adapter_state_for_runtime(),
+        "audio": audio_devices_summary(config)?,
+    }))
 }
 
 fn audio_devices_summary(config: &VinputConfig) -> anyhow::Result<serde_json::Value> {

@@ -409,6 +409,29 @@ fn print_config_summary_omits_sensitive_config_details() {
 }
 
 #[test]
+fn runtime_status_reports_initialized_mock_runtime() {
+    let value = assert_json_success(
+        run_daemon_with_config(
+            default_config_path(),
+            &["runtime-status"],
+            "run vinput-daemon runtime-status on default fixture",
+        ),
+        "runtime status",
+    );
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["status"], "idle");
+    assert_eq!(value["configured_backends"], false);
+    assert_eq!(value["audio_backend"], "mock");
+    assert_eq!(value["config"]["ok"], true);
+    assert_eq!(value["asr"]["effective_provider_id"], "mock");
+    assert_eq!(value["asr"]["target_provider_id"], "sherpa-onnx");
+    assert_eq!(value["text_adapters"]["adapter_count"], 0);
+    assert_eq!(value["audio"]["ok"], true);
+    assert_eq!(value["audio"]["capture_target"]["kind"], "default");
+    assert!(value["uptime_ms"].as_u64().is_some());
+}
+
+#[test]
 fn audio_devices_reports_default_capture_target_and_unavailable_backend() {
     let value = assert_json_success(
         run_daemon_with_config(
