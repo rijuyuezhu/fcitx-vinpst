@@ -36,6 +36,24 @@ fn config_validate_accepts_committed_default_fixture() {
 }
 
 #[test]
+fn config_example_lists_available_examples() {
+    let output = vinput_command()
+        .args(["config", "example", "--list"])
+        .output()
+        .expect("run vinput config example --list");
+
+    let value = assert_json_success(output, "config example list");
+    let examples = value["examples"].as_array().expect("examples array");
+    let names = examples
+        .iter()
+        .map(|example| example["name"].as_str().expect("example name"))
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"default"));
+    assert!(names.contains(&"command-demo"));
+    assert!(names.contains(&"configured-pipewire-live"));
+}
+
+#[test]
 fn config_example_prints_command_demo_config() {
     let output = vinput_command()
         .args(["config", "example", "command-demo"])

@@ -32,11 +32,14 @@ enum ConfigCommand {
         #[arg(long)]
         summary_only: bool,
     },
-    /// Print or write a bundled example config JSON file.
+    /// Print, list, or write a bundled example config JSON file.
     Example {
-        /// Example config to export.
-        #[arg(value_enum)]
-        kind: ConfigExample,
+        /// Example config to export. Omit with --list to show available examples.
+        #[arg(value_enum, required_unless_present = "list")]
+        kind: Option<ConfigExample>,
+        /// List available example configs as JSON.
+        #[arg(long, conflicts_with = "output")]
+        list: bool,
         /// Write the example config to this path instead of stdout.
         #[arg(long)]
         output: Option<PathBuf>,
@@ -174,8 +177,8 @@ fn main() -> anyhow::Result<()> {
             Some(ConfigCommand::Validate { path, summary_only }) => {
                 validate_config_file(&path, summary_only)
             }
-            Some(ConfigCommand::Example { kind, output }) => {
-                export_config_example(kind, output.as_deref())
+            Some(ConfigCommand::Example { kind, list, output }) => {
+                handle_config_example(kind, list, output.as_deref())
             }
             None => validate_config(),
         },
@@ -511,6 +514,35 @@ fn validate_config_file(path: &PathBuf, _summary_only: bool) -> anyhow::Result<(
     Ok(())
 }
 
+fn handle_config_example(
+    kind: Option<ConfigExample>,
+    list: bool,
+    output: Option<&Path>,
+) -> anyhow::Result<()> {
+    if list {
+        return list_config_examples();
+    }
+    let kind = kind.context("config example kind is required unless --list is set")?;
+    export_config_example(kind, output)
+}
+
+fn list_config_examples() -> anyhow::Result<()> {
+    let examples = ConfigExample::value_variants()
+        .iter()
+        .map(|kind| {
+            serde_json::json!({
+                "name": kind.to_possible_value().expect("config example has clap value").get_name(),
+                "description": config_example_description(*kind),
+            })
+        })
+        .collect::<Vec<_>>();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({"examples": examples}))?
+    );
+    Ok(())
+}
+
 fn export_config_example(kind: ConfigExample, output: Option<&Path>) -> anyhow::Result<()> {
     let contents = config_example_contents(kind);
     let config = VinputConfig::from_json_str(contents).context("parse bundled example config")?;
@@ -533,6 +565,16 @@ fn export_config_example(kind: ConfigExample, output: Option<&Path>) -> anyhow::
         print!("{contents}");
     }
     Ok(())
+}
+
+fn config_example_description(kind: ConfigExample) -> &'static str {
+    match kind {
+        ConfigExample::Default => "upstream-compatible default config skeleton",
+        ConfigExample::CommandDemo => "deterministic command ASR/text adapter demo",
+        ConfigExample::ConfiguredPipewireLive => {
+            "configured command backends for live PipeWire smoke"
+        }
+    }
 }
 
 fn config_example_contents(kind: ConfigExample) -> &'static str {
