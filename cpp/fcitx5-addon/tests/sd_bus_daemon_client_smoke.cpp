@@ -10,6 +10,7 @@
 #include <string_view>
 #include <thread>
 
+using vinput_fcitx_bridge::AsrBackendStateSnapshot;
 using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FrontendBridge;
 using vinput_fcitx_bridge::kDefaultCommandSceneId;
@@ -34,6 +35,11 @@ std::string ExpectedText(const char *env_name, const char *fallback) {
   return value == nullptr ? std::string(fallback) : std::string(value);
 }
 
+std::string OptionalExpectedText(const char *env_name) {
+  const char *value = std::getenv(env_name);
+  return value == nullptr ? std::string() : std::string(value);
+}
+
 bool Contains(std::string_view haystack, std::string_view needle) {
   return haystack.find(needle) != std::string_view::npos;
 }
@@ -53,6 +59,53 @@ bool ExpectRuntimeStatus(SdBusDaemonClient *client, std::string_view expected,
     }
     return false;
   }
+  return true;
+}
+
+bool ExpectConfiguredDiagnostics(SdBusDaemonClient *client, std::string *error) {
+  const auto expected_asr_provider =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER");
+  if (!expected_asr_provider.empty()) {
+    AsrBackendStateSnapshot state;
+    if (!client->GetAsrBackendState(&state, error)) {
+      return false;
+    }
+    if (state.target_provider_id != expected_asr_provider ||
+        state.effective_provider_id != expected_asr_provider ||
+        !state.has_effective_backend) {
+      if (error != nullptr) {
+        *error = "ASR backend state did not match configured provider: target=";
+        *error += state.target_provider_id;
+        *error += " effective=";
+        *error += state.effective_provider_id;
+      }
+      return false;
+    }
+  }
+
+  const auto expected_text_adapter =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER");
+  if (!expected_text_adapter.empty()) {
+    std::string state_json;
+    if (!client->GetTextAdapterState(&state_json, error)) {
+      return false;
+    }
+    const std::string expected_single_adapter_marker =
+        "\"single_adapter_id\":\"" + expected_text_adapter + "\"";
+    const std::string expected_adapter_id_marker =
+        "\"id\":\"" + expected_text_adapter + "\"";
+    if (!Contains(state_json, expected_single_adapter_marker) ||
+        !Contains(state_json, expected_adapter_id_marker)) {
+      if (error != nullptr) {
+        *error = "text adapter state missing expected adapter: ";
+        *error += expected_text_adapter;
+        *error += " in ";
+        *error += state_json;
+      }
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -89,6 +142,10 @@ int main() {
 
   if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error)) {
     std::cerr << "runtime status idle check failed: " << error << '\n';
+    return 1;
+  }
+  if (!ExpectConfiguredDiagnostics(client.get(), &error)) {
+    std::cerr << "configured diagnostics check failed: " << error << '\n';
     return 1;
   }
 

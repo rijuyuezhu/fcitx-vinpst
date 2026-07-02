@@ -57,6 +57,67 @@ bool ReadStringReply(sd_bus_message *message, std::string *reply, std::string *e
   return true;
 }
 
+bool ReadAsrBackendStateReply(sd_bus_message *message, AsrBackendStateSnapshot *state,
+                              std::string *error) {
+  const char *target_provider_id = nullptr;
+  const char *target_model_id = nullptr;
+  const char *effective_provider_id = nullptr;
+  const char *effective_model_id = nullptr;
+  const char *last_error = nullptr;
+  int reload_in_progress = 0;
+  int has_effective_backend = 0;
+  int result = sd_bus_message_read(
+      message, "sssssbb", &target_provider_id, &target_model_id, &effective_provider_id,
+      &effective_model_id, &last_error, &reload_in_progress, &has_effective_backend);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "read ASR backend state reply", result, bus_error);
+    return false;
+  }
+
+  result = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "s");
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "enter ASR remote endpoints", result, bus_error);
+    return false;
+  }
+
+  std::vector<std::string> remote_endpoints;
+  for (;;) {
+    const char *endpoint = nullptr;
+    result = sd_bus_message_read(message, "s", &endpoint);
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "read ASR remote endpoint", result, bus_error);
+      return false;
+    }
+    if (result == 0) {
+      break;
+    }
+    remote_endpoints.emplace_back(endpoint != nullptr ? endpoint : "");
+  }
+
+  result = sd_bus_message_exit_container(message);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "exit ASR remote endpoints", result, bus_error);
+    return false;
+  }
+
+  if (state != nullptr) {
+    state->target_provider_id = target_provider_id != nullptr ? target_provider_id : "";
+    state->target_model_id = target_model_id != nullptr ? target_model_id : "";
+    state->effective_provider_id =
+        effective_provider_id != nullptr ? effective_provider_id : "";
+    state->effective_model_id = effective_model_id != nullptr ? effective_model_id : "";
+    state->last_error = last_error != nullptr ? last_error : "";
+    state->reload_in_progress = reload_in_progress != 0;
+    state->has_effective_backend = has_effective_backend != 0;
+    state->remote_endpoints = std::move(remote_endpoints);
+  }
+  return true;
+}
+
 bool CallMethod(sd_bus *bus, std::string_view method, const char *signature,
                 const char *argument, sd_bus_message **reply, std::string *error) {
   const auto bus_name = std::string(dbus::kServiceBusName);
@@ -113,6 +174,24 @@ bool SdBusDaemonClient::StopRecording(std::string_view scene_id,
                                       std::string *payload_json, std::string *error) {
   return CallStringReplyWithString(dbus::kMethodStopRecording, scene_id, payload_json,
                                    error);
+}
+
+bool SdBusDaemonClient::GetAsrBackendState(AsrBackendStateSnapshot *state,
+                                           std::string *error) {
+  sd_bus_message *message = nullptr;
+  if (!CallMethod(bus_, dbus::kMethodGetAsrBackendState, "", nullptr, &message,
+                  error)) {
+    return false;
+  }
+
+  const bool ok = ReadAsrBackendStateReply(message, state, error);
+  UnrefMessage(message);
+  return ok;
+}
+
+bool SdBusDaemonClient::GetTextAdapterState(std::string *state_json,
+                                            std::string *error) {
+  return CallStringReply(dbus::kMethodGetTextAdapterState, state_json, error);
 }
 
 bool SdBusDaemonClient::GetRuntimeStatus(std::string *status_json, std::string *error) {

@@ -5,10 +5,22 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 struct sd_bus;
 
 namespace vinput_fcitx_bridge {
+
+struct AsrBackendStateSnapshot {
+  std::string target_provider_id;
+  std::string target_model_id;
+  std::string effective_provider_id;
+  std::string effective_model_id;
+  std::string last_error;
+  bool reload_in_progress = false;
+  bool has_effective_backend = false;
+  std::vector<std::string> remote_endpoints;
+};
 
 class SdBusDaemonClient final : public DaemonClient {
 public:
@@ -26,7 +38,9 @@ public:
   bool StopRecording(std::string_view scene_id, std::string *payload_json,
                      std::string *error) override;
 
-  // Rust-only diagnostic extension; not used by the frontend bridge hot path.
+  // Rust-only diagnostic extensions; not used by the frontend bridge hot path.
+  bool GetAsrBackendState(AsrBackendStateSnapshot *state, std::string *error);
+  bool GetTextAdapterState(std::string *state_json, std::string *error);
   bool GetRuntimeStatus(std::string *status_json, std::string *error);
 
 private:
