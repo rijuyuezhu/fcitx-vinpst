@@ -179,6 +179,22 @@ if(Fcitx5Core_FOUND)
   )
 
   add_executable(
+    vinput_fcitx_bridge_outcome_sink_smoke
+    tests/fcitx_outcome_sink_smoke.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_bridge_outcome_sink_smoke
+    PRIVATE
+      vinput_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_bridge_outcome_sink_smoke)
+  add_test(
+    NAME vinput_fcitx_bridge_outcome_sink_smoke
+    COMMAND vinput_fcitx_bridge_outcome_sink_smoke
+  )
+
+  add_executable(
     vinput_fcitx_addon_dbus_smoke
     tests/fcitx_addon_dbus_smoke.cpp
     src/fcitx_addon.cpp

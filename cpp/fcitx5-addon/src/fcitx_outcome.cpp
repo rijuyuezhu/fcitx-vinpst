@@ -8,35 +8,69 @@
 #include <fcitx/text.h>
 #include <fcitx/userinterface.h>
 
+#include <string>
 #include <string_view>
 #include <utility>
 
 namespace vinput_fcitx_bridge {
 namespace {
 
-void SetPreedit(fcitx::InputContext *ic, std::string_view text) {
-  ClearResultCandidateMenu(ic);
-  fcitx::Text preedit;
-  preedit.append(std::string(text));
-  ic->inputPanel().setPreedit(preedit);
-  ic->updatePreedit();
-  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-}
+class FcitxInputContextSink final : public OutcomeSink {
+public:
+  explicit FcitxInputContextSink(fcitx::InputContext *input_context)
+      : input_context_(input_context) {}
 
-void ClearPreedit(fcitx::InputContext *ic) {
-  SetPreedit(ic, "");
-}
+  void SetPreedit(std::string_view text) override {
+    ClearCandidateMenu();
+    fcitx::Text preedit;
+    preedit.append(std::string(text));
+    input_context_->inputPanel().setPreedit(preedit);
+    input_context_->updatePreedit();
+    input_context_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  }
 
-void DeleteSelectedTextIfAny(fcitx::InputContext *ic) {
-  if (ic == nullptr) {
-    return;
+  void ClearPreedit() override {
+    SetPreedit("");
   }
-  auto range = SelectedTextDeletionRange(ic->surroundingText());
-  if (!range.has_value()) {
-    return;
+
+  void ClearCandidateMenu() override {
+    ClearResultCandidateMenu(input_context_);
   }
-  ic->deleteSurroundingText(range->offset, range->size);
-}
+
+  void DeleteSelectedTextIfAny() override {
+    auto range = SelectedTextDeletionRange(input_context_->surroundingText());
+    if (!range.has_value()) {
+      return;
+    }
+    input_context_->deleteSurroundingText(range->offset, range->size);
+  }
+
+  void CommitString(std::string_view text) override {
+    input_context_->commitString(std::string(text));
+  }
+
+  bool ShowCandidateMenu(const RecognitionPayload &payload,
+                         bool command_mode) override {
+    auto candidate_list = BuildResultCandidateList(
+        payload,
+        [command_mode](fcitx::InputContext *input_context, const Candidate &candidate) {
+          ApplyResultCandidateSelection(input_context, candidate, command_mode);
+        });
+    if (candidate_list == nullptr) {
+      return false;
+    }
+    ClearPreedit();
+    fcitx::Text aux_up;
+    aux_up.append(ResultCandidateMenuTitle(payload.candidates.size()));
+    input_context_->inputPanel().setAuxUp(aux_up);
+    input_context_->inputPanel().setCandidateList(std::move(candidate_list));
+    input_context_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    return true;
+  }
+
+private:
+  fcitx::InputContext *input_context_;
+};
 
 std::string_view CommitText(const BridgeOutcome &outcome) {
   if (!outcome.text.empty()) {
@@ -45,42 +79,20 @@ std::string_view CommitText(const BridgeOutcome &outcome) {
   return outcome.payload.commit_text;
 }
 
-bool ShowCandidateMenu(fcitx::InputContext *ic, const RecognitionPayload &payload,
-                       bool command_mode) {
-  auto candidate_list = BuildResultCandidateList(
-      payload,
-      [command_mode](fcitx::InputContext *input_context, const Candidate &candidate) {
-        ApplyResultCandidateSelection(input_context, candidate, command_mode);
-      });
-  if (candidate_list == nullptr) {
-    return false;
-  }
-  ClearPreedit(ic);
-  fcitx::Text aux_up;
-  aux_up.append(ResultCandidateMenuTitle(payload.candidates.size()));
-  ic->inputPanel().setAuxUp(aux_up);
-  ic->inputPanel().setCandidateList(std::move(candidate_list));
-  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-  return true;
-}
-
 } // namespace
 
-AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
-                                                fcitx::InputContext *ic) {
-  if (ic == nullptr) {
-    return AppliedOutcome::None;
-  }
+AppliedOutcome ApplyBridgeOutcomeToSink(const BridgeOutcome &outcome,
+                                        OutcomeSink &sink) {
 
   switch (outcome.kind) {
   case BridgeOutcome::Kind::None:
     return AppliedOutcome::None;
   case BridgeOutcome::Kind::Preedit:
   case BridgeOutcome::Kind::Error:
-    SetPreedit(ic, outcome.text);
+    sink.SetPreedit(outcome.text);
     return AppliedOutcome::Preedit;
   case BridgeOutcome::Kind::Clear:
-    ClearPreedit(ic);
+    sink.ClearPreedit();
     return AppliedOutcome::Clear;
   case BridgeOutcome::Kind::Commit: {
     const auto text = CommitText(outcome);
@@ -88,15 +100,15 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
       return AppliedOutcome::None;
     }
     if (outcome.command_mode) {
-      DeleteSelectedTextIfAny(ic);
+      sink.DeleteSelectedTextIfAny();
     }
-    ClearResultCandidateMenu(ic);
-    ClearPreedit(ic);
-    ic->commitString(std::string(text));
+    sink.ClearCandidateMenu();
+    sink.ClearPreedit();
+    sink.CommitString(text);
     return AppliedOutcome::Commit;
   }
   case BridgeOutcome::Kind::CandidateMenu:
-    if (ShowCandidateMenu(ic, outcome.payload, outcome.command_mode)) {
+    if (sink.ShowCandidateMenu(outcome.payload, outcome.command_mode)) {
       return AppliedOutcome::CandidateMenu;
     }
     const auto text = CommitText(outcome);
@@ -104,15 +116,24 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
       return AppliedOutcome::None;
     }
     if (outcome.command_mode) {
-      DeleteSelectedTextIfAny(ic);
+      sink.DeleteSelectedTextIfAny();
     }
-    ClearResultCandidateMenu(ic);
-    ClearPreedit(ic);
-    ic->commitString(std::string(text));
+    sink.ClearCandidateMenu();
+    sink.ClearPreedit();
+    sink.CommitString(text);
     return AppliedOutcome::Commit;
   }
 
   return AppliedOutcome::None;
+}
+
+AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
+                                                fcitx::InputContext *ic) {
+  if (ic == nullptr) {
+    return AppliedOutcome::None;
+  }
+  FcitxInputContextSink sink(ic);
+  return ApplyBridgeOutcomeToSink(outcome, sink);
 }
 
 } // namespace vinput_fcitx_bridge
