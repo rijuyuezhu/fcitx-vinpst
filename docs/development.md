@@ -98,6 +98,11 @@ just ime-pipewire-live # explicit staged IME activation with live PipeWire captu
 just user-activation-service # install user DBus activation service for local desktop testing
 just user-command-demo-activation-service # install user DBus activation with deterministic command demo config
 just user-pipewire-activation-service # install user DBus activation for configured command backends plus live PipeWire
+just user-ime-install # install daemon, Fcitx addon module, metadata, and DBus activation
+just user-ime-command-demo # install a deterministic command-demo user IME profile
+just user-ime-pipewire-live # install a configured PipeWire user IME profile
+just user-ime-status # inspect user IME install status
+just user-ime-clear # remove user IME addon files and DBus activation
 just user-activation-service-status # inspect user DBus activation service path/name/exec
 just user-activation-service-clear # remove user DBus activation service after local testing
 just check        # fmt-check plus lint plus test plus dbus-test plus dbus-lint plus addon-test

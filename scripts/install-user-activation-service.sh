@@ -11,6 +11,7 @@ audio_backend="${VINPUT_USER_AUDIO_BACKEND:-}"
 configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-}"
 remove_user="${VINPUT_USER_REMOVE:-}"
 status_user="${VINPUT_USER_STATUS:-}"
+features=()
 
 case "${profile}" in
   ""|mock)
@@ -23,6 +24,7 @@ case "${profile}" in
     config="${VINPUT_USER_CONFIG:-${repo_root}/data/e2e-configured-pipewire-live.json}"
     audio_backend="${VINPUT_USER_AUDIO_BACKEND:-pipewire}"
     configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-1}"
+    features+=(--features pipewire-backend)
     ;;
   *)
     echo "unsupported VINPUT_USER_PROFILE: ${profile}" >&2
@@ -31,7 +33,7 @@ case "${profile}" in
     ;;
 esac
 
-cargo build -q -p vinput-cli -p vinput-daemon
+cargo build -q -p vinput-cli -p vinput-daemon "${features[@]}"
 
 if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   target/debug/vinput activation-service --remove-user

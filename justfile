@@ -140,6 +140,26 @@ user-command-demo-activation-service:
 user-pipewire-activation-service:
     VINPUT_USER_PROFILE=configured-pipewire-live scripts/install-user-activation-service.sh
 
+# Install daemon, retained Fcitx addon, metadata, and D-Bus activation for local desktop testing.
+user-ime-install:
+    scripts/install-user-ime.sh
+
+# Install a deterministic command-demo user IME profile for local desktop testing.
+user-ime-command-demo:
+    VINPUT_USER_PROFILE=command-demo scripts/install-user-ime.sh
+
+# Install a configured PipeWire user IME profile for local desktop testing.
+user-ime-pipewire-live:
+    VINPUT_USER_PROFILE=configured-pipewire-live scripts/install-user-ime.sh
+
+# Show user IME install status.
+user-ime-status:
+    VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
+
+# Remove user IME addon files and D-Bus activation service.
+user-ime-clear:
+    VINPUT_USER_REMOVE=1 scripts/install-user-ime.sh
+
 # Clear the per-user D-Bus activation service installed for local desktop testing.
 user-activation-service-clear:
     VINPUT_USER_REMOVE=1 scripts/install-user-activation-service.sh
