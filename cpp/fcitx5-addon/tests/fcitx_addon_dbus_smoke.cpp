@@ -102,6 +102,20 @@ bool ExpectLastOutcome(BridgeOutcome::Kind kind, std::string_view text,
   return false;
 }
 
+bool ExpectIgnoredTrigger(FcitxVinputAddon *addon, FcitxTriggerAction action,
+                          bool expected_recording, bool expected_command_mode,
+                          std::string_view label) {
+  const auto applied =
+      addon->ApplyTriggerAction(nullptr, action, "ignored selected text");
+  if (applied == AppliedOutcome::None &&
+      addon->bridge().recording() == expected_recording &&
+      addon->bridge().command_mode() == expected_command_mode) {
+    return true;
+  }
+  std::cerr << label << " did not ignore trigger action without changing mode\n";
+  return false;
+}
+
 } // namespace
 
 namespace vinput_fcitx_bridge {
@@ -140,6 +154,15 @@ int main() {
     return 1;
   }
 
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal, true, false,
+                            "duplicate normal start") ||
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand, true, false,
+                            "command start while normal recording") ||
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand, true, false,
+                            "command stop while normal recording")) {
+    return 1;
+  }
+
   std::string error;
   auto client = ConnectWithRetry(&error);
   if (client == nullptr) {
@@ -170,6 +193,13 @@ int main() {
     return 1;
   }
 
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal, false, false,
+                            "normal stop while idle") ||
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand, false, false,
+                            "command stop while idle")) {
+    return 1;
+  }
+
   const auto command_start = addon.ApplyTriggerAction(
       nullptr, FcitxTriggerAction::StartCommand, "selected text");
   if (!ExpectApplied(command_start, AppliedOutcome::Preedit, "command start") ||
@@ -177,6 +207,15 @@ int main() {
                          "command start") ||
       !addon.bridge().recording() || !addon.bridge().command_mode()) {
     std::cerr << "addon command trigger did not enter command recording mode\n";
+    return 1;
+  }
+
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand, true, true,
+                            "duplicate command start") ||
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal, true, true,
+                            "normal start while command recording") ||
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal, true, true,
+                            "normal stop while command recording")) {
     return 1;
   }
 
@@ -200,6 +239,11 @@ int main() {
   if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error) ||
       !ExpectRuntimeStatus(client.get(), "\"selected_text_present\":false", &error)) {
     std::cerr << "runtime status after command stop failed: " << error << '\n';
+    return 1;
+  }
+
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand, false, false,
+                            "command stop after reset")) {
     return 1;
   }
 
