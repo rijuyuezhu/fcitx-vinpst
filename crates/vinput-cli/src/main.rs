@@ -52,7 +52,7 @@ enum ConfigExample {
     Default,
     /// Deterministic command ASR/text adapter demo config.
     CommandDemo,
-    /// Configured command ASR/text adapter demo intended for live PipeWire smoke.
+    /// Configured command ASR/text adapter demo intended for live `PipeWire` smoke.
     ConfiguredPipewireLive,
 }
 
