@@ -1356,5 +1356,6 @@ fn help_lists_diagnostics_commands() {
     assert!(stdout.contains("configured ASR backend diagnostics"));
     assert!(stdout.contains("text-adapters"));
     assert!(stdout.contains("audio-devices"));
+    assert!(stdout.contains("runtime-status"));
     assert!(stdout.contains("configured command text adapter diagnostics"));
 }
