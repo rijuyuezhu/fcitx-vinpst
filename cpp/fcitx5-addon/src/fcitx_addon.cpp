@@ -30,7 +30,8 @@ void RequestSurroundingText(fcitx::Event &event) {
 
 } // namespace
 
-FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance) : instance_(instance) {
+FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
+    : instance_(instance), trigger_policy_(FcitxKeyTriggerPolicy::FromEnvironment()) {
   if (instance_ != nullptr) {
     event_handlers_.emplace_back(
         instance_->watchEvent(fcitx::EventType::InputContextKeyEvent,

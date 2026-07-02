@@ -114,6 +114,10 @@ Restart Fcitx5, then use the retained addon triggers:
   Right Ctrl press/release: start/stop normal dictation
   F10 press/release: start/stop command dictation using selected text
 
+Override trigger keys before launching Fcitx5 if needed:
+  VINPUT_FCITX_NORMAL_TRIGGER=F8
+  VINPUT_FCITX_COMMAND_TRIGGER=F9
+
 For most desktop sessions, make sure these user paths are visible to Fcitx5:
   XDG_DATA_HOME=${data_home}
   user module dir=${lib_dir}

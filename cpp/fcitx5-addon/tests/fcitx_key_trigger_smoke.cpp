@@ -5,6 +5,7 @@
 #include <fcitx/event.h>
 
 #include <cassert>
+#include <cstdlib>
 
 using vinput_fcitx_bridge::FcitxKeyTriggerPolicy;
 using vinput_fcitx_bridge::FcitxTriggerAction;
@@ -55,6 +56,30 @@ int main() {
   assert(shift_policy.Classify(custom_command_press) ==
          FcitxTriggerAction::StartCommand);
   assert(!shift_policy.IsCommandTrigger(shift_release));
+
+  unsetenv("VINPUT_FCITX_NORMAL_TRIGGER");
+  unsetenv("VINPUT_FCITX_COMMAND_TRIGGER");
+  const auto default_env_policy = FcitxKeyTriggerPolicy::FromEnvironment();
+  assert(default_env_policy.normal_trigger().check(fcitx::Key(FcitxKey_Control_R)));
+  assert(default_env_policy.command_trigger().check(fcitx::Key(FcitxKey_F10)));
+
+  setenv("VINPUT_FCITX_NORMAL_TRIGGER", "F8", 1);
+  setenv("VINPUT_FCITX_COMMAND_TRIGGER", "F9", 1);
+  const auto custom_env_policy = FcitxKeyTriggerPolicy::FromEnvironment();
+  fcitx::KeyEvent env_normal_press(nullptr, fcitx::Key(FcitxKey_F8), false);
+  assert(custom_env_policy.Classify(env_normal_press) ==
+         FcitxTriggerAction::StartNormal);
+  fcitx::KeyEvent env_command_release(nullptr, fcitx::Key(FcitxKey_F9), true);
+  assert(custom_env_policy.Classify(env_command_release) ==
+         FcitxTriggerAction::StopCommand);
+
+  setenv("VINPUT_FCITX_NORMAL_TRIGGER", "not-a-key", 1);
+  setenv("VINPUT_FCITX_COMMAND_TRIGGER", "", 1);
+  const auto fallback_env_policy = FcitxKeyTriggerPolicy::FromEnvironment();
+  assert(fallback_env_policy.normal_trigger().check(fcitx::Key(FcitxKey_Control_R)));
+  assert(fallback_env_policy.command_trigger().check(fcitx::Key(FcitxKey_F10)));
+  unsetenv("VINPUT_FCITX_NORMAL_TRIGGER");
+  unsetenv("VINPUT_FCITX_COMMAND_TRIGGER");
 
   return 0;
 }

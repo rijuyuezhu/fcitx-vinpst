@@ -20,6 +20,14 @@ public:
   explicit FcitxKeyTriggerPolicy(
       fcitx::Key normal_trigger = fcitx::Key(FcitxKey_Control_R),
       fcitx::Key command_trigger = fcitx::Key(FcitxKey_F10));
+  static FcitxKeyTriggerPolicy FromEnvironment();
+
+  const fcitx::Key &normal_trigger() const {
+    return normal_trigger_;
+  }
+  const fcitx::Key &command_trigger() const {
+    return command_trigger_;
+  }
 
   FcitxTriggerAction Classify(const fcitx::KeyEvent &event) const;
   bool IsNormalTrigger(const fcitx::KeyEvent &event) const;
