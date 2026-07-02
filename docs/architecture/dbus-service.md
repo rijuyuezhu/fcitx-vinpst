@@ -32,7 +32,7 @@ Preserve these legacy method names and payload shapes:
 - `StartAdapter`
 - `StopAdapter`
 
-`GetTextAdapterState` is a Rust diagnostic extension. It can remain available, but it is not part of the original C++ daemon vtable and should be documented as an extension whenever listed.
+`GetTextAdapterState` and `GetRuntimeStatus` are Rust diagnostic extensions. They can remain available, but they are not part of the original C++ daemon vtable and should be documented as extensions whenever listed.
 
 ## Status strings
 

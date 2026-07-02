@@ -67,6 +67,18 @@ fn protocol_prints_service_dbus_contract() {
             .unwrap()
             .contains(&serde_json::json!("GetTextAdapterState"))
     );
+    assert!(
+        !value["legacy_methods"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("GetRuntimeStatus"))
+    );
+    assert!(
+        value["diagnostic_extension_methods"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("GetRuntimeStatus"))
+    );
     assert_eq!(
         value["signals"],
         serde_json::to_value(dbus::SERVICE_SIGNALS).unwrap()

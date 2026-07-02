@@ -64,7 +64,7 @@ The recent-input cache helpers mirror the legacy split: frontend-facing code can
 
 ## Diagnostics
 
-The daemon exposes `text-adapters` as a CLI diagnostic subcommand and `GetTextAdapterState` as a D-Bus diagnostic method. Both read the same runtime config and serialize the shared `TextAdapterState` JSON shape:
+The daemon exposes `text-adapters` as a CLI diagnostic subcommand and `GetTextAdapterState` as a D-Bus diagnostic method. `GetRuntimeStatus` includes the same text-adapter state inside a broader runtime JSON snapshot. Both read the same runtime config and serialize the shared `TextAdapterState` JSON shape:
 
 - `adapter_count`: number of configured command text adapters.
 - `adapter_ids`: configured adapter ids in config order.

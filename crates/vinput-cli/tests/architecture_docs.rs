@@ -82,8 +82,9 @@ fn dbus_architecture_labels_diagnostic_extension_and_postprocessing_gap() {
         .expect("read dbus service doc");
 
     assert!(
-        dbus_doc.contains("GetTextAdapterState` is a Rust diagnostic extension"),
-        "D-Bus docs must label GetTextAdapterState as a Rust diagnostic extension"
+        dbus_doc
+            .contains("GetTextAdapterState` and `GetRuntimeStatus` are Rust diagnostic extensions"),
+        "D-Bus docs must label diagnostic-only D-Bus methods as Rust extensions"
     );
     assert!(
         dbus_doc.contains("not part of the original C++ daemon vtable"),
