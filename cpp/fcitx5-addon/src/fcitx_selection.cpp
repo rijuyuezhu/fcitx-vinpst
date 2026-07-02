@@ -29,4 +29,14 @@ SelectedTextFromSurroundingText(const fcitx::SurroundingText &surrounding_text) 
   return surrounding_text.selectedText();
 }
 
+std::string
+SelectedTextWithPrimaryFallback(const fcitx::SurroundingText &surrounding_text,
+                                std::string_view primary_selection_text) {
+  auto selected_text = SelectedTextFromSurroundingText(surrounding_text);
+  if (!selected_text.empty()) {
+    return selected_text;
+  }
+  return std::string(primary_selection_text);
+}
+
 } // namespace vinput_fcitx_bridge

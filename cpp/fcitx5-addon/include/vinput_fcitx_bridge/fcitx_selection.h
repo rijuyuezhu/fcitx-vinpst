@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace fcitx {
 class SurroundingText;
@@ -19,5 +20,9 @@ SelectedTextDeletionRange(const fcitx::SurroundingText &surrounding_text);
 
 std::string
 SelectedTextFromSurroundingText(const fcitx::SurroundingText &surrounding_text);
+
+std::string
+SelectedTextWithPrimaryFallback(const fcitx::SurroundingText &surrounding_text,
+                                std::string_view primary_selection_text);
 
 } // namespace vinput_fcitx_bridge

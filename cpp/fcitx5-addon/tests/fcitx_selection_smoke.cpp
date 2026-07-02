@@ -7,6 +7,7 @@
 
 using vinput_fcitx_bridge::SelectedTextDeletionRange;
 using vinput_fcitx_bridge::SelectedTextFromSurroundingText;
+using vinput_fcitx_bridge::SelectedTextWithPrimaryFallback;
 
 int main() {
   fcitx::SurroundingText invalid;
@@ -74,6 +75,16 @@ int main() {
   collapsed.setText("nothing selected", 7, 7);
   assert(SelectedTextFromSurroundingText(collapsed).empty());
   assert(!SelectedTextDeletionRange(collapsed).has_value());
+  assert(SelectedTextWithPrimaryFallback(collapsed, "primary selection") ==
+         "primary selection");
+  assert(SelectedTextWithPrimaryFallback(collapsed, "").empty());
+
+  assert(SelectedTextWithPrimaryFallback(forward, "primary selection") == "selected");
+
+  fcitx::SurroundingText invalid_for_primary;
+  assert(SelectedTextWithPrimaryFallback(invalid_for_primary, "primary selection") ==
+         "primary selection");
+
   fcitx::SurroundingText full_forward;
   full_forward.setText("replace all", 11, 0);
   assert(SelectedTextFromSurroundingText(full_forward) == "replace all");

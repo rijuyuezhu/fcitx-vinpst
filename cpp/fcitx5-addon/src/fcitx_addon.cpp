@@ -2,7 +2,13 @@
 
 #include "vinput_fcitx_bridge/fcitx_selection.h"
 
+#ifdef VINPUT_FCITX_HAVE_CLIPBOARD
+#include "clipboard_public.h"
+#include <fcitx-utils/utf8.h>
+#endif
+
 #include <fcitx-utils/log.h>
+#include <fcitx/addonmanager.h>
 #include <fcitx/event.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/surroundingtext.h>
@@ -12,11 +18,35 @@
 namespace vinput_fcitx_bridge {
 namespace {
 
-std::string SelectedTextFromInputContext(fcitx::InputContext *ic) {
+#ifdef VINPUT_FCITX_HAVE_CLIPBOARD
+std::string PrimarySelectionFromClipboard(fcitx::Instance *instance,
+                                          fcitx::InputContext *ic) {
+  if (instance == nullptr || ic == nullptr) {
+    return {};
+  }
+  auto *clipboard = instance->addonManager().addon("clipboard");
+  if (clipboard == nullptr) {
+    return {};
+  }
+  auto primary = clipboard->call<fcitx::IClipboard::primary>(ic);
+  if (!fcitx::utf8::validate(primary)) {
+    return {};
+  }
+  return primary;
+}
+#else
+std::string PrimarySelectionFromClipboard(fcitx::Instance *, fcitx::InputContext *) {
+  return {};
+}
+#endif
+
+std::string SelectedTextFromInputContext(fcitx::Instance *instance,
+                                         fcitx::InputContext *ic) {
   if (ic == nullptr) {
     return {};
   }
-  return SelectedTextFromSurroundingText(ic->surroundingText());
+  return SelectedTextWithPrimaryFallback(ic->surroundingText(),
+                                         PrimarySelectionFromClipboard(instance, ic));
 }
 std::string_view TriggerActionName(FcitxTriggerAction action) {
   switch (action) {
@@ -163,7 +193,7 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
 
   FCITX_INFO() << "fcitx-vinput handling trigger " << TriggerActionName(action);
   ApplyTriggerAction(key_event.inputContext(), action,
-                     SelectedTextFromInputContext(key_event.inputContext()));
+                     SelectedTextFromInputContext(instance_, key_event.inputContext()));
   key_event.filterAndAccept();
 }
 

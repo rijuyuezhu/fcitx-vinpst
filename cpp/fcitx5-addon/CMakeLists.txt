@@ -7,7 +7,7 @@ include(GNUInstallDirs)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SYSTEMD REQUIRED libsystemd)
 find_package(Fcitx5Core QUIET)
-
+find_package(Fcitx5ModuleClipboard QUIET)
 option(VINPUT_FCITX_BRIDGE_ENABLE_FCITX_DEPS
        "Probe Fcitx5 dependencies for the retained addon module target" ON)
 option(VINPUT_FCITX_BRIDGE_ENABLE_TESTS
@@ -117,6 +117,10 @@ if(Fcitx5Core_FOUND)
       Fcitx5::Core
   )
   target_compile_features(fcitx5_vinput_addon PRIVATE cxx_std_20)
+  if(Fcitx5ModuleClipboard_FOUND)
+    target_link_libraries(fcitx5_vinput_addon PRIVATE Fcitx5::Module::Clipboard)
+    target_compile_definitions(fcitx5_vinput_addon PRIVATE VINPUT_FCITX_HAVE_CLIPBOARD)
+  endif()
   if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL "5.1.12")
     target_compile_definitions(
       fcitx5_vinput_addon
