@@ -139,6 +139,7 @@ pub struct PipeWireAudioRecorder {
 }
 
 struct PipeWireRecordingWorker {
+    stream_config: PipeWireStreamConfig,
     stop_tx: mpsc::Sender<WorkerCommand>,
     join: thread::JoinHandle<Result<CapturedAudio, AudioError>>,
 }
@@ -197,12 +198,17 @@ impl AudioRecorder for PipeWireAudioRecorder {
         let callback = Arc::clone(&self.chunk_callback);
         let (stop_tx, stop_rx) = mpsc::channel();
         let (setup_tx, setup_rx) = mpsc::channel();
+        let worker_config = config.clone();
         let join =
             thread::spawn(move || run_recording_worker(&config, &callback, &stop_rx, &setup_tx));
 
         match setup_rx.recv() {
             Ok(Ok(())) => {
-                self.worker = Some(PipeWireRecordingWorker { stop_tx, join });
+                self.worker = Some(PipeWireRecordingWorker {
+                    stream_config: worker_config,
+                    stop_tx,
+                    join,
+                });
                 Ok(())
             }
             Ok(Err(error)) => {
@@ -211,9 +217,10 @@ impl AudioRecorder for PipeWireAudioRecorder {
             }
             Err(error) => {
                 let _ = join.join();
-                Err(AudioError::RecordingBackendUnavailable(format!(
-                    "PipeWire recorder worker exited before setup: {error}"
-                )))
+                Err(pipewire_recording_error(
+                    &worker_config,
+                    format!("PipeWire recorder worker exited before setup: {error}"),
+                ))
             }
         }
     }
@@ -288,8 +295,9 @@ fn stop_recording_worker(
     let _ = worker.stop_tx.send(command);
     match worker.join.join() {
         Ok(result) => result,
-        Err(_) => Err(AudioError::RecordingBackendUnavailable(
-            "PipeWire recorder worker panicked".to_owned(),
+        Err(_) => Err(pipewire_recording_error(
+            &worker.stream_config,
+            "PipeWire recorder worker panicked",
         )),
     }
 }
@@ -638,6 +646,22 @@ mod tests {
             super::pipewire_capture_source_name(&config),
             "pipewire:alsa_input.usb-mic"
         );
+    }
+
+    #[test]
+    fn pipewire_recording_error_includes_stream_plan() {
+        let config = super::PipeWireStreamConfig::for_target(super::CaptureTarget::Object(
+            "alsa_input.usb-mic".to_owned(),
+        ));
+
+        let error = super::pipewire_recording_error(&config, "worker panicked").to_string();
+
+        assert!(error.contains("PipeWire recorder stream setup failed"));
+        assert!(error.contains("alsa_input.usb-mic"));
+        assert!(error.contains("S16LE"));
+        assert!(error.contains("16000"));
+        assert!(error.contains("channels: 1"));
+        assert!(error.contains("worker panicked"));
     }
 
     #[test]
