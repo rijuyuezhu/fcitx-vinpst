@@ -2,7 +2,7 @@
 
 Rust-oriented rewrite workspace for [`fcitx5-vinput`](https://github.com/xifan2333/fcitx5-vinput).
 
-The early refactor milestones have produced stable Rust protocol/config/audio/ASR/text/registry/daemon/CLI seams. The current milestone is E2E port acceleration: build a retained thin Fcitx5 frontend bridge, run the Rust daemon as the backend, and get a usable input-method product spine working quickly.
+The early refactor milestones have produced stable Rust protocol/config/audio/ASR/text/registry/daemon/CLI seams and a deterministic retained-addon product spine. The current milestone is real desktop alpha: prove user install, Fcitx addon load, trigger/preedit/commit, command replacement, and a first real recognition path in a live desktop session.
 
 ## Current layout
 
@@ -15,10 +15,12 @@ The early refactor milestones have produced stable Rust protocol/config/audio/AS
 - `crates/vinput-daemon`: mock/configured daemon runtime, diagnostics, and `zbus` service facade for the legacy daemon ABI.
 - `crates/vinput-cli`: bootstrap CLI named `vinput` for protocol/config/registry/payload inspection.
 - `data/default-config.json`: copied from the original project as the compatibility baseline.
-- `AGENT.md`: required short instruction file for coding agents.
+- `AGENTS.md`: required short instruction file for coding agents.
 - `docs/README.md`: documentation map and required reading order.
 - `docs/development.md`: project style, commit message style, and `just` command guide.
-- `docs/migration/e2e-port-plan.md`: tracked E2E migration plan and Rust-vs-legacy comparison.
+- `docs/migration/function-gap-audit.md`: tracked Rust-vs-legacy parity baseline.
+- `docs/migration/e2e-replication-plan.md`: active plan for real desktop alpha and full E2E replication.
+- `docs/migration/live-desktop-validation.md`: live Fcitx desktop validation checklist.
 - `docs/migration/agent-kickoff.md`: copyable context for a fresh implementation agent.
 - `docs/architecture/README.md`: tracked architecture contract index.
 - `docs/legacy/`: tracked original-source annotations.
@@ -123,10 +125,10 @@ The daemon accepts `--wav` or `--pcm16le` with `--dbus` for deterministic file-i
 
 ## Development route
 
-The current route is E2E port acceleration. Start with `AGENT.md`, then read `docs/README.md`, `docs/development.md`, and `docs/migration/e2e-port-plan.md`.
+The current route is real desktop alpha. Start with `AGENTS.md`, then read `docs/README.md`, `docs/development.md`, `docs/migration/function-gap-audit.md`, and `docs/migration/e2e-replication-plan.md`.
 
-1. Keep `vinput-protocol` ABI-compatible with the legacy Fcitx5 addon contract.
-2. Build a retained thin C++ Fcitx5 frontend bridge over the Rust daemon instead of moving backend logic into C++.
-3. Keep `just e2e-demo`, `just smoke`, and targeted crate tests green while adding product-spine functionality.
-4. Implement the fastest usable path first: daemon launch, frontend trigger/commit, configured command recognition, and configured text finishing.
-5. Defer GUI polish, full registry resource orchestration, and release packaging until the input method is usable end to end.
+1. Keep `vinput-protocol` compatible with the legacy Fcitx5 addon contract.
+2. Keep the retained C++ Fcitx frontend thin; backend logic belongs in Rust crates and `vinput-daemon`.
+3. Keep deterministic checks such as `just ime-e2e-smoke` and `just user-ime-command-demo-smoke` green.
+4. Prioritize live desktop proof: addon load, trigger/preedit/commit, command replacement, PipeWire capture, and a first real recognition path.
+5. Defer broad GUI polish, full resource orchestration, and release packaging until real desktop alpha and real ASR alpha are proven.
