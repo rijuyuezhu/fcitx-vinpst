@@ -141,7 +141,7 @@ enum Command {
     /// Generate, install, or remove an org.fcitx.Vinput D-Bus activation service file.
     ActivationService {
         /// Path to the vinput-daemon executable used by D-Bus activation.
-        #[arg(long, required_unless_present = "remove_user")]
+        #[arg(long, required_unless_present_any = ["remove_user", "user_status"])]
         daemon: Option<PathBuf>,
         /// Optional config JSON file passed to vinput-daemon.
         #[arg(long)]
@@ -168,10 +168,25 @@ enum Command {
                 "audio_backend",
                 "daemon_args",
                 "user",
+                "user_status",
                 "output"
             ]
         )]
         remove_user: bool,
+        /// Print per-user D-Bus activation service status as JSON.
+        #[arg(
+            long,
+            conflicts_with_all = [
+                "daemon",
+                "config",
+                "configured_backends",
+                "audio_backend",
+                "daemon_args",
+                "user",
+                "output"
+            ]
+        )]
+        user_status: bool,
         /// Write the service file to this path instead of stdout.
         #[arg(long)]
         output: Option<PathBuf>,
@@ -245,10 +260,13 @@ fn main() -> anyhow::Result<()> {
             daemon_args,
             user,
             remove_user,
+            user_status,
             output,
         } => {
             if remove_user {
                 remove_user_activation_service()
+            } else if user_status {
+                print_user_activation_service_status()
             } else {
                 let daemon = daemon.context("--daemon is required unless --remove-user is set")?;
                 write_activation_service(
@@ -484,6 +502,15 @@ fn write_activation_service(
     } else {
         print!("{service}");
     }
+    Ok(())
+}
+
+fn print_user_activation_service_status() -> anyhow::Result<()> {
+    let path = user_activation_service_path()?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&user_activation_service_json(&path))?
+    );
     Ok(())
 }
 

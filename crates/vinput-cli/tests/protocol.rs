@@ -174,3 +174,39 @@ fn activation_service_remove_user_deletes_xdg_data_home_service() {
     assert!(!service_path.exists());
     std::fs::remove_dir_all(data_home).expect("remove service fixture");
 }
+
+#[test]
+fn activation_service_user_status_reports_existing_service() {
+    let mut data_home = std::env::temp_dir();
+    data_home.push(format!(
+        "vinput-cli-user-status-service-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+    let service_path = data_home
+        .join("dbus-1")
+        .join("services")
+        .join("org.fcitx.Vinput.service");
+    std::fs::create_dir_all(service_path.parent().unwrap()).expect("create service dir");
+    std::fs::write(
+        &service_path,
+        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/usr/bin/vinput-daemon --dbus\n",
+    )
+    .expect("write service file");
+
+    let output = vinput_command()
+        .env("XDG_DATA_HOME", &data_home)
+        .args(["activation-service", "--user-status"])
+        .output()
+        .expect("run vinput activation-service --user-status");
+
+    let value = assert_json_success(output, "user activation status output");
+    assert_eq!(value["user_service_exists"], true);
+    assert_eq!(value["user_service_name"], "org.fcitx.Vinput");
+    assert_eq!(value["user_service_name_matches"], true);
+    assert_eq!(value["user_service_exec"], "/usr/bin/vinput-daemon --dbus");
+    std::fs::remove_dir_all(data_home).expect("remove service fixture");
+}

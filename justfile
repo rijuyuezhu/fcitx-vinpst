@@ -141,6 +141,10 @@ user-pipewire-activation-service:
 user-activation-service-clear:
     VINPUT_USER_REMOVE=1 scripts/install-user-activation-service.sh
 
+# Show per-user D-Bus activation service status for local desktop testing.
+user-activation-service-status:
+    cargo run -q -p vinput-cli -- activation-service --user-status
+
 addon-dbus-activation-smoke:
     scripts/run-cpp-dbus-activation-smoke.sh
 
