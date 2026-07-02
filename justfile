@@ -125,6 +125,10 @@ ime-pipewire-live:
 ime-configured-pipewire-live:
     scripts/run-ime-configured-pipewire-live-smoke.sh
 
+# Install per-user D-Bus activation service for local desktop testing. Writes under XDG_DATA_HOME or ~/.local/share.
+user-activation-service:
+    scripts/install-user-activation-service.sh
+
 addon-dbus-activation-smoke:
     scripts/run-cpp-dbus-activation-smoke.sh
 

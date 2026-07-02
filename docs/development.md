@@ -93,6 +93,7 @@ just addon-dbus-activation-smoke # verify DBus activation starts the Rust daemon
 just addon-dbus-configured-activation-smoke # verify DBus activation starts configured command backends
 just ime-configured-activation-smoke # verify staged daemon/addon/config/WAV activate together
 just ime-pipewire-live # explicit staged IME activation with live PipeWire capture
+just user-activation-service # install user DBus activation service for local desktop testing
 just check        # fmt-check plus lint plus test plus dbus-test plus dbus-lint plus addon-test
 just ci           # alias for check
 just smoke        # CLI/daemon smoke commands
