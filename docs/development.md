@@ -91,6 +91,7 @@ just addon-dbus-smoke # run C++ bridge and retained addon triggers against Rust 
 just addon-dbus-pipewire-live # run C++ bridge over DBus with the live PipeWire recorder
 just addon-dbus-activation-smoke # verify DBus activation starts the Rust daemon for bridge/addon trigger smokes
 just addon-dbus-configured-activation-smoke # verify DBus activation starts configured command backends
+just addon-dbus-adapter-lifecycle-smoke # verify configured text adapter start/duplicate-start/stop diagnostics over DBus
 just ime-configured-activation-smoke # verify staged daemon/addon/config/WAV activate together
 just ime-pipewire-live # explicit staged IME activation with live PipeWire capture
 just user-activation-service # install user DBus activation service for local desktop testing

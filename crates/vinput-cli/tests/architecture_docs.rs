@@ -231,6 +231,8 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just pipewire-check",
         "just pipewire-live",
         "just addon-dbus-pipewire-live",
+        "just addon-dbus-adapter-lifecycle-smoke",
+        "configured text adapter start/duplicate-start/stop diagnostics over DBus",
         "just ime-pipewire-live",
         "just ime-configured-pipewire-live",
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
@@ -261,6 +263,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
     assert!(justfile.contains("pipewire-live:"));
     assert!(justfile.contains("ime-pipewire-live:"));
     assert!(justfile.contains("ime-configured-pipewire-live:"));
+    assert!(justfile.contains("addon-dbus-adapter-lifecycle-smoke:"));
     let check_line = justfile
         .lines()
         .find(|line| line.starts_with("check:"))
