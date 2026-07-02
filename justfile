@@ -221,3 +221,7 @@ ime-configured-activation-smoke:
 # Run deterministic staged IME activation plus fake outcome sink coverage.
 ime-e2e-smoke:
     scripts/run-ime-e2e-smoke.sh
+
+# Run user-profile IME install plus D-Bus activation smoke with command-demo backends.
+user-ime-command-demo-smoke:
+    scripts/run-user-ime-command-demo-smoke.sh
