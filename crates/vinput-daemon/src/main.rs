@@ -202,22 +202,20 @@ fn runtime_status_summary(
     config: &VinputConfig,
     args: &Args,
 ) -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::json!({
-        "ok": true,
-        "status": runtime.status(),
-        "uptime_ms": runtime.uptime().as_millis(),
-        "configured_backends": args.configured_backends,
-        "audio_backend": args.audio_backend.as_str(),
-        "dbus": {
-            "service": vinput_protocol::dbus::SERVICE_BUS_NAME,
-            "object_path": vinput_protocol::dbus::SERVICE_OBJECT_PATH,
-            "interface": vinput_protocol::dbus::SERVICE_INTERFACE,
-        },
-        "config": config.summary(),
-        "asr": runtime.asr_backend_state(),
-        "text_adapters": runtime.configured_text_adapter_state_for_runtime(),
-        "audio": audio_devices_summary(config)?,
-    }))
+    let mut summary = runtime.runtime_status_json();
+    let object = summary
+        .as_object_mut()
+        .context("runtime status summary should be a JSON object")?;
+    object.insert(
+        "configured_backends".to_owned(),
+        serde_json::json!(args.configured_backends),
+    );
+    object.insert(
+        "audio_backend".to_owned(),
+        serde_json::json!(args.audio_backend.as_str()),
+    );
+    object.insert("audio".to_owned(), audio_devices_summary(config)?);
+    Ok(summary)
 }
 
 fn audio_devices_summary(config: &VinputConfig) -> anyhow::Result<serde_json::Value> {
