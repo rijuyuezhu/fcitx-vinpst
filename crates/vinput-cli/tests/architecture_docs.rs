@@ -231,8 +231,6 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just pipewire-check",
         "just pipewire-live",
         "just addon-dbus-pipewire-live",
-        "just addon-dbus-adapter-lifecycle-smoke",
-        "configured text adapter start/duplicate-start/stop diagnostics over DBus",
         "just ime-pipewire-live",
         "just ime-configured-pipewire-live",
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
@@ -263,13 +261,46 @@ fn development_doc_pins_optional_pipewire_recipes() {
     assert!(justfile.contains("pipewire-live:"));
     assert!(justfile.contains("ime-pipewire-live:"));
     assert!(justfile.contains("ime-configured-pipewire-live:"));
-    assert!(justfile.contains("addon-dbus-adapter-lifecycle-smoke:"));
     let check_line = justfile
         .lines()
         .find(|line| line.starts_with("check:"))
         .expect("justfile should define check recipe");
     assert!(!check_line.contains("pipewire-live"));
     assert!(!check_line.contains("ime-pipewire-live"));
+}
+
+#[test]
+fn development_doc_pins_addon_dbus_smoke_recipes() {
+    let development = std::fs::read_to_string(workspace_file("docs/development.md"))
+        .expect("read development guide");
+    let readme = std::fs::read_to_string(workspace_file("README.md")).expect("read README");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "just addon-dbus-smoke",
+        "just addon-dbus-activation-smoke",
+        "just addon-dbus-configured-activation-smoke",
+        "just addon-dbus-adapter-lifecycle-smoke",
+        "configured text adapter start/duplicate-start/stop diagnostics over DBus",
+    ] {
+        assert!(
+            development.contains(required),
+            "development guide should pin addon DBus smoke recipe: {required}"
+        );
+        assert!(
+            readme.contains(required),
+            "README should mention addon DBus smoke recipe: {required}"
+        );
+    }
+
+    for recipe in [
+        "addon-dbus-smoke:",
+        "addon-dbus-activation-smoke:",
+        "addon-dbus-configured-activation-smoke:",
+        "addon-dbus-adapter-lifecycle-smoke:",
+    ] {
+        assert!(justfile.contains(recipe), "justfile should define {recipe}");
+    }
 }
 
 #[test]
