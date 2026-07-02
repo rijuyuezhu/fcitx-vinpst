@@ -289,6 +289,10 @@ async fn dbus_get_runtime_status_returns_json_snapshot() -> anyhow::Result<()> {
     assert_eq!(active_status["active_session"], true);
     assert_eq!(active_status["selected_text_present"], true);
     assert_eq!(active_status["current_scene"], "__command__");
+    assert!(
+        !active_status_json.contains("selected text"),
+        "runtime status must not expose selected text content"
+    );
 
     Ok(())
 }
