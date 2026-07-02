@@ -230,6 +230,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just pipewire-check",
         "just pipewire-live",
         "just addon-dbus-pipewire-live",
+        "just ime-pipewire-live",
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
         "VINPUT_TEST_PIPEWIRE_ENUMERATE=1",
         "VINPUT_TEST_PIPEWIRE_RECORD=1",
@@ -240,6 +241,8 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "CLI/daemon audio-device diagnostics",
         "--record-ms 100",
         "start/wait/stop smoke",
+        "staged D-Bus activation starts the PipeWire-enabled daemon",
+        "--dbus --audio-backend pipewire",
     ] {
         assert!(
             development.contains(required),
@@ -249,11 +252,13 @@ fn development_doc_pins_optional_pipewire_recipes() {
 
     assert!(justfile.contains("pipewire-check:"));
     assert!(justfile.contains("pipewire-live:"));
+    assert!(justfile.contains("ime-pipewire-live:"));
     let check_line = justfile
         .lines()
         .find(|line| line.starts_with("check:"))
         .expect("justfile should define check recipe");
     assert!(!check_line.contains("pipewire-live"));
+    assert!(!check_line.contains("ime-pipewire-live"));
 }
 
 #[test]

@@ -117,6 +117,10 @@ addon-dbus-smoke:
 addon-dbus-pipewire-live:
     scripts/run-cpp-dbus-pipewire-live-smoke.sh
 
+# Explicit staged IME activation smoke with live PipeWire capture. Requires a user PipeWire session.
+ime-pipewire-live:
+    scripts/run-ime-pipewire-live-smoke.sh
+
 addon-dbus-activation-smoke:
     scripts/run-cpp-dbus-activation-smoke.sh
 
