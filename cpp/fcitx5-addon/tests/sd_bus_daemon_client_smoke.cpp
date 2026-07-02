@@ -63,44 +63,59 @@ bool ExpectRuntimeStatus(SdBusDaemonClient *client, std::string_view expected,
 }
 
 bool ExpectConfiguredDiagnostics(SdBusDaemonClient *client, std::string *error) {
+  AsrBackendStateSnapshot asr_state;
+  if (!client->GetAsrBackendState(&asr_state, error)) {
+    return false;
+  }
+  if (asr_state.target_provider_id.empty()) {
+    if (error != nullptr) {
+      *error = "ASR backend state did not include a target provider";
+    }
+    return false;
+  }
+
   const auto expected_asr_provider =
       OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER");
   if (!expected_asr_provider.empty()) {
-    AsrBackendStateSnapshot state;
-    if (!client->GetAsrBackendState(&state, error)) {
-      return false;
-    }
-    if (state.target_provider_id != expected_asr_provider ||
-        state.effective_provider_id != expected_asr_provider ||
-        !state.has_effective_backend) {
+    if (asr_state.target_provider_id != expected_asr_provider ||
+        asr_state.effective_provider_id != expected_asr_provider ||
+        !asr_state.has_effective_backend) {
       if (error != nullptr) {
         *error = "ASR backend state did not match configured provider: target=";
-        *error += state.target_provider_id;
+        *error += asr_state.target_provider_id;
         *error += " effective=";
-        *error += state.effective_provider_id;
+        *error += asr_state.effective_provider_id;
       }
       return false;
     }
   }
 
+  std::string text_adapter_state_json;
+  if (!client->GetTextAdapterState(&text_adapter_state_json, error)) {
+    return false;
+  }
+  if (!Contains(text_adapter_state_json, "\"adapter_count\":")) {
+    if (error != nullptr) {
+      *error = "text adapter state missing adapter_count in ";
+      *error += text_adapter_state_json;
+    }
+    return false;
+  }
+
   const auto expected_text_adapter =
       OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER");
   if (!expected_text_adapter.empty()) {
-    std::string state_json;
-    if (!client->GetTextAdapterState(&state_json, error)) {
-      return false;
-    }
     const std::string expected_single_adapter_marker =
         "\"single_adapter_id\":\"" + expected_text_adapter + "\"";
     const std::string expected_adapter_id_marker =
         "\"id\":\"" + expected_text_adapter + "\"";
-    if (!Contains(state_json, expected_single_adapter_marker) ||
-        !Contains(state_json, expected_adapter_id_marker)) {
+    if (!Contains(text_adapter_state_json, expected_single_adapter_marker) ||
+        !Contains(text_adapter_state_json, expected_adapter_id_marker)) {
       if (error != nullptr) {
         *error = "text adapter state missing expected adapter: ";
         *error += expected_text_adapter;
         *error += " in ";
-        *error += state_json;
+        *error += text_adapter_state_json;
       }
       return false;
     }
