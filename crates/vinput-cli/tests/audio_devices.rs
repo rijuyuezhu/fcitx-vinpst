@@ -123,9 +123,11 @@ fn doctor_reports_combined_local_diagnostics() {
             .expect("system clock should be after unix epoch")
             .as_nanos()
     ));
+    let addon_lib_dir = data_home.join("lib/fcitx5");
 
     let output = vinput_command()
         .env("XDG_DATA_HOME", &data_home)
+        .env("VINPUT_USER_FCITX_LIB_DIR", &addon_lib_dir)
         .arg("doctor")
         .output()
         .expect("run vinput doctor");
@@ -146,6 +148,24 @@ fn doctor_reports_combined_local_diagnostics() {
             .as_ref()
     );
     assert_eq!(value["activation_service"]["user_service_exists"], false);
+    assert_eq!(
+        value["fcitx_addon"]["user_module_path"],
+        addon_lib_dir
+            .join("fcitx5-vinput.so")
+            .to_string_lossy()
+            .as_ref()
+    );
+    assert_eq!(value["fcitx_addon"]["user_module_exists"], false);
+    assert_eq!(
+        value["fcitx_addon"]["user_addon_metadata_path"],
+        data_home
+            .join("fcitx5")
+            .join("addon")
+            .join("vinput.conf")
+            .to_string_lossy()
+            .as_ref()
+    );
+    assert_eq!(value["fcitx_addon"]["user_addon_metadata_exists"], false);
 }
 
 #[test]
@@ -194,4 +214,43 @@ fn doctor_reports_existing_user_activation_exec_line() {
         serde_json::Value::Null
     );
     std::fs::remove_dir_all(data_home).expect("remove service fixture");
+}
+
+#[test]
+fn doctor_reports_existing_user_fcitx_addon_files() {
+    let data_home = std::env::temp_dir().join(format!(
+        "vinput-doctor-addon-home-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+    let addon_lib_dir = data_home.join("lib/fcitx5");
+    let module_path = addon_lib_dir.join("fcitx5-vinput.so");
+    let metadata_path = data_home.join("fcitx5").join("addon").join("vinput.conf");
+    std::fs::create_dir_all(&addon_lib_dir).expect("create module dir");
+    std::fs::create_dir_all(metadata_path.parent().unwrap()).expect("create metadata dir");
+    std::fs::write(&module_path, "fake module").expect("write fake addon module");
+    std::fs::write(
+        &metadata_path,
+        "[Addon]\nLibrary=fcitx5-vinput\nType=SharedLibrary\n",
+    )
+    .expect("write addon metadata");
+
+    let output = vinput_command()
+        .env("XDG_DATA_HOME", &data_home)
+        .env("VINPUT_USER_FCITX_LIB_DIR", &addon_lib_dir)
+        .arg("doctor")
+        .output()
+        .expect("run vinput doctor");
+
+    let value = assert_json_success(output, "doctor summary with user addon");
+    assert_eq!(value["fcitx_addon"]["user_module_exists"], true);
+    assert_eq!(value["fcitx_addon"]["user_addon_metadata_exists"], true);
+    assert_eq!(value["fcitx_addon"]["user_addon_library"], "fcitx5-vinput");
+    assert_eq!(value["fcitx_addon"]["user_addon_library_matches"], true);
+    assert_eq!(value["fcitx_addon"]["user_addon_type"], "SharedLibrary");
+    assert_eq!(value["fcitx_addon"]["read_error"], serde_json::Value::Null);
+    std::fs::remove_dir_all(data_home).expect("remove addon fixture");
 }

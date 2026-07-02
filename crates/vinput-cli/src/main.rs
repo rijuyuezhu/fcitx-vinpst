@@ -375,9 +375,84 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
         "asr": asr_state,
         "audio": audio,
         "activation_service": activation_service,
+        "fcitx_addon": user_fcitx_addon_json(),
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
+}
+
+fn user_fcitx_addon_json() -> serde_json::Value {
+    match user_fcitx_addon_paths() {
+        Ok((module_path, metadata_path)) => fcitx_addon_status_json(&module_path, &metadata_path),
+        Err(error) => serde_json::json!({
+            "user_module_path": null,
+            "user_module_exists": false,
+            "user_addon_metadata_path": null,
+            "user_addon_metadata_exists": false,
+            "user_addon_library": null,
+            "user_addon_library_matches": false,
+            "user_addon_type": null,
+            "read_error": null,
+            "path_error": format!("{error:#}"),
+        }),
+    }
+}
+
+fn user_fcitx_addon_paths() -> anyhow::Result<(PathBuf, PathBuf)> {
+    let lib_dir = match std::env::var_os("VINPUT_USER_FCITX_LIB_DIR") {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => user_home()?.join(".local/lib/fcitx5"),
+    };
+    let metadata_dir = match std::env::var_os("VINPUT_USER_FCITX_ADDON_DIR") {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => user_data_home()?.join("fcitx5").join("addon"),
+    };
+    Ok((
+        lib_dir.join("fcitx5-vinput.so"),
+        metadata_dir.join("vinput.conf"),
+    ))
+}
+
+fn fcitx_addon_status_json(module_path: &Path, metadata_path: &Path) -> serde_json::Value {
+    let module_exists = module_path.exists();
+    if !metadata_path.exists() {
+        return serde_json::json!({
+            "user_module_path": module_path,
+            "user_module_exists": module_exists,
+            "user_addon_metadata_path": metadata_path,
+            "user_addon_metadata_exists": false,
+            "user_addon_library": null,
+            "user_addon_library_matches": false,
+            "user_addon_type": null,
+            "read_error": null,
+        });
+    }
+
+    match fs::read_to_string(metadata_path) {
+        Ok(contents) => {
+            let library = activation_service_field(&contents, "Library");
+            serde_json::json!({
+                "user_module_path": module_path,
+                "user_module_exists": module_exists,
+                "user_addon_metadata_path": metadata_path,
+                "user_addon_metadata_exists": true,
+                "user_addon_library": library,
+                "user_addon_library_matches": library.as_deref() == Some("fcitx5-vinput"),
+                "user_addon_type": activation_service_field(&contents, "Type"),
+                "read_error": null,
+            })
+        }
+        Err(error) => serde_json::json!({
+            "user_module_path": module_path,
+            "user_module_exists": module_exists,
+            "user_addon_metadata_path": metadata_path,
+            "user_addon_metadata_exists": true,
+            "user_addon_library": null,
+            "user_addon_library_matches": false,
+            "user_addon_type": null,
+            "read_error": error.to_string(),
+        }),
+    }
 }
 
 fn user_activation_service_json(path: &Path) -> serde_json::Value {
@@ -533,19 +608,23 @@ fn remove_user_activation_service() -> anyhow::Result<()> {
 }
 
 fn user_activation_service_path() -> anyhow::Result<PathBuf> {
-    let data_home = match std::env::var_os("XDG_DATA_HOME") {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => {
-            let home = std::env::var_os("HOME").context(
-                "resolve user activation service path: HOME is unset and XDG_DATA_HOME is unset",
-            )?;
-            PathBuf::from(home).join(".local/share")
-        }
-    };
-    Ok(data_home
+    Ok(user_data_home()?
         .join("dbus-1")
         .join("services")
         .join("org.fcitx.Vinput.service"))
+}
+
+fn user_data_home() -> anyhow::Result<PathBuf> {
+    match std::env::var_os("XDG_DATA_HOME") {
+        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
+        _ => Ok(user_home()?.join(".local/share")),
+    }
+}
+
+fn user_home() -> anyhow::Result<PathBuf> {
+    let home = std::env::var_os("HOME")
+        .context("resolve user path: HOME is unset and XDG_DATA_HOME is unset")?;
+    Ok(PathBuf::from(home))
 }
 
 fn quote_exec_arg(value: &str) -> String {
