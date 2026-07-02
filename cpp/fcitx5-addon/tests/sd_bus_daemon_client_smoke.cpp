@@ -7,6 +7,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 
 using vinput_fcitx_bridge::BridgeOutcome;
@@ -31,6 +32,28 @@ std::unique_ptr<SdBusDaemonClient> ConnectWithRetry(std::string *error) {
 std::string ExpectedText(const char *env_name, const char *fallback) {
   const char *value = std::getenv(env_name);
   return value == nullptr ? std::string(fallback) : std::string(value);
+}
+
+bool Contains(std::string_view haystack, std::string_view needle) {
+  return haystack.find(needle) != std::string_view::npos;
+}
+
+bool ExpectRuntimeStatus(SdBusDaemonClient *client, std::string_view expected,
+                         std::string *error) {
+  std::string status_json;
+  if (!client->GetRuntimeStatus(&status_json, error)) {
+    return false;
+  }
+  if (!Contains(status_json, expected)) {
+    if (error != nullptr) {
+      *error = "runtime status missing expected marker: ";
+      *error += expected;
+      *error += " in ";
+      *error += status_json;
+    }
+    return false;
+  }
+  return true;
 }
 
 std::chrono::milliseconds RecordDelay() {
@@ -63,6 +86,11 @@ int main() {
   }
 
   const auto record_delay = RecordDelay();
+
+  if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error)) {
+    std::cerr << "runtime status idle check failed: " << error << '\n';
+    return 1;
+  }
 
   FrontendBridge normal_bridge;
   auto normal_start = normal_bridge.StartNormal(client.get());
@@ -97,6 +125,19 @@ int main() {
   }
 
   WaitForRecording(record_delay);
+
+  std::string command_status_json;
+  if (!client->GetRuntimeStatus(&command_status_json, &error)) {
+    std::cerr << "runtime status command check failed: " << error << '\n';
+    return 1;
+  }
+  if (!Contains(command_status_json, "\"status\":\"recording\"") ||
+      !Contains(command_status_json, "\"selected_text_present\":true") ||
+      Contains(command_status_json, "selected text")) {
+    std::cerr << "runtime status command snapshot was not sanitized: "
+              << command_status_json << '\n';
+    return 1;
+  }
 
   const auto expected_command_text = ExpectedText(
       "VINPUT_DBUS_SMOKE_EXPECTED_COMMAND", "mock command result for: selected text");

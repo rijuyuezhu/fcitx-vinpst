@@ -26,12 +26,16 @@ public:
   bool StopRecording(std::string_view scene_id, std::string *payload_json,
                      std::string *error) override;
 
+  // Rust-only diagnostic extension; not used by the frontend bridge hot path.
+  bool GetRuntimeStatus(std::string *status_json, std::string *error);
+
 private:
   explicit SdBusDaemonClient(sd_bus *bus);
 
   bool CallNoReply(std::string_view method, std::string *error);
   bool CallNoReplyWithString(std::string_view method, std::string_view value,
                              std::string *error);
+  bool CallStringReply(std::string_view method, std::string *reply, std::string *error);
   bool CallStringReplyWithString(std::string_view method, std::string_view value,
                                  std::string *reply, std::string *error);
 

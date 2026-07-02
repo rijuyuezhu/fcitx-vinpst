@@ -100,6 +100,10 @@ bool SdBusDaemonClient::StopRecording(std::string_view scene_id,
                                    error);
 }
 
+bool SdBusDaemonClient::GetRuntimeStatus(std::string *status_json, std::string *error) {
+  return CallStringReply(dbus::kMethodGetRuntimeStatus, status_json, error);
+}
+
 bool SdBusDaemonClient::CallNoReply(std::string_view method, std::string *error) {
   sd_bus_message *reply = nullptr;
   const bool ok = CallMethod(bus_, method, "", nullptr, &reply, error);
@@ -115,6 +119,29 @@ bool SdBusDaemonClient::CallNoReplyWithString(std::string_view method,
   const bool ok = CallMethod(bus_, method, "s", argument.c_str(), &reply, error);
   UnrefMessage(reply);
   return ok;
+}
+
+bool SdBusDaemonClient::CallStringReply(std::string_view method, std::string *reply,
+                                        std::string *error) {
+  sd_bus_message *message = nullptr;
+  if (!CallMethod(bus_, method, "", nullptr, &message, error)) {
+    return false;
+  }
+
+  const char *wire_reply = nullptr;
+  const int result = sd_bus_message_read(message, "s", &wire_reply);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "read string reply", result, bus_error);
+    UnrefMessage(message);
+    return false;
+  }
+
+  if (reply != nullptr) {
+    *reply = wire_reply != nullptr ? wire_reply : "";
+  }
+  UnrefMessage(message);
+  return true;
 }
 
 bool SdBusDaemonClient::CallStringReplyWithString(std::string_view method,

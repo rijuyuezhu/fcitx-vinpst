@@ -19,6 +19,7 @@ inline constexpr std::string_view kMethodStartCommandRecording =
 inline constexpr std::string_view kMethodStopRecording = "StopRecording";
 inline constexpr std::string_view kMethodGetStatus = "GetStatus";
 inline constexpr std::string_view kMethodGetAsrBackendState = "GetAsrBackendState";
+inline constexpr std::string_view kMethodGetRuntimeStatus = "GetRuntimeStatus";
 inline constexpr std::string_view kMethodReloadAsrBackend = "ReloadAsrBackend";
 inline constexpr std::string_view kMethodStartAdapter = "StartAdapter";
 inline constexpr std::string_view kMethodStopAdapter = "StopAdapter";
