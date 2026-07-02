@@ -143,7 +143,7 @@ user-activation-service-clear:
 
 # Show per-user D-Bus activation service status for local desktop testing.
 user-activation-service-status:
-    cargo run -q -p vinput-cli -- activation-service --user-status
+    VINPUT_USER_STATUS=1 scripts/install-user-activation-service.sh
 
 addon-dbus-activation-smoke:
     scripts/run-cpp-dbus-activation-smoke.sh

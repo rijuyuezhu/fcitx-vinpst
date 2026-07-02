@@ -10,6 +10,7 @@ config="${VINPUT_USER_CONFIG:-}"
 audio_backend="${VINPUT_USER_AUDIO_BACKEND:-}"
 configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-}"
 remove_user="${VINPUT_USER_REMOVE:-}"
+status_user="${VINPUT_USER_STATUS:-}"
 
 case "${profile}" in
   ""|mock)
@@ -34,6 +35,11 @@ cargo build -q -p vinput-cli -p vinput-daemon
 
 if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   target/debug/vinput activation-service --remove-user
+  exit 0
+fi
+
+if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
+  target/debug/vinput activation-service --user-status
   exit 0
 fi
 
