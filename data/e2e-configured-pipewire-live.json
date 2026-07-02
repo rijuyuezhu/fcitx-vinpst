@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "asr": {
+    "active_provider": "live-command-asr",
+    "normalize_audio": false,
+    "input_gain": 1.0,
+    "providers": [
+      {
+        "id": "live-command-asr",
+        "type": "command",
+        "command": "python3",
+        "args": [
+          "-c",
+          "import sys; sys.stdin.buffer.read(); print('live pipewire command result')"
+        ]
+      }
+    ]
+  },
+  "llm": {
+    "adapters": [
+      {
+        "id": "live-text-adapter",
+        "command": "python3",
+        "args": [
+          "-c",
+          "import json,sys; req=json.load(sys.stdin); print(json.dumps({'text':'live final: '+req['raw_text']}))"
+        ]
+      }
+    ]
+  },
+  "scenes": {
+    "active_scene": "live-postprocess",
+    "definitions": [
+      {
+        "id": "live-postprocess",
+        "label": "Live postprocess",
+        "prompt": "Postprocess the live PipeWire ASR result.",
+        "candidate_count": 0
+      }
+    ]
+  }
+}

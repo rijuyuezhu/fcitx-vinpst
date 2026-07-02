@@ -54,9 +54,10 @@ just addon-install-smoke
 just ime-install-smoke
 just ime-configured-install-smoke
 just ime-pipewire-live
+just ime-configured-pipewire-live
 ```
 
-Run `just addon-dbus-smoke` to start the Rust daemon under `dbus-run-session` and exercise the C++ `SdBusDaemonClient` through the real legacy D-Bus ABI. The smoke covers both normal recording and command-mode recording with selected text, expecting the mock daemon to return `mock recognition result` and `mock command result for: selected text`. Run `just addon-dbus-pipewire-live` on a desktop PipeWire session to repeat the same bridge and D-Bus path with the live PipeWire recorder worker selected by `--audio-backend pipewire`. Run `just ime-pipewire-live` for the staged install variant that activates the PipeWire-enabled daemon through the generated D-Bus service.
+Run `just addon-dbus-smoke` to start the Rust daemon under `dbus-run-session` and exercise the C++ `SdBusDaemonClient` through the real legacy D-Bus ABI. The smoke covers both normal recording and command-mode recording with selected text, expecting the mock daemon to return `mock recognition result` and `mock command result for: selected text`. Run `just addon-dbus-pipewire-live` on a desktop PipeWire session to repeat the same bridge and D-Bus path with the live PipeWire recorder worker selected by `--audio-backend pipewire`. Run `just ime-pipewire-live` for the staged install variant that activates the PipeWire-enabled daemon through the generated D-Bus service. Run `just ime-configured-pipewire-live` when the same staged activation path should also exercise configured command ASR/text adapters.
 
 The CMake project also configures `vinput-addon.conf.in`, configures the D-Bus activation service from `data/org.fcitx.Vinput.service.in`, and probes the legacy Fcitx addon dependencies (`Fcitx5Core`, `Fcitx5ModuleDBus`, `Fcitx5ModuleClipboard`, and `Fcitx5ModuleNotifications`) so the retained addon sources follow the original C++ project's module/install shape.
 
