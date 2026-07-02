@@ -147,3 +147,43 @@ fn doctor_reports_combined_local_diagnostics() {
     );
     assert_eq!(value["activation_service"]["user_service_exists"], false);
 }
+
+#[test]
+fn doctor_reports_existing_user_activation_exec_line() {
+    let data_home = std::env::temp_dir().join(format!(
+        "vinput-doctor-service-home-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+    let service_path = data_home
+        .join("dbus-1")
+        .join("services")
+        .join("org.fcitx.Vinput.service");
+    std::fs::create_dir_all(service_path.parent().unwrap()).expect("create service dir");
+    std::fs::write(
+        &service_path,
+        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/tmp/vinput-daemon --dbus --audio-backend pipewire\n",
+    )
+    .expect("write user activation service");
+
+    let output = vinput_command()
+        .env("XDG_DATA_HOME", &data_home)
+        .arg("doctor")
+        .output()
+        .expect("run vinput doctor");
+
+    let value = assert_json_success(output, "doctor summary with user service");
+    assert_eq!(value["activation_service"]["user_service_exists"], true);
+    assert_eq!(
+        value["activation_service"]["user_service_exec"],
+        "/tmp/vinput-daemon --dbus --audio-backend pipewire"
+    );
+    assert_eq!(
+        value["activation_service"]["read_error"],
+        serde_json::Value::Null
+    );
+    std::fs::remove_dir_all(data_home).expect("remove service fixture");
+}

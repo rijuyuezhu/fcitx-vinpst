@@ -341,13 +341,12 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
     let asr_state = AsrBackendFactory::state_for_config(&config.asr);
     let audio = audio_devices_json(&config)?;
     let activation_service = match user_activation_service_path() {
-        Ok(path) => serde_json::json!({
-            "user_service_path": path,
-            "user_service_exists": path.exists(),
-        }),
+        Ok(path) => user_activation_service_json(&path),
         Err(error) => serde_json::json!({
             "user_service_path": null,
             "user_service_exists": false,
+            "user_service_exec": null,
+            "read_error": null,
             "path_error": format!("{error:#}"),
         }),
     };
@@ -361,6 +360,39 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
+}
+
+fn user_activation_service_json(path: &Path) -> serde_json::Value {
+    let exists = path.exists();
+    if !exists {
+        return serde_json::json!({
+            "user_service_path": path,
+            "user_service_exists": false,
+            "user_service_exec": null,
+            "read_error": null,
+        });
+    }
+
+    match fs::read_to_string(path) {
+        Ok(contents) => serde_json::json!({
+            "user_service_path": path,
+            "user_service_exists": true,
+            "user_service_exec": activation_service_exec_line(&contents),
+            "read_error": null,
+        }),
+        Err(error) => serde_json::json!({
+            "user_service_path": path,
+            "user_service_exists": true,
+            "user_service_exec": null,
+            "read_error": error.to_string(),
+        }),
+    }
+}
+
+fn activation_service_exec_line(contents: &str) -> Option<String> {
+    contents
+        .lines()
+        .find_map(|line| line.strip_prefix("Exec=").map(ToOwned::to_owned))
 }
 
 fn audio_devices_json(config: &VinputConfig) -> anyhow::Result<serde_json::Value> {
