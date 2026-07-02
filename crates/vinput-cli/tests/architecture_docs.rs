@@ -275,7 +275,8 @@ fn development_doc_pins_addon_dbus_smoke_recipes() {
         .expect("read development guide");
     let readme = std::fs::read_to_string(workspace_file("README.md")).expect("read README");
     let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
-
+    let ci_workflow = std::fs::read_to_string(workspace_file(".github/workflows/ci.yml"))
+        .expect("read CI workflow");
     for required in [
         "just addon-dbus-smoke",
         "just addon-dbus-activation-smoke",
@@ -301,6 +302,10 @@ fn development_doc_pins_addon_dbus_smoke_recipes() {
     ] {
         assert!(justfile.contains(recipe), "justfile should define {recipe}");
     }
+    assert!(
+        ci_workflow.contains("just addon-dbus-adapter-lifecycle-smoke"),
+        "CI should run deterministic adapter lifecycle DBus smoke"
+    );
 }
 
 #[test]

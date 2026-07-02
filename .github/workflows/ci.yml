@@ -31,5 +31,7 @@ jobs:
         run: just ci
       - name: Run staged IME activation smoke
         run: just ime-configured-activation-smoke
+      - name: Run adapter lifecycle smoke
+        run: just addon-dbus-adapter-lifecycle-smoke
       - name: Run optional PipeWire checks
         run: just pipewire-check
