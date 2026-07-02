@@ -110,10 +110,22 @@ Run only inside a real desktop session where Fcitx5 and PipeWire are expected to
 just ime-fcitx-live-probe
 VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe
 just pipewire-check
+just pipewire-live
+just addon-dbus-pipewire-live
+just ime-pipewire-live
 just ime-configured-pipewire-live
 ```
 
+Optional PipeWire recipes are intentionally excluded from `just ci`. `just pipewire-check` runs without live daemon access and covers CLI/daemon audio-device diagnostics.
+`just pipewire-live` uses `VINPUT_TEST_PIPEWIRE_CONTEXT=1`, `VINPUT_TEST_PIPEWIRE_ENUMERATE=1`, and `VINPUT_TEST_PIPEWIRE_RECORD=1`.
+`just addon-dbus-pipewire-live` covers the C++ bridge plus Rust daemon D-Bus path, prints the daemon build's `audio-devices` JSON diagnostics, uses `VINPUT_DBUS_SMOKE_RECORD_MS=100`, and passes `--record-ms 100` through the start/wait/stop smoke.
+`just ime-pipewire-live` staged D-Bus activation starts the PipeWire-enabled daemon with `--dbus --audio-backend pipewire`, writes under `target/tmp/fcitx-ime-pipewire-live-smoke`, and prints the staged daemon's `audio-devices` JSON diagnostics.
+Live desktop PipeWire validation still needs manual confirmation. Recorder setup errors are expected to include the same target/format/sample-rate/channel plan.
+
 If a live check fails, record the exact failure and do not mark the feature as done.
+
+`just addon-dbus-adapter-lifecycle-smoke` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus.
+`just ime-e2e-smoke` includes fake outcome sink coverage for preedit, commit, command-mode selected-text deletion, candidate menus, and fallback commit behavior.
 
 ## Common commands
 
