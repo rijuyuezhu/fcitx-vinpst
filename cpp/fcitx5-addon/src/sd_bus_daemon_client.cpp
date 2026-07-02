@@ -42,6 +42,21 @@ void UnrefMessage(sd_bus_message *message) {
   }
 }
 
+bool ReadStringReply(sd_bus_message *message, std::string *reply, std::string *error) {
+  const char *wire_reply = nullptr;
+  const int result = sd_bus_message_read(message, "s", &wire_reply);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "read string reply", result, bus_error);
+    return false;
+  }
+
+  if (reply != nullptr) {
+    *reply = wire_reply != nullptr ? wire_reply : "";
+  }
+  return true;
+}
+
 bool CallMethod(sd_bus *bus, std::string_view method, const char *signature,
                 const char *argument, sd_bus_message **reply, std::string *error) {
   const auto bus_name = std::string(dbus::kServiceBusName);
@@ -128,20 +143,9 @@ bool SdBusDaemonClient::CallStringReply(std::string_view method, std::string *re
     return false;
   }
 
-  const char *wire_reply = nullptr;
-  const int result = sd_bus_message_read(message, "s", &wire_reply);
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "read string reply", result, bus_error);
-    UnrefMessage(message);
-    return false;
-  }
-
-  if (reply != nullptr) {
-    *reply = wire_reply != nullptr ? wire_reply : "";
-  }
+  const bool ok = ReadStringReply(message, reply, error);
   UnrefMessage(message);
-  return true;
+  return ok;
 }
 
 bool SdBusDaemonClient::CallStringReplyWithString(std::string_view method,
@@ -154,20 +158,9 @@ bool SdBusDaemonClient::CallStringReplyWithString(std::string_view method,
     return false;
   }
 
-  const char *wire_reply = nullptr;
-  const int result = sd_bus_message_read(message, "s", &wire_reply);
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "read string reply", result, bus_error);
-    UnrefMessage(message);
-    return false;
-  }
-
-  if (reply != nullptr) {
-    *reply = wire_reply != nullptr ? wire_reply : "";
-  }
+  const bool ok = ReadStringReply(message, reply, error);
   UnrefMessage(message);
-  return true;
+  return ok;
 }
 
 } // namespace vinput_fcitx_bridge
