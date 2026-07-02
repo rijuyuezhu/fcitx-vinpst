@@ -16,6 +16,7 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("audio-devices"));
     assert!(stdout.contains("protocol"));
     assert!(stdout.contains("registry"));
+    assert!(stdout.contains("activation-service"));
 }
 
 #[test]
@@ -40,4 +41,18 @@ fn asr_state_help_lists_config_option() {
     let stdout = assert_stdout_success(output, "help output");
     assert!(stdout.contains("--config"));
     assert!(stdout.contains("diagnostics from config"));
+}
+
+#[test]
+fn activation_service_help_lists_daemon_options() {
+    let output = vinput_command()
+        .args(["activation-service", "--help"])
+        .output()
+        .expect("run vinput activation-service --help");
+
+    let stdout = assert_stdout_success(output, "help output");
+    assert!(stdout.contains("--daemon"));
+    assert!(stdout.contains("--configured-backends"));
+    assert!(stdout.contains("--audio-backend"));
+    assert!(stdout.contains("--output"));
 }

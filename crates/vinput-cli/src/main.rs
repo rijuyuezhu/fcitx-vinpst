@@ -110,6 +110,27 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// Generate an org.fcitx.Vinput D-Bus activation service file.
+    ActivationService {
+        /// Path to the vinput-daemon executable used by D-Bus activation.
+        #[arg(long)]
+        daemon: PathBuf,
+        /// Optional config JSON file passed to vinput-daemon.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Activate configured ASR/text backends instead of the mock runtime.
+        #[arg(long)]
+        configured_backends: bool,
+        /// Optional audio backend passed to vinput-daemon, such as mock or pipewire.
+        #[arg(long)]
+        audio_backend: Option<String>,
+        /// Extra argument forwarded to vinput-daemon; repeat for multiple arguments.
+        #[arg(long = "daemon-arg")]
+        daemon_args: Vec<String>,
+        /// Write the service file to this path instead of stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Create a recognition JSON payload for tests/manual inspection.
     MockResult {
         /// Commit text for the payload.
@@ -167,6 +188,21 @@ fn main() -> anyhow::Result<()> {
         },
         Command::AsrState { config } => print_asr_state(config.as_ref()),
         Command::AudioDevices { config } => print_audio_devices(config.as_ref()),
+        Command::ActivationService {
+            daemon,
+            config,
+            configured_backends,
+            audio_backend,
+            daemon_args,
+            output,
+        } => write_activation_service(
+            &daemon,
+            config.as_deref(),
+            configured_backends,
+            audio_backend.as_deref(),
+            &daemon_args,
+            output.as_deref(),
+        ),
         Command::MockResult { text } => {
             let payload = RecognitionPayload::raw(text);
             println!("{}", payload.to_json_string()?);
@@ -253,6 +289,67 @@ fn capture_target_json(target: &CaptureTarget) -> serde_json::Value {
             serde_json::json!({"kind": "object", "target_object": value})
         }
     }
+}
+
+fn write_activation_service(
+    daemon: &Path,
+    config: Option<&Path>,
+    configured_backends: bool,
+    audio_backend: Option<&str>,
+    daemon_args: &[String],
+    output: Option<&Path>,
+) -> anyhow::Result<()> {
+    let mut args = vec!["--dbus".to_owned()];
+    if configured_backends {
+        args.push("--configured-backends".to_owned());
+    }
+    if let Some(config) = config {
+        args.push("--config".to_owned());
+        args.push(config.to_string_lossy().into_owned());
+    }
+    if let Some(audio_backend) = audio_backend {
+        args.push("--audio-backend".to_owned());
+        args.push(audio_backend.to_owned());
+    }
+    args.extend(daemon_args.iter().cloned());
+
+    let mut exec_parts = Vec::with_capacity(args.len() + 1);
+    exec_parts.push(quote_exec_arg(&daemon.to_string_lossy()));
+    exec_parts.extend(args.iter().map(|arg| quote_exec_arg(arg)));
+
+    let service = format!(
+        "[D-BUS Service]\nName={}\nExec={}\n",
+        dbus::SERVICE_BUS_NAME,
+        exec_parts.join(" ")
+    );
+
+    if let Some(output) = output {
+        if let Some(parent) = output
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("create activation service directory `{}`", parent.display())
+            })?;
+        }
+        fs::write(output, service)
+            .with_context(|| format!("write activation service `{}`", output.display()))?;
+    } else {
+        print!("{service}");
+    }
+    Ok(())
+}
+
+fn quote_exec_arg(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_owned();
+    }
+    if value.bytes().all(|byte| {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b':' | b'=')
+    }) {
+        return value.to_owned();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 struct AudioDevicesReport {

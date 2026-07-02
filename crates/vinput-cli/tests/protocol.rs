@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{assert_json_success, vinput_command};
+use common::{assert_json_success, assert_stdout_success, vinput_command};
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
 
 const RAW_PAYLOAD_JSON: &str = include_str!(concat!(
@@ -74,5 +74,30 @@ fn protocol_prints_service_dbus_contract() {
     assert_eq!(
         value["statuses"],
         serde_json::to_value(ServiceStatus::WIRE_VALUES).unwrap()
+    );
+}
+
+#[test]
+fn activation_service_prints_configured_exec_line() {
+    let output = vinput_command()
+        .args([
+            "activation-service",
+            "--daemon",
+            "/opt/vinput daemon/bin/vinput-daemon",
+            "--configured-backends",
+            "--config",
+            "/tmp/vinput config.json",
+            "--audio-backend",
+            "pipewire",
+            "--daemon-arg=--log-level",
+            "--daemon-arg=debug",
+        ])
+        .output()
+        .expect("run vinput activation-service");
+
+    let stdout = assert_stdout_success(output, "activation service output");
+    assert_eq!(
+        stdout,
+        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec='/opt/vinput daemon/bin/vinput-daemon' --dbus --configured-backends --config '/tmp/vinput config.json' --audio-backend pipewire --log-level debug\n"
     );
 }
