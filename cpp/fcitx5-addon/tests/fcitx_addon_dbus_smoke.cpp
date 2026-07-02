@@ -112,7 +112,10 @@ bool ExpectIgnoredTrigger(FcitxVinputAddon *addon, FcitxTriggerAction action,
       addon->bridge().command_mode() == expected_command_mode) {
     return true;
   }
-  std::cerr << label << " did not ignore trigger action without changing mode\n";
+  std::cerr << label << " did not ignore trigger action without changing mode"
+            << ": applied=" << static_cast<int>(applied)
+            << " recording=" << addon->bridge().recording()
+            << " command_mode=" << addon->bridge().command_mode() << '\n';
   return false;
 }
 
