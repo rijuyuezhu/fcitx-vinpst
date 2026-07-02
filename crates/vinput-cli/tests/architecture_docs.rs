@@ -282,6 +282,8 @@ fn development_doc_pins_addon_dbus_smoke_recipes() {
         "just addon-dbus-activation-smoke",
         "just addon-dbus-configured-activation-smoke",
         "just addon-dbus-adapter-lifecycle-smoke",
+        "just ime-e2e-smoke",
+        "fake outcome sink",
         "configured text adapter start/duplicate-start/stop diagnostics over DBus",
     ] {
         assert!(
@@ -299,12 +301,17 @@ fn development_doc_pins_addon_dbus_smoke_recipes() {
         "addon-dbus-activation-smoke:",
         "addon-dbus-configured-activation-smoke:",
         "addon-dbus-adapter-lifecycle-smoke:",
+        "ime-e2e-smoke:",
     ] {
         assert!(justfile.contains(recipe), "justfile should define {recipe}");
     }
     assert!(
         ci_workflow.contains("just addon-dbus-adapter-lifecycle-smoke"),
         "CI should run deterministic adapter lifecycle DBus smoke"
+    );
+    assert!(
+        ci_workflow.contains("just ime-e2e-smoke"),
+        "CI should run deterministic staged IME e2e smoke"
     );
 }
 

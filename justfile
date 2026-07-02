@@ -197,3 +197,7 @@ dbus:
 
 ime-configured-activation-smoke:
     scripts/run-ime-configured-activation-smoke.sh
+
+# Run deterministic staged IME activation plus fake outcome sink coverage.
+ime-e2e-smoke:
+    scripts/run-ime-e2e-smoke.sh

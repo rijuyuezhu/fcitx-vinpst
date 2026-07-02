@@ -93,6 +93,7 @@ just addon-dbus-activation-smoke # verify DBus activation starts the Rust daemon
 just addon-dbus-configured-activation-smoke # verify DBus activation starts configured command backends
 just addon-dbus-adapter-lifecycle-smoke # verify configured text adapter start/duplicate-start/stop diagnostics over DBus
 just ime-configured-activation-smoke # verify staged daemon/addon/config/WAV activate together
+just ime-e2e-smoke # verify staged activation plus fake outcome sink application behavior
 just ime-pipewire-live # explicit staged IME activation with live PipeWire capture
 just user-activation-service # install user DBus activation service for local desktop testing
 just user-command-demo-activation-service # install user DBus activation with deterministic command demo config
@@ -108,7 +109,9 @@ just pipewire-live  # explicit local PipeWire probes gated by env variables
 just dbus         # run the mock/configured legacy D-Bus service on the current session bus
 ```
 
-GitHub Actions runs `just ci`, then `just ime-configured-activation-smoke`, then `just addon-dbus-adapter-lifecycle-smoke`, then `just pipewire-check`, so the staged daemon/addon/config/WAV activation path and configured text adapter lifecycle D-Bus path are covered remotely as well as locally.
+GitHub Actions runs `just ci`, then `just ime-configured-activation-smoke`, then `just ime-e2e-smoke`, then `just addon-dbus-adapter-lifecycle-smoke`, then `just pipewire-check`, so the staged daemon/addon/config/WAV activation path, fake outcome sink application behavior, and configured text adapter lifecycle D-Bus path are covered remotely as well as locally.
+
+`just ime-e2e-smoke` stages the daemon, addon, addon metadata, command demo config, deterministic WAV, and D-Bus activation service together. It then runs the fake outcome sink smoke for preedit, commit, command-mode selected-text deletion, candidate menu, and fallback commit application, followed by the configured bridge/addon D-Bus activation smokes. This keeps the recipe deterministic and CI-friendly; live desktop `fcitx::InputContext` mutation remains a separate local validation target.
 
 `just pipewire-check` is safe for machines with PipeWire development libraries because it does not require a live PipeWire daemon and covers the audio crate plus CLI/daemon audio-device diagnostics with the optional feature enabled. `just pipewire-live`, `just addon-dbus-pipewire-live`, `just ime-pipewire-live`, and `just ime-configured-pipewire-live` are intentionally excluded from `just ci`; they should only be run on a desktop session where live PipeWire probes are expected to work. `just pipewire-live` sets `VINPUT_TEST_PIPEWIRE_CONTEXT=1`, `VINPUT_TEST_PIPEWIRE_ENUMERATE=1`, and `VINPUT_TEST_PIPEWIRE_RECORD=1`; `just addon-dbus-pipewire-live` adds the C++ bridge plus Rust daemon D-Bus path on top of the live recorder worker, prints the daemon build's `audio-devices` JSON diagnostics, and sets `VINPUT_DBUS_SMOKE_RECORD_MS=100` so the bridge waits briefly before stopping capture. `just ime-pipewire-live` stages the daemon, addon, metadata, and D-Bus service together, then verifies staged D-Bus activation starts the PipeWire-enabled daemon with `--dbus --audio-backend pipewire`. `just ime-configured-pipewire-live` uses the same staged activation shape with configured command ASR/text adapters from `data/e2e-configured-pipewire-live.json` plus live PipeWire capture.
 
