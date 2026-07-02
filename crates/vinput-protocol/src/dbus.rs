@@ -32,6 +32,8 @@ pub mod method {
     pub const GET_ASR_BACKEND_STATE: &str = "GetAsrBackendState";
     /// Return a JSON snapshot of configured text adapters.
     pub const GET_TEXT_ADAPTER_STATE: &str = "GetTextAdapterState";
+    /// Return a JSON snapshot of current runtime status diagnostics.
+    pub const GET_RUNTIME_STATUS: &str = "GetRuntimeStatus";
     /// Reload the selected ASR backend.
     pub const RELOAD_ASR_BACKEND: &str = "ReloadAsrBackend";
     /// Start a configured LLM adapter process.
@@ -79,7 +81,8 @@ pub const LEGACY_SERVICE_METHODS: &[&str] = &[
 ];
 
 /// Rust-only diagnostic extension methods exported on [`SERVICE_INTERFACE`].
-pub const DIAGNOSTIC_EXTENSION_METHODS: &[&str] = &[method::GET_TEXT_ADAPTER_STATE];
+pub const DIAGNOSTIC_EXTENSION_METHODS: &[&str] =
+    &[method::GET_TEXT_ADAPTER_STATE, method::GET_RUNTIME_STATUS];
 
 /// Method names exported on [`SERVICE_INTERFACE`] in protocol order.
 pub const SERVICE_METHODS: &[&str] = &[
@@ -89,6 +92,7 @@ pub const SERVICE_METHODS: &[&str] = &[
     method::GET_STATUS,
     method::GET_ASR_BACKEND_STATE,
     method::GET_TEXT_ADAPTER_STATE,
+    method::GET_RUNTIME_STATUS,
     method::RELOAD_ASR_BACKEND,
     method::START_ADAPTER,
     method::STOP_ADAPTER,
@@ -115,6 +119,7 @@ mod tests {
         assert_eq!(FRONTEND_NOTIFIER_INTERFACE, "org.fcitx.Fcitx5.Vinput1");
         assert_eq!(method::START_RECORDING, "StartRecording");
         assert_eq!(method::GET_TEXT_ADAPTER_STATE, "GetTextAdapterState");
+        assert_eq!(method::GET_RUNTIME_STATUS, "GetRuntimeStatus");
         assert_eq!(method::NOTIFY, "Notify");
         assert_eq!(
             error::OPERATION_FAILED,
@@ -151,9 +156,10 @@ mod tests {
         );
         assert_eq!(
             DIAGNOSTIC_EXTENSION_METHODS,
-            [method::GET_TEXT_ADAPTER_STATE]
+            [method::GET_TEXT_ADAPTER_STATE, method::GET_RUNTIME_STATUS]
         );
         assert!(!LEGACY_SERVICE_METHODS.contains(&method::GET_TEXT_ADAPTER_STATE));
+        assert!(!LEGACY_SERVICE_METHODS.contains(&method::GET_RUNTIME_STATUS));
     }
 
     #[test]
@@ -161,6 +167,7 @@ mod tests {
         assert!(!SERVICE_METHODS.contains(&method::NOTIFY));
         assert!(!LEGACY_SERVICE_METHODS.contains(&method::NOTIFY));
         assert!(!DIAGNOSTIC_EXTENSION_METHODS.contains(&method::NOTIFY));
+        assert!(DIAGNOSTIC_EXTENSION_METHODS.contains(&method::GET_RUNTIME_STATUS));
     }
 
     #[test]

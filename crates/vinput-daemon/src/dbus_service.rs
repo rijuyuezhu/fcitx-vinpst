@@ -271,6 +271,14 @@ impl VinputDbusService {
             .map_err(Self::map_json_error)
     }
 
+    /// Return sanitized runtime status JSON.
+    #[zbus(name = "GetRuntimeStatus")]
+    async fn get_runtime_status(&self) -> Result<String, VinputDbusError> {
+        let mut runtime = self.runtime.lock().await;
+        runtime.refresh_text_adapters();
+        serde_json::to_string(&runtime.runtime_status_json()).map_err(Self::map_json_error)
+    }
+
     /// Reload ASR backend using the legacy void method signature.
     #[zbus(name = "ReloadAsrBackend")]
     async fn reload_asr_backend(&self) -> Result<(), VinputDbusError> {

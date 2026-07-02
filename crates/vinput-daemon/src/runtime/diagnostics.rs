@@ -2,7 +2,7 @@
 
 use vinput_asr::AsrBackendFactory;
 use vinput_config::{LlmAdapterConfig, VinputConfig};
-use vinput_protocol::{AsrBackendState, TextAdapterState, TextAdapterSummary};
+use vinput_protocol::{AsrBackendState, TextAdapterState, TextAdapterSummary, dbus};
 use vinput_text::AdapterRegistry;
 
 use super::RuntimeState;
@@ -95,6 +95,25 @@ impl RuntimeState {
     #[must_use]
     pub fn is_text_adapter_running(&self, adapter_id: &str) -> bool {
         self.text_adapter_pid(adapter_id).is_some()
+    }
+
+    /// Builds a sanitized runtime status snapshot for CLI and D-Bus diagnostics.
+    #[must_use]
+    pub fn runtime_status_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "ok": true,
+            "status": self.status,
+            "uptime_ms": self.uptime().as_millis(),
+            "partial_text": self.partial_text(),
+            "dbus": {
+                "service": dbus::SERVICE_BUS_NAME,
+                "object_path": dbus::SERVICE_OBJECT_PATH,
+                "interface": dbus::SERVICE_INTERFACE,
+            },
+            "config": self.config.summary(),
+            "asr": self.asr_backend_state(),
+            "text_adapters": self.configured_text_adapter_state_for_runtime(),
+        })
     }
 
     /// Returns an ASR backend state derived from config and backend descriptor.

@@ -252,6 +252,34 @@ async fn expect_no_string_signal(stream: &mut zbus::proxy::SignalStream<'_>) -> 
     }
 }
 
+#[tokio::test]
+async fn dbus_get_runtime_status_returns_json_snapshot() -> anyhow::Result<()> {
+    let runtime = RuntimeState::new(VinputConfig::bundled_default()?)?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+
+    let status_json: String = proxy.call(dbus::method::GET_RUNTIME_STATUS, &()).await?;
+    let status: serde_json::Value = serde_json::from_str(&status_json)?;
+    assert_eq!(status["ok"], true);
+    assert_eq!(status["status"], "idle");
+    assert_eq!(status["dbus"]["service"], dbus::SERVICE_BUS_NAME);
+    assert_eq!(status["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
+    assert_eq!(status["dbus"]["interface"], dbus::SERVICE_INTERFACE);
+    assert_eq!(status["asr"]["effective_provider_id"], "mock");
+    assert_eq!(status["asr"]["target_provider_id"], "sherpa-onnx");
+    assert_eq!(status["text_adapters"]["adapter_count"], 0);
+    assert!(status["uptime_ms"].as_u64().is_some());
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
@@ -290,6 +318,7 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         "sssssbbas",
     )?;
     assert_method_signature(interface_xml, dbus::method::GET_TEXT_ADAPTER_STATE, "", "s")?;
+    assert_method_signature(interface_xml, dbus::method::GET_RUNTIME_STATUS, "", "s")?;
     assert_method_signature(interface_xml, dbus::method::RELOAD_ASR_BACKEND, "", "")?;
     assert_method_signature(interface_xml, dbus::method::START_ADAPTER, "s", "")?;
     assert_method_signature(interface_xml, dbus::method::STOP_ADAPTER, "s", "")?;
