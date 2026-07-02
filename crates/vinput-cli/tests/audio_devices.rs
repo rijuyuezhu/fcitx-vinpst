@@ -178,6 +178,14 @@ fn doctor_reports_existing_user_activation_exec_line() {
     let value = assert_json_success(output, "doctor summary with user service");
     assert_eq!(value["activation_service"]["user_service_exists"], true);
     assert_eq!(
+        value["activation_service"]["user_service_name"],
+        "org.fcitx.Vinput"
+    );
+    assert_eq!(
+        value["activation_service"]["user_service_name_matches"],
+        true
+    );
+    assert_eq!(
         value["activation_service"]["user_service_exec"],
         "/tmp/vinput-daemon --dbus --audio-backend pipewire"
     );

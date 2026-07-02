@@ -368,31 +368,41 @@ fn user_activation_service_json(path: &Path) -> serde_json::Value {
         return serde_json::json!({
             "user_service_path": path,
             "user_service_exists": false,
+            "user_service_name": null,
+            "user_service_name_matches": false,
             "user_service_exec": null,
             "read_error": null,
         });
     }
 
     match fs::read_to_string(path) {
-        Ok(contents) => serde_json::json!({
-            "user_service_path": path,
-            "user_service_exists": true,
-            "user_service_exec": activation_service_exec_line(&contents),
-            "read_error": null,
-        }),
+        Ok(contents) => {
+            let name = activation_service_field(&contents, "Name");
+            serde_json::json!({
+                "user_service_path": path,
+                "user_service_exists": true,
+                "user_service_name": name,
+                "user_service_name_matches": name.as_deref() == Some(dbus::SERVICE_BUS_NAME),
+                "user_service_exec": activation_service_field(&contents, "Exec"),
+                "read_error": null,
+            })
+        }
         Err(error) => serde_json::json!({
             "user_service_path": path,
             "user_service_exists": true,
+            "user_service_name": null,
+            "user_service_name_matches": false,
             "user_service_exec": null,
             "read_error": error.to_string(),
         }),
     }
 }
 
-fn activation_service_exec_line(contents: &str) -> Option<String> {
+fn activation_service_field(contents: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key}=");
     contents
         .lines()
-        .find_map(|line| line.strip_prefix("Exec=").map(ToOwned::to_owned))
+        .find_map(|line| line.strip_prefix(&prefix).map(ToOwned::to_owned))
 }
 
 fn audio_devices_json(config: &VinputConfig) -> anyhow::Result<serde_json::Value> {
