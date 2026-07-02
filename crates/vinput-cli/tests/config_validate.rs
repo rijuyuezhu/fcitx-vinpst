@@ -36,6 +36,44 @@ fn config_validate_accepts_committed_default_fixture() {
 }
 
 #[test]
+fn config_example_prints_command_demo_config() {
+    let output = vinput_command()
+        .args(["config", "example", "command-demo"])
+        .output()
+        .expect("run vinput config example command-demo");
+
+    let value = assert_json_success(output, "command demo config example");
+    assert_eq!(value["asr"]["active_provider"], "demo-command-asr");
+    assert_eq!(value["scenes"]["active_scene"], "demo-postprocess");
+}
+
+#[test]
+fn config_example_writes_configured_pipewire_live_config() {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "vinput-config-example-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+
+    let output = vinput_command()
+        .args(["config", "example", "configured-pipewire-live", "--output"])
+        .arg(&path)
+        .output()
+        .expect("run vinput config example configured-pipewire-live --output");
+
+    let stdout = assert_stdout_success(output, "config example output");
+    assert!(stdout.is_empty());
+    let contents = fs::read_to_string(&path).expect("read written config example");
+    fs::remove_file(&path).expect("remove written config example");
+    let value: serde_json::Value = serde_json::from_str(&contents).expect("example is JSON");
+    assert_eq!(value["asr"]["active_provider"], "live-command-asr");
+}
+
+#[test]
 fn config_validate_prints_summary_for_valid_config() {
     let path = write_temp_config(
         r#"

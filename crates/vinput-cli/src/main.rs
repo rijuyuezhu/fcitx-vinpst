@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Context;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use vinput_asr::AsrBackendFactory;
 use vinput_audio::CaptureTarget;
 use vinput_config::{RegistryConfig, VinputConfig};
@@ -32,6 +32,25 @@ enum ConfigCommand {
         #[arg(long)]
         summary_only: bool,
     },
+    /// Print or write a bundled example config JSON file.
+    Example {
+        /// Example config to export.
+        #[arg(value_enum)]
+        kind: ConfigExample,
+        /// Write the example config to this path instead of stdout.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ConfigExample {
+    /// Upstream-compatible default config skeleton.
+    Default,
+    /// Deterministic command ASR/text adapter demo config.
+    CommandDemo,
+    /// Configured command ASR/text adapter demo intended for live PipeWire smoke.
+    ConfiguredPipewireLive,
 }
 
 /// Registry-related commands.
@@ -154,6 +173,9 @@ fn main() -> anyhow::Result<()> {
         Command::Config { command } => match command {
             Some(ConfigCommand::Validate { path, summary_only }) => {
                 validate_config_file(&path, summary_only)
+            }
+            Some(ConfigCommand::Example { kind, output }) => {
+                export_config_example(kind, output.as_deref())
             }
             None => validate_config(),
         },
@@ -487,6 +509,40 @@ fn validate_config_file(path: &PathBuf, _summary_only: bool) -> anyhow::Result<(
         serde_json::to_string_pretty(&config_summary_json(&config))?
     );
     Ok(())
+}
+
+fn export_config_example(kind: ConfigExample, output: Option<&Path>) -> anyhow::Result<()> {
+    let contents = config_example_contents(kind);
+    let config = VinputConfig::from_json_str(contents).context("parse bundled example config")?;
+    config
+        .validate()
+        .context("validate bundled example config before export")?;
+
+    if let Some(output) = output {
+        if let Some(parent) = output
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("create config example directory `{}`", parent.display())
+            })?;
+        }
+        fs::write(output, contents)
+            .with_context(|| format!("write config example `{}`", output.display()))?;
+    } else {
+        print!("{contents}");
+    }
+    Ok(())
+}
+
+fn config_example_contents(kind: ConfigExample) -> &'static str {
+    match kind {
+        ConfigExample::Default => include_str!("../../../data/default-config.json"),
+        ConfigExample::CommandDemo => include_str!("../../../data/e2e-command-demo-config.json"),
+        ConfigExample::ConfiguredPipewireLive => {
+            include_str!("../../../data/e2e-configured-pipewire-live.json")
+        }
+    }
 }
 
 fn print_registry_plan(
