@@ -112,3 +112,38 @@ fn audio_devices_reports_pipewire_enumeration_error_without_failing() {
             .is_some_and(|message| message.contains("enumerate PipeWire audio sources"))
     );
 }
+
+#[test]
+fn doctor_reports_combined_local_diagnostics() {
+    let data_home = std::env::temp_dir().join(format!(
+        "vinput-doctor-data-home-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+
+    let output = vinput_command()
+        .env("XDG_DATA_HOME", &data_home)
+        .arg("doctor")
+        .output()
+        .expect("run vinput doctor");
+
+    let value = assert_json_success(output, "doctor summary");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["config"]["ok"], true);
+    assert_eq!(value["asr"]["target_provider_id"], "sherpa-onnx");
+    assert_eq!(value["audio"]["ok"], true);
+    assert_eq!(value["audio"]["capture_target"]["kind"], "default");
+    assert_eq!(
+        value["activation_service"]["user_service_path"],
+        data_home
+            .join("dbus-1")
+            .join("services")
+            .join("org.fcitx.Vinput.service")
+            .to_string_lossy()
+            .as_ref()
+    );
+    assert_eq!(value["activation_service"]["user_service_exists"], false);
+}

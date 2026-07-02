@@ -132,6 +132,12 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    /// Print combined local diagnostics for config, ASR, audio, and activation setup.
+    Doctor {
+        /// Optional config JSON file. Omitted to inspect the bundled default config.
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
     /// Generate an org.fcitx.Vinput D-Bus activation service file.
     ActivationService {
         /// Path to the vinput-daemon executable used by D-Bus activation.
@@ -216,6 +222,7 @@ fn main() -> anyhow::Result<()> {
         },
         Command::AsrState { config } => print_asr_state(config.as_ref()),
         Command::AudioDevices { config } => print_audio_devices(config.as_ref()),
+        Command::Doctor { config } => print_doctor(config.as_ref()),
         Command::ActivationService {
             daemon,
             config,
@@ -296,10 +303,49 @@ fn print_audio_devices(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
     config
         .validate()
         .context("validate config for audio device diagnostics")?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&audio_devices_json(&config)?)?
+    );
+    Ok(())
+}
+
+fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
+    let config = match config_path {
+        Some(path) => load_config_file(path)?,
+        None => VinputConfig::bundled_default().context("parse bundled config")?,
+    };
+    config.validate().context("validate config for doctor")?;
+    let asr_state = AsrBackendFactory::state_for_config(&config.asr);
+    let audio = audio_devices_json(&config)?;
+    let activation_service = match user_activation_service_path() {
+        Ok(path) => serde_json::json!({
+            "user_service_path": path,
+            "user_service_exists": path.exists(),
+        }),
+        Err(error) => serde_json::json!({
+            "user_service_path": null,
+            "user_service_exists": false,
+            "path_error": format!("{error:#}"),
+        }),
+    };
+    let summary = serde_json::json!({
+        "ok": true,
+        "config_path": config_path.map(|path| path.to_string_lossy().into_owned()),
+        "config": config_summary_json(&config),
+        "asr": asr_state,
+        "audio": audio,
+        "activation_service": activation_service,
+    });
+    println!("{}", serde_json::to_string_pretty(&summary)?);
+    Ok(())
+}
+
+fn audio_devices_json(config: &VinputConfig) -> anyhow::Result<serde_json::Value> {
     let capture_target = CaptureTarget::from_config_value(&config.global.capture_device)
         .context("parse configured capture device")?;
     let audio_report = enumerate_audio_devices();
-    let summary = serde_json::json!({
+    Ok(serde_json::json!({
         "ok": true,
         "capture_device": config.global.capture_device,
         "capture_target": capture_target_json(&capture_target),
@@ -307,9 +353,7 @@ fn print_audio_devices(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
         "live": audio_report.live,
         "devices": audio_report.devices,
         "enumeration_error": audio_report.enumeration_error,
-    });
-    println!("{}", serde_json::to_string_pretty(&summary)?);
-    Ok(())
+    }))
 }
 
 fn capture_target_json(target: &CaptureTarget) -> serde_json::Value {

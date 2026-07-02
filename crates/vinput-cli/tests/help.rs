@@ -14,6 +14,7 @@ fn help_lists_diagnostic_commands() {
     let stdout = assert_stdout_success(output, "help output");
     assert!(stdout.contains("asr-state"));
     assert!(stdout.contains("audio-devices"));
+    assert!(stdout.contains("doctor"));
     assert!(stdout.contains("protocol"));
     assert!(stdout.contains("registry"));
     assert!(stdout.contains("activation-service"));
@@ -56,4 +57,16 @@ fn activation_service_help_lists_daemon_options() {
     assert!(stdout.contains("--audio-backend"));
     assert!(stdout.contains("--output"));
     assert!(stdout.contains("--user"));
+}
+
+#[test]
+fn doctor_help_lists_config_option() {
+    let output = vinput_command()
+        .args(["doctor", "--help"])
+        .output()
+        .expect("run vinput doctor --help");
+
+    let stdout = assert_stdout_success(output, "help output");
+    assert!(stdout.contains("--config"));
+    assert!(stdout.contains("combined local diagnostics"));
 }
