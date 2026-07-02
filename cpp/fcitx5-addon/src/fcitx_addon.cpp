@@ -99,6 +99,36 @@ AppliedOutcome FcitxVinputAddon::TriggerCommand(fcitx::InputContext *ic,
   return ApplyBridgeOutcome(ic, outcome);
 }
 
+AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
+                                                    FcitxTriggerAction action,
+                                                    std::string_view selected_text) {
+  switch (action) {
+  case FcitxTriggerAction::None:
+    return AppliedOutcome::None;
+  case FcitxTriggerAction::StartNormal:
+    if (!bridge_.recording()) {
+      return TriggerNormal(ic);
+    }
+    return AppliedOutcome::None;
+  case FcitxTriggerAction::StopNormal:
+    if (bridge_.recording() && !bridge_.command_mode()) {
+      return TriggerNormal(ic);
+    }
+    return AppliedOutcome::None;
+  case FcitxTriggerAction::StartCommand:
+    if (!bridge_.recording()) {
+      return TriggerCommand(ic, selected_text);
+    }
+    return AppliedOutcome::None;
+  case FcitxTriggerAction::StopCommand:
+    if (bridge_.recording() && bridge_.command_mode()) {
+      return TriggerCommand(ic, "");
+    }
+    return AppliedOutcome::None;
+  }
+  return AppliedOutcome::None;
+}
+
 void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
   if (event.type() != fcitx::EventType::InputContextKeyEvent) {
     return;
@@ -106,35 +136,13 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
 
   auto &key_event = static_cast<fcitx::KeyEvent &>(event);
   const auto action = trigger_policy_.Classify(key_event);
-  switch (action) {
-  case FcitxTriggerAction::None:
-    return;
-  case FcitxTriggerAction::StartNormal:
-    if (!bridge_.recording()) {
-      TriggerNormal(key_event.inputContext());
-    }
-    key_event.filterAndAccept();
-    return;
-  case FcitxTriggerAction::StopNormal:
-    if (bridge_.recording() && !bridge_.command_mode()) {
-      TriggerNormal(key_event.inputContext());
-    }
-    key_event.filterAndAccept();
-    return;
-  case FcitxTriggerAction::StartCommand:
-    if (!bridge_.recording()) {
-      TriggerCommand(key_event.inputContext(),
-                     SelectedTextFromInputContext(key_event.inputContext()));
-    }
-    key_event.filterAndAccept();
-    return;
-  case FcitxTriggerAction::StopCommand:
-    if (bridge_.recording() && bridge_.command_mode()) {
-      TriggerCommand(key_event.inputContext(), "");
-    }
-    key_event.filterAndAccept();
+  if (action == FcitxTriggerAction::None) {
     return;
   }
+
+  ApplyTriggerAction(key_event.inputContext(), action,
+                     SelectedTextFromInputContext(key_event.inputContext()));
+  key_event.filterAndAccept();
 }
 
 } // namespace vinput_fcitx_bridge

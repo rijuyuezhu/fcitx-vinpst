@@ -11,6 +11,7 @@
 
 using vinput_fcitx_bridge::AppliedOutcome;
 using vinput_fcitx_bridge::BridgeOutcome;
+using vinput_fcitx_bridge::FcitxTriggerAction;
 using vinput_fcitx_bridge::FcitxVinputAddon;
 using vinput_fcitx_bridge::SdBusDaemonClient;
 
@@ -129,7 +130,8 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
 int main() {
   FcitxVinputAddon addon(nullptr);
 
-  const auto normal_start = addon.TriggerNormal(nullptr);
+  const auto normal_start =
+      addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StartNormal);
   if (!ExpectApplied(normal_start, AppliedOutcome::Preedit, "normal start") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Preedit, "... Recording ...", false,
                          "normal start") ||
@@ -153,7 +155,8 @@ int main() {
 
   const auto expected_normal_text =
       ExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
-  const auto normal_stop = addon.TriggerNormal(nullptr);
+  const auto normal_stop =
+      addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopNormal);
   if (!ExpectApplied(normal_stop, AppliedOutcome::Commit, "normal stop") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_normal_text, false,
                          "normal stop") ||
@@ -167,7 +170,8 @@ int main() {
     return 1;
   }
 
-  const auto command_start = addon.TriggerCommand(nullptr, "selected text");
+  const auto command_start = addon.ApplyTriggerAction(
+      nullptr, FcitxTriggerAction::StartCommand, "selected text");
   if (!ExpectApplied(command_start, AppliedOutcome::Preedit, "command start") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Preedit, "... Commanding ...", false,
                          "command start") ||
@@ -183,7 +187,8 @@ int main() {
 
   const auto expected_command_text = ExpectedText(
       "VINPUT_DBUS_SMOKE_EXPECTED_COMMAND", "mock command result for: selected text");
-  const auto command_stop = addon.TriggerCommand(nullptr, "");
+  const auto command_stop =
+      addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopCommand);
   if (!ExpectApplied(command_stop, AppliedOutcome::Commit, "command stop") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_command_text, true,
                          "command stop") ||

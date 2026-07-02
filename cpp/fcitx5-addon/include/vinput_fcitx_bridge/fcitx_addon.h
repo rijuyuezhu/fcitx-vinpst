@@ -38,6 +38,8 @@ public:
                                std::string_view scene_id = kDefaultNormalSceneId);
   AppliedOutcome TriggerCommand(fcitx::InputContext *ic, std::string_view selected_text,
                                 std::string_view scene_id = kDefaultCommandSceneId);
+  AppliedOutcome ApplyTriggerAction(fcitx::InputContext *ic, FcitxTriggerAction action,
+                                    std::string_view selected_text = "");
 
 private:
   SdBusDaemonClient *EnsureDaemonClient(std::string *error);
