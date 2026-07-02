@@ -269,6 +269,9 @@ async fn dbus_get_runtime_status_returns_json_snapshot() -> anyhow::Result<()> {
     let status: serde_json::Value = serde_json::from_str(&status_json)?;
     assert_eq!(status["ok"], true);
     assert_eq!(status["status"], "idle");
+    assert_eq!(status["active_session"], false);
+    assert_eq!(status["selected_text_present"], false);
+    assert_eq!(status["current_scene"], serde_json::Value::Null);
     assert_eq!(status["dbus"]["service"], dbus::SERVICE_BUS_NAME);
     assert_eq!(status["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
     assert_eq!(status["dbus"]["interface"], dbus::SERVICE_INTERFACE);
@@ -276,6 +279,16 @@ async fn dbus_get_runtime_status_returns_json_snapshot() -> anyhow::Result<()> {
     assert_eq!(status["asr"]["target_provider_id"], "sherpa-onnx");
     assert_eq!(status["text_adapters"]["adapter_count"], 0);
     assert!(status["uptime_ms"].as_u64().is_some());
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_COMMAND_RECORDING, &"selected text")
+        .await?;
+    let active_status_json: String = proxy.call(dbus::method::GET_RUNTIME_STATUS, &()).await?;
+    let active_status: serde_json::Value = serde_json::from_str(&active_status_json)?;
+    assert_eq!(active_status["status"], "recording");
+    assert_eq!(active_status["active_session"], true);
+    assert_eq!(active_status["selected_text_present"], true);
+    assert_eq!(active_status["current_scene"], "__command__");
 
     Ok(())
 }

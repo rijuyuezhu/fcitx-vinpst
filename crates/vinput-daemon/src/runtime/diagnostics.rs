@@ -104,6 +104,9 @@ impl RuntimeState {
             "ok": true,
             "status": self.status,
             "uptime_ms": self.uptime().as_millis(),
+            "active_session": self.active_session.is_some(),
+            "current_scene": self.current_scene,
+            "selected_text_present": self.selected_text.is_some(),
             "partial_text": self.partial_text(),
             "dbus": {
                 "service": dbus::SERVICE_BUS_NAME,

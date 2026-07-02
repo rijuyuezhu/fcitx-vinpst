@@ -420,6 +420,9 @@ fn runtime_status_reports_initialized_mock_runtime() {
     );
     assert_eq!(value["ok"], true);
     assert_eq!(value["status"], "idle");
+    assert_eq!(value["active_session"], false);
+    assert_eq!(value["selected_text_present"], false);
+    assert_eq!(value["current_scene"], serde_json::Value::Null);
     assert_eq!(value["configured_backends"], false);
     assert_eq!(value["audio_backend"], "mock");
     assert_eq!(value["dbus"]["service"], "org.fcitx.Vinput");
