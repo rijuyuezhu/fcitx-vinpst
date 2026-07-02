@@ -1,11 +1,13 @@
 #pragma once
 
+#include <cstdint>
+
 #include <fcitx-utils/key.h>
 #include <fcitx/event.h>
 
 namespace vinput_fcitx_bridge {
 
-enum class FcitxTriggerAction {
+enum class FcitxTriggerAction : std::uint8_t {
   None,
   StartNormal,
   StopNormal,
