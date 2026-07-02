@@ -245,6 +245,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "--dbus --audio-backend pipewire",
         "Live desktop PipeWire validation",
         "target/tmp/fcitx-ime-pipewire-live-smoke",
+        "prints the staged daemon's `audio-devices` JSON diagnostics",
         "Recorder setup errors are expected to include the same target/format/sample-rate/channel plan",
     ] {
         assert!(

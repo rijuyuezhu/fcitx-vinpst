@@ -119,7 +119,7 @@ just addon-dbus-pipewire-live
 just ime-pipewire-live
 ```
 
-`just ime-pipewire-live` stages a fresh install tree under `target/tmp/fcitx-ime-pipewire-live-smoke`, installs the PipeWire-enabled daemon plus `fcitx5-vinput.so`, verifies the generated `org.fcitx.Vinput.service` contains `--dbus --audio-backend pipewire`, then runs the retained C++ D-Bus smoke under `dbus-run-session` so D-Bus activation starts the staged daemon instead of a manually launched process. It also defaults `VINPUT_DBUS_SMOKE_RECORD_MS=100` so `StartRecording` and `StopRecording` leave time for the live worker to capture audio.
+`just ime-pipewire-live` stages a fresh install tree under `target/tmp/fcitx-ime-pipewire-live-smoke`, installs the PipeWire-enabled daemon plus `fcitx5-vinput.so`, verifies the generated `org.fcitx.Vinput.service` contains `--dbus --audio-backend pipewire`, prints the staged daemon's `audio-devices` JSON diagnostics, then runs the retained C++ D-Bus smoke under `dbus-run-session` so D-Bus activation starts the staged daemon instead of a manually launched process. It also defaults `VINPUT_DBUS_SMOKE_RECORD_MS=100` so `StartRecording` and `StopRecording` leave time for the live worker to capture audio.
 
 If a live check fails, inspect `audio-devices` first. The JSON report should show `backend: "pipewire"`, the requested capture target, and the pinned `S16LE`/16 kHz/mono recording plan. Recorder setup errors are expected to include the same target/format/sample-rate/channel plan, which makes missing PipeWire sessions, unavailable target objects, and stream setup failures easier to distinguish from ASR/text failures. These live recipes stay out of CI; CI continues to cover compile-time PipeWire paths with `just pipewire-check`.
 

@@ -31,6 +31,9 @@ test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 grep -qx "Exec=${daemon_path} --dbus --audio-backend pipewire" "${service_file}"
 
+echo "PipeWire audio diagnostics from staged daemon:"
+"${daemon_path}" audio-devices
+
 XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 VINPUT_DBUS_SMOKE_RECORD_MS="${record_ms}" \
   timeout 20s dbus-run-session -- "${smoke_bin}"
