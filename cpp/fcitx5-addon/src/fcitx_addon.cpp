@@ -2,6 +2,7 @@
 
 #include "vinput_fcitx_bridge/fcitx_selection.h"
 
+#include <fcitx-utils/log.h>
 #include <fcitx/event.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/surroundingtext.h>
@@ -16,6 +17,21 @@ std::string SelectedTextFromInputContext(fcitx::InputContext *ic) {
     return {};
   }
   return SelectedTextFromSurroundingText(ic->surroundingText());
+}
+std::string_view TriggerActionName(FcitxTriggerAction action) {
+  switch (action) {
+  case FcitxTriggerAction::None:
+    return "none";
+  case FcitxTriggerAction::StartNormal:
+    return "start-normal";
+  case FcitxTriggerAction::StopNormal:
+    return "stop-normal";
+  case FcitxTriggerAction::StartCommand:
+    return "start-command";
+  case FcitxTriggerAction::StopCommand:
+    return "stop-command";
+  }
+  return "unknown";
 }
 
 void RequestSurroundingText(fcitx::Event &event) {
@@ -32,6 +48,9 @@ void RequestSurroundingText(fcitx::Event &event) {
 
 FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
     : instance_(instance), trigger_policy_(FcitxKeyTriggerPolicy::FromEnvironment()) {
+  FCITX_INFO() << "fcitx-vinput addon loaded with normal trigger "
+               << trigger_policy_.normal_trigger() << " and command trigger "
+               << trigger_policy_.command_trigger();
   if (instance_ != nullptr) {
     event_handlers_.emplace_back(
         instance_->watchEvent(fcitx::EventType::InputContextKeyEvent,
@@ -56,6 +75,7 @@ AppliedOutcome FcitxVinputAddon::ApplyDaemonUnavailable(fcitx::InputContext *ic,
   outcome.kind = BridgeOutcome::Kind::Error;
   outcome.text =
       error.empty() ? "Voice input daemon is unavailable." : std::move(error);
+  FCITX_WARN() << "fcitx-vinput daemon unavailable: " << outcome.text;
   return ApplyBridgeOutcome(ic, outcome);
 }
 
@@ -141,6 +161,7 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
     return;
   }
 
+  FCITX_INFO() << "fcitx-vinput handling trigger " << TriggerActionName(action);
   ApplyTriggerAction(key_event.inputContext(), action,
                      SelectedTextFromInputContext(key_event.inputContext()));
   key_event.filterAndAccept();
