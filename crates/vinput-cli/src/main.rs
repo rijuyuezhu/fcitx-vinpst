@@ -127,6 +127,9 @@ enum Command {
         /// Extra argument forwarded to vinput-daemon; repeat for multiple arguments.
         #[arg(long = "daemon-arg")]
         daemon_args: Vec<String>,
+        /// Write to the per-user D-Bus activation service path.
+        #[arg(long, conflicts_with = "output")]
+        user: bool,
         /// Write the service file to this path instead of stdout.
         #[arg(long)]
         output: Option<PathBuf>,
@@ -194,6 +197,7 @@ fn main() -> anyhow::Result<()> {
             configured_backends,
             audio_backend,
             daemon_args,
+            user,
             output,
         } => write_activation_service(
             &daemon,
@@ -201,6 +205,7 @@ fn main() -> anyhow::Result<()> {
             configured_backends,
             audio_backend.as_deref(),
             &daemon_args,
+            user,
             output.as_deref(),
         ),
         Command::MockResult { text } => {
@@ -297,6 +302,7 @@ fn write_activation_service(
     configured_backends: bool,
     audio_backend: Option<&str>,
     daemon_args: &[String],
+    user: bool,
     output: Option<&Path>,
 ) -> anyhow::Result<()> {
     let mut args = vec!["--dbus".to_owned()];
@@ -323,6 +329,14 @@ fn write_activation_service(
         exec_parts.join(" ")
     );
 
+    let user_output;
+    let output = if user {
+        user_output = user_activation_service_path()?;
+        Some(user_output.as_path())
+    } else {
+        output
+    };
+
     if let Some(output) = output {
         if let Some(parent) = output
             .parent()
@@ -338,6 +352,22 @@ fn write_activation_service(
         print!("{service}");
     }
     Ok(())
+}
+
+fn user_activation_service_path() -> anyhow::Result<PathBuf> {
+    let data_home = match std::env::var_os("XDG_DATA_HOME") {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => {
+            let home = std::env::var_os("HOME").context(
+                "resolve user activation service path: HOME is unset and XDG_DATA_HOME is unset",
+            )?;
+            PathBuf::from(home).join(".local/share")
+        }
+    };
+    Ok(data_home
+        .join("dbus-1")
+        .join("services")
+        .join("org.fcitx.Vinput.service"))
 }
 
 fn quote_exec_arg(value: &str) -> String {

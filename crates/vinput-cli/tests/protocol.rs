@@ -101,3 +101,40 @@ fn activation_service_prints_configured_exec_line() {
         "[D-BUS Service]\nName=org.fcitx.Vinput\nExec='/opt/vinput daemon/bin/vinput-daemon' --dbus --configured-backends --config '/tmp/vinput config.json' --audio-backend pipewire --log-level debug\n"
     );
 }
+
+#[test]
+fn activation_service_user_writes_xdg_data_home_service() {
+    let mut data_home = std::env::temp_dir();
+    data_home.push(format!(
+        "vinput-cli-user-service-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+
+    let output = vinput_command()
+        .env("XDG_DATA_HOME", &data_home)
+        .args([
+            "activation-service",
+            "--daemon",
+            "/usr/bin/vinput-daemon",
+            "--user",
+        ])
+        .output()
+        .expect("run vinput activation-service --user");
+
+    let stdout = assert_stdout_success(output, "activation service user output");
+    assert!(stdout.is_empty());
+    let service_path = data_home
+        .join("dbus-1")
+        .join("services")
+        .join("org.fcitx.Vinput.service");
+    let service = std::fs::read_to_string(&service_path).expect("read generated user service");
+    assert_eq!(
+        service,
+        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/usr/bin/vinput-daemon --dbus\n"
+    );
+    std::fs::remove_dir_all(data_home).expect("remove generated user service fixture");
+}
