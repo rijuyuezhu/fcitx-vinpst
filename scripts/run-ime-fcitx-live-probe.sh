@@ -4,52 +4,329 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
-if [[ "${VINPUT_LIVE_INSTALL_COMMAND_DEMO:-}" == "1" || "${VINPUT_LIVE_INSTALL_COMMAND_DEMO:-}" == "true" ]]; then
-  VINPUT_USER_PROFILE=command-demo scripts/install-user-ime.sh
-fi
+fcitx5_bin="${VINPUT_LIVE_FCITX5_BIN:-fcitx5}"
+fcitx5_remote_bin="${VINPUT_LIVE_FCITX5_REMOTE_BIN:-fcitx5-remote}"
+gdbus_bin="${VINPUT_LIVE_GDBUS_BIN:-gdbus}"
+python_bin="${VINPUT_LIVE_PYTHON_BIN:-python3}"
 
-missing=0
+home_dir="${HOME:?HOME must be set for live probe}"
+data_home="${XDG_DATA_HOME:-${home_dir}/.local/share}"
+default_data_home="${home_dir}/.local/share"
+bin_dir="${VINPUT_USER_BIN_DIR:-${home_dir}/.local/bin}"
+lib_dir="${VINPUT_USER_FCITX_LIB_DIR:-${home_dir}/.local/lib/fcitx5}"
+addon_dir="${VINPUT_USER_FCITX_ADDON_DIR:-${data_home}/fcitx5/addon}"
+config_dir="${VINPUT_USER_CONFIG_DIR:-${data_home}/fcitx-vinput}"
+env_file="${config_dir}/fcitx-vinput.env"
+daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
+module_path="${lib_dir}/fcitx5-vinput.so"
+addon_conf_path="${addon_dir}/vinput.conf"
+service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
+status_log="${TMPDIR:-/tmp}/vinput-ime-live-status.$$.log"
+
+failures=()
+warnings=()
+
+add_failure() {
+  local code="$1"
+  shift
+  failures+=("${code}: $*")
+  printf 'FAIL[%s] %s\n' "${code}" "$*" >&2
+}
+
+add_warning() {
+  local code="$1"
+  shift
+  warnings+=("${code}: $*")
+  printf 'WARN[%s] %s\n' "${code}" "$*" >&2
+}
+
+has_failures() {
+  [[ "${#failures[@]}" -gt 0 ]]
+}
+
+print_summary_and_exit_if_failed() {
+  if ! has_failures; then
+    return 0
+  fi
+
+  printf '\nLive probe failed with classified issues:\n' >&2
+  local item
+  for item in "${failures[@]}"; do
+    printf '  - %s\n' "${item}" >&2
+  done
+  if [[ "${#warnings[@]}" -gt 0 ]]; then
+    printf '\nAdditional warnings:\n' >&2
+    for item in "${warnings[@]}"; do
+      printf '  - %s\n' "${item}" >&2
+    done
+  fi
+  printf '\nSuggested next step: run VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe, then source %s and restart Fcitx5 with fcitx5 -r.\n' "${env_file}" >&2
+  exit 1
+}
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "missing required command: $1" >&2
-    missing=1
+    add_failure "missing-command" "required command is not available: $1"
   fi
 }
 
-require_cmd fcitx5
-require_cmd fcitx5-remote
-require_cmd gdbus
-if [[ "${missing}" != 0 ]]; then
-  exit 2
+service_field() {
+  local path="$1"
+  local key="$2"
+  "${python_bin}" - "$path" "$key" <<'PY'
+import sys
+path, key = sys.argv[1], sys.argv[2]
+prefix = f"{key}="
+try:
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith(prefix):
+                print(line[len(prefix):].strip())
+                raise SystemExit(0)
+except OSError:
+    pass
+raise SystemExit(0)
+PY
+}
+
+service_exec_daemon() {
+  local path="$1"
+  "${python_bin}" - "$path" <<'PY'
+import shlex
+import sys
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("Exec="):
+                parts = shlex.split(line.removeprefix("Exec=").strip())
+                if parts:
+                    print(parts[0])
+                raise SystemExit(0)
+except OSError:
+    pass
+raise SystemExit(0)
+PY
+}
+
+same_path() {
+  local left="$1"
+  local right="$2"
+  "${python_bin}" - "$left" "$right" <<'PY'
+import os
+import sys
+left, right = sys.argv[1], sys.argv[2]
+raise SystemExit(0 if os.path.realpath(left) == os.path.realpath(right) else 1)
+PY
+}
+
+bus_owner_from_reply() {
+  local reply="$1"
+  "${python_bin}" - "${reply}" <<'PY'
+import ast
+import sys
+text = sys.argv[1]
+try:
+    value = ast.literal_eval(text)
+    if isinstance(value, tuple) and value:
+        print(value[0])
+except Exception:
+    pass
+PY
+}
+
+check_install_shape() {
+  if [[ -f "${module_path}" ]]; then
+    printf 'User addon module: %s (present)\n' "${module_path}"
+  else
+    add_failure "addon-module-missing" "user addon module is missing: ${module_path}"
+  fi
+
+  if [[ -f "${addon_conf_path}" ]]; then
+    printf 'User addon metadata: %s (present)\n' "${addon_conf_path}"
+    if ! grep -qx 'Library=fcitx5-vinput' "${addon_conf_path}"; then
+      add_failure "addon-metadata-library-mismatch" "addon metadata does not declare Library=fcitx5-vinput: ${addon_conf_path}"
+    fi
+    if ! grep -qx 'Type=SharedLibrary' "${addon_conf_path}"; then
+      add_failure "addon-metadata-type-mismatch" "addon metadata does not declare Type=SharedLibrary: ${addon_conf_path}"
+    fi
+  else
+    add_failure "addon-metadata-missing" "user addon metadata is missing: ${addon_conf_path}"
+  fi
+
+  if [[ -x "${daemon_path}" ]]; then
+    printf 'User daemon: %s (executable)\n' "${daemon_path}"
+  else
+    add_failure "daemon-missing" "user daemon is missing or not executable: ${daemon_path}"
+  fi
+
+  if [[ -f "${service_file}" ]]; then
+    printf 'User activation service: %s (present)\n' "${service_file}"
+    local service_name
+    service_name="$(service_field "${service_file}" Name)"
+    if [[ "${service_name}" != "org.fcitx.Vinput" ]]; then
+      add_failure "activation-service-name-mismatch" "activation service Name is '${service_name:-<missing>}' instead of org.fcitx.Vinput: ${service_file}"
+    fi
+
+    local service_daemon
+    service_daemon="$(service_exec_daemon "${service_file}")"
+    if [[ -z "${service_daemon}" ]]; then
+      add_failure "activation-service-exec-missing" "activation service has no Exec daemon path: ${service_file}"
+    elif same_path "${service_daemon}" "${daemon_path}"; then
+      printf 'Activation service daemon: %s (matches user daemon)\n' "${service_daemon}"
+    else
+      add_failure "activation-service-old-daemon" "activation service points to '${service_daemon}', expected '${daemon_path}'"
+    fi
+  else
+    add_failure "activation-service-missing" "user D-Bus activation service is missing: ${service_file}"
+  fi
+
+  if [[ -f "${env_file}" ]]; then
+    printf 'Fcitx environment file: %s (present)\n' "${env_file}"
+  else
+    add_warning "fcitx-env-file-missing" "generated Fcitx environment file is missing: ${env_file}"
+  fi
+}
+
+check_fcitx_process_env() {
+  if [[ "${VINPUT_LIVE_SKIP_FCITX_ENV_CHECK:-}" == "1" ]]; then
+    return 0
+  fi
+  if [[ ! -f "${module_path}" || ! -f "${addon_conf_path}" ]]; then
+    return 0
+  fi
+  if ! command -v pgrep >/dev/null 2>&1; then
+    add_warning "fcitx-env-unchecked" "pgrep is not available; cannot inspect the running Fcitx5 process environment"
+    return 0
+  fi
+
+  local pids
+  pids="$(pgrep -u "$(id -u)" -x fcitx5 2>/dev/null || true)"
+  if [[ -z "${pids}" ]]; then
+    add_warning "fcitx-env-unchecked" "fcitx5-remote reports Fcitx5 running, but no fcitx5 process was found for this user"
+    return 0
+  fi
+
+  local pid env_text addon_dirs xdg_data_home has_matching_process=0 inspected=0
+  for pid in ${pids}; do
+    if [[ ! -r "/proc/${pid}/environ" ]]; then
+      continue
+    fi
+    inspected=1
+    env_text="$(tr '\0' '\n' <"/proc/${pid}/environ" || true)"
+    addon_dirs="$(printf '%s\n' "${env_text}" | sed -n 's/^FCITX_ADDON_DIRS=//p' | tail -n 1)"
+    xdg_data_home="$(printf '%s\n' "${env_text}" | sed -n 's/^XDG_DATA_HOME=//p' | tail -n 1)"
+    if [[ ":${addon_dirs}:" != *":${lib_dir}:"* ]]; then
+      continue
+    fi
+    if [[ "${data_home}" != "${default_data_home}" && "${xdg_data_home}" != "${data_home}" ]]; then
+      continue
+    fi
+    has_matching_process=1
+    break
+  done
+
+  if [[ "${inspected}" == "0" ]]; then
+    add_warning "fcitx-env-unchecked" "no readable fcitx5 process environment was found"
+  elif [[ "${has_matching_process}" == "0" ]]; then
+    add_failure "fcitx-env-not-restarted" "Fcitx5 is running without the generated user addon environment; source ${env_file} and restart Fcitx5 with fcitx5 -r"
+  else
+    printf 'Fcitx5 process environment includes the user addon path.\n'
+  fi
+}
+
+probe_runtime_status() {
+  local owner_output owner_status owner runtime_output runtime_status
+  set +e
+  owner_output="$(${gdbus_bin} call --session \
+    --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.GetNameOwner \
+    org.fcitx.Vinput 2>&1)"
+  owner_status=$?
+  set -e
+
+  owner=""
+  if [[ "${owner_status}" == "0" ]]; then
+    owner="$(bus_owner_from_reply "${owner_output}")"
+    if [[ -n "${owner}" ]]; then
+      add_warning "bus-name-owned" "org.fcitx.Vinput is already owned on the current session bus by ${owner}; probing it for Rust runtime diagnostics"
+    fi
+  fi
+
+  if [[ ! -f "${service_file}" && -z "${owner}" ]]; then
+    add_failure "runtime-status-skipped" "cannot activate org.fcitx.Vinput because the activation service is missing and no current bus owner exists"
+    return 0
+  fi
+
+  printf 'Probing org.fcitx.Vinput GetRuntimeStatus...\n'
+  set +e
+  runtime_output="$(${gdbus_bin} call --session \
+    --dest org.fcitx.Vinput \
+    --object-path /org/fcitx/Vinput \
+    --method org.fcitx.Vinput.Service.GetRuntimeStatus 2>&1)"
+  runtime_status=$?
+  set -e
+
+  if [[ "${runtime_status}" == "0" ]]; then
+    printf '%s\n' "${runtime_output}"
+    return 0
+  fi
+
+  if grep -qiE 'UnknownMethod|No such method|GetRuntimeStatus' <<<"${runtime_output}"; then
+    add_failure "runtime-status-unavailable" "GetRuntimeStatus is unavailable on org.fcitx.Vinput; this usually means the current bus owner is the legacy/stale daemon, not the Rust daemon"
+  else
+    add_failure "runtime-status-call-failed" "GetRuntimeStatus call failed: ${runtime_output}"
+  fi
+
+  if [[ -n "${owner}" ]]; then
+    add_failure "stale-bus-owner" "org.fcitx.Vinput was already owned by ${owner} before activation and did not expose Rust runtime diagnostics"
+  fi
+}
+
+if [[ "${VINPUT_LIVE_INSTALL_COMMAND_DEMO:-}" == "1" || "${VINPUT_LIVE_INSTALL_COMMAND_DEMO:-}" == "true" ]]; then
+  printf 'Installing command-demo user IME profile because VINPUT_LIVE_INSTALL_COMMAND_DEMO is set.\n'
+  VINPUT_USER_PROFILE=command-demo scripts/install-user-ime.sh
+else
+  printf 'Non-mutating live probe. Set VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 to install the command-demo user IME profile.\n'
+fi
+
+require_cmd "${fcitx5_bin}"
+require_cmd "${fcitx5_remote_bin}"
+require_cmd "${gdbus_bin}"
+require_cmd "${python_bin}"
+if has_failures; then
+  print_summary_and_exit_if_failed
 fi
 
 if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
-  echo "DBUS_SESSION_BUS_ADDRESS is not set; run this inside a desktop user session." >&2
+  printf 'FAIL[user-dbus-session-missing] DBUS_SESSION_BUS_ADDRESS is not set; run this inside a desktop user session.\n' >&2
   exit 2
 fi
 
-if ! fcitx5-remote --check >/dev/null 2>&1; then
-  echo "Fcitx5 is not running on the current session bus." >&2
-  echo "Start or restart Fcitx5 after installing the addon, then retry." >&2
+if ! "${fcitx5_remote_bin}" --check >/dev/null 2>&1; then
+  printf 'FAIL[fcitx5-not-running] Fcitx5 is not running on the current session bus.\n' >&2
+  printf 'Start or restart Fcitx5 after installing the addon, then retry.\n' >&2
   exit 2
 fi
 
-echo "Fcitx5 is running."
-echo "Fcitx DBus address: $(fcitx5-remote -a 2>/dev/null || true)"
-echo "Current input method group: $(fcitx5-remote -q 2>/dev/null || true)"
-echo "Current input method: $(fcitx5-remote -n 2>/dev/null || true)"
+printf 'Fcitx5 is running.\n'
+printf 'Fcitx DBus address: %s\n' "$("${fcitx5_remote_bin}" -a 2>/dev/null || true)"
+printf 'Current input method group: %s\n' "$("${fcitx5_remote_bin}" -q 2>/dev/null || true)"
+printf 'Current input method: %s\n' "$("${fcitx5_remote_bin}" -n 2>/dev/null || true)"
 
-VINPUT_USER_STATUS=1 scripts/install-user-ime.sh >/tmp/vinput-ime-live-status.log 2>&1 || {
-  cat /tmp/vinput-ime-live-status.log >&2
-  echo "User IME install/status check failed." >&2
-  exit 1
-}
-cat /tmp/vinput-ime-live-status.log
+check_install_shape
+check_fcitx_process_env
 
-echo "Probing org.fcitx.Vinput activation and runtime status..."
-gdbus call --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput \
-  --method org.fcitx.Vinput.Service.GetRuntimeStatus
+if [[ "${VINPUT_LIVE_SKIP_USER_STATUS:-}" != "1" ]]; then
+  VINPUT_USER_STATUS=1 scripts/install-user-ime.sh >"${status_log}" 2>&1 || {
+    cat "${status_log}" >&2
+    add_failure "user-status-failed" "User IME install/status check failed"
+  }
+  cat "${status_log}"
+fi
 
-echo "Live probe complete. Trigger keys are controlled by VINPUT_FCITX_NORMAL_TRIGGER and VINPUT_FCITX_COMMAND_TRIGGER before launching Fcitx5."
+probe_runtime_status
+print_summary_and_exit_if_failed
+
+printf 'Live probe complete. Trigger keys are controlled by VINPUT_FCITX_NORMAL_TRIGGER and VINPUT_FCITX_COMMAND_TRIGGER before launching Fcitx5.\n'

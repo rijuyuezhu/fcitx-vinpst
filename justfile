@@ -226,6 +226,10 @@ ime-e2e-smoke:
 user-ime-command-demo-smoke:
     scripts/run-user-ime-command-demo-smoke.sh
 
+# Test live Fcitx probe diagnostics with stubbed desktop commands.
+ime-fcitx-live-probe-smoke:
+    scripts/run-ime-fcitx-live-probe-smoke.sh
+
 # Probe an explicit live desktop Fcitx5 session without adding CI dependencies.
 ime-fcitx-live-probe:
     scripts/run-ime-fcitx-live-probe.sh
