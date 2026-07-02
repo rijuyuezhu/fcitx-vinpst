@@ -105,16 +105,35 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
   }
 
   auto &key_event = static_cast<fcitx::KeyEvent &>(event);
-  if (trigger_policy_.IsNormalTrigger(key_event)) {
-    TriggerNormal(key_event.inputContext());
+  const auto action = trigger_policy_.Classify(key_event);
+  switch (action) {
+  case FcitxTriggerAction::None:
+    return;
+  case FcitxTriggerAction::StartNormal:
+    if (!bridge_.recording()) {
+      TriggerNormal(key_event.inputContext());
+    }
     key_event.filterAndAccept();
     return;
-  }
-
-  if (trigger_policy_.IsCommandTrigger(key_event)) {
-    TriggerCommand(key_event.inputContext(),
-                   SelectedTextFromInputContext(key_event.inputContext()));
+  case FcitxTriggerAction::StopNormal:
+    if (bridge_.recording() && !bridge_.command_mode()) {
+      TriggerNormal(key_event.inputContext());
+    }
     key_event.filterAndAccept();
+    return;
+  case FcitxTriggerAction::StartCommand:
+    if (!bridge_.recording()) {
+      TriggerCommand(key_event.inputContext(),
+                     SelectedTextFromInputContext(key_event.inputContext()));
+    }
+    key_event.filterAndAccept();
+    return;
+  case FcitxTriggerAction::StopCommand:
+    if (bridge_.recording() && bridge_.command_mode()) {
+      TriggerCommand(key_event.inputContext(), "");
+    }
+    key_event.filterAndAccept();
+    return;
   }
 }
 

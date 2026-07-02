@@ -5,7 +5,7 @@ This directory is the retained thin C++ Fcitx5 frontend bridge for the Rust port
 The bridge owns only Fcitx API integration and user interaction:
 
 - addon registration and metadata;
-- trigger key handling: `Control_R` release for normal recording and `F10` release for command-mode recording;
+- trigger key handling: `Control_R` press/release for normal push-to-talk recording and `F10` press/release for command-mode push-to-talk recording;
 - requesting `SurroundingText` capability for input contexts and capturing command-mode selections via `InputContext::surroundingText().selectedText()`;
 - a small D-Bus client wrapper over the Rust daemon ABI;
 - minimal preedit/status/candidate presentation;
