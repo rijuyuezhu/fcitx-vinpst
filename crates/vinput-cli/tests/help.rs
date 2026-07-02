@@ -57,6 +57,7 @@ fn activation_service_help_lists_daemon_options() {
     assert!(stdout.contains("--audio-backend"));
     assert!(stdout.contains("--output"));
     assert!(stdout.contains("--user"));
+    assert!(stdout.contains("--remove-user"));
 }
 
 #[test]

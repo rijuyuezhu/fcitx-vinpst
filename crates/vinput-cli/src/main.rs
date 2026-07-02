@@ -138,11 +138,11 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    /// Generate an org.fcitx.Vinput D-Bus activation service file.
+    /// Generate, install, or remove an org.fcitx.Vinput D-Bus activation service file.
     ActivationService {
         /// Path to the vinput-daemon executable used by D-Bus activation.
-        #[arg(long)]
-        daemon: PathBuf,
+        #[arg(long, required_unless_present = "remove_user")]
+        daemon: Option<PathBuf>,
         /// Optional config JSON file passed to vinput-daemon.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -158,6 +158,20 @@ enum Command {
         /// Write to the per-user D-Bus activation service path.
         #[arg(long, conflicts_with = "output")]
         user: bool,
+        /// Remove the per-user D-Bus activation service file and print JSON status.
+        #[arg(
+            long,
+            conflicts_with_all = [
+                "daemon",
+                "config",
+                "configured_backends",
+                "audio_backend",
+                "daemon_args",
+                "user",
+                "output"
+            ]
+        )]
+        remove_user: bool,
         /// Write the service file to this path instead of stdout.
         #[arg(long)]
         output: Option<PathBuf>,
@@ -230,16 +244,24 @@ fn main() -> anyhow::Result<()> {
             audio_backend,
             daemon_args,
             user,
+            remove_user,
             output,
-        } => write_activation_service(
-            &daemon,
-            config.as_deref(),
-            configured_backends,
-            audio_backend.as_deref(),
-            &daemon_args,
-            user,
-            output.as_deref(),
-        ),
+        } => {
+            if remove_user {
+                remove_user_activation_service()
+            } else {
+                let daemon = daemon.context("--daemon is required unless --remove-user is set")?;
+                write_activation_service(
+                    &daemon,
+                    config.as_deref(),
+                    configured_backends,
+                    audio_backend.as_deref(),
+                    &daemon_args,
+                    user,
+                    output.as_deref(),
+                )
+            }
+        }
         Command::MockResult { text } => {
             let payload = RecognitionPayload::raw(text);
             println!("{}", payload.to_json_string()?);
@@ -420,6 +442,24 @@ fn write_activation_service(
     } else {
         print!("{service}");
     }
+    Ok(())
+}
+
+fn remove_user_activation_service() -> anyhow::Result<()> {
+    let path = user_activation_service_path()?;
+    let existed = path.exists();
+    if existed {
+        fs::remove_file(&path)
+            .with_context(|| format!("remove activation service `{}`", path.display()))?;
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "ok": true,
+            "removed": existed,
+            "user_service_path": path,
+        }))?
+    );
     Ok(())
 }
 

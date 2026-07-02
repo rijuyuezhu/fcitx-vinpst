@@ -138,3 +138,39 @@ fn activation_service_user_writes_xdg_data_home_service() {
     );
     std::fs::remove_dir_all(data_home).expect("remove generated user service fixture");
 }
+
+#[test]
+fn activation_service_remove_user_deletes_xdg_data_home_service() {
+    let mut data_home = std::env::temp_dir();
+    data_home.push(format!(
+        "vinput-cli-remove-user-service-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+
+    let service_path = data_home
+        .join("dbus-1")
+        .join("services")
+        .join("org.fcitx.Vinput.service");
+    std::fs::create_dir_all(service_path.parent().unwrap()).expect("create service dir");
+    std::fs::write(&service_path, "stale service").expect("write stale service");
+
+    let output = vinput_command()
+        .env("XDG_DATA_HOME", &data_home)
+        .args(["activation-service", "--remove-user"])
+        .output()
+        .expect("run vinput activation-service --remove-user");
+
+    let value = assert_json_success(output, "remove user activation service output");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["removed"], true);
+    assert_eq!(
+        value["user_service_path"],
+        service_path.to_string_lossy().as_ref()
+    );
+    assert!(!service_path.exists());
+    std::fs::remove_dir_all(data_home).expect("remove service fixture");
+}
