@@ -236,6 +236,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "VINPUT_TEST_PIPEWIRE_RECORD=1",
         "intentionally excluded from `just ci`",
         "C++ bridge plus Rust daemon D-Bus path",
+        "prints the daemon build's `audio-devices` JSON diagnostics",
         "VINPUT_DBUS_SMOKE_RECORD_MS=100",
         "without live daemon",
         "CLI/daemon audio-device diagnostics",

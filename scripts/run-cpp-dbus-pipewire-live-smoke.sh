@@ -13,6 +13,8 @@ mkdir -p "$(dirname "${log_file}")"
 
 ${bus_runner} -- bash -euo pipefail <<'INNER'
 log_file="target/tmp/vinput-cpp-dbus-pipewire-live-smoke-daemon.log"
+echo "PipeWire audio diagnostics from daemon build:"
+target/debug/vinput-daemon audio-devices
 target/debug/vinput-daemon --dbus --audio-backend pipewire >"${log_file}" 2>&1 &
 daemon_pid=$!
 cleanup() {
