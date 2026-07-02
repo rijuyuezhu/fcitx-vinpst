@@ -1,6 +1,6 @@
 # Architecture contracts
 
-This directory contains tracked architecture and compatibility contracts for the Rust rewrite. Read [`../development.md`](../development.md) and [`../migration/e2e-port-plan.md`](../migration/e2e-port-plan.md) first, then use this index to choose the subsystem document relevant to the task.
+This directory contains tracked architecture and compatibility contracts for the Rust rewrite. Read [`../development.md`](../development.md), [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), and [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md) first, then use this index to choose the subsystem document relevant to the task.
 
 ## Reading order
 
@@ -12,12 +12,13 @@ This directory contains tracked architecture and compatibility contracts for the
    - [`asr-contract.md`](asr-contract.md): ASR backend/session seams, command ASR behavior, and diagnostics.
    - [`audio-contract.md`](audio-contract.md): PCM layout, WAV/raw byte policy, recorder lifecycle, and PipeWire scaffold.
    - [`text-contract.md`](text-contract.md): text post-processing, prompt/context cache, command adapters, and OpenAI-compatible seams.
-3. [`../migration/e2e-port-plan.md`](../migration/e2e-port-plan.md), for active E2E migration direction.
-4. `../plan/review-driven-refactor-plan.md`, when present locally, for ignored scratch notes only.
+3. [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), for current parity baseline.
+4. [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md), for active migration direction.
+5. `../plan/`, when present locally, for ignored scratch notes only.
 
 ## Maintenance rules
 
 - These files are tracked and should describe stable contracts or explicit compatibility targets.
 - Do not use these files as scratch planning space; use ignored `docs/plan/` for that.
-- Delete stale review snapshots after consolidating their conclusions into `docs/plan/` or these contract docs.
+- Delete or ignore stale review snapshots after consolidating their conclusions into tracked `docs/migration/` or these contract docs.
 - Keep statements precise: distinguish `implemented`, `mock/seam only`, `configured behind an explicit flag`, and `future work`.

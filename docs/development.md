@@ -1,23 +1,23 @@
 # Development guide
 
+This guide defines project workflow, commit style, and validation tiers. Migration direction lives in [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md); parity baseline lives in [`migration/function-gap-audit.md`](migration/function-gap-audit.md).
+
 ## Project style
 
 - Keep the Rust workspace split by responsibility:
-  - `vinput-protocol`: wire names and JSON/D-Bus compatibility.
+  - `vinput-protocol`: wire names, status strings, and payload contracts.
   - `vinput-config`: typed config, defaults, validation, and legacy normalization decisions.
   - `vinput-audio`: PCM data, audio processing, capture traits, and audio backends.
-  - `vinput-asr`: ASR traits, sessions, mock/command backends, and future local ASR backends.
-  - `vinput-text`: prompt rendering, context cache, text adapters, and future provider transports.
-  - `vinput-registry`: registry schema, validation, planning, and future install mechanics.
-  - `vinput-daemon`: runtime orchestration and D-Bus service facade.
+  - `vinput-asr`: ASR traits, sessions, mock/command backends, and local ASR backends.
+  - `vinput-text`: prompt rendering, context cache, text adapters, and provider transports.
+  - `vinput-registry`: registry schema, validation, planning, staging, and install mechanics.
+  - `vinput-daemon`: runtime orchestration and service facade.
   - `vinput-cli`: diagnostics and user-facing command entry points over library crates.
-- Preserve user-visible legacy behavior before improving internals: D-Bus ABI, status strings, recognition JSON, config semantics, command-mode behavior, and frontend expectations must stay explicit and tested.
-- Prefer E2E-enabling implementation over generic cleanup. The current phase is to get a usable Fcitx input-method product spine working quickly.
-- Prefer test-first changes. Pin compatibility behavior with tests before moving code across modules or changing runtime logic.
+- Preserve user-visible legacy behavior before improving internals: service names, method names, status strings, recognition JSON, config semantics, command-mode behavior, and frontend expectations must stay explicit and tested.
+- Prefer E2E-enabling implementation over generic cleanup. The active goal is real desktop alpha, then legacy feature parity.
 - Treat mock/seam coverage as contract coverage, not feature parity.
 - Keep public APIs small. Prefer `pub(crate)` for helpers after module splits.
-- Do not log secrets, environment values, or credential-bearing headers.
-- Keep assistant/user communication in Chinese. Keep code, comments, test names, docs identifiers, and commit messages in English unless existing surrounding text requires otherwise.
+- Keep assistant/user communication in Chinese. Keep code, comments, test names, docs identifiers, and commit messages in English unless surrounding text requires otherwise.
 
 ## Commit message style
 
@@ -27,25 +27,15 @@ Use concise Conventional Commit style:
 <type>(optional-scope): <imperative summary>
 ```
 
-Common types:
-
-- `feat`: user-visible or crate-visible capability.
-- `fix`: bug or compatibility fix.
-- `refactor`: behavior-preserving restructuring.
-- `test`: test-only changes.
-- `docs`: documentation-only changes.
-- `ci`: CI workflow changes.
-- `build`: build system or dependency changes.
-- `chore`: maintenance without behavior change.
+Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `build`, `chore`.
 
 Examples:
 
 ```text
-refactor(text): split prompt rendering module
-fix(dbus): preserve legacy operation error name
-test(config): add legacy normalization golden cases
-docs: add agent reading order
-ci: run pipewire feature checks
+docs(migration): track feature parity audit
+fix(ime): improve live probe diagnostics
+test(addon): cover selected text fallback
+feat(asr): add initial sherpa runtime
 ```
 
 Rules:
@@ -53,11 +43,114 @@ Rules:
 - Use English commit messages.
 - Keep the summary short and imperative.
 - Prefer small commits with one reason to change.
-- Do not mix pure refactor with feature implementation unless explicitly approved.
+- Do not mix pure docs, tests, and feature implementation in one commit unless the change is intentionally tiny and inseparable.
+- Do not mix broad refactors with feature implementation unless explicitly approved.
 
-## Checks and tests
+## Validation tiers
+
+Use the narrowest tier that proves the change, then add integration checks for touched boundaries.
+
+### Docs-only changes
+
+```sh
+git status --porcelain=v1 -b
+git diff --check
+```
+
+Run more checks if docs alter public command examples, contracts, or test instructions.
+
+### Rust/core changes
+
+```sh
+cargo test --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+### Service integration changes
+
+```sh
+just dbus-test
+just dbus-lint
+```
+
+### C++ addon/frontend changes
+
+```sh
+just addon-format-check
+just addon-test
+```
+
+Run `just addon-lint` when Fcitx5 headers and clang-tidy are available.
+
+### Deterministic IME path changes
+
+```sh
+just ime-e2e-smoke
+just user-ime-command-demo-smoke
+```
+
+These checks prove the deterministic product spine. They do not prove live desktop behavior.
+
+### User install changes
+
+Prefer a temporary `HOME` unless the user explicitly wants to mutate the real profile:
+
+```sh
+tmp_home="$(mktemp -d)"
+HOME="$tmp_home" VINPUT_USER_PROFILE=command-demo scripts/install-user-ime.sh
+HOME="$tmp_home" VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
+rm -rf "$tmp_home"
+```
+
+### Optional live desktop checks
+
+Run only inside a real desktop session where Fcitx5 and PipeWire are expected to work:
+
+```sh
+just ime-fcitx-live-probe
+VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe
+just pipewire-check
+just ime-configured-pipewire-live
+```
+
+If a live check fails, record the exact failure and do not mark the feature as done.
+
+## Common commands
 
 Use `just` as the primary local interface. The recipes mirror CI and make command intent explicit.
+
+```sh
+just fmt
+just fmt-check
+just lint
+just test
+just dbus-test
+just dbus-lint
+just addon-format-check
+just addon-test
+just addon-smoke
+just addon-dbus-smoke
+just addon-dbus-activation-smoke
+just addon-dbus-configured-activation-smoke
+just addon-dbus-adapter-lifecycle-smoke
+just ime-configured-activation-smoke
+just ime-e2e-smoke
+just user-ime-command-demo-smoke
+just user-ime-command-demo
+just user-ime-pipewire-live
+just user-ime-status
+just user-ime-clear
+just check
+just ci
+just smoke
+just e2e-demo
+just pipewire-check
+just ime-fcitx-live-probe
+```
+
+Current CI covers `just ci`, deterministic configured activation, deterministic IME E2E, adapter lifecycle, and PipeWire feature compile/test coverage. Live desktop recipes stay outside CI by design.
+
+## Dependency notes
 
 Arch Linux local native dependencies for the current C++ addon slice:
 
@@ -65,102 +158,27 @@ Arch Linux local native dependencies for the current C++ addon slice:
 sudo pacman -S --needed base-devel cmake clang just pkgconf fcitx5
 ```
 
-`fcitx5` provides the Fcitx5 Core/Utils headers and CMake/pkg-config metadata used by `addon-lint` and `addon-fcitx-build`. Extra Fcitx module development packages are not required for the current thin addon slice.
+`fcitx5` provides the Fcitx5 Core/Utils headers and CMake/pkg-config metadata used by addon build and lint paths.
 
-Common commands:
+## Active work direction
 
-```sh
-just fmt          # format Rust code and C++ addon sources
-just fmt-check    # check Rust and C++ addon formatting
-just lint         # clang-tidy for addon sources plus clippy for the workspace
-just test         # cargo test --workspace --all-targets
-just dbus-test    # D-Bus integration tests under dbus-run-session
-just dbus-lint    # clippy with dbus-integration feature
-just addon-format # format the C++ Fcitx bridge sources with clang-format
-just addon-format-check # check C++ Fcitx bridge formatting
-just addon-configure # configure the C++ Fcitx bridge CMake project
-just addon-build  # build the C++ bridge core without requiring Fcitx desktop deps
-just addon-fcitx-build # require Fcitx5Core and build fcitx5-vinput.so
-just addon-install-smoke # stage-install fcitx5-vinput.so and verify addon metadata plus DBus activation
-just ime-install-smoke # stage Rust daemon, addon module, metadata, and DBus activation together
-just ime-configured-install-smoke # stage demo config plus activation for configured backends
-just addon-lint   # require Fcitx5Core and lint all C++ addon sources with clang-tidy
-just addon-test   # run CTest for the C++ Fcitx bridge core
-just addon-smoke  # addon-format-check plus addon-lint plus addon-test
-just addon-dbus-smoke # run C++ bridge and retained addon triggers against Rust daemon over DBus
-just addon-dbus-pipewire-live # run C++ bridge over DBus with the live PipeWire recorder
-just addon-dbus-activation-smoke # verify DBus activation starts the Rust daemon for bridge/addon trigger smokes
-just addon-dbus-configured-activation-smoke # verify DBus activation starts configured command backends
-just addon-dbus-adapter-lifecycle-smoke # verify configured text adapter start/duplicate-start/stop diagnostics over DBus
-just ime-configured-activation-smoke # verify staged daemon/addon/config/WAV activate together
-just ime-e2e-smoke # verify staged activation plus fake outcome sink application behavior
-just ime-pipewire-live # explicit staged IME activation with live PipeWire capture
-just user-activation-service # install user DBus activation service for local desktop testing
-just user-command-demo-activation-service # install user DBus activation with deterministic command demo config
-just user-pipewire-activation-service # install user DBus activation for configured command backends plus live PipeWire
-just user-ime-install # install daemon, Fcitx addon module, metadata, and DBus activation
-just user-ime-command-demo # install a deterministic command-demo user IME profile
-just user-ime-pipewire-live # install a configured PipeWire user IME profile
-just user-ime-status # inspect user IME install status
-just user-ime-clear # remove user IME addon files and DBus activation
-just user-activation-service-status # inspect user DBus activation service path/name/exec
-just user-activation-service-clear # remove user DBus activation service after local testing
-just check        # fmt-check plus lint plus test plus dbus-test plus dbus-lint plus addon-test
-just ci           # alias for check
-just smoke        # CLI/daemon smoke commands
-just e2e-demo     # deterministic file-input command ASR/text demo
-just pipewire-check # optional PipeWire feature compile/tests without live daemon
-just pipewire-live  # explicit local PipeWire probes gated by env variables
-just dbus         # run the mock/configured legacy D-Bus service on the current session bus
-```
+The active migration target is **real desktop alpha**:
 
-GitHub Actions runs `just ci`, then `just ime-configured-activation-smoke`, then `just ime-e2e-smoke`, then `just addon-dbus-adapter-lifecycle-smoke`, then `just pipewire-check`, so the staged daemon/addon/config/WAV activation path, fake outcome sink application behavior, and configured text adapter lifecycle D-Bus path are covered remotely as well as locally.
+1. user install succeeds;
+2. Fcitx5 is restarted with generated environment;
+3. `fcitx5-vinput.so` loads;
+4. normal trigger starts/stops recording;
+5. live PipeWire capture or deterministic command input feeds a real recognition path;
+6. result commits into a real application;
+7. command mode can replace selected text;
+8. `vinput doctor` and live probe clearly diagnose failures.
 
-`just ime-e2e-smoke` stages the daemon, addon, addon metadata, command demo config, deterministic WAV, and D-Bus activation service together. It then runs the fake outcome sink smoke for preedit, commit, command-mode selected-text deletion, candidate menu, and fallback commit application, followed by the configured bridge/addon D-Bus activation smokes. This keeps the recipe deterministic and CI-friendly; live desktop `fcitx::InputContext` mutation remains a separate local validation target.
+For priority details, use [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md). For current gap status, use [`migration/function-gap-audit.md`](migration/function-gap-audit.md).
 
-`just pipewire-check` is safe for machines with PipeWire development libraries because it does not require a live PipeWire daemon and covers the audio crate plus CLI/daemon audio-device diagnostics with the optional feature enabled. `just pipewire-live`, `just addon-dbus-pipewire-live`, `just ime-pipewire-live`, and `just ime-configured-pipewire-live` are intentionally excluded from `just ci`; they should only be run on a desktop session where live PipeWire probes are expected to work. `just pipewire-live` sets `VINPUT_TEST_PIPEWIRE_CONTEXT=1`, `VINPUT_TEST_PIPEWIRE_ENUMERATE=1`, and `VINPUT_TEST_PIPEWIRE_RECORD=1`; `just addon-dbus-pipewire-live` adds the C++ bridge plus Rust daemon D-Bus path on top of the live recorder worker, prints the daemon build's `audio-devices` JSON diagnostics, and sets `VINPUT_DBUS_SMOKE_RECORD_MS=100` so the bridge waits briefly before stopping capture. `just ime-pipewire-live` stages the daemon, addon, metadata, and D-Bus service together, then verifies staged D-Bus activation starts the PipeWire-enabled daemon with `--dbus --audio-backend pipewire`. `just ime-configured-pipewire-live` uses the same staged activation shape with configured command ASR/text adapters from `data/e2e-configured-pipewire-live.json` plus live PipeWire capture.
+## Work selection rules
 
-Long-running daemon sessions default to `--audio-backend mock`. Use `cargo run -p vinput-daemon --features pipewire-backend -- audio-devices` to inspect the configured PipeWire target and pinned `S16LE`/16 kHz/mono recording plan. Use `cargo run -p vinput-daemon --features pipewire-backend -- --once --audio-backend pipewire --record-ms 100` for an explicit local start/wait/stop smoke, and use `cargo run -p vinput-daemon --features pipewire-backend -- --dbus --audio-backend pipewire` only for desktop D-Bus capture work. Both commands select the live PipeWire recorder worker without changing CI or staged mock/configured demos.
-
-### Live desktop PipeWire validation
-
-Run live desktop checks only inside a user session where PipeWire recording is expected to work. Start with diagnostics so target and format errors are visible before launching the bridge:
-
-```sh
-cargo run -p vinput-daemon --features pipewire-backend -- audio-devices
-cargo run -p vinput-daemon --features pipewire-backend -- --once --audio-backend pipewire --record-ms 100
-just addon-dbus-pipewire-live
-just ime-pipewire-live
-just ime-configured-pipewire-live
-```
-
-`just ime-pipewire-live` stages a fresh install tree under `target/tmp/fcitx-ime-pipewire-live-smoke`, installs the PipeWire-enabled daemon plus `fcitx5-vinput.so`, verifies the generated `org.fcitx.Vinput.service` contains `--dbus --audio-backend pipewire`, prints the staged daemon's `audio-devices` JSON diagnostics, then runs the retained C++ D-Bus smoke under `dbus-run-session` so D-Bus activation starts the staged daemon instead of a manually launched process. It also defaults `VINPUT_DBUS_SMOKE_RECORD_MS=100` so `StartRecording` and `StopRecording` leave time for the live worker to capture audio.
-
-`just ime-configured-pipewire-live` uses the same staged install and activation shape, but adds `--configured-backends --config <staged config> --audio-backend pipewire`. The staged config uses a deterministic command ASR helper and command text adapter, so the smoke verifies live capture can feed the configured ASR/text pipeline without depending on the amount of audio captured.
-
-If a live check fails, inspect `audio-devices` first. The JSON report should show `backend: "pipewire"`, the requested capture target, and the pinned `S16LE`/16 kHz/mono recording plan. Recorder setup errors are expected to include the same target/format/sample-rate/channel plan, which makes missing PipeWire sessions, unavailable target objects, and stream setup failures easier to distinguish from ASR/text failures. These live recipes stay out of CI; CI continues to cover compile-time PipeWire paths with `just pipewire-check`.
-
-Before proposing a code change, prefer running:
-
-```sh
-just ci
-just smoke
-```
-
-For docs-only changes, at least verify paths and git status. Run full checks when docs alter public contracts, command examples, or test instructions.
-
-## Next work
-
-The next migration phase is E2E port acceleration. Read `docs/migration/e2e-port-plan.md` first and use it as the tracked source of truth for product direction. The old ignored `docs/plan/review-driven-refactor-plan.md` may contain useful notes, but it is no longer the primary plan.
-
-Current priority order:
-
-1. Build a retained thin C++ Fcitx5 frontend bridge that talks to the Rust daemon and commits a mock/configured result.
-2. Add local run and dev install documentation for the daemon plus frontend bridge.
-3. Fill in the minimal live audio input path behind the existing optional audio feature.
-4. Use the configured command recognizer path as the fastest first non-mock recognition route.
-5. Keep configured text finishing usable from the frontend flow.
-6. Add registry resource preparation only after the product spine works.
-7. Defer GUI/i18n/release polish until the input method is usable.
-
-Feature work is now allowed when it directly advances the E2E product spine and stays behind explicit seams with focused tests. Do not add broad cleanup that does not move one of the priority items above.
+- Prefer work that moves real desktop alpha or real ASR alpha forward.
+- Do not count deterministic smoke tests as live desktop proof.
+- Keep user-profile mutations explicit and opt-in.
+- Preserve deterministic tests for every new live-facing path.
+- Defer distro packaging and broad GUI polish until real desktop alpha and real ASR alpha are proven.
