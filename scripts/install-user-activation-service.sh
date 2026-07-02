@@ -5,10 +5,30 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 daemon="${VINPUT_USER_DAEMON:-${repo_root}/target/debug/vinput-daemon}"
+profile="${VINPUT_USER_PROFILE:-}"
 config="${VINPUT_USER_CONFIG:-}"
 audio_backend="${VINPUT_USER_AUDIO_BACKEND:-}"
 configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-}"
 remove_user="${VINPUT_USER_REMOVE:-}"
+
+case "${profile}" in
+  ""|mock)
+    ;;
+  command-demo)
+    config="${VINPUT_USER_CONFIG:-${repo_root}/data/e2e-command-demo-config.json}"
+    configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-1}"
+    ;;
+  configured-pipewire-live)
+    config="${VINPUT_USER_CONFIG:-${repo_root}/data/e2e-configured-pipewire-live.json}"
+    audio_backend="${VINPUT_USER_AUDIO_BACKEND:-pipewire}"
+    configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-1}"
+    ;;
+  *)
+    echo "unsupported VINPUT_USER_PROFILE: ${profile}" >&2
+    echo "supported profiles: mock, command-demo, configured-pipewire-live" >&2
+    exit 2
+    ;;
+esac
 
 cargo build -q -p vinput-cli -p vinput-daemon
 

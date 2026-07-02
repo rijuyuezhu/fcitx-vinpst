@@ -129,6 +129,14 @@ ime-configured-pipewire-live:
 user-activation-service:
     scripts/install-user-activation-service.sh
 
+# Install per-user D-Bus activation service with deterministic command demo backends.
+user-command-demo-activation-service:
+    VINPUT_USER_PROFILE=command-demo scripts/install-user-activation-service.sh
+
+# Install per-user D-Bus activation service for configured command backends plus live PipeWire capture.
+user-pipewire-activation-service:
+    VINPUT_USER_PROFILE=configured-pipewire-live scripts/install-user-activation-service.sh
+
 # Clear the per-user D-Bus activation service installed for local desktop testing.
 user-activation-service-clear:
     VINPUT_USER_REMOVE=1 scripts/install-user-activation-service.sh

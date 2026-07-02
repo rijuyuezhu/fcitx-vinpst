@@ -94,6 +94,8 @@ just addon-dbus-configured-activation-smoke # verify DBus activation starts conf
 just ime-configured-activation-smoke # verify staged daemon/addon/config/WAV activate together
 just ime-pipewire-live # explicit staged IME activation with live PipeWire capture
 just user-activation-service # install user DBus activation service for local desktop testing
+just user-command-demo-activation-service # install user DBus activation with deterministic command demo config
+just user-pipewire-activation-service # install user DBus activation for configured command backends plus live PipeWire
 just user-activation-service-clear # remove user DBus activation service after local testing
 just check        # fmt-check plus lint plus test plus dbus-test plus dbus-lint plus addon-test
 just ci           # alias for check
