@@ -432,6 +432,29 @@ fn runtime_status_reports_initialized_mock_runtime() {
 }
 
 #[test]
+fn runtime_status_reports_configured_command_demo_runtime() {
+    let value = assert_json_success(
+        run_daemon_with_config(
+            e2e_demo_config_path(),
+            &["--configured-backends", "runtime-status"],
+            "run vinput-daemon runtime-status with configured command demo",
+        ),
+        "configured runtime status",
+    );
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["status"], "idle");
+    assert_eq!(value["configured_backends"], true);
+    assert_eq!(value["asr"]["effective_provider_id"], "demo-command-asr");
+    assert_eq!(value["asr"]["target_provider_id"], "demo-command-asr");
+    assert_eq!(value["config"]["active_scene"], "demo-postprocess");
+    assert_eq!(value["text_adapters"]["adapter_count"], 1);
+    assert_eq!(
+        value["text_adapters"]["single_adapter_id"],
+        "demo-text-adapter"
+    );
+}
+
+#[test]
 fn audio_devices_reports_default_capture_target_and_unavailable_backend() {
     let value = assert_json_success(
         run_daemon_with_config(
