@@ -17,7 +17,8 @@ addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
 service_file="${stage_abs}/share/dbus-1/services/org.fcitx.Vinput.service"
 
 rm -rf "${build_dir}" "${stage_dir}"
-cargo build -q -p vinput-daemon
+rm -f target/debug/vinput-daemon
+cargo build -q -p vinput-daemon --bin vinput-daemon
 install -Dm755 target/debug/vinput-daemon "${daemon_path}"
 install -Dm644 data/e2e-command-demo-config.json "${config_path}"
 python3 scripts/write-demo-wav.py "${wav_path}"
@@ -28,9 +29,11 @@ if [[ -z "\${DBUS_SESSION_BUS_ADDRESS:-}" && -n "\${DBUS_STARTER_ADDRESS:-}" ]];
   export DBUS_SESSION_BUS_ADDRESS="\${DBUS_STARTER_ADDRESS}"
 fi
 export RUST_LOG="\${RUST_LOG:-info}"
+export VINPUT_DAEMON_TRACE_STARTUP=1
 echo "DBUS_SESSION_BUS_ADDRESS=\${DBUS_SESSION_BUS_ADDRESS:-}" >"${daemon_log}"
 echo "DBUS_STARTER_ADDRESS=\${DBUS_STARTER_ADDRESS:-}" >>"${daemon_log}"
 echo "RUST_LOG=\${RUST_LOG}" >>"${daemon_log}"
+echo "VINPUT_DAEMON_TRACE_STARTUP=\${VINPUT_DAEMON_TRACE_STARTUP}" >>"${daemon_log}"
 "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" >>"${daemon_log}" 2>&1
 status=\$?
 echo "daemon_exit_status=\${status}" >>"${daemon_log}"

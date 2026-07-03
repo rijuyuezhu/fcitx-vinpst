@@ -107,6 +107,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
+    trace_startup("parsed args");
     let config = load_config(args.config.as_ref())?;
     if args.pcm16le.is_some() && args.wav.is_some() {
         bail!("--pcm16le and --wav cannot be used together");
@@ -174,6 +175,7 @@ async fn main() -> anyhow::Result<()> {
         let payload = runtime.stop_recording(None)?;
         println!("{}", payload.to_json_string()?);
     } else if args.dbus {
+        trace_startup("enter dbus branch");
         let _connection = VinputDbusService::new(runtime)
             .serve_on_session_bus()
             .await
@@ -184,6 +186,7 @@ async fn main() -> anyhow::Result<()> {
             interface = vinput_protocol::dbus::SERVICE_INTERFACE,
             "mock daemon D-Bus service is running"
         );
+        trace_startup("dbus service owned; waiting forever");
         wait_forever().await;
     } else {
         info!(
@@ -195,6 +198,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn trace_startup(message: &str) {
+    if std::env::var_os("VINPUT_DAEMON_TRACE_STARTUP").is_some() {
+        eprintln!("vinput-daemon-startup: {message}");
+    }
 }
 
 async fn wait_forever() {
