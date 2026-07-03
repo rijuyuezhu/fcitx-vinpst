@@ -106,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    trace_startup("before args parse");
     let args = Args::parse();
     trace_startup("parsed args");
     let config = load_config(args.config.as_ref())?;

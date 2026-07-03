@@ -34,6 +34,9 @@ echo "DBUS_SESSION_BUS_ADDRESS=\${DBUS_SESSION_BUS_ADDRESS:-}" >"${daemon_log}"
 echo "DBUS_STARTER_ADDRESS=\${DBUS_STARTER_ADDRESS:-}" >>"${daemon_log}"
 echo "RUST_LOG=\${RUST_LOG}" >>"${daemon_log}"
 echo "VINPUT_DAEMON_TRACE_STARTUP=\${VINPUT_DAEMON_TRACE_STARTUP}" >>"${daemon_log}"
+echo "daemon_sha256=$(sha256sum "${daemon_path}" | awk '{print $1}')" >>"${daemon_log}"
+echo "daemon_has_startup_marker=$(strings "${daemon_path}" | grep -F -c 'vinput-daemon-startup')" >>"${daemon_log}"
+echo "daemon_argv=${daemon_path} --dbus --configured-backends --config ${config_path} --wav ${wav_path}" >>"${daemon_log}"
 "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" >>"${daemon_log}" 2>&1
 status=\$?
 echo "daemon_exit_status=\${status}" >>"${daemon_log}"
