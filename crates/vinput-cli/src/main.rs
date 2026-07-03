@@ -546,18 +546,18 @@ fn handle_recording_command(command: RecordingCommand) -> anyhow::Result<()> {
             selected_text,
             dry_run,
             json,
-        } => print_recording_plan("start", selected_text.as_deref(), None, dry_run, json),
+        } => print_recording_action("start", selected_text.as_deref(), None, dry_run, json),
         RecordingCommand::Stop {
             scene,
             dry_run,
             json,
-        } => print_recording_plan("stop", None, scene.as_deref(), dry_run, json),
+        } => print_recording_action("stop", None, scene.as_deref(), dry_run, json),
         RecordingCommand::Toggle {
             selected_text,
             scene,
             dry_run,
             json,
-        } => print_recording_plan(
+        } => print_recording_action(
             "toggle",
             selected_text.as_deref(),
             scene.as_deref(),
@@ -567,25 +567,109 @@ fn handle_recording_command(command: RecordingCommand) -> anyhow::Result<()> {
     }
 }
 
-fn print_recording_plan(
+fn print_recording_action(
     action: &str,
     selected_text: Option<&str>,
     scene: Option<&str>,
     dry_run: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    if !dry_run {
+    if dry_run {
+        let output = recording_plan_json(action, selected_text, scene);
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            print_recording_plan_text(action, selected_text, scene);
+        }
+        return Ok(());
+    }
+    if action == "toggle" {
         anyhow::bail!(
-            "recording {action} currently requires --dry-run until the D-Bus client is enabled"
+            "recording toggle currently requires --dry-run until status-based dispatch is enabled"
         );
     }
-    let output = recording_plan_json(action, selected_text, scene);
+    let result = recording_action_via_dbus(action, selected_text, scene)?;
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
+        println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        print_recording_plan_text(action, selected_text, scene);
+        print_recording_result_text(&result);
     }
     Ok(())
+}
+
+fn recording_action_via_dbus(
+    action: &str,
+    selected_text: Option<&str>,
+    scene: Option<&str>,
+) -> anyhow::Result<serde_json::Value> {
+    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let proxy = daemon_service_proxy(&connection)?;
+    let method = match (action, selected_text) {
+        ("start", Some(text)) => {
+            let _: () = proxy
+                .call(dbus::method::START_COMMAND_RECORDING, &(text))
+                .context("call StartCommandRecording on daemon D-Bus service")?;
+            dbus::method::START_COMMAND_RECORDING
+        }
+        ("start", None) => {
+            let _: () = proxy
+                .call(dbus::method::START_RECORDING, &())
+                .context("call StartRecording on daemon D-Bus service")?;
+            dbus::method::START_RECORDING
+        }
+        ("stop", _) => {
+            let payload: String = proxy
+                .call(dbus::method::STOP_RECORDING, &(scene.unwrap_or("")))
+                .context("call StopRecording on daemon D-Bus service")?;
+            return Ok(recording_result_json(
+                action,
+                dbus::method::STOP_RECORDING,
+                scene,
+                Some(payload.as_str()),
+            ));
+        }
+        _ => anyhow::bail!("unsupported recording action `{action}`"),
+    };
+    Ok(recording_result_json(action, method, scene, None))
+}
+
+fn recording_result_json(
+    action: &str,
+    method: &str,
+    scene: Option<&str>,
+    payload_json: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": false,
+        "action": action,
+        "will_call_dbus": true,
+        "called": true,
+        "dbus": {
+            "service": dbus::SERVICE_BUS_NAME,
+            "object_path": dbus::SERVICE_OBJECT_PATH,
+            "interface": dbus::SERVICE_INTERFACE,
+            "method": method,
+        },
+        "args": {
+            "scene": scene.unwrap_or(""),
+        },
+        "payload_json": payload_json,
+    })
+}
+
+fn print_recording_result_text(result: &serde_json::Value) {
+    println!("dry_run: false");
+    println!("action: {}", optional_json_str(&result["action"]));
+    println!("will_call_dbus: true");
+    println!("called: true");
+    println!("service: {}", dbus::SERVICE_BUS_NAME);
+    println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+    println!("interface: {}", dbus::SERVICE_INTERFACE);
+    println!("method: {}", optional_json_str(&result["dbus"]["method"]));
+    if let Some(payload_json) = result["payload_json"].as_str() {
+        println!("payload_json: {payload_json}");
+    }
 }
 
 fn recording_plan_json(

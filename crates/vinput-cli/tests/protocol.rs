@@ -337,3 +337,17 @@ fn recording_stop_and_toggle_dry_run_print_text_plans() {
     assert!(toggle_stdout.contains("StartRecording"));
     assert!(toggle_stdout.contains("StopRecording"));
 }
+
+#[test]
+fn recording_toggle_without_dry_run_is_rejected_until_dispatch_exists() {
+    let output = vinput_command()
+        .args(["recording", "toggle"])
+        .output()
+        .expect("run vinput recording toggle without dry-run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains(
+        "recording toggle currently requires --dry-run until status-based dispatch is enabled"
+    ));
+}
