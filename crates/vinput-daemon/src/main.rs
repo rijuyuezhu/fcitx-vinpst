@@ -184,17 +184,21 @@ async fn main() -> anyhow::Result<()> {
             interface = vinput_protocol::dbus::SERVICE_INTERFACE,
             "mock daemon D-Bus service is running"
         );
-        tokio::signal::ctrl_c().await.context("wait for ctrl-c")?;
+        wait_forever().await;
     } else {
         info!(
             status = %runtime.status(),
             uptime_ms = runtime.uptime().as_millis(),
             "mock daemon initialized; pass --dbus to expose the legacy D-Bus ABI"
         );
-        tokio::signal::ctrl_c().await.context("wait for ctrl-c")?;
+        wait_forever().await;
     }
 
     Ok(())
+}
+
+async fn wait_forever() {
+    std::future::pending::<()>().await;
 }
 
 fn runtime_status_summary(
