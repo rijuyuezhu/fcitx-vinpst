@@ -546,6 +546,256 @@ fn llm_mutations_reject_invalid_inputs() {
 }
 
 #[test]
+fn adapter_add_dry_run_json_validates_without_writing() {
+    let path = write_llm_fixture("vinput-adapter-add-dry-run");
+    let before = fs::read_to_string(&path).expect("read original adapter config");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "add",
+            "extra-adapter",
+            "--command",
+            "extra-helper",
+            "--config",
+        ])
+        .arg(&path)
+        .args([
+            "--arg=--json",
+            "--env",
+            "TOKEN=secret-token",
+            "--working-dir",
+            "/tmp",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput adapter add dry-run");
+
+    let value = assert_json_success(output, "adapter add dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["adapter_id"], "extra-adapter");
+    assert_eq!(value["before_adapter_count"], 2);
+    assert_eq!(value["after_adapter_count"], 3);
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged adapter config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary adapter config");
+}
+
+#[test]
+fn adapter_add_text_dry_run_outputs_expected_fields_without_secrets() {
+    let path = write_llm_fixture("vinput-adapter-add-text-dry-run");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "add",
+            "extra-adapter",
+            "--command",
+            "extra-helper",
+            "--config",
+        ])
+        .arg(&path)
+        .args(["--env", "TOKEN=secret-token", "--dry-run"])
+        .output()
+        .expect("run vinput adapter add text dry-run");
+    fs::remove_file(&path).expect("remove temporary adapter config");
+
+    let stdout = assert_stdout_success(output, "adapter add text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("adapter_id: extra-adapter"));
+    assert!(stdout.contains("before_adapter_count: 2"));
+    assert!(stdout.contains("after_adapter_count: 3"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
+    assert!(!stdout.contains("secret-token"));
+}
+
+#[test]
+fn adapter_add_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-adapter-add-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, llm_fixture_json()).expect("write adapter config");
+    let output_path = root.join("out/adapter.json");
+    let before = fs::read_to_string(&config_path).expect("read original adapter config");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "add",
+            "extra-adapter",
+            "--command",
+            "extra-helper",
+            "--config",
+        ])
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput adapter add --output");
+
+    let value = assert_json_success(output, "adapter add output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    let adapters = read_json(&output_path)["llm"]["adapters"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(
+        adapters
+            .iter()
+            .any(|adapter| adapter["id"] == "extra-adapter")
+    );
+    fs::remove_dir_all(root).expect("remove adapter add output fixture dir");
+}
+
+#[test]
+fn adapter_remove_dry_run_json_validates_without_writing() {
+    let path = write_llm_fixture("vinput-adapter-remove-dry-run");
+    let before = fs::read_to_string(&path).expect("read original adapter config");
+
+    let output = vinput_command()
+        .args(["adapter", "remove", "simple-adapter", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput adapter remove dry-run");
+
+    let value = assert_json_success(output, "adapter remove dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["removed_adapter_id"], "simple-adapter");
+    assert_eq!(value["before_adapter_count"], 2);
+    assert_eq!(value["after_adapter_count"], 1);
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged adapter config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary adapter config");
+}
+
+#[test]
+fn adapter_remove_in_place_writes_backup() {
+    let root = unique_temp_dir("vinput-adapter-remove-in-place");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, llm_fixture_json()).expect("write adapter config");
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original adapter config");
+
+    let output = vinput_command()
+        .args(["adapter", "remove", "simple-adapter", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput adapter remove --in-place");
+
+    let value = assert_json_success(output, "adapter remove in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read adapter backup config"),
+        before
+    );
+    let adapters = read_json(&config_path)["llm"]["adapters"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(
+        adapters
+            .iter()
+            .all(|adapter| adapter["id"] != "simple-adapter")
+    );
+    fs::remove_dir_all(root).expect("remove adapter remove in-place fixture dir");
+}
+
+#[test]
+fn adapter_mutations_reject_invalid_inputs() {
+    let path = write_llm_fixture("vinput-adapter-mutation-errors");
+
+    let duplicate = vinput_command()
+        .args([
+            "adapter",
+            "add",
+            "simple-adapter",
+            "--command",
+            "helper",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter add duplicate id");
+    assert!(!duplicate.status.success());
+    let stderr = String::from_utf8(duplicate.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter `simple-adapter` already exists"));
+
+    let empty_command = vinput_command()
+        .args(["adapter", "add", "new", "--command", "   ", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter add empty command");
+    assert!(!empty_command.status.success());
+    let stderr = String::from_utf8(empty_command.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter command cannot be empty"));
+
+    let bad_env = vinput_command()
+        .args([
+            "adapter",
+            "add",
+            "new",
+            "--command",
+            "helper",
+            "--env",
+            "TOKEN",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter add invalid env");
+    assert!(!bad_env.status.success());
+    let stderr = String::from_utf8(bad_env.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter env `TOKEN` is not KEY=VALUE"));
+
+    let missing = vinput_command()
+        .args(["adapter", "remove", "missing", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter remove missing id");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter `missing` not found"));
+
+    let missing_target = vinput_command()
+        .args(["adapter", "add", "new", "--command", "helper", "--config"])
+        .arg(&path)
+        .output()
+        .expect("run vinput adapter add without write target");
+    assert!(!missing_target.status.success());
+    let stderr = String::from_utf8(missing_target.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("config set writes require --output <path> or --in-place"));
+
+    fs::remove_file(&path).expect("remove temporary adapter config");
+}
+
+#[test]
 fn adapter_list_json_reports_bundled_default_empty_adapters() {
     let output = vinput_command()
         .args(["adapter", "list", "--json"])

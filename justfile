@@ -200,6 +200,7 @@ smoke:
     cargo run -q -p vinput-cli -- llm list --json
     cargo run -q -p vinput-cli -- llm add scratch --base-url https://llm.example.test/v1 --dry-run --json
     cargo run -q -p vinput-cli -- adapter list --json
+    cargo run -q -p vinput-cli -- adapter add scratch --command true --dry-run --json
     cargo run -q -p vinput-cli -- hotword get --json
     cargo run -q -p vinput-cli -- hotword set /tmp/hotwords.txt --dry-run --json
     cargo run -q -p vinput-cli -- hotword clear --dry-run --json

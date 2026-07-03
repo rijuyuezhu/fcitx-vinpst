@@ -499,6 +499,59 @@ enum AdapterCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Add a command text adapter to config.
+    Add {
+        /// New adapter id.
+        id: String,
+        /// Adapter executable path or command name.
+        #[arg(long)]
+        command: String,
+        /// Adapter command argument. Repeat for multiple args.
+        #[arg(long = "arg")]
+        args: Vec<String>,
+        /// Adapter environment entry as KEY=VALUE. Repeat for multiple entries.
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Optional working directory for the adapter process.
+        #[arg(long)]
+        working_dir: Option<String>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove a configured text adapter.
+    #[command(alias = "rm")]
+    Remove {
+        /// Existing adapter id to remove.
+        id: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Scene management commands.
@@ -2540,6 +2593,58 @@ struct LlmListContext {
     config: VinputConfig,
 }
 
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct AdapterAddRequest<'a> {
+    id: &'a str,
+    command: &'a str,
+    args: &'a [String],
+    env: &'a [String],
+    working_dir: Option<&'a str>,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct AdapterRemoveRequest<'a> {
+    id: &'a str,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct AdapterAddOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    adapter_id: String,
+    before_adapter_count: usize,
+    after_adapter_count: usize,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
+struct AdapterRemoveOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    removed_adapter_id: String,
+    before_adapter_count: usize,
+    after_adapter_count: usize,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
 struct AdapterListContext {
     config_path: Option<PathBuf>,
     source: &'static str,
@@ -2622,6 +2727,44 @@ fn handle_llm_command(command: LlmCommand) -> anyhow::Result<()> {
 fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
     match command {
         AdapterCommand::List { config, json } => print_adapter_list(config.as_ref(), json),
+        AdapterCommand::Add {
+            id,
+            command,
+            args,
+            env,
+            working_dir,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_adapter_add(AdapterAddRequest {
+            id: &id,
+            command: &command,
+            args: &args,
+            env: &env,
+            working_dir: working_dir.as_deref(),
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
+        AdapterCommand::Remove {
+            id,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_adapter_remove(AdapterRemoveRequest {
+            id: &id,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
     }
 }
 
@@ -3172,6 +3315,291 @@ fn print_llm_list_text(context: &LlmListContext) {
             provider.extra.len(),
         );
     }
+}
+
+fn print_adapter_add(request: AdapterAddRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_adapter_add(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&adapter_add_outcome_json(&outcome))?
+        );
+    } else {
+        print_adapter_add_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_adapter_add(request: &AdapterAddRequest<'_>) -> anyhow::Result<AdapterAddOutcome> {
+    let id = normalize_adapter_id(request.id)?;
+    let command = normalize_adapter_command(request.command)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for adapter add")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for adapter add")?;
+    config
+        .validate()
+        .context("validate config for adapter add")?;
+    if config.llm.adapters.iter().any(|adapter| adapter.id == id) {
+        anyhow::bail!("text adapter `{id}` already exists");
+    }
+    let before_adapter_count = config.llm.adapters.len();
+    let adapter = adapter_add_json_object(&id, &command, request)?;
+    llm_adapters_array_mut(&mut loaded.document)?.push(serde_json::Value::Object(adapter));
+    validate_config_json_value(&loaded.document, "validate updated adapter config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+    Ok(AdapterAddOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        adapter_id: id,
+        before_adapter_count,
+        after_adapter_count: before_adapter_count + 1,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn print_adapter_remove(request: AdapterRemoveRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_adapter_remove(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&adapter_remove_outcome_json(&outcome))?
+        );
+    } else {
+        print_adapter_remove_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_adapter_remove(request: &AdapterRemoveRequest<'_>) -> anyhow::Result<AdapterRemoveOutcome> {
+    let id = normalize_adapter_id(request.id)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for adapter remove")?;
+    let config =
+        VinputConfig::from_json_str(&contents).context("parse config for adapter remove")?;
+    config
+        .validate()
+        .context("validate config for adapter remove")?;
+    if !config.llm.adapters.iter().any(|adapter| adapter.id == id) {
+        anyhow::bail!("text adapter `{id}` not found");
+    }
+    let before_adapter_count = config.llm.adapters.len();
+    let adapter_index = explicit_adapter_index(&loaded.document, &id)?;
+    llm_adapters_array_mut(&mut loaded.document)?.remove(adapter_index);
+    validate_config_json_value(&loaded.document, "validate updated adapter config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+    Ok(AdapterRemoveOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        removed_adapter_id: id,
+        before_adapter_count,
+        after_adapter_count: before_adapter_count - 1,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn adapter_add_json_object(
+    id: &str,
+    command: &str,
+    request: &AdapterAddRequest<'_>,
+) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
+    let mut object = serde_json::Map::new();
+    object.insert("id".to_owned(), serde_json::Value::String(id.to_owned()));
+    object.insert(
+        "command".to_owned(),
+        serde_json::Value::String(command.to_owned()),
+    );
+    if !request.args.is_empty() {
+        object.insert("args".to_owned(), serde_json::json!(request.args));
+    }
+    if !request.env.is_empty() {
+        object.insert(
+            "env".to_owned(),
+            serde_json::json!(parse_adapter_env(request.env)?),
+        );
+    }
+    if let Some(working_dir) = request.working_dir {
+        let trimmed = working_dir.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("text adapter field `working_dir` cannot be empty");
+        }
+        object.insert(
+            "working_dir".to_owned(),
+            serde_json::Value::String(trimmed.to_owned()),
+        );
+    }
+    Ok(object)
+}
+
+fn parse_adapter_env(entries: &[String]) -> anyhow::Result<BTreeMap<String, String>> {
+    let mut env = BTreeMap::new();
+    for entry in entries {
+        let (key, value) = entry
+            .split_once('=')
+            .with_context(|| format!("text adapter env `{entry}` is not KEY=VALUE"))?;
+        let key = key.trim();
+        if key.is_empty() {
+            anyhow::bail!("text adapter env `{entry}` has an empty key");
+        }
+        env.insert(key.to_owned(), value.to_owned());
+    }
+    Ok(env)
+}
+
+fn llm_adapters_array_mut(
+    document: &mut serde_json::Value,
+) -> anyhow::Result<&mut Vec<serde_json::Value>> {
+    document
+        .pointer_mut("/llm/adapters")
+        .and_then(serde_json::Value::as_array_mut)
+        .with_context(|| "config pointer `/llm/adapters` not found or not an array")
+}
+
+fn explicit_adapter_index(document: &serde_json::Value, id: &str) -> anyhow::Result<usize> {
+    document
+        .pointer("/llm/adapters")
+        .and_then(serde_json::Value::as_array)
+        .with_context(|| "config pointer `/llm/adapters` not found or not an array")?
+        .iter()
+        .position(|adapter| adapter.get("id").and_then(serde_json::Value::as_str) == Some(id))
+        .with_context(|| format!("text adapter `{id}` is not explicitly configured"))
+}
+
+fn normalize_adapter_id(id: &str) -> anyhow::Result<String> {
+    let id = id.trim();
+    if id.is_empty() {
+        anyhow::bail!("text adapter id cannot be empty");
+    }
+    Ok(id.to_owned())
+}
+
+fn normalize_adapter_command(command: &str) -> anyhow::Result<String> {
+    let command = command.trim();
+    if command.is_empty() {
+        anyhow::bail!("text adapter command cannot be empty");
+    }
+    Ok(command.to_owned())
+}
+
+fn adapter_add_outcome_json(outcome: &AdapterAddOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "adapter_id": outcome.adapter_id,
+        "before_adapter_count": outcome.before_adapter_count,
+        "after_adapter_count": outcome.after_adapter_count,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput adapter list to verify configured text adapters",
+            "run vinput scene list to inspect scenes that need adapters",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn adapter_remove_outcome_json(outcome: &AdapterRemoveOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "removed_adapter_id": outcome.removed_adapter_id,
+        "before_adapter_count": outcome.before_adapter_count,
+        "after_adapter_count": outcome.after_adapter_count,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput adapter list to verify configured text adapters",
+            "run vinput scene list to inspect scenes that need adapters",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_adapter_add_text(outcome: &AdapterAddOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("adapter_id: {}", outcome.adapter_id);
+    println!("before_adapter_count: {}", outcome.before_adapter_count);
+    println!("after_adapter_count: {}", outcome.after_adapter_count);
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
+}
+
+fn print_adapter_remove_text(outcome: &AdapterRemoveOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("removed_adapter_id: {}", outcome.removed_adapter_id);
+    println!("before_adapter_count: {}", outcome.before_adapter_count);
+    println!("after_adapter_count: {}", outcome.after_adapter_count);
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 fn print_adapter_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {

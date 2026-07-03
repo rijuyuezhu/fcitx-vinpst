@@ -184,6 +184,8 @@ fn llm_and_adapter_help_list_options() {
         .expect("run vinput adapter --help");
     let adapter_root_stdout = assert_stdout_success(adapter_root_output, "adapter help output");
     assert!(adapter_root_stdout.contains("list"));
+    assert!(adapter_root_stdout.contains("add"));
+    assert!(adapter_root_stdout.contains("remove"));
 
     let adapter_list_output = vinput_command()
         .args(["adapter", "list", "--help"])
