@@ -204,7 +204,7 @@ Acceptance:
 - Parse `registry/providers.json` and `registry/adapters.json` with script URLs and env specs.
 - Fetch i18n maps and resolve title/description with fallback to id/short_id.
 - Add fixtures copied from live registry with tests.
-- `vinput model list --json` and text output show both `id` and `short_id`.
+- `vinput model list --json` and text output show both `id` and `short_id`; legacy-compatible `model ls -a/--available` is accepted for the live/remote registry list.
 
 ### P0.2 model install/use/info/remove
 
@@ -212,7 +212,7 @@ Build the first user-facing model workflow.
 
 Acceptance:
 
-- `vinput model install <id-or-short-id>` downloads with mirror fallback, verifies sha256, extracts safely, and materializes under the managed model root.
+- `vinput model install <id-or-short-id>` downloads with mirror fallback, verifies sha256, extracts safely, and materializes under the managed model root; legacy-compatible `model add <id-or-short-id>` is accepted as the install alias.
 - `vinput model info <id|short_id|path>` prints installed path, family, backend, language, model files, hotword support, and runtime readiness hints.
 - `vinput model use <id|short_id|path>` updates config active provider/model in the current user config.
 - `vinput model remove <id|short_id>` removes only managed installed model directories after safety checks.

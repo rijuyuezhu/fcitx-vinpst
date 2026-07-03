@@ -112,7 +112,11 @@ enum RegistryCommand {
 #[derive(Debug, Subcommand)]
 enum ModelCommand {
     /// List models from live registry/models.json metadata.
+    #[command(alias = "ls")]
     List {
+        /// Legacy-compatible flag for listing remote/available models.
+        #[arg(short = 'a', long)]
+        available: bool,
         /// Optional local live registry/models.json file. Omitted to fetch configured mirrors.
         #[arg(long)]
         registry: Option<PathBuf>,
@@ -150,6 +154,7 @@ enum ModelCommand {
         json: bool,
     },
     /// Install a model from the live registry, or inspect the plan with --dry-run.
+    #[command(alias = "add")]
     Install {
         /// Full model id or `short_id`.
         id: String,
@@ -381,12 +386,14 @@ fn main() -> anyhow::Result<()> {
 fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
     match command {
         ModelCommand::List {
+            available,
             registry,
             i18n,
             config,
             locale,
             json,
         } => print_model_list(
+            available,
             registry.as_deref(),
             i18n.as_deref(),
             config.as_ref(),
@@ -888,6 +895,7 @@ struct FetchedText {
 }
 
 fn print_model_list(
+    _available: bool,
     registry_path: Option<&Path>,
     i18n_path: Option<&Path>,
     config_path: Option<&PathBuf>,

@@ -95,6 +95,24 @@ fn model_list_text_falls_back_to_short_id_without_i18n() {
 }
 
 #[test]
+fn model_ls_available_alias_matches_live_registry_list() {
+    let output = vinput_command()
+        .args(["model", "ls", "--available", "--registry"])
+        .arg(live_models_fixture())
+        .args(["--i18n"])
+        .arg(live_i18n_fixture())
+        .arg("--json")
+        .output()
+        .expect("run vinput model ls --available --json");
+
+    let value = assert_json_success(output, "model ls available json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["model_count"], 1);
+    assert_eq!(value["models"][0]["short_id"], "onnx-sv-zh-int8-off");
+    assert_eq!(value["models"][0]["title"], "SenseVoice 五语");
+}
+
+#[test]
 fn model_info_json_accepts_short_id_and_includes_raw_metadata() {
     let output = vinput_command()
         .args(["model", "info", "onnx-sv-zh-int8-off", "--registry"])
@@ -232,6 +250,25 @@ fn model_install_dry_run_text_reports_no_side_effects() {
     assert!(stdout.contains("will_download: false"));
     assert!(stdout.contains("will_extract: false"));
     assert!(stdout.contains("will_write_config: false"));
+}
+
+#[test]
+fn model_add_alias_matches_install_dry_run() {
+    let output = vinput_command()
+        .args(["model", "add", "onnx-sv-zh-int8-off", "--registry"])
+        .arg(live_models_fixture())
+        .args(["--model-root", "/tmp/vinput-models"])
+        .args(["--staging-root", "/tmp/vinput-stage"])
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput model add --dry-run --json");
+
+    let value = assert_json_success(output, "model add alias dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["model"]["short_id"], "onnx-sv-zh-int8-off");
+    assert_eq!(value["archive"]["format"], "tar_bz2");
+    assert_eq!(value["will_write_config"], false);
 }
 
 #[test]

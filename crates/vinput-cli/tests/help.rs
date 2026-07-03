@@ -82,6 +82,7 @@ fn model_list_help_lists_registry_options() {
         .expect("run vinput model list --help");
 
     let stdout = assert_stdout_success(output, "help output");
+    assert!(stdout.contains("--available"));
     assert!(stdout.contains("--registry"));
     assert!(stdout.contains("--i18n"));
     assert!(stdout.contains("--config"));
@@ -117,4 +118,24 @@ fn model_install_help_lists_dry_run_and_path_options() {
     assert!(stdout.contains("--staging-root"));
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("--json"));
+}
+
+#[test]
+fn model_legacy_aliases_accept_help() {
+    let list_output = vinput_command()
+        .args(["model", "ls", "--help"])
+        .output()
+        .expect("run vinput model ls --help");
+    let list_stdout = assert_stdout_success(list_output, "model ls help output");
+    assert!(list_stdout.contains("--available"));
+    assert!(list_stdout.contains("--registry"));
+
+    let add_output = vinput_command()
+        .args(["model", "add", "--help"])
+        .output()
+        .expect("run vinput model add --help");
+    let add_stdout = assert_stdout_success(add_output, "model add help output");
+    assert!(add_stdout.contains("<ID>"));
+    assert!(add_stdout.contains("--dry-run"));
+    assert!(add_stdout.contains("--model-root"));
 }
