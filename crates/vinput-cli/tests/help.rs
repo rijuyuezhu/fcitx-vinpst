@@ -19,6 +19,7 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("protocol"));
     assert!(stdout.contains("registry"));
     assert!(stdout.contains("device"));
+    assert!(stdout.contains("provider"));
     assert!(stdout.contains("model"));
     assert!(stdout.contains("daemon"));
     assert!(stdout.contains("recording"));
@@ -105,6 +106,24 @@ fn device_help_lists_list_and_use_options() {
     assert!(use_stdout.contains("--in-place"));
     assert!(use_stdout.contains("--dry-run"));
     assert!(use_stdout.contains("--json"));
+}
+
+#[test]
+fn provider_help_lists_list_options() {
+    let root_output = vinput_command()
+        .args(["provider", "--help"])
+        .output()
+        .expect("run vinput provider --help");
+    let root_stdout = assert_stdout_success(root_output, "provider help output");
+    assert!(root_stdout.contains("list"));
+
+    let list_output = vinput_command()
+        .args(["provider", "list", "--help"])
+        .output()
+        .expect("run vinput provider list --help");
+    let list_stdout = assert_stdout_success(list_output, "provider list help output");
+    assert!(list_stdout.contains("--config"));
+    assert!(list_stdout.contains("--json"));
 }
 
 #[test]

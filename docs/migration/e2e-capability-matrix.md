@@ -86,6 +86,7 @@ audio-devices
 doctor
 activation-service
 model list/ls/info/install/add/use/remove/rm
+provider list/ls
 daemon start/status/reload-asr/stop/restart/log
 recording start/stop/toggle
 mock-result
@@ -104,7 +105,7 @@ Rust CLI strengths:
 Rust CLI weaknesses for a user:
 
 - config `get/set/edit` exists, but broader resource-aware mutations are still incomplete;
-- live registry install/use/remove exists for model flow, but provider/scene/LLM/hotword commands are still missing; device list/use exists;
+- live registry install/use/remove exists for model flow, provider list exists, but provider mutation plus scene/LLM/hotword commands are still missing; device list/use exists;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
 - recording start/stop/toggle exists, but a dedicated `recording status` command is still missing;
 - no global JSON/text output mode equivalent to legacy;
@@ -240,7 +241,8 @@ Expose ASR provider UX before broad LLM UX.
 
 Acceptance:
 
-- `vinput provider list/add/use/edit/remove` can configure local, command batch, command streaming, and remote/cloud script providers.
+- `vinput provider list` reads configured ASR providers and reports id/type/active status in JSON and text output. **Done for read-only list/ls, config fallback, active marker, and secret-minimizing provider diagnostics.**
+- `vinput provider add/use/edit/remove` can configure local, command batch, command streaming, and remote/cloud script providers.
 - `vinput hotword get/set/clear/edit` manages the active provider hotwords path when supported.
 - `vinput device list/use` uses Rust PipeWire diagnostics and updates `global.capture_device`. **Done with JSON/text list, dry-run/output/in-place writes, and backup/validation guards.**
 - `vinput doctor` references these commands in remediation text.

@@ -11,7 +11,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 use vinput_asr::AsrBackendFactory;
 use vinput_audio::CaptureTarget;
-use vinput_config::{AsrProviderKind, RegistryConfig, VinputConfig};
+use vinput_config::{AsrProviderConfig, AsrProviderKind, RegistryConfig, VinputConfig};
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
 use vinput_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelInstallRequest,
@@ -296,6 +296,21 @@ enum DeviceCommand {
     },
 }
 
+/// ASR provider management commands.
+#[derive(Debug, Subcommand)]
+enum ProviderCommand {
+    /// List configured ASR providers.
+    #[command(alias = "ls")]
+    List {
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print machine-readable JSON instead of text table output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Model-related commands backed by the live registry catalog.
 #[derive(Debug, Subcommand)]
 enum ModelCommand {
@@ -504,6 +519,12 @@ enum Command {
         #[command(subcommand)]
         command: DeviceCommand,
     },
+    /// Inspect or manage ASR providers.
+    Provider {
+        /// Provider operation.
+        #[command(subcommand)]
+        command: ProviderCommand,
+    },
     /// Manage ASR models from the live registry catalog.
     Model {
         /// Model operation.
@@ -691,6 +712,7 @@ fn main() -> anyhow::Result<()> {
         Command::Daemon { command } => handle_daemon_command(&command),
         Command::Recording { command } => handle_recording_command(command),
         Command::Device { command } => handle_device_command(command),
+        Command::Provider { command } => handle_provider_command(command),
         Command::Model { command } => handle_model_command(command),
         Command::AsrState { config } => print_asr_state(config.as_ref()),
         Command::AudioDevices { config } => print_audio_devices(config.as_ref()),
@@ -1426,6 +1448,133 @@ fn handle_device_command(command: DeviceCommand) -> anyhow::Result<()> {
     }
 }
 
+fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
+    match command {
+        ProviderCommand::List { config, json } => print_provider_list(config.as_ref(), json),
+    }
+}
+
+struct ProviderListContext {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    config: VinputConfig,
+}
+
+fn print_provider_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
+    let context = load_provider_list_context(config_path)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&provider_list_json(&context))?
+        );
+    } else {
+        print_provider_list_text(&context);
+    }
+    Ok(())
+}
+
+fn load_provider_list_context(
+    config_path: Option<&PathBuf>,
+) -> anyhow::Result<ProviderListContext> {
+    let loaded = load_config_json(config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for provider list")?;
+    let config =
+        VinputConfig::from_json_str(&contents).context("parse config for provider list")?;
+    config
+        .validate()
+        .context("validate config for provider list")?;
+    Ok(ProviderListContext {
+        config_path: loaded.path,
+        source: loaded.source,
+        config,
+    })
+}
+
+fn provider_list_json(context: &ProviderListContext) -> serde_json::Value {
+    let active_provider = context.config.asr.active_provider.as_str();
+    let providers = context
+        .config
+        .asr
+        .providers
+        .iter()
+        .map(|provider| provider_summary_json(provider, active_provider))
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "ok": true,
+        "config_path": context.config_path.as_ref(),
+        "source": context.source,
+        "active_provider": active_provider,
+        "provider_count": providers.len(),
+        "providers": providers,
+        "next_steps": [
+            "run vinput provider use <id> once provider mutation support is available",
+            "run vinput asr-state to inspect the selected provider runtime readiness",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn provider_summary_json(provider: &AsrProviderConfig, active_provider: &str) -> serde_json::Value {
+    serde_json::json!({
+        "id": provider.id.as_str(),
+        "type": asr_provider_kind_label(&provider.kind),
+        "active": provider.id.as_str() == active_provider,
+        "model": provider.model.as_deref(),
+        "hotwords_file_configured": provider.hotwords_file.as_ref().is_some_and(|value| !value.trim().is_empty()),
+        "command_configured": provider.command.as_ref().is_some_and(|value| !value.trim().is_empty()),
+        "args_count": provider.args.len(),
+        "env_count": provider.env.len(),
+        "endpoint_configured": provider.endpoint.as_ref().is_some_and(|value| !value.trim().is_empty()),
+        "timeout_ms": provider.timeout_ms,
+    })
+}
+
+fn print_provider_list_text(context: &ProviderListContext) {
+    println!("source: {}", context.source);
+    if let Some(path) = &context.config_path {
+        println!("config_path: {}", path.display());
+    }
+    println!("active_provider: {}", context.config.asr.active_provider);
+    println!("provider_count: {}", context.config.asr.providers.len());
+    println!("active\tid\ttype\tmodel\thotwords\tcommand\tendpoint\ttimeout_ms");
+    for provider in &context.config.asr.providers {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            if provider.id == context.config.asr.active_provider {
+                "*"
+            } else {
+                ""
+            },
+            provider.id,
+            asr_provider_kind_label(&provider.kind),
+            provider.model.as_deref().unwrap_or("-"),
+            configured_label(provider.hotwords_file.as_deref()),
+            configured_label(provider.command.as_deref()),
+            configured_label(provider.endpoint.as_deref()),
+            provider
+                .timeout_ms
+                .map_or_else(|| "-".to_owned(), |value| value.to_string())
+        );
+    }
+}
+
+fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {
+    match kind {
+        AsrProviderKind::Local => "local",
+        AsrProviderKind::Remote => "remote",
+        AsrProviderKind::Command => "command",
+    }
+}
+
+fn configured_label(value: Option<&str>) -> &'static str {
+    if value.is_some_and(|value| !value.trim().is_empty()) {
+        "yes"
+    } else {
+        "no"
+    }
+}
+
 #[derive(Clone, Copy)]
 #[allow(clippy::struct_excessive_bools)]
 struct DeviceUseRequest<'a> {
@@ -1464,7 +1613,7 @@ fn print_device_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "ok": true,
-                "config_path": context.config_path,
+                "config_path": context.config_path.as_ref(),
                 "source": context.source,
                 "audio": audio,
             }))?
