@@ -87,6 +87,7 @@ Run `just addon-lint` when Fcitx5 headers and clang-tidy are available.
 ```sh
 just ime-e2e-smoke
 just user-ime-command-demo-smoke
+just user-ime-real-command-asr-wav-smoke
 ```
 
 These checks prove the deterministic product spine. They do not prove live desktop behavior.
@@ -98,6 +99,10 @@ Prefer a temporary `HOME` unless the user explicitly wants to mutate the real pr
 ```sh
 tmp_home="$(mktemp -d)"
 HOME="$tmp_home" VINPUT_USER_PROFILE=command-demo scripts/install-user-ime.sh
+HOME="$tmp_home" VINPUT_USER_PROFILE=real-command-asr-wav \
+  VINPUT_USER_AUDIO_BACKEND=mock \
+  VINPUT_USER_COMMAND_ASR_WAV_COMMAND='cat "$VINPUT_ASR_WAV" >/dev/null; printf ready' \
+  scripts/install-user-ime.sh
 HOME="$tmp_home" VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
 rm -rf "$tmp_home"
 ```
@@ -148,6 +153,7 @@ just addon-dbus-adapter-lifecycle-smoke
 just ime-configured-activation-smoke
 just ime-e2e-smoke
 just user-ime-command-demo-smoke
+just user-ime-real-command-asr-wav-smoke
 just user-ime-command-demo
 just user-ime-pipewire-live
 just user-ime-status

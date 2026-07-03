@@ -8,6 +8,7 @@ Use this checklist only inside a real desktop session. Deterministic smokes are 
 cd /workspace/fcitx-vinput-rs
 git status --porcelain=v1 -b
 just user-ime-command-demo-smoke
+just user-ime-real-command-asr-wav-smoke
 just ime-fcitx-live-probe-smoke
 ```
 
@@ -79,6 +80,26 @@ Open a text field in a normal application and check:
 5. command trigger release replaces selected text;
 6. result candidate menu can show alternatives when payload includes candidates;
 7. `just user-ime-status` reports addon metadata, addon module, daemon, activation service, environment file, Fcitx env wrapper, and managed autostart override paths.
+
+## Real command-ASR WAV helper profile
+
+Use this when you have a real local ASR CLI that accepts a WAV file path, but the native Rust `sherpa-onnx` runtime is still unavailable. This mutates the real user profile and expects a real PipeWire desktop session.
+
+```sh
+VINPUT_USER_PROFILE=real-command-asr-wav \
+  VINPUT_USER_COMMAND_ASR_WAV_COMMAND='whisper-cli -m /path/to/model.bin -f "$VINPUT_ASR_WAV"' \
+  scripts/install-user-ime.sh
+```
+
+The install copies `scripts/command-asr-wav-helper.py` to the user binary directory, writes `real-command-asr-wav.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. `VINPUT_USER_COMMAND_ASR_WAV_COMMAND` is executed by `sh -c`; it can use `VINPUT_ASR_WAV`, `VINPUT_ASR_SAMPLE_RATE_HZ`, `VINPUT_ASR_CHANNELS`, `VINPUT_ASR_PROVIDER_ID`, `VINPUT_ASR_MODEL_ID`, and `VINPUT_ASR_HOTWORDS_FILE`.
+
+Check the generated profile before restarting Fcitx5:
+
+```sh
+VINPUT_USER_PROFILE=real-command-asr-wav VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
+```
+
+Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `real-command-asr-wav`, with `has_effective_backend: true` and an empty `last_error`. This proves a real command-ASR helper profile is configured; it does not prove native `sherpa-onnx` support.
 
 ## PipeWire live checks
 

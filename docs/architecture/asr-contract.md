@@ -68,6 +68,8 @@ The deprecated `failure` response key is accepted as an alias for `error`. Non-z
 
 The repository also ships `scripts/command-asr-wav-helper.py` for external ASR CLIs that consume WAV files rather than the raw legacy PCM or vinput JSON request directly. The helper reads `CommandAsrRequest` JSON from stdin, writes the request PCM as a temporary WAV file, exposes that path as `VINPUT_ASR_WAV`, runs the command after `--`, and emits `{"text":...}` from trimmed stdout or `{"error":...}` for helper-level failures. It also exports `VINPUT_ASR_PROVIDER_ID`, `VINPUT_ASR_MODEL_ID`, `VINPUT_ASR_HOTWORDS_FILE`, `VINPUT_ASR_SAMPLE_RATE_HZ`, and `VINPUT_ASR_CHANNELS` for wrapper scripts. This keeps real command-ASR integration usable with tools such as whisper.cpp or sherpa CLIs without adding a hard runtime dependency.
 
+For user-level live trials, `VINPUT_USER_PROFILE=real-command-asr-wav scripts/install-user-ime.sh` installs the WAV helper next to the daemon, generates a `real-command-asr-wav.json` config, and routes live PipeWire capture through the helper to `VINPUT_USER_COMMAND_ASR_WAV_COMMAND`. That profile is an interim real command-ASR path: `vinput doctor --config ...` should report a ready effective command backend, but this does not make the local `sherpa-onnx` runtime complete.
+
 ## Diagnostics
 
 Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable.
