@@ -222,3 +222,42 @@ fn activation_service_user_status_reports_existing_service() {
     assert_eq!(value["user_service_exec"], "/usr/bin/vinput-daemon --dbus");
     std::fs::remove_dir_all(data_home).expect("remove service fixture");
 }
+
+#[test]
+fn daemon_reload_asr_dry_run_prints_dbus_plan_json() {
+    let output = vinput_command()
+        .args(["daemon", "reload-asr", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput daemon reload-asr --dry-run --json");
+
+    let value = assert_json_success(output, "daemon reload-asr dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["will_call_dbus"], false);
+    assert_eq!(value["dbus"]["service"], dbus::SERVICE_BUS_NAME);
+    assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
+    assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);
+    assert_eq!(value["dbus"]["method"], dbus::method::RELOAD_ASR_BACKEND);
+}
+
+#[test]
+fn daemon_reload_asr_text_requires_dry_run_until_client_exists() {
+    let text_output = vinput_command()
+        .args(["daemon", "reload-asr", "--dry-run"])
+        .output()
+        .expect("run vinput daemon reload-asr --dry-run");
+    let stdout = assert_stdout_success(text_output, "daemon reload-asr dry-run text");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("will_call_dbus: false"));
+    assert!(stdout.contains("method: ReloadAsrBackend"));
+
+    let rejected = vinput_command()
+        .args(["daemon", "reload-asr"])
+        .output()
+        .expect("run vinput daemon reload-asr without dry-run");
+    assert!(!rejected.status.success());
+    let stderr = String::from_utf8(rejected.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains(
+        "daemon reload-asr currently requires --dry-run until the D-Bus client is enabled"
+    ));
+}

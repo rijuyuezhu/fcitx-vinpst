@@ -18,6 +18,7 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("protocol"));
     assert!(stdout.contains("registry"));
     assert!(stdout.contains("model"));
+    assert!(stdout.contains("daemon"));
     assert!(stdout.contains("activation-service"));
 }
 
@@ -182,4 +183,16 @@ fn model_remove_help_lists_dry_run_and_registry_options() {
         .expect("run vinput model rm --help");
     let alias_stdout = assert_stdout_success(alias_output, "model rm help output");
     assert!(alias_stdout.contains("--dry-run"));
+}
+
+#[test]
+fn daemon_reload_asr_help_lists_dry_run_and_json_options() {
+    let output = vinput_command()
+        .args(["daemon", "reload-asr", "--help"])
+        .output()
+        .expect("run vinput daemon reload-asr --help");
+
+    let stdout = assert_stdout_success(output, "daemon reload-asr help output");
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
 }

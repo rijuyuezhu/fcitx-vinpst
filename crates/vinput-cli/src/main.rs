@@ -109,6 +109,20 @@ enum RegistryCommand {
     },
 }
 
+/// Daemon-related commands backed by the D-Bus service contract.
+#[derive(Debug, Subcommand)]
+enum DaemonCommand {
+    /// Plan an ASR backend reload call against the running daemon.
+    ReloadAsr {
+        /// Print the D-Bus call plan without contacting the daemon. Required until the client is implemented.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Model-related commands backed by the live registry catalog.
 #[derive(Debug, Subcommand)]
 enum ModelCommand {
@@ -274,6 +288,12 @@ enum Command {
         #[command(subcommand)]
         command: Option<RegistryCommand>,
     },
+    /// Control or inspect the running vinput daemon.
+    Daemon {
+        /// Daemon operation.
+        #[command(subcommand)]
+        command: DaemonCommand,
+    },
     /// Manage ASR models from the live registry catalog.
     Model {
         /// Model operation.
@@ -409,6 +429,7 @@ fn main() -> anyhow::Result<()> {
             ),
             None => print_registry_summary(),
         },
+        Command::Daemon { command } => handle_daemon_command(&command),
         Command::Model { command } => handle_model_command(command),
         Command::AsrState { config } => print_asr_state(config.as_ref()),
         Command::AudioDevices { config } => print_audio_devices(config.as_ref()),
@@ -453,6 +474,46 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<()> {
+    match command {
+        DaemonCommand::ReloadAsr { dry_run, json } => print_daemon_reload_asr_plan(*dry_run, *json),
+    }
+}
+
+fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
+    if !dry_run {
+        anyhow::bail!(
+            "daemon reload-asr currently requires --dry-run until the D-Bus client is enabled"
+        );
+    }
+    let output = serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "will_call_dbus": false,
+        "dbus": {
+            "service": dbus::SERVICE_BUS_NAME,
+            "object_path": dbus::SERVICE_OBJECT_PATH,
+            "interface": dbus::SERVICE_INTERFACE,
+            "method": dbus::method::RELOAD_ASR_BACKEND,
+        },
+        "next_steps": [
+            "enable the CLI D-Bus client to call ReloadAsrBackend",
+            "use vinput protocol to inspect the stable method contract"
+        ],
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("dry_run: true");
+        println!("will_call_dbus: false");
+        println!("service: {}", dbus::SERVICE_BUS_NAME);
+        println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+        println!("interface: {}", dbus::SERVICE_INTERFACE);
+        println!("method: {}", dbus::method::RELOAD_ASR_BACKEND);
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)]
