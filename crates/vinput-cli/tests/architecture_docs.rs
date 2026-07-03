@@ -354,3 +354,57 @@ fn registry_architecture_mentions_root_planning() {
     assert!(registry_doc.contains("filesystem root stays absolute"));
     assert!(registry_doc.contains("without touching the filesystem"));
 }
+
+#[test]
+fn migration_docs_pin_cli_daemon_e2e_matrix() {
+    let docs_readme =
+        std::fs::read_to_string(workspace_file("docs/README.md")).expect("read docs README");
+    let audit = std::fs::read_to_string(workspace_file("docs/migration/function-gap-audit.md"))
+        .expect("read function gap audit");
+    let plan = std::fs::read_to_string(workspace_file("docs/migration/e2e-replication-plan.md"))
+        .expect("read E2E replication plan");
+    let matrix = std::fs::read_to_string(workspace_file("docs/migration/e2e-capability-matrix.md"))
+        .expect("read E2E capability matrix");
+
+    for required in [
+        "e2e-capability-matrix.md",
+        "detailed E2E capability comparison and the CLI/daemon parity backlog",
+        "what exactly is missing for usable CLI/daemon parity?",
+    ] {
+        assert!(
+            docs_readme.contains(required),
+            "docs README should point at capability matrix: {required}"
+        );
+    }
+
+    for required in [
+        "usable CLI/daemon alpha",
+        "Native SenseVoice file-input smoke",
+        "live registry parsing",
+        "daemon/recording D-Bus CLI commands",
+    ] {
+        assert!(
+            audit.contains(required),
+            "function gap audit should pin current CLI/daemon target: {required}"
+        );
+        assert!(
+            plan.contains(required),
+            "E2E replication plan should pin current CLI/daemon target: {required}"
+        );
+    }
+
+    for required in [
+        "CLI command surface comparison",
+        "Daemon capability comparison",
+        "Registry/resource comparison",
+        "P0.1 live registry v2 read/list layer",
+        "P0.5 daemon and recording control commands",
+        "Do not claim full parity until all of these pass",
+        "vinput model install <id-or-short-id>",
+    ] {
+        assert!(
+            matrix.contains(required),
+            "capability matrix should pin detailed E2E gap: {required}"
+        );
+    }
+}

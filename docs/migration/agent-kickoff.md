@@ -4,7 +4,7 @@ Use this as the copyable startup context for an implementation agent that will c
 
 ## Mission
 
-Continue the `fcitx-vinput-rs` migration toward **real desktop alpha**. The project is no longer just architecture scaffolding: deterministic command-demo, retained Fcitx addon, Rust daemon, user install, activation, doctor, staged E2E, and user install smokes already exist. Do not reimplement them. Focus on the remaining P0 gaps from [`e2e-replication-plan.md`](e2e-replication-plan.md).
+Continue the `fcitx-vinput-rs` migration toward **usable CLI/daemon alpha**, then real desktop native alpha. The project is no longer just architecture scaffolding: deterministic command-demo, retained Fcitx addon, Rust daemon, user install, activation, doctor, staged E2E, user install smokes, command ASR helpers, and a proven native SenseVoice WAV smoke already exist. Do not reimplement them. Focus on the remaining P0 gaps from [`e2e-capability-matrix.md`](e2e-capability-matrix.md) and [`e2e-replication-plan.md`](e2e-replication-plan.md).
 
 ## Repositories
 
@@ -42,29 +42,32 @@ Then read, in order:
 1. `docs/README.md`
 2. `docs/development.md`
 3. `docs/migration/function-gap-audit.md`
-4. `docs/migration/e2e-replication-plan.md`
-5. `docs/migration/e2e-port-plan.md`
-6. the relevant `docs/architecture/*` contract for the files you will touch
-7. `docs/legacy/source-annotations.md` when comparing legacy behavior
+4. `docs/migration/e2e-capability-matrix.md`
+5. `docs/migration/e2e-replication-plan.md`
+6. `docs/migration/e2e-port-plan.md`
+7. the relevant `docs/architecture/*` contract for the files you will touch
+8. `docs/legacy/source-annotations.md` when comparing legacy behavior
 
 ## Current parity baseline
 
-- Overall legacy feature parity: about **60-65%**.
+- Overall legacy feature parity: about **55-65%**.
 - Real desktop readiness: **prototype usable / early alpha**.
 - Deterministic product spine: strong and tested.
-- Biggest blockers: real local ASR, live desktop verification, frontend config/menus, selected-text fallback, model/resource install.
+- Native SenseVoice file-input path: proven with a registry-downloaded model and bundled WAV.
+- Biggest blockers: CLI management parity, live registry install, daemon/recording control commands, native sherpa desktop activation library paths, live desktop verification, frontend config/menus, selected-text fallback.
 
 ## First recommended implementation slices
 
 Pick one focused P0 slice:
 
-1. Improve `just ime-fcitx-live-probe` diagnostics and document the explicit opt-in user install path.
-2. Add `docs/migration/live-desktop-validation.md` with a real desktop alpha checklist.
-3. Implement selected-text fallback for command mode.
-4. Add the first real ASR path, preferably the smallest `sherpa-onnx` path compatible with current config.
-5. Add a real or local-mock text provider validation test.
+1. Add live `registry/models.json` parser and fixture tests in `vinput-registry`.
+2. Add `vinput model list --json` and text output using live registry ids and short ids.
+3. Add `vinput model install/use/info/remove` around the existing safe fetch/checksum/archive/materialization primitives.
+4. Add minimal `vinput init` and `vinput config get/set/edit` so the happy path avoids manual JSON edits.
+5. Add D-Bus client commands for `vinput daemon status` and `vinput recording start/stop`.
+6. Harden D-Bus activation runtime library paths for native sherpa.
 
-Do not start distro packaging, GUI polish, or broad refactors before real desktop alpha is proven.
+Do not start distro packaging, GUI polish, or broad refactors before usable CLI/daemon alpha is proven.
 
 ## Implementation rules
 

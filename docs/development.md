@@ -1,6 +1,6 @@
 # Development guide
 
-This guide defines project workflow, commit style, and validation tiers. Migration direction lives in [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md); parity baseline lives in [`migration/function-gap-audit.md`](migration/function-gap-audit.md).
+This guide defines project workflow, commit style, and validation tiers. Migration direction lives in [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md); parity baseline lives in [`migration/function-gap-audit.md`](migration/function-gap-audit.md); the detailed CLI/daemon E2E gap matrix lives in [`migration/e2e-capability-matrix.md`](migration/e2e-capability-matrix.md).
 
 ## Project style
 
@@ -206,7 +206,7 @@ The active migration target is **real desktop alpha**:
 7. command mode can replace selected text;
 8. `vinput doctor` and live probe clearly diagnose failures.
 
-For priority details, use [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md). For current gap status, use [`migration/function-gap-audit.md`](migration/function-gap-audit.md).
+For priority details, use [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md). For current gap status, use [`migration/function-gap-audit.md`](migration/function-gap-audit.md). For the next CLI/daemon parity backlog, use [`migration/e2e-capability-matrix.md`](migration/e2e-capability-matrix.md).
 
 ## Work selection rules
 

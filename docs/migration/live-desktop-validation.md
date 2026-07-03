@@ -84,7 +84,7 @@ Open a text field in a normal application and check:
 
 ## Real command-ASR WAV helper profile
 
-Use this when you have a real local ASR CLI that accepts a WAV file path, but the native Rust `sherpa-onnx` runtime is still unavailable. This mutates the real user profile and expects a real PipeWire desktop session.
+Use this as an interim command-ASR path when testing an external recognizer that accepts a WAV file path. Native Rust `sherpa-onnx` is now available for the SenseVoice offline file-input smoke, but this profile is still useful for comparing command-provider behavior and for environments where native runtime libraries are not ready.
 
 ```sh
 VINPUT_USER_PROFILE=real-command-asr-wav \
@@ -164,3 +164,15 @@ A feature is not live-done until these are true in one real desktop session:
 - command mode replaces selected text;
 - diagnostics explain missing install/session/backend states, stale bus ownership, old activation daemon paths, unavailable `GetRuntimeStatus`, missing Fcitx env wrapper/autostart integration, and Fcitx restart/env mismatches;
 - deterministic smokes and `just ime-fcitx-live-probe-smoke` still pass after the change.
+
+
+## Native sherpa desktop note
+
+The native SenseVoice backend has been proven outside Fcitx with a registry-downloaded model and `just sherpa-sense-voice-local-smoke`. The remaining desktop-specific checks are:
+
+1. install using a registry/materialized model path rather than a hand-written config;
+2. ensure D-Bus activation loads the same `libsherpa-onnx` and `libonnxruntime` bundle that passed local smoke;
+3. restart Fcitx through the generated environment wrapper;
+4. prove normal trigger -> PipeWire capture -> native ASR -> commit in a real application.
+
+Until activation library-path handling is hardened, local smoke success does not by itself prove the desktop activation path.
