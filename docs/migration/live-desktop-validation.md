@@ -31,7 +31,7 @@ Expected outcomes:
 - If the current shell has no user D-Bus session, the probe exits early with `user-dbus-session-missing`.
 - If Fcitx5 is not running on the current session bus, the probe exits early with `fcitx5-not-running`.
 - If the activation service points to a different daemon path, the probe reports `activation-service-old-daemon`.
-- If `org.fcitx.Vinput` is already owned but does not expose the Rust diagnostic extension, the probe reports `runtime-status-unavailable` and `stale-bus-owner`.
+- If `org.fcitx.Vinput` is already owned but does not expose the Rust diagnostic extension, the probe reports `runtime-status-unavailable` and `stale-bus-owner`, then prints the current owner PID/exe/cmdline when D-Bus can identify it. After confirming that process is safe to stop, rerun the probe with `VINPUT_LIVE_STOP_STALE_OWNER=1` to stop the stale owner before D-Bus activation.
 - If installed files exist but the running Fcitx5 process was not restarted with the generated environment, the probe reports `fcitx-env-not-restarted`.
 - A failed non-mutating probe is not a code failure by itself; it records readiness and the next corrective action.
 

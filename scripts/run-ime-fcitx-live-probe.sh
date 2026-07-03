@@ -65,6 +65,7 @@ print_summary_and_exit_if_failed() {
     done
   fi
   printf '\nSuggested next step: run VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe, then restart Fcitx5 with %s -r. If your desktop ignores the generated autostart override, source %s before launching Fcitx5.\n' "${fcitx_env_wrapper}" "${env_file}" >&2
+  printf 'If stale-bus-owner is listed and the displayed process is safe to stop, rerun with VINPUT_LIVE_STOP_STALE_OWNER=1 to stop it before probing activation.\n' >&2
   exit 1
 }
 
@@ -151,9 +152,9 @@ if match:
 PY
 }
 
-describe_bus_owner_process() {
+query_bus_owner_pid() {
   local owner="$1"
-  local pid_output pid_status pid exe cmdline
+  local pid_output pid_status pid
   set +e
   pid_output="$(${gdbus_bin} call --session \
     --dest org.freedesktop.DBus \
@@ -171,10 +172,69 @@ describe_bus_owner_process() {
     add_warning "bus-owner-process-unavailable" "could not parse process id for ${owner}: ${pid_output}"
     return 0
   fi
+  printf '%s\n' "${pid}"
+}
+
+describe_bus_owner_process() {
+  local owner="$1"
+  local pid="$2"
+  local exe cmdline
+  if [[ -z "${pid}" ]]; then
+    return 0
+  fi
   exe="$(readlink "/proc/${pid}/exe" 2>/dev/null || true)"
   cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
   printf 'Current org.fcitx.Vinput owner process: pid=%s exe=%s cmdline=%s\n' \
     "${pid}" "${exe:-<unavailable>}" "${cmdline:-<unavailable>}"
+}
+
+stop_stale_bus_owner_if_requested() {
+  local owner="$1"
+  local pid="$2"
+  local exe remaining owner_check owner_status
+  if [[ "${VINPUT_LIVE_STOP_STALE_OWNER:-}" != "1" && "${VINPUT_LIVE_STOP_STALE_OWNER:-}" != "true" ]]; then
+    return 1
+  fi
+  if [[ ! -f "${service_file}" ]]; then
+    add_warning "stale-owner-stop-skipped" "not stopping ${owner} because user activation service is missing"
+    return 1
+  fi
+  if [[ -z "${pid}" ]]; then
+    add_warning "stale-owner-stop-skipped" "not stopping ${owner} because its process id is unknown"
+    return 1
+  fi
+  exe="$(readlink "/proc/${pid}/exe" 2>/dev/null || true)"
+  if [[ -z "${exe}" ]]; then
+    add_warning "stale-owner-stop-skipped" "not stopping ${owner} because /proc/${pid}/exe is unavailable"
+    return 1
+  fi
+  if same_path "${exe}" "${daemon_path}"; then
+    add_warning "stale-owner-stop-skipped" "not stopping ${owner}; it already points to the expected user daemon ${daemon_path}"
+    return 1
+  fi
+  kill "${pid}" 2>/dev/null || {
+    add_warning "stale-owner-stop-failed" "failed to stop stale org.fcitx.Vinput owner pid ${pid} (${exe})"
+    return 1
+  }
+  printf 'Stopped stale org.fcitx.Vinput owner process pid=%s exe=%s.\n' "${pid}" "${exe}"
+  remaining=20
+  while [[ "${remaining}" -gt 0 ]]; do
+    set +e
+    owner_check="$(${gdbus_bin} call --session \
+      --dest org.freedesktop.DBus \
+      --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.GetNameOwner \
+      org.fcitx.Vinput 2>&1)"
+    owner_status=$?
+    set -e
+    if [[ "${owner_status}" != "0" ]]; then
+      return 0
+    fi
+    sleep 0.1
+    remaining=$((remaining - 1))
+  done
+  add_warning "stale-owner-stop-timeout" "stale org.fcitx.Vinput owner pid ${pid} was signalled but the bus name is still owned: ${owner_check}"
+  return 1
 }
 
 check_install_shape() {
@@ -296,7 +356,7 @@ check_fcitx_process_env() {
 }
 
 probe_runtime_status() {
-  local owner_output owner_status owner runtime_output runtime_status
+  local owner_output owner_status owner owner_pid runtime_output runtime_status
   set +e
   owner_output="$(${gdbus_bin} call --session \
     --dest org.freedesktop.DBus \
@@ -311,7 +371,11 @@ probe_runtime_status() {
     owner="$(bus_owner_from_reply "${owner_output}")"
     if [[ -n "${owner}" ]]; then
       add_warning "bus-name-owned" "org.fcitx.Vinput is already owned on the current session bus by ${owner}; probing it for Rust runtime diagnostics"
-      describe_bus_owner_process "${owner}"
+      owner_pid="$(query_bus_owner_pid "${owner}")"
+      describe_bus_owner_process "${owner}" "${owner_pid}"
+      if stop_stale_bus_owner_if_requested "${owner}" "${owner_pid}"; then
+        owner=""
+      fi
     fi
   fi
 
