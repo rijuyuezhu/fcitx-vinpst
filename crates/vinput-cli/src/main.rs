@@ -132,6 +132,50 @@ enum DaemonCommand {
     },
 }
 
+/// Recording control commands backed by the daemon D-Bus service contract.
+#[derive(Debug, Subcommand)]
+enum RecordingCommand {
+    /// Start normal or command-mode recording.
+    Start {
+        /// Selected text context for command-mode recording.
+        #[arg(long)]
+        selected_text: Option<String>,
+        /// Print the D-Bus call plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop recording and request a recognition result.
+    Stop {
+        /// Scene id forwarded to `StopRecording`. Defaults to an empty scene.
+        #[arg(long)]
+        scene: Option<String>,
+        /// Print the D-Bus call plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Toggle recording by querying daemon status first.
+    Toggle {
+        /// Selected text context used when toggle starts command-mode recording.
+        #[arg(long)]
+        selected_text: Option<String>,
+        /// Scene id used when toggle stops recording. Defaults to an empty scene.
+        #[arg(long)]
+        scene: Option<String>,
+        /// Print the D-Bus call plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Model-related commands backed by the live registry catalog.
 #[derive(Debug, Subcommand)]
 enum ModelCommand {
@@ -306,6 +350,13 @@ enum Command {
         #[command(subcommand)]
         command: DaemonCommand,
     },
+
+    /// Control daemon recording over D-Bus.
+    Recording {
+        /// Recording operation.
+        #[command(subcommand)]
+        command: RecordingCommand,
+    },
     /// Manage ASR models from the live registry catalog.
     Model {
         /// Model operation.
@@ -442,6 +493,7 @@ fn main() -> anyhow::Result<()> {
             None => print_registry_summary(),
         },
         Command::Daemon { command } => handle_daemon_command(&command),
+        Command::Recording { command } => handle_recording_command(command),
         Command::Model { command } => handle_model_command(command),
         Command::AsrState { config } => print_asr_state(config.as_ref()),
         Command::AudioDevices { config } => print_audio_devices(config.as_ref()),
@@ -486,6 +538,116 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+fn handle_recording_command(command: RecordingCommand) -> anyhow::Result<()> {
+    match command {
+        RecordingCommand::Start {
+            selected_text,
+            dry_run,
+            json,
+        } => print_recording_plan("start", selected_text.as_deref(), None, dry_run, json),
+        RecordingCommand::Stop {
+            scene,
+            dry_run,
+            json,
+        } => print_recording_plan("stop", None, scene.as_deref(), dry_run, json),
+        RecordingCommand::Toggle {
+            selected_text,
+            scene,
+            dry_run,
+            json,
+        } => print_recording_plan(
+            "toggle",
+            selected_text.as_deref(),
+            scene.as_deref(),
+            dry_run,
+            json,
+        ),
+    }
+}
+
+fn print_recording_plan(
+    action: &str,
+    selected_text: Option<&str>,
+    scene: Option<&str>,
+    dry_run: bool,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    if !dry_run {
+        anyhow::bail!(
+            "recording {action} currently requires --dry-run until the D-Bus client is enabled"
+        );
+    }
+    let output = recording_plan_json(action, selected_text, scene);
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_recording_plan_text(action, selected_text, scene);
+    }
+    Ok(())
+}
+
+fn recording_plan_json(
+    action: &str,
+    selected_text: Option<&str>,
+    scene: Option<&str>,
+) -> serde_json::Value {
+    let methods = match (action, selected_text.is_some()) {
+        ("start", true) => vec![dbus::method::START_COMMAND_RECORDING],
+        ("start", false) => vec![dbus::method::START_RECORDING],
+        ("stop", _) => vec![dbus::method::STOP_RECORDING],
+        ("toggle", true) => vec![
+            dbus::method::GET_STATUS,
+            dbus::method::START_COMMAND_RECORDING,
+            dbus::method::STOP_RECORDING,
+        ],
+        ("toggle", false) => vec![
+            dbus::method::GET_STATUS,
+            dbus::method::START_RECORDING,
+            dbus::method::STOP_RECORDING,
+        ],
+        _ => Vec::new(),
+    };
+    serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "action": action,
+        "will_call_dbus": false,
+        "dbus": {
+            "service": dbus::SERVICE_BUS_NAME,
+            "object_path": dbus::SERVICE_OBJECT_PATH,
+            "interface": dbus::SERVICE_INTERFACE,
+            "methods": methods,
+        },
+        "args": {
+            "selected_text_present": selected_text.is_some(),
+            "scene": scene.unwrap_or(""),
+        },
+    })
+}
+
+fn print_recording_plan_text(action: &str, selected_text: Option<&str>, scene: Option<&str>) {
+    let output = recording_plan_json(action, selected_text, scene);
+    println!("dry_run: true");
+    println!("action: {action}");
+    println!("will_call_dbus: false");
+    println!("service: {}", dbus::SERVICE_BUS_NAME);
+    println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+    println!("interface: {}", dbus::SERVICE_INTERFACE);
+    println!(
+        "methods: {}",
+        output["dbus"]["methods"]
+            .as_array()
+            .map(|methods| methods
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", "))
+            .unwrap_or_default()
+    );
+    println!("selected_text_present: {}", selected_text.is_some());
+    println!("scene: {}", scene.unwrap_or(""));
 }
 
 fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<()> {

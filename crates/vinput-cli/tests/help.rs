@@ -19,6 +19,7 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("registry"));
     assert!(stdout.contains("model"));
     assert!(stdout.contains("daemon"));
+    assert!(stdout.contains("recording"));
     assert!(stdout.contains("activation-service"));
 }
 
@@ -208,4 +209,17 @@ fn daemon_status_help_lists_dry_run_and_json_options() {
     let stdout = assert_stdout_success(output, "daemon status help output");
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("--json"));
+}
+
+#[test]
+fn recording_help_lists_dry_run_options() {
+    for command in ["start", "stop", "toggle"] {
+        let output = vinput_command()
+            .args(["recording", command, "--help"])
+            .output()
+            .expect("run vinput recording command --help");
+        let stdout = assert_stdout_success(output, "recording help output");
+        assert!(stdout.contains("--dry-run"));
+        assert!(stdout.contains("--json"));
+    }
 }

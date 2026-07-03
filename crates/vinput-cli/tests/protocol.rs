@@ -288,3 +288,52 @@ fn daemon_status_text_dry_run_prints_dbus_plan() {
     assert!(stdout.contains("GetAsrBackendState"));
     assert!(stdout.contains("GetRuntimeStatus"));
 }
+
+#[test]
+fn recording_start_dry_run_prints_dbus_plan_json() {
+    let output = vinput_command()
+        .args([
+            "recording",
+            "start",
+            "--selected-text",
+            "hello",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput recording start --dry-run --json");
+
+    let value = assert_json_success(output, "recording start dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["action"], "start");
+    assert_eq!(value["will_call_dbus"], false);
+    assert_eq!(value["dbus"]["service"], dbus::SERVICE_BUS_NAME);
+    assert_eq!(
+        value["dbus"]["methods"][0],
+        dbus::method::START_COMMAND_RECORDING
+    );
+    assert_eq!(value["args"]["selected_text_present"], true);
+}
+
+#[test]
+fn recording_stop_and_toggle_dry_run_print_text_plans() {
+    let stop = vinput_command()
+        .args(["recording", "stop", "--scene", "demo", "--dry-run"])
+        .output()
+        .expect("run vinput recording stop --dry-run");
+    let stop_stdout = assert_stdout_success(stop, "recording stop dry-run text");
+    assert!(stop_stdout.contains("action: stop"));
+    assert!(stop_stdout.contains("StopRecording"));
+    assert!(stop_stdout.contains("scene: demo"));
+
+    let toggle = vinput_command()
+        .args(["recording", "toggle", "--dry-run"])
+        .output()
+        .expect("run vinput recording toggle --dry-run");
+    let toggle_stdout = assert_stdout_success(toggle, "recording toggle dry-run text");
+    assert!(toggle_stdout.contains("action: toggle"));
+    assert!(toggle_stdout.contains("GetStatus"));
+    assert!(toggle_stdout.contains("StartRecording"));
+    assert!(toggle_stdout.contains("StopRecording"));
+}
