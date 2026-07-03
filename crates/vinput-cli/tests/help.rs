@@ -139,3 +139,20 @@ fn model_legacy_aliases_accept_help() {
     assert!(add_stdout.contains("--dry-run"));
     assert!(add_stdout.contains("--model-root"));
 }
+
+#[test]
+fn model_use_help_lists_dry_run_and_config_options() {
+    let output = vinput_command()
+        .args(["model", "use", "--help"])
+        .output()
+        .expect("run vinput model use --help");
+
+    let stdout = assert_stdout_success(output, "model use help output");
+    assert!(stdout.contains("<SELECTOR>"));
+    assert!(stdout.contains("--registry"));
+    assert!(stdout.contains("--config"));
+    assert!(stdout.contains("--provider"));
+    assert!(stdout.contains("--model-root"));
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
+}

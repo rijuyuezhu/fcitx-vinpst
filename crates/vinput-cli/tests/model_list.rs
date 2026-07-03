@@ -436,3 +436,81 @@ fn write_tar_octal(field: &mut [u8], value: u64) {
     let text = format!("{value:0width$o}\0");
     field.copy_from_slice(text.as_bytes());
 }
+
+#[test]
+fn model_use_dry_run_json_previews_config_patch_for_registry_model() {
+    let output = vinput_command()
+        .args(["model", "use", "onnx-sv-zh-int8-off", "--registry"])
+        .arg(live_models_fixture())
+        .args(["--i18n"])
+        .arg(live_i18n_fixture())
+        .args(["--model-root", "/tmp/vinput-models"])
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput model use --dry-run --json");
+
+    let value = assert_json_success(output, "model use dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["will_write_config"], false);
+    assert_eq!(value["selector"]["kind"], "registry");
+    assert_eq!(
+        value["selector"]["resolved_short_id"],
+        "onnx-sv-zh-int8-off"
+    );
+    assert_eq!(value["selector"]["title"], "SenseVoice 五语");
+    assert_eq!(
+        value["patch"]["asr.active_provider"]["before"],
+        "sherpa-onnx"
+    );
+    assert_eq!(
+        value["patch"]["asr.active_provider"]["after"],
+        "sherpa-onnx"
+    );
+    assert_eq!(
+        value["patch"]["asr.providers[].model"]["provider_id"],
+        "sherpa-onnx"
+    );
+    assert_eq!(
+        value["patch"]["asr.providers[].model"]["provider_type"],
+        "local"
+    );
+    assert_eq!(
+        value["patch"]["asr.providers[].model"]["before"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        value["patch"]["asr.providers[].model"]["after"],
+        "/tmp/vinput-models/onnx-sv-zh-int8-off"
+    );
+}
+
+#[test]
+fn model_use_dry_run_text_accepts_installed_path_without_registry() {
+    let output = vinput_command()
+        .args(["model", "use", "/tmp/vinput-models/custom", "--dry-run"])
+        .output()
+        .expect("run vinput model use path --dry-run");
+
+    let stdout = assert_stdout_success(output, "model use path dry-run text");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("selector_kind: path"));
+    assert!(stdout.contains("provider_id: sherpa-onnx"));
+    assert!(stdout.contains("model_before: -"));
+    assert!(stdout.contains("model_after: /tmp/vinput-models/custom"));
+    assert!(stdout.contains("will_write_config: false"));
+}
+
+#[test]
+fn model_use_without_dry_run_is_rejected_until_config_mutation_exists() {
+    let output = vinput_command()
+        .args(["model", "use", "/tmp/vinput-models/custom"])
+        .output()
+        .expect("run vinput model use without dry-run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains(
+        "real model use is not implemented yet; rerun with --dry-run to inspect the config patch"
+    ));
+}

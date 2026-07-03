@@ -10,7 +10,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 use vinput_asr::AsrBackendFactory;
 use vinput_audio::CaptureTarget;
-use vinput_config::{RegistryConfig, VinputConfig};
+use vinput_config::{AsrProviderKind, RegistryConfig, VinputConfig};
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
 use vinput_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelInstallRequest,
@@ -177,6 +177,35 @@ enum ModelCommand {
         #[arg(long)]
         staging_root: Option<PathBuf>,
         /// Print the install plan without downloading, extracting, or writing config.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Preview selecting the active local ASR model in config.
+    Use {
+        /// Full model id, `short_id`, installed model path, or managed model dir name.
+        selector: String,
+        /// Optional local live registry/models.json file for resolving `id`/`short_id`.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional local live i18n JSON file used for title/description output.
+        #[arg(long)]
+        i18n: Option<PathBuf>,
+        /// Optional config JSON file to preview changing.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Live registry i18n locale to fetch when reading remote mirrors.
+        #[arg(long, default_value = "zh_CN")]
+        locale: String,
+        /// ASR provider id to update. Defaults to the config active provider.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
+        #[arg(long)]
+        model_root: Option<PathBuf>,
+        /// Preview config changes without writing. Required until config mutation is implemented.
         #[arg(long)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
@@ -433,6 +462,27 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             locale: &locale,
             model_root: model_root.as_deref(),
             staging_root: staging_root.as_deref(),
+            dry_run,
+            json_output: json,
+        }),
+        ModelCommand::Use {
+            selector,
+            registry,
+            i18n,
+            config,
+            locale,
+            provider,
+            model_root,
+            dry_run,
+            json,
+        } => print_model_use_preview(ModelUseRequest {
+            selector: &selector,
+            registry_path: registry.as_deref(),
+            i18n_path: i18n.as_deref(),
+            config_path: config.as_ref(),
+            locale: &locale,
+            provider: provider.as_deref(),
+            model_root: model_root.as_deref(),
             dry_run,
             json_output: json,
         }),
@@ -1019,6 +1069,198 @@ fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> anyhow::Res
         print_model_install_result_text(model, i18n.i18n.as_ref(), &installed);
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ModelUseRequest<'a> {
+    selector: &'a str,
+    registry_path: Option<&'a Path>,
+    i18n_path: Option<&'a Path>,
+    config_path: Option<&'a PathBuf>,
+    locale: &'a str,
+    provider: Option<&'a str>,
+    model_root: Option<&'a Path>,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct ModelUsePreview {
+    config_path: Option<PathBuf>,
+    provider_id: String,
+    provider_kind: AsrProviderKind,
+    before_active_provider: String,
+    before_model: Option<String>,
+    after_active_provider: String,
+    after_model: String,
+    selector_kind: String,
+    selector: String,
+    resolved_model_id: Option<String>,
+    resolved_short_id: Option<String>,
+    resolved_title: Option<String>,
+}
+
+struct ModelUseResolution {
+    model_value: String,
+    selector_kind: String,
+    resolved_model_id: Option<String>,
+    resolved_short_id: Option<String>,
+    resolved_title: Option<String>,
+}
+
+fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
+    if !request.dry_run {
+        anyhow::bail!(
+            "real model use is not implemented yet; rerun with --dry-run to inspect the config patch"
+        );
+    }
+
+    let config = match request.config_path {
+        Some(config_path) => load_config_file(config_path)?,
+        None => VinputConfig::bundled_default().context("parse bundled config")?,
+    };
+    let model_root = match request.model_root {
+        Some(path) => path.to_path_buf(),
+        None => default_model_root()?,
+    };
+    let resolution = resolve_model_use_value(
+        request.selector,
+        request.registry_path,
+        request.i18n_path,
+        request.config_path,
+        request.locale,
+        &model_root,
+    );
+    let provider_id = request
+        .provider
+        .map_or_else(|| config.asr.active_provider.clone(), str::to_owned);
+    let provider = config
+        .asr
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .with_context(|| format!("ASR provider `{provider_id}` not found in config"))?;
+    if provider.kind != AsrProviderKind::Local {
+        anyhow::bail!("ASR provider `{provider_id}` is not local and cannot use a managed model");
+    }
+
+    let preview = ModelUsePreview {
+        config_path: request.config_path.cloned(),
+        provider_id: provider_id.clone(),
+        provider_kind: provider.kind.clone(),
+        before_active_provider: config.asr.active_provider.clone(),
+        before_model: provider.model.clone(),
+        after_active_provider: provider_id,
+        after_model: resolution.model_value,
+        selector_kind: resolution.selector_kind,
+        selector: request.selector.to_owned(),
+        resolved_model_id: resolution.resolved_model_id,
+        resolved_short_id: resolution.resolved_short_id,
+        resolved_title: resolution.resolved_title,
+    };
+
+    if request.json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&model_use_preview_json(&preview))?
+        );
+    } else {
+        print_model_use_preview_text(&preview);
+    }
+    Ok(())
+}
+
+fn resolve_model_use_value(
+    selector: &str,
+    registry_path: Option<&Path>,
+    i18n_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+    locale: &str,
+    model_root: &Path,
+) -> ModelUseResolution {
+    let selector_path = Path::new(selector);
+    if selector_path.is_absolute() || selector.contains('/') {
+        return ModelUseResolution {
+            model_value: selector_path.to_string_lossy().into_owned(),
+            selector_kind: "path".to_owned(),
+            resolved_model_id: None,
+            resolved_short_id: None,
+            resolved_title: None,
+        };
+    }
+
+    if let Ok((loaded, i18n)) =
+        load_live_model_catalog(registry_path, i18n_path, config_path, locale)
+        && let Some(model) = loaded.registry.model_by_id_or_short_id(selector)
+    {
+        return ModelUseResolution {
+            model_value: model_root
+                .join(managed_model_dir_name(model))
+                .to_string_lossy()
+                .into_owned(),
+            selector_kind: "registry".to_owned(),
+            resolved_model_id: Some(model.id.clone()),
+            resolved_short_id: model.short_id.clone(),
+            resolved_title: Some(model.resolved_title(i18n.i18n.as_ref())),
+        };
+    }
+
+    ModelUseResolution {
+        model_value: model_root
+            .join(safe_path_component(selector))
+            .to_string_lossy()
+            .into_owned(),
+        selector_kind: "managed-dir".to_owned(),
+        resolved_model_id: None,
+        resolved_short_id: None,
+        resolved_title: None,
+    }
+}
+
+fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "will_write_config": false,
+        "config_path": preview.config_path,
+        "selector": {
+            "input": preview.selector,
+            "kind": preview.selector_kind,
+            "resolved_model_id": preview.resolved_model_id,
+            "resolved_short_id": preview.resolved_short_id,
+            "title": preview.resolved_title,
+        },
+        "patch": {
+            "asr.active_provider": {
+                "before": preview.before_active_provider,
+                "after": preview.after_active_provider,
+            },
+            "asr.providers[].model": {
+                "provider_id": preview.provider_id,
+                "provider_type": format!("{:?}", preview.provider_kind).to_lowercase(),
+                "before": preview.before_model,
+                "after": preview.after_model,
+            }
+        },
+        "next_steps": [
+            "rerun without --dry-run after config mutation is implemented",
+            "run vinput asr-state to verify runtime readiness"
+        ],
+    })
+}
+
+fn print_model_use_preview_text(preview: &ModelUsePreview) {
+    println!("dry_run: true");
+    println!("selector: {}", preview.selector);
+    println!("selector_kind: {}", preview.selector_kind);
+    println!("provider_id: {}", preview.provider_id);
+    println!("active_provider_before: {}", preview.before_active_provider);
+    println!("active_provider_after: {}", preview.after_active_provider);
+    println!(
+        "model_before: {}",
+        optional_str(preview.before_model.as_deref())
+    );
+    println!("model_after: {}", preview.after_model);
+    println!("will_write_config: false");
 }
 
 fn load_live_model_catalog(
