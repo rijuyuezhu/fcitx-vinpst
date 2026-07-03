@@ -233,3 +233,7 @@ ime-fcitx-live-probe-smoke:
 # Probe an explicit live desktop Fcitx5 session without adding CI dependencies.
 ime-fcitx-live-probe:
     scripts/run-ime-fcitx-live-probe.sh
+
+# Mutating live setup for the deterministic command-demo IME profile.
+ime-fcitx-live-command-demo-setup:
+    scripts/setup-live-command-demo-ime.sh

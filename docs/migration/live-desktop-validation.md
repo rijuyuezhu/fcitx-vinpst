@@ -40,6 +40,12 @@ Expected outcomes:
 This mutates the real user profile. Run it only when that is intended.
 
 ```sh
+just ime-fcitx-live-command-demo-setup
+```
+
+For a lower-level install/probe sequence, run:
+
+```sh
 VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe
 ```
 
