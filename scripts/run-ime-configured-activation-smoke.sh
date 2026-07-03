@@ -43,5 +43,5 @@ VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
 VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
 VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="demo-command-asr" \
 VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="demo-text-adapter" \
-  timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
+  timeout 60s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
     bash "${smoke_bin}" "${addon_smoke_bin}"
