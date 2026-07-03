@@ -212,6 +212,9 @@ enum ModelCommand {
         /// Write the updated config to this path when not using --dry-run.
         #[arg(long)]
         output: Option<PathBuf>,
+        /// Update --config in place and write a <config>.bak backup.
+        #[arg(long)]
+        in_place: bool,
         /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
         #[arg(long)]
         model_root: Option<PathBuf>,
@@ -518,6 +521,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             locale,
             provider,
             output,
+            in_place,
             model_root,
             dry_run,
             json,
@@ -529,6 +533,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             locale: &locale,
             provider: provider.as_deref(),
             output_path: output.as_deref(),
+            in_place,
             model_root: model_root.as_deref(),
             dry_run,
             json_output: json,
@@ -1582,6 +1587,7 @@ struct ModelUseRequest<'a> {
     locale: &'a str,
     provider: Option<&'a str>,
     output_path: Option<&'a Path>,
+    in_place: bool,
     model_root: Option<&'a Path>,
     dry_run: bool,
     json_output: bool,
@@ -1592,6 +1598,8 @@ struct ModelUsePreview {
     provider_id: String,
     provider_kind: AsrProviderKind,
     output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
     wrote_config: bool,
     before_active_provider: String,
     before_model: Option<String>,
@@ -1604,6 +1612,73 @@ struct ModelUsePreview {
     resolved_title: Option<String>,
 }
 
+#[derive(Clone)]
+enum ModelUseWriteTarget {
+    DryRun,
+    Output(PathBuf),
+    InPlace {
+        config_path: PathBuf,
+        backup_path: PathBuf,
+    },
+}
+
+impl ModelUseWriteTarget {
+    fn output_path(&self) -> Option<PathBuf> {
+        match self {
+            Self::DryRun => None,
+            Self::Output(path) => Some(path.clone()),
+            Self::InPlace { config_path, .. } => Some(config_path.clone()),
+        }
+    }
+
+    fn backup_path(&self) -> Option<PathBuf> {
+        match self {
+            Self::InPlace { backup_path, .. } => Some(backup_path.clone()),
+            Self::DryRun | Self::Output(_) => None,
+        }
+    }
+
+    fn in_place(&self) -> bool {
+        matches!(self, Self::InPlace { .. })
+    }
+}
+
+fn model_use_write_target(request: &ModelUseRequest<'_>) -> anyhow::Result<ModelUseWriteTarget> {
+    if request.output_path.is_some() && request.in_place {
+        anyhow::bail!("model use cannot combine --output and --in-place");
+    }
+    if request.dry_run {
+        return Ok(ModelUseWriteTarget::DryRun);
+    }
+    if request.in_place {
+        let config_path = request
+            .config_path
+            .with_context(|| "model use --in-place requires --config <path>")?;
+        return Ok(ModelUseWriteTarget::InPlace {
+            config_path: config_path.clone(),
+            backup_path: config_backup_path(config_path),
+        });
+    }
+    let output_path = request.output_path.with_context(|| {
+        "model use writes require --output <path> or --in-place; rerun with --dry-run to inspect the config patch"
+    })?;
+    if let Some(config_path) = request.config_path
+        && same_path_text(config_path, output_path)
+    {
+        anyhow::bail!(
+            "refusing to overwrite input config `{}` with --output; use --in-place to create a backup",
+            config_path.display()
+        );
+    }
+    Ok(ModelUseWriteTarget::Output(output_path.to_path_buf()))
+}
+
+fn config_backup_path(config_path: &Path) -> PathBuf {
+    let mut backup = config_path.as_os_str().to_os_string();
+    backup.push(".bak");
+    PathBuf::from(backup)
+}
+
 struct ModelUseResolution {
     model_value: String,
     selector_kind: String,
@@ -1613,19 +1688,7 @@ struct ModelUseResolution {
 }
 
 fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
-    if !request.dry_run && request.output_path.is_none() {
-        anyhow::bail!(
-            "model use writes require --output <path> for now; rerun with --dry-run to inspect the config patch"
-        );
-    }
-    if let (Some(config_path), Some(output_path)) = (request.config_path, request.output_path)
-        && same_path_text(config_path, output_path)
-    {
-        anyhow::bail!(
-            "refusing to overwrite input config `{}`; choose a different --output path",
-            config_path.display()
-        );
-    }
+    let write_target = model_use_write_target(&request)?;
 
     let mut config = match request.config_path {
         Some(config_path) => load_config_file(config_path)?,
@@ -1661,7 +1724,9 @@ fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
         config_path: request.config_path.cloned(),
         provider_id: provider_id.clone(),
         provider_kind: provider.kind.clone(),
-        output_path: request.output_path.map(Path::to_path_buf),
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
         wrote_config: false,
         before_active_provider: config.asr.active_provider.clone(),
         before_model: provider.model.clone(),
@@ -1681,8 +1746,7 @@ fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
             .clone_from(&preview.after_active_provider);
         config.asr.providers[provider_index].model = Some(preview.after_model.clone());
         config.validate().context("validate updated config")?;
-        let output_path = request.output_path.expect("checked output path");
-        write_config_output(&config, output_path)?;
+        write_model_use_config(&config, &write_target)?;
         preview.wrote_config = true;
     }
 
@@ -1752,6 +1816,8 @@ fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {
         "wrote_config": preview.wrote_config,
         "config_path": preview.config_path,
         "output_path": preview.output_path,
+        "backup_path": preview.backup_path,
+        "in_place": preview.in_place,
         "selector": {
             "input": preview.selector,
             "kind": preview.selector_kind,
@@ -1795,6 +1861,24 @@ fn print_model_use_preview_text(preview: &ModelUsePreview) {
     if let Some(output_path) = &preview.output_path {
         println!("output_path: {}", output_path.display());
     }
+    if let Some(backup_path) = &preview.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("in_place: {}", preview.in_place);
+}
+
+fn write_model_use_config(
+    config: &VinputConfig,
+    target: &ModelUseWriteTarget,
+) -> anyhow::Result<()> {
+    match target {
+        ModelUseWriteTarget::DryRun => Ok(()),
+        ModelUseWriteTarget::Output(output_path) => write_config_output(config, output_path),
+        ModelUseWriteTarget::InPlace {
+            config_path,
+            backup_path,
+        } => write_config_in_place(config, config_path, backup_path),
+    }
 }
 
 fn write_config_output(config: &VinputConfig, output_path: &Path) -> anyhow::Result<()> {
@@ -1806,8 +1890,42 @@ fn write_config_output(config: &VinputConfig, output_path: &Path) -> anyhow::Res
             .with_context(|| format!("create config output directory `{}`", parent.display()))?;
     }
     let contents = serde_json::to_string_pretty(config).context("serialize updated config")?;
-    fs::write(output_path, format!("{contents}\n"))
+    write_file_atomically(output_path, &format!("{contents}\n"))
         .with_context(|| format!("write updated config `{}`", output_path.display()))
+}
+
+fn write_config_in_place(
+    config: &VinputConfig,
+    config_path: &Path,
+    backup_path: &Path,
+) -> anyhow::Result<()> {
+    fs::copy(config_path, backup_path).with_context(|| {
+        format!(
+            "backup config `{}` to `{}`",
+            config_path.display(),
+            backup_path.display()
+        )
+    })?;
+    write_config_output(config, config_path)
+}
+
+fn write_file_atomically(path: &Path, contents: &str) -> anyhow::Result<()> {
+    let temp_path = atomic_temp_path(path);
+    fs::write(&temp_path, contents)
+        .with_context(|| format!("write temporary config `{}`", temp_path.display()))?;
+    fs::rename(&temp_path, path).with_context(|| {
+        format!(
+            "rename temporary config `{}` to `{}`",
+            temp_path.display(),
+            path.display()
+        )
+    })
+}
+
+fn atomic_temp_path(path: &Path) -> PathBuf {
+    let mut temp = path.as_os_str().to_os_string();
+    temp.push(format!(".tmp-{}", std::process::id()));
+    PathBuf::from(temp)
 }
 
 fn same_path_text(left: &Path, right: &Path) -> bool {

@@ -511,7 +511,7 @@ fn model_use_without_dry_run_is_rejected_until_config_mutation_exists() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
     assert!(stderr.contains(
-        "model use writes require --output <path> for now; rerun with --dry-run to inspect the config patch"
+        "model use writes require --output <path> or --in-place; rerun with --dry-run to inspect the config patch"
     ));
 }
 
@@ -596,6 +596,86 @@ fn model_use_output_refuses_to_overwrite_input_config() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
     assert!(stderr.contains("refusing to overwrite input config"));
+}
+
+#[test]
+fn model_use_in_place_updates_config_and_writes_backup() {
+    let temp_root = unique_temp_dir("vinput-cli-model-use-in-place");
+    std::fs::create_dir_all(&temp_root).expect("create temp root");
+    let config_path = temp_root.join("config.json");
+    std::fs::copy(workspace_file("data/default-config.json"), &config_path)
+        .expect("copy default config fixture");
+    let original = std::fs::read_to_string(&config_path).expect("read original config");
+    let backup_path = temp_root.join("config.json.bak");
+
+    let output = vinput_command()
+        .args(["model", "use", "onnx-sv-zh-int8-off", "--registry"])
+        .arg(live_models_fixture())
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--model-root")
+        .arg(temp_root.join("models"))
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput model use --in-place --json");
+
+    let value = assert_json_success(output, "model use in-place json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["output_path"], config_path.to_string_lossy().as_ref());
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+
+    let backup = std::fs::read_to_string(&backup_path).expect("read backup config");
+    assert_eq!(backup, original);
+    let updated: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).expect("read updated config"))
+            .expect("parse updated config");
+    assert_eq!(updated["asr"]["active_provider"], "sherpa-onnx");
+    assert_eq!(
+        updated["asr"]["providers"][0]["model"],
+        temp_root
+            .join("models/onnx-sv-zh-int8-off")
+            .to_string_lossy()
+            .as_ref()
+    );
+
+    let validate = vinput_command()
+        .args(["config", "validate"])
+        .arg(&config_path)
+        .arg("--summary-only")
+        .output()
+        .expect("validate in-place updated config");
+    assert_json_success(validate, "in-place updated config validate");
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_use_in_place_requires_config_path() {
+    let output = vinput_command()
+        .args(["model", "use", "/tmp/vinput-models/custom", "--in-place"])
+        .output()
+        .expect("run vinput model use --in-place without config");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("model use --in-place requires --config <path>"));
+}
+
+#[test]
+fn model_use_rejects_output_and_in_place_together() {
+    let output = vinput_command()
+        .args(["model", "use", "/tmp/vinput-models/custom"])
+        .arg("--output")
+        .arg("/tmp/vinput-updated.json")
+        .arg("--in-place")
+        .output()
+        .expect("run vinput model use with conflicting write targets");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("model use cannot combine --output and --in-place"));
 }
 
 #[test]
