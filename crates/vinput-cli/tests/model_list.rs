@@ -888,3 +888,134 @@ fn model_info_installed_path_requires_metadata_file() {
     assert!(stderr.contains("read installed model metadata"));
     let _ = std::fs::remove_dir_all(temp_root);
 }
+
+#[test]
+fn model_cli_workflow_installs_inspects_uses_and_removes_local_archive() {
+    let temp_root = unique_temp_dir("vinput-cli-model-workflow");
+    std::fs::create_dir_all(&temp_root).expect("create temp root");
+    let (registry_path, handle) = live_workflow_registry_fixture();
+    let model_root = temp_root.join("models");
+    let staging_root = temp_root.join("stage");
+    let model_dir = model_root.join("test-workflow");
+    let output_config = temp_root.join("updated-config.json");
+
+    let install = vinput_command()
+        .args(["model", "install", "test-workflow", "--registry"])
+        .arg(&registry_path)
+        .arg("--model-root")
+        .arg(&model_root)
+        .arg("--staging-root")
+        .arg(&staging_root)
+        .arg("--json")
+        .output()
+        .expect("run workflow model install");
+    let install_json = assert_json_success(install, "workflow install json");
+    assert_eq!(install_json["dry_run"], false);
+    assert_eq!(install_json["install"]["checksum_verified"], true);
+    assert!(model_dir.join("model.int8.onnx").exists());
+    assert!(model_dir.join("tokens.txt").exists());
+    assert!(model_dir.join("vinput-model.json").exists());
+
+    let info = vinput_command()
+        .args(["model", "info"])
+        .arg(&model_dir)
+        .arg("--json")
+        .output()
+        .expect("run workflow model info");
+    let info_json = assert_json_success(info, "workflow installed info json");
+    assert_eq!(info_json["source"]["kind"], "installed");
+    assert_eq!(info_json["model"]["backend"], "sherpa-offline");
+    assert_eq!(info_json["model"]["family"], "sense_voice");
+    assert_eq!(info_json["model"]["file_count"], 3);
+
+    let use_output = vinput_command()
+        .args(["model", "use", "test-workflow", "--registry"])
+        .arg(&registry_path)
+        .arg("--model-root")
+        .arg(&model_root)
+        .arg("--output")
+        .arg(&output_config)
+        .arg("--json")
+        .output()
+        .expect("run workflow model use output");
+    let use_json = assert_json_success(use_output, "workflow use output json");
+    assert_eq!(use_json["wrote_config"], true);
+    assert_eq!(
+        use_json["patch"]["asr.providers[].model"]["after"],
+        model_dir.to_string_lossy().as_ref()
+    );
+
+    let active_remove = vinput_command()
+        .args(["model", "remove", "test-workflow", "--registry"])
+        .arg(&registry_path)
+        .arg("--model-root")
+        .arg(&model_root)
+        .arg("--config")
+        .arg(&output_config)
+        .arg("--yes")
+        .output()
+        .expect("run workflow active model remove");
+    assert!(!active_remove.status.success());
+    let stderr = String::from_utf8(active_remove.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("refusing to remove active model"));
+    assert!(model_dir.exists());
+
+    let remove = vinput_command()
+        .args(["model", "remove", "test-workflow", "--registry"])
+        .arg(&registry_path)
+        .arg("--model-root")
+        .arg(&model_root)
+        .args(["--yes", "--json"])
+        .output()
+        .expect("run workflow model remove");
+    let remove_json = assert_json_success(remove, "workflow remove json");
+    assert_eq!(remove_json["removed"], true);
+    assert_eq!(remove_json["target"]["exists"], false);
+    assert!(!model_dir.exists());
+
+    let request = handle.join().expect("HTTP thread should finish");
+    assert!(request.starts_with("GET /model.tar HTTP/1.1"));
+    let _ = std::fs::remove_file(registry_path);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+fn live_workflow_registry_fixture() -> (std::path::PathBuf, std::thread::JoinHandle<String>) {
+    let archive =
+        build_test_tar_archive(&[("model.int8.onnx", b"onnx"), ("tokens.txt", b"tokens")]);
+    let archive_sha256 = vinput_registry::sha256_hex(&archive);
+    let (url, handle) = serve_single_binary_response(archive);
+    let registry_path = write_temp_json(
+        "live-model-workflow",
+        &serde_json::json!({
+            "version": 2,
+            "items": [
+                {
+                    "id": "model.test.workflow",
+                    "short_id": "test-workflow",
+                    "urls": [url],
+                    "sha256": archive_sha256,
+                    "size_bytes": 123,
+                    "language": "zh",
+                    "vinput_model": {
+                        "backend": "sherpa-offline",
+                        "family": "sense_voice",
+                        "language": "zh",
+                        "runtime": "offline",
+                        "size_bytes": 123,
+                        "supports_hotwords": false,
+                        "model": {
+                            "tokens": "tokens.txt",
+                            "sense_voice": {
+                                "model": "model.int8.onnx",
+                                "language": "zh",
+                                "use_itn": true
+                            }
+                        }
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    );
+    (registry_path, handle)
+}
