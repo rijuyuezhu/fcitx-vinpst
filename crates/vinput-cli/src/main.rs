@@ -118,6 +118,12 @@ enum ModelCommand {
         /// Legacy-compatible flag for listing remote/available models.
         #[arg(short = 'a', long)]
         available: bool,
+        /// List installed models from the managed model root instead of the live registry.
+        #[arg(long)]
+        installed: bool,
+        /// Managed model root used by --installed. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
+        #[arg(long)]
+        model_root: Option<PathBuf>,
         /// Optional local live registry/models.json file. Omitted to fetch configured mirrors.
         #[arg(long)]
         registry: Option<PathBuf>,
@@ -446,23 +452,28 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
     match command {
         ModelCommand::List {
             available,
+            installed,
+            model_root,
             registry,
             i18n,
             config,
             locale,
             json,
-        } => print_model_list(
+        } => handle_model_list_command(&ModelListOwnedRequest {
             available,
-            registry.as_deref(),
-            i18n.as_deref(),
-            config.as_ref(),
-            &locale,
-            json,
-        ),
+            installed,
+            model_root,
+            registry,
+            i18n,
+            config,
+            locale,
+            json_output: json,
+        }),
         ModelCommand::Info {
             id,
             registry,
@@ -983,6 +994,30 @@ fn print_registry_summary() -> anyhow::Result<()> {
     Ok(())
 }
 
+struct ModelListOwnedRequest {
+    available: bool,
+    installed: bool,
+    model_root: Option<PathBuf>,
+    registry: Option<PathBuf>,
+    i18n: Option<PathBuf>,
+    config: Option<PathBuf>,
+    locale: String,
+    json_output: bool,
+}
+
+fn handle_model_list_command(request: &ModelListOwnedRequest) -> anyhow::Result<()> {
+    print_model_list(ModelListRequest {
+        available: request.available,
+        installed: request.installed,
+        model_root: request.model_root.as_deref(),
+        registry_path: request.registry.as_deref(),
+        i18n_path: request.i18n.as_deref(),
+        config_path: request.config.as_ref(),
+        locale: &request.locale,
+        json_output: request.json_output,
+    })
+}
+
 struct LoadedLiveModelRegistry {
     registry: LiveModelRegistry,
     source_json: serde_json::Value,
@@ -1001,15 +1036,32 @@ struct FetchedText {
     text: String,
 }
 
-fn print_model_list(
-    _available: bool,
-    registry_path: Option<&Path>,
-    i18n_path: Option<&Path>,
-    config_path: Option<&PathBuf>,
-    locale: &str,
+#[derive(Clone, Copy)]
+struct ModelListRequest<'a> {
+    available: bool,
+    installed: bool,
+    model_root: Option<&'a Path>,
+    registry_path: Option<&'a Path>,
+    i18n_path: Option<&'a Path>,
+    config_path: Option<&'a PathBuf>,
+    locale: &'a str,
     json_output: bool,
-) -> anyhow::Result<()> {
-    let (loaded, i18n) = load_live_model_catalog(registry_path, i18n_path, config_path, locale)?;
+}
+
+fn print_model_list(request: ModelListRequest<'_>) -> anyhow::Result<()> {
+    if request.available && request.installed {
+        anyhow::bail!("model list cannot combine --available and --installed");
+    }
+    if request.installed {
+        return print_installed_model_list(request.model_root, request.json_output);
+    }
+
+    let (loaded, i18n) = load_live_model_catalog(
+        request.registry_path,
+        request.i18n_path,
+        request.config_path,
+        request.locale,
+    )?;
     let models = loaded
         .registry
         .items
@@ -1024,12 +1076,54 @@ fn print_model_list(
         "models": models,
     });
 
-    if json_output {
+    if request.json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         print_model_list_text(&loaded, &i18n);
     }
     Ok(())
+}
+
+fn print_installed_model_list(model_root: Option<&Path>, json_output: bool) -> anyhow::Result<()> {
+    let model_root = match model_root {
+        Some(path) => path.to_path_buf(),
+        None => default_model_root()?,
+    };
+    let models = load_installed_model_list(&model_root)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&installed_model_list_json(&model_root, &models))?
+        );
+    } else {
+        print_installed_model_list_text(&model_root, &models);
+    }
+    Ok(())
+}
+
+fn load_installed_model_list(model_root: &Path) -> anyhow::Result<Vec<InstalledModelInfo>> {
+    if !model_root.exists() {
+        return Ok(Vec::new());
+    }
+    if !model_root.is_dir() {
+        anyhow::bail!("model root `{}` is not a directory", model_root.display());
+    }
+    let mut models = Vec::new();
+    for entry in fs::read_dir(model_root)
+        .with_context(|| format!("read model root `{}`", model_root.display()))?
+    {
+        let entry =
+            entry.with_context(|| format!("read entry under `{}`", model_root.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("inspect model root entry `{}`", path.display()))?;
+        if file_type.is_dir() && path.join("vinput-model.json").is_file() {
+            models.push(load_installed_model_info(&path)?);
+        }
+    }
+    models.sort_by(|left, right| left.model_dir.cmp(&right.model_dir));
+    Ok(models)
 }
 
 fn print_model_info(
@@ -1925,6 +2019,41 @@ fn live_model_list_json(
     })
 }
 
+fn installed_model_list_json(
+    model_root: &Path,
+    models: &[InstalledModelInfo],
+) -> serde_json::Value {
+    let models = models
+        .iter()
+        .map(installed_model_list_item_json)
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "ok": true,
+        "source": {
+            "kind": "installed",
+            "model_root": model_root,
+        },
+        "model_count": models.len(),
+        "models": models,
+    })
+}
+
+fn installed_model_list_item_json(info: &InstalledModelInfo) -> serde_json::Value {
+    serde_json::json!({
+        "name": installed_model_dir_name(&info.model_dir),
+        "model_dir": info.model_dir,
+        "metadata_path": info.metadata_path,
+        "backend": info.metadata.backend,
+        "family": info.metadata.model_family(),
+        "language": info.metadata.language,
+        "runtime": info.metadata.runtime,
+        "size_bytes": info.metadata.size_bytes,
+        "supports_hotwords": info.metadata.supports_hotwords,
+        "file_count": info.file_count,
+        "files": info.files,
+    })
+}
+
 fn installed_model_info_json(info: &InstalledModelInfo) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::json!({
         "ok": true,
@@ -2105,6 +2234,33 @@ fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n
             model.resolved_title(i18n.i18n.as_ref()),
         );
     }
+}
+
+fn print_installed_model_list_text(model_root: &Path, models: &[InstalledModelInfo]) {
+    println!("model_root: {}", model_root.display());
+    println!("models: {}", models.len());
+    println!("name	path	language	size	backend	family	runtime	hotwords	files");
+    for model in models {
+        println!(
+            "{}	{}	{}	{}	{}	{}	{}	{}	{}",
+            installed_model_dir_name(&model.model_dir),
+            model.model_dir.display(),
+            optional_str(model.metadata.language.as_deref()),
+            format_size_bytes(model.metadata.size_bytes),
+            optional_str(model.metadata.backend.as_deref()),
+            optional_str(model.metadata.model_family()),
+            optional_str(model.metadata.runtime.as_deref()),
+            model.metadata.supports_hotwords,
+            model.file_count,
+        );
+    }
+}
+
+fn installed_model_dir_name(model_dir: &Path) -> String {
+    model_dir.file_name().map_or_else(
+        || model_dir.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
 fn print_installed_model_info_text(info: &InstalledModelInfo) {

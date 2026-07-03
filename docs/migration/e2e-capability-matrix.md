@@ -212,6 +212,7 @@ Build the first user-facing model workflow.
 
 Acceptance:
 
+- `vinput model list --installed` scans the managed model root for local `vinput-model.json` metadata, while `model list --available`/`model ls -a` keeps the live registry view.
 - `vinput model install <id-or-short-id>` downloads with mirror fallback, verifies sha256, extracts safely, and materializes under the managed model root; legacy-compatible `model add <id-or-short-id>` is accepted as the install alias.
 - `vinput model info <id|short_id|path>` prints installed path, family, backend, language, model files, hotword support, and runtime readiness hints; Rust now supports live registry `id`/`short_id` plus installed path metadata from `vinput-model.json`.
 - `vinput model use <id|short_id|path>` updates config active provider/model in the current user config; Rust currently supports `--dry-run` config patch preview and guarded `--output <path>` writes before enabling in-place mutation/reload.

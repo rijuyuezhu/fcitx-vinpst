@@ -83,6 +83,8 @@ fn model_list_help_lists_registry_options() {
 
     let stdout = assert_stdout_success(output, "help output");
     assert!(stdout.contains("--available"));
+    assert!(stdout.contains("--installed"));
+    assert!(stdout.contains("--model-root"));
     assert!(stdout.contains("--registry"));
     assert!(stdout.contains("--i18n"));
     assert!(stdout.contains("--config"));

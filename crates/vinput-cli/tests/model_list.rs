@@ -1019,3 +1019,118 @@ fn live_workflow_registry_fixture() -> (std::path::PathBuf, std::thread::JoinHan
     );
     (registry_path, handle)
 }
+
+#[test]
+fn model_list_installed_json_scans_model_root_metadata() {
+    let temp_root = unique_temp_dir("vinput-cli-model-list-installed-json");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("installed-one");
+    std::fs::create_dir_all(&model_dir).expect("create installed model dir");
+    std::fs::write(model_dir.join("model.int8.onnx"), b"onnx").expect("write model file");
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        serde_json::json!({
+            "backend": "sherpa-offline",
+            "family": "sense_voice",
+            "language": "zh",
+            "runtime": "offline",
+            "size_bytes": 42,
+            "supports_hotwords": true
+        })
+        .to_string(),
+    )
+    .expect("write installed metadata");
+    std::fs::create_dir_all(model_root.join("incomplete-model")).expect("create incomplete dir");
+
+    let output = vinput_command()
+        .args(["model", "list", "--installed", "--model-root"])
+        .arg(&model_root)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list --installed --json");
+
+    let value = assert_json_success(output, "model list installed json");
+    assert_eq!(value["source"]["kind"], "installed");
+    assert_eq!(
+        value["source"]["model_root"],
+        model_root.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["model_count"], 1);
+    let model = &value["models"][0];
+    assert_eq!(model["name"], "installed-one");
+    assert_eq!(model["model_dir"], model_dir.to_string_lossy().as_ref());
+    assert_eq!(model["backend"], "sherpa-offline");
+    assert_eq!(model["family"], "sense_voice");
+    assert_eq!(model["runtime"], "offline");
+    assert_eq!(model["supports_hotwords"], true);
+    assert_eq!(model["file_count"], 2);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_list_installed_text_prints_local_rows() {
+    let temp_root = unique_temp_dir("vinput-cli-model-list-installed-text");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("installed-text");
+    std::fs::create_dir_all(&model_dir).expect("create installed model dir");
+    std::fs::write(model_dir.join("tokens.txt"), b"tokens").expect("write tokens file");
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        serde_json::json!({
+            "backend": "sherpa-offline",
+            "family": "sense_voice",
+            "language": "zh",
+            "runtime": "offline",
+            "size_bytes": 42,
+            "supports_hotwords": false
+        })
+        .to_string(),
+    )
+    .expect("write installed metadata");
+
+    let output = vinput_command()
+        .args(["model", "list", "--installed", "--model-root"])
+        .arg(&model_root)
+        .output()
+        .expect("run vinput model list --installed");
+
+    let stdout = assert_stdout_success(output, "model list installed text");
+    assert!(stdout.contains(&format!("model_root: {}", model_root.display())));
+    assert!(stdout.contains("models: 1"));
+    assert!(
+        stdout.contains("name\tpath\tlanguage\tsize\tbackend\tfamily\truntime\thotwords\tfiles")
+    );
+    assert!(stdout.contains("installed-text"));
+    assert!(stdout.contains("sherpa-offline\tsense_voice\toffline\tfalse\t2"));
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_list_installed_empty_root_returns_empty_list() {
+    let temp_root = unique_temp_dir("vinput-cli-model-list-installed-empty");
+    let model_root = temp_root.join("missing-models");
+
+    let output = vinput_command()
+        .args(["model", "list", "--installed", "--model-root"])
+        .arg(&model_root)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list --installed empty");
+
+    let value = assert_json_success(output, "model list installed empty json");
+    assert_eq!(value["model_count"], 0);
+    assert_eq!(value["models"].as_array().expect("models array").len(), 0);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_list_rejects_available_and_installed_together() {
+    let output = vinput_command()
+        .args(["model", "list", "--available", "--installed"])
+        .output()
+        .expect("run vinput model list conflicting modes");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("model list cannot combine --available and --installed"));
+}
