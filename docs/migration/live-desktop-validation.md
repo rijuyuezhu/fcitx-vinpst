@@ -9,6 +9,7 @@ cd /workspace/fcitx-vinput-rs
 git status --porcelain=v1 -b
 just user-ime-command-demo-smoke
 just user-ime-real-command-asr-wav-smoke
+just user-ime-sherpa-sense-voice-smoke
 just ime-fcitx-live-probe-smoke
 ```
 
@@ -100,6 +101,34 @@ VINPUT_USER_PROFILE=real-command-asr-wav VINPUT_USER_STATUS=1 scripts/install-us
 ```
 
 Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `real-command-asr-wav`, with `has_effective_backend: true` and an empty `last_error`. This proves a real command-ASR helper profile is configured; it does not prove native `sherpa-onnx` support.
+
+
+## Native sherpa SenseVoice profile
+
+Use this when you have a local SenseVoice model directory supported by the native `sherpa-onnx` backend. This mutates the real user profile and expects a real PipeWire desktop session.
+
+The model directory must contain `model.int8.onnx` or `model.onnx`, plus `tokens.txt`.
+
+```sh
+VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+  VINPUT_USER_SHERPA_MODEL=/path/to/sherpa-onnx-sense-voice-model \
+  scripts/install-user-ime.sh
+```
+
+Optional knobs:
+
+```sh
+VINPUT_USER_SHERPA_HOTWORDS_FILE=/path/to/hotwords.txt
+VINPUT_USER_SHERPA_TIMEOUT_MS=30000
+```
+
+The install builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. Check it before restarting Fcitx5:
+
+```sh
+VINPUT_USER_PROFILE=sherpa-sense-voice-live VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
+```
+
+Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `sherpa-onnx`, with `has_effective_backend: true` and an empty `last_error`. If model loading fails, keep the exact `last_error`; do not mark native ASR ready.
 
 ## PipeWire live checks
 

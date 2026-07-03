@@ -11,11 +11,11 @@
 - `mock.rs`: deterministic buffered/streaming/early-final `MockAsrBackend`;
 - `command.rs`: command provider specs, JSON request/response types, legacy batch and streaming runners, process runner helpers, and `CommandAsrBackend`;
 - `factory.rs`: config-selected backend factory and config-derived `AsrBackendState`;
-- `sherpa.rs`: local `sherpa-onnx` typed config parsing plus pre-runtime local model/hotwords path validation;
+- `sherpa.rs`: local `sherpa-onnx` typed config parsing, model/hotwords path validation, SenseVoice layout inference, and the feature-gated official runtime adapter;
 - `payload.rs`: conversion from recognition events to the legacy recognition payload JSON model;
 - `tests.rs`: behavior-preserving coverage for mock, command, factory, and payload contracts.
 
-Command providers use legacy batch or `.streaming` runners through the factory, while the JSON helper seam remains available for explicit process-runner tests and small helper integrations. Local `sherpa-onnx` has an explicit typed config seam and a pre-runtime local model/hotwords path validation seam, but the runtime remains unavailable until the concrete backend is implemented. The validation seam accepts relative or absolute local model and hotwords paths, rejects empty values and URL-like paths, and verifies model directories plus regular hotwords files before any runtime is constructed.
+Command providers use legacy batch or `.streaming` runners through the factory, while the JSON helper seam remains available for explicit process-runner tests and small helper integrations. Local `sherpa-onnx` now has an explicit typed config seam, local model/hotwords path validation, offline SenseVoice layout inference, and an optional official runtime adapter behind the `sherpa-onnx-backend` Cargo feature. Default builds keep the runtime disabled so ordinary CI and command-demo installs do not download or link native ASR libraries. The validation seam accepts relative or absolute local model and hotwords paths, rejects empty values and URL-like paths, and verifies model directories plus regular hotwords files before any runtime is constructed.
 
 ## Daemon integration
 
@@ -40,7 +40,7 @@ StopRecording
   -> reset Idle
 ```
 
-This is a contract seam, not full legacy runtime parity. Live PipeWire streaming, local sherpa-onnx, VAD trimming, warmup/reload state, and real worker orchestration still belong to future feature phases after the refactor plan permits them.
+This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend currently covers buffered offline SenseVoice recognition only; live PipeWire chunk delivery to streaming ASR, VAD trimming, warmup/reload state, broader sherpa model families, and real worker orchestration still belong to later phases.
 
 ## Command ASR provider contracts
 
@@ -70,6 +70,23 @@ The repository also ships `scripts/command-asr-wav-helper.py` for external ASR C
 
 For user-level live trials, `VINPUT_USER_PROFILE=real-command-asr-wav scripts/install-user-ime.sh` installs the WAV helper next to the daemon, generates a `real-command-asr-wav.json` config, and routes live PipeWire capture through the helper to `VINPUT_USER_COMMAND_ASR_WAV_COMMAND`. That profile is an interim real command-ASR path: `vinput doctor --config ...` should report a ready effective command backend, but this does not make the local `sherpa-onnx` runtime complete.
 
+
+## Native `sherpa-onnx` backend contract
+
+The native backend uses the official `sherpa-onnx` Rust crate only when built with `sherpa-onnx-backend`. The first supported layout is SenseVoice-style offline recognition: the configured model directory must contain `model.int8.onnx` or `model.onnx`, plus `tokens.txt`. Optional hotwords files are passed through to `OfflineRecognizerConfig`. Relative model paths are resolved under `VINPUT_SHERPA_MODEL_ROOT` when the feature is active; user install profiles generate absolute model paths to avoid environment-sensitive activation failures.
+
+The runtime remains buffered: the daemon collects PCM, then `SherpaOnnxRecognitionSession` converts signed 16-bit samples to `f32`, calls `OfflineRecognizer::decode`, and emits one final-text payload. Timeout fields are preserved in config diagnostics but are not yet enforced around the native decode call.
+
+A user-level live profile is available for real desktop trials:
+
+```sh
+VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+  VINPUT_USER_SHERPA_MODEL=/path/to/sense-voice-model-dir \
+  scripts/install-user-ime.sh
+```
+
+This profile builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`.
+
 ## Diagnostics
 
 Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable.
@@ -78,9 +95,9 @@ Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendS
 
 These gaps remain after the behavior-preserving ASR split:
 
-- Local `sherpa-onnx` typed config parsing and local model/hotwords path validation exist as seams; hotwords runtime use, VAD trimming, warmup, and concrete reload state are not implemented yet.
+- Native `sherpa-onnx` is feature-gated and currently limited to buffered offline SenseVoice-style models; broader sherpa model families, runtime VAD trimming, warmup, reload state, and decode timeout enforcement are not implemented yet.
 - Runtime streaming has command-helper test seams, but live PipeWire chunk delivery to streaming ASR is not implemented.
-- Command ASR is runtime-wired for configured command providers; local and remote ASR provider kinds other than command/mock remain contract-pinned but unavailable.
+- Command ASR is runtime-wired for configured command providers; remote ASR provider kinds remain contract-pinned but unavailable.
 
 ## Mock audio push observation
 

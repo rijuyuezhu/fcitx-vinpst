@@ -88,6 +88,7 @@ Run `just addon-lint` when Fcitx5 headers and clang-tidy are available.
 just ime-e2e-smoke
 just user-ime-command-demo-smoke
 just user-ime-real-command-asr-wav-smoke
+just user-ime-sherpa-sense-voice-smoke
 ```
 
 These checks prove the deterministic product spine. They do not prove live desktop behavior.
@@ -102,6 +103,13 @@ HOME="$tmp_home" VINPUT_USER_PROFILE=command-demo scripts/install-user-ime.sh
 HOME="$tmp_home" VINPUT_USER_PROFILE=real-command-asr-wav \
   VINPUT_USER_AUDIO_BACKEND=mock \
   VINPUT_USER_COMMAND_ASR_WAV_COMMAND='cat "$VINPUT_ASR_WAV" >/dev/null; printf ready' \
+  scripts/install-user-ime.sh
+mkdir -p "$tmp_home/model"
+printf 'onnx\n' >"$tmp_home/model/model.int8.onnx"
+printf '<blank> 0\n' >"$tmp_home/model/tokens.txt"
+HOME="$tmp_home" VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+  VINPUT_USER_AUDIO_BACKEND=mock \
+  VINPUT_USER_SHERPA_MODEL="$tmp_home/model" \
   scripts/install-user-ime.sh
 HOME="$tmp_home" VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
 rm -rf "$tmp_home"
@@ -123,6 +131,7 @@ just ime-configured-pipewire-live
 
 Optional PipeWire recipes are intentionally excluded from `just ci`. `just pipewire-check` runs without live daemon access and covers CLI/daemon audio-device diagnostics.
 `just pipewire-live` uses `VINPUT_TEST_PIPEWIRE_CONTEXT=1`, `VINPUT_TEST_PIPEWIRE_ENUMERATE=1`, and `VINPUT_TEST_PIPEWIRE_RECORD=1`.
+`just sherpa-onnx-check` compiles the official feature-gated sherpa backend without running model inference.
 `just addon-dbus-pipewire-live` covers the C++ bridge plus Rust daemon D-Bus path, prints the daemon build's `audio-devices` JSON diagnostics, uses `VINPUT_DBUS_SMOKE_RECORD_MS=100`, and passes `--record-ms 100` through the start/wait/stop smoke.
 `just ime-pipewire-live` staged D-Bus activation starts the PipeWire-enabled daemon with `--dbus --audio-backend pipewire`, writes under `target/tmp/fcitx-ime-pipewire-live-smoke`, and prints the staged daemon's `audio-devices` JSON diagnostics.
 Live desktop PipeWire validation still needs manual confirmation. Recorder setup errors are expected to include the same target/format/sample-rate/channel plan.
@@ -154,6 +163,7 @@ just ime-configured-activation-smoke
 just ime-e2e-smoke
 just user-ime-command-demo-smoke
 just user-ime-real-command-asr-wav-smoke
+just user-ime-sherpa-sense-voice-smoke
 just user-ime-command-demo
 just user-ime-pipewire-live
 just user-ime-status
@@ -163,6 +173,7 @@ just ci
 just smoke
 just e2e-demo
 just pipewire-check
+just sherpa-onnx-check
 just ime-fcitx-live-probe
 ```
 

@@ -198,25 +198,27 @@ fn audio_architecture_pins_pipewire_live_test_policy() {
 }
 
 #[test]
-fn asr_architecture_pins_local_sherpa_runtime_gap() {
+fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
     let asr_doc = std::fs::read_to_string(architecture_dir().join("asr-contract.md"))
         .expect("read asr contract doc");
 
     for required in [
-        "Local `sherpa-onnx` has an explicit typed config seam",
-        "runtime remains unavailable until the concrete backend is implemented",
-        "Local `sherpa-onnx` typed config parsing and local model/hotwords path validation exist as seams",
+        "Local `sherpa-onnx` now has an explicit typed config seam",
+        "optional official runtime adapter behind the `sherpa-onnx-backend` Cargo feature",
+        "Default builds keep the runtime disabled",
         "accepts relative or absolute local model and hotwords paths",
         "rejects empty values and URL-like paths",
         "verifies model directories plus regular hotwords files",
-        "VAD trimming, warmup, and concrete reload state are not implemented yet",
+        "currently covers buffered offline SenseVoice recognition only",
+        "VAD trimming, warmup/reload state, broader sherpa model families",
+        "Timeout fields are preserved in config diagnostics but are not yet enforced",
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
         "mock-only observation seam for future runtime streaming tests",
         "`MockAsrAudioPush` is serde/schema-ready",
     ] {
         assert!(
             asr_doc.contains(required),
-            "ASR contract doc should pin local sherpa runtime gap: {required}"
+            "ASR contract doc should pin feature-gated sherpa backend scope: {required}"
         );
     }
 }
