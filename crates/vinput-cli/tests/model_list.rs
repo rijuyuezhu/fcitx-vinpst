@@ -511,6 +511,89 @@ fn model_use_without_dry_run_is_rejected_until_config_mutation_exists() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
     assert!(stderr.contains(
-        "real model use is not implemented yet; rerun with --dry-run to inspect the config patch"
+        "model use writes require --output <path> for now; rerun with --dry-run to inspect the config patch"
     ));
+}
+
+#[test]
+fn model_use_output_writes_updated_config_without_overwriting_input() {
+    let temp_root = unique_temp_dir("vinput-cli-model-use-output");
+    std::fs::create_dir_all(&temp_root).expect("create temp root");
+    let input_config = temp_root.join("input.json");
+    let output_config = temp_root.join("out/updated.json");
+    std::fs::copy(workspace_file("data/default-config.json"), &input_config)
+        .expect("copy default config fixture");
+
+    let output = vinput_command()
+        .args(["model", "use", "onnx-sv-zh-int8-off", "--registry"])
+        .arg(live_models_fixture())
+        .arg("--config")
+        .arg(&input_config)
+        .arg("--model-root")
+        .arg(temp_root.join("models"))
+        .arg("--output")
+        .arg(&output_config)
+        .arg("--json")
+        .output()
+        .expect("run vinput model use --output --json");
+
+    let value = assert_json_success(output, "model use output json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["will_write_config"], true);
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(
+        value["output_path"],
+        output_config.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        value["patch"]["asr.providers[].model"]["after"],
+        temp_root
+            .join("models/onnx-sv-zh-int8-off")
+            .to_string_lossy()
+            .as_ref()
+    );
+
+    let original: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&input_config).expect("read input config"))
+            .expect("parse input config");
+    assert_eq!(original["asr"]["providers"][0].get("model"), None);
+
+    let updated: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&output_config).expect("read output config"))
+            .expect("parse output config");
+    assert_eq!(updated["asr"]["active_provider"], "sherpa-onnx");
+    assert_eq!(
+        updated["asr"]["providers"][0]["model"],
+        temp_root
+            .join("models/onnx-sv-zh-int8-off")
+            .to_string_lossy()
+            .as_ref()
+    );
+
+    let validate = vinput_command()
+        .args(["config", "validate"])
+        .arg(&output_config)
+        .arg("--summary-only")
+        .output()
+        .expect("validate updated config");
+    assert_json_success(validate, "updated config validate");
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_use_output_refuses_to_overwrite_input_config() {
+    let config_path = workspace_file("data/default-config.json");
+    let output = vinput_command()
+        .args(["model", "use", "/tmp/vinput-models/custom"])
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&config_path)
+        .output()
+        .expect("run vinput model use same input and output");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("refusing to overwrite input config"));
 }

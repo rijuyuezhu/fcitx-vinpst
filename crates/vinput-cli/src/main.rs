@@ -202,6 +202,9 @@ enum ModelCommand {
         /// ASR provider id to update. Defaults to the config active provider.
         #[arg(long)]
         provider: Option<String>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
         /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
         #[arg(long)]
         model_root: Option<PathBuf>,
@@ -472,6 +475,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             config,
             locale,
             provider,
+            output,
             model_root,
             dry_run,
             json,
@@ -482,6 +486,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             config_path: config.as_ref(),
             locale: &locale,
             provider: provider.as_deref(),
+            output_path: output.as_deref(),
             model_root: model_root.as_deref(),
             dry_run,
             json_output: json,
@@ -1079,6 +1084,7 @@ struct ModelUseRequest<'a> {
     config_path: Option<&'a PathBuf>,
     locale: &'a str,
     provider: Option<&'a str>,
+    output_path: Option<&'a Path>,
     model_root: Option<&'a Path>,
     dry_run: bool,
     json_output: bool,
@@ -1088,6 +1094,8 @@ struct ModelUsePreview {
     config_path: Option<PathBuf>,
     provider_id: String,
     provider_kind: AsrProviderKind,
+    output_path: Option<PathBuf>,
+    wrote_config: bool,
     before_active_provider: String,
     before_model: Option<String>,
     after_active_provider: String,
@@ -1108,13 +1116,21 @@ struct ModelUseResolution {
 }
 
 fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
-    if !request.dry_run {
+    if !request.dry_run && request.output_path.is_none() {
         anyhow::bail!(
-            "real model use is not implemented yet; rerun with --dry-run to inspect the config patch"
+            "model use writes require --output <path> for now; rerun with --dry-run to inspect the config patch"
+        );
+    }
+    if let (Some(config_path), Some(output_path)) = (request.config_path, request.output_path)
+        && same_path_text(config_path, output_path)
+    {
+        anyhow::bail!(
+            "refusing to overwrite input config `{}`; choose a different --output path",
+            config_path.display()
         );
     }
 
-    let config = match request.config_path {
+    let mut config = match request.config_path {
         Some(config_path) => load_config_file(config_path)?,
         None => VinputConfig::bundled_default().context("parse bundled config")?,
     };
@@ -1133,20 +1149,23 @@ fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
     let provider_id = request
         .provider
         .map_or_else(|| config.asr.active_provider.clone(), str::to_owned);
-    let provider = config
+    let provider_index = config
         .asr
         .providers
         .iter()
-        .find(|provider| provider.id == provider_id)
+        .position(|provider| provider.id == provider_id)
         .with_context(|| format!("ASR provider `{provider_id}` not found in config"))?;
+    let provider = &config.asr.providers[provider_index];
     if provider.kind != AsrProviderKind::Local {
         anyhow::bail!("ASR provider `{provider_id}` is not local and cannot use a managed model");
     }
 
-    let preview = ModelUsePreview {
+    let mut preview = ModelUsePreview {
         config_path: request.config_path.cloned(),
         provider_id: provider_id.clone(),
         provider_kind: provider.kind.clone(),
+        output_path: request.output_path.map(Path::to_path_buf),
+        wrote_config: false,
         before_active_provider: config.asr.active_provider.clone(),
         before_model: provider.model.clone(),
         after_active_provider: provider_id,
@@ -1157,6 +1176,18 @@ fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
         resolved_short_id: resolution.resolved_short_id,
         resolved_title: resolution.resolved_title,
     };
+
+    if !request.dry_run {
+        config
+            .asr
+            .active_provider
+            .clone_from(&preview.after_active_provider);
+        config.asr.providers[provider_index].model = Some(preview.after_model.clone());
+        config.validate().context("validate updated config")?;
+        let output_path = request.output_path.expect("checked output path");
+        write_config_output(&config, output_path)?;
+        preview.wrote_config = true;
+    }
 
     if request.json_output {
         println!(
@@ -1219,9 +1250,11 @@ fn resolve_model_use_value(
 fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {
     serde_json::json!({
         "ok": true,
-        "dry_run": true,
-        "will_write_config": false,
+        "dry_run": !preview.wrote_config,
+        "will_write_config": preview.wrote_config,
+        "wrote_config": preview.wrote_config,
         "config_path": preview.config_path,
+        "output_path": preview.output_path,
         "selector": {
             "input": preview.selector,
             "kind": preview.selector_kind,
@@ -1242,14 +1275,14 @@ fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {
             }
         },
         "next_steps": [
-            "rerun without --dry-run after config mutation is implemented",
-            "run vinput asr-state to verify runtime readiness"
+            "use the written config with vinput asr-state --config <path>",
+            "restart or reload the daemon with the updated config"
         ],
     })
 }
 
 fn print_model_use_preview_text(preview: &ModelUsePreview) {
-    println!("dry_run: true");
+    println!("dry_run: {}", !preview.wrote_config);
     println!("selector: {}", preview.selector);
     println!("selector_kind: {}", preview.selector_kind);
     println!("provider_id: {}", preview.provider_id);
@@ -1260,7 +1293,28 @@ fn print_model_use_preview_text(preview: &ModelUsePreview) {
         optional_str(preview.before_model.as_deref())
     );
     println!("model_after: {}", preview.after_model);
-    println!("will_write_config: false");
+    println!("will_write_config: {}", preview.wrote_config);
+    println!("wrote_config: {}", preview.wrote_config);
+    if let Some(output_path) = &preview.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+}
+
+fn write_config_output(config: &VinputConfig, output_path: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create config output directory `{}`", parent.display()))?;
+    }
+    let contents = serde_json::to_string_pretty(config).context("serialize updated config")?;
+    fs::write(output_path, format!("{contents}\n"))
+        .with_context(|| format!("write updated config `{}`", output_path.display()))
+}
+
+fn same_path_text(left: &Path, right: &Path) -> bool {
+    left == right
 }
 
 fn load_live_model_catalog(

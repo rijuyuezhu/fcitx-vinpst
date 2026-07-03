@@ -214,7 +214,7 @@ Acceptance:
 
 - `vinput model install <id-or-short-id>` downloads with mirror fallback, verifies sha256, extracts safely, and materializes under the managed model root; legacy-compatible `model add <id-or-short-id>` is accepted as the install alias.
 - `vinput model info <id|short_id|path>` prints installed path, family, backend, language, model files, hotword support, and runtime readiness hints.
-- `vinput model use <id|short_id|path>` updates config active provider/model in the current user config; Rust currently has a guarded `--dry-run` config patch preview before enabling writes.
+- `vinput model use <id|short_id|path>` updates config active provider/model in the current user config; Rust currently supports `--dry-run` config patch preview and guarded `--output <path>` writes before enabling in-place mutation/reload.
 - `vinput model remove <id|short_id>` removes only managed installed model directories after safety checks.
 - Install can optionally run `runtime-status` and reports native shared-library resolution failures.
 
