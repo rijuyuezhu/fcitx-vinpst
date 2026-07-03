@@ -9,6 +9,7 @@ stage_dir="target/tmp/ime-act"
 stage_abs="${repo_root}/${stage_dir}"
 daemon_path="${stage_abs}/usr/local/bin/vinput-daemon"
 daemon_wrapper="${stage_abs}/usr/local/bin/vinput-daemon-activation"
+cargo_target_dir="${stage_abs}/cargo-target"
 daemon_log="${stage_abs}/usr/local/bin/vinput-daemon-activation.log"
 config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo-config.json"
 wav_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo.wav"
@@ -17,9 +18,8 @@ addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
 service_file="${stage_abs}/share/dbus-1/services/org.fcitx.Vinput.service"
 
 rm -rf "${build_dir}" "${stage_dir}"
-rm -f target/debug/vinput-daemon
-cargo build -q -p vinput-daemon --bin vinput-daemon
-install -Dm755 target/debug/vinput-daemon "${daemon_path}"
+CARGO_TARGET_DIR="${cargo_target_dir}" cargo build -q -p vinput-daemon --bin vinput-daemon
+install -Dm755 "${cargo_target_dir}/debug/vinput-daemon" "${daemon_path}"
 install -Dm644 data/e2e-command-demo-config.json "${config_path}"
 python3 scripts/write-demo-wav.py "${wav_path}"
 cat >"${daemon_wrapper}" <<EOF
