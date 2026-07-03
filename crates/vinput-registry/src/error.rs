@@ -20,6 +20,15 @@ pub enum RegistryError {
     /// Duplicate model id.
     #[error("duplicate model id `{0}`")]
     DuplicateModelId(String),
+    /// Duplicate live registry short model id.
+    #[error("duplicate model short id `{0}`")]
+    DuplicateModelShortId(String),
+    /// Live model entry must contain at least one URL.
+    #[error("model `{0}` has no download URLs")]
+    EmptyModelUrls(String),
+    /// Live model entry URLs must not be empty.
+    #[error("model `{0}` has an empty download URL")]
+    EmptyModelUrl(String),
     /// Model provider must not be empty.
     #[error("model `{0}` has an empty provider")]
     EmptyProvider(String),

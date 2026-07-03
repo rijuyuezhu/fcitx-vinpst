@@ -11,6 +11,7 @@ mod cache;
 mod checksum;
 mod error;
 mod fetch;
+mod live;
 mod materialize;
 mod plan;
 mod schema;
@@ -37,6 +38,7 @@ pub use fetch::{
     RegistryFetchError, RegistryFetchFailure, RegistryTextSource, ReqwestRegistryTextSource,
     fetch_registry_index_from_mirrors,
 };
+pub use live::{LiveModelEntry, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata};
 pub use materialize::{
     MaterializedRegistryTree, RegistryMaterializeError, materialize_staged_tree,
 };

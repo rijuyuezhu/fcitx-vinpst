@@ -1,10 +1,11 @@
 use super::{
     ArchiveEntryKind, ArchiveFormat, ArchiveSafetyError, ArchiveStagingError,
-    ArchiveStagingPathError, AssetChecksumStatus, ChecksumPolicy, InstallPlan, PlannedAsset,
-    PlannedInstallAsset, RegistryAssetStagingError, RegistryCacheError, RegistryCachedFetchError,
-    RegistryEntryKind, RegistryError, RegistryFetchError, RegistryIndex, RegistryMaterializeError,
-    RegistrySha256Error, RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, checked_archive_entry_target, fetch_registry_index_from_mirrors,
+    ArchiveStagingPathError, AssetChecksumStatus, ChecksumPolicy, InstallPlan, LiveModelRegistry,
+    LiveRegistryI18n, PlannedAsset, PlannedInstallAsset, RegistryAssetStagingError,
+    RegistryCacheError, RegistryCachedFetchError, RegistryEntryKind, RegistryError,
+    RegistryFetchError, RegistryIndex, RegistryMaterializeError, RegistrySha256Error,
+    RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
+    checked_archive_entry_target, fetch_registry_index_from_mirrors,
     fetch_registry_index_with_cache, materialize_staged_tree, plan_archive_staging_paths,
     plan_archive_staging_paths_for_plan, sha256_hex, stage_archive_by_format, stage_planned_asset,
     stage_tar_archive, stage_tar_zst_archive, verify_sha256_bytes, verify_sha256_file,
@@ -76,6 +77,129 @@ const SAMPLE: &str = r#"
       ]
     }
     "#;
+
+const LIVE_MODELS_SENSEVOICE: &str = include_str!("../tests/fixtures/live-models-sensevoice.json");
+const LIVE_I18N_ZH_CN: &str = include_str!("../tests/fixtures/live-i18n-zh-cn.json");
+
+#[test]
+fn parses_live_models_json_sensevoice_metadata() {
+    let registry = LiveModelRegistry::from_json_str(LIVE_MODELS_SENSEVOICE).unwrap();
+    assert_eq!(registry.version, 2);
+    assert_eq!(registry.items.len(), 1);
+
+    let model = registry
+        .model("model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8")
+        .unwrap();
+    assert_eq!(
+        registry.model_by_short_id("onnx-sv-zh-int8-off"),
+        Some(model)
+    );
+    assert_eq!(
+        registry.model_by_id_or_short_id("onnx-sv-zh-int8-off"),
+        Some(model)
+    );
+    assert_eq!(model.short_id.as_deref(), Some("onnx-sv-zh-int8-off"));
+    assert_eq!(model.urls.len(), 3);
+    assert_eq!(
+        model.sha256.as_deref(),
+        Some("7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63")
+    );
+    assert_eq!(model.size_bytes, Some(165_675_008));
+    assert_eq!(model.language.as_deref(), Some("zh"));
+    assert_eq!(model.backend(), Some("sherpa-offline"));
+    assert_eq!(model.model_family(), Some("sense_voice"));
+    assert!(!model.supports_hotwords());
+
+    let metadata = model.vinput_model.as_ref().unwrap();
+    assert_eq!(metadata.runtime.as_deref(), Some("offline"));
+    let raw = metadata.to_raw_value().unwrap();
+    assert_eq!(
+        raw.pointer("/model/sense_voice/model")
+            .and_then(serde_json::Value::as_str),
+        Some("model.int8.onnx")
+    );
+    assert_eq!(
+        raw.pointer("/model/sense_voice/use_itn")
+            .and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
+}
+
+#[test]
+fn resolves_live_model_i18n_title_and_description() {
+    let registry = LiveModelRegistry::from_json_str(LIVE_MODELS_SENSEVOICE).unwrap();
+    let i18n = LiveRegistryI18n::from_json_str(LIVE_I18N_ZH_CN).unwrap();
+    let model = registry
+        .model("model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8")
+        .unwrap();
+
+    assert_eq!(model.resolved_title(Some(&i18n)), "SenseVoice 五语");
+    assert_eq!(
+        model.resolved_description(Some(&i18n)).as_deref(),
+        Some("SenseVoice 多语言模型，支持中文、英文、日语、韩语和粤语。")
+    );
+}
+
+#[test]
+fn live_model_title_falls_back_to_short_id_then_id() {
+    let registry = LiveModelRegistry::from_json_str(
+        r#"{
+          "version": 2,
+          "items": [
+            {"id":"model.with-short","short_id":"short","urls":["mirror/model.tar.zst"]},
+            {"id":"model.without-short","urls":["mirror/model2.tar.zst"]}
+          ]
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        registry
+            .model("model.with-short")
+            .unwrap()
+            .resolved_title(None),
+        "short"
+    );
+    assert_eq!(
+        registry
+            .model("model.without-short")
+            .unwrap()
+            .resolved_title(None),
+        "model.without-short"
+    );
+}
+
+#[test]
+fn rejects_live_models_without_download_urls() {
+    let error = LiveModelRegistry::from_json_str(
+        r#"{"version":2,"items":[{"id":"model.empty","urls":[]}]}"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        RegistryError::EmptyModelUrls("model.empty".to_owned())
+    );
+}
+
+#[test]
+fn rejects_duplicate_live_model_short_ids() {
+    let error = LiveModelRegistry::from_json_str(
+        r#"{
+          "version": 2,
+          "items": [
+            {"id":"model.one","short_id":"dup","urls":["mirror/one.tar.zst"]},
+            {"id":"model.two","short_id":"dup","urls":["mirror/two.tar.zst"]}
+          ]
+        }"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        RegistryError::DuplicateModelShortId("dup".to_owned())
+    );
+}
 
 #[test]
 fn rejects_missing_registry_version() {

@@ -6,7 +6,8 @@
 
 The registry crate is split so each side-effectful boundary stays reviewable:
 
-- `schema.rs`: registry index, model, adapter, asset, summary, validation, and URL resolution helpers;
+- `schema.rs`: legacy dry-run registry index, model, adapter, asset, summary, validation, and URL resolution helpers;
+- `live.rs`: live registry v2 `registry/models.json` parsing, `short_id` lookup, i18n title/description fallback, and typed/raw `vinput_model` metadata;
 - `plan.rs`: planned assets, dry-run install plans, checksum policy planning, and target path calculation;
 - `error.rs`: `RegistryError`;
 - `fetch.rs`: registry text fetch boundary, ordered mirror fallback, and the concrete `ReqwestRegistryTextSource` for HTTP index text fetching;
@@ -22,13 +23,21 @@ Future archive wrappers beyond plain tar and `.tar.zst`, richer install orchestr
 
 ## Registry shape
 
-A registry index is a JSON object with:
+The historical Rust dry-run fixture remains an `index.json`-style JSON object with:
 
 - `version`: registry schema version.
 - `models`: ASR model entries with `id`, `label`, `provider`, and `assets`.
 - `adapters`: optional text adapter entries with `id`, `label`, `kind`, and `assets`.
 
 Each asset path must be a safe relative path. Optional `sha256` checksums must be lowercase 64-character hexadecimal strings.
+
+The live registry v2 model catalog is a separate `registry/models.json` shape with:
+
+- `version`: live registry schema version.
+- `items`: ASR model entries with `id`, `short_id`, ordered `urls`, `sha256`, `size_bytes`, `language`, and optional inline `title`/`description`.
+- `vinput_model`: typed metadata for fields such as `backend`, `family`, `model_type`, `runtime`, `supports_hotwords`, plus raw backend-specific `recognizer` and `model` JSON subtrees.
+
+Live `i18n/*.json` files are flat string maps. Model display text resolves through inline `title`/`description`, then `<model-id>.title` / `<model-id>.description` i18n keys, then `short_id` or full `id` fallback for the title.
 
 ## CLI diagnostics
 

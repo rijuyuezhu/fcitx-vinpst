@@ -1,0 +1,4 @@
+{
+  "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.title": "SenseVoice 五语",
+  "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8.description": "SenseVoice 多语言模型，支持中文、英文、日语、韩语和粤语。"
+}
