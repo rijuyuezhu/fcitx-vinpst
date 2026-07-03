@@ -58,8 +58,18 @@ if XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/shar
   VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="demo-command-asr" \
   VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="demo-text-adapter" \
-  timeout 120s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
-    bash "${smoke_bin}" "${addon_smoke_bin}"; then
+  timeout 120s dbus-run-session -- bash -euo pipefail -c '
+    "${1}" &
+    daemon_pid="$!"
+    cleanup() {
+      kill "${daemon_pid}" 2>/dev/null || true
+      wait "${daemon_pid}" 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    sleep 1
+    "${2}"
+    "${3}"
+  ' bash "${daemon_wrapper}" "${smoke_bin}" "${addon_smoke_bin}"; then
   :
 else
   status=$?
