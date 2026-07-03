@@ -698,6 +698,76 @@ fn model_remove_without_dry_run_is_rejected_until_real_remove_exists() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
     assert!(stderr.contains(
-        "real model remove is not implemented yet; rerun with --dry-run to inspect the removal plan"
+        "model remove requires --yes to delete; rerun with --dry-run to inspect the removal plan"
     ));
+}
+
+#[test]
+fn model_remove_yes_deletes_inactive_managed_model_dir() {
+    let temp_root = unique_temp_dir("vinput-cli-model-remove-yes");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("custom-model");
+    std::fs::create_dir_all(&model_dir).expect("create installed model dir");
+    std::fs::write(model_dir.join("vinput-model.json"), b"{}\n").expect("write model metadata");
+
+    let output = vinput_command()
+        .args(["model", "remove", "custom-model"])
+        .arg("--model-root")
+        .arg(&model_root)
+        .args(["--yes", "--json"])
+        .output()
+        .expect("run vinput model remove --yes --json");
+
+    let value = assert_json_success(output, "model remove yes json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["will_remove"], true);
+    assert_eq!(value["removed"], true);
+    assert_eq!(
+        value["target"]["path"],
+        model_dir.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["target"]["exists"], false);
+    assert!(
+        !model_dir.exists(),
+        "confirmed remove should delete the model dir"
+    );
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_remove_yes_refuses_active_config_model() {
+    let temp_root = unique_temp_dir("vinput-cli-model-remove-active");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("active-model");
+    std::fs::create_dir_all(&model_dir).expect("create active model dir");
+    let config_path = temp_root.join("active-config.json");
+    let mut config: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace_file("data/default-config.json"))
+            .expect("read default config"),
+    )
+    .expect("parse default config");
+    config["asr"]["providers"][0]["model"] =
+        serde_json::Value::String(model_dir.to_string_lossy().into_owned());
+    std::fs::write(
+        &config_path,
+        format!("{}\n", serde_json::to_string_pretty(&config).unwrap()),
+    )
+    .expect("write active config");
+
+    let output = vinput_command()
+        .args(["model", "remove", "active-model"])
+        .arg("--model-root")
+        .arg(&model_root)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--yes")
+        .output()
+        .expect("run vinput model remove active model");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("refusing to remove active model"));
+    assert!(model_dir.exists(), "active model dir should not be deleted");
+    let _ = std::fs::remove_dir_all(temp_root);
 }

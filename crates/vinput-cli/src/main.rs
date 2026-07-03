@@ -235,9 +235,12 @@ enum ModelCommand {
         /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
         #[arg(long)]
         model_root: Option<PathBuf>,
-        /// Print the removal plan without deleting anything. Required until remove is implemented.
+        /// Print the removal plan without deleting anything.
         #[arg(long)]
         dry_run: bool,
+        /// Confirm removal. Required for deleting the managed model directory.
+        #[arg(long)]
+        yes: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
         json: bool,
@@ -526,6 +529,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             locale,
             model_root,
             dry_run,
+            yes,
             json,
         } => print_model_remove_plan(ModelRemoveRequest {
             selector: &selector,
@@ -535,6 +539,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             locale: &locale,
             model_root: model_root.as_deref(),
             dry_run,
+            yes,
             json_output: json,
         }),
     }
@@ -1131,6 +1136,7 @@ struct ModelRemoveRequest<'a> {
     locale: &'a str,
     model_root: Option<&'a Path>,
     dry_run: bool,
+    yes: bool,
     json_output: bool,
 }
 
@@ -1144,19 +1150,27 @@ struct ModelRemovePlan {
     resolved_model_id: Option<String>,
     resolved_short_id: Option<String>,
     resolved_title: Option<String>,
+    removed: bool,
 }
 
 fn print_model_remove_plan(request: ModelRemoveRequest<'_>) -> anyhow::Result<()> {
-    if !request.dry_run {
+    if request.dry_run && request.yes {
+        anyhow::bail!("model remove cannot combine --dry-run and --yes");
+    }
+    if !request.dry_run && !request.yes {
         anyhow::bail!(
-            "real model remove is not implemented yet; rerun with --dry-run to inspect the removal plan"
+            "model remove requires --yes to delete; rerun with --dry-run to inspect the removal plan"
         );
     }
     let model_root = match request.model_root {
         Some(path) => path.to_path_buf(),
         None => default_model_root()?,
     };
-    let plan = build_model_remove_plan(request, &model_root)?;
+    let mut plan = build_model_remove_plan(request, &model_root)?;
+    if request.yes {
+        remove_managed_model_dir(&plan, request.config_path)?;
+        plan.removed = true;
+    }
     if request.json_output {
         println!(
             "{}",
@@ -1203,7 +1217,52 @@ fn build_model_remove_plan(
         resolved_model_id: resolution.resolved_model_id,
         resolved_short_id: resolution.resolved_short_id,
         resolved_title: resolution.resolved_title,
+        removed: false,
     })
+}
+
+fn remove_managed_model_dir(
+    plan: &ModelRemovePlan,
+    config_path: Option<&PathBuf>,
+) -> anyhow::Result<()> {
+    if !plan.exists {
+        anyhow::bail!(
+            "model remove target `{}` does not exist",
+            plan.target_path.display()
+        );
+    }
+    if !plan.is_dir {
+        anyhow::bail!(
+            "model remove target `{}` is not a directory",
+            plan.target_path.display()
+        );
+    }
+    ensure_model_not_active(&plan.target_path, config_path)?;
+    fs::remove_dir_all(&plan.target_path)
+        .with_context(|| format!("remove model directory `{}`", plan.target_path.display()))
+}
+
+fn ensure_model_not_active(
+    target_path: &Path,
+    config_path: Option<&PathBuf>,
+) -> anyhow::Result<()> {
+    let config = match config_path {
+        Some(config_path) => load_config_file(config_path)?,
+        None => VinputConfig::bundled_default().context("parse bundled config")?,
+    };
+    for provider in &config.asr.providers {
+        if provider.kind == AsrProviderKind::Local
+            && let Some(model) = &provider.model
+            && same_path_text(Path::new(model), target_path)
+        {
+            anyhow::bail!(
+                "refusing to remove active model `{}` used by ASR provider `{}`",
+                target_path.display(),
+                provider.id
+            );
+        }
+    }
+    Ok(())
 }
 
 struct ModelRemoveResolution {
@@ -1288,8 +1347,9 @@ fn ensure_managed_remove_target(model_root: &Path, target_path: &Path) -> anyhow
 fn model_remove_plan_json(plan: &ModelRemovePlan) -> serde_json::Value {
     serde_json::json!({
         "ok": true,
-        "dry_run": true,
-        "will_remove": false,
+        "dry_run": !plan.removed,
+        "will_remove": plan.removed,
+        "removed": plan.removed,
         "selector": {
             "input": plan.selector,
             "kind": plan.selector_kind,
@@ -1300,27 +1360,28 @@ fn model_remove_plan_json(plan: &ModelRemovePlan) -> serde_json::Value {
         "target": {
             "model_root": plan.model_root,
             "path": plan.target_path,
-            "exists": plan.exists,
+            "exists": plan.exists && !plan.removed,
             "is_dir": plan.is_dir,
             "managed": true,
         },
         "next_steps": [
-            "rerun without --dry-run after remove is implemented",
-            "run vinput model use --dry-run to verify the active config does not point at the removed model"
+            "run vinput model use --dry-run to verify the active config does not point at the removed model",
+            "restart or reload the daemon after removing an inactive model"
         ],
     })
 }
 
 fn print_model_remove_plan_text(plan: &ModelRemovePlan) {
-    println!("dry_run: true");
+    println!("dry_run: {}", !plan.removed);
     println!("selector: {}", plan.selector);
     println!("selector_kind: {}", plan.selector_kind);
     println!("model_root: {}", plan.model_root.display());
     println!("target_path: {}", plan.target_path.display());
-    println!("exists: {}", plan.exists);
+    println!("exists: {}", plan.exists && !plan.removed);
     println!("is_dir: {}", plan.is_dir);
     println!("managed: true");
-    println!("will_remove: false");
+    println!("will_remove: {}", plan.removed);
+    println!("removed: {}", plan.removed);
 }
 
 #[derive(Clone, Copy)]

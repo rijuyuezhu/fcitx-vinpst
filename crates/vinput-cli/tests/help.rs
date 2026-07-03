@@ -170,6 +170,7 @@ fn model_remove_help_lists_dry_run_and_registry_options() {
     assert!(stdout.contains("--registry"));
     assert!(stdout.contains("--model-root"));
     assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--yes"));
     assert!(stdout.contains("--json"));
 
     let alias_output = vinput_command()
