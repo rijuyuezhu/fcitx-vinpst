@@ -198,6 +198,10 @@ sherpa-onnx-check:
     cargo check -p vinput-asr --features=sherpa-onnx-backend
     cargo check -p vinput-daemon --features=sherpa-onnx-backend
 
+# Run native sherpa SenseVoice inference on a user-supplied model and WAV file.
+sherpa-sense-voice-local-smoke:
+    scripts/run-sherpa-sense-voice-local-smoke.sh
+
 # Compile and test optional PipeWire feature paths without requiring a live daemon.
 pipewire-check:
     cargo test -p vinput-daemon --features=pipewire-backend

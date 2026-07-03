@@ -238,6 +238,8 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
         "VINPUT_TEST_PIPEWIRE_ENUMERATE=1",
         "VINPUT_TEST_PIPEWIRE_RECORD=1",
+        "just sherpa-sense-voice-local-smoke",
+        "validates model loading and one WAV recognition outside Fcitx5",
         "intentionally excluded from `just ci`",
         "C++ bridge plus Rust daemon D-Bus path",
         "prints the daemon build's `audio-devices` JSON diagnostics",
@@ -263,6 +265,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
     assert!(justfile.contains("pipewire-live:"));
     assert!(justfile.contains("ime-pipewire-live:"));
     assert!(justfile.contains("ime-configured-pipewire-live:"));
+    assert!(justfile.contains("sherpa-sense-voice-local-smoke:"));
     let check_line = justfile
         .lines()
         .find(|line| line.starts_with("check:"))

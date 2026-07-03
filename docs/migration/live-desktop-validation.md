@@ -122,6 +122,16 @@ VINPUT_USER_SHERPA_HOTWORDS_FILE=/path/to/hotwords.txt
 VINPUT_USER_SHERPA_TIMEOUT_MS=30000
 ```
 
+Before mutating the real user profile, validate the model and a known-good speech WAV without Fcitx5:
+
+```sh
+VINPUT_SHERPA_MODEL=/path/to/sherpa-onnx-sense-voice-model \
+  VINPUT_SHERPA_WAV=/path/to/input.wav \
+  just sherpa-sense-voice-local-smoke
+```
+
+The local smoke prints `runtime-status` first, then the `--once --wav` recognition payload. If it fails, fix model layout, native library loading, WAV format, or ASR decode before debugging Fcitx5.
+
 The install builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. Check it before restarting Fcitx5:
 
 ```sh

@@ -87,6 +87,16 @@ VINPUT_USER_PROFILE=sherpa-sense-voice-live \
 
 This profile builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`.
 
+Before mutating the desktop profile, a local WAV can be used to validate the same native backend outside Fcitx5:
+
+```sh
+VINPUT_SHERPA_MODEL=/path/to/sense-voice-model-dir \
+  VINPUT_SHERPA_WAV=/path/to/input.wav \
+  just sherpa-sense-voice-local-smoke
+```
+
+That smoke builds the feature-gated daemon, runs `runtime-status` to force model construction, and then runs `--once --wav` through the configured ASR/text pipeline.
+
 ## Diagnostics
 
 Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable.
