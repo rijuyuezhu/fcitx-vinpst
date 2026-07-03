@@ -130,6 +130,8 @@ expect_failure missing-install \
 expect_output missing-install 'FAIL[addon-metadata-missing]'
 expect_output missing-install 'FAIL[daemon-missing]'
 expect_output missing-install 'FAIL[activation-service-missing]'
+expect_output missing-install 'FAIL[fcitx-env-wrapper-missing]'
+expect_output missing-install 'FAIL[fcitx-autostart-missing]'
 expect_output missing-install 'FAIL[runtime-status-skipped]'
 
 install -Dm755 /bin/true "${home_dir}/.local/bin/vinput-daemon"
@@ -144,6 +146,23 @@ install -Dm644 /dev/stdin "${home_dir}/.local/share/dbus-1/services/org.fcitx.Vi
 Name=org.fcitx.Vinput
 Exec=/tmp/old-vinput-daemon --dbus
 SERVICE
+install -Dm644 /dev/stdin "${home_dir}/.local/share/fcitx-vinput/fcitx-vinput.env" <<ENV
+export FCITX_ADDON_DIRS="${home_dir}/.local/lib/fcitx5:/usr/lib/fcitx5"
+export XDG_DATA_HOME="${home_dir}/.local/share"
+ENV
+install -Dm755 /dev/stdin "${home_dir}/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh" <<ENVSH
+#!/usr/bin/env sh
+. '${home_dir}/.local/share/fcitx-vinput/fcitx-vinput.env'
+exec "\${VINPUT_FCITX5_BIN:-fcitx5}" "\$@"
+ENVSH
+install -Dm644 /dev/stdin "${home_dir}/.config/autostart/org.fcitx.Fcitx5.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Fcitx 5 with fcitx-vinput
+Exec=${home_dir}/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh
+Terminal=false
+X-fcitx-vinput-managed=true
+DESKTOP
 
 expect_failure stale-bus \
   'FAIL[activation-service-old-daemon]' \

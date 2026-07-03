@@ -43,7 +43,13 @@ This mutates the real user profile. Run it only when that is intended.
 VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe
 ```
 
-Then source the generated environment before restarting Fcitx5. This is required so the running Fcitx5 process sees the user addon module directory and metadata location:
+The install writes a generated Fcitx environment wrapper and a managed user autostart override. Restart through the wrapper for the current session so the running Fcitx5 process sees the user addon module directory and metadata location:
+
+```sh
+"$HOME/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh" -r
+```
+
+If the desktop ignores XDG autostart or the wrapper is unavailable, source the environment manually before launching Fcitx5:
 
 ```sh
 . "$HOME/.local/share/fcitx-vinput/fcitx-vinput.env"
@@ -66,7 +72,7 @@ Open a text field in a normal application and check:
 4. command trigger with selected text starts command mode;
 5. command trigger release replaces selected text;
 6. result candidate menu can show alternatives when payload includes candidates;
-7. `just user-ime-status` reports addon metadata, addon module, daemon, and activation service paths.
+7. `just user-ime-status` reports addon metadata, addon module, daemon, activation service, environment file, Fcitx env wrapper, and managed autostart override paths.
 
 ## PipeWire live checks
 
@@ -88,5 +94,5 @@ A feature is not live-done until these are true in one real desktop session:
 - preedit is visible;
 - normal commit reaches an application;
 - command mode replaces selected text;
-- diagnostics explain missing install/session/backend states, stale bus ownership, old activation daemon paths, unavailable `GetRuntimeStatus`, and Fcitx restart/env mismatches;
+- diagnostics explain missing install/session/backend states, stale bus ownership, old activation daemon paths, unavailable `GetRuntimeStatus`, missing Fcitx env wrapper/autostart integration, and Fcitx restart/env mismatches;
 - deterministic smokes and `just ime-fcitx-live-probe-smoke` still pass after the change.

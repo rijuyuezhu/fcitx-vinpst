@@ -12,11 +12,15 @@ python_bin="${VINPUT_LIVE_PYTHON_BIN:-python3}"
 home_dir="${HOME:?HOME must be set for live probe}"
 data_home="${XDG_DATA_HOME:-${home_dir}/.local/share}"
 default_data_home="${home_dir}/.local/share"
+config_home="${XDG_CONFIG_HOME:-${home_dir}/.config}"
 bin_dir="${VINPUT_USER_BIN_DIR:-${home_dir}/.local/bin}"
 lib_dir="${VINPUT_USER_FCITX_LIB_DIR:-${home_dir}/.local/lib/fcitx5}"
 addon_dir="${VINPUT_USER_FCITX_ADDON_DIR:-${data_home}/fcitx5/addon}"
 config_dir="${VINPUT_USER_CONFIG_DIR:-${data_home}/fcitx-vinput}"
+autostart_dir="${VINPUT_USER_AUTOSTART_DIR:-${config_home}/autostart}"
 env_file="${config_dir}/fcitx-vinput.env"
+fcitx_env_wrapper="${config_dir}/fcitx5-with-vinput-env.sh"
+fcitx_autostart_file="${autostart_dir}/org.fcitx.Fcitx5.desktop"
 daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
 module_path="${lib_dir}/fcitx5-vinput.so"
 addon_conf_path="${addon_dir}/vinput.conf"
@@ -60,7 +64,7 @@ print_summary_and_exit_if_failed() {
       printf '  - %s\n' "${item}" >&2
     done
   fi
-  printf '\nSuggested next step: run VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe, then source %s and restart Fcitx5 with fcitx5 -r.\n' "${env_file}" >&2
+  printf '\nSuggested next step: run VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe, then restart Fcitx5 with %s -r. If your desktop ignores the generated autostart override, source %s before launching Fcitx5.\n' "${fcitx_env_wrapper}" "${env_file}" >&2
   exit 1
 }
 
@@ -186,6 +190,24 @@ check_install_shape() {
   else
     add_warning "fcitx-env-file-missing" "generated Fcitx environment file is missing: ${env_file}"
   fi
+
+  if [[ -x "${fcitx_env_wrapper}" ]]; then
+    printf 'Fcitx env wrapper: %s (executable)\n' "${fcitx_env_wrapper}"
+  else
+    add_failure "fcitx-env-wrapper-missing" "generated Fcitx env wrapper is missing or not executable: ${fcitx_env_wrapper}"
+  fi
+
+  if [[ -f "${fcitx_autostart_file}" ]]; then
+    printf 'Fcitx autostart override: %s (present)\n' "${fcitx_autostart_file}"
+    if ! grep -qx "Exec=${fcitx_env_wrapper}" "${fcitx_autostart_file}"; then
+      add_failure "fcitx-autostart-exec-mismatch" "Fcitx autostart override does not Exec the generated wrapper: ${fcitx_autostart_file}"
+    fi
+    if ! grep -qx 'X-fcitx-vinput-managed=true' "${fcitx_autostart_file}"; then
+      add_warning "fcitx-autostart-unmanaged" "Fcitx autostart override is not marked as managed by fcitx-vinput: ${fcitx_autostart_file}"
+    fi
+  else
+    add_failure "fcitx-autostart-missing" "generated Fcitx autostart override is missing: ${fcitx_autostart_file}"
+  fi
 }
 
 check_fcitx_process_env() {
@@ -229,7 +251,7 @@ check_fcitx_process_env() {
   if [[ "${inspected}" == "0" ]]; then
     add_warning "fcitx-env-unchecked" "no readable fcitx5 process environment was found"
   elif [[ "${has_matching_process}" == "0" ]]; then
-    add_failure "fcitx-env-not-restarted" "Fcitx5 is running without the generated user addon environment; source ${env_file} and restart Fcitx5 with fcitx5 -r"
+    add_failure "fcitx-env-not-restarted" "Fcitx5 is running without the generated user addon environment; restart it with ${fcitx_env_wrapper} -r or source ${env_file} before launching Fcitx5"
   else
     printf 'Fcitx5 process environment includes the user addon path.\n'
   fi
