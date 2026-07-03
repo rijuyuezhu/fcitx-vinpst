@@ -796,6 +796,69 @@ fn adapter_mutations_reject_invalid_inputs() {
 }
 
 #[test]
+fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
+    let start = vinput_command()
+        .args(["adapter", "start", "command-adapter", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput adapter start dry-run json");
+    let value = assert_json_success(start, "adapter start dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["action"], "start");
+    assert_eq!(value["adapter_id"], "command-adapter");
+    assert_eq!(value["will_call_dbus"], false);
+    assert_eq!(value["called"], false);
+    assert_eq!(value["dbus"]["method"], "StartAdapter");
+
+    let stop = vinput_command()
+        .args(["adapter", "stop", "command-adapter", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput adapter stop dry-run json");
+    let value = assert_json_success(stop, "adapter stop dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["action"], "stop");
+    assert_eq!(value["adapter_id"], "command-adapter");
+    assert_eq!(value["dbus"]["method"], "StopAdapter");
+}
+
+#[test]
+fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
+    let start = vinput_command()
+        .args(["adapter", "start", "command-adapter", "--dry-run"])
+        .output()
+        .expect("run vinput adapter start text dry-run");
+    let stdout = assert_stdout_success(start, "adapter start text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("adapter_id: command-adapter"));
+    assert!(stdout.contains("action: start"));
+    assert!(stdout.contains("will_call_dbus: false"));
+    assert!(stdout.contains("called: false"));
+    assert!(stdout.contains("method: StartAdapter"));
+
+    let stop = vinput_command()
+        .args(["adapter", "stop", "command-adapter", "--dry-run"])
+        .output()
+        .expect("run vinput adapter stop text dry-run");
+    let stdout = assert_stdout_success(stop, "adapter stop text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("adapter_id: command-adapter"));
+    assert!(stdout.contains("action: stop"));
+    assert!(stdout.contains("method: StopAdapter"));
+}
+
+#[test]
+fn adapter_start_stop_reject_empty_id_before_dbus() {
+    let output = vinput_command()
+        .args(["adapter", "start", "   ", "--dry-run"])
+        .output()
+        .expect("run vinput adapter start empty id");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter id cannot be empty"));
+}
+
+#[test]
 fn adapter_list_json_reports_bundled_default_empty_adapters() {
     let output = vinput_command()
         .args(["adapter", "list", "--json"])

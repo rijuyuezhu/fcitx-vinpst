@@ -531,6 +531,28 @@ enum AdapterCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Start a configured text adapter through daemon D-Bus.
+    Start {
+        /// Existing adapter id to start.
+        id: String,
+        /// Print the D-Bus call plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop a configured text adapter through daemon D-Bus.
+    Stop {
+        /// Existing adapter id to stop.
+        id: String,
+        /// Print the D-Bus call plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove a configured text adapter.
     #[command(alias = "rm")]
     Remove {
@@ -2750,6 +2772,12 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
             dry_run,
             json_output: json,
         }),
+        AdapterCommand::Start { id, dry_run, json } => {
+            print_adapter_lifecycle("start", &id, dbus::method::START_ADAPTER, dry_run, json)
+        }
+        AdapterCommand::Stop { id, dry_run, json } => {
+            print_adapter_lifecycle("stop", &id, dbus::method::STOP_ADAPTER, dry_run, json)
+        }
         AdapterCommand::Remove {
             id,
             config,
@@ -3315,6 +3343,70 @@ fn print_llm_list_text(context: &LlmListContext) {
             provider.extra.len(),
         );
     }
+}
+
+fn print_adapter_lifecycle(
+    action: &str,
+    adapter_id: &str,
+    method: &str,
+    dry_run: bool,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let adapter_id = normalize_adapter_id(adapter_id)?;
+    if !dry_run {
+        call_adapter_lifecycle_via_dbus(method, &adapter_id)?;
+    }
+    let output = adapter_lifecycle_output(action, &adapter_id, method, dry_run);
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("dry_run: {dry_run}");
+        println!("adapter_id: {adapter_id}");
+        println!("action: {action}");
+        println!("will_call_dbus: {}", !dry_run);
+        println!("called: {}", !dry_run);
+        println!("service: {}", dbus::SERVICE_BUS_NAME);
+        println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+        println!("interface: {}", dbus::SERVICE_INTERFACE);
+        println!("method: {method}");
+    }
+    Ok(())
+}
+
+fn adapter_lifecycle_output(
+    action: &str,
+    adapter_id: &str,
+    method: &str,
+    dry_run: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": dry_run,
+        "action": action,
+        "adapter_id": adapter_id,
+        "will_call_dbus": !dry_run,
+        "called": !dry_run,
+        "dbus": {
+            "service": dbus::SERVICE_BUS_NAME,
+            "object_path": dbus::SERVICE_OBJECT_PATH,
+            "interface": dbus::SERVICE_INTERFACE,
+            "method": method,
+        },
+        "next_steps": [
+            "run vinput daemon status --json to inspect text adapter runtime state",
+            "run vinput adapter list to verify configured text adapters",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn call_adapter_lifecycle_via_dbus(method: &str, adapter_id: &str) -> anyhow::Result<()> {
+    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let proxy = daemon_service_proxy(&connection)?;
+    let _: () = proxy
+        .call(method, &(adapter_id))
+        .with_context(|| format!("call {method} on daemon D-Bus service"))?;
+    Ok(())
 }
 
 fn print_adapter_add(request: AdapterAddRequest<'_>) -> anyhow::Result<()> {
