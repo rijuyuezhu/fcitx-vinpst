@@ -14,8 +14,9 @@ use vinput_config::{AsrProviderKind, RegistryConfig, VinputConfig};
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
 use vinput_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelInstallRequest,
-    LiveModelInstallResult, LiveModelRegistry, LiveRegistryI18n, PlannedAsset, RegistryIndex,
-    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
+    LiveModelInstallResult, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata,
+    PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryAssetSource,
+    ReqwestRegistryTextSource, install_live_model,
 };
 
 /// CLI for inspecting and controlling the vinput daemon.
@@ -1039,6 +1040,19 @@ fn print_model_info(
     locale: &str,
     json_output: bool,
 ) -> anyhow::Result<()> {
+    if is_model_path_selector(id_or_short_id) {
+        let info = load_installed_model_info(Path::new(id_or_short_id))?;
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&installed_model_info_json(&info)?)?
+            );
+        } else {
+            print_installed_model_info_text(&info);
+        }
+        return Ok(());
+    }
+
     let (loaded, i18n) = load_live_model_catalog(registry_path, i18n_path, config_path, locale)?;
     let model = loaded
         .registry
@@ -1050,6 +1064,87 @@ fn print_model_info(
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         print_model_info_text(model, i18n.i18n.as_ref(), &loaded, &i18n);
+    }
+    Ok(())
+}
+
+struct InstalledModelInfo {
+    model_dir: PathBuf,
+    metadata_path: PathBuf,
+    metadata: LiveVinputModelMetadata,
+    files: Vec<String>,
+    file_count: usize,
+}
+
+fn is_model_path_selector(selector: &str) -> bool {
+    let path = Path::new(selector);
+    path.is_absolute() || selector.contains('/')
+}
+
+fn load_installed_model_info(model_dir: &Path) -> anyhow::Result<InstalledModelInfo> {
+    if !model_dir.exists() {
+        anyhow::bail!(
+            "installed model directory `{}` does not exist",
+            model_dir.display()
+        );
+    }
+    if !model_dir.is_dir() {
+        anyhow::bail!(
+            "installed model path `{}` is not a directory",
+            model_dir.display()
+        );
+    }
+    let metadata_path = model_dir.join("vinput-model.json");
+    let metadata_text = fs::read_to_string(&metadata_path).with_context(|| {
+        format!(
+            "read installed model metadata `{}`",
+            metadata_path.display()
+        )
+    })?;
+    let metadata =
+        serde_json::from_str::<LiveVinputModelMetadata>(&metadata_text).with_context(|| {
+            format!(
+                "parse installed model metadata `{}`",
+                metadata_path.display()
+            )
+        })?;
+    let files = collect_installed_model_files(model_dir)?;
+    let file_count = files.len();
+    Ok(InstalledModelInfo {
+        model_dir: model_dir.to_path_buf(),
+        metadata_path,
+        metadata,
+        files,
+        file_count,
+    })
+}
+
+fn collect_installed_model_files(model_dir: &Path) -> anyhow::Result<Vec<String>> {
+    let mut files = Vec::new();
+    collect_installed_model_files_inner(model_dir, model_dir, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn collect_installed_model_files_inner(
+    root: &Path,
+    current: &Path,
+    files: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    for entry in fs::read_dir(current)
+        .with_context(|| format!("read installed model directory `{}`", current.display()))?
+    {
+        let entry = entry.with_context(|| format!("read entry under `{}`", current.display()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("inspect installed model entry `{}`", path.display()))?;
+        if file_type.is_dir() {
+            collect_installed_model_files_inner(root, &path, files)?;
+        } else if file_type.is_file() {
+            let relative = path.strip_prefix(root).unwrap_or(&path);
+            files.push(relative.to_string_lossy().into_owned());
+        }
     }
     Ok(())
 }
@@ -1830,6 +1925,30 @@ fn live_model_list_json(
     })
 }
 
+fn installed_model_info_json(info: &InstalledModelInfo) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "ok": true,
+        "source": {
+            "kind": "installed",
+            "path": info.model_dir,
+            "metadata_path": info.metadata_path,
+        },
+        "model": {
+            "model_dir": info.model_dir,
+            "metadata_path": info.metadata_path,
+            "backend": info.metadata.backend,
+            "family": info.metadata.model_family(),
+            "language": info.metadata.language,
+            "runtime": info.metadata.runtime,
+            "size_bytes": info.metadata.size_bytes,
+            "supports_hotwords": info.metadata.supports_hotwords,
+            "file_count": info.file_count,
+            "files": info.files,
+            "vinput_model": info.metadata.to_raw_value().context("serialize installed model metadata")?,
+        },
+    }))
+}
+
 fn live_model_info_json(
     model: &LiveModelEntry,
     i18n: Option<&LiveRegistryI18n>,
@@ -1985,6 +2104,31 @@ fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n
             support.reason,
             model.resolved_title(i18n.i18n.as_ref()),
         );
+    }
+}
+
+fn print_installed_model_info_text(info: &InstalledModelInfo) {
+    println!("source: installed");
+    println!("model_dir: {}", info.model_dir.display());
+    println!("metadata_path: {}", info.metadata_path.display());
+    println!(
+        "backend: {}",
+        optional_str(info.metadata.backend.as_deref())
+    );
+    println!("family: {}", optional_str(info.metadata.model_family()));
+    println!(
+        "language: {}",
+        optional_str(info.metadata.language.as_deref())
+    );
+    println!(
+        "runtime: {}",
+        optional_str(info.metadata.runtime.as_deref())
+    );
+    println!("size: {}", format_size_bytes(info.metadata.size_bytes));
+    println!("supports_hotwords: {}", info.metadata.supports_hotwords);
+    println!("files: {}", info.file_count);
+    for file in &info.files {
+        println!("  - {file}");
     }
 }
 

@@ -771,3 +771,120 @@ fn model_remove_yes_refuses_active_config_model() {
     assert!(model_dir.exists(), "active model dir should not be deleted");
     let _ = std::fs::remove_dir_all(temp_root);
 }
+
+#[test]
+fn model_info_json_reads_installed_model_metadata_from_path() {
+    let temp_root = unique_temp_dir("vinput-cli-model-info-installed-json");
+    let model_dir = temp_root.join("models/test-installed");
+    std::fs::create_dir_all(model_dir.join("subdir")).expect("create installed model dirs");
+    std::fs::write(model_dir.join("model.int8.onnx"), b"onnx").expect("write model file");
+    std::fs::write(model_dir.join("tokens.txt"), b"tokens").expect("write tokens file");
+    std::fs::write(model_dir.join("subdir/extra.bin"), b"extra").expect("write nested file");
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        serde_json::json!({
+            "backend": "sherpa-offline",
+            "family": "sense_voice",
+            "language": "zh",
+            "runtime": "offline",
+            "size_bytes": 42,
+            "supports_hotwords": false,
+            "model": {
+                "tokens": "tokens.txt",
+                "sense_voice": {
+                    "model": "model.int8.onnx",
+                    "language": "zh",
+                    "use_itn": true
+                }
+            }
+        })
+        .to_string(),
+    )
+    .expect("write installed metadata");
+
+    let output = vinput_command()
+        .args(["model", "info"])
+        .arg(&model_dir)
+        .arg("--json")
+        .output()
+        .expect("run vinput model info installed path --json");
+
+    let value = assert_json_success(output, "installed model info json");
+    assert_eq!(value["source"]["kind"], "installed");
+    assert_eq!(
+        value["model"]["model_dir"],
+        model_dir.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["model"]["backend"], "sherpa-offline");
+    assert_eq!(value["model"]["family"], "sense_voice");
+    assert_eq!(value["model"]["runtime"], "offline");
+    assert_eq!(value["model"]["file_count"], 4);
+    assert_eq!(
+        value["model"]["vinput_model"]["model"]["sense_voice"]["model"],
+        "model.int8.onnx"
+    );
+    let files = value["model"]["files"]
+        .as_array()
+        .expect("files should be array");
+    assert!(files.iter().any(|file| file == "model.int8.onnx"));
+    assert!(files.iter().any(|file| file == "tokens.txt"));
+    assert!(files.iter().any(|file| file == "subdir/extra.bin"));
+    assert!(files.iter().any(|file| file == "vinput-model.json"));
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_info_text_reads_installed_model_metadata_from_path() {
+    let temp_root = unique_temp_dir("vinput-cli-model-info-installed-text");
+    let model_dir = temp_root.join("models/test-installed");
+    std::fs::create_dir_all(&model_dir).expect("create installed model dir");
+    std::fs::write(model_dir.join("model.int8.onnx"), b"onnx").expect("write model file");
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        serde_json::json!({
+            "backend": "sherpa-offline",
+            "family": "sense_voice",
+            "language": "zh",
+            "runtime": "offline",
+            "size_bytes": 42,
+            "supports_hotwords": true
+        })
+        .to_string(),
+    )
+    .expect("write installed metadata");
+
+    let output = vinput_command()
+        .args(["model", "info"])
+        .arg(&model_dir)
+        .output()
+        .expect("run vinput model info installed path");
+
+    let stdout = assert_stdout_success(output, "installed model info text");
+    assert!(stdout.contains("source: installed"));
+    assert!(stdout.contains(&format!("model_dir: {}", model_dir.display())));
+    assert!(stdout.contains("backend: sherpa-offline"));
+    assert!(stdout.contains("family: sense_voice"));
+    assert!(stdout.contains("runtime: offline"));
+    assert!(stdout.contains("supports_hotwords: true"));
+    assert!(stdout.contains("  - model.int8.onnx"));
+    assert!(stdout.contains("  - vinput-model.json"));
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_info_installed_path_requires_metadata_file() {
+    let temp_root = unique_temp_dir("vinput-cli-model-info-installed-missing");
+    let model_dir = temp_root.join("models/missing-metadata");
+    std::fs::create_dir_all(&model_dir).expect("create installed model dir");
+
+    let output = vinput_command()
+        .args(["model", "info"])
+        .arg(&model_dir)
+        .output()
+        .expect("run vinput model info missing metadata");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("read installed model metadata"));
+    let _ = std::fs::remove_dir_all(temp_root);
+}
