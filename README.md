@@ -69,6 +69,7 @@ ln -sfn target/cpp/fcitx5-addon/compile_commands.json compile_commands.json
 cmake --build target/cpp/fcitx5-addon --parallel
 ctest --test-dir target/cpp/fcitx5-addon --output-on-failure
 scripts/run-cpp-dbus-smoke.sh
+scripts/run-command-asr-wav-helper-smoke.sh
 cargo run -q -p vinput-cli -- protocol
 cargo run -q -p vinput-cli -- config
 cargo run -q -p vinput-cli -- config validate data/default-config.json --summary-only

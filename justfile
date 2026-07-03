@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke command-asr-wav-helper-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -221,6 +221,10 @@ ime-configured-activation-smoke:
 # Run deterministic staged IME activation plus fake outcome sink coverage.
 ime-e2e-smoke:
     scripts/run-ime-e2e-smoke.sh
+
+# Run command ASR WAV helper smoke.
+command-asr-wav-helper-smoke:
+    scripts/run-command-asr-wav-helper-smoke.sh
 
 # Run user-profile IME install plus D-Bus activation smoke with command-demo backends.
 user-ime-command-demo-smoke:
