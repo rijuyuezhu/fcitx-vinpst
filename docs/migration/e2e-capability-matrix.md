@@ -249,7 +249,7 @@ Use the Rust D-Bus ABI instead of telling users to call low-level tools.
 
 Acceptance:
 
-- `vinput daemon reload-asr --dry-run` prints the planned `ReloadAsrBackend` D-Bus method call; real CLI D-Bus invocation is still pending.
+- `vinput daemon reload-asr` calls the legacy `ReloadAsrBackend` D-Bus method; `--dry-run` prints the planned service/object/interface/method without contacting the daemon.
 - `vinput daemon status` calls `GetStatus`, `GetAsrBackendState`, `GetRuntimeStatus`, and activation status.
 - `vinput daemon start` triggers D-Bus activation or starts the user service/profile strategy used by install scripts.
 - `vinput daemon stop/restart` stops/restarts the known user daemon safely and reports stale owner details.

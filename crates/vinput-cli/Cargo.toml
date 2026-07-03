@@ -27,3 +27,4 @@ vinput-audio = { path = "../vinput-audio" }
 vinput-config = { path = "../vinput-config" }
 vinput-protocol = { path = "../vinput-protocol" }
 vinput-registry = { path = "../vinput-registry" }
+zbus = { workspace = true, features = ["blocking-api"] }

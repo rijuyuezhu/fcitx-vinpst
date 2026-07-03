@@ -241,7 +241,7 @@ fn daemon_reload_asr_dry_run_prints_dbus_plan_json() {
 }
 
 #[test]
-fn daemon_reload_asr_text_requires_dry_run_until_client_exists() {
+fn daemon_reload_asr_text_dry_run_prints_dbus_plan() {
     let text_output = vinput_command()
         .args(["daemon", "reload-asr", "--dry-run"])
         .output()
@@ -249,15 +249,7 @@ fn daemon_reload_asr_text_requires_dry_run_until_client_exists() {
     let stdout = assert_stdout_success(text_output, "daemon reload-asr dry-run text");
     assert!(stdout.contains("dry_run: true"));
     assert!(stdout.contains("will_call_dbus: false"));
+    assert!(stdout.contains("called: false"));
+    assert!(stdout.contains("service: org.fcitx.Vinput"));
     assert!(stdout.contains("method: ReloadAsrBackend"));
-
-    let rejected = vinput_command()
-        .args(["daemon", "reload-asr"])
-        .output()
-        .expect("run vinput daemon reload-asr without dry-run");
-    assert!(!rejected.status.success());
-    let stderr = String::from_utf8(rejected.stderr).expect("stderr should be UTF-8");
-    assert!(stderr.contains(
-        "daemon reload-asr currently requires --dry-run until the D-Bus client is enabled"
-    ));
 }

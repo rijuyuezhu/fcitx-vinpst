@@ -484,14 +484,29 @@ fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<()> {
 
 fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
     if !dry_run {
-        anyhow::bail!(
-            "daemon reload-asr currently requires --dry-run until the D-Bus client is enabled"
-        );
+        reload_asr_backend_via_dbus()?;
     }
-    let output = serde_json::json!({
+    let output = daemon_reload_asr_output(dry_run);
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("dry_run: {dry_run}");
+        println!("will_call_dbus: {}", !dry_run);
+        println!("called: {}", !dry_run);
+        println!("service: {}", dbus::SERVICE_BUS_NAME);
+        println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+        println!("interface: {}", dbus::SERVICE_INTERFACE);
+        println!("method: {}", dbus::method::RELOAD_ASR_BACKEND);
+    }
+    Ok(())
+}
+
+fn daemon_reload_asr_output(dry_run: bool) -> serde_json::Value {
+    serde_json::json!({
         "ok": true,
-        "dry_run": true,
-        "will_call_dbus": false,
+        "dry_run": dry_run,
+        "will_call_dbus": !dry_run,
+        "called": !dry_run,
         "dbus": {
             "service": dbus::SERVICE_BUS_NAME,
             "object_path": dbus::SERVICE_OBJECT_PATH,
@@ -499,20 +514,24 @@ fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> anyhow::Res
             "method": dbus::method::RELOAD_ASR_BACKEND,
         },
         "next_steps": [
-            "enable the CLI D-Bus client to call ReloadAsrBackend",
+            "run vinput daemon status to verify the selected ASR backend",
             "use vinput protocol to inspect the stable method contract"
         ],
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
-        println!("dry_run: true");
-        println!("will_call_dbus: false");
-        println!("service: {}", dbus::SERVICE_BUS_NAME);
-        println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
-        println!("interface: {}", dbus::SERVICE_INTERFACE);
-        println!("method: {}", dbus::method::RELOAD_ASR_BACKEND);
-    }
+    })
+}
+
+fn reload_asr_backend_via_dbus() -> anyhow::Result<()> {
+    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let proxy = zbus::blocking::Proxy::new(
+        &connection,
+        dbus::SERVICE_BUS_NAME,
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .context("create daemon D-Bus proxy")?;
+    let _: () = proxy
+        .call(dbus::method::RELOAD_ASR_BACKEND, &())
+        .context("call ReloadAsrBackend on daemon D-Bus service")?;
     Ok(())
 }
 
