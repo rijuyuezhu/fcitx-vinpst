@@ -9,10 +9,15 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = []
+sherpa-onnx-backend = ["dep:sherpa-onnx"]
+
 [dependencies]
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sherpa-onnx = { workspace = true, optional = true }
 thiserror.workspace = true
 vinput-audio = { path = "../vinput-audio" }
 vinput-protocol = { path = "../vinput-protocol" }

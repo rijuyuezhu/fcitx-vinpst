@@ -93,6 +93,67 @@ output_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", 
 PY
 }
 
+
+write_sherpa_sense_voice_config() {
+  local output_path="$1"
+  local model_dir="$2"
+  local hotwords_file="$3"
+  local timeout_ms="$4"
+  mkdir -p "$(dirname "${output_path}")"
+  python3 - "${output_path}" "${model_dir}" "${hotwords_file}" "${timeout_ms}" <<'PY'
+import json
+import pathlib
+import sys
+
+output_path = pathlib.Path(sys.argv[1])
+model_dir = pathlib.Path(sys.argv[2]).expanduser().resolve()
+hotwords_arg = sys.argv[3].strip()
+timeout_arg = sys.argv[4].strip()
+if not model_dir.is_dir():
+    raise SystemExit(f"VINPUT_USER_SHERPA_MODEL must be an existing model directory: {model_dir}")
+if not any((model_dir / name).is_file() for name in ("model.int8.onnx", "model.onnx")):
+    raise SystemExit(
+        "VINPUT_USER_SHERPA_MODEL must contain model.int8.onnx or model.onnx "
+        f"for the current SenseVoice backend: {model_dir}"
+    )
+if not (model_dir / "tokens.txt").is_file():
+    raise SystemExit(f"VINPUT_USER_SHERPA_MODEL must contain tokens.txt: {model_dir}")
+provider = {
+    "id": "sherpa-onnx",
+    "type": "local",
+    "model": str(model_dir),
+}
+if hotwords_arg:
+    hotwords = pathlib.Path(hotwords_arg).expanduser()
+    if not hotwords.is_absolute():
+        hotwords = model_dir / hotwords
+    hotwords = hotwords.resolve()
+    if not hotwords.is_file():
+        raise SystemExit(f"VINPUT_USER_SHERPA_HOTWORDS_FILE must be a regular file: {hotwords}")
+    provider["hotwords_file"] = str(hotwords)
+if timeout_arg:
+    timeout_ms = int(timeout_arg)
+    if timeout_ms <= 0:
+        raise SystemExit("VINPUT_USER_SHERPA_TIMEOUT_MS must be positive")
+    provider["timeout_ms"] = timeout_ms
+
+config = {
+    "version": 1,
+    "asr": {
+        "active_provider": "sherpa-onnx",
+        "normalize_audio": False,
+        "input_gain": 1.0,
+        "providers": [provider],
+    },
+    "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id": "raw", "label": "Raw", "candidate_count": 0}],
+    },
+}
+output_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+}
+
 write_fcitx_env_integration() {
   local quoted_env_file
   quoted_env_file="$(shell_quote "${env_file}")"
@@ -139,6 +200,9 @@ doctor_status() {
         ;;
       real-command-asr-wav)
         status_config="${VINPUT_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
+        ;;
+      sherpa-sense-voice-live)
+        status_config="${VINPUT_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
         ;;
     esac
   fi
@@ -243,9 +307,22 @@ case "${profile}" in
     install -Dm755 scripts/command-asr-wav-helper.py "${command_asr_wav_helper_path}"
     write_command_asr_wav_helper_config "${config_path}" "${command_asr_wav_helper_path}" "${external_asr_command}" "${helper_timeout_ms}" "${provider_timeout_ms}"
     ;;
+  sherpa-sense-voice-live)
+    features+=(--features pipewire-backend,sherpa-onnx-backend)
+    configured_backends="1"
+    audio_backend="${audio_backend:-pipewire}"
+    config_path="${VINPUT_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
+    sherpa_model_dir="${VINPUT_USER_SHERPA_MODEL:-}"
+    if [[ -z "${sherpa_model_dir}" ]]; then
+      echo "VINPUT_USER_SHERPA_MODEL is required for sherpa-sense-voice-live" >&2
+      echo 'example: VINPUT_USER_SHERPA_MODEL=/path/to/sherpa-onnx-sense-voice... VINPUT_USER_PROFILE=sherpa-sense-voice-live scripts/install-user-ime.sh' >&2
+      exit 2
+    fi
+    write_sherpa_sense_voice_config "${config_path}" "${sherpa_model_dir}" "${VINPUT_USER_SHERPA_HOTWORDS_FILE:-}" "${VINPUT_USER_SHERPA_TIMEOUT_MS:-}"
+    ;;
   *)
     echo "unsupported VINPUT_USER_PROFILE: ${profile}" >&2
-    echo "supported profiles: mock, command-demo, configured-pipewire-live, real-command-asr-wav" >&2
+    echo "supported profiles: mock, command-demo, configured-pipewire-live, real-command-asr-wav, sherpa-sense-voice-live" >&2
     exit 2
     ;;
 esac

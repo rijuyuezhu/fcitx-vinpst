@@ -1,7 +1,9 @@
 //! Local `sherpa-onnx` ASR backend seam.
 //!
-//! This module owns typed config parsing for the future local `sherpa-onnx`
-//! backend. It deliberately does not link or invoke the real runtime yet.
+//! This module owns typed config parsing, model layout validation, and the
+//! optional official `sherpa-onnx` runtime adapter. The runtime remains behind a
+//! Cargo feature so default CI and command-demo installs do not download or link
+//! native ASR libraries.
 
 use std::path::{Path, PathBuf};
 
@@ -11,6 +13,11 @@ use thiserror::Error;
 use vinput_config::{AsrProviderConfig, AsrProviderKind};
 
 use crate::AsrError;
+#[cfg(feature = "sherpa-onnx-backend")]
+use crate::{
+    AsrBackend, BackendCapabilities, BackendDescriptor, RecognitionContext, RecognitionEvent,
+    RecognitionSession,
+};
 
 /// Legacy local provider id used by bundled config and diagnostics.
 pub const SHERPA_ONNX_PROVIDER_ID: &str = "sherpa-onnx";
@@ -35,6 +42,32 @@ pub struct SherpaOnnxModelPaths {
     pub model_dir: PathBuf,
     /// Resolved hotwords file, when configured.
     pub hotwords_file: Option<PathBuf>,
+}
+
+/// Supported local `sherpa-onnx` offline model layout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SherpaOnnxOfflineModelLayout {
+    /// `SenseVoice` model directory with a model file and tokens file.
+    SenseVoice {
+        /// ONNX model file.
+        model: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+        /// Language tag passed to sherpa-onnx.
+        language: String,
+        /// Whether sherpa-onnx inverse text normalization is enabled.
+        use_itn: bool,
+    },
+}
+
+/// Resolved local inputs and inferred runtime layout for offline recognition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SherpaOnnxOfflineRuntimePlan {
+    /// Validated model and hotwords paths.
+    pub paths: SherpaOnnxModelPaths,
+    /// Inferred offline model layout.
+    pub layout: SherpaOnnxOfflineModelLayout,
 }
 
 /// Local sherpa model path validation errors.
@@ -88,6 +121,20 @@ pub enum SherpaOnnxModelPathError {
     #[error("sherpa-onnx hotwords path `{path}` is not a regular file")]
     HotwordsPathNotFile {
         /// Resolved hotwords path.
+        path: String,
+    },
+    /// Model directory exists but does not match a supported offline layout.
+    #[error(
+        "sherpa-onnx model directory `{path}` does not contain a supported offline model layout"
+    )]
+    UnsupportedOfflineLayout {
+        /// Resolved model path.
+        path: String,
+    },
+    /// Model directory contains a model but is missing the required tokens file.
+    #[error("sherpa-onnx model directory `{path}` is missing tokens.txt")]
+    MissingTokensFile {
+        /// Resolved model path.
         path: String,
     },
 }
@@ -183,14 +230,48 @@ impl SherpaOnnxSpec {
         })
     }
 
-    /// Returns the current explicit runtime-unavailable error.
+    /// Resolves local inputs and infers the first supported offline runtime layout.
+    pub fn resolve_offline_runtime_plan(
+        &self,
+        model_root: impl AsRef<Path>,
+    ) -> Result<SherpaOnnxOfflineRuntimePlan, SherpaOnnxModelPathError> {
+        let paths = self.resolve_model_paths(model_root)?;
+        let layout = infer_offline_layout(&paths.model_dir)?;
+        Ok(SherpaOnnxOfflineRuntimePlan { paths, layout })
+    }
+
+    /// Returns the explicit runtime-unavailable error for builds without sherpa runtime support.
     #[must_use]
     pub fn runtime_unavailable_error(&self) -> AsrError {
         AsrError::Backend(format!(
-            "sherpa-onnx runtime for provider `{}` is not implemented yet",
+            "sherpa-onnx runtime for provider `{}` is not enabled; build with feature `sherpa-onnx-backend`",
             self.provider_id
         ))
     }
+}
+
+fn infer_offline_layout(
+    model_dir: &Path,
+) -> Result<SherpaOnnxOfflineModelLayout, SherpaOnnxModelPathError> {
+    let model = ["model.int8.onnx", "model.onnx"]
+        .into_iter()
+        .map(|file_name| model_dir.join(file_name))
+        .find(|path| path.is_file())
+        .ok_or_else(|| SherpaOnnxModelPathError::UnsupportedOfflineLayout {
+            path: display_path(model_dir),
+        })?;
+    let tokens = model_dir.join("tokens.txt");
+    if !tokens.is_file() {
+        return Err(SherpaOnnxModelPathError::MissingTokensFile {
+            path: display_path(model_dir),
+        });
+    }
+    Ok(SherpaOnnxOfflineModelLayout::SenseVoice {
+        model,
+        tokens,
+        language: "auto".to_owned(),
+        use_itn: true,
+    })
 }
 
 fn resolve_against(root: &Path, value: &str) -> PathBuf {
@@ -215,4 +296,208 @@ fn reject_url_like(provider_id: &str, value: &str) -> Result<(), SherpaOnnxModel
 
 fn display_path(path: &Path) -> String {
     path.display().to_string()
+}
+
+/// Feature-gated offline `sherpa-onnx` backend using the official Rust API.
+#[cfg(feature = "sherpa-onnx-backend")]
+pub struct SherpaOnnxBackend {
+    spec: SherpaOnnxSpec,
+    descriptor: BackendDescriptor,
+    recognizer: std::sync::Arc<sherpa_onnx::OfflineRecognizer>,
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+impl std::fmt::Debug for SherpaOnnxBackend {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SherpaOnnxBackend")
+            .field("provider_id", &self.spec.provider_id)
+            .field("model", &self.spec.model)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+impl SherpaOnnxBackend {
+    /// Builds an offline `sherpa-onnx` backend from config.
+    pub fn with_config(provider: &AsrProviderConfig) -> Result<Self, AsrError> {
+        let spec = SherpaOnnxSpec::from_provider(provider)?;
+        let model_root = std::env::var_os("VINPUT_SHERPA_MODEL_ROOT")
+            .map_or_else(|| PathBuf::from("."), PathBuf::from);
+        let plan = spec
+            .resolve_offline_runtime_plan(model_root)
+            .map_err(|error| AsrError::Backend(error.to_string()))?;
+        let config = offline_recognizer_config(&plan);
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            AsrError::Backend(format!(
+                "failed to create sherpa-onnx offline recognizer for provider `{}`",
+                spec.provider_id
+            ))
+        })?;
+        let model_id = spec.model.clone().unwrap_or_default();
+        Ok(Self {
+            descriptor: BackendDescriptor::new(
+                spec.provider_id.clone(),
+                model_id,
+                "sherpa-onnx offline ASR",
+                BackendCapabilities::buffered(),
+            ),
+            spec,
+            recognizer: std::sync::Arc::new(recognizer),
+        })
+    }
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+fn offline_recognizer_config(
+    plan: &SherpaOnnxOfflineRuntimePlan,
+) -> sherpa_onnx::OfflineRecognizerConfig {
+    let mut config = sherpa_onnx::OfflineRecognizerConfig::default();
+    match &plan.layout {
+        SherpaOnnxOfflineModelLayout::SenseVoice {
+            model,
+            tokens,
+            language,
+            use_itn,
+        } => {
+            config.model_config.sense_voice = sherpa_onnx::OfflineSenseVoiceModelConfig {
+                model: Some(display_path(model)),
+                language: Some(language.clone()),
+                use_itn: *use_itn,
+            };
+            config.model_config.tokens = Some(display_path(tokens));
+        }
+    }
+    if let Some(hotwords_file) = &plan.paths.hotwords_file {
+        config.hotwords_file = Some(display_path(hotwords_file));
+    }
+    config
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+impl AsrBackend for SherpaOnnxBackend {
+    fn describe(&self) -> BackendDescriptor {
+        self.descriptor.clone()
+    }
+
+    fn create_session(
+        &self,
+        _context: RecognitionContext,
+    ) -> Result<Box<dyn RecognitionSession>, AsrError> {
+        Ok(Box::new(SherpaOnnxRecognitionSession {
+            recognizer: std::sync::Arc::clone(&self.recognizer),
+            pcm: vinput_audio::PcmSpec::default(),
+            samples: Vec::new(),
+            events: Vec::new(),
+            finished: false,
+            cancelled: false,
+        }))
+    }
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+struct SherpaOnnxRecognitionSession {
+    recognizer: std::sync::Arc<sherpa_onnx::OfflineRecognizer>,
+    pcm: vinput_audio::PcmSpec,
+    samples: Vec<i16>,
+    events: Vec<RecognitionEvent>,
+    finished: bool,
+    cancelled: bool,
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+impl std::fmt::Debug for SherpaOnnxRecognitionSession {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SherpaOnnxRecognitionSession")
+            .field("pcm", &self.pcm)
+            .field("sample_count", &self.samples.len())
+            .field("finished", &self.finished)
+            .field("cancelled", &self.cancelled)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+impl RecognitionSession for SherpaOnnxRecognitionSession {
+    fn push_pcm(&mut self, pcm: &vinput_audio::PcmBuffer) -> Result<(), AsrError> {
+        if self.cancelled {
+            return Err(AsrError::Cancelled);
+        }
+        if self.finished {
+            return Err(AsrError::AlreadyFinished);
+        }
+        let next_pcm = pcm.spec();
+        if !self.samples.is_empty() && self.pcm != next_pcm {
+            return Err(AsrError::Backend(format!(
+                "sherpa-onnx PCM spec changed from {} Hz/{} channel(s) to {} Hz/{} channel(s)",
+                self.pcm.sample_rate_hz,
+                self.pcm.channels,
+                next_pcm.sample_rate_hz,
+                next_pcm.channels
+            )));
+        }
+        self.pcm = next_pcm;
+        self.samples.extend_from_slice(pcm.samples());
+        Ok(())
+    }
+
+    fn push_audio(&mut self, samples: &[i16]) -> Result<(), AsrError> {
+        if self.cancelled {
+            return Err(AsrError::Cancelled);
+        }
+        if self.finished {
+            return Err(AsrError::AlreadyFinished);
+        }
+        self.samples.extend_from_slice(samples);
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), AsrError> {
+        if self.cancelled {
+            return Err(AsrError::Cancelled);
+        }
+        if self.finished {
+            return Err(AsrError::AlreadyFinished);
+        }
+        self.finished = true;
+        let stream = self.recognizer.create_stream();
+        let samples = self
+            .samples
+            .iter()
+            .map(|sample| f32::from(*sample) / f32::from(i16::MAX))
+            .collect::<Vec<_>>();
+        let sample_rate = i32::try_from(self.pcm.sample_rate_hz).map_err(|_| {
+            AsrError::Backend(format!(
+                "sherpa-onnx sample rate {} does not fit i32",
+                self.pcm.sample_rate_hz
+            ))
+        })?;
+        stream.accept_waveform(sample_rate, &samples);
+        self.recognizer.decode(&stream);
+        let result = stream.get_result().ok_or_else(|| {
+            AsrError::Backend("sherpa-onnx recognizer returned no result".to_owned())
+        })?;
+        let text = result.text.trim().to_owned();
+        if text.is_empty() {
+            return Err(AsrError::Backend(
+                "sherpa-onnx recognizer returned empty text".to_owned(),
+            ));
+        }
+        self.events = vec![
+            RecognitionEvent::FinalText { text },
+            RecognitionEvent::Completed,
+        ];
+        Ok(())
+    }
+
+    fn cancel(&mut self) -> Result<(), AsrError> {
+        self.cancelled = true;
+        self.events.clear();
+        Ok(())
+    }
+
+    fn poll_events(&mut self) -> Result<Vec<RecognitionEvent>, AsrError> {
+        Ok(std::mem::take(&mut self.events))
+    }
 }

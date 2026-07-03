@@ -13,6 +13,7 @@ workspace = true
 default = []
 dbus-integration = []
 pipewire-backend = ["vinput-audio/pipewire-backend"]
+sherpa-onnx-backend = ["vinput-asr/sherpa-onnx-backend"]
 
 [dependencies]
 anyhow.workspace = true

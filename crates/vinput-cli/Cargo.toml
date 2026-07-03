@@ -12,6 +12,7 @@ workspace = true
 [features]
 default = []
 pipewire-backend = ["vinput-audio/pipewire-backend"]
+sherpa-onnx-backend = ["vinput-asr/sherpa-onnx-backend"]
 
 [[bin]]
 name = "vinput"

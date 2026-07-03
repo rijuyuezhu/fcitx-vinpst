@@ -22,8 +22,11 @@ pub use error::AsrError;
 pub use factory::AsrBackendFactory;
 pub use mock::{MockAsrAudioLog, MockAsrAudioPush, MockAsrBackend};
 pub use payload::events_to_payload;
+#[cfg(feature = "sherpa-onnx-backend")]
+pub use sherpa::SherpaOnnxBackend;
 pub use sherpa::{
-    SHERPA_ONNX_PROVIDER_ID, SherpaOnnxModelPathError, SherpaOnnxModelPaths, SherpaOnnxSpec,
+    SHERPA_ONNX_PROVIDER_ID, SherpaOnnxModelPathError, SherpaOnnxModelPaths,
+    SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan, SherpaOnnxSpec,
 };
 pub use traits::{
     AsrBackend, AudioDeliveryMode, BackendCapabilities, BackendDescriptor, RecognitionContext,

@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke command-asr-wav-helper-smoke user-ime-real-command-asr-wav-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke command-asr-wav-helper-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -193,6 +193,11 @@ smoke:
     cargo run -q -p vinput-daemon -- audio-devices
     cargo run -q -p vinput-daemon -- --once
 
+# Compile the feature-gated official sherpa-onnx ASR backend without running model inference.
+sherpa-onnx-check:
+    cargo check -p vinput-asr --features=sherpa-onnx-backend
+    cargo check -p vinput-daemon --features=sherpa-onnx-backend
+
 # Compile and test optional PipeWire feature paths without requiring a live daemon.
 pipewire-check:
     cargo test -p vinput-daemon --features=pipewire-backend
@@ -229,6 +234,10 @@ command-asr-wav-helper-smoke:
 # Run user-profile IME install smoke for a real command-ASR WAV helper profile.
 user-ime-real-command-asr-wav-smoke:
     scripts/run-user-ime-real-command-asr-wav-smoke.sh
+
+# Run user-profile IME install smoke for the native sherpa SenseVoice profile.
+user-ime-sherpa-sense-voice-smoke:
+    scripts/run-user-ime-sherpa-sense-voice-smoke.sh
 
 # Run user-profile IME install plus D-Bus activation smoke with command-demo backends.
 user-ime-command-demo-smoke:
