@@ -320,6 +320,24 @@ enum HotwordCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Open the configured hotwords file in an editor.
+    Edit {
+        /// Optional ASR provider id. Defaults to the active provider.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Editor executable to run. Defaults to `$VINPUT_HOTWORD_EDITOR`, `$VINPUT_CONFIG_EDITOR`, `$EDITOR`, then `$VISUAL`.
+        #[arg(long)]
+        editor: Option<String>,
+        /// Print the edit plan without launching the editor.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Audio device selection commands.
@@ -1576,7 +1594,42 @@ fn handle_hotword_command(command: HotwordCommand) -> anyhow::Result<()> {
             dry_run,
             json_output: json,
         }),
+        HotwordCommand::Edit {
+            provider,
+            config,
+            editor,
+            dry_run,
+            json,
+        } => print_hotword_edit(HotwordEditRequest {
+            provider_id: provider.as_deref(),
+            config_path: config.as_ref(),
+            editor: editor.as_deref(),
+            dry_run,
+            json_output: json,
+        }),
     }
+}
+
+#[derive(Clone, Copy)]
+struct HotwordEditRequest<'a> {
+    provider_id: Option<&'a str>,
+    config_path: Option<&'a PathBuf>,
+    editor: Option<&'a str>,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct HotwordEditOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    active_provider: String,
+    provider_id: String,
+    provider_type: &'static str,
+    hotwords_file: PathBuf,
+    editor_argv: Vec<String>,
+    dry_run: bool,
+    edited: bool,
+    exit_status: Option<i32>,
 }
 
 #[derive(Clone, Copy)]
@@ -1702,6 +1755,128 @@ fn print_hotword_get_text(context: &HotwordGetContext) {
         "hotwords_file: {}",
         context.provider.hotwords_file.as_deref().unwrap_or("-")
     );
+}
+
+fn print_hotword_edit(request: HotwordEditRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_hotword_edit(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&hotword_edit_json(&outcome))?
+        );
+    } else {
+        print_hotword_edit_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_hotword_edit(request: &HotwordEditRequest<'_>) -> anyhow::Result<HotwordEditOutcome> {
+    let context = load_hotword_get_context(request.provider_id, request.config_path)?;
+    if !hotword_supported(&context.provider.kind) {
+        anyhow::bail!(
+            "ASR provider `{}` does not support hotwords",
+            context.provider.id
+        );
+    }
+    let hotwords_file = context
+        .provider
+        .hotwords_file
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .with_context(|| "No hotwords file configured. Use 'hotword set <path>' first.")?;
+    let editor_argv = resolve_hotword_editor(request.editor)?;
+    let mut edited = false;
+    let mut exit_status = None;
+    if !request.dry_run {
+        let status = run_hotword_editor(&editor_argv, Path::new(hotwords_file))?;
+        if !status.success() {
+            anyhow::bail!("hotword editor exited with status {status}");
+        }
+        exit_status = status.code();
+        edited = true;
+    }
+    Ok(HotwordEditOutcome {
+        config_path: context.config_path,
+        source: context.source,
+        active_provider: context.active_provider,
+        provider_id: context.provider.id,
+        provider_type: asr_provider_kind_label(&context.provider.kind),
+        hotwords_file: PathBuf::from(hotwords_file),
+        editor_argv,
+        dry_run: request.dry_run,
+        edited,
+        exit_status,
+    })
+}
+
+fn hotword_edit_json(outcome: &HotwordEditOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "active_provider": outcome.active_provider,
+        "provider_id": outcome.provider_id,
+        "provider_type": outcome.provider_type,
+        "hotwords_file": outcome.hotwords_file,
+        "editor": outcome.editor_argv.join(" "),
+        "editor_argv": outcome.editor_argv,
+        "edited": outcome.edited,
+        "exit_status": outcome.exit_status,
+        "next_steps": [
+            "run vinput hotword get to verify the configured hotwords file",
+            "run vinput asr-state to inspect the selected provider runtime readiness"
+        ],
+    })
+}
+
+fn print_hotword_edit_text(outcome: &HotwordEditOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("active_provider: {}", outcome.active_provider);
+    println!("provider_id: {}", outcome.provider_id);
+    println!("provider_type: {}", outcome.provider_type);
+    println!("hotwords_file: {}", outcome.hotwords_file.display());
+    println!("editor: {}", outcome.editor_argv.join(" "));
+    println!("edited: {}", outcome.edited);
+    if let Some(exit_status) = outcome.exit_status {
+        println!("exit_status: {exit_status}");
+    }
+}
+
+fn resolve_hotword_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
+    let editor = editor
+        .map(str::to_owned)
+        .or_else(|| std::env::var("VINPUT_HOTWORD_EDITOR").ok())
+        .or_else(|| std::env::var("VINPUT_CONFIG_EDITOR").ok())
+        .or_else(|| std::env::var("EDITOR").ok())
+        .or_else(|| std::env::var("VISUAL").ok())
+        .with_context(
+            || "hotword edit requires --editor or $VINPUT_HOTWORD_EDITOR/$VINPUT_CONFIG_EDITOR/$EDITOR/$VISUAL",
+        )?;
+    let argv = split_editor_argv(&editor);
+    if argv.is_empty() {
+        anyhow::bail!("hotword editor command is empty");
+    }
+    Ok(argv)
+}
+
+fn run_hotword_editor(
+    editor_argv: &[String],
+    path: &Path,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let (program, args) = editor_argv
+        .split_first()
+        .with_context(|| "hotword editor command is empty")?;
+    ProcessCommand::new(program)
+        .args(args)
+        .arg(path)
+        .status()
+        .with_context(|| format!("run hotword editor `{}`", editor_argv.join(" ")))
 }
 
 fn print_hotword_mutation(request: HotwordMutationRequest<'_>) -> anyhow::Result<()> {

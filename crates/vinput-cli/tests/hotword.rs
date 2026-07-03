@@ -261,6 +261,113 @@ fn hotword_set_clear_reject_empty_remote_and_missing_write_target() {
     fs::remove_file(&path).expect("remove temporary hotword config");
 }
 
+#[test]
+fn hotword_edit_dry_run_json_reports_editor_plan_without_launching() {
+    let path = write_hotword_fixture("vinput-hotword-edit-dry-run");
+
+    let output = vinput_command()
+        .args(["hotword", "edit", "--config"])
+        .arg(&path)
+        .args(["--editor", "true", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput hotword edit dry-run");
+    fs::remove_file(&path).expect("remove temporary hotword config");
+
+    let value = assert_json_success(output, "hotword edit dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["provider_id"], "cmd");
+    assert_eq!(value["provider_type"], "command");
+    assert_eq!(value["hotwords_file"], "/tmp/cmd-hotwords.txt");
+    assert_eq!(value["editor_argv"][0], "true");
+    assert_eq!(value["edited"], false);
+    assert_eq!(value["exit_status"], serde_json::Value::Null);
+}
+
+#[test]
+fn hotword_edit_runs_editor_for_configured_file() {
+    let root = unique_temp_dir("vinput-hotword-edit-run");
+    let config_path = root.join("config.json");
+    let hotwords_path = root.join("hotwords.txt");
+    fs::write(
+        &hotwords_path,
+        "before
+",
+    )
+    .expect("write hotwords file");
+    fs::write(
+        &config_path,
+        hotword_fixture_json().replace(
+            "/tmp/cmd-hotwords.txt",
+            hotwords_path.to_string_lossy().as_ref(),
+        ),
+    )
+    .expect("write hotword config");
+
+    let output = vinput_command()
+        .args(["hotword", "edit", "--config"])
+        .arg(&config_path)
+        .args(["--editor", "true", "--json"])
+        .output()
+        .expect("run vinput hotword edit");
+
+    let value = assert_json_success(output, "hotword edit json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(
+        value["hotwords_file"],
+        hotwords_path.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["edited"], true);
+    assert_eq!(value["exit_status"], 0);
+    fs::remove_dir_all(root).expect("remove hotword edit fixture dir");
+}
+
+#[test]
+fn hotword_edit_rejects_missing_file_config_and_remote_provider() {
+    let path = write_hotword_fixture("vinput-hotword-edit-errors");
+
+    let missing_config = vinput_command()
+        .args(["hotword", "edit", "--provider", "remote", "--config"])
+        .arg(&path)
+        .args(["--editor", "true", "--dry-run"])
+        .output()
+        .expect("run vinput hotword edit remote provider");
+    assert!(!missing_config.status.success());
+    let stderr = String::from_utf8(missing_config.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider `remote` does not support hotwords"));
+
+    let no_file_config = write_temp_json(
+        "vinput-hotword-edit-no-file",
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "local",
+            "providers": [{"id":"local","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+    let no_file = vinput_command()
+        .args(["hotword", "edit", "--config"])
+        .arg(&no_file_config)
+        .args(["--editor", "true", "--dry-run"])
+        .output()
+        .expect("run vinput hotword edit without configured file");
+    assert!(!no_file.status.success());
+    let stderr = String::from_utf8(no_file.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("No hotwords file configured. Use 'hotword set <path>' first."));
+
+    fs::remove_file(&path).expect("remove temporary hotword config");
+    fs::remove_file(&no_file_config).expect("remove no-file hotword config");
+}
+
 fn write_hotword_fixture(prefix: &str) -> std::path::PathBuf {
     write_temp_json(prefix, hotword_fixture_json())
 }

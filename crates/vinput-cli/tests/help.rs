@@ -150,6 +150,7 @@ fn hotword_help_lists_get_options() {
     assert!(root_stdout.contains("get"));
     assert!(root_stdout.contains("set"));
     assert!(root_stdout.contains("clear"));
+    assert!(root_stdout.contains("edit"));
 
     let get_output = vinput_command()
         .args(["hotword", "get", "--help"])
@@ -184,6 +185,17 @@ fn hotword_help_lists_get_options() {
     assert!(clear_stdout.contains("--in-place"));
     assert!(clear_stdout.contains("--dry-run"));
     assert!(clear_stdout.contains("--json"));
+
+    let edit_output = vinput_command()
+        .args(["hotword", "edit", "--help"])
+        .output()
+        .expect("run vinput hotword edit --help");
+    let edit_stdout = assert_stdout_success(edit_output, "hotword edit help output");
+    assert!(edit_stdout.contains("--provider"));
+    assert!(edit_stdout.contains("--config"));
+    assert!(edit_stdout.contains("--editor"));
+    assert!(edit_stdout.contains("--dry-run"));
+    assert!(edit_stdout.contains("--json"));
 }
 
 #[test]
