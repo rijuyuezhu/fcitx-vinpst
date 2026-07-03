@@ -148,6 +148,8 @@ fn hotword_help_lists_get_options() {
         .expect("run vinput hotword --help");
     let root_stdout = assert_stdout_success(root_output, "hotword help output");
     assert!(root_stdout.contains("get"));
+    assert!(root_stdout.contains("set"));
+    assert!(root_stdout.contains("clear"));
 
     let get_output = vinput_command()
         .args(["hotword", "get", "--help"])
@@ -157,6 +159,31 @@ fn hotword_help_lists_get_options() {
     assert!(get_stdout.contains("--provider"));
     assert!(get_stdout.contains("--config"));
     assert!(get_stdout.contains("--json"));
+
+    let set_output = vinput_command()
+        .args(["hotword", "set", "--help"])
+        .output()
+        .expect("run vinput hotword set --help");
+    let set_stdout = assert_stdout_success(set_output, "hotword set help output");
+    assert!(set_stdout.contains("<PATH>"));
+    assert!(set_stdout.contains("--provider"));
+    assert!(set_stdout.contains("--config"));
+    assert!(set_stdout.contains("--output"));
+    assert!(set_stdout.contains("--in-place"));
+    assert!(set_stdout.contains("--dry-run"));
+    assert!(set_stdout.contains("--json"));
+
+    let clear_output = vinput_command()
+        .args(["hotword", "clear", "--help"])
+        .output()
+        .expect("run vinput hotword clear --help");
+    let clear_stdout = assert_stdout_success(clear_output, "hotword clear help output");
+    assert!(clear_stdout.contains("--provider"));
+    assert!(clear_stdout.contains("--config"));
+    assert!(clear_stdout.contains("--output"));
+    assert!(clear_stdout.contains("--in-place"));
+    assert!(clear_stdout.contains("--dry-run"));
+    assert!(clear_stdout.contains("--json"));
 }
 
 #[test]
