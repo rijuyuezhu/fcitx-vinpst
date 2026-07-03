@@ -166,6 +166,20 @@ fn doctor_reports_combined_local_diagnostics() {
             .as_ref()
     );
     assert_eq!(value["fcitx_addon"]["user_addon_metadata_exists"], false);
+    let next_steps = value["next_steps"].as_array().expect("doctor next steps");
+    let next_steps_text = next_steps
+        .iter()
+        .map(|step| step.as_str().expect("doctor next step string"))
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    assert!(next_steps_text.contains("vinput provider list"));
+    assert!(next_steps_text.contains("vinput provider use sherpa-onnx"));
+    assert!(next_steps_text.contains("vinput hotword get"));
+    assert!(next_steps_text.contains("vinput device list"));
+    assert!(next_steps_text.contains("vinput device use <target>"));
 }
 
 #[test]

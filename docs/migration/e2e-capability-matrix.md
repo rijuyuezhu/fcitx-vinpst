@@ -249,7 +249,7 @@ Acceptance:
 - `vinput hotword set/clear` manages the active or selected provider hotwords path. **Done for supported local/command providers, dry-run/output/in-place writes, backup/validation guards, and JSON/text output.**
 - `vinput hotword edit` manages the active provider hotwords path through an editor when supported.
 - `vinput device list/use` uses Rust PipeWire diagnostics and updates `global.capture_device`. **Done with JSON/text list, dry-run/output/in-place writes, and backup/validation guards.**
-- `vinput doctor` references these commands in remediation text.
+- `vinput doctor` references provider/hotword/device commands in remediation text. **Done for JSON `next_steps` covering provider list/use, hotword get, device list/use, and daemon status previews.**
 
 ### P0.5 daemon and recording control commands
 

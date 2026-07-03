@@ -2751,9 +2751,25 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
         "audio": audio,
         "activation_service": activation_service,
         "fcitx_addon": user_fcitx_addon_json(),
+        "next_steps": doctor_next_steps(&config),
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
+}
+
+fn doctor_next_steps(config: &VinputConfig) -> Vec<String> {
+    vec![
+        "run vinput provider list to inspect configured ASR providers".to_owned(),
+        format!(
+            "run vinput provider use {} --dry-run --json to preview provider selection",
+            config.asr.active_provider
+        ),
+        "run vinput hotword get --json to inspect hotword configuration".to_owned(),
+        "run vinput device list --json to inspect capture devices".to_owned(),
+        "run vinput device use <target> --dry-run --json to preview capture-device selection"
+            .to_owned(),
+        "run vinput daemon status --dry-run --json to inspect daemon D-Bus calls".to_owned(),
+    ]
 }
 
 fn user_fcitx_addon_json() -> serde_json::Value {
