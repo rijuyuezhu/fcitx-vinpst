@@ -20,6 +20,7 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("registry"));
     assert!(stdout.contains("device"));
     assert!(stdout.contains("provider"));
+    assert!(stdout.contains("scene"));
     assert!(stdout.contains("hotword"));
     assert!(stdout.contains("model"));
     assert!(stdout.contains("daemon"));
@@ -101,6 +102,37 @@ fn device_help_lists_list_and_use_options() {
         .expect("run vinput device use --help");
     let use_stdout = assert_stdout_success(use_output, "device use help output");
     assert!(use_stdout.contains("<TARGET>"));
+    assert!(use_stdout.contains("--config"));
+    assert!(use_stdout.contains("--output"));
+    assert!(use_stdout.contains("--in-place"));
+    assert!(use_stdout.contains("--dry-run"));
+    assert!(use_stdout.contains("--json"));
+}
+
+#[test]
+fn scene_help_lists_list_and_use_options() {
+    let root_output = vinput_command()
+        .args(["scene", "--help"])
+        .output()
+        .expect("run vinput scene --help");
+    let root_stdout = assert_stdout_success(root_output, "scene help output");
+    assert!(root_stdout.contains("list"));
+    assert!(root_stdout.contains("use"));
+
+    let list_output = vinput_command()
+        .args(["scene", "list", "--help"])
+        .output()
+        .expect("run vinput scene list --help");
+    let list_stdout = assert_stdout_success(list_output, "scene list help output");
+    assert!(list_stdout.contains("--config"));
+    assert!(list_stdout.contains("--json"));
+
+    let use_output = vinput_command()
+        .args(["scene", "use", "--help"])
+        .output()
+        .expect("run vinput scene use --help");
+    let use_stdout = assert_stdout_success(use_output, "scene use help output");
+    assert!(use_stdout.contains("<ID>"));
     assert!(use_stdout.contains("--config"));
     assert!(use_stdout.contains("--output"));
     assert!(use_stdout.contains("--in-place"));

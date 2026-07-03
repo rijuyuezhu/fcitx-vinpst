@@ -376,6 +376,41 @@ enum DeviceCommand {
     },
 }
 
+/// Scene management commands.
+#[derive(Debug, Subcommand)]
+enum SceneCommand {
+    /// List configured recognition scenes.
+    #[command(alias = "ls")]
+    List {
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print machine-readable JSON instead of text table output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Select the active recognition scene in config.
+    Use {
+        /// Existing scene id to activate.
+        id: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// ASR provider management commands.
 #[derive(Debug, Subcommand)]
 enum ProviderCommand {
@@ -754,6 +789,12 @@ enum Command {
         #[command(subcommand)]
         command: HotwordCommand,
     },
+    /// Inspect or manage recognition scenes.
+    Scene {
+        /// Scene operation.
+        #[command(subcommand)]
+        command: SceneCommand,
+    },
     /// Inspect or manage ASR providers.
     Provider {
         /// Provider operation.
@@ -948,6 +989,7 @@ fn main() -> anyhow::Result<()> {
         Command::Recording { command } => handle_recording_command(command),
         Command::Device { command } => handle_device_command(command),
         Command::Hotword { command } => handle_hotword_command(command),
+        Command::Scene { command } => handle_scene_command(command),
         Command::Provider { command } => handle_provider_command(command),
         Command::Model { command } => handle_model_command(command),
         Command::AsrState { config } => print_asr_state(config.as_ref()),
@@ -2155,6 +2197,263 @@ fn print_hotword_mutation_text(outcome: &HotwordMutationOutcome) {
     }
     println!("will_write_config: {}", !outcome.dry_run);
     println!("wrote_config: {}", outcome.wrote_config);
+}
+
+struct SceneListContext {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    config: VinputConfig,
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct SceneUseRequest<'a> {
+    id: &'a str,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct SceneUseOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    before: String,
+    after: String,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
+fn handle_scene_command(command: SceneCommand) -> anyhow::Result<()> {
+    match command {
+        SceneCommand::List { config, json } => print_scene_list(config.as_ref(), json),
+        SceneCommand::Use {
+            id,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_scene_use(SceneUseRequest {
+            id: &id,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
+    }
+}
+
+fn print_scene_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
+    let context = load_scene_list_context(config_path)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&scene_list_json(&context))?
+        );
+    } else {
+        print_scene_list_text(&context);
+    }
+    Ok(())
+}
+
+fn load_scene_list_context(config_path: Option<&PathBuf>) -> anyhow::Result<SceneListContext> {
+    let loaded = load_config_json(config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for scene list")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for scene list")?;
+    config
+        .validate()
+        .context("validate config for scene list")?;
+    Ok(SceneListContext {
+        config_path: loaded.path,
+        source: loaded.source,
+        config,
+    })
+}
+
+fn scene_list_json(context: &SceneListContext) -> serde_json::Value {
+    let active_scene = context.config.scenes.active_scene.as_str();
+    let scenes = context
+        .config
+        .scenes
+        .definitions
+        .iter()
+        .map(|scene| scene_summary_json(scene, active_scene))
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "ok": true,
+        "config_path": context.config_path.as_ref(),
+        "source": context.source,
+        "active_scene": active_scene,
+        "scene_count": scenes.len(),
+        "scenes": scenes,
+        "next_steps": [
+            "run vinput scene use <id> --dry-run --json to preview scene selection",
+            "run vinput recording start --dry-run --json to inspect recording D-Bus calls",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn scene_summary_json(
+    scene: &vinput_config::SceneDefinition,
+    active_scene: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "id": scene.id.as_str(),
+        "label": scene.label.as_str(),
+        "active": scene.id.as_str() == active_scene,
+        "prompt_configured": scene.prompt.as_ref().is_some_and(|value| !value.trim().is_empty()),
+        "provider_id": scene.provider_id.as_deref(),
+        "model": scene.model.as_deref(),
+        "candidate_count": scene.candidate_count,
+        "timeout_ms": scene.timeout_ms,
+        "context_lines": scene.context_lines,
+    })
+}
+
+fn print_scene_list_text(context: &SceneListContext) {
+    println!("source: {}", context.source);
+    if let Some(path) = &context.config_path {
+        println!("config_path: {}", path.display());
+    }
+    println!("active_scene: {}", context.config.scenes.active_scene);
+    println!("scene_count: {}", context.config.scenes.definitions.len());
+    println!("active	id	label	prompt	provider	model	candidates	timeout_ms	context_lines");
+    for scene in &context.config.scenes.definitions {
+        println!(
+            "{}	{}	{}	{}	{}	{}	{}	{}	{}",
+            if scene.id == context.config.scenes.active_scene {
+                "*"
+            } else {
+                ""
+            },
+            scene.id,
+            scene.label,
+            configured_label(scene.prompt.as_deref()),
+            scene.provider_id.as_deref().unwrap_or("-"),
+            scene.model.as_deref().unwrap_or("-"),
+            scene.candidate_count,
+            scene
+                .timeout_ms
+                .map_or_else(|| "-".to_owned(), |value| value.to_string()),
+            scene.context_lines
+        );
+    }
+}
+
+fn print_scene_use(request: SceneUseRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_scene_use(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&scene_use_outcome_json(&outcome))?
+        );
+    } else {
+        print_scene_use_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_scene_use(request: &SceneUseRequest<'_>) -> anyhow::Result<SceneUseOutcome> {
+    let id = normalize_scene_id(request.id)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for scene use")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for scene use")?;
+    config.validate().context("validate config for scene use")?;
+    if !config.scenes.definitions.iter().any(|scene| scene.id == id) {
+        anyhow::bail!("scene `{id}` not found");
+    }
+    let before = config.scenes.active_scene;
+    *loaded
+        .document
+        .pointer_mut("/scenes/active_scene")
+        .with_context(|| "config pointer `/scenes/active_scene` not found")? =
+        serde_json::Value::String(id.clone());
+    validate_config_json_value(&loaded.document, "validate updated scene config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+
+    Ok(SceneUseOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        before,
+        after: id,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn scene_use_outcome_json(outcome: &SceneUseOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "before": outcome.before,
+        "after": outcome.after,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput scene list to verify the active scene",
+            "run vinput recording start --dry-run --json to inspect recording D-Bus calls",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_scene_use_text(outcome: &SceneUseOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("before: {}", outcome.before);
+    println!("after: {}", outcome.after);
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
+}
+
+fn normalize_scene_id(id: &str) -> anyhow::Result<String> {
+    let id = id.trim();
+    if id.is_empty() {
+        anyhow::bail!("scene id cannot be empty");
+    }
+    Ok(id.to_owned())
 }
 
 fn hotword_supported(kind: &AsrProviderKind) -> bool {
