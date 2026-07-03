@@ -421,6 +421,48 @@ enum LlmCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Edit an existing LLM provider in config.
+    #[command(alias = "e")]
+    Edit {
+        /// Existing LLM provider id to edit.
+        id: String,
+        /// Set base URL for OpenAI-compatible chat completions.
+        #[arg(short = 'u', long)]
+        base_url: Option<String>,
+        /// Set API key or environment-reference expression.
+        #[arg(short = 'k', long)]
+        api_key: Option<String>,
+        /// Clear API key from this provider.
+        #[arg(long)]
+        clear_api_key: bool,
+        /// Set default model name.
+        #[arg(long)]
+        model: Option<String>,
+        /// Clear default model from this provider.
+        #[arg(long)]
+        clear_model: bool,
+        /// Set extra JSON object merged into provider requests.
+        #[arg(short = 'e', long)]
+        extra_body: Option<String>,
+        /// Clear extra JSON body from this provider.
+        #[arg(long)]
+        clear_extra_body: bool,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove an LLM provider from config.
     #[command(alias = "rm")]
     Remove {
@@ -2427,6 +2469,36 @@ struct LlmAddRequest<'a> {
 
 #[derive(Clone, Copy)]
 #[allow(clippy::struct_excessive_bools)]
+struct LlmEditRequest<'a> {
+    id: &'a str,
+    base_url: Option<&'a str>,
+    api_key: Option<&'a str>,
+    clear_api_key: bool,
+    model: Option<&'a str>,
+    clear_model: bool,
+    extra_body: Option<&'a str>,
+    clear_extra_body: bool,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct LlmEditOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    provider_id: String,
+    changed_fields: Vec<String>,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 struct LlmRemoveRequest<'a> {
     id: &'a str,
     config_path: Option<&'a PathBuf>,
@@ -2494,6 +2566,35 @@ fn handle_llm_command(command: LlmCommand) -> anyhow::Result<()> {
             api_key: api_key.as_deref(),
             model: model.as_deref(),
             extra_body: extra_body.as_deref(),
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
+        LlmCommand::Edit {
+            id,
+            base_url,
+            api_key,
+            clear_api_key,
+            model,
+            clear_model,
+            extra_body,
+            clear_extra_body,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_llm_edit(LlmEditRequest {
+            id: &id,
+            base_url: base_url.as_deref(),
+            api_key: api_key.as_deref(),
+            clear_api_key,
+            model: model.as_deref(),
+            clear_model,
+            extra_body: extra_body.as_deref(),
+            clear_extra_body,
             config_path: config.as_ref(),
             output_path: output.as_deref(),
             in_place,
@@ -2584,6 +2685,181 @@ fn run_llm_add(request: &LlmAddRequest<'_>) -> anyhow::Result<LlmAddOutcome> {
         dry_run: request.dry_run,
         wrote_config,
     })
+}
+
+fn print_llm_edit(request: LlmEditRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_llm_edit(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&llm_edit_outcome_json(&outcome))?
+        );
+    } else {
+        print_llm_edit_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_llm_edit(request: &LlmEditRequest<'_>) -> anyhow::Result<LlmEditOutcome> {
+    let id = normalize_llm_provider_id(request.id)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for llm edit")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for llm edit")?;
+    config.validate().context("validate config for llm edit")?;
+    if !config
+        .llm
+        .providers
+        .iter()
+        .any(|provider| provider.id == id)
+    {
+        anyhow::bail!("LLM provider `{id}` not found");
+    }
+    let provider_index = explicit_llm_provider_index(&loaded.document, &id)?;
+    let provider_object = llm_providers_array_mut(&mut loaded.document)?
+        .get_mut(provider_index)
+        .and_then(serde_json::Value::as_object_mut)
+        .with_context(|| format!("LLM provider `{id}` is not a JSON object"))?;
+    let changed_fields = apply_llm_edit(provider_object, request)?;
+    if changed_fields.is_empty() {
+        anyhow::bail!("LLM provider edit requires at least one field change");
+    }
+    validate_config_json_value(&loaded.document, "validate updated LLM config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+    Ok(LlmEditOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        provider_id: id,
+        changed_fields,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn apply_llm_edit(
+    provider_object: &mut serde_json::Map<String, serde_json::Value>,
+    request: &LlmEditRequest<'_>,
+) -> anyhow::Result<Vec<String>> {
+    let mut changed = Vec::new();
+    if let Some(base_url) = request.base_url {
+        provider_object.insert(
+            "base_url".to_owned(),
+            serde_json::Value::String(normalize_llm_base_url(base_url)?),
+        );
+        changed.push("base_url".to_owned());
+    }
+    apply_optional_llm_string_edit(
+        provider_object,
+        "api_key",
+        "api-key",
+        request.api_key,
+        request.clear_api_key,
+        &mut changed,
+    )?;
+    apply_optional_llm_string_edit(
+        provider_object,
+        "model",
+        "model",
+        request.model,
+        request.clear_model,
+        &mut changed,
+    )?;
+    if request.extra_body.is_some() && request.clear_extra_body {
+        anyhow::bail!("LLM provider edit cannot combine --extra-body and --clear-extra-body");
+    }
+    if let Some(extra_body) = request.extra_body {
+        provider_object.insert("extra_body".to_owned(), parse_llm_extra_body(extra_body)?);
+        changed.push("extra_body".to_owned());
+    } else if request.clear_extra_body {
+        provider_object.remove("extra_body");
+        changed.push("extra_body".to_owned());
+    }
+    Ok(changed)
+}
+
+fn apply_optional_llm_string_edit(
+    provider_object: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    option_name: &str,
+    value: Option<&str>,
+    clear: bool,
+    changed: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    if value.is_some() && clear {
+        anyhow::bail!("LLM provider edit cannot combine --{option_name} and --clear-{option_name}");
+    }
+    if let Some(value) = value {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("LLM provider field `{key}` cannot be empty");
+        }
+        provider_object.insert(
+            key.to_owned(),
+            serde_json::Value::String(trimmed.to_owned()),
+        );
+        changed.push(key.to_owned());
+    } else if clear {
+        provider_object.remove(key);
+        changed.push(key.to_owned());
+    }
+    Ok(())
+}
+
+fn llm_edit_outcome_json(outcome: &LlmEditOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "provider_id": outcome.provider_id,
+        "changed_fields": outcome.changed_fields,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput llm list to verify configured LLM providers",
+            "run vinput scene list to inspect scene/provider bindings",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_llm_edit_text(outcome: &LlmEditOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("provider_id: {}", outcome.provider_id);
+    println!("changed_fields: {}", outcome.changed_fields.join(","));
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 fn print_llm_remove(request: LlmRemoveRequest<'_>) -> anyhow::Result<()> {

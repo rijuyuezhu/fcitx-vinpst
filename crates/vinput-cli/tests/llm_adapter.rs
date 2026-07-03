@@ -186,6 +186,219 @@ fn llm_add_output_writes_valid_config_without_overwriting_input() {
 }
 
 #[test]
+fn llm_edit_dry_run_json_validates_without_writing() {
+    let path = write_llm_fixture("vinput-llm-edit-dry-run");
+    let before = fs::read_to_string(&path).expect("read original llm config");
+
+    let output = vinput_command()
+        .args(["llm", "edit", "openai", "--config"])
+        .arg(&path)
+        .args([
+            "--base-url",
+            "https://new-llm.example.test/v1",
+            "--api-key",
+            "new-secret-token",
+            "--clear-model",
+            "--extra-body",
+            r#"{"temperature":0.3}"#,
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput llm edit dry-run");
+
+    let value = assert_json_success(output, "llm edit dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["provider_id"], "openai");
+    let changed = value["changed_fields"].as_array().unwrap();
+    assert!(changed.iter().any(|field| field == "base_url"));
+    assert!(changed.iter().any(|field| field == "api_key"));
+    assert!(changed.iter().any(|field| field == "model"));
+    assert!(changed.iter().any(|field| field == "extra_body"));
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged llm config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary llm config");
+}
+
+#[test]
+fn llm_edit_text_dry_run_outputs_expected_fields_without_secrets() {
+    let path = write_llm_fixture("vinput-llm-edit-text-dry-run");
+
+    let output = vinput_command()
+        .args([
+            "llm",
+            "edit",
+            "openai",
+            "--api-key",
+            "new-secret-token",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput llm edit text dry-run");
+    fs::remove_file(&path).expect("remove temporary llm config");
+
+    let stdout = assert_stdout_success(output, "llm edit text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("provider_id: openai"));
+    assert!(stdout.contains("changed_fields: api_key"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
+    assert!(!stdout.contains("new-secret-token"));
+}
+
+#[test]
+fn llm_edit_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-llm-edit-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, llm_fixture_json()).expect("write llm config");
+    let output_path = root.join("out/llm.json");
+    let before = fs::read_to_string(&config_path).expect("read original llm config");
+
+    let output = vinput_command()
+        .args([
+            "llm",
+            "edit",
+            "openai",
+            "--base-url",
+            "https://new-llm.example.test/v1",
+            "--clear-model",
+            "--config",
+        ])
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput llm edit --output");
+
+    let value = assert_json_success(output, "llm edit output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    let json = read_json(&output_path);
+    assert_eq!(
+        json["llm"]["providers"][0]["base_url"],
+        "https://new-llm.example.test/v1"
+    );
+    assert!(
+        json["llm"]["providers"][0]
+            .as_object()
+            .unwrap()
+            .get("model")
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove llm edit output fixture dir");
+}
+
+#[test]
+fn llm_edit_in_place_writes_backup_and_clears_extra_body() {
+    let root = unique_temp_dir("vinput-llm-edit-in-place");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, llm_fixture_json()).expect("write llm config");
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original llm config");
+
+    let output = vinput_command()
+        .args(["llm", "edit", "openai", "--clear-extra-body", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput llm edit --in-place");
+
+    let value = assert_json_success(output, "llm edit in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read llm edit backup config"),
+        before
+    );
+    let json = read_json(&config_path);
+    assert!(
+        json["llm"]["providers"][0]
+            .as_object()
+            .unwrap()
+            .get("extra_body")
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove llm edit in-place fixture dir");
+}
+
+#[test]
+fn llm_edit_rejects_invalid_inputs() {
+    let path = write_llm_fixture("vinput-llm-edit-errors");
+
+    let missing = vinput_command()
+        .args([
+            "llm",
+            "edit",
+            "missing",
+            "--base-url",
+            "https://missing.example.test",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput llm edit missing id");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("LLM provider `missing` not found"));
+
+    let noop = vinput_command()
+        .args(["llm", "edit", "openai", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput llm edit without field changes");
+    assert!(!noop.status.success());
+    let stderr = String::from_utf8(noop.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("LLM provider edit requires at least one field change"));
+
+    let conflict = vinput_command()
+        .args([
+            "llm",
+            "edit",
+            "openai",
+            "--api-key",
+            "new",
+            "--clear-api-key",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput llm edit conflicting api key flags");
+    assert!(!conflict.status.success());
+    let stderr = String::from_utf8(conflict.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("LLM provider edit cannot combine --api-key and --clear-api-key"));
+
+    let invalid_extra = vinput_command()
+        .args(["llm", "edit", "openai", "--extra-body", "[]", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput llm edit invalid extra body");
+    assert!(!invalid_extra.status.success());
+    let stderr = String::from_utf8(invalid_extra.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("LLM provider --extra-body must be a JSON object"));
+
+    fs::remove_file(&path).expect("remove temporary llm config");
+}
+
+#[test]
 fn llm_remove_dry_run_json_validates_without_writing() {
     let path = write_llm_fixture("vinput-llm-remove-dry-run");
     let before = fs::read_to_string(&path).expect("read original llm config");

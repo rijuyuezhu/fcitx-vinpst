@@ -120,6 +120,7 @@ fn llm_and_adapter_help_list_options() {
     let llm_root_stdout = assert_stdout_success(llm_root_output, "llm help output");
     assert!(llm_root_stdout.contains("list"));
     assert!(llm_root_stdout.contains("add"));
+    assert!(llm_root_stdout.contains("edit"));
     assert!(llm_root_stdout.contains("remove"));
 
     let llm_list_output = vinput_command()
@@ -145,6 +146,25 @@ fn llm_and_adapter_help_list_options() {
     assert!(llm_add_stdout.contains("--in-place"));
     assert!(llm_add_stdout.contains("--dry-run"));
     assert!(llm_add_stdout.contains("--json"));
+
+    let llm_edit_output = vinput_command()
+        .args(["llm", "edit", "--help"])
+        .output()
+        .expect("run vinput llm edit --help");
+    let llm_edit_stdout = assert_stdout_success(llm_edit_output, "llm edit help output");
+    assert!(llm_edit_stdout.contains("<ID>"));
+    assert!(llm_edit_stdout.contains("--base-url"));
+    assert!(llm_edit_stdout.contains("--api-key"));
+    assert!(llm_edit_stdout.contains("--clear-api-key"));
+    assert!(llm_edit_stdout.contains("--model"));
+    assert!(llm_edit_stdout.contains("--clear-model"));
+    assert!(llm_edit_stdout.contains("--extra-body"));
+    assert!(llm_edit_stdout.contains("--clear-extra-body"));
+    assert!(llm_edit_stdout.contains("--config"));
+    assert!(llm_edit_stdout.contains("--output"));
+    assert!(llm_edit_stdout.contains("--in-place"));
+    assert!(llm_edit_stdout.contains("--dry-run"));
+    assert!(llm_edit_stdout.contains("--json"));
 
     let llm_remove_output = vinput_command()
         .args(["llm", "remove", "--help"])
