@@ -408,6 +408,26 @@ enum ProviderCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Remove an inactive ASR provider from config.
+    Remove {
+        /// Existing inactive ASR provider id to remove.
+        id: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Model-related commands backed by the live registry catalog.
@@ -2049,7 +2069,48 @@ fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
             dry_run,
             json_output: json,
         }),
+        ProviderCommand::Remove {
+            id,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_provider_remove(ProviderRemoveRequest {
+            id: &id,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
     }
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct ProviderRemoveRequest<'a> {
+    id: &'a str,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct ProviderRemoveOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    removed_provider_id: String,
+    removed_provider_type: &'static str,
+    active_provider: String,
+    before_provider_count: usize,
+    after_provider_count: usize,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -2179,6 +2240,130 @@ fn print_provider_list_text(context: &ProviderListContext) {
                 .map_or_else(|| "-".to_owned(), |value| value.to_string())
         );
     }
+}
+
+fn print_provider_remove(request: ProviderRemoveRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_provider_remove(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&provider_remove_outcome_json(&outcome))?
+        );
+    } else {
+        print_provider_remove_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_provider_remove(
+    request: &ProviderRemoveRequest<'_>,
+) -> anyhow::Result<ProviderRemoveOutcome> {
+    let id = normalize_provider_id(request.id)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for provider remove")?;
+    let config =
+        VinputConfig::from_json_str(&contents).context("parse config for provider remove")?;
+    let provider_index = config
+        .asr
+        .providers
+        .iter()
+        .position(|provider| provider.id == id)
+        .with_context(|| format!("ASR provider `{id}` not found"))?;
+    let provider = &config.asr.providers[provider_index];
+    if provider.id == config.asr.active_provider {
+        anyhow::bail!(
+            "refusing to remove active ASR provider `{}`; run vinput provider use <id> first",
+            provider.id
+        );
+    }
+    let removed_provider_type = asr_provider_kind_label(&provider.kind);
+    let before_provider_count = config.asr.providers.len();
+
+    let providers = loaded
+        .document
+        .pointer_mut("/asr/providers")
+        .and_then(serde_json::Value::as_array_mut)
+        .with_context(|| "config pointer `/asr/providers` not found or not an array")?;
+    providers.remove(provider_index);
+    validate_config_json_value(&loaded.document, "validate updated provider config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+
+    Ok(ProviderRemoveOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        removed_provider_id: id,
+        removed_provider_type,
+        active_provider: config.asr.active_provider,
+        before_provider_count,
+        after_provider_count: before_provider_count - 1,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn provider_remove_outcome_json(outcome: &ProviderRemoveOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "removed_provider_id": outcome.removed_provider_id,
+        "removed_provider_type": outcome.removed_provider_type,
+        "active_provider": outcome.active_provider,
+        "before_provider_count": outcome.before_provider_count,
+        "after_provider_count": outcome.after_provider_count,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput provider list to verify configured ASR providers",
+            "run vinput asr-state to inspect the active provider runtime readiness",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_provider_remove_text(outcome: &ProviderRemoveOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("removed_provider_id: {}", outcome.removed_provider_id);
+    println!("removed_provider_type: {}", outcome.removed_provider_type);
+    println!("active_provider: {}", outcome.active_provider);
+    println!("before_provider_count: {}", outcome.before_provider_count);
+    println!("after_provider_count: {}", outcome.after_provider_count);
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 fn print_provider_use(request: ProviderUseRequest<'_>) -> anyhow::Result<()> {

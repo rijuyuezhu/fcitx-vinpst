@@ -208,6 +208,147 @@ fn provider_use_rejects_empty_missing_and_missing_write_target() {
     fs::remove_file(&path).expect("remove temporary provider config");
 }
 
+#[test]
+fn provider_remove_dry_run_json_validates_inactive_provider_without_writing() {
+    let path = write_provider_fixture("vinput-provider-remove-dry-run");
+    let before = fs::read_to_string(&path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "remove", "remote", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput provider remove dry-run");
+
+    let value = assert_json_success(output, "provider remove dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["removed_provider_id"], "remote");
+    assert_eq!(value["removed_provider_type"], "remote");
+    assert_eq!(value["active_provider"], "cmd");
+    assert_eq!(value["before_provider_count"], 3);
+    assert_eq!(value["after_provider_count"], 2);
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged provider config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary provider config");
+}
+
+#[test]
+fn provider_remove_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-provider-remove-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, provider_fixture_json()).expect("write provider config");
+    let output_path = root.join("out/provider.json");
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "remove", "local", "--config"])
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput provider remove --output");
+
+    let value = assert_json_success(output, "provider remove output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    let providers = read_json(&output_path)["asr"]["providers"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(providers.len(), 2);
+    assert!(providers.iter().all(|provider| provider["id"] != "local"));
+    fs::remove_dir_all(root).expect("remove provider remove output fixture dir");
+}
+
+#[test]
+fn provider_remove_in_place_writes_backup() {
+    let root = unique_temp_dir("vinput-provider-remove-in-place");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, provider_fixture_json()).expect("write provider config");
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "remove", "remote", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput provider remove --in-place");
+
+    let value = assert_json_success(output, "provider remove in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read provider backup config"),
+        before
+    );
+    let providers = read_json(&config_path)["asr"]["providers"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(providers.len(), 2);
+    assert!(providers.iter().all(|provider| provider["id"] != "remote"));
+    fs::remove_dir_all(root).expect("remove provider remove in-place fixture dir");
+}
+
+#[test]
+fn provider_remove_rejects_empty_missing_active_and_missing_write_target() {
+    let path = write_provider_fixture("vinput-provider-remove-errors");
+
+    let empty = vinput_command()
+        .args(["provider", "remove", "   ", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider remove empty id");
+    assert!(!empty.status.success());
+    let stderr = String::from_utf8(empty.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider id cannot be empty"));
+
+    let missing = vinput_command()
+        .args(["provider", "remove", "missing", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider remove missing id");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider `missing` not found"));
+
+    let active = vinput_command()
+        .args(["provider", "remove", "cmd", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider remove active id");
+    assert!(!active.status.success());
+    let stderr = String::from_utf8(active.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("refusing to remove active ASR provider `cmd`"));
+
+    let missing_target = vinput_command()
+        .args(["provider", "remove", "local", "--config"])
+        .arg(&path)
+        .output()
+        .expect("run vinput provider remove without write target");
+    assert!(!missing_target.status.success());
+    let stderr = String::from_utf8(missing_target.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("config set writes require --output <path> or --in-place"));
+
+    fs::remove_file(&path).expect("remove temporary provider config");
+}
+
 fn write_provider_fixture(prefix: &str) -> std::path::PathBuf {
     write_temp_json(prefix, provider_fixture_json())
 }

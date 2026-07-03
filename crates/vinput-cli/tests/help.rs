@@ -87,7 +87,6 @@ fn device_help_lists_list_and_use_options() {
     let root_stdout = assert_stdout_success(root_output, "device help output");
     assert!(root_stdout.contains("list"));
     assert!(root_stdout.contains("use"));
-
     let list_output = vinput_command()
         .args(["device", "list", "--help"])
         .output()
@@ -118,6 +117,7 @@ fn provider_help_lists_list_and_use_options() {
     let root_stdout = assert_stdout_success(root_output, "provider help output");
     assert!(root_stdout.contains("list"));
     assert!(root_stdout.contains("use"));
+    assert!(root_stdout.contains("remove"));
 
     let list_output = vinput_command()
         .args(["provider", "list", "--help"])
@@ -138,6 +138,18 @@ fn provider_help_lists_list_and_use_options() {
     assert!(use_stdout.contains("--in-place"));
     assert!(use_stdout.contains("--dry-run"));
     assert!(use_stdout.contains("--json"));
+
+    let remove_output = vinput_command()
+        .args(["provider", "remove", "--help"])
+        .output()
+        .expect("run vinput provider remove --help");
+    let remove_stdout = assert_stdout_success(remove_output, "provider remove help output");
+    assert!(remove_stdout.contains("<ID>"));
+    assert!(remove_stdout.contains("--config"));
+    assert!(remove_stdout.contains("--output"));
+    assert!(remove_stdout.contains("--in-place"));
+    assert!(remove_stdout.contains("--dry-run"));
+    assert!(remove_stdout.contains("--json"));
 }
 
 #[test]

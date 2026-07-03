@@ -86,7 +86,7 @@ audio-devices
 doctor
 activation-service
 model list/ls/info/install/add/use/remove/rm
-provider list/ls/use
+provider list/ls/use/remove
 hotword get/set/clear/edit
 daemon start/status/reload-asr/stop/restart/log
 recording start/stop/toggle
@@ -106,7 +106,7 @@ Rust CLI strengths:
 Rust CLI weaknesses for a user:
 
 - config `get/set/edit` exists, but broader resource-aware mutations are still incomplete;
-- live registry install/use/remove exists for model flow, provider list/use exists, but provider add/edit/remove plus scene/LLM commands are still missing; device list/use exists;
+- live registry install/use/remove exists for model flow, provider list/use exists, but provider add/edit plus scene/LLM commands are still missing; device list/use exists;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
 - recording start/stop/toggle exists, but a dedicated `recording status` command is still missing;
 - no global JSON/text output mode equivalent to legacy;
@@ -244,7 +244,8 @@ Acceptance:
 
 - `vinput provider list` reads configured ASR providers and reports id/type/active status in JSON and text output. **Done for read-only list/ls, config fallback, active marker, and secret-minimizing provider diagnostics.**
 - `vinput provider use <id>` switches `asr.active_provider` to an existing provider. **Done for dry-run/output/in-place writes, backup/validation guards, and JSON/text output.**
-- `vinput provider add/edit/remove` can configure local, command batch, command streaming, and remote/cloud script providers.
+- `vinput provider remove <id>` removes inactive ASR providers. **Done for dry-run/output/in-place writes, backup/validation guards, active-provider protection, and JSON/text output.**
+- `vinput provider add/edit` can configure local, command batch, command streaming, and remote/cloud script providers.
 - `vinput hotword get` reports the active or selected provider hotwords path and support marker. **Done for JSON/text output and provider override.**
 - `vinput hotword set/clear` manages the active or selected provider hotwords path. **Done for supported local/command providers, dry-run/output/in-place writes, backup/validation guards, and JSON/text output.**
 - `vinput hotword edit` opens the configured hotwords file in an editor. **Done for provider override, dry-run, editor resolution, and JSON/text output.**
