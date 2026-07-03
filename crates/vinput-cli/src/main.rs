@@ -13,8 +13,8 @@ use vinput_audio::CaptureTarget;
 use vinput_config::{RegistryConfig, VinputConfig};
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
 use vinput_registry::{
-    AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelRegistry, LiveRegistryI18n,
-    PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryTextSource,
+    ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelRegistry,
+    LiveRegistryI18n, PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryTextSource,
 };
 
 /// CLI for inspecting and controlling the vinput daemon.
@@ -144,6 +144,35 @@ enum ModelCommand {
         /// Live registry i18n locale to fetch when reading remote mirrors.
         #[arg(long, default_value = "zh_CN")]
         locale: String,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Plan a model install from the live registry without downloading by default.
+    Install {
+        /// Full model id or `short_id`.
+        id: String,
+        /// Optional local live registry/models.json file. Omitted to fetch configured mirrors.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional local live i18n JSON file used for title/description fallback.
+        #[arg(long)]
+        i18n: Option<PathBuf>,
+        /// Optional config JSON file that provides registry mirrors.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Live registry i18n locale to fetch when reading remote mirrors.
+        #[arg(long, default_value = "zh_CN")]
+        locale: String,
+        /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
+        #[arg(long)]
+        model_root: Option<PathBuf>,
+        /// Temporary staging root. Defaults to $XDG_CACHE_HOME/fcitx-vinput/model-install.
+        #[arg(long)]
+        staging_root: Option<PathBuf>,
+        /// Print the install plan without downloading, extracting, or writing config.
+        #[arg(long)]
+        dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
         json: bool,
@@ -378,6 +407,27 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             &locale,
             json,
         ),
+        ModelCommand::Install {
+            id,
+            registry,
+            i18n,
+            config,
+            locale,
+            model_root,
+            staging_root,
+            dry_run,
+            json,
+        } => print_model_install_plan(ModelInstallPlanRequest {
+            id_or_short_id: &id,
+            registry_path: registry.as_deref(),
+            i18n_path: i18n.as_deref(),
+            config_path: config.as_ref(),
+            locale: &locale,
+            model_root: model_root.as_deref(),
+            staging_root: staging_root.as_deref(),
+            dry_run,
+            json_output: json,
+        }),
     }
 }
 
@@ -708,6 +758,23 @@ fn user_data_home() -> anyhow::Result<PathBuf> {
     }
 }
 
+fn user_cache_home() -> anyhow::Result<PathBuf> {
+    match std::env::var_os("XDG_CACHE_HOME") {
+        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
+        _ => Ok(user_home()?.join(".cache")),
+    }
+}
+
+fn default_model_root() -> anyhow::Result<PathBuf> {
+    Ok(user_data_home()?.join("fcitx-vinput").join("models"))
+}
+
+fn default_model_install_staging_root() -> anyhow::Result<PathBuf> {
+    Ok(user_cache_home()?
+        .join("fcitx-vinput")
+        .join("model-install"))
+}
+
 fn user_home() -> anyhow::Result<PathBuf> {
     let home = std::env::var_os("HOME")
         .context("resolve user path: HOME is unset and XDG_DATA_HOME is unset")?;
@@ -868,6 +935,61 @@ fn print_model_info(
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         print_model_info_text(model, i18n.i18n.as_ref(), &loaded, &i18n);
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ModelInstallPlanRequest<'a> {
+    id_or_short_id: &'a str,
+    registry_path: Option<&'a Path>,
+    i18n_path: Option<&'a Path>,
+    config_path: Option<&'a PathBuf>,
+    locale: &'a str,
+    model_root: Option<&'a Path>,
+    staging_root: Option<&'a Path>,
+    dry_run: bool,
+    json_output: bool,
+}
+
+fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> anyhow::Result<()> {
+    if !request.dry_run {
+        anyhow::bail!(
+            "real model install is not implemented yet; rerun with --dry-run to inspect the install plan"
+        );
+    }
+
+    let (loaded, i18n) = load_live_model_catalog(
+        request.registry_path,
+        request.i18n_path,
+        request.config_path,
+        request.locale,
+    )?;
+    let model = loaded
+        .registry
+        .model_by_id_or_short_id(request.id_or_short_id)
+        .with_context(|| format!("unknown model id or short_id `{}`", request.id_or_short_id))?;
+    let model_root = match request.model_root {
+        Some(path) => path.to_path_buf(),
+        None => default_model_root()?,
+    };
+    let staging_root = match request.staging_root {
+        Some(path) => path.to_path_buf(),
+        None => default_model_install_staging_root()?,
+    };
+    let output = live_model_install_plan_json(
+        model,
+        i18n.i18n.as_ref(),
+        &loaded,
+        &i18n,
+        &model_root,
+        &staging_root,
+    )?;
+
+    if request.json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_model_install_plan_text(model, i18n.i18n.as_ref(), &model_root, &staging_root)?;
     }
     Ok(())
 }
@@ -1101,6 +1223,77 @@ fn live_model_info_json(
     }))
 }
 
+fn live_model_install_plan_json(
+    model: &LiveModelEntry,
+    i18n: Option<&LiveRegistryI18n>,
+    loaded: &LoadedLiveModelRegistry,
+    loaded_i18n: &LoadedLiveI18n,
+    model_root: &Path,
+    staging_root: &Path,
+) -> anyhow::Result<serde_json::Value> {
+    let archive_file_name = model_archive_file_name(model)?;
+    let archive_format = archive_format_label(archive_file_name);
+    let archive_supported = ArchiveFormat::from_path(archive_file_name).is_some();
+    let model_dir_name = managed_model_dir_name(model);
+    let model_dir = model_root.join(&model_dir_name);
+    let staging_dir = staging_root.join(&model_dir_name);
+    let archive_path = staging_dir.join("archives").join(archive_file_name);
+    let extract_dir = staging_dir.join("extract");
+    let metadata_path = model_dir.join("vinput-model.json");
+
+    let mut model_json = live_model_list_json(model, i18n);
+    model_json["vinput_model"] =
+        model
+            .vinput_model
+            .as_ref()
+            .map_or(Ok(serde_json::Value::Null), |metadata| {
+                metadata
+                    .to_raw_value()
+                    .context("serialize vinput_model metadata")
+            })?;
+
+    Ok(serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "source": loaded.source_json,
+        "i18n": loaded_i18n.source_json,
+        "model": model_json,
+        "archive": {
+            "file_name": archive_file_name,
+            "format": archive_format,
+            "supported": archive_supported,
+            "supported_formats": ["tar", "tar_zst"],
+            "urls": model.urls,
+            "sha256": model.sha256,
+            "size_bytes": model.size_bytes,
+        },
+        "target": {
+            "model_root": model_root,
+            "model_dir_name": model_dir_name,
+            "model_dir": model_dir,
+            "metadata_path": metadata_path,
+            "config_model_value": model_dir,
+        },
+        "staging": {
+            "staging_root": staging_root,
+            "staging_dir": staging_dir,
+            "archive_path": archive_path,
+            "extract_dir": extract_dir,
+        },
+        "will_download": false,
+        "will_extract": false,
+        "will_write_config": false,
+        "next_steps": [
+            "download archive with mirror fallback",
+            "verify sha256 before extraction",
+            "extract with safe archive policy",
+            "materialize model directory",
+            "write vinput-model.json metadata",
+            "run vinput model use to update config"
+        ],
+    }))
+}
+
 fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n) {
     println!("registry_source: {}", loaded.source_label);
     println!("i18n_source: {}", i18n.source_label);
@@ -1153,6 +1346,44 @@ fn print_model_info_text(
     }
 }
 
+fn print_model_install_plan_text(
+    model: &LiveModelEntry,
+    i18n: Option<&LiveRegistryI18n>,
+    model_root: &Path,
+    staging_root: &Path,
+) -> anyhow::Result<()> {
+    let archive_file_name = model_archive_file_name(model)?;
+    let archive_format = archive_format_label(archive_file_name);
+    let archive_supported = ArchiveFormat::from_path(archive_file_name).is_some();
+    let model_dir_name = managed_model_dir_name(model);
+    let model_dir = model_root.join(&model_dir_name);
+    let staging_dir = staging_root.join(&model_dir_name);
+    println!("dry_run: true");
+    println!("id: {}", model.id);
+    println!("short_id: {}", optional_str(model.short_id.as_deref()));
+    println!("title: {}", model.resolved_title(i18n));
+    println!("target_model_dir: {}", model_dir.display());
+    println!(
+        "metadata_path: {}",
+        model_dir.join("vinput-model.json").display()
+    );
+    println!("config_model_value: {}", model_dir.display());
+    println!("staging_dir: {}", staging_dir.display());
+    println!("archive_file: {archive_file_name}");
+    println!("archive_format: {archive_format}");
+    println!("archive_supported: {archive_supported}");
+    println!("sha256: {}", optional_str(model.sha256.as_deref()));
+    println!("size: {}", format_size_bytes(model.size_bytes));
+    println!("urls:");
+    for url in &model.urls {
+        println!("  - {url}");
+    }
+    println!("will_download: false");
+    println!("will_extract: false");
+    println!("will_write_config: false");
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy)]
 struct ModelSupport {
     supported: bool,
@@ -1191,6 +1422,83 @@ fn model_runtime(model: &LiveModelEntry) -> Option<&str> {
         .and_then(|metadata| metadata.runtime.as_deref())
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+fn model_archive_file_name(model: &LiveModelEntry) -> anyhow::Result<&str> {
+    let first_url = model
+        .urls
+        .first()
+        .context("live model has no download URLs")?;
+    let file_name = first_url
+        .rsplit('/')
+        .next()
+        .unwrap_or(first_url)
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if file_name.is_empty() {
+        anyhow::bail!(
+            "live model `{}` has no archive file name in first URL",
+            model.id
+        );
+    }
+    Ok(file_name)
+}
+
+fn managed_model_dir_name(model: &LiveModelEntry) -> String {
+    let preferred = model
+        .short_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&model.id);
+    safe_path_component(preferred)
+}
+
+fn safe_path_component(value: &str) -> String {
+    let mut component = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while component.starts_with('.') {
+        component.remove(0);
+    }
+    while component.ends_with('.') {
+        component.pop();
+    }
+    if component.is_empty() {
+        "model".to_owned()
+    } else {
+        component
+    }
+}
+
+fn archive_format_label(file_name: &str) -> &'static str {
+    if ascii_suffix_eq(file_name, ".tar.zst") {
+        "tar_zst"
+    } else if ascii_suffix_eq(file_name, ".tar.bz2") || ascii_suffix_eq(file_name, ".tbz2") {
+        "tar_bz2"
+    } else if ascii_suffix_eq(file_name, ".tar.gz") || ascii_suffix_eq(file_name, ".tgz") {
+        "tar_gz"
+    } else if ascii_suffix_eq(file_name, ".tar") {
+        "tar"
+    } else {
+        "unsupported"
+    }
+}
+
+fn ascii_suffix_eq(value: &str, suffix: &str) -> bool {
+    value
+        .as_bytes()
+        .get(value.len().saturating_sub(suffix.len())..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix.as_bytes()))
 }
 
 fn optional_str(value: Option<&str>) -> &str {

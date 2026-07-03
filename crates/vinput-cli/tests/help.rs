@@ -102,3 +102,19 @@ fn model_info_help_lists_registry_options() {
     assert!(stdout.contains("--config"));
     assert!(stdout.contains("--json"));
 }
+
+#[test]
+fn model_install_help_lists_dry_run_and_path_options() {
+    let output = vinput_command()
+        .args(["model", "install", "--help"])
+        .output()
+        .expect("run vinput model install --help");
+
+    let stdout = assert_stdout_success(output, "help output");
+    assert!(stdout.contains("<ID>"));
+    assert!(stdout.contains("--registry"));
+    assert!(stdout.contains("--model-root"));
+    assert!(stdout.contains("--staging-root"));
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
+}
