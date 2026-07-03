@@ -75,6 +75,10 @@ set(VINPUT_DAEMON_EXECUTABLE
 set(VINPUT_DAEMON_ARGS
     "--dbus"
     CACHE STRING "Arguments used by the DBus activation service for vinput-daemon")
+set(VINPUT_DAEMON_ARGS_SUFFIX "")
+if(NOT "${VINPUT_DAEMON_ARGS}" STREQUAL "")
+  set(VINPUT_DAEMON_ARGS_SUFFIX " ${VINPUT_DAEMON_ARGS}")
+endif()
 configure_file(vinput-addon.conf.in vinput-addon.conf @ONLY)
 configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/../../data/org.fcitx.Vinput.service.in"
