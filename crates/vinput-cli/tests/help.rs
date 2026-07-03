@@ -17,6 +17,7 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("doctor"));
     assert!(stdout.contains("protocol"));
     assert!(stdout.contains("registry"));
+    assert!(stdout.contains("model"));
     assert!(stdout.contains("activation-service"));
 }
 
@@ -71,4 +72,18 @@ fn doctor_help_lists_config_option() {
     let stdout = assert_stdout_success(output, "help output");
     assert!(stdout.contains("--config"));
     assert!(stdout.contains("combined local diagnostics"));
+}
+
+#[test]
+fn model_list_help_lists_registry_options() {
+    let output = vinput_command()
+        .args(["model", "list", "--help"])
+        .output()
+        .expect("run vinput model list --help");
+
+    let stdout = assert_stdout_success(output, "help output");
+    assert!(stdout.contains("--registry"));
+    assert!(stdout.contains("--i18n"));
+    assert!(stdout.contains("--config"));
+    assert!(stdout.contains("--json"));
 }

@@ -70,6 +70,8 @@ cmake --build target/cpp/fcitx5-addon --parallel
 ctest --test-dir target/cpp/fcitx5-addon --output-on-failure
 scripts/run-cpp-dbus-smoke.sh
 scripts/run-command-asr-wav-helper-smoke.sh
+scripts/run-user-ime-real-command-asr-wav-smoke.sh
+scripts/run-user-ime-sherpa-sense-voice-smoke.sh
 cargo run -q -p vinput-cli -- protocol
 cargo run -q -p vinput-cli -- config
 cargo run -q -p vinput-cli -- config validate data/default-config.json --summary-only
@@ -79,6 +81,7 @@ cargo run -q -p vinput-cli -- audio-devices
 cargo run -q -p vinput-cli -- registry
 cargo run -q -p vinput-cli -- registry validate data/sample-registry-index.json
 cargo run -q -p vinput-cli -- registry plan data/sample-registry-index.json --summary-only
+cargo run -q -p vinput-cli -- model list --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --json
 cargo run -q -p vinput-cli -- mock-result '你好'
 cargo run -q -p vinput-daemon -- print-config
 cargo run -q -p vinput-daemon -- asr-state

@@ -3,6 +3,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -11,7 +12,10 @@ use vinput_asr::AsrBackendFactory;
 use vinput_audio::CaptureTarget;
 use vinput_config::{RegistryConfig, VinputConfig};
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
-use vinput_registry::{AssetEntry, AssetPlanSummary, PlannedAsset, RegistryIndex};
+use vinput_registry::{
+    AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelRegistry, LiveRegistryI18n,
+    PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryTextSource,
+};
 
 /// CLI for inspecting and controlling the vinput daemon.
 #[derive(Debug, Parser)]
@@ -103,6 +107,29 @@ enum RegistryCommand {
     },
 }
 
+/// Model-related commands backed by the live registry catalog.
+#[derive(Debug, Subcommand)]
+enum ModelCommand {
+    /// List models from live registry/models.json metadata.
+    List {
+        /// Optional local live registry/models.json file. Omitted to fetch configured mirrors.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional local live i18n JSON file used for title/description fallback.
+        #[arg(long)]
+        i18n: Option<PathBuf>,
+        /// Optional config JSON file that provides registry mirrors.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Live registry i18n locale to fetch when reading remote mirrors.
+        #[arg(long, default_value = "zh_CN")]
+        locale: String,
+        /// Print machine-readable JSON instead of text table output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Supported bootstrap commands.
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -119,6 +146,12 @@ enum Command {
         /// Registry operation. Omitted to print URL resolution for the bundled config.
         #[command(subcommand)]
         command: Option<RegistryCommand>,
+    },
+    /// Manage ASR models from the live registry catalog.
+    Model {
+        /// Model operation.
+        #[command(subcommand)]
+        command: ModelCommand,
     },
     /// Print ASR backend availability diagnostics from config.
     AsrState {
@@ -249,6 +282,7 @@ fn main() -> anyhow::Result<()> {
             ),
             None => print_registry_summary(),
         },
+        Command::Model { command } => handle_model_command(command),
         Command::AsrState { config } => print_asr_state(config.as_ref()),
         Command::AudioDevices { config } => print_audio_devices(config.as_ref()),
         Command::Doctor { config } => print_doctor(config.as_ref()),
@@ -291,6 +325,24 @@ fn main() -> anyhow::Result<()> {
             println!("{status}");
             Ok(())
         }
+    }
+}
+
+fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
+    match command {
+        ModelCommand::List {
+            registry,
+            i18n,
+            config,
+            locale,
+            json,
+        } => print_model_list(
+            registry.as_deref(),
+            i18n.as_deref(),
+            config.as_ref(),
+            &locale,
+            json,
+        ),
     }
 }
 
@@ -712,6 +764,354 @@ fn print_registry_summary() -> anyhow::Result<()> {
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
+}
+
+struct LoadedLiveModelRegistry {
+    registry: LiveModelRegistry,
+    source_json: serde_json::Value,
+    source_label: String,
+    remote_base_url: Option<String>,
+}
+
+struct LoadedLiveI18n {
+    i18n: Option<LiveRegistryI18n>,
+    source_json: serde_json::Value,
+    source_label: String,
+}
+
+struct FetchedText {
+    url: String,
+    text: String,
+}
+
+fn print_model_list(
+    registry_path: Option<&Path>,
+    i18n_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+    locale: &str,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let config = match config_path {
+        Some(config_path) => load_config_file(config_path)?,
+        None => VinputConfig::bundled_default().context("parse bundled config")?,
+    };
+    let loaded = load_live_model_registry(registry_path, &config.registry)?;
+    let i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
+    let models = loaded
+        .registry
+        .items
+        .iter()
+        .map(|model| live_model_list_json(model, i18n.i18n.as_ref()))
+        .collect::<Vec<_>>();
+    let output = serde_json::json!({
+        "ok": true,
+        "source": loaded.source_json,
+        "i18n": i18n.source_json,
+        "model_count": models.len(),
+        "models": models,
+    });
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_model_list_text(&loaded, &i18n);
+    }
+    Ok(())
+}
+
+fn load_live_model_registry(
+    registry_path: Option<&Path>,
+    registry_config: &RegistryConfig,
+) -> anyhow::Result<LoadedLiveModelRegistry> {
+    let registry_urls = live_registry_urls(registry_config, "registry/models.json");
+    if let Some(path) = registry_path {
+        let input = fs::read_to_string(path)
+            .with_context(|| format!("read live model registry `{}`", path.display()))?;
+        let registry = LiveModelRegistry::from_json_str(&input)
+            .with_context(|| format!("validate live model registry `{}`", path.display()))?;
+        return Ok(LoadedLiveModelRegistry {
+            registry,
+            source_json: serde_json::json!({
+                "kind": "file",
+                "path": path,
+                "mirror_count": registry_config.base_urls.len(),
+                "registry_urls": registry_urls,
+            }),
+            source_label: format!("file:{}", path.display()),
+            remote_base_url: None,
+        });
+    }
+
+    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
+        .context("fetch live model registry from configured mirrors")?;
+    let registry = LiveModelRegistry::from_json_str(&fetched.text).with_context(|| {
+        format!(
+            "validate live model registry fetched from `{}`",
+            fetched.url
+        )
+    })?;
+    let remote_base_url = fetched
+        .url
+        .strip_suffix("/registry/models.json")
+        .map(str::to_owned);
+    let source_label = format!("url:{}", fetched.url);
+    Ok(LoadedLiveModelRegistry {
+        registry,
+        source_json: serde_json::json!({
+            "kind": "http",
+            "url": fetched.url,
+            "mirror_count": registry_config.base_urls.len(),
+            "registry_urls": registry_urls,
+        }),
+        source_label,
+        remote_base_url,
+    })
+}
+
+fn load_live_i18n(
+    i18n_path: Option<&Path>,
+    remote_base_url: Option<&str>,
+    locale: &str,
+) -> anyhow::Result<LoadedLiveI18n> {
+    if let Some(path) = i18n_path {
+        let input = fs::read_to_string(path)
+            .with_context(|| format!("read live registry i18n `{}`", path.display()))?;
+        let i18n = LiveRegistryI18n::from_json_str(&input)
+            .with_context(|| format!("parse live registry i18n `{}`", path.display()))?;
+        return Ok(LoadedLiveI18n {
+            i18n: Some(i18n),
+            source_json: serde_json::json!({
+                "kind": "file",
+                "path": path,
+                "loaded": true,
+                "error": null,
+            }),
+            source_label: format!("file:{}", path.display()),
+        });
+    }
+
+    let Some(remote_base_url) = remote_base_url else {
+        return Ok(LoadedLiveI18n {
+            i18n: None,
+            source_json: serde_json::json!({
+                "kind": "none",
+                "loaded": false,
+                "error": null,
+            }),
+            source_label: "none".to_owned(),
+        });
+    };
+    if locale.trim().is_empty() {
+        return Ok(LoadedLiveI18n {
+            i18n: None,
+            source_json: serde_json::json!({
+                "kind": "none",
+                "loaded": false,
+                "error": "empty locale",
+            }),
+            source_label: "none".to_owned(),
+        });
+    }
+
+    let url = join_url(remote_base_url, &format!("i18n/{}.json", locale.trim()));
+    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(10));
+    match source.fetch_registry_text(&url) {
+        Ok(input) => match LiveRegistryI18n::from_json_str(&input) {
+            Ok(i18n) => Ok(LoadedLiveI18n {
+                i18n: Some(i18n),
+                source_json: serde_json::json!({
+                    "kind": "http",
+                    "url": url,
+                    "locale": locale.trim(),
+                    "loaded": true,
+                    "error": null,
+                }),
+                source_label: format!("url:{url}"),
+            }),
+            Err(error) => Ok(LoadedLiveI18n {
+                i18n: None,
+                source_json: serde_json::json!({
+                    "kind": "http",
+                    "url": url,
+                    "locale": locale.trim(),
+                    "loaded": false,
+                    "error": error.to_string(),
+                }),
+                source_label: format!("url:{url} (i18n parse failed)"),
+            }),
+        },
+        Err(error) => Ok(LoadedLiveI18n {
+            i18n: None,
+            source_json: serde_json::json!({
+                "kind": "http",
+                "url": url,
+                "locale": locale.trim(),
+                "loaded": false,
+                "error": error,
+            }),
+            source_label: format!("url:{url} (i18n unavailable)"),
+        }),
+    }
+}
+
+fn fetch_text_from_mirrors(
+    source: &impl RegistryTextSource,
+    urls: &[String],
+) -> anyhow::Result<FetchedText> {
+    if urls.is_empty() {
+        anyhow::bail!("no live registry mirrors configured");
+    }
+
+    let mut failures = Vec::new();
+    for url in urls {
+        match source.fetch_registry_text(url) {
+            Ok(text) => {
+                return Ok(FetchedText {
+                    url: url.clone(),
+                    text,
+                });
+            }
+            Err(message) => failures.push(serde_json::json!({
+                "url": url,
+                "error": message,
+            })),
+        }
+    }
+
+    anyhow::bail!(
+        "all live registry mirrors failed: {}",
+        serde_json::to_string(&failures)?
+    );
+}
+
+fn live_model_list_json(
+    model: &LiveModelEntry,
+    i18n: Option<&LiveRegistryI18n>,
+) -> serde_json::Value {
+    let support = live_model_support(model);
+    serde_json::json!({
+        "id": model.id,
+        "short_id": model.short_id,
+        "title": model.resolved_title(i18n),
+        "description": model.resolved_description(i18n),
+        "language": model.language,
+        "size_bytes": model.size_bytes,
+        "backend": model.backend(),
+        "family": model.model_family(),
+        "runtime": model.vinput_model.as_ref().and_then(|metadata| metadata.runtime.as_deref()),
+        "supports_hotwords": model.supports_hotwords(),
+        "supported": support.supported,
+        "support": support.reason,
+        "url_count": model.urls.len(),
+        "urls": model.urls,
+        "sha256": model.sha256,
+    })
+}
+
+fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n) {
+    println!("registry_source: {}", loaded.source_label);
+    println!("i18n_source: {}", i18n.source_label);
+    println!("models: {}", loaded.registry.items.len());
+    println!("id\tshort_id\tlanguage\tsize\tbackend\tfamily\tsupport\ttitle");
+    for model in &loaded.registry.items {
+        let support = live_model_support(model);
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            model.id,
+            optional_str(model.short_id.as_deref()),
+            optional_str(model.language.as_deref()),
+            format_size_bytes(model.size_bytes),
+            optional_str(model.backend()),
+            optional_str(model.model_family()),
+            support.reason,
+            model.resolved_title(i18n.i18n.as_ref()),
+        );
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ModelSupport {
+    supported: bool,
+    reason: &'static str,
+}
+
+fn live_model_support(model: &LiveModelEntry) -> ModelSupport {
+    match (model.backend(), model.model_family(), model_runtime(model)) {
+        (Some("sherpa-offline"), Some("sense_voice"), Some("offline")) => ModelSupport {
+            supported: true,
+            reason: "supported",
+        },
+        (Some("sherpa-offline"), Some("sense_voice"), _) => ModelSupport {
+            supported: false,
+            reason: "unsupported-runtime",
+        },
+        (Some("sherpa-offline"), Some(_), _) => ModelSupport {
+            supported: false,
+            reason: "unsupported-family",
+        },
+        (Some(_), _, _) => ModelSupport {
+            supported: false,
+            reason: "unsupported-backend",
+        },
+        (None, _, _) => ModelSupport {
+            supported: false,
+            reason: "missing-backend",
+        },
+    }
+}
+
+fn model_runtime(model: &LiveModelEntry) -> Option<&str> {
+    model
+        .vinput_model
+        .as_ref()
+        .and_then(|metadata| metadata.runtime.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn optional_str(value: Option<&str>) -> &str {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-")
+}
+
+fn format_size_bytes(size_bytes: Option<u64>) -> String {
+    let Some(size_bytes) = size_bytes else {
+        return "unknown".to_owned();
+    };
+    if size_bytes < 1024 {
+        return format!("{size_bytes} B");
+    }
+    if size_bytes < 1024 * 1024 {
+        return format_tenths(size_bytes, 1024, "KiB");
+    }
+    if size_bytes < 1024 * 1024 * 1024 {
+        return format_tenths(size_bytes, 1024 * 1024, "MiB");
+    }
+    format_tenths(size_bytes, 1024 * 1024 * 1024, "GiB")
+}
+
+fn format_tenths(size_bytes: u64, unit: u64, label: &str) -> String {
+    let tenths = u128::from(size_bytes) * 10 / u128::from(unit);
+    format!("{}.{:01} {label}", tenths / 10, tenths % 10)
+}
+
+fn live_registry_urls(registry: &RegistryConfig, path: &str) -> Vec<String> {
+    registry
+        .base_urls
+        .iter()
+        .map(|base_url| join_url(base_url, path))
+        .collect()
+}
+
+fn join_url(base_url: &str, path: &str) -> String {
+    format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
 }
 
 fn validate_registry_index(path: &PathBuf) -> anyhow::Result<()> {

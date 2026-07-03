@@ -186,6 +186,7 @@ smoke:
     cargo run -q -p vinput-cli -- registry
     cargo run -q -p vinput-cli -- registry validate data/sample-registry-index.json
     cargo run -q -p vinput-cli -- registry plan data/sample-registry-index.json --summary-only
+    cargo run -q -p vinput-cli -- model list --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --json
     cargo run -q -p vinput-cli -- mock-result '你好'
     cargo run -q -p vinput-daemon -- print-config
     cargo run -q -p vinput-daemon -- asr-state
