@@ -3,6 +3,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command as ProcessCommand,
     time::Duration,
 };
 
@@ -139,7 +140,7 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Plan how to stop the user daemon.
+    /// Stop the user daemon service.
     Stop {
         /// Print the stop plan without mutating user services.
         #[arg(long)]
@@ -148,7 +149,7 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Plan how to restart the user daemon.
+    /// Restart the user daemon service.
     Restart {
         /// Print the restart plan without mutating user services.
         #[arg(long)]
@@ -157,7 +158,7 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Plan how to inspect daemon logs.
+    /// Print daemon logs from the user service journal.
     Log {
         /// Print the log retrieval plan without invoking external tools.
         #[arg(long)]
@@ -824,39 +825,178 @@ fn print_daemon_user_service_plan(
     dry_run: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    if !dry_run {
-        anyhow::bail!(
-            "daemon {action} currently requires --dry-run until user service control is enabled"
-        );
+    let command = daemon_user_service_command(action)?;
+    if dry_run {
+        let output = daemon_user_service_dry_run_json(action, &command);
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            print_daemon_user_service_dry_run_text(action, &command);
+        }
+        return Ok(());
     }
-    let command = match action {
-        "stop" => "systemctl --user stop fcitx-vinput.service",
-        "restart" => "systemctl --user restart fcitx-vinput.service",
-        "log" => "journalctl --user -u fcitx-vinput.service",
-        _ => "",
-    };
-    let output = serde_json::json!({
+
+    let output = run_daemon_user_service_command(action, &command);
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_daemon_user_service_result_text(&output);
+    }
+    Ok(())
+}
+
+struct UserServiceCommand {
+    program: String,
+    args: Vec<String>,
+}
+
+impl UserServiceCommand {
+    fn argv(&self) -> Vec<String> {
+        std::iter::once(self.program.clone())
+            .chain(self.args.iter().cloned())
+            .collect()
+    }
+
+    fn display(&self) -> String {
+        self.argv().join(" ")
+    }
+}
+
+fn daemon_user_service_command(action: &str) -> anyhow::Result<UserServiceCommand> {
+    const SERVICE_NAME: &str = "fcitx-vinput.service";
+    match action {
+        "stop" => Ok(UserServiceCommand {
+            program: std::env::var("VINPUT_DAEMON_SYSTEMCTL")
+                .unwrap_or_else(|_| "systemctl".to_owned()),
+            args: ["--user", "stop", SERVICE_NAME]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        }),
+        "restart" => Ok(UserServiceCommand {
+            program: std::env::var("VINPUT_DAEMON_SYSTEMCTL")
+                .unwrap_or_else(|_| "systemctl".to_owned()),
+            args: ["--user", "restart", SERVICE_NAME]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        }),
+        "log" => Ok(UserServiceCommand {
+            program: std::env::var("VINPUT_DAEMON_JOURNALCTL")
+                .unwrap_or_else(|_| "journalctl".to_owned()),
+            args: ["--user", "-u", SERVICE_NAME]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        }),
+        _ => anyhow::bail!("unsupported daemon user service action `{action}`"),
+    }
+}
+
+fn daemon_user_service_dry_run_json(
+    action: &str,
+    command: &UserServiceCommand,
+) -> serde_json::Value {
+    serde_json::json!({
         "ok": true,
         "dry_run": true,
         "action": action,
         "will_mutate_user_service": false,
         "strategy": "systemd-user-service",
-        "command": command,
-        "fallback": "inspect the per-user D-Bus activation service and daemon process manually",
-    });
-    if json_output {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
-        println!("dry_run: true");
-        println!("action: {action}");
-        println!("will_mutate_user_service: false");
-        println!("strategy: systemd-user-service");
-        println!("command: {command}");
-        println!(
-            "fallback: inspect the per-user D-Bus activation service and daemon process manually"
-        );
+        "command": command.display(),
+        "command_argv": command.argv(),
+        "fallback": daemon_user_service_fallback(),
+    })
+}
+
+fn print_daemon_user_service_dry_run_text(action: &str, command: &UserServiceCommand) {
+    println!("dry_run: true");
+    println!("action: {action}");
+    println!("will_mutate_user_service: false");
+    println!("strategy: systemd-user-service");
+    println!("command: {}", command.display());
+    println!("fallback: {}", daemon_user_service_fallback());
+}
+
+fn run_daemon_user_service_command(
+    action: &str,
+    command: &UserServiceCommand,
+) -> serde_json::Value {
+    match ProcessCommand::new(&command.program)
+        .args(&command.args)
+        .output()
+    {
+        Ok(output) => {
+            let exit_status = output.status.code();
+            serde_json::json!({
+                "ok": output.status.success(),
+                "dry_run": false,
+                "action": action,
+                "will_mutate_user_service": action != "log",
+                "strategy": "systemd-user-service",
+                "command": command.display(),
+                "command_argv": command.argv(),
+                "exit_status": exit_status,
+                "stdout": String::from_utf8_lossy(&output.stdout),
+                "stderr": String::from_utf8_lossy(&output.stderr),
+                "fallback": daemon_user_service_fallback(),
+            })
+        }
+        Err(error) => serde_json::json!({
+            "ok": false,
+            "dry_run": false,
+            "action": action,
+            "will_mutate_user_service": action != "log",
+            "strategy": "systemd-user-service",
+            "command": command.display(),
+            "command_argv": command.argv(),
+            "exit_status": null,
+            "stdout": "",
+            "stderr": "",
+            "error": error.to_string(),
+            "fallback": daemon_user_service_fallback(),
+        }),
     }
-    Ok(())
+}
+
+fn print_daemon_user_service_result_text(output: &serde_json::Value) {
+    println!("dry_run: false");
+    println!("action: {}", optional_json_str(&output["action"]));
+    println!(
+        "will_mutate_user_service: {}",
+        output["will_mutate_user_service"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+    println!("strategy: systemd-user-service");
+    println!("command: {}", optional_json_str(&output["command"]));
+    println!("ok: {}", output["ok"].as_bool().unwrap_or(false));
+    match output["exit_status"].as_i64() {
+        Some(status) => println!("exit_status: {status}"),
+        None => println!("exit_status: -"),
+    }
+    if let Some(stdout) = output["stdout"].as_str().filter(|value| !value.is_empty()) {
+        print!("stdout: {stdout}");
+        if !stdout.ends_with('\n') {
+            println!();
+        }
+    }
+    if let Some(stderr) = output["stderr"].as_str().filter(|value| !value.is_empty()) {
+        print!("stderr: {stderr}");
+        if !stderr.ends_with('\n') {
+            println!();
+        }
+    }
+    if let Some(error) = output["error"].as_str().filter(|value| !value.is_empty()) {
+        println!("error: {error}");
+    }
+    if output["ok"].as_bool() != Some(true) {
+        println!("fallback: {}", daemon_user_service_fallback());
+    }
+}
+
+const fn daemon_user_service_fallback() -> &'static str {
+    "inspect the per-user D-Bus activation service and daemon process manually"
 }
 
 fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {

@@ -398,6 +398,33 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
 }
 
 #[test]
+fn daemon_user_service_real_commands_report_external_output_json() {
+    for (command, expected_stdout, will_mutate) in [
+        ("stop", "--user stop fcitx-vinput.service\n", true),
+        ("restart", "--user restart fcitx-vinput.service\n", true),
+        ("log", "--user -u fcitx-vinput.service\n", false),
+    ] {
+        let output = vinput_command()
+            .env("VINPUT_DAEMON_SYSTEMCTL", "/bin/echo")
+            .env("VINPUT_DAEMON_JOURNALCTL", "/bin/echo")
+            .args(["daemon", command, "--json"])
+            .output()
+            .expect("run vinput daemon user-service command --json");
+
+        let value = assert_json_success(output, "daemon user service real json");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["dry_run"], false);
+        assert_eq!(value["action"], command);
+        assert_eq!(value["will_mutate_user_service"], will_mutate);
+        assert_eq!(value["strategy"], "systemd-user-service");
+        assert_eq!(value["command_argv"][0], "/bin/echo");
+        assert_eq!(value["exit_status"], 0);
+        assert_eq!(value["stdout"], expected_stdout);
+        assert_eq!(value["stderr"], "");
+    }
+}
+
+#[test]
 fn daemon_stop_text_dry_run_prints_user_service_plan() {
     let output = vinput_command()
         .args(["daemon", "stop", "--dry-run"])

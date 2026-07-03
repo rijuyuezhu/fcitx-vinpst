@@ -85,6 +85,9 @@ cargo run -q -p vinput-cli -- model list --registry crates/vinput-registry/tests
 cargo run -q -p vinput-cli -- daemon start --dry-run --json
 cargo run -q -p vinput-cli -- daemon status --dry-run --json
 cargo run -q -p vinput-cli -- daemon reload-asr --dry-run --json
+cargo run -q -p vinput-cli -- daemon stop --dry-run --json
+cargo run -q -p vinput-cli -- daemon restart --dry-run --json
+cargo run -q -p vinput-cli -- daemon log --dry-run --json
 cargo run -q -p vinput-cli -- model use onnx-sv-zh-int8-off --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --model-root /tmp/vinput-models --reload-daemon --dry-run --json
 cargo run -q -p vinput-cli -- recording start --dry-run --json
 cargo run -q -p vinput-cli -- recording start --selected-text demo --dry-run --json
