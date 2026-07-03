@@ -5,12 +5,15 @@
 #include <systemd/sd-bus.h>
 
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <utility>
 
 namespace vinput_fcitx_bridge {
 namespace {
+
+constexpr std::uint64_t kMethodCallTimeoutUsec = 60ULL * 1000ULL * 1000ULL;
 
 void SetSdBusError(std::string *error, std::string_view action, int result,
                    const sd_bus_error &bus_error) {
@@ -147,6 +150,14 @@ SdBusDaemonClient::ConnectSession(std::string *error) {
   if (result < 0) {
     sd_bus_error bus_error = SD_BUS_ERROR_NULL;
     SetSdBusError(error, "connect user bus", result, bus_error);
+    return nullptr;
+  }
+  const int timeout_result =
+      sd_bus_set_method_call_timeout(bus, kMethodCallTimeoutUsec);
+  if (timeout_result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "set user bus method timeout", timeout_result, bus_error);
+    sd_bus_unref(bus);
     return nullptr;
   }
   return std::unique_ptr<SdBusDaemonClient>(new SdBusDaemonClient(bus));
