@@ -215,7 +215,7 @@ Acceptance:
 - `vinput model list --installed` scans the managed model root for local `vinput-model.json` metadata, while `model list --available`/`model ls -a` keeps the live registry view.
 - `vinput model install <id-or-short-id>` downloads with mirror fallback, verifies sha256, extracts safely, and materializes under the managed model root; legacy-compatible `model add <id-or-short-id>` is accepted as the install alias.
 - `vinput model info <id|short_id|path>` prints installed path, family, backend, language, model files, hotword support, and runtime readiness hints; Rust now supports live registry `id`/`short_id` plus installed path metadata from `vinput-model.json`.
-- `vinput model use <id|short_id|path>` updates config active provider/model in the current user config; Rust supports `--dry-run` config patch preview, guarded `--output <path>` writes, and `--in-place` config mutation with a `<config>.bak` backup before daemon reload is enabled.
+- `vinput model use <id|short_id|path>` updates config active provider/model in the current user config; Rust supports `--dry-run` config patch preview, guarded `--output <path>` writes, `--in-place` config mutation with a `<config>.bak` backup, and `--reload-daemon` after successful writes.
 - `vinput model remove <id|short_id>` removes only managed installed model directories after safety checks; Rust supports `--dry-run` planning plus guarded `--yes` deletion with model-root containment, active-config protection, and an `rm` alias.
 - Local workflow coverage exercises `install -> info <path> -> use --output -> active-remove guard -> remove --yes` with a local HTTP registry/archive fixture.
 - Install can optionally run `runtime-status` and reports native shared-library resolution failures.
@@ -250,11 +250,11 @@ Use the Rust D-Bus ABI instead of telling users to call low-level tools.
 Acceptance:
 
 - `vinput daemon reload-asr` calls the legacy `ReloadAsrBackend` D-Bus method; `--dry-run` prints the planned service/object/interface/method without contacting the daemon.
-- `vinput daemon status` calls `GetStatus`, `GetAsrBackendState`, `GetRuntimeStatus`, and activation status.
+- `vinput daemon status` calls `GetStatus`, `GetAsrBackendState`, and `GetRuntimeStatus`; activation status is still tracked separately.
 - `vinput daemon start` triggers D-Bus activation or starts the user service/profile strategy used by install scripts.
 - `vinput daemon stop/restart` stops/restarts the known user daemon safely and reports stale owner details.
 - `vinput daemon log` surfaces user service logs or clear fallback instructions.
-- `vinput recording start`, `stop [--scene]`, and `toggle` call the D-Bus service and print result payloads.
+- `vinput recording start`, `stop [--scene]`, and `toggle` have CLI D-Bus paths; dry-run output remains the stable CI-tested plan surface.
 
 ### P0.6 native sherpa desktop runtime hardening
 
