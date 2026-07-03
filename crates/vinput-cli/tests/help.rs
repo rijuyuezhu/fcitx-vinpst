@@ -196,3 +196,15 @@ fn daemon_reload_asr_help_lists_dry_run_and_json_options() {
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("--json"));
 }
+
+#[test]
+fn daemon_status_help_lists_dry_run_and_json_options() {
+    let output = vinput_command()
+        .args(["daemon", "status", "--help"])
+        .output()
+        .expect("run vinput daemon status --help");
+
+    let stdout = assert_stdout_success(output, "daemon status help output");
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
+}

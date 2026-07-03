@@ -253,3 +253,38 @@ fn daemon_reload_asr_text_dry_run_prints_dbus_plan() {
     assert!(stdout.contains("service: org.fcitx.Vinput"));
     assert!(stdout.contains("method: ReloadAsrBackend"));
 }
+
+#[test]
+fn daemon_status_dry_run_prints_dbus_plan_json() {
+    let output = vinput_command()
+        .args(["daemon", "status", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput daemon status --dry-run --json");
+
+    let value = assert_json_success(output, "daemon status dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["will_call_dbus"], false);
+    assert_eq!(value["dbus"]["service"], dbus::SERVICE_BUS_NAME);
+    assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
+    assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);
+    let methods = value["dbus"]["methods"].as_array().unwrap();
+    assert!(methods.contains(&serde_json::json!(dbus::method::GET_STATUS)));
+    assert!(methods.contains(&serde_json::json!(dbus::method::GET_ASR_BACKEND_STATE)));
+    assert!(methods.contains(&serde_json::json!(dbus::method::GET_RUNTIME_STATUS)));
+}
+
+#[test]
+fn daemon_status_text_dry_run_prints_dbus_plan() {
+    let output = vinput_command()
+        .args(["daemon", "status", "--dry-run"])
+        .output()
+        .expect("run vinput daemon status --dry-run");
+    let stdout = assert_stdout_success(output, "daemon status dry-run text");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("will_call_dbus: false"));
+    assert!(stdout.contains("service: org.fcitx.Vinput"));
+    assert!(stdout.contains("GetStatus"));
+    assert!(stdout.contains("GetAsrBackendState"));
+    assert!(stdout.contains("GetRuntimeStatus"));
+}

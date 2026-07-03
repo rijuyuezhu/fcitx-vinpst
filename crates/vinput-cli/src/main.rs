@@ -112,9 +112,18 @@ enum RegistryCommand {
 /// Daemon-related commands backed by the D-Bus service contract.
 #[derive(Debug, Subcommand)]
 enum DaemonCommand {
-    /// Plan an ASR backend reload call against the running daemon.
+    /// Query daemon status and runtime diagnostics over D-Bus.
+    Status {
+        /// Print the D-Bus call plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Reload the selected ASR backend on the running daemon.
     ReloadAsr {
-        /// Print the D-Bus call plan without contacting the daemon. Required until the client is implemented.
+        /// Print the D-Bus call plan without contacting the daemon.
         #[arg(long)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
@@ -478,8 +487,150 @@ fn main() -> anyhow::Result<()> {
 
 fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<()> {
     match command {
+        DaemonCommand::Status { dry_run, json } => print_daemon_status(*dry_run, *json),
         DaemonCommand::ReloadAsr { dry_run, json } => print_daemon_reload_asr_plan(*dry_run, *json),
     }
+}
+
+type DaemonAsrBackendStateTuple = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    bool,
+    bool,
+    Vec<String>,
+);
+
+fn print_daemon_status(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
+    if dry_run {
+        let output = daemon_status_dry_run_json();
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            print_daemon_status_dry_run_text();
+        }
+        return Ok(());
+    }
+
+    let snapshot = daemon_status_via_dbus()?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    } else {
+        print_daemon_status_text(&snapshot);
+    }
+    Ok(())
+}
+
+fn daemon_status_dry_run_json() -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "will_call_dbus": false,
+        "dbus": daemon_status_dbus_plan_json(),
+    })
+}
+
+fn daemon_status_dbus_plan_json() -> serde_json::Value {
+    serde_json::json!({
+        "service": dbus::SERVICE_BUS_NAME,
+        "object_path": dbus::SERVICE_OBJECT_PATH,
+        "interface": dbus::SERVICE_INTERFACE,
+        "methods": [
+            dbus::method::GET_STATUS,
+            dbus::method::GET_ASR_BACKEND_STATE,
+            dbus::method::GET_RUNTIME_STATUS,
+        ],
+    })
+}
+
+fn print_daemon_status_dry_run_text() {
+    println!("dry_run: true");
+    println!("will_call_dbus: false");
+    println!("service: {}", dbus::SERVICE_BUS_NAME);
+    println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+    println!("interface: {}", dbus::SERVICE_INTERFACE);
+    println!(
+        "methods: {}, {}, {}",
+        dbus::method::GET_STATUS,
+        dbus::method::GET_ASR_BACKEND_STATE,
+        dbus::method::GET_RUNTIME_STATUS
+    );
+}
+
+fn daemon_status_via_dbus() -> anyhow::Result<serde_json::Value> {
+    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let proxy = daemon_service_proxy(&connection)?;
+    let status: String = proxy
+        .call(dbus::method::GET_STATUS, &())
+        .context("call GetStatus on daemon D-Bus service")?;
+    let asr: DaemonAsrBackendStateTuple = proxy
+        .call(dbus::method::GET_ASR_BACKEND_STATE, &())
+        .context("call GetAsrBackendState on daemon D-Bus service")?;
+    let runtime_status_json: String = proxy
+        .call(dbus::method::GET_RUNTIME_STATUS, &())
+        .context("call GetRuntimeStatus on daemon D-Bus service")?;
+    let runtime_status = serde_json::from_str::<serde_json::Value>(&runtime_status_json)
+        .context("parse daemon runtime status JSON")?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "dry_run": false,
+        "will_call_dbus": true,
+        "dbus": daemon_status_dbus_plan_json(),
+        "status": status,
+        "asr_backend": {
+            "target_provider_id": asr.0,
+            "target_model_id": asr.1,
+            "effective_provider_id": asr.2,
+            "effective_model_id": asr.3,
+            "last_error": asr.4,
+            "reload_in_progress": asr.5,
+            "has_effective_backend": asr.6,
+            "remote_endpoints": asr.7,
+        },
+        "runtime_status": runtime_status,
+    }))
+}
+
+fn print_daemon_status_text(snapshot: &serde_json::Value) {
+    println!("status: {}", optional_json_str(&snapshot["status"]));
+    println!(
+        "target_provider_id: {}",
+        optional_json_str(&snapshot["asr_backend"]["target_provider_id"])
+    );
+    println!(
+        "effective_provider_id: {}",
+        optional_json_str(&snapshot["asr_backend"]["effective_provider_id"])
+    );
+    println!(
+        "reload_in_progress: {}",
+        snapshot["asr_backend"]["reload_in_progress"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+    println!(
+        "has_effective_backend: {}",
+        snapshot["asr_backend"]["has_effective_backend"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+}
+
+fn optional_json_str(value: &serde_json::Value) -> &str {
+    value.as_str().unwrap_or("-")
+}
+
+fn daemon_service_proxy(
+    connection: &zbus::blocking::Connection,
+) -> anyhow::Result<zbus::blocking::Proxy<'_>> {
+    zbus::blocking::Proxy::new(
+        connection,
+        dbus::SERVICE_BUS_NAME,
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .context("create daemon D-Bus proxy")
 }
 
 fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
@@ -522,13 +673,7 @@ fn daemon_reload_asr_output(dry_run: bool) -> serde_json::Value {
 
 fn reload_asr_backend_via_dbus() -> anyhow::Result<()> {
     let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
-    let proxy = zbus::blocking::Proxy::new(
-        &connection,
-        dbus::SERVICE_BUS_NAME,
-        dbus::SERVICE_OBJECT_PATH,
-        dbus::SERVICE_INTERFACE,
-    )
-    .context("create daemon D-Bus proxy")?;
+    let proxy = daemon_service_proxy(&connection)?;
     let _: () = proxy
         .call(dbus::method::RELOAD_ASR_BACKEND, &())
         .context("call ReloadAsrBackend on daemon D-Bus service")?;
