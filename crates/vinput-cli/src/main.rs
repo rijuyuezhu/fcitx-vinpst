@@ -1,6 +1,7 @@
 //! `vinput` command-line prototype.
 
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
@@ -392,6 +393,50 @@ enum ProviderCommand {
     Use {
         /// Existing ASR provider id to activate.
         id: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add an ASR provider to config.
+    Add {
+        /// New ASR provider id.
+        id: String,
+        /// Provider type: local, command, or remote.
+        #[arg(long = "type", default_value = "local")]
+        kind: String,
+        /// Optional model id/path for this provider.
+        #[arg(long)]
+        model: Option<String>,
+        /// Optional hotwords file path for local/command providers.
+        #[arg(long)]
+        hotwords_file: Option<String>,
+        /// External command for command providers.
+        #[arg(long)]
+        command: Option<String>,
+        /// Repeated argument for command providers.
+        #[arg(long = "arg")]
+        args: Vec<String>,
+        /// Repeated KEY=VALUE environment assignment for command providers.
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Endpoint URL or label for remote providers.
+        #[arg(long)]
+        endpoint: Option<String>,
+        /// Optional provider timeout in milliseconds.
+        #[arg(long)]
+        timeout_ms: Option<u64>,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -2069,6 +2114,37 @@ fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
             dry_run,
             json_output: json,
         }),
+        ProviderCommand::Add {
+            id,
+            kind,
+            model,
+            hotwords_file,
+            command,
+            args,
+            env,
+            endpoint,
+            timeout_ms,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_provider_add(ProviderAddRequest {
+            id: &id,
+            kind: &kind,
+            model: model.as_deref(),
+            hotwords_file: hotwords_file.as_deref(),
+            command: command.as_deref(),
+            args: &args,
+            env: &env,
+            endpoint: endpoint.as_deref(),
+            timeout_ms,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
         ProviderCommand::Remove {
             id,
             config,
@@ -2085,6 +2161,40 @@ fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
             json_output: json,
         }),
     }
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct ProviderAddRequest<'a> {
+    id: &'a str,
+    kind: &'a str,
+    model: Option<&'a str>,
+    hotwords_file: Option<&'a str>,
+    command: Option<&'a str>,
+    args: &'a [String],
+    env: &'a [String],
+    endpoint: Option<&'a str>,
+    timeout_ms: Option<u64>,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct ProviderAddOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    provider_id: String,
+    provider_type: &'static str,
+    active_provider: String,
+    before_provider_count: usize,
+    after_provider_count: usize,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -2240,6 +2350,195 @@ fn print_provider_list_text(context: &ProviderListContext) {
                 .map_or_else(|| "-".to_owned(), |value| value.to_string())
         );
     }
+}
+
+fn print_provider_add(request: ProviderAddRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_provider_add(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&provider_add_outcome_json(&outcome))?
+        );
+    } else {
+        print_provider_add_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_provider_add(request: &ProviderAddRequest<'_>) -> anyhow::Result<ProviderAddOutcome> {
+    let id = normalize_provider_id(request.id)?;
+    let provider_type = normalize_provider_kind(request.kind)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for provider add")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for provider add")?;
+    if config
+        .asr
+        .providers
+        .iter()
+        .any(|provider| provider.id == id)
+    {
+        anyhow::bail!("ASR provider `{id}` already exists");
+    }
+    let before_provider_count = config.asr.providers.len();
+    let provider = provider_add_json_object(&id, provider_type, request)?;
+
+    let providers = loaded
+        .document
+        .pointer_mut("/asr/providers")
+        .and_then(serde_json::Value::as_array_mut)
+        .with_context(|| "config pointer `/asr/providers` not found or not an array")?;
+    providers.push(serde_json::Value::Object(provider));
+    validate_config_json_value(&loaded.document, "validate updated provider config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+
+    Ok(ProviderAddOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        provider_id: id,
+        provider_type,
+        active_provider: config.asr.active_provider,
+        before_provider_count,
+        after_provider_count: before_provider_count + 1,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn provider_add_json_object(
+    id: &str,
+    provider_type: &'static str,
+    request: &ProviderAddRequest<'_>,
+) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
+    let mut object = serde_json::Map::new();
+    object.insert("id".to_owned(), serde_json::Value::String(id.to_owned()));
+    object.insert(
+        "type".to_owned(),
+        serde_json::Value::String(provider_type.to_owned()),
+    );
+    if let Some(timeout_ms) = request.timeout_ms {
+        object.insert("timeout_ms".to_owned(), serde_json::json!(timeout_ms));
+    }
+    insert_optional_string(&mut object, "model", request.model)?;
+    insert_optional_string(&mut object, "hotwords_file", request.hotwords_file)?;
+    insert_optional_string(&mut object, "command", request.command)?;
+    if !request.args.is_empty() {
+        object.insert("args".to_owned(), serde_json::json!(request.args));
+    }
+    let env = parse_provider_env(request.env)?;
+    if !env.is_empty() {
+        object.insert("env".to_owned(), serde_json::json!(env));
+    }
+    insert_optional_string(&mut object, "endpoint", request.endpoint)?;
+    Ok(object)
+}
+
+fn insert_optional_string(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    value: Option<&str>,
+) -> anyhow::Result<()> {
+    if let Some(value) = value {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("provider field `{key}` cannot be empty");
+        }
+        object.insert(
+            key.to_owned(),
+            serde_json::Value::String(trimmed.to_owned()),
+        );
+    }
+    Ok(())
+}
+
+fn parse_provider_env(entries: &[String]) -> anyhow::Result<BTreeMap<String, String>> {
+    let mut env = BTreeMap::new();
+    for entry in entries {
+        let (key, value) = entry
+            .split_once('=')
+            .with_context(|| format!("provider env `{entry}` is not KEY=VALUE"))?;
+        let key = key.trim();
+        if key.is_empty() {
+            anyhow::bail!("provider env `{entry}` has an empty key");
+        }
+        env.insert(key.to_owned(), value.to_owned());
+    }
+    Ok(env)
+}
+
+fn normalize_provider_kind(kind: &str) -> anyhow::Result<&'static str> {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "local" => Ok("local"),
+        "command" => Ok("command"),
+        "remote" => Ok("remote"),
+        other => {
+            anyhow::bail!("unsupported ASR provider type `{other}`; use local, command, or remote")
+        }
+    }
+}
+
+fn provider_add_outcome_json(outcome: &ProviderAddOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "provider_id": outcome.provider_id,
+        "provider_type": outcome.provider_type,
+        "active_provider": outcome.active_provider,
+        "before_provider_count": outcome.before_provider_count,
+        "after_provider_count": outcome.after_provider_count,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput provider list to verify configured ASR providers",
+            "run vinput provider use <id> to activate the new provider",
+            "run vinput asr-state to inspect provider runtime readiness"
+        ],
+    })
+}
+
+fn print_provider_add_text(outcome: &ProviderAddOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("provider_id: {}", outcome.provider_id);
+    println!("provider_type: {}", outcome.provider_type);
+    println!("active_provider: {}", outcome.active_provider);
+    println!("before_provider_count: {}", outcome.before_provider_count);
+    println!("after_provider_count: {}", outcome.after_provider_count);
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 fn print_provider_remove(request: ProviderRemoveRequest<'_>) -> anyhow::Result<()> {

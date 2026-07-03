@@ -209,6 +209,202 @@ fn provider_use_rejects_empty_missing_and_missing_write_target() {
 }
 
 #[test]
+fn provider_add_dry_run_json_validates_local_provider_without_writing() {
+    let path = write_provider_fixture("vinput-provider-add-dry-run");
+    let before = fs::read_to_string(&path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "add", "extra", "--config"])
+        .arg(&path)
+        .args([
+            "--model",
+            "extra-model",
+            "--hotwords-file",
+            "/tmp/extra-hotwords.txt",
+        ])
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput provider add dry-run");
+
+    let value = assert_json_success(output, "provider add dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["provider_id"], "extra");
+    assert_eq!(value["provider_type"], "local");
+    assert_eq!(value["active_provider"], "cmd");
+    assert_eq!(value["before_provider_count"], 3);
+    assert_eq!(value["after_provider_count"], 4);
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged provider config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary provider config");
+}
+
+#[test]
+fn provider_add_output_writes_command_provider_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-provider-add-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, provider_fixture_json()).expect("write provider config");
+    let output_path = root.join("out/provider.json");
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args([
+            "provider",
+            "add",
+            "cmd2",
+            "--type",
+            "command",
+            "--command",
+            "helper",
+            "--config",
+        ])
+        .arg(&config_path)
+        .args([
+            "--arg=--json",
+            "--env",
+            "TOKEN=redacted",
+            "--timeout-ms",
+            "30000",
+        ])
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput provider add command --output");
+
+    let value = assert_json_success(output, "provider add output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["provider_id"], "cmd2");
+    assert_eq!(value["provider_type"], "command");
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    let json = read_json(&output_path);
+    let provider = json["asr"]["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|provider| provider["id"] == "cmd2")
+        .expect("added command provider");
+    assert_eq!(provider["type"], "command");
+    assert_eq!(provider["command"], "helper");
+    assert_eq!(provider["args"][0], "--json");
+    assert_eq!(provider["env"]["TOKEN"], "redacted");
+    assert_eq!(provider["timeout_ms"], 30000);
+    fs::remove_dir_all(root).expect("remove provider add output fixture dir");
+}
+
+#[test]
+fn provider_add_in_place_writes_remote_provider_and_backup() {
+    let root = unique_temp_dir("vinput-provider-add-in-place");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, provider_fixture_json()).expect("write provider config");
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args([
+            "provider",
+            "add",
+            "cloud",
+            "--type",
+            "remote",
+            "--endpoint",
+            "https://asr.example.test",
+            "--config",
+        ])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput provider add remote --in-place");
+
+    let value = assert_json_success(output, "provider add in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["provider_id"], "cloud");
+    assert_eq!(value["provider_type"], "remote");
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read provider backup config"),
+        before
+    );
+    let json = read_json(&config_path);
+    let provider = json["asr"]["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|provider| provider["id"] == "cloud")
+        .expect("added remote provider");
+    assert_eq!(provider["type"], "remote");
+    assert_eq!(provider["endpoint"], "https://asr.example.test");
+    fs::remove_dir_all(root).expect("remove provider add in-place fixture dir");
+}
+
+#[test]
+fn provider_add_rejects_invalid_duplicate_and_missing_write_target() {
+    let path = write_provider_fixture("vinput-provider-add-errors");
+
+    let duplicate = vinput_command()
+        .args(["provider", "add", "cmd", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider add duplicate id");
+    assert!(!duplicate.status.success());
+    let stderr = String::from_utf8(duplicate.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider `cmd` already exists"));
+
+    let invalid_type = vinput_command()
+        .args(["provider", "add", "new", "--type", "bad", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider add invalid type");
+    assert!(!invalid_type.status.success());
+    let stderr = String::from_utf8(invalid_type.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("unsupported ASR provider type `bad`"));
+
+    let bad_env = vinput_command()
+        .args([
+            "provider",
+            "add",
+            "cmd2",
+            "--type",
+            "command",
+            "--command",
+            "helper",
+            "--env",
+            "TOKEN",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider add invalid env");
+    assert!(!bad_env.status.success());
+    let stderr = String::from_utf8(bad_env.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("provider env `TOKEN` is not KEY=VALUE"));
+
+    let missing_target = vinput_command()
+        .args(["provider", "add", "new", "--config"])
+        .arg(&path)
+        .output()
+        .expect("run vinput provider add without write target");
+    assert!(!missing_target.status.success());
+    let stderr = String::from_utf8(missing_target.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("config set writes require --output <path> or --in-place"));
+
+    fs::remove_file(&path).expect("remove temporary provider config");
+}
+
+#[test]
 fn provider_remove_dry_run_json_validates_inactive_provider_without_writing() {
     let path = write_provider_fixture("vinput-provider-remove-dry-run");
     let before = fs::read_to_string(&path).expect("read original provider config");

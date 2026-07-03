@@ -117,6 +117,7 @@ fn provider_help_lists_list_and_use_options() {
     let root_stdout = assert_stdout_success(root_output, "provider help output");
     assert!(root_stdout.contains("list"));
     assert!(root_stdout.contains("use"));
+    assert!(root_stdout.contains("add"));
     assert!(root_stdout.contains("remove"));
 
     let list_output = vinput_command()
@@ -126,6 +127,26 @@ fn provider_help_lists_list_and_use_options() {
     let list_stdout = assert_stdout_success(list_output, "provider list help output");
     assert!(list_stdout.contains("--config"));
     assert!(list_stdout.contains("--json"));
+
+    let add_output = vinput_command()
+        .args(["provider", "add", "--help"])
+        .output()
+        .expect("run vinput provider add --help");
+    let add_stdout = assert_stdout_success(add_output, "provider add help output");
+    assert!(add_stdout.contains("<ID>"));
+    assert!(add_stdout.contains("--type"));
+    assert!(add_stdout.contains("--model"));
+    assert!(add_stdout.contains("--hotwords-file"));
+    assert!(add_stdout.contains("--command"));
+    assert!(add_stdout.contains("--arg"));
+    assert!(add_stdout.contains("--env"));
+    assert!(add_stdout.contains("--endpoint"));
+    assert!(add_stdout.contains("--timeout-ms"));
+    assert!(add_stdout.contains("--config"));
+    assert!(add_stdout.contains("--output"));
+    assert!(add_stdout.contains("--in-place"));
+    assert!(add_stdout.contains("--dry-run"));
+    assert!(add_stdout.contains("--json"));
 
     let use_output = vinput_command()
         .args(["provider", "use", "--help"])
