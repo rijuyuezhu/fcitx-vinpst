@@ -235,3 +235,16 @@ fn daemon_start_help_lists_dry_run_and_json_options() {
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("--json"));
 }
+
+#[test]
+fn daemon_user_service_help_lists_dry_run_and_json_options() {
+    for command in ["stop", "restart", "log"] {
+        let output = vinput_command()
+            .args(["daemon", command, "--help"])
+            .output()
+            .expect("run vinput daemon user-service command --help");
+        let stdout = assert_stdout_success(output, "daemon user-service help output");
+        assert!(stdout.contains("--dry-run"));
+        assert!(stdout.contains("--json"));
+    }
+}

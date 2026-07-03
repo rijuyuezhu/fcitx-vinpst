@@ -374,3 +374,38 @@ fn daemon_start_text_dry_run_prints_activation_plan() {
     assert!(stdout.contains("method: GetStatus"));
     assert!(stdout.contains("service: org.fcitx.Vinput"));
 }
+
+#[test]
+fn daemon_user_service_dry_run_commands_print_plans_json() {
+    for (command, expected) in [
+        ("stop", "systemctl --user stop fcitx-vinput.service"),
+        ("restart", "systemctl --user restart fcitx-vinput.service"),
+        ("log", "journalctl --user -u fcitx-vinput.service"),
+    ] {
+        let output = vinput_command()
+            .args(["daemon", command, "--dry-run", "--json"])
+            .output()
+            .expect("run vinput daemon user-service command --dry-run --json");
+
+        let value = assert_json_success(output, "daemon user service dry-run json");
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["dry_run"], true);
+        assert_eq!(value["action"], command);
+        assert_eq!(value["will_mutate_user_service"], false);
+        assert_eq!(value["strategy"], "systemd-user-service");
+        assert_eq!(value["command"], expected);
+    }
+}
+
+#[test]
+fn daemon_stop_text_dry_run_prints_user_service_plan() {
+    let output = vinput_command()
+        .args(["daemon", "stop", "--dry-run"])
+        .output()
+        .expect("run vinput daemon stop --dry-run");
+    let stdout = assert_stdout_success(output, "daemon stop dry-run text");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("action: stop"));
+    assert!(stdout.contains("will_mutate_user_service: false"));
+    assert!(stdout.contains("systemctl --user stop fcitx-vinput.service"));
+}

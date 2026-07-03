@@ -139,6 +139,33 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Plan how to stop the user daemon.
+    Stop {
+        /// Print the stop plan without mutating user services.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Plan how to restart the user daemon.
+    Restart {
+        /// Print the restart plan without mutating user services.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Plan how to inspect daemon logs.
+    Log {
+        /// Print the log retrieval plan without invoking external tools.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Recording control commands backed by the daemon D-Bus service contract.
@@ -780,7 +807,56 @@ fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<()> {
         DaemonCommand::Start { dry_run, json } => print_daemon_start(*dry_run, *json),
         DaemonCommand::Status { dry_run, json } => print_daemon_status(*dry_run, *json),
         DaemonCommand::ReloadAsr { dry_run, json } => print_daemon_reload_asr_plan(*dry_run, *json),
+        DaemonCommand::Stop { dry_run, json } => {
+            print_daemon_user_service_plan("stop", *dry_run, *json)
+        }
+        DaemonCommand::Restart { dry_run, json } => {
+            print_daemon_user_service_plan("restart", *dry_run, *json)
+        }
+        DaemonCommand::Log { dry_run, json } => {
+            print_daemon_user_service_plan("log", *dry_run, *json)
+        }
     }
+}
+
+fn print_daemon_user_service_plan(
+    action: &str,
+    dry_run: bool,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    if !dry_run {
+        anyhow::bail!(
+            "daemon {action} currently requires --dry-run until user service control is enabled"
+        );
+    }
+    let command = match action {
+        "stop" => "systemctl --user stop fcitx-vinput.service",
+        "restart" => "systemctl --user restart fcitx-vinput.service",
+        "log" => "journalctl --user -u fcitx-vinput.service",
+        _ => "",
+    };
+    let output = serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "action": action,
+        "will_mutate_user_service": false,
+        "strategy": "systemd-user-service",
+        "command": command,
+        "fallback": "inspect the per-user D-Bus activation service and daemon process manually",
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("dry_run: true");
+        println!("action: {action}");
+        println!("will_mutate_user_service: false");
+        println!("strategy: systemd-user-service");
+        println!("command: {command}");
+        println!(
+            "fallback: inspect the per-user D-Bus activation service and daemon process manually"
+        );
+    }
+    Ok(())
 }
 
 fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
