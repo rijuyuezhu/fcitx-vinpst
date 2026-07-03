@@ -76,6 +76,11 @@ PY
 
 cargo build -q -p vinput-daemon --features sherpa-onnx-backend
 
+runtime_lib_dir="${VINPUT_SHERPA_RUNTIME_LIB_DIR:-${repo_root}/target/debug}"
+if [[ -d "${runtime_lib_dir}" ]]; then
+  export LD_LIBRARY_PATH="${runtime_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+fi
+
 echo "== native sherpa runtime status =="
 target/debug/vinput-daemon --configured-backends --config "${config_path}" runtime-status
 

@@ -96,6 +96,7 @@ VINPUT_SHERPA_MODEL=/path/to/sense-voice-model-dir \
 ```
 
 That smoke builds the feature-gated daemon, runs `runtime-status` to force model construction, and then runs `--once --wav` through the configured ASR/text pipeline.
+It prepends `target/debug` to `LD_LIBRARY_PATH` by default so the cargo-provided `libsherpa-onnx` and `libonnxruntime` are preferred over incompatible system libraries; override with `VINPUT_SHERPA_RUNTIME_LIB_DIR` when testing another runtime bundle.
 
 ## Diagnostics
 
