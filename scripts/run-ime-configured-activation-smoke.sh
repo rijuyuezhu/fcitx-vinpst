@@ -9,6 +9,7 @@ stage_dir="target/tmp/ime-act"
 stage_abs="${repo_root}/${stage_dir}"
 daemon_path="${stage_abs}/usr/local/bin/vinput-daemon"
 daemon_wrapper="${stage_abs}/usr/local/bin/vinput-daemon-activation"
+daemon_log="${stage_abs}/usr/local/bin/vinput-daemon-activation.log"
 config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo-config.json"
 wav_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo.wav"
 smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
@@ -23,7 +24,12 @@ python3 scripts/write-demo-wav.py "${wav_path}"
 cat >"${daemon_wrapper}" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-exec "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}"
+if [[ -z "\${DBUS_SESSION_BUS_ADDRESS:-}" && -n "\${DBUS_STARTER_ADDRESS:-}" ]]; then
+  export DBUS_SESSION_BUS_ADDRESS="\${DBUS_STARTER_ADDRESS}"
+fi
+echo "DBUS_SESSION_BUS_ADDRESS=\${DBUS_SESSION_BUS_ADDRESS:-}" >"${daemon_log}"
+echo "DBUS_STARTER_ADDRESS=\${DBUS_STARTER_ADDRESS:-}" >>"${daemon_log}"
+exec "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" >>"${daemon_log}" 2>&1
 EOF
 chmod +x "${daemon_wrapper}"
 timeout 20s "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" runtime-status >/dev/null
@@ -47,10 +53,17 @@ test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 grep -qx "Exec=${daemon_wrapper}" "${service_file}"
 
-XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
-VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
-VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
-VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="demo-command-asr" \
-VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="demo-text-adapter" \
+if ! XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
+  VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
+  VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
+  VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="demo-command-asr" \
+  VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="demo-text-adapter" \
   timeout 120s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
-    bash "${smoke_bin}" "${addon_smoke_bin}"
+    bash "${smoke_bin}" "${addon_smoke_bin}"; then
+  status=$?
+  echo "staged activation service:" >&2
+  cat "${service_file}" >&2 || true
+  echo "staged activation daemon log:" >&2
+  cat "${daemon_log}" >&2 || true
+  exit "${status}"
+fi
