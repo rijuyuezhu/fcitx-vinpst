@@ -87,3 +87,18 @@ fn model_list_help_lists_registry_options() {
     assert!(stdout.contains("--config"));
     assert!(stdout.contains("--json"));
 }
+
+#[test]
+fn model_info_help_lists_registry_options() {
+    let output = vinput_command()
+        .args(["model", "info", "--help"])
+        .output()
+        .expect("run vinput model info --help");
+
+    let stdout = assert_stdout_success(output, "help output");
+    assert!(stdout.contains("<ID>"));
+    assert!(stdout.contains("--registry"));
+    assert!(stdout.contains("--i18n"));
+    assert!(stdout.contains("--config"));
+    assert!(stdout.contains("--json"));
+}

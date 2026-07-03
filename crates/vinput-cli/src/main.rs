@@ -128,6 +128,26 @@ enum ModelCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show one live registry model by full id or short id.
+    Info {
+        /// Full model id or `short_id`.
+        id: String,
+        /// Optional local live registry/models.json file. Omitted to fetch configured mirrors.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional local live i18n JSON file used for title/description fallback.
+        #[arg(long)]
+        i18n: Option<PathBuf>,
+        /// Optional config JSON file that provides registry mirrors.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Live registry i18n locale to fetch when reading remote mirrors.
+        #[arg(long, default_value = "zh_CN")]
+        locale: String,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Supported bootstrap commands.
@@ -337,6 +357,21 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             locale,
             json,
         } => print_model_list(
+            registry.as_deref(),
+            i18n.as_deref(),
+            config.as_ref(),
+            &locale,
+            json,
+        ),
+        ModelCommand::Info {
+            id,
+            registry,
+            i18n,
+            config,
+            locale,
+            json,
+        } => print_model_info(
+            &id,
             registry.as_deref(),
             i18n.as_deref(),
             config.as_ref(),
@@ -791,12 +826,7 @@ fn print_model_list(
     locale: &str,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    let config = match config_path {
-        Some(config_path) => load_config_file(config_path)?,
-        None => VinputConfig::bundled_default().context("parse bundled config")?,
-    };
-    let loaded = load_live_model_registry(registry_path, &config.registry)?;
-    let i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
+    let (loaded, i18n) = load_live_model_catalog(registry_path, i18n_path, config_path, locale)?;
     let models = loaded
         .registry
         .items
@@ -817,6 +847,44 @@ fn print_model_list(
         print_model_list_text(&loaded, &i18n);
     }
     Ok(())
+}
+
+fn print_model_info(
+    id_or_short_id: &str,
+    registry_path: Option<&Path>,
+    i18n_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+    locale: &str,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let (loaded, i18n) = load_live_model_catalog(registry_path, i18n_path, config_path, locale)?;
+    let model = loaded
+        .registry
+        .model_by_id_or_short_id(id_or_short_id)
+        .with_context(|| format!("unknown model id or short_id `{id_or_short_id}`"))?;
+    let output = live_model_info_json(model, i18n.i18n.as_ref(), &loaded, &i18n)?;
+
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_model_info_text(model, i18n.i18n.as_ref(), &loaded, &i18n);
+    }
+    Ok(())
+}
+
+fn load_live_model_catalog(
+    registry_path: Option<&Path>,
+    i18n_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+    locale: &str,
+) -> anyhow::Result<(LoadedLiveModelRegistry, LoadedLiveI18n)> {
+    let config = match config_path {
+        Some(config_path) => load_config_file(config_path)?,
+        None => VinputConfig::bundled_default().context("parse bundled config")?,
+    };
+    let loaded = load_live_model_registry(registry_path, &config.registry)?;
+    let i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
+    Ok((loaded, i18n))
 }
 
 fn load_live_model_registry(
@@ -999,7 +1067,7 @@ fn live_model_list_json(
         "size_bytes": model.size_bytes,
         "backend": model.backend(),
         "family": model.model_family(),
-        "runtime": model.vinput_model.as_ref().and_then(|metadata| metadata.runtime.as_deref()),
+        "runtime": model_runtime(model),
         "supports_hotwords": model.supports_hotwords(),
         "supported": support.supported,
         "support": support.reason,
@@ -1007,6 +1075,30 @@ fn live_model_list_json(
         "urls": model.urls,
         "sha256": model.sha256,
     })
+}
+
+fn live_model_info_json(
+    model: &LiveModelEntry,
+    i18n: Option<&LiveRegistryI18n>,
+    loaded: &LoadedLiveModelRegistry,
+    loaded_i18n: &LoadedLiveI18n,
+) -> anyhow::Result<serde_json::Value> {
+    let mut model_json = live_model_list_json(model, i18n);
+    model_json["vinput_model"] =
+        model
+            .vinput_model
+            .as_ref()
+            .map_or(Ok(serde_json::Value::Null), |metadata| {
+                metadata
+                    .to_raw_value()
+                    .context("serialize vinput_model metadata")
+            })?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "source": loaded.source_json,
+        "i18n": loaded_i18n.source_json,
+        "model": model_json,
+    }))
 }
 
 fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n) {
@@ -1027,6 +1119,37 @@ fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n
             support.reason,
             model.resolved_title(i18n.i18n.as_ref()),
         );
+    }
+}
+
+fn print_model_info_text(
+    model: &LiveModelEntry,
+    i18n: Option<&LiveRegistryI18n>,
+    loaded: &LoadedLiveModelRegistry,
+    loaded_i18n: &LoadedLiveI18n,
+) {
+    let support = live_model_support(model);
+    println!("registry_source: {}", loaded.source_label);
+    println!("i18n_source: {}", loaded_i18n.source_label);
+    println!("id: {}", model.id);
+    println!("short_id: {}", optional_str(model.short_id.as_deref()));
+    println!("title: {}", model.resolved_title(i18n));
+    println!(
+        "description: {}",
+        optional_str(model.resolved_description(i18n).as_deref())
+    );
+    println!("language: {}", optional_str(model.language.as_deref()));
+    println!("size: {}", format_size_bytes(model.size_bytes));
+    println!("backend: {}", optional_str(model.backend()));
+    println!("family: {}", optional_str(model.model_family()));
+    println!("runtime: {}", optional_str(model_runtime(model)));
+    println!("support: {}", support.reason);
+    println!("supported: {}", support.supported);
+    println!("supports_hotwords: {}", model.supports_hotwords());
+    println!("sha256: {}", optional_str(model.sha256.as_deref()));
+    println!("urls:");
+    for url in &model.urls {
+        println!("  - {url}");
     }
 }
 
