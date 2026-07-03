@@ -337,4 +337,3 @@ fn recording_stop_and_toggle_dry_run_print_text_plans() {
     assert!(toggle_stdout.contains("StartRecording"));
     assert!(toggle_stdout.contains("StopRecording"));
 }
-

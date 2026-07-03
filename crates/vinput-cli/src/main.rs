@@ -628,8 +628,6 @@ fn recording_action_via_dbus(
     };
     Ok(recording_result_json(action, method, scene, None))
 }
-
-
 fn recording_toggle_via_dbus(
     proxy: &zbus::blocking::Proxy<'_>,
     selected_text: Option<&str>,
