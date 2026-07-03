@@ -47,7 +47,7 @@ The next project target should be: **replicate the legacy CLI and daemon experie
 | J6: adapter lifecycle | Legacy `vinput adapter start/stop` and daemon D-Bus `StartAdapter/StopAdapter` supervise local adapters and PID files. | Rust daemon can start/stop supervised command adapters; CLI lacks user command. | CLI gap. | `vinput adapter start/stop/list` calls daemon and reports PID/running state. |
 | J7: daemon control | Legacy `vinput daemon status/start/stop/restart/log` integrates D-Bus/systemd/logs. | Rust has `daemon status/start/reload-asr`, real user-service `stop/restart/log` execution, dry-run plans, activation service generation, and runtime-status diagnostics. | Mostly implemented; owner/stale-process reporting and fallback UX still need hardening. | User can start/stop/restart/status/log daemon from CLI, using activation/systemd/user-mode strategy. |
 | J8: recording control from CLI | Legacy `vinput recording start/stop/toggle`. | Rust CLI calls daemon D-Bus `StartRecording`, `StartCommandRecording`, `StopRecording`, and toggle via `GetStatus`; dry-run JSON/text is CI-tested. | Mostly implemented; `recording status` and live desktop error handling can still improve. | `vinput recording start/stop/toggle [--scene] [--selected-text]` works against D-Bus service and prints result. |
-| J9: device selection | Legacy `device list/use`, PipeWire device enumeration, config mutation. | Rust has `audio-devices` diagnostics; no `device use`. | Medium. | `vinput device list/use` maps PipeWire nodes to config and validates with doctor. |
+| J9: device selection | Legacy `device list/use`, PipeWire device enumeration, config mutation. | Rust has `audio-devices` diagnostics plus `vinput device list/use` for JSON/text listing and guarded `global.capture_device` mutation. | Mostly implemented; live PipeWire selection still needs desktop proof. | `vinput device list/use` maps PipeWire nodes to config and validates with doctor. |
 | J10: diagnose and recover | Legacy has CLI, GUI, notifications, logs. | Rust `doctor`, `runtime-status`, `audio-devices`, live probe are better than legacy in several areas. | Mostly done, but needs user-facing commands. | One `vinput doctor` explains config, activation, model, runtime libs, audio, daemon owner, and next command. |
 
 ## CLI command surface comparison
@@ -104,7 +104,7 @@ Rust CLI strengths:
 Rust CLI weaknesses for a user:
 
 - config `get/set/edit` exists, but broader resource-aware mutations are still incomplete;
-- live registry install/use/remove exists for model flow, but provider/scene/LLM/hotword/device management commands are still missing;
+- live registry install/use/remove exists for model flow, but provider/scene/LLM/hotword commands are still missing; device list/use exists;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
 - recording start/stop/toggle exists, but a dedicated `recording status` command is still missing;
 - no global JSON/text output mode equivalent to legacy;
@@ -242,7 +242,7 @@ Acceptance:
 
 - `vinput provider list/add/use/edit/remove` can configure local, command batch, command streaming, and remote/cloud script providers.
 - `vinput hotword get/set/clear/edit` manages the active provider hotwords path when supported.
-- `vinput device list/use` uses Rust PipeWire diagnostics and updates `global.capture_device`.
+- `vinput device list/use` uses Rust PipeWire diagnostics and updates `global.capture_device`. **Done with JSON/text list, dry-run/output/in-place writes, and backup/validation guards.**
 - `vinput doctor` references these commands in remediation text.
 
 ### P0.5 daemon and recording control commands

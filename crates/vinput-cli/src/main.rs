@@ -261,6 +261,41 @@ enum RecordingCommand {
     },
 }
 
+/// Audio device selection commands.
+#[derive(Debug, Subcommand)]
+enum DeviceCommand {
+    /// List configured and live capture devices.
+    #[command(alias = "ls")]
+    List {
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Select the capture device in config.
+    Use {
+        /// Capture device value, such as default or a `PipeWire` object/name from device list.
+        target: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Model-related commands backed by the live registry catalog.
 #[derive(Debug, Subcommand)]
 enum ModelCommand {
@@ -463,6 +498,12 @@ enum Command {
         #[command(subcommand)]
         command: RecordingCommand,
     },
+    /// List or select capture devices.
+    Device {
+        /// Device operation.
+        #[command(subcommand)]
+        command: DeviceCommand,
+    },
     /// Manage ASR models from the live registry catalog.
     Model {
         /// Model operation.
@@ -649,6 +690,7 @@ fn main() -> anyhow::Result<()> {
         },
         Command::Daemon { command } => handle_daemon_command(&command),
         Command::Recording { command } => handle_recording_command(command),
+        Command::Device { command } => handle_device_command(command),
         Command::Model { command } => handle_model_command(command),
         Command::AsrState { config } => print_asr_state(config.as_ref()),
         Command::AudioDevices { config } => print_audio_devices(config.as_ref()),
@@ -1361,6 +1403,242 @@ fn reload_asr_backend_via_dbus() -> anyhow::Result<()> {
         .call(dbus::method::RELOAD_ASR_BACKEND, &())
         .context("call ReloadAsrBackend on daemon D-Bus service")?;
     Ok(())
+}
+
+fn handle_device_command(command: DeviceCommand) -> anyhow::Result<()> {
+    match command {
+        DeviceCommand::List { config, json } => print_device_list(config.as_ref(), json),
+        DeviceCommand::Use {
+            target,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_device_use(DeviceUseRequest {
+            target: &target,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
+    }
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct DeviceUseRequest<'a> {
+    target: &'a str,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct DeviceListContext {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    config: VinputConfig,
+}
+
+struct DeviceUseOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    before: String,
+    after: String,
+    capture_target: CaptureTarget,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
+fn print_device_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
+    let context = load_device_list_context(config_path)?;
+    let audio = audio_devices_json(&context.config)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "ok": true,
+                "config_path": context.config_path,
+                "source": context.source,
+                "audio": audio,
+            }))?
+        );
+    } else {
+        print_device_list_text(context.config_path.as_ref(), context.source, &audio);
+    }
+    Ok(())
+}
+
+fn load_device_list_context(config_path: Option<&PathBuf>) -> anyhow::Result<DeviceListContext> {
+    let loaded = load_config_json(config_path)?;
+    let document = loaded.document;
+    let contents = serde_json::to_string(&document).context("serialize config for device list")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for device list")?;
+    config
+        .validate()
+        .context("validate config for device list")?;
+    Ok(DeviceListContext {
+        config_path: loaded.path,
+        source: loaded.source,
+        config,
+    })
+}
+
+fn print_device_list_text(config_path: Option<&PathBuf>, source: &str, audio: &serde_json::Value) {
+    println!("source: {source}");
+    if let Some(path) = config_path {
+        println!("config_path: {}", path.display());
+    }
+    println!(
+        "capture_device: {}",
+        audio["capture_device"].as_str().unwrap_or("")
+    );
+    println!(
+        "backend: {}",
+        audio["backend"].as_str().unwrap_or("unknown")
+    );
+    println!("live: {}", audio["live"].as_bool().unwrap_or(false));
+    if let Some(error) = audio["enumeration_error"].as_str() {
+        println!("enumeration_error: {error}");
+    }
+    println!("target\tid\tname\tdescription");
+    println!("default\t-\tdefault\tDefault capture source");
+    if let Some(devices) = audio["devices"].as_array() {
+        for device in devices {
+            let id = device["id"]
+                .as_u64()
+                .map_or_else(|| "-".to_owned(), |id| id.to_string());
+            let name = device["name"].as_str().unwrap_or("");
+            let description = device["description"].as_str().unwrap_or("");
+            println!("{name}\t{id}\t{name}\t{description}");
+        }
+    }
+}
+
+fn print_device_use(request: DeviceUseRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_device_use(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&device_use_outcome_json(&outcome))?
+        );
+    } else {
+        print_device_use_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_device_use(request: &DeviceUseRequest<'_>) -> anyhow::Result<DeviceUseOutcome> {
+    let after = normalize_capture_device_value(request.target)?;
+    let capture_target = CaptureTarget::from_config_value(&after)
+        .with_context(|| format!("parse capture device `{}`", request.target))?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let before = loaded
+        .document
+        .pointer("/global/capture_device")
+        .and_then(serde_json::Value::as_str)
+        .with_context(|| "config pointer `/global/capture_device` not found or not a string")?
+        .to_owned();
+    *loaded
+        .document
+        .pointer_mut("/global/capture_device")
+        .with_context(|| "config pointer `/global/capture_device` not found")? =
+        serde_json::Value::String(after.clone());
+    validate_config_json_value(&loaded.document, "validate updated device config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+
+    Ok(DeviceUseOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        before,
+        after,
+        capture_target,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn normalize_capture_device_value(input: &str) -> anyhow::Result<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("capture device cannot be empty");
+    }
+    Ok(trimmed.to_owned())
+}
+
+fn device_use_outcome_json(outcome: &DeviceUseOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path,
+        "source": outcome.source,
+        "before": outcome.before,
+        "after": outcome.after,
+        "capture_target": capture_target_json(&outcome.capture_target),
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput device list to verify the configured capture target",
+            "run vinput doctor to inspect audio and config diagnostics"
+        ],
+    })
+}
+
+fn print_device_use_text(outcome: &DeviceUseOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("before: {}", outcome.before);
+    println!("after: {}", outcome.after);
+    println!(
+        "capture_target: {}",
+        capture_target_label(&outcome.capture_target)
+    );
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
+}
+
+fn capture_target_label(target: &CaptureTarget) -> String {
+    match target {
+        CaptureTarget::Default => "default".to_owned(),
+        CaptureTarget::Object(value) => format!("object:{value}"),
+    }
 }
 
 #[allow(clippy::too_many_lines)]

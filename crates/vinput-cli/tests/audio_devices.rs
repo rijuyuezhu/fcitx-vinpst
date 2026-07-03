@@ -254,3 +254,177 @@ fn doctor_reports_existing_user_fcitx_addon_files() {
     assert_eq!(value["fcitx_addon"]["read_error"], serde_json::Value::Null);
     std::fs::remove_dir_all(data_home).expect("remove addon fixture");
 }
+
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "{prefix}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&path).expect("create unique temp dir");
+    path
+}
+
+fn read_json(path: &std::path::Path) -> serde_json::Value {
+    serde_json::from_str(&fs::read_to_string(path).expect("read json file"))
+        .expect("parse json file")
+}
+
+fn copy_default_config(root: &std::path::Path) -> std::path::PathBuf {
+    let config_path = root.join("config.json");
+    fs::copy(
+        common::workspace_file("data/default-config.json"),
+        &config_path,
+    )
+    .expect("copy default config");
+    config_path
+}
+
+#[test]
+fn device_list_json_reports_config_source_and_audio_summary() {
+    let root = unique_temp_dir("vinput-device-list-json");
+    let config_path = copy_default_config(&root);
+
+    let output = vinput_command()
+        .args(["device", "list", "--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput device list --json");
+
+    let value = assert_json_success(output, "device list json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["config_path"], config_path.to_string_lossy().as_ref());
+    assert_eq!(value["audio"]["ok"], true);
+    assert_eq!(value["audio"]["capture_device"], "default");
+    assert_eq!(value["audio"]["capture_target"]["kind"], "default");
+}
+
+#[test]
+fn device_list_text_includes_default_target() {
+    let output = vinput_command()
+        .args(["device", "list"])
+        .output()
+        .expect("run vinput device list text");
+
+    let stdout = common::assert_stdout_success(output, "device list text");
+    assert!(stdout.contains("source: bundled-default"));
+    assert!(stdout.contains("capture_device: default"));
+    assert!(stdout.contains("target\tid\tname\tdescription"));
+    assert!(stdout.contains("default\t-\tdefault\tDefault capture source"));
+}
+
+#[test]
+fn device_use_dry_run_json_validates_without_writing() {
+    let root = unique_temp_dir("vinput-device-use-dry-run");
+    let config_path = copy_default_config(&root);
+    let before = fs::read_to_string(&config_path).expect("read original config");
+
+    let output = vinput_command()
+        .args(["device", "use", "alsa_input.usb-mic", "--config"])
+        .arg(&config_path)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput device use dry-run");
+
+    let value = assert_json_success(output, "device use dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["before"], "default");
+    assert_eq!(value["after"], "alsa_input.usb-mic");
+    assert_eq!(value["capture_target"]["kind"], "object");
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read unchanged config"),
+        before
+    );
+}
+
+#[test]
+fn device_use_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-device-use-output");
+    let config_path = copy_default_config(&root);
+    let output_path = root.join("out/device.json");
+    let before = fs::read_to_string(&config_path).expect("read original config");
+
+    let output = vinput_command()
+        .args(["device", "use", "alsa_input.output-mic", "--config"])
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput device use --output");
+
+    let value = assert_json_success(output, "device use output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    assert_eq!(
+        read_json(&output_path)["global"]["capture_device"],
+        "alsa_input.output-mic"
+    );
+}
+
+#[test]
+fn device_use_in_place_writes_backup() {
+    let root = unique_temp_dir("vinput-device-use-in-place");
+    let config_path = copy_default_config(&root);
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original config");
+
+    let output = vinput_command()
+        .args(["device", "use", "default", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput device use --in-place");
+
+    let value = assert_json_success(output, "device use in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read backup config"),
+        before
+    );
+    assert_eq!(
+        read_json(&config_path)["global"]["capture_device"],
+        "default"
+    );
+}
+
+#[test]
+fn device_use_rejects_empty_target_and_missing_write_target() {
+    let root = unique_temp_dir("vinput-device-use-errors");
+    let config_path = copy_default_config(&root);
+
+    let empty = vinput_command()
+        .args(["device", "use", "   ", "--config"])
+        .arg(&config_path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput device use empty target");
+    assert!(!empty.status.success());
+    let stderr = String::from_utf8(empty.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("capture device cannot be empty"));
+
+    let missing_target = vinput_command()
+        .args(["device", "use", "alsa_input.usb-mic", "--config"])
+        .arg(&config_path)
+        .output()
+        .expect("run vinput device use without write target");
+    assert!(!missing_target.status.success());
+    let stderr = String::from_utf8(missing_target.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("config set writes require --output <path> or --in-place"));
+}

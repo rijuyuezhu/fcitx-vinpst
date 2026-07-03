@@ -18,6 +18,7 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("doctor"));
     assert!(stdout.contains("protocol"));
     assert!(stdout.contains("registry"));
+    assert!(stdout.contains("device"));
     assert!(stdout.contains("model"));
     assert!(stdout.contains("daemon"));
     assert!(stdout.contains("recording"));
@@ -73,6 +74,37 @@ fn config_get_set_edit_help_lists_pointer_and_write_options() {
     assert!(edit_stdout.contains("--editor"));
     assert!(edit_stdout.contains("--dry-run"));
     assert!(edit_stdout.contains("--json"));
+}
+
+#[test]
+fn device_help_lists_list_and_use_options() {
+    let root_output = vinput_command()
+        .args(["device", "--help"])
+        .output()
+        .expect("run vinput device --help");
+    let root_stdout = assert_stdout_success(root_output, "device help output");
+    assert!(root_stdout.contains("list"));
+    assert!(root_stdout.contains("use"));
+
+    let list_output = vinput_command()
+        .args(["device", "list", "--help"])
+        .output()
+        .expect("run vinput device list --help");
+    let list_stdout = assert_stdout_success(list_output, "device list help output");
+    assert!(list_stdout.contains("--config"));
+    assert!(list_stdout.contains("--json"));
+
+    let use_output = vinput_command()
+        .args(["device", "use", "--help"])
+        .output()
+        .expect("run vinput device use --help");
+    let use_stdout = assert_stdout_success(use_output, "device use help output");
+    assert!(use_stdout.contains("<TARGET>"));
+    assert!(use_stdout.contains("--config"));
+    assert!(use_stdout.contains("--output"));
+    assert!(use_stdout.contains("--in-place"));
+    assert!(use_stdout.contains("--dry-run"));
+    assert!(use_stdout.contains("--json"));
 }
 
 #[test]
