@@ -20,6 +20,8 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("registry"));
     assert!(stdout.contains("device"));
     assert!(stdout.contains("provider"));
+    assert!(stdout.contains("llm"));
+    assert!(stdout.contains("adapter"));
     assert!(stdout.contains("scene"));
     assert!(stdout.contains("hotword"));
     assert!(stdout.contains("model"));
@@ -107,6 +109,40 @@ fn device_help_lists_list_and_use_options() {
     assert!(use_stdout.contains("--in-place"));
     assert!(use_stdout.contains("--dry-run"));
     assert!(use_stdout.contains("--json"));
+}
+
+#[test]
+fn llm_and_adapter_help_list_options() {
+    let llm_root_output = vinput_command()
+        .args(["llm", "--help"])
+        .output()
+        .expect("run vinput llm --help");
+    let llm_root_stdout = assert_stdout_success(llm_root_output, "llm help output");
+    assert!(llm_root_stdout.contains("list"));
+
+    let llm_list_output = vinput_command()
+        .args(["llm", "list", "--help"])
+        .output()
+        .expect("run vinput llm list --help");
+    let llm_list_stdout = assert_stdout_success(llm_list_output, "llm list help output");
+    assert!(llm_list_stdout.contains("--config"));
+    assert!(llm_list_stdout.contains("--json"));
+
+    let adapter_root_output = vinput_command()
+        .args(["adapter", "--help"])
+        .output()
+        .expect("run vinput adapter --help");
+    let adapter_root_stdout = assert_stdout_success(adapter_root_output, "adapter help output");
+    assert!(adapter_root_stdout.contains("list"));
+
+    let adapter_list_output = vinput_command()
+        .args(["adapter", "list", "--help"])
+        .output()
+        .expect("run vinput adapter list --help");
+    let adapter_list_stdout =
+        assert_stdout_success(adapter_list_output, "adapter list help output");
+    assert!(adapter_list_stdout.contains("--config"));
+    assert!(adapter_list_stdout.contains("--json"));
 }
 
 #[test]

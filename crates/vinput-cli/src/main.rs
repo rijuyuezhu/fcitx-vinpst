@@ -376,6 +376,36 @@ enum DeviceCommand {
     },
 }
 
+/// LLM provider management commands.
+#[derive(Debug, Subcommand)]
+enum LlmCommand {
+    /// List configured LLM providers.
+    #[command(alias = "ls")]
+    List {
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print machine-readable JSON instead of text table output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+/// Text adapter management commands.
+#[derive(Debug, Subcommand)]
+enum AdapterCommand {
+    /// List configured text adapters.
+    #[command(alias = "ls")]
+    List {
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print machine-readable JSON instead of text table output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Scene management commands.
 #[derive(Debug, Subcommand)]
 enum SceneCommand {
@@ -903,6 +933,18 @@ enum Command {
         #[command(subcommand)]
         command: HotwordCommand,
     },
+    /// Inspect or manage LLM providers.
+    Llm {
+        /// LLM operation.
+        #[command(subcommand)]
+        command: LlmCommand,
+    },
+    /// Inspect or manage text adapters.
+    Adapter {
+        /// Adapter operation.
+        #[command(subcommand)]
+        command: AdapterCommand,
+    },
     /// Inspect or manage recognition scenes.
     Scene {
         /// Scene operation.
@@ -1103,6 +1145,8 @@ fn main() -> anyhow::Result<()> {
         Command::Recording { command } => handle_recording_command(command),
         Command::Device { command } => handle_device_command(command),
         Command::Hotword { command } => handle_hotword_command(command),
+        Command::Llm { command } => handle_llm_command(command),
+        Command::Adapter { command } => handle_adapter_command(command),
         Command::Scene { command } => handle_scene_command(command),
         Command::Provider { command } => handle_provider_command(command),
         Command::Model { command } => handle_model_command(command),
@@ -2311,6 +2355,204 @@ fn print_hotword_mutation_text(outcome: &HotwordMutationOutcome) {
     }
     println!("will_write_config: {}", !outcome.dry_run);
     println!("wrote_config: {}", outcome.wrote_config);
+}
+
+struct LlmListContext {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    config: VinputConfig,
+}
+
+struct AdapterListContext {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    config: VinputConfig,
+}
+
+fn handle_llm_command(command: LlmCommand) -> anyhow::Result<()> {
+    match command {
+        LlmCommand::List { config, json } => print_llm_list(config.as_ref(), json),
+    }
+}
+
+fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
+    match command {
+        AdapterCommand::List { config, json } => print_adapter_list(config.as_ref(), json),
+    }
+}
+
+fn print_llm_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
+    let context = load_llm_list_context(config_path)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&llm_list_json(&context))?
+        );
+    } else {
+        print_llm_list_text(&context);
+    }
+    Ok(())
+}
+
+fn load_llm_list_context(config_path: Option<&PathBuf>) -> anyhow::Result<LlmListContext> {
+    let loaded = load_config_json(config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for llm list")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for llm list")?;
+    config.validate().context("validate config for llm list")?;
+    Ok(LlmListContext {
+        config_path: loaded.path,
+        source: loaded.source,
+        config,
+    })
+}
+
+fn llm_list_json(context: &LlmListContext) -> serde_json::Value {
+    let providers = context
+        .config
+        .llm
+        .providers
+        .iter()
+        .map(llm_provider_summary_json)
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "ok": true,
+        "config_path": context.config_path.as_ref(),
+        "source": context.source,
+        "provider_count": providers.len(),
+        "providers": providers,
+        "next_steps": [
+            "run vinput scene list to inspect scene/provider bindings",
+            "run vinput adapter list to inspect command text adapters",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn llm_provider_summary_json(provider: &vinput_config::LlmProviderConfig) -> serde_json::Value {
+    serde_json::json!({
+        "id": provider.id.as_str(),
+        "base_url_configured": !provider.base_url.trim().is_empty(),
+        "api_key_configured": !provider.api_key.trim().is_empty(),
+        "model": provider.model.as_deref(),
+        "extra_body_configured": provider.extra_body.as_object().is_some_and(|object| !object.is_empty()),
+        "extra_field_count": provider.extra.len(),
+    })
+}
+
+fn print_llm_list_text(context: &LlmListContext) {
+    println!("source: {}", context.source);
+    if let Some(path) = &context.config_path {
+        println!("config_path: {}", path.display());
+    }
+    println!("provider_count: {}", context.config.llm.providers.len());
+    println!("id	base_url	api_key	model	extra_body	extra_fields");
+    for provider in &context.config.llm.providers {
+        println!(
+            "{}	{}	{}	{}	{}	{}",
+            provider.id,
+            bool_label(!provider.base_url.trim().is_empty()),
+            bool_label(!provider.api_key.trim().is_empty()),
+            provider.model.as_deref().unwrap_or("-"),
+            bool_label(
+                provider
+                    .extra_body
+                    .as_object()
+                    .is_some_and(|object| !object.is_empty())
+            ),
+            provider.extra.len(),
+        );
+    }
+}
+
+fn print_adapter_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
+    let context = load_adapter_list_context(config_path)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&adapter_list_json(&context))?
+        );
+    } else {
+        print_adapter_list_text(&context);
+    }
+    Ok(())
+}
+
+fn load_adapter_list_context(config_path: Option<&PathBuf>) -> anyhow::Result<AdapterListContext> {
+    let loaded = load_config_json(config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for adapter list")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for adapter list")?;
+    config
+        .validate()
+        .context("validate config for adapter list")?;
+    Ok(AdapterListContext {
+        config_path: loaded.path,
+        source: loaded.source,
+        config,
+    })
+}
+
+fn adapter_list_json(context: &AdapterListContext) -> serde_json::Value {
+    let adapters = context
+        .config
+        .llm
+        .adapters
+        .iter()
+        .map(adapter_summary_json)
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "ok": true,
+        "config_path": context.config_path.as_ref(),
+        "source": context.source,
+        "adapter_count": adapters.len(),
+        "adapters": adapters,
+        "next_steps": [
+            "run vinput scene list to inspect scenes that need adapters",
+            "run vinput daemon status --dry-run --json to inspect daemon D-Bus calls",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn adapter_summary_json(adapter: &vinput_config::LlmAdapterConfig) -> serde_json::Value {
+    serde_json::json!({
+        "id": adapter.id.as_str(),
+        "command_configured": !adapter.command.trim().is_empty(),
+        "args_count": adapter.args.len(),
+        "env_count": adapter.env.len(),
+        "working_dir_configured": adapter.working_dir.as_ref().is_some_and(|value| !value.trim().is_empty()),
+        "extra_field_count": adapter.extra.len(),
+    })
+}
+
+fn print_adapter_list_text(context: &AdapterListContext) {
+    println!("source: {}", context.source);
+    if let Some(path) = &context.config_path {
+        println!("config_path: {}", path.display());
+    }
+    println!("adapter_count: {}", context.config.llm.adapters.len());
+    println!("id	command	args	env	working_dir	extra_fields");
+    for adapter in &context.config.llm.adapters {
+        println!(
+            "{}	{}	{}	{}	{}	{}",
+            adapter.id,
+            bool_label(!adapter.command.trim().is_empty()),
+            adapter.args.len(),
+            adapter.env.len(),
+            bool_label(
+                adapter
+                    .working_dir
+                    .as_ref()
+                    .is_some_and(|value| !value.trim().is_empty())
+            ),
+            adapter.extra.len(),
+        );
+    }
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 struct SceneListContext {
