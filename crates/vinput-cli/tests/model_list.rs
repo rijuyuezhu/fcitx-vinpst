@@ -597,3 +597,107 @@ fn model_use_output_refuses_to_overwrite_input_config() {
     let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
     assert!(stderr.contains("refusing to overwrite input config"));
 }
+
+#[test]
+fn model_remove_dry_run_json_plans_registry_model_under_model_root() {
+    let temp_root = unique_temp_dir("vinput-cli-model-remove");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("onnx-sv-zh-int8-off");
+    std::fs::create_dir_all(&model_dir).expect("create installed model dir");
+
+    let output = vinput_command()
+        .args(["model", "remove", "onnx-sv-zh-int8-off", "--registry"])
+        .arg(live_models_fixture())
+        .args(["--i18n"])
+        .arg(live_i18n_fixture())
+        .arg("--model-root")
+        .arg(&model_root)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput model remove --dry-run --json");
+
+    let value = assert_json_success(output, "model remove dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["will_remove"], false);
+    assert_eq!(value["selector"]["kind"], "registry");
+    assert_eq!(
+        value["selector"]["resolved_short_id"],
+        "onnx-sv-zh-int8-off"
+    );
+    assert_eq!(value["selector"]["title"], "SenseVoice 五语");
+    assert_eq!(
+        value["target"]["model_root"],
+        model_root.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        value["target"]["path"],
+        model_dir.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["target"]["exists"], true);
+    assert_eq!(value["target"]["is_dir"], true);
+    assert_eq!(value["target"]["managed"], true);
+    assert!(model_dir.exists(), "dry-run must not delete the model dir");
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_rm_alias_dry_run_text_accepts_managed_dir_name() {
+    let temp_root = unique_temp_dir("vinput-cli-model-rm-alias");
+    let model_root = temp_root.join("models");
+    std::fs::create_dir_all(&model_root).expect("create model root");
+
+    let output = vinput_command()
+        .args(["model", "rm", "custom-model"])
+        .arg("--model-root")
+        .arg(&model_root)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput model rm --dry-run");
+
+    let stdout = assert_stdout_success(output, "model rm dry-run text");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("selector_kind: managed-dir"));
+    assert!(stdout.contains(&format!("model_root: {}", model_root.display())));
+    assert!(stdout.contains(&format!(
+        "target_path: {}",
+        model_root.join("custom-model").display()
+    )));
+    assert!(stdout.contains("exists: false"));
+    assert!(stdout.contains("will_remove: false"));
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_remove_dry_run_rejects_path_outside_model_root() {
+    let temp_root = unique_temp_dir("vinput-cli-model-remove-outside");
+    let model_root = temp_root.join("models");
+    std::fs::create_dir_all(&model_root).expect("create model root");
+
+    let output = vinput_command()
+        .args(["model", "remove", "/tmp/outside-vinput-model"])
+        .arg("--model-root")
+        .arg(&model_root)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput model remove outside path");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("because it is outside model root"));
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_remove_without_dry_run_is_rejected_until_real_remove_exists() {
+    let output = vinput_command()
+        .args(["model", "remove", "custom-model"])
+        .output()
+        .expect("run vinput model remove without dry-run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains(
+        "real model remove is not implemented yet; rerun with --dry-run to inspect the removal plan"
+    ));
+}

@@ -215,6 +215,33 @@ enum ModelCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Preview removing a managed installed model directory.
+    #[command(alias = "rm")]
+    Remove {
+        /// Full model id, `short_id`, managed model dir name, or installed path under model root.
+        selector: String,
+        /// Optional local live registry/models.json file for resolving `id`/`short_id`.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional local live i18n JSON file used for title/description output.
+        #[arg(long)]
+        i18n: Option<PathBuf>,
+        /// Optional config JSON file that provides registry mirrors.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Live registry i18n locale to fetch when reading remote mirrors.
+        #[arg(long, default_value = "zh_CN")]
+        locale: String,
+        /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
+        #[arg(long)]
+        model_root: Option<PathBuf>,
+        /// Print the removal plan without deleting anything. Required until remove is implemented.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Supported bootstrap commands.
@@ -487,6 +514,25 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             locale: &locale,
             provider: provider.as_deref(),
             output_path: output.as_deref(),
+            model_root: model_root.as_deref(),
+            dry_run,
+            json_output: json,
+        }),
+        ModelCommand::Remove {
+            selector,
+            registry,
+            i18n,
+            config,
+            locale,
+            model_root,
+            dry_run,
+            json,
+        } => print_model_remove_plan(ModelRemoveRequest {
+            selector: &selector,
+            registry_path: registry.as_deref(),
+            i18n_path: i18n.as_deref(),
+            config_path: config.as_ref(),
+            locale: &locale,
             model_root: model_root.as_deref(),
             dry_run,
             json_output: json,
@@ -1074,6 +1120,207 @@ fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> anyhow::Res
         print_model_install_result_text(model, i18n.i18n.as_ref(), &installed);
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ModelRemoveRequest<'a> {
+    selector: &'a str,
+    registry_path: Option<&'a Path>,
+    i18n_path: Option<&'a Path>,
+    config_path: Option<&'a PathBuf>,
+    locale: &'a str,
+    model_root: Option<&'a Path>,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct ModelRemovePlan {
+    selector: String,
+    selector_kind: String,
+    model_root: PathBuf,
+    target_path: PathBuf,
+    exists: bool,
+    is_dir: bool,
+    resolved_model_id: Option<String>,
+    resolved_short_id: Option<String>,
+    resolved_title: Option<String>,
+}
+
+fn print_model_remove_plan(request: ModelRemoveRequest<'_>) -> anyhow::Result<()> {
+    if !request.dry_run {
+        anyhow::bail!(
+            "real model remove is not implemented yet; rerun with --dry-run to inspect the removal plan"
+        );
+    }
+    let model_root = match request.model_root {
+        Some(path) => path.to_path_buf(),
+        None => default_model_root()?,
+    };
+    let plan = build_model_remove_plan(request, &model_root)?;
+    if request.json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&model_remove_plan_json(&plan))?
+        );
+    } else {
+        print_model_remove_plan_text(&plan);
+    }
+    Ok(())
+}
+
+fn build_model_remove_plan(
+    request: ModelRemoveRequest<'_>,
+    model_root: &Path,
+) -> anyhow::Result<ModelRemovePlan> {
+    let resolution = resolve_model_remove_target(
+        request.selector,
+        request.registry_path,
+        request.i18n_path,
+        request.config_path,
+        request.locale,
+        model_root,
+    );
+    ensure_managed_remove_target(model_root, &resolution.target_path)?;
+    let metadata = fs::metadata(&resolution.target_path);
+    let (exists, is_dir) = match metadata {
+        Ok(metadata) => (true, metadata.is_dir()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (false, false),
+        Err(error) => {
+            anyhow::bail!(
+                "inspect model remove target `{}`: {}",
+                resolution.target_path.display(),
+                error.kind()
+            );
+        }
+    };
+    Ok(ModelRemovePlan {
+        selector: request.selector.to_owned(),
+        selector_kind: resolution.selector_kind,
+        model_root: model_root.to_path_buf(),
+        target_path: resolution.target_path,
+        exists,
+        is_dir,
+        resolved_model_id: resolution.resolved_model_id,
+        resolved_short_id: resolution.resolved_short_id,
+        resolved_title: resolution.resolved_title,
+    })
+}
+
+struct ModelRemoveResolution {
+    target_path: PathBuf,
+    selector_kind: String,
+    resolved_model_id: Option<String>,
+    resolved_short_id: Option<String>,
+    resolved_title: Option<String>,
+}
+
+fn resolve_model_remove_target(
+    selector: &str,
+    registry_path: Option<&Path>,
+    i18n_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+    locale: &str,
+    model_root: &Path,
+) -> ModelRemoveResolution {
+    let selector_path = Path::new(selector);
+    if selector_path.is_absolute() || selector.contains('/') {
+        return ModelRemoveResolution {
+            target_path: selector_path.to_path_buf(),
+            selector_kind: "path".to_owned(),
+            resolved_model_id: None,
+            resolved_short_id: None,
+            resolved_title: None,
+        };
+    }
+
+    if let Ok((loaded, i18n)) =
+        load_live_model_catalog(registry_path, i18n_path, config_path, locale)
+        && let Some(model) = loaded.registry.model_by_id_or_short_id(selector)
+    {
+        return ModelRemoveResolution {
+            target_path: model_root.join(managed_model_dir_name(model)),
+            selector_kind: "registry".to_owned(),
+            resolved_model_id: Some(model.id.clone()),
+            resolved_short_id: model.short_id.clone(),
+            resolved_title: Some(model.resolved_title(i18n.i18n.as_ref())),
+        };
+    }
+
+    ModelRemoveResolution {
+        target_path: model_root.join(safe_path_component(selector)),
+        selector_kind: "managed-dir".to_owned(),
+        resolved_model_id: None,
+        resolved_short_id: None,
+        resolved_title: None,
+    }
+}
+
+fn ensure_managed_remove_target(model_root: &Path, target_path: &Path) -> anyhow::Result<()> {
+    let relative = target_path.strip_prefix(model_root).with_context(|| {
+        format!(
+            "refusing to remove `{}` because it is outside model root `{}`",
+            target_path.display(),
+            model_root.display()
+        )
+    })?;
+    if relative.as_os_str().is_empty() {
+        anyhow::bail!(
+            "refusing to remove model root `{}`; select a managed model directory",
+            model_root.display()
+        );
+    }
+    for component in relative.components() {
+        if matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        ) {
+            anyhow::bail!(
+                "refusing unsafe model remove target `{}`",
+                target_path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn model_remove_plan_json(plan: &ModelRemovePlan) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "will_remove": false,
+        "selector": {
+            "input": plan.selector,
+            "kind": plan.selector_kind,
+            "resolved_model_id": plan.resolved_model_id,
+            "resolved_short_id": plan.resolved_short_id,
+            "title": plan.resolved_title,
+        },
+        "target": {
+            "model_root": plan.model_root,
+            "path": plan.target_path,
+            "exists": plan.exists,
+            "is_dir": plan.is_dir,
+            "managed": true,
+        },
+        "next_steps": [
+            "rerun without --dry-run after remove is implemented",
+            "run vinput model use --dry-run to verify the active config does not point at the removed model"
+        ],
+    })
+}
+
+fn print_model_remove_plan_text(plan: &ModelRemovePlan) {
+    println!("dry_run: true");
+    println!("selector: {}", plan.selector);
+    println!("selector_kind: {}", plan.selector_kind);
+    println!("model_root: {}", plan.model_root.display());
+    println!("target_path: {}", plan.target_path.display());
+    println!("exists: {}", plan.exists);
+    println!("is_dir: {}", plan.is_dir);
+    println!("managed: true");
+    println!("will_remove: false");
 }
 
 #[derive(Clone, Copy)]

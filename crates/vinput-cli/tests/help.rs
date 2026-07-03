@@ -157,3 +157,25 @@ fn model_use_help_lists_dry_run_and_config_options() {
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("--json"));
 }
+
+#[test]
+fn model_remove_help_lists_dry_run_and_registry_options() {
+    let output = vinput_command()
+        .args(["model", "remove", "--help"])
+        .output()
+        .expect("run vinput model remove --help");
+
+    let stdout = assert_stdout_success(output, "model remove help output");
+    assert!(stdout.contains("<SELECTOR>"));
+    assert!(stdout.contains("--registry"));
+    assert!(stdout.contains("--model-root"));
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
+
+    let alias_output = vinput_command()
+        .args(["model", "rm", "--help"])
+        .output()
+        .expect("run vinput model rm --help");
+    let alias_stdout = assert_stdout_success(alias_output, "model rm help output");
+    assert!(alias_stdout.contains("--dry-run"));
+}
