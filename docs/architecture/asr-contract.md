@@ -66,6 +66,8 @@ A helper can also return an ASR-level error without a non-zero process exit:
 
 The deprecated `failure` response key is accepted as an alias for `error`. Non-zero exits, invalid JSON, missing final text, and timeout paths are surfaced as backend errors.
 
+The repository also ships `scripts/command-asr-wav-helper.py` for external ASR CLIs that consume WAV files rather than the raw legacy PCM or vinput JSON request directly. The helper reads `CommandAsrRequest` JSON from stdin, writes the request PCM as a temporary WAV file, exposes that path as `VINPUT_ASR_WAV`, runs the command after `--`, and emits `{"text":...}` from trimmed stdout or `{"error":...}` for helper-level failures. It also exports `VINPUT_ASR_PROVIDER_ID`, `VINPUT_ASR_MODEL_ID`, `VINPUT_ASR_HOTWORDS_FILE`, `VINPUT_ASR_SAMPLE_RATE_HZ`, and `VINPUT_ASR_CHANNELS` for wrapper scripts. This keeps real command-ASR integration usable with tools such as whisper.cpp or sherpa CLIs without adding a hard runtime dependency.
+
 ## Diagnostics
 
 Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable.
