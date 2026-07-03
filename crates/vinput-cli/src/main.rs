@@ -112,6 +112,15 @@ enum RegistryCommand {
 /// Daemon-related commands backed by the D-Bus service contract.
 #[derive(Debug, Subcommand)]
 enum DaemonCommand {
+    /// Trigger daemon D-Bus activation by querying status.
+    Start {
+        /// Print the D-Bus activation plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Query daemon status and runtime diagnostics over D-Bus.
     Status {
         /// Print the D-Bus call plan without contacting the daemon.
@@ -768,9 +777,68 @@ fn print_recording_plan_text(action: &str, selected_text: Option<&str>, scene: O
 
 fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<()> {
     match command {
+        DaemonCommand::Start { dry_run, json } => print_daemon_start(*dry_run, *json),
         DaemonCommand::Status { dry_run, json } => print_daemon_status(*dry_run, *json),
         DaemonCommand::ReloadAsr { dry_run, json } => print_daemon_reload_asr_plan(*dry_run, *json),
     }
+}
+
+fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
+    if dry_run {
+        let output = serde_json::json!({
+            "ok": true,
+            "dry_run": true,
+            "action": "start",
+            "will_call_dbus": false,
+            "activation": {
+                "strategy": "dbus-service-activation",
+                "trigger_method": dbus::method::GET_STATUS,
+            },
+            "dbus": {
+                "service": dbus::SERVICE_BUS_NAME,
+                "object_path": dbus::SERVICE_OBJECT_PATH,
+                "interface": dbus::SERVICE_INTERFACE,
+                "method": dbus::method::GET_STATUS,
+            },
+        });
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            println!("dry_run: true");
+            println!("action: start");
+            println!("will_call_dbus: false");
+            println!("strategy: dbus-service-activation");
+            println!("method: {}", dbus::method::GET_STATUS);
+            println!("service: {}", dbus::SERVICE_BUS_NAME);
+            println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+            println!("interface: {}", dbus::SERVICE_INTERFACE);
+        }
+        return Ok(());
+    }
+
+    let status = daemon_status_via_dbus()?;
+    let output = serde_json::json!({
+        "ok": true,
+        "dry_run": false,
+        "action": "start",
+        "will_call_dbus": true,
+        "called": true,
+        "activation": {
+            "strategy": "dbus-service-activation",
+            "trigger_method": dbus::method::GET_STATUS,
+        },
+        "daemon": status,
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        println!("dry_run: false");
+        println!("action: start");
+        println!("will_call_dbus: true");
+        println!("called: true");
+        println!("status: {}", optional_json_str(&output["daemon"]["status"]));
+    }
+    Ok(())
 }
 
 type DaemonAsrBackendStateTuple = (

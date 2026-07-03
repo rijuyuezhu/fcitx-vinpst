@@ -337,3 +337,40 @@ fn recording_stop_and_toggle_dry_run_print_text_plans() {
     assert!(toggle_stdout.contains("StartRecording"));
     assert!(toggle_stdout.contains("StopRecording"));
 }
+
+#[test]
+fn daemon_start_dry_run_prints_activation_plan_json() {
+    let output = vinput_command()
+        .args(["daemon", "start", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput daemon start --dry-run --json");
+
+    let value = assert_json_success(output, "daemon start dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["action"], "start");
+    assert_eq!(value["will_call_dbus"], false);
+    assert_eq!(value["activation"]["strategy"], "dbus-service-activation");
+    assert_eq!(
+        value["activation"]["trigger_method"],
+        dbus::method::GET_STATUS
+    );
+    assert_eq!(value["dbus"]["service"], dbus::SERVICE_BUS_NAME);
+    assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
+    assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);
+    assert_eq!(value["dbus"]["method"], dbus::method::GET_STATUS);
+}
+
+#[test]
+fn daemon_start_text_dry_run_prints_activation_plan() {
+    let output = vinput_command()
+        .args(["daemon", "start", "--dry-run"])
+        .output()
+        .expect("run vinput daemon start --dry-run");
+    let stdout = assert_stdout_success(output, "daemon start dry-run text");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("action: start"));
+    assert!(stdout.contains("strategy: dbus-service-activation"));
+    assert!(stdout.contains("method: GetStatus"));
+    assert!(stdout.contains("service: org.fcitx.Vinput"));
+}

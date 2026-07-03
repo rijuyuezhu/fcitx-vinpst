@@ -223,3 +223,15 @@ fn recording_help_lists_dry_run_options() {
         assert!(stdout.contains("--json"));
     }
 }
+
+#[test]
+fn daemon_start_help_lists_dry_run_and_json_options() {
+    let output = vinput_command()
+        .args(["daemon", "start", "--help"])
+        .output()
+        .expect("run vinput daemon start --help");
+
+    let stdout = assert_stdout_success(output, "daemon start help output");
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
+}
