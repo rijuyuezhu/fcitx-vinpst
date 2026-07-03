@@ -20,6 +20,7 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("registry"));
     assert!(stdout.contains("device"));
     assert!(stdout.contains("provider"));
+    assert!(stdout.contains("hotword"));
     assert!(stdout.contains("model"));
     assert!(stdout.contains("daemon"));
     assert!(stdout.contains("recording"));
@@ -137,6 +138,25 @@ fn provider_help_lists_list_and_use_options() {
     assert!(use_stdout.contains("--in-place"));
     assert!(use_stdout.contains("--dry-run"));
     assert!(use_stdout.contains("--json"));
+}
+
+#[test]
+fn hotword_help_lists_get_options() {
+    let root_output = vinput_command()
+        .args(["hotword", "--help"])
+        .output()
+        .expect("run vinput hotword --help");
+    let root_stdout = assert_stdout_success(root_output, "hotword help output");
+    assert!(root_stdout.contains("get"));
+
+    let get_output = vinput_command()
+        .args(["hotword", "get", "--help"])
+        .output()
+        .expect("run vinput hotword get --help");
+    let get_stdout = assert_stdout_success(get_output, "hotword get help output");
+    assert!(get_stdout.contains("--provider"));
+    assert!(get_stdout.contains("--config"));
+    assert!(get_stdout.contains("--json"));
 }
 
 #[test]

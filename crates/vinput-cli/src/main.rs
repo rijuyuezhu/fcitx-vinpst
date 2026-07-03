@@ -261,6 +261,23 @@ enum RecordingCommand {
     },
 }
 
+/// Hotword configuration inspection commands.
+#[derive(Debug, Subcommand)]
+enum HotwordCommand {
+    /// Show the hotwords file configured for the active or selected ASR provider.
+    Get {
+        /// Optional ASR provider id. Defaults to the active provider.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 /// Audio device selection commands.
 #[derive(Debug, Subcommand)]
 enum DeviceCommand {
@@ -539,6 +556,12 @@ enum Command {
         #[command(subcommand)]
         command: DeviceCommand,
     },
+    /// Inspect ASR hotword configuration.
+    Hotword {
+        /// Hotword operation.
+        #[command(subcommand)]
+        command: HotwordCommand,
+    },
     /// Inspect or manage ASR providers.
     Provider {
         /// Provider operation.
@@ -732,6 +755,7 @@ fn main() -> anyhow::Result<()> {
         Command::Daemon { command } => handle_daemon_command(&command),
         Command::Recording { command } => handle_recording_command(command),
         Command::Device { command } => handle_device_command(command),
+        Command::Hotword { command } => handle_hotword_command(command),
         Command::Provider { command } => handle_provider_command(command),
         Command::Model { command } => handle_model_command(command),
         Command::AsrState { config } => print_asr_state(config.as_ref()),
@@ -1466,6 +1490,118 @@ fn handle_device_command(command: DeviceCommand) -> anyhow::Result<()> {
             json_output: json,
         }),
     }
+}
+
+fn handle_hotword_command(command: HotwordCommand) -> anyhow::Result<()> {
+    match command {
+        HotwordCommand::Get {
+            provider,
+            config,
+            json,
+        } => print_hotword_get(provider.as_deref(), config.as_ref(), json),
+    }
+}
+
+struct HotwordGetContext {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    active_provider: String,
+    provider: AsrProviderConfig,
+}
+
+fn print_hotword_get(
+    provider_id: Option<&str>,
+    config_path: Option<&PathBuf>,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let context = load_hotword_get_context(provider_id, config_path)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&hotword_get_json(&context))?
+        );
+    } else {
+        print_hotword_get_text(&context);
+    }
+    Ok(())
+}
+
+fn load_hotword_get_context(
+    provider_id: Option<&str>,
+    config_path: Option<&PathBuf>,
+) -> anyhow::Result<HotwordGetContext> {
+    let loaded = load_config_json(config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for hotword get")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for hotword get")?;
+    config
+        .validate()
+        .context("validate config for hotword get")?;
+    let selected_provider_id = provider_id
+        .map(normalize_provider_id)
+        .transpose()?
+        .unwrap_or_else(|| config.asr.active_provider.clone());
+    let provider = config
+        .asr
+        .providers
+        .iter()
+        .find(|provider| provider.id == selected_provider_id)
+        .with_context(|| format!("ASR provider `{selected_provider_id}` not found"))?
+        .clone();
+    Ok(HotwordGetContext {
+        config_path: loaded.path,
+        source: loaded.source,
+        active_provider: config.asr.active_provider,
+        provider,
+    })
+}
+
+fn hotword_get_json(context: &HotwordGetContext) -> serde_json::Value {
+    let hotwords_file = context.provider.hotwords_file.as_deref();
+    serde_json::json!({
+        "ok": true,
+        "config_path": context.config_path.as_ref(),
+        "source": context.source,
+        "active_provider": context.active_provider.as_str(),
+        "provider_id": context.provider.id.as_str(),
+        "provider_type": asr_provider_kind_label(&context.provider.kind),
+        "active": context.provider.id == context.active_provider,
+        "supported": hotword_supported(&context.provider.kind),
+        "configured": hotwords_file.is_some_and(|value| !value.trim().is_empty()),
+        "hotwords_file": hotwords_file,
+        "next_steps": [
+            "run vinput provider list to inspect configured ASR providers",
+            "run vinput hotword set <path> once hotword mutation support is available",
+            "run vinput asr-state to inspect the selected provider runtime readiness"
+        ],
+    })
+}
+
+fn print_hotword_get_text(context: &HotwordGetContext) {
+    println!("source: {}", context.source);
+    if let Some(path) = &context.config_path {
+        println!("config_path: {}", path.display());
+    }
+    println!("active_provider: {}", context.active_provider);
+    println!("provider_id: {}", context.provider.id);
+    println!(
+        "provider_type: {}",
+        asr_provider_kind_label(&context.provider.kind)
+    );
+    println!("active: {}", context.provider.id == context.active_provider);
+    println!("supported: {}", hotword_supported(&context.provider.kind));
+    println!(
+        "configured: {}",
+        configured_label(context.provider.hotwords_file.as_deref())
+    );
+    println!(
+        "hotwords_file: {}",
+        context.provider.hotwords_file.as_deref().unwrap_or("-")
+    );
+}
+
+fn hotword_supported(kind: &AsrProviderKind) -> bool {
+    matches!(kind, AsrProviderKind::Local | AsrProviderKind::Command)
 }
 
 fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
