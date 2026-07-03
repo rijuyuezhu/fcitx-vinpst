@@ -7,6 +7,7 @@ cd "${repo_root}"
 profile="${VINPUT_USER_PROFILE:-mock}"
 remove_user="${VINPUT_USER_REMOVE:-}"
 status_user="${VINPUT_USER_STATUS:-}"
+config_path=""
 home_dir="${HOME:?HOME must be set for user IME installation}"
 data_home="${XDG_DATA_HOME:-${home_dir}/.local/share}"
 bin_dir="${VINPUT_USER_BIN_DIR:-${home_dir}/.local/bin}"
@@ -186,6 +187,61 @@ output_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", 
 PY
 }
 
+
+
+profile_default_config_path() {
+  case "${profile}" in
+    command-demo)
+      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/e2e-command-demo-config.json}"
+      ;;
+    configured-pipewire-live)
+      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
+      ;;
+    real-command-asr-wav)
+      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
+      ;;
+    sherpa-sense-voice-live)
+      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
+      ;;
+  esac
+}
+
+runtime_status_requested() {
+  case "${VINPUT_USER_RUNTIME_STATUS:-}" in
+    1|true|yes|on)
+      return 0
+      ;;
+    0|false|no|off)
+      return 1
+      ;;
+    "")
+      [[ "${profile}" == "sherpa-sense-voice-live" ]]
+      ;;
+    *)
+      echo "unsupported VINPUT_USER_RUNTIME_STATUS: ${VINPUT_USER_RUNTIME_STATUS}" >&2
+      echo "supported values: 1, true, yes, on, 0, false, no, off" >&2
+      exit 2
+      ;;
+  esac
+}
+
+run_runtime_status_validation() {
+  if ! runtime_status_requested; then
+    return 0
+  fi
+  local runtime_config="${config_path:-}"
+  if [[ -z "${runtime_config}" ]]; then
+    runtime_config="$(profile_default_config_path)"
+  fi
+  if [[ -z "${runtime_config}" || ! -f "${runtime_config}" ]]; then
+    echo "VINPUT_USER_RUNTIME_STATUS requested but config is missing: ${runtime_config}" >&2
+    exit 2
+  fi
+  cargo_build_vinput_binaries
+  echo "Runtime status validation:"
+  target/debug/vinput-daemon --configured-backends --config "${runtime_config}" runtime-status
+}
+
 write_fcitx_env_integration() {
   local quoted_env_file
   quoted_env_file="$(shell_quote "${env_file}")"
@@ -221,20 +277,7 @@ doctor_status() {
 
   local status_config="${config_path:-}"
   if [[ -z "${status_config}" ]]; then
-    case "${profile}" in
-      command-demo)
-        status_config="${VINPUT_USER_CONFIG:-${config_dir}/e2e-command-demo-config.json}"
-        ;;
-      configured-pipewire-live)
-        status_config="${VINPUT_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
-        ;;
-      real-command-asr-wav)
-        status_config="${VINPUT_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
-        ;;
-      sherpa-sense-voice-live)
-        status_config="${VINPUT_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
-        ;;
-    esac
+    status_config="$(profile_default_config_path)"
   fi
   if [[ -z "${status_config}" ]]; then
     local service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
@@ -293,10 +336,10 @@ if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   printf '  Fcitx env wrapper: %s (%s)\n' "${fcitx_env_wrapper}" "$([[ -x "${fcitx_env_wrapper}" ]] && echo executable || echo missing)"
   printf '  Fcitx autostart: %s (%s)\n' "${fcitx_autostart_file}" "$([[ -f "${fcitx_autostart_file}" ]] && echo present || echo missing)"
   doctor_status
+  run_runtime_status_validation
   exit 0
 fi
 
-config_path=""
 audio_backend="${VINPUT_USER_AUDIO_BACKEND:-}"
 daemon_args=()
 configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-}"
@@ -384,6 +427,7 @@ if [[ -n "${audio_backend}" ]]; then
 fi
 activation_args+=("${daemon_args[@]}")
 target/debug/vinput "${activation_args[@]}"
+run_runtime_status_validation
 
 cat <<EOF
 Installed user IME files:

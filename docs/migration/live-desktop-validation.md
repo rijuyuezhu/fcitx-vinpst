@@ -132,10 +132,12 @@ VINPUT_SHERPA_MODEL=/path/to/sherpa-onnx-sense-voice-model \
 
 The local smoke prints `runtime-status` first, then the `--once --wav` recognition payload. If it fails, fix model layout, native library loading, WAV format, or ASR decode before debugging Fcitx5.
 
-The install builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. Check it before restarting Fcitx5:
+The install builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. It runs `runtime-status` by default to force native model construction before Fcitx5 restart. Use `VINPUT_USER_RUNTIME_STATUS=0` only when you deliberately want to skip this model-load check. Check it before restarting Fcitx5:
 
 ```sh
 VINPUT_USER_PROFILE=sherpa-sense-voice-live VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
+# Lightweight status without native model construction:
+VINPUT_USER_PROFILE=sherpa-sense-voice-live VINPUT_USER_STATUS=1 VINPUT_USER_RUNTIME_STATUS=0 scripts/install-user-ime.sh
 ```
 
 Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `sherpa-onnx`, with `has_effective_backend: true` and an empty `last_error`. If model loading fails, keep the exact `last_error`; do not mark native ASR ready.

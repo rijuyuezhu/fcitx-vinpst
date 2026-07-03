@@ -85,7 +85,7 @@ VINPUT_USER_PROFILE=sherpa-sense-voice-live \
   scripts/install-user-ime.sh
 ```
 
-This profile builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`.
+This profile builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. It also runs `runtime-status` by default after install and during `VINPUT_USER_STATUS=1` checks so native model or library loading failures are visible before Fcitx5 restart. Set `VINPUT_USER_RUNTIME_STATUS=0` to skip that validation, or `VINPUT_USER_RUNTIME_STATUS=1` to opt into the same validation for another configured profile.
 
 Before mutating the desktop profile, a local WAV can be used to validate the same native backend outside Fcitx5:
 

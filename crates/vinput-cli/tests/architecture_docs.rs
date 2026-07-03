@@ -212,6 +212,8 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "currently covers buffered offline SenseVoice recognition only",
         "VAD trimming, warmup/reload state, broader sherpa model families",
         "Timeout fields are preserved in config diagnostics but are not yet enforced",
+        "runs `runtime-status` by default after install and during `VINPUT_USER_STATUS=1` checks",
+        "Set `VINPUT_USER_RUNTIME_STATUS=0` to skip that validation",
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
         "mock-only observation seam for future runtime streaming tests",
         "`MockAsrAudioPush` is serde/schema-ready",

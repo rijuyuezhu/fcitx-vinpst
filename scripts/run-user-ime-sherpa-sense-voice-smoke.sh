@@ -67,8 +67,10 @@ esac
 VINPUT
 chmod +x target/debug/vinput
 cat >target/debug/vinput-daemon <<'DAEMON'
-#!/usr/bin/env sh
-exit 0
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'daemon %s\n' "$*" >>"${VINPUT_STUB_CALLS:?}"
+printf '{"runtime":"ok"}\n'
 DAEMON
 chmod +x target/debug/vinput-daemon
 SH
@@ -173,6 +175,11 @@ if ! grep -Fq -- "--config ${config_path}" "${calls_log}"; then
   echo "activation call did not point at generated sherpa config" >&2
   exit 1
 fi
+if ! grep -Fq -- "daemon --configured-backends --config ${config_path} runtime-status" "${calls_log}"; then
+  cat "${calls_log}" >&2
+  echo "install did not run runtime-status validation against generated sherpa config" >&2
+  exit 1
+fi
 
 : >"${cargo_calls_log}"
 : >"${calls_log}"
@@ -194,6 +201,29 @@ fi
 if ! grep -Fq -- "doctor --config ${config_path}" "${calls_log}"; then
   cat "${calls_log}" >&2
   echo "status call did not run doctor against generated sherpa config" >&2
+  exit 1
+fi
+if ! grep -Fq -- "daemon --configured-backends --config ${config_path} runtime-status" "${calls_log}"; then
+  cat "${calls_log}" >&2
+  echo "status call did not run runtime-status validation against generated sherpa config" >&2
+  exit 1
+fi
+
+: >"${cargo_calls_log}"
+: >"${calls_log}"
+PATH="${stub_bin}:${PATH}" \
+HOME="${home_dir}" \
+XDG_DATA_HOME="${home_dir}/.local/share" \
+VINPUT_STUB_CALLS="${calls_log}" \
+VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
+VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+VINPUT_USER_STATUS=1 \
+VINPUT_USER_RUNTIME_STATUS=0 \
+scripts/install-user-ime.sh >"${out_dir}/status-skip-runtime.log" 2>&1
+
+if grep -Fq -- "runtime-status" "${calls_log}"; then
+  cat "${calls_log}" >&2
+  echo "VINPUT_USER_RUNTIME_STATUS=0 should skip runtime-status validation" >&2
   exit 1
 fi
 
