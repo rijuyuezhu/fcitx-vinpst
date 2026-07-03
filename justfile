@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke command-asr-wav-helper-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke command-asr-wav-helper-smoke user-ime-real-command-asr-wav-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -225,6 +225,10 @@ ime-e2e-smoke:
 # Run command ASR WAV helper smoke.
 command-asr-wav-helper-smoke:
     scripts/run-command-asr-wav-helper-smoke.sh
+
+# Run user-profile IME install smoke for a real command-ASR WAV helper profile.
+user-ime-real-command-asr-wav-smoke:
+    scripts/run-user-ime-real-command-asr-wav-smoke.sh
 
 # Run user-profile IME install plus D-Bus activation smoke with command-demo backends.
 user-ime-command-demo-smoke:

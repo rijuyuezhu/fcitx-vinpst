@@ -23,12 +23,73 @@ daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
 module_path="${lib_dir}/fcitx5-vinput.so"
 addon_conf_path="${addon_dir}/vinput.conf"
 build_dir="target/cpp/fcitx5-user-ime"
+command_asr_wav_helper_path="${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-${bin_dir}/vinput-command-asr-wav-helper}"
 
 shell_quote() {
   python3 - "$1" <<'PY'
 import shlex
 import sys
 print(shlex.quote(sys.argv[1]))
+PY
+}
+
+write_command_asr_wav_helper_config() {
+  local output_path="$1"
+  local helper_path="$2"
+  local external_command="$3"
+  local helper_timeout_ms="$4"
+  local provider_timeout_ms="$5"
+  mkdir -p "$(dirname "${output_path}")"
+  python3 - "${output_path}" "${helper_path}" "${external_command}" "${helper_timeout_ms}" "${provider_timeout_ms}" <<'PY'
+import json
+import pathlib
+import sys
+
+output_path = pathlib.Path(sys.argv[1])
+helper_path = sys.argv[2]
+external_command = sys.argv[3]
+helper_timeout_ms = int(sys.argv[4])
+provider_timeout_arg = sys.argv[5].strip()
+provider_timeout_ms = (
+    int(provider_timeout_arg) if provider_timeout_arg else helper_timeout_ms + 2000
+)
+if helper_timeout_ms <= 0:
+    raise SystemExit("VINPUT_USER_COMMAND_ASR_WAV_TIMEOUT_MS must be positive")
+if provider_timeout_ms <= 0:
+    raise SystemExit("VINPUT_USER_COMMAND_ASR_WAV_PROVIDER_TIMEOUT_MS must be positive")
+if provider_timeout_ms <= helper_timeout_ms:
+    provider_timeout_ms = helper_timeout_ms + 1000
+
+config = {
+    "version": 1,
+    "asr": {
+        "active_provider": "real-command-asr-wav",
+        "normalize_audio": False,
+        "input_gain": 1.0,
+        "providers": [
+            {
+                "id": "real-command-asr-wav",
+                "type": "command",
+                "command": helper_path,
+                "args": [
+                    "--timeout-ms",
+                    str(helper_timeout_ms),
+                    "--",
+                    "sh",
+                    "-c",
+                    "$VINPUT_REAL_ASR_COMMAND",
+                ],
+                "env": {"VINPUT_REAL_ASR_COMMAND": external_command},
+                "timeout_ms": provider_timeout_ms,
+            }
+        ],
+    },
+    "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id": "raw", "label": "Raw", "candidate_count": 0}],
+    },
+}
+output_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 }
 
@@ -76,6 +137,9 @@ doctor_status() {
       configured-pipewire-live)
         status_config="${VINPUT_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
         ;;
+      real-command-asr-wav)
+        status_config="${VINPUT_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
+        ;;
     esac
   fi
   if [[ -z "${status_config}" ]]; then
@@ -109,6 +173,9 @@ PY
 
 if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   rm -f "${module_path}" "${addon_conf_path}"
+  if [[ -z "${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-}" ]]; then
+    rm -f "${command_asr_wav_helper_path}"
+  fi
   remove_fcitx_env_integration
   cargo build -q -p vinput-cli
   target/debug/vinput activation-service --remove-user
@@ -118,6 +185,7 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   echo "  ${env_file}"
   echo "  ${fcitx_env_wrapper}"
   echo "  ${fcitx_autostart_file}"
+  echo "  ${command_asr_wav_helper_path}"
   exit 0
 fi
 
@@ -126,6 +194,7 @@ if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   printf '  module: %s (%s)\n' "${module_path}" "$([[ -f "${module_path}" ]] && echo present || echo missing)"
   printf '  addon metadata: %s (%s)\n' "${addon_conf_path}" "$([[ -f "${addon_conf_path}" ]] && echo present || echo missing)"
   printf '  daemon: %s (%s)\n' "${daemon_path}" "$([[ -x "${daemon_path}" ]] && echo executable || echo missing)"
+  printf '  command ASR WAV helper: %s (%s)\n' "${command_asr_wav_helper_path}" "$([[ -x "${command_asr_wav_helper_path}" ]] && echo executable || echo missing)"
   printf '  environment file: %s (%s)\n' "${env_file}" "$([[ -f "${env_file}" ]] && echo present || echo missing)"
   printf '  Fcitx env wrapper: %s (%s)\n' "${fcitx_env_wrapper}" "$([[ -x "${fcitx_env_wrapper}" ]] && echo executable || echo missing)"
   printf '  Fcitx autostart: %s (%s)\n' "${fcitx_autostart_file}" "$([[ -f "${fcitx_autostart_file}" ]] && echo present || echo missing)"
@@ -158,9 +227,25 @@ case "${profile}" in
     config_path="${VINPUT_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
     install -Dm644 data/e2e-configured-pipewire-live.json "${config_path}"
     ;;
+  real-command-asr-wav)
+    features+=(--features pipewire-backend)
+    configured_backends="1"
+    audio_backend="${audio_backend:-pipewire}"
+    config_path="${VINPUT_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
+    external_asr_command="${VINPUT_USER_COMMAND_ASR_WAV_COMMAND:-}"
+    if [[ -z "${external_asr_command}" ]]; then
+      echo "VINPUT_USER_COMMAND_ASR_WAV_COMMAND is required for real-command-asr-wav" >&2
+      echo 'example: VINPUT_USER_COMMAND_ASR_WAV_COMMAND="whisper-cli -m model.bin -f \"$VINPUT_ASR_WAV\"" VINPUT_USER_PROFILE=real-command-asr-wav scripts/install-user-ime.sh' >&2
+      exit 2
+    fi
+    helper_timeout_ms="${VINPUT_USER_COMMAND_ASR_WAV_TIMEOUT_MS:-30000}"
+    provider_timeout_ms="${VINPUT_USER_COMMAND_ASR_WAV_PROVIDER_TIMEOUT_MS:-}"
+    install -Dm755 scripts/command-asr-wav-helper.py "${command_asr_wav_helper_path}"
+    write_command_asr_wav_helper_config "${config_path}" "${command_asr_wav_helper_path}" "${external_asr_command}" "${helper_timeout_ms}" "${provider_timeout_ms}"
+    ;;
   *)
     echo "unsupported VINPUT_USER_PROFILE: ${profile}" >&2
-    echo "supported profiles: mock, command-demo, configured-pipewire-live" >&2
+    echo "supported profiles: mock, command-demo, configured-pipewire-live, real-command-asr-wav" >&2
     exit 2
     ;;
 esac
