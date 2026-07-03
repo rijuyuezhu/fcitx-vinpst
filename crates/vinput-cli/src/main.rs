@@ -72,6 +72,21 @@ enum ConfigCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Open a config in an editor, then validate and write it back safely.
+    Edit {
+        /// Optional config JSON file. Omitted to edit the user config, or create it from the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Editor executable to run. Defaults to `$VINPUT_CONFIG_EDITOR`, `$EDITOR`, then `$VISUAL`.
+        #[arg(long)]
+        editor: Option<String>,
+        /// Print the editor plan without invoking the editor or writing files.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print, list, or write a bundled example config JSON file.
     Example {
         /// Example config to export. Omit with --list to show available examples.
@@ -581,6 +596,17 @@ fn main() -> anyhow::Result<()> {
                 config_path: config.as_ref(),
                 output_path: output.as_deref(),
                 in_place,
+                dry_run,
+                json_output: json,
+            }),
+            Some(ConfigCommand::Edit {
+                config,
+                editor,
+                dry_run,
+                json,
+            }) => handle_config_edit(ConfigEditRequest {
+                config_path: config.as_ref(),
+                editor: editor.as_deref(),
                 dry_run,
                 json_output: json,
             }),
@@ -4169,6 +4195,236 @@ fn print_config_value_inline(value: &serde_json::Value) -> anyhow::Result<()> {
         println!("{}", serde_json::to_string(value)?);
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ConfigEditRequest<'a> {
+    config_path: Option<&'a PathBuf>,
+    editor: Option<&'a str>,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct ConfigEditPlan {
+    config_path: PathBuf,
+    source: &'static str,
+    editor_argv: Vec<String>,
+    backup_path: Option<PathBuf>,
+    existed: bool,
+    dry_run: bool,
+}
+
+struct ConfigEditOutcome {
+    plan: ConfigEditPlan,
+    temp_path: Option<PathBuf>,
+    changed: bool,
+    wrote_config: bool,
+    exit_status: Option<i32>,
+}
+
+fn handle_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_config_edit(request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&config_edit_outcome_json(&outcome))?
+        );
+    } else {
+        print_config_edit_outcome_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Result<ConfigEditOutcome> {
+    let default_path = default_config_path()?;
+    let target_path = request
+        .config_path
+        .cloned()
+        .unwrap_or_else(|| default_path.clone());
+    let loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string_pretty(&loaded.document).context("serialize editable config")?;
+    let contents = format!("{contents}\n");
+    let editor_argv = resolve_config_editor(request.editor)?;
+    let existed = target_path.exists();
+    let backup_path = existed.then(|| config_backup_path(&target_path));
+    let plan = ConfigEditPlan {
+        config_path: target_path.clone(),
+        source: loaded.source,
+        editor_argv,
+        backup_path,
+        existed,
+        dry_run: request.dry_run,
+    };
+
+    if request.dry_run {
+        return Ok(ConfigEditOutcome {
+            plan,
+            temp_path: None,
+            changed: false,
+            wrote_config: false,
+            exit_status: None,
+        });
+    }
+
+    let temp_path = config_edit_temp_path(&target_path);
+    write_config_edit_temp_file(&temp_path, &contents)?;
+    let status = run_config_editor(&plan.editor_argv, &temp_path)?;
+    let exit_status = status.code();
+    if !status.success() {
+        let _ = fs::remove_file(&temp_path);
+        anyhow::bail!(
+            "config editor `{}` exited with status {}",
+            plan.editor_argv.join(" "),
+            exit_status.map_or_else(|| "signal".to_owned(), |code| code.to_string())
+        );
+    }
+
+    let edited_contents = fs::read_to_string(&temp_path)
+        .with_context(|| format!("read edited config `{}`", temp_path.display()))?;
+    let edited_document = serde_json::from_str::<serde_json::Value>(&edited_contents)
+        .with_context(|| format!("parse edited config `{}` as JSON", temp_path.display()))?;
+    validate_config_json_value(&edited_document, "validate edited config")?;
+    let normalized = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&edited_document).context("serialize edited config")?
+    );
+    let changed = normalized != contents || !target_path.exists();
+    if changed {
+        if let Some(backup_path) = &plan.backup_path {
+            fs::copy(&target_path, backup_path).with_context(|| {
+                format!(
+                    "backup config `{}` to `{}`",
+                    target_path.display(),
+                    backup_path.display()
+                )
+            })?;
+        }
+        if let Some(parent) = target_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create config directory `{}`", parent.display()))?;
+        }
+        write_file_atomically(&target_path, &normalized)
+            .with_context(|| format!("write edited config `{}`", target_path.display()))?;
+    }
+    fs::remove_file(&temp_path)
+        .with_context(|| format!("remove temporary edit file `{}`", temp_path.display()))?;
+
+    Ok(ConfigEditOutcome {
+        plan,
+        temp_path: Some(temp_path),
+        changed,
+        wrote_config: changed,
+        exit_status,
+    })
+}
+
+fn config_edit_outcome_json(outcome: &ConfigEditOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.plan.dry_run,
+        "config_path": outcome.plan.config_path,
+        "source": outcome.plan.source,
+        "existed": outcome.plan.existed,
+        "editor": outcome.plan.editor_argv.join(" "),
+        "editor_argv": outcome.plan.editor_argv,
+        "backup_path": outcome.plan.backup_path,
+        "temp_path": outcome.temp_path,
+        "changed": outcome.changed,
+        "will_write_config": !outcome.plan.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "exit_status": outcome.exit_status,
+    })
+}
+
+fn print_config_edit_outcome_text(outcome: &ConfigEditOutcome) {
+    println!("dry_run: {}", outcome.plan.dry_run);
+    println!("source: {}", outcome.plan.source);
+    println!("config_path: {}", outcome.plan.config_path.display());
+    println!("existed: {}", outcome.plan.existed);
+    println!("editor: {}", outcome.plan.editor_argv.join(" "));
+    if let Some(backup_path) = &outcome.plan.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    if let Some(temp_path) = &outcome.temp_path {
+        println!("temp_path: {}", temp_path.display());
+    }
+    println!("changed: {}", outcome.changed);
+    println!("will_write_config: {}", !outcome.plan.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
+    if let Some(exit_status) = outcome.exit_status {
+        println!("exit_status: {exit_status}");
+    }
+}
+
+fn resolve_config_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
+    let editor = editor
+        .map(str::to_owned)
+        .or_else(|| std::env::var("VINPUT_CONFIG_EDITOR").ok())
+        .or_else(|| std::env::var("EDITOR").ok())
+        .or_else(|| std::env::var("VISUAL").ok())
+        .with_context(
+            || "config edit requires --editor or $VINPUT_CONFIG_EDITOR/$EDITOR/$VISUAL",
+        )?;
+    let argv = split_editor_argv(&editor);
+    if argv.is_empty() {
+        anyhow::bail!("config editor command is empty");
+    }
+    Ok(argv)
+}
+
+fn split_editor_argv(editor: &str) -> Vec<String> {
+    editor
+        .split_whitespace()
+        .filter(|part| !part.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn run_config_editor(
+    editor_argv: &[String],
+    path: &Path,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let (program, args) = editor_argv
+        .split_first()
+        .with_context(|| "config editor command is empty")?;
+    ProcessCommand::new(program)
+        .args(args)
+        .arg(path)
+        .status()
+        .with_context(|| format!("run config editor `{}`", editor_argv.join(" ")))
+}
+
+fn config_edit_temp_path(target_path: &Path) -> PathBuf {
+    let mut path = std::env::temp_dir();
+    let target_name = target_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.json");
+    path.push(format!(
+        "vinput-config-edit-{}-{}-{target_name}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos())
+    ));
+    path
+}
+
+fn write_config_edit_temp_file(path: &Path, contents: &str) -> anyhow::Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create temporary edit directory `{}`", parent.display()))?;
+    }
+    fs::write(path, contents)
+        .with_context(|| format!("write temporary edit file `{}`", path.display()))
 }
 
 fn validate_config_file(path: &PathBuf, _summary_only: bool) -> anyhow::Result<()> {

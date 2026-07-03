@@ -79,7 +79,7 @@ Rust currently exposes:
 ```text
 init
 protocol
-config validate/example/get/set
+config validate/example/get/set/edit
 registry validate/plan/install-plan
 asr-state
 audio-devices
@@ -103,7 +103,7 @@ Rust CLI strengths:
 
 Rust CLI weaknesses for a user:
 
-- config `get/set` exists, but interactive `edit` and broader resource-aware mutations are still incomplete;
+- config `get/set/edit` exists, but broader resource-aware mutations are still incomplete;
 - live registry install/use/remove exists for model flow, but provider/scene/LLM/hotword/device management commands are still missing;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
 - recording start/stop/toggle exists, but a dedicated `recording status` command is still missing;
@@ -187,7 +187,7 @@ scenes.definitions[]
 
 The gap is not the base schema; the gap is user-facing mutation and resource-aware configuration:
 
-- legacy has JSON-pointer `config get/set/edit`; Rust now has guarded JSON-pointer `get/set`, while `edit` remains pending;
+- legacy has JSON-pointer `config get/set/edit`; Rust now has guarded JSON-pointer `get/set` and validated editor-based `edit`;
 - legacy model/provider/adapter/scene commands edit config safely;
 - Rust validates and consumes config and can mutate existing config values with guarded JSON-pointer `set`; resource-specific mutations are still incomplete;
 - Rust install profiles generate specific configs, but they are not a general replacement for CLI config management.
