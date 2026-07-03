@@ -13,8 +13,9 @@ use vinput_audio::CaptureTarget;
 use vinput_config::{RegistryConfig, VinputConfig};
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
 use vinput_registry::{
-    ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelRegistry,
-    LiveRegistryI18n, PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryTextSource,
+    ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelInstallRequest,
+    LiveModelInstallResult, LiveModelRegistry, LiveRegistryI18n, PlannedAsset, RegistryIndex,
+    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
 };
 
 /// CLI for inspecting and controlling the vinput daemon.
@@ -148,7 +149,7 @@ enum ModelCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Plan a model install from the live registry without downloading by default.
+    /// Install a model from the live registry, or inspect the plan with --dry-run.
     Install {
         /// Full model id or `short_id`.
         id: String,
@@ -953,12 +954,6 @@ struct ModelInstallPlanRequest<'a> {
 }
 
 fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> anyhow::Result<()> {
-    if !request.dry_run {
-        anyhow::bail!(
-            "real model install is not implemented yet; rerun with --dry-run to inspect the install plan"
-        );
-    }
-
     let (loaded, i18n) = load_live_model_catalog(
         request.registry_path,
         request.i18n_path,
@@ -977,19 +972,43 @@ fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> anyhow::Res
         Some(path) => path.to_path_buf(),
         None => default_model_install_staging_root()?,
     };
-    let output = live_model_install_plan_json(
-        model,
-        i18n.i18n.as_ref(),
-        &loaded,
-        &i18n,
-        &model_root,
-        &staging_root,
-    )?;
+
+    if request.dry_run {
+        let output = live_model_install_plan_json(
+            model,
+            i18n.i18n.as_ref(),
+            &loaded,
+            &i18n,
+            &model_root,
+            &staging_root,
+        )?;
+        if request.json_output {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            print_model_install_plan_text(model, i18n.i18n.as_ref(), &model_root, &staging_root)?;
+        }
+        return Ok(());
+    }
+
+    let model_dir = model_root.join(managed_model_dir_name(model));
+    let staging_dir = staging_root.join(managed_model_dir_name(model));
+    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(300));
+    let installed = install_live_model(
+        &source,
+        &LiveModelInstallRequest {
+            model,
+            model_dir: model_dir.clone(),
+            staging_dir: staging_dir.clone(),
+        },
+    )
+    .with_context(|| format!("install live model `{}`", model.id))?;
 
     if request.json_output {
+        let output =
+            live_model_install_result_json(model, i18n.i18n.as_ref(), &loaded, &i18n, &installed)?;
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        print_model_install_plan_text(model, i18n.i18n.as_ref(), &model_root, &staging_root)?;
+        print_model_install_result_text(model, i18n.i18n.as_ref(), &installed);
     }
     Ok(())
 }
@@ -1223,6 +1242,48 @@ fn live_model_info_json(
     }))
 }
 
+fn live_model_install_result_json(
+    model: &LiveModelEntry,
+    i18n: Option<&LiveRegistryI18n>,
+    loaded: &LoadedLiveModelRegistry,
+    loaded_i18n: &LoadedLiveI18n,
+    installed: &LiveModelInstallResult,
+) -> anyhow::Result<serde_json::Value> {
+    let mut model_json = live_model_list_json(model, i18n);
+    model_json["vinput_model"] =
+        model
+            .vinput_model
+            .as_ref()
+            .map_or(Ok(serde_json::Value::Null), |metadata| {
+                metadata
+                    .to_raw_value()
+                    .context("serialize vinput_model metadata")
+            })?;
+    Ok(serde_json::json!({
+        "ok": true,
+        "dry_run": false,
+        "source": loaded.source_json,
+        "i18n": loaded_i18n.source_json,
+        "model": model_json,
+        "install": {
+            "model_dir": installed.materialized.target_path,
+            "metadata_path": installed.metadata_path,
+            "archive_path": installed.staged_asset.path,
+            "extract_path": installed.staged_archive.path,
+            "materialize_source_path": installed.materialize_source_path,
+            "replaced_existing": installed.materialized.replaced_existing,
+            "checksum_verified": installed.checksum_verified(),
+            "file_count": installed.staged_archive.file_count,
+            "directory_count": installed.staged_archive.directory_count,
+        },
+        "will_write_config": false,
+        "next_steps": [
+            "run vinput model use to update config",
+            "run vinput asr-state to verify native runtime loading"
+        ],
+    }))
+}
+
 fn live_model_install_plan_json(
     model: &LiveModelEntry,
     i18n: Option<&LiveRegistryI18n>,
@@ -1344,6 +1405,43 @@ fn print_model_info_text(
     for url in &model.urls {
         println!("  - {url}");
     }
+}
+
+fn print_model_install_result_text(
+    model: &LiveModelEntry,
+    i18n: Option<&LiveRegistryI18n>,
+    installed: &LiveModelInstallResult,
+) {
+    println!("dry_run: false");
+    println!("id: {}", model.id);
+    println!("short_id: {}", optional_str(model.short_id.as_deref()));
+    println!("title: {}", model.resolved_title(i18n));
+    println!(
+        "target_model_dir: {}",
+        installed.materialized.target_path.display()
+    );
+    println!("metadata_path: {}", installed.metadata_path.display());
+    println!("archive_path: {}", installed.staged_asset.path.display());
+    println!("extract_path: {}", installed.staged_archive.path.display());
+    println!(
+        "materialize_source_path: {}",
+        installed.materialize_source_path.display()
+    );
+    println!(
+        "replaced_existing: {}",
+        installed.materialized.replaced_existing
+    );
+    println!("checksum_verified: {}", installed.checksum_verified());
+    println!("file_count: {}", installed.staged_archive.file_count);
+    println!(
+        "directory_count: {}",
+        installed.staged_archive.directory_count
+    );
+    println!("will_write_config: false");
+    println!(
+        "next_step: vinput model use {}",
+        optional_str(model.short_id.as_deref().or(Some(model.id.as_str())))
+    );
 }
 
 fn print_model_install_plan_text(

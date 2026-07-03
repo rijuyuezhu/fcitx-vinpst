@@ -1,15 +1,16 @@
 use super::{
     ArchiveEntryKind, ArchiveFormat, ArchiveSafetyError, ArchiveStagingError,
-    ArchiveStagingPathError, AssetChecksumStatus, ChecksumPolicy, InstallPlan, LiveModelRegistry,
-    LiveRegistryI18n, PlannedAsset, PlannedInstallAsset, RegistryAssetStagingError,
+    ArchiveStagingPathError, AssetChecksumStatus, ChecksumPolicy, InstallPlan,
+    LiveModelInstallError, LiveModelInstallRequest, LiveModelRegistry, LiveRegistryI18n,
+    PlannedAsset, PlannedInstallAsset, RegistryAssetSource, RegistryAssetStagingError,
     RegistryCacheError, RegistryCachedFetchError, RegistryEntryKind, RegistryError,
     RegistryFetchError, RegistryIndex, RegistryMaterializeError, RegistrySha256Error,
     RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
     checked_archive_entry_target, fetch_registry_index_from_mirrors,
-    fetch_registry_index_with_cache, materialize_staged_tree, plan_archive_staging_paths,
-    plan_archive_staging_paths_for_plan, sha256_hex, stage_archive_by_format, stage_planned_asset,
-    stage_tar_archive, stage_tar_bz2_archive, stage_tar_zst_archive, verify_sha256_bytes,
-    verify_sha256_file, verify_sha256_reader,
+    fetch_registry_index_with_cache, install_live_model, materialize_staged_tree,
+    plan_archive_staging_paths, plan_archive_staging_paths_for_plan, sha256_hex,
+    stage_archive_by_format, stage_planned_asset, stage_tar_archive, stage_tar_bz2_archive,
+    stage_tar_zst_archive, verify_sha256_bytes, verify_sha256_file, verify_sha256_reader,
 };
 use vinput_config::RegistryConfig;
 
@@ -40,6 +41,42 @@ impl RegistryTextSource for StaticRegistryTextSource {
             .get(url)
             .cloned()
             .unwrap_or_else(|| Err("not configured".to_owned()))
+    }
+}
+
+#[derive(Debug, Default)]
+struct StaticRegistryAssetSource {
+    responses: std::collections::HashMap<String, Result<Vec<u8>, String>>,
+    attempts: std::sync::Mutex<Vec<String>>,
+}
+
+impl StaticRegistryAssetSource {
+    fn with_response(mut self, url: &str, response: Result<Vec<u8>, &str>) -> Self {
+        self.responses
+            .insert(url.to_owned(), response.map_err(str::to_owned));
+        self
+    }
+
+    fn attempts(&self) -> Vec<String> {
+        self.attempts.lock().unwrap().clone()
+    }
+}
+
+impl RegistryAssetSource for StaticRegistryAssetSource {
+    fn fetch_asset(&self, url: &str, destination: &std::path::Path) -> Result<(), String> {
+        self.attempts.lock().unwrap().push(url.to_owned());
+        match self
+            .responses
+            .get(url)
+            .cloned()
+            .unwrap_or_else(|| Err("missing asset response".to_owned()))
+        {
+            Ok(bytes) => {
+                std::fs::write(destination, bytes).map_err(|error| error.kind().to_string())?;
+                Ok(())
+            }
+            Err(message) => Err(message),
+        }
     }
 }
 
@@ -1988,4 +2025,130 @@ fn reqwest_registry_text_source_keeps_mirror_fallback_in_fetch_boundary() {
     assert_eq!(index.summary().model_count, 1);
     first_handle.join().unwrap();
     second_handle.join().unwrap();
+}
+
+fn test_live_model_for_archive(url: &str, sha256: &str) -> LiveModelRegistry {
+    let input = serde_json::json!({
+        "version": 2,
+        "items": [
+            {
+                "id": "model.test.sense-voice",
+                "short_id": "test-sense",
+                "urls": [url],
+                "sha256": sha256,
+                "size_bytes": 123,
+                "language": "zh",
+                "vinput_model": {
+                    "backend": "sherpa-offline",
+                    "family": "sense_voice",
+                    "language": "zh",
+                    "runtime": "offline",
+                    "size_bytes": 123,
+                    "supports_hotwords": false,
+                    "model": {
+                        "tokens": "tokens.txt",
+                        "sense_voice": {
+                            "model": "model.int8.onnx",
+                            "language": "zh",
+                            "use_itn": true
+                        }
+                    }
+                }
+            }
+        ]
+    });
+    LiveModelRegistry::from_json_str(&input.to_string()).unwrap()
+}
+
+#[test]
+fn install_live_model_downloads_verifies_extracts_and_materializes_single_root() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("test-model.tar.bz2");
+    write_test_tar_bz2_archive(
+        &archive,
+        &[
+            TestTarEntry::Directory("release-root"),
+            TestTarEntry::File("release-root/model.int8.onnx", b"onnx"),
+            TestTarEntry::File("release-root/tokens.txt", b"tokens"),
+        ],
+    );
+    let archive_bytes = std::fs::read(&archive).unwrap();
+    let archive_sha256 = sha256_hex(&archive_bytes);
+    let url = "https://registry.invalid/test-model.tar.bz2";
+    let registry = test_live_model_for_archive(url, &archive_sha256);
+    let model = registry.model_by_id_or_short_id("test-sense").unwrap();
+    let source = StaticRegistryAssetSource::default().with_response(url, Ok(archive_bytes));
+    let model_dir = temp_dir.path().join("models/test-sense");
+    let staging_dir = temp_dir.path().join("stage/test-sense");
+
+    let installed = install_live_model(
+        &source,
+        &LiveModelInstallRequest {
+            model,
+            model_dir: model_dir.clone(),
+            staging_dir: staging_dir.clone(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(source.attempts(), [url.to_owned()]);
+    assert_eq!(installed.model_id, "model.test.sense-voice");
+    assert_eq!(installed.short_id.as_deref(), Some("test-sense"));
+    assert!(installed.checksum_verified());
+    assert_eq!(installed.staged_archive.file_count, 2);
+    assert_eq!(installed.staged_archive.directory_count, 1);
+    assert_eq!(
+        installed.materialize_source_path,
+        staging_dir.join("extract/release-root")
+    );
+    assert_eq!(installed.materialized.target_path, model_dir);
+    assert!(!installed.materialized.replaced_existing);
+    assert_eq!(
+        std::fs::read(installed.metadata_path).unwrap().last(),
+        Some(&b'\n')
+    );
+    assert_eq!(
+        std::fs::read_to_string(temp_dir.path().join("models/test-sense/model.int8.onnx")).unwrap(),
+        "onnx"
+    );
+    assert_eq!(
+        std::fs::read_to_string(temp_dir.path().join("models/test-sense/tokens.txt")).unwrap(),
+        "tokens"
+    );
+    let metadata: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(temp_dir.path().join("models/test-sense/vinput-model.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(metadata["backend"], "sherpa-offline");
+    assert_eq!(metadata["model"]["sense_voice"]["model"], "model.int8.onnx");
+    assert!(!staging_dir.join("extract/release-root").exists());
+}
+
+#[test]
+fn install_live_model_rejects_checksum_mismatch_without_materializing() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("bad-model.tar.bz2");
+    write_test_tar_bz2_archive(&archive, &[TestTarEntry::File("model.int8.onnx", b"onnx")]);
+    let url = "https://registry.invalid/bad-model.tar.bz2";
+    let registry = test_live_model_for_archive(
+        url,
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    );
+    let model = registry.model_by_id_or_short_id("test-sense").unwrap();
+    let source = StaticRegistryAssetSource::default()
+        .with_response(url, Ok(std::fs::read(&archive).unwrap()));
+
+    let error = install_live_model(
+        &source,
+        &LiveModelInstallRequest {
+            model,
+            model_dir: temp_dir.path().join("models/test-sense"),
+            staging_dir: temp_dir.path().join("stage/test-sense"),
+        },
+    )
+    .unwrap_err();
+
+    assert!(matches!(error, LiveModelInstallError::StageAsset { .. }));
+    assert!(!temp_dir.path().join("models/test-sense").exists());
 }

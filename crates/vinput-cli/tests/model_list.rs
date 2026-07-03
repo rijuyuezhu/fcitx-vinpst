@@ -2,7 +2,9 @@
 
 mod common;
 
-use common::{assert_json_success, assert_stdout_success, vinput_command, workspace_file};
+use common::{
+    assert_json_success, assert_stdout_success, vinput_command, workspace_file, write_temp_json,
+};
 
 fn live_models_fixture() -> std::path::PathBuf {
     let path = workspace_file("crates/vinput-registry/tests/fixtures/live-models-sensevoice.json");
@@ -233,16 +235,167 @@ fn model_install_dry_run_text_reports_no_side_effects() {
 }
 
 #[test]
-fn model_install_without_dry_run_is_rejected_until_real_install_exists() {
-    let output = vinput_command()
-        .args(["model", "install", "onnx-sv-zh-int8-off", "--registry"])
-        .arg(live_models_fixture())
-        .output()
-        .expect("run vinput model install without dry-run");
+fn model_install_without_dry_run_downloads_local_archive_without_config_mutation() {
+    let temp_root = unique_temp_dir("vinput-cli-model-install");
+    std::fs::create_dir_all(&temp_root).expect("create temp root");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
-    assert!(stderr.contains(
-        "real model install is not implemented yet; rerun with --dry-run to inspect the install plan"
+    let archive =
+        build_test_tar_archive(&[("model.int8.onnx", b"onnx"), ("tokens.txt", b"tokens")]);
+    let archive_sha256 = vinput_registry::sha256_hex(&archive);
+    let (url, handle) = serve_single_binary_response(archive);
+    let registry_path = write_temp_json(
+        "live-model-install",
+        &serde_json::json!({
+            "version": 2,
+            "items": [
+                {
+                    "id": "model.test.install",
+                    "short_id": "test-install",
+                    "urls": [url],
+                    "sha256": archive_sha256,
+                    "size_bytes": 123,
+                    "language": "zh",
+                    "vinput_model": {
+                        "backend": "sherpa-offline",
+                        "family": "sense_voice",
+                        "language": "zh",
+                        "runtime": "offline",
+                        "size_bytes": 123,
+                        "supports_hotwords": false,
+                        "model": {
+                            "tokens": "tokens.txt",
+                            "sense_voice": {
+                                "model": "model.int8.onnx",
+                                "language": "zh",
+                                "use_itn": true
+                            }
+                        }
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    );
+    let model_root = temp_root.join("models");
+    let staging_root = temp_root.join("stage");
+
+    let output = vinput_command()
+        .args(["model", "install", "test-install", "--registry"])
+        .arg(&registry_path)
+        .arg("--model-root")
+        .arg(&model_root)
+        .arg("--staging-root")
+        .arg(&staging_root)
+        .arg("--json")
+        .output()
+        .expect("run vinput model install");
+
+    let value = assert_json_success(output, "model install json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["will_write_config"], false);
+    assert_eq!(value["install"]["checksum_verified"], true);
+    assert_eq!(value["install"]["file_count"], 2);
+    assert_eq!(
+        value["install"]["model_dir"],
+        model_root.join("test-install").to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        std::fs::read_to_string(model_root.join("test-install/model.int8.onnx")).unwrap(),
+        "onnx"
+    );
+    assert_eq!(
+        std::fs::read_to_string(model_root.join("test-install/tokens.txt")).unwrap(),
+        "tokens"
+    );
+    let metadata: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(model_root.join("test-install/vinput-model.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(metadata["backend"], "sherpa-offline");
+    assert_eq!(metadata["model"]["sense_voice"]["model"], "model.int8.onnx");
+
+    let request = handle.join().expect("HTTP thread should finish");
+    assert!(request.starts_with("GET /model.tar HTTP/1.1"));
+    let _ = std::fs::remove_file(registry_path);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "{prefix}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos()
     ));
+    path
+}
+
+fn serve_single_binary_response(bytes: Vec<u8>) -> (String, std::thread::JoinHandle<String>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
+    let url = format!("http://{}/model.tar", listener.local_addr().unwrap());
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept HTTP request");
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        loop {
+            let read = std::io::Read::read(&mut stream, &mut buffer).expect("read HTTP request");
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..read]);
+            if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let response_header = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            bytes.len()
+        );
+        std::io::Write::write_all(&mut stream, response_header.as_bytes())
+            .expect("write HTTP response header");
+        std::io::Write::write_all(&mut stream, &bytes).expect("write HTTP response body");
+        String::from_utf8_lossy(&request).into_owned()
+    });
+    (url, handle)
+}
+
+fn build_test_tar_archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut output = Vec::new();
+    for (path, data) in entries {
+        write_raw_tar_file(&mut output, path, data);
+    }
+    output.extend_from_slice(&[0_u8; 1024]);
+    output
+}
+
+fn write_raw_tar_file(output: &mut Vec<u8>, path: &str, data: &[u8]) {
+    assert!(path.len() <= 100, "test tar path is too long");
+    let mut header = [0_u8; 512];
+    header[..path.len()].copy_from_slice(path.as_bytes());
+    write_tar_octal(&mut header[100..108], 0o644);
+    write_tar_octal(&mut header[108..116], 0);
+    write_tar_octal(&mut header[116..124], 0);
+    write_tar_octal(&mut header[124..136], data.len() as u64);
+    write_tar_octal(&mut header[136..148], 0);
+    header[148..156].fill(b' ');
+    header[156] = b'0';
+    header[257..263].copy_from_slice(b"ustar\0");
+    header[263..265].copy_from_slice(b"00");
+    let checksum = header.iter().map(|byte| u32::from(*byte)).sum::<u32>();
+    let checksum_text = format!("{checksum:06o}\0 ");
+    header[148..156].copy_from_slice(checksum_text.as_bytes());
+    output.extend_from_slice(&header);
+    output.extend_from_slice(data);
+    let padding = (512 - (data.len() % 512)) % 512;
+    output.extend(std::iter::repeat_n(0_u8, padding));
+}
+
+fn write_tar_octal(field: &mut [u8], value: u64) {
+    let width = field.len() - 1;
+    let text = format!("{value:0width$o}\0");
+    field.copy_from_slice(text.as_bytes());
 }
