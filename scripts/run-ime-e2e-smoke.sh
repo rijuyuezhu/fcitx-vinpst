@@ -8,6 +8,7 @@ build_dir="target/cpp/fcitx5-ime-e2e-smoke"
 stage_dir="target/tmp/fcitx-ime-e2e-smoke"
 stage_abs="${repo_root}/${stage_dir}"
 daemon_path="${stage_abs}/usr/local/bin/vinput-daemon"
+cargo_target_dir="${stage_abs}/cargo-target"
 config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo-config.json"
 wav_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo.wav"
 bridge_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
@@ -16,8 +17,8 @@ outcome_sink_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_outcome_si
 service_file="${stage_abs}/share/dbus-1/services/org.fcitx.Vinput.service"
 
 rm -rf "${build_dir}" "${stage_dir}"
-cargo build -q -p vinput-daemon
-install -Dm755 target/debug/vinput-daemon "${daemon_path}"
+CARGO_TARGET_DIR="${cargo_target_dir}" cargo build -q -p vinput-daemon --bin vinput-daemon
+install -Dm755 "${cargo_target_dir}/debug/vinput-daemon" "${daemon_path}"
 install -Dm644 data/e2e-command-demo-config.json "${config_path}"
 python3 scripts/write-demo-wav.py "${wav_path}"
 
