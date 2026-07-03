@@ -117,6 +117,28 @@ fn provider_use_dry_run_json_validates_existing_provider_without_writing() {
 }
 
 #[test]
+fn provider_use_text_dry_run_outputs_expected_fields() {
+    let path = write_provider_fixture("vinput-provider-use-text-dry-run");
+
+    let output = vinput_command()
+        .args(["provider", "use", "remote", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider use text dry-run");
+    fs::remove_file(&path).expect("remove temporary provider config");
+
+    let stdout = assert_stdout_success(output, "provider use text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("before: cmd"));
+    assert!(stdout.contains("after: remote"));
+    assert!(stdout.contains("provider_type: remote"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
+}
+
+#[test]
 fn provider_use_output_writes_valid_config_without_overwriting_input() {
     let root = unique_temp_dir("vinput-provider-use-output");
     let config_path = root.join("config.json");
@@ -244,6 +266,30 @@ fn provider_add_dry_run_json_validates_local_provider_without_writing() {
 }
 
 #[test]
+fn provider_add_text_dry_run_outputs_expected_fields() {
+    let path = write_provider_fixture("vinput-provider-add-text-dry-run");
+
+    let output = vinput_command()
+        .args(["provider", "add", "extra", "--config"])
+        .arg(&path)
+        .args(["--model", "extra-model", "--dry-run"])
+        .output()
+        .expect("run vinput provider add text dry-run");
+    fs::remove_file(&path).expect("remove temporary provider config");
+
+    let stdout = assert_stdout_success(output, "provider add text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("provider_id: extra"));
+    assert!(stdout.contains("provider_type: local"));
+    assert!(stdout.contains("active_provider: cmd"));
+    assert!(stdout.contains("before_provider_count: 3"));
+    assert!(stdout.contains("after_provider_count: 4"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
+}
+
+#[test]
 fn provider_add_output_writes_command_provider_without_overwriting_input() {
     let root = unique_temp_dir("vinput-provider-add-output");
     let config_path = root.join("config.json");
@@ -351,6 +397,16 @@ fn provider_add_in_place_writes_remote_provider_and_backup() {
 fn provider_add_rejects_invalid_duplicate_and_missing_write_target() {
     let path = write_provider_fixture("vinput-provider-add-errors");
 
+    let empty = vinput_command()
+        .args(["provider", "add", "   ", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider add empty id");
+    assert!(!empty.status.success());
+    let stderr = String::from_utf8(empty.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider id cannot be empty"));
+
     let duplicate = vinput_command()
         .args(["provider", "add", "cmd", "--config"])
         .arg(&path)
@@ -371,11 +427,31 @@ fn provider_add_rejects_invalid_duplicate_and_missing_write_target() {
     let stderr = String::from_utf8(invalid_type.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("unsupported ASR provider type `bad`"));
 
+    let missing_command = vinput_command()
+        .args(["provider", "add", "cmd2", "--type", "command", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider add command without command");
+    assert!(!missing_command.status.success());
+    let stderr = String::from_utf8(missing_command.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("command ASR provider `cmd2` must configure a command"));
+
+    let missing_endpoint = vinput_command()
+        .args(["provider", "add", "cloud", "--type", "remote", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider add remote without endpoint");
+    assert!(!missing_endpoint.status.success());
+    let stderr = String::from_utf8(missing_endpoint.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("remote ASR provider `cloud` must configure an endpoint"));
+
     let bad_env = vinput_command()
         .args([
             "provider",
             "add",
-            "cmd2",
+            "cmd3",
             "--type",
             "command",
             "--command",
@@ -431,6 +507,30 @@ fn provider_remove_dry_run_json_validates_inactive_provider_without_writing() {
         before
     );
     fs::remove_file(&path).expect("remove temporary provider config");
+}
+
+#[test]
+fn provider_remove_text_dry_run_outputs_expected_fields() {
+    let path = write_provider_fixture("vinput-provider-remove-text-dry-run");
+
+    let output = vinput_command()
+        .args(["provider", "remove", "remote", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider remove text dry-run");
+    fs::remove_file(&path).expect("remove temporary provider config");
+
+    let stdout = assert_stdout_success(output, "provider remove text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("removed_provider_id: remote"));
+    assert!(stdout.contains("removed_provider_type: remote"));
+    assert!(stdout.contains("active_provider: cmd"));
+    assert!(stdout.contains("before_provider_count: 3"));
+    assert!(stdout.contains("after_provider_count: 2"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
 }
 
 #[test]

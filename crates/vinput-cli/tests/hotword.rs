@@ -145,6 +145,29 @@ fn hotword_set_dry_run_json_validates_without_writing() {
 }
 
 #[test]
+fn hotword_set_text_dry_run_outputs_expected_fields() {
+    let path = write_hotword_fixture("vinput-hotword-set-text-dry-run");
+
+    let output = vinput_command()
+        .args(["hotword", "set", "/tmp/new-hotwords.txt", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput hotword set text dry-run");
+    fs::remove_file(&path).expect("remove temporary hotword config");
+
+    let stdout = assert_stdout_success(output, "hotword set text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("provider_id: cmd"));
+    assert!(stdout.contains("provider_type: command"));
+    assert!(stdout.contains("before: /tmp/cmd-hotwords.txt"));
+    assert!(stdout.contains("after: /tmp/new-hotwords.txt"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
+}
+
+#[test]
 fn hotword_set_output_writes_valid_config_without_overwriting_input() {
     let root = unique_temp_dir("vinput-hotword-set-output");
     let config_path = root.join("config.json");
@@ -182,6 +205,29 @@ fn hotword_set_output_writes_valid_config_without_overwriting_input() {
         "/tmp/local-hotwords.txt"
     );
     fs::remove_dir_all(root).expect("remove hotword output fixture dir");
+}
+
+#[test]
+fn hotword_clear_text_dry_run_outputs_expected_fields() {
+    let path = write_hotword_fixture("vinput-hotword-clear-text-dry-run");
+
+    let output = vinput_command()
+        .args(["hotword", "clear", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput hotword clear text dry-run");
+    fs::remove_file(&path).expect("remove temporary hotword config");
+
+    let stdout = assert_stdout_success(output, "hotword clear text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("provider_id: cmd"));
+    assert!(stdout.contains("provider_type: command"));
+    assert!(stdout.contains("before: /tmp/cmd-hotwords.txt"));
+    assert!(stdout.contains("after: -"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
 }
 
 #[test]
@@ -286,6 +332,29 @@ fn hotword_edit_dry_run_json_reports_editor_plan_without_launching() {
 }
 
 #[test]
+fn hotword_edit_text_dry_run_outputs_expected_fields() {
+    let path = write_hotword_fixture("vinput-hotword-edit-text-dry-run");
+
+    let output = vinput_command()
+        .args(["hotword", "edit", "--config"])
+        .arg(&path)
+        .args(["--editor", "true", "--dry-run"])
+        .output()
+        .expect("run vinput hotword edit text dry-run");
+    fs::remove_file(&path).expect("remove temporary hotword config");
+
+    let stdout = assert_stdout_success(output, "hotword edit text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("active_provider: cmd"));
+    assert!(stdout.contains("provider_id: cmd"));
+    assert!(stdout.contains("provider_type: command"));
+    assert!(stdout.contains("hotwords_file: /tmp/cmd-hotwords.txt"));
+    assert!(stdout.contains("editor: true"));
+    assert!(stdout.contains("edited: false"));
+}
+
+#[test]
 fn hotword_edit_runs_editor_for_configured_file() {
     let root = unique_temp_dir("vinput-hotword-edit-run");
     let config_path = root.join("config.json");
@@ -363,6 +432,16 @@ fn hotword_edit_rejects_missing_file_config_and_remote_provider() {
     assert!(!no_file.status.success());
     let stderr = String::from_utf8(no_file.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("No hotwords file configured. Use 'hotword set <path>' first."));
+
+    let failing_editor = vinput_command()
+        .args(["hotword", "edit", "--config"])
+        .arg(&path)
+        .args(["--editor", "false"])
+        .output()
+        .expect("run vinput hotword edit with failing editor");
+    assert!(!failing_editor.status.success());
+    let stderr = String::from_utf8(failing_editor.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("hotword editor exited with status"));
 
     fs::remove_file(&path).expect("remove temporary hotword config");
     fs::remove_file(&no_file_config).expect("remove no-file hotword config");
