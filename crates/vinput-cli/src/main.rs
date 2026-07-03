@@ -389,6 +389,59 @@ enum LlmCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Add an OpenAI-compatible LLM provider to config.
+    Add {
+        /// New LLM provider id.
+        id: String,
+        /// Base URL for OpenAI-compatible chat completions.
+        #[arg(short = 'u', long)]
+        base_url: String,
+        /// API key or environment-reference expression.
+        #[arg(short = 'k', long)]
+        api_key: Option<String>,
+        /// Optional default model name.
+        #[arg(long)]
+        model: Option<String>,
+        /// Extra JSON object merged into provider requests.
+        #[arg(short = 'e', long)]
+        extra_body: Option<String>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove an LLM provider from config.
+    #[command(alias = "rm")]
+    Remove {
+        /// Existing LLM provider id to remove.
+        id: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Text adapter management commands.
@@ -2357,6 +2410,58 @@ fn print_hotword_mutation_text(outcome: &HotwordMutationOutcome) {
     println!("wrote_config: {}", outcome.wrote_config);
 }
 
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct LlmAddRequest<'a> {
+    id: &'a str,
+    base_url: &'a str,
+    api_key: Option<&'a str>,
+    model: Option<&'a str>,
+    extra_body: Option<&'a str>,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct LlmRemoveRequest<'a> {
+    id: &'a str,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct LlmAddOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    provider_id: String,
+    before_provider_count: usize,
+    after_provider_count: usize,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
+struct LlmRemoveOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    removed_provider_id: String,
+    before_provider_count: usize,
+    after_provider_count: usize,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
 struct LlmListContext {
     config_path: Option<PathBuf>,
     source: &'static str,
@@ -2372,6 +2477,44 @@ struct AdapterListContext {
 fn handle_llm_command(command: LlmCommand) -> anyhow::Result<()> {
     match command {
         LlmCommand::List { config, json } => print_llm_list(config.as_ref(), json),
+        LlmCommand::Add {
+            id,
+            base_url,
+            api_key,
+            model,
+            extra_body,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_llm_add(LlmAddRequest {
+            id: &id,
+            base_url: &base_url,
+            api_key: api_key.as_deref(),
+            model: model.as_deref(),
+            extra_body: extra_body.as_deref(),
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
+        LlmCommand::Remove {
+            id,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_llm_remove(LlmRemoveRequest {
+            id: &id,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
     }
 }
 
@@ -2379,6 +2522,296 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
     match command {
         AdapterCommand::List { config, json } => print_adapter_list(config.as_ref(), json),
     }
+}
+
+fn print_llm_add(request: LlmAddRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_llm_add(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&llm_add_outcome_json(&outcome))?
+        );
+    } else {
+        print_llm_add_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_llm_add(request: &LlmAddRequest<'_>) -> anyhow::Result<LlmAddOutcome> {
+    let id = normalize_llm_provider_id(request.id)?;
+    let base_url = normalize_llm_base_url(request.base_url)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for llm add")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for llm add")?;
+    config.validate().context("validate config for llm add")?;
+    if config
+        .llm
+        .providers
+        .iter()
+        .any(|provider| provider.id == id)
+    {
+        anyhow::bail!("LLM provider `{id}` already exists");
+    }
+    let before_provider_count = config.llm.providers.len();
+    let provider = llm_add_json_object(&id, &base_url, request)?;
+    llm_providers_array_mut(&mut loaded.document)?.push(serde_json::Value::Object(provider));
+    validate_config_json_value(&loaded.document, "validate updated LLM config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+    Ok(LlmAddOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        provider_id: id,
+        before_provider_count,
+        after_provider_count: before_provider_count + 1,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn print_llm_remove(request: LlmRemoveRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_llm_remove(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&llm_remove_outcome_json(&outcome))?
+        );
+    } else {
+        print_llm_remove_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_llm_remove(request: &LlmRemoveRequest<'_>) -> anyhow::Result<LlmRemoveOutcome> {
+    let id = normalize_llm_provider_id(request.id)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for llm remove")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for llm remove")?;
+    config
+        .validate()
+        .context("validate config for llm remove")?;
+    if !config
+        .llm
+        .providers
+        .iter()
+        .any(|provider| provider.id == id)
+    {
+        anyhow::bail!("LLM provider `{id}` not found");
+    }
+    let before_provider_count = config.llm.providers.len();
+    let provider_index = explicit_llm_provider_index(&loaded.document, &id)?;
+    llm_providers_array_mut(&mut loaded.document)?.remove(provider_index);
+    validate_config_json_value(&loaded.document, "validate updated LLM config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+    Ok(LlmRemoveOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        removed_provider_id: id,
+        before_provider_count,
+        after_provider_count: before_provider_count - 1,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn llm_add_json_object(
+    id: &str,
+    base_url: &str,
+    request: &LlmAddRequest<'_>,
+) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
+    let mut object = serde_json::Map::new();
+    object.insert("id".to_owned(), serde_json::Value::String(id.to_owned()));
+    object.insert(
+        "base_url".to_owned(),
+        serde_json::Value::String(base_url.to_owned()),
+    );
+    insert_optional_llm_string(&mut object, "api_key", request.api_key)?;
+    insert_optional_llm_string(&mut object, "model", request.model)?;
+    if let Some(extra_body) = request.extra_body {
+        object.insert("extra_body".to_owned(), parse_llm_extra_body(extra_body)?);
+    }
+    Ok(object)
+}
+
+fn insert_optional_llm_string(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    value: Option<&str>,
+) -> anyhow::Result<()> {
+    if let Some(value) = value {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("LLM provider field `{key}` cannot be empty");
+        }
+        object.insert(
+            key.to_owned(),
+            serde_json::Value::String(trimmed.to_owned()),
+        );
+    }
+    Ok(())
+}
+
+fn parse_llm_extra_body(extra_body: &str) -> anyhow::Result<serde_json::Value> {
+    let value: serde_json::Value =
+        serde_json::from_str(extra_body).with_context(|| "parse --extra-body as JSON object")?;
+    if !value.is_object() {
+        anyhow::bail!("LLM provider --extra-body must be a JSON object");
+    }
+    Ok(value)
+}
+
+fn llm_providers_array_mut(
+    document: &mut serde_json::Value,
+) -> anyhow::Result<&mut Vec<serde_json::Value>> {
+    document
+        .pointer_mut("/llm/providers")
+        .and_then(serde_json::Value::as_array_mut)
+        .with_context(|| "config pointer `/llm/providers` not found or not an array")
+}
+
+fn explicit_llm_provider_index(document: &serde_json::Value, id: &str) -> anyhow::Result<usize> {
+    document
+        .pointer("/llm/providers")
+        .and_then(serde_json::Value::as_array)
+        .with_context(|| "config pointer `/llm/providers` not found or not an array")?
+        .iter()
+        .position(|provider| provider.get("id").and_then(serde_json::Value::as_str) == Some(id))
+        .with_context(|| format!("LLM provider `{id}` is not explicitly configured"))
+}
+
+fn normalize_llm_provider_id(id: &str) -> anyhow::Result<String> {
+    let id = id.trim();
+    if id.is_empty() {
+        anyhow::bail!("LLM provider id cannot be empty");
+    }
+    Ok(id.to_owned())
+}
+
+fn normalize_llm_base_url(base_url: &str) -> anyhow::Result<String> {
+    let base_url = base_url.trim();
+    if base_url.is_empty() {
+        anyhow::bail!("LLM provider base URL cannot be empty");
+    }
+    Ok(base_url.to_owned())
+}
+
+fn llm_add_outcome_json(outcome: &LlmAddOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "provider_id": outcome.provider_id,
+        "before_provider_count": outcome.before_provider_count,
+        "after_provider_count": outcome.after_provider_count,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput llm list to verify configured LLM providers",
+            "run vinput scene list to inspect scene/provider bindings",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn llm_remove_outcome_json(outcome: &LlmRemoveOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "removed_provider_id": outcome.removed_provider_id,
+        "before_provider_count": outcome.before_provider_count,
+        "after_provider_count": outcome.after_provider_count,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput llm list to verify configured LLM providers",
+            "run vinput scene list to inspect scene/provider bindings",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_llm_add_text(outcome: &LlmAddOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("provider_id: {}", outcome.provider_id);
+    println!("before_provider_count: {}", outcome.before_provider_count);
+    println!("after_provider_count: {}", outcome.after_provider_count);
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
+}
+
+fn print_llm_remove_text(outcome: &LlmRemoveOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("removed_provider_id: {}", outcome.removed_provider_id);
+    println!("before_provider_count: {}", outcome.before_provider_count);
+    println!("after_provider_count: {}", outcome.after_provider_count);
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 fn print_llm_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {

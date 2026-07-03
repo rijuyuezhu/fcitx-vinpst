@@ -119,6 +119,8 @@ fn llm_and_adapter_help_list_options() {
         .expect("run vinput llm --help");
     let llm_root_stdout = assert_stdout_success(llm_root_output, "llm help output");
     assert!(llm_root_stdout.contains("list"));
+    assert!(llm_root_stdout.contains("add"));
+    assert!(llm_root_stdout.contains("remove"));
 
     let llm_list_output = vinput_command()
         .args(["llm", "list", "--help"])
@@ -127,6 +129,34 @@ fn llm_and_adapter_help_list_options() {
     let llm_list_stdout = assert_stdout_success(llm_list_output, "llm list help output");
     assert!(llm_list_stdout.contains("--config"));
     assert!(llm_list_stdout.contains("--json"));
+
+    let llm_add_output = vinput_command()
+        .args(["llm", "add", "--help"])
+        .output()
+        .expect("run vinput llm add --help");
+    let llm_add_stdout = assert_stdout_success(llm_add_output, "llm add help output");
+    assert!(llm_add_stdout.contains("<ID>"));
+    assert!(llm_add_stdout.contains("--base-url"));
+    assert!(llm_add_stdout.contains("--api-key"));
+    assert!(llm_add_stdout.contains("--model"));
+    assert!(llm_add_stdout.contains("--extra-body"));
+    assert!(llm_add_stdout.contains("--config"));
+    assert!(llm_add_stdout.contains("--output"));
+    assert!(llm_add_stdout.contains("--in-place"));
+    assert!(llm_add_stdout.contains("--dry-run"));
+    assert!(llm_add_stdout.contains("--json"));
+
+    let llm_remove_output = vinput_command()
+        .args(["llm", "remove", "--help"])
+        .output()
+        .expect("run vinput llm remove --help");
+    let llm_remove_stdout = assert_stdout_success(llm_remove_output, "llm remove help output");
+    assert!(llm_remove_stdout.contains("<ID>"));
+    assert!(llm_remove_stdout.contains("--config"));
+    assert!(llm_remove_stdout.contains("--output"));
+    assert!(llm_remove_stdout.contains("--in-place"));
+    assert!(llm_remove_stdout.contains("--dry-run"));
+    assert!(llm_remove_stdout.contains("--json"));
 
     let adapter_root_output = vinput_command()
         .args(["adapter", "--help"])
