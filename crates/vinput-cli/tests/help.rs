@@ -158,6 +158,7 @@ fn model_use_help_lists_dry_run_and_config_options() {
     assert!(stdout.contains("--output"));
     assert!(stdout.contains("--in-place"));
     assert!(stdout.contains("--model-root"));
+    assert!(stdout.contains("--reload-daemon"));
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("--json"));
 }

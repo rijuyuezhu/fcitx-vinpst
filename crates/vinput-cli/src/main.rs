@@ -241,6 +241,9 @@ enum ModelCommand {
         /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
         #[arg(long)]
         model_root: Option<PathBuf>,
+        /// Reload the running daemon ASR backend after writing config. Dry-run prints the planned call.
+        #[arg(long)]
+        reload_daemon: bool,
         /// Preview config changes without writing. Required until config mutation is implemented.
         #[arg(long)]
         dry_run: bool,
@@ -748,6 +751,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             output,
             in_place,
             model_root,
+            reload_daemon,
             dry_run,
             json,
         } => print_model_use_preview(ModelUseRequest {
@@ -760,6 +764,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             output_path: output.as_deref(),
             in_place,
             model_root: model_root.as_deref(),
+            reload_daemon,
             dry_run,
             json_output: json,
         }),
@@ -1804,6 +1809,7 @@ fn print_model_remove_plan_text(plan: &ModelRemovePlan) {
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 struct ModelUseRequest<'a> {
     selector: &'a str,
     registry_path: Option<&'a Path>,
@@ -1814,10 +1820,12 @@ struct ModelUseRequest<'a> {
     output_path: Option<&'a Path>,
     in_place: bool,
     model_root: Option<&'a Path>,
+    reload_daemon: bool,
     dry_run: bool,
     json_output: bool,
 }
 
+#[allow(clippy::pedantic)]
 struct ModelUsePreview {
     config_path: Option<PathBuf>,
     provider_id: String,
@@ -1825,6 +1833,8 @@ struct ModelUsePreview {
     output_path: Option<PathBuf>,
     backup_path: Option<PathBuf>,
     in_place: bool,
+    reload_daemon: bool,
+    reloaded_daemon: bool,
     wrote_config: bool,
     before_active_provider: String,
     before_model: Option<String>,
@@ -1952,6 +1962,8 @@ fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
         output_path: write_target.output_path(),
         backup_path: write_target.backup_path(),
         in_place: write_target.in_place(),
+        reload_daemon: request.reload_daemon,
+        reloaded_daemon: false,
         wrote_config: false,
         before_active_provider: config.asr.active_provider.clone(),
         before_model: provider.model.clone(),
@@ -1973,6 +1985,10 @@ fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
         config.validate().context("validate updated config")?;
         write_model_use_config(&config, &write_target)?;
         preview.wrote_config = true;
+        if request.reload_daemon {
+            reload_asr_backend_via_dbus().context("model use demon update")?;
+            preview.reloaded_daemon = true;
+        }
     }
 
     if request.json_output {
@@ -2043,6 +2059,17 @@ fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {
         "output_path": preview.output_path,
         "backup_path": preview.backup_path,
         "in_place": preview.in_place,
+        "reload_daemon": {
+            "requested": preview.reload_daemon,
+            "will_call_dbus": preview.reload_daemon && !preview.reloaded_daemon,
+            "called": preview.reloaded_daemon,
+            "dbus": {
+                "service": dbus::SERVICE_BUS_NAME,
+                "object_path": dbus::SERVICE_OBJECT_PATH,
+                "interface": dbus::SERVICE_INTERFACE,
+                "method": dbus::method::RELOAD_ASR_BACKEND,
+            },
+        },
         "selector": {
             "input": preview.selector,
             "kind": preview.selector_kind,
@@ -2090,6 +2117,8 @@ fn print_model_use_preview_text(preview: &ModelUsePreview) {
         println!("backup_path: {}", backup_path.display());
     }
     println!("in_place: {}", preview.in_place);
+    println!("reload_daemon_requested: {}", preview.reload_daemon);
+    println!("daemon_reloaded: {}", preview.reloaded_daemon);
 }
 
 fn write_model_use_config(

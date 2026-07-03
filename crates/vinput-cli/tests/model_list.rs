@@ -445,7 +445,7 @@ fn model_use_dry_run_json_previews_config_patch_for_registry_model() {
         .args(["--i18n"])
         .arg(live_i18n_fixture())
         .args(["--model-root", "/tmp/vinput-models"])
-        .args(["--dry-run", "--json"])
+        .args(["--reload-daemon", "--dry-run", "--json"])
         .output()
         .expect("run vinput model use --dry-run --json");
 
@@ -483,12 +483,22 @@ fn model_use_dry_run_json_previews_config_patch_for_registry_model() {
         value["patch"]["asr.providers[].model"]["after"],
         "/tmp/vinput-models/onnx-sv-zh-int8-off"
     );
+    assert_eq!(value["reload_daemon"]["requested"], true);
+    assert_eq!(value["reload_daemon"]["will_call_dbus"], true);
+    assert_eq!(value["reload_daemon"]["called"], false);
+    assert_eq!(value["reload_daemon"]["dbus"]["method"], "ReloadAsrBackend");
 }
 
 #[test]
 fn model_use_dry_run_text_accepts_installed_path_without_registry() {
     let output = vinput_command()
-        .args(["model", "use", "/tmp/vinput-models/custom", "--dry-run"])
+        .args([
+            "model",
+            "use",
+            "/tmp/vinput-models/custom",
+            "--reload-daemon",
+            "--dry-run",
+        ])
         .output()
         .expect("run vinput model use path --dry-run");
 
@@ -499,6 +509,8 @@ fn model_use_dry_run_text_accepts_installed_path_without_registry() {
     assert!(stdout.contains("model_before: -"));
     assert!(stdout.contains("model_after: /tmp/vinput-models/custom"));
     assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("reload_daemon_requested: true"));
+    assert!(stdout.contains("daemon_reloaded: false"));
 }
 
 #[test]
