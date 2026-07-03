@@ -8,8 +8,8 @@ use super::{
     checked_archive_entry_target, fetch_registry_index_from_mirrors,
     fetch_registry_index_with_cache, materialize_staged_tree, plan_archive_staging_paths,
     plan_archive_staging_paths_for_plan, sha256_hex, stage_archive_by_format, stage_planned_asset,
-    stage_tar_archive, stage_tar_zst_archive, verify_sha256_bytes, verify_sha256_file,
-    verify_sha256_reader,
+    stage_tar_archive, stage_tar_bz2_archive, stage_tar_zst_archive, verify_sha256_bytes,
+    verify_sha256_file, verify_sha256_reader,
 };
 use vinput_config::RegistryConfig;
 
@@ -1171,6 +1171,17 @@ fn write_test_tar_zst_archive(path: &std::path::Path, entries: &[TestTarEntry<'_
     std::fs::write(path, compressed).unwrap();
 }
 
+fn write_test_tar_bz2_archive(path: &std::path::Path, entries: &[TestTarEntry<'_>]) {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let plain_tar = temp_dir.path().join("asset.tar");
+    write_test_tar_archive(&plain_tar, entries);
+    let plain_bytes = std::fs::read(&plain_tar).unwrap();
+    let file = std::fs::File::create(path).unwrap();
+    let mut encoder = bzip2::write::BzEncoder::new(file, bzip2::Compression::best());
+    std::io::Write::write_all(&mut encoder, &plain_bytes).unwrap();
+    encoder.finish().unwrap();
+}
+
 fn write_raw_tar_entry(
     writer: &mut std::fs::File,
     path: &str,
@@ -1439,6 +1450,70 @@ fn tar_zst_archive_staging_rejects_invalid_compressed_input_without_publishing()
 }
 
 #[test]
+fn tar_bz2_archive_staging_extracts_regular_files_to_staged_tree() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("asset.tar.bz2");
+    write_test_tar_bz2_archive(
+        &archive,
+        &[
+            TestTarEntry::Directory("models/sherpa"),
+            TestTarEntry::File("models/sherpa/model.bin", b"model"),
+        ],
+    );
+    let output = temp_dir.path().join("extracted-bz2");
+
+    let staged = stage_tar_bz2_archive(&archive, &output).unwrap();
+
+    assert_eq!(staged.archive_path, archive);
+    assert_eq!(staged.path, output);
+    assert_eq!(staged.file_count, 1);
+    assert_eq!(staged.directory_count, 1);
+    assert_eq!(
+        std::fs::read_to_string(staged.path.join("models/sherpa/model.bin")).unwrap(),
+        "model"
+    );
+    assert!(temp_archive_dirs(temp_dir.path()).is_empty());
+}
+
+#[test]
+fn tar_bz2_archive_staging_rejects_unsafe_entries_without_publishing() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("asset.tar.bz2");
+    let traversal_path = format!("{}{}", "..", "/escape");
+    write_test_tar_bz2_archive(&archive, &[TestTarEntry::File(&traversal_path, b"no")]);
+    let output = temp_dir.path().join("extracted-bz2");
+
+    let error = stage_tar_bz2_archive(&archive, &output).unwrap_err();
+
+    assert!(matches!(
+        error,
+        ArchiveStagingError::UnsafeEntry {
+            error: ArchiveSafetyError::ParentTraversal(_),
+            ..
+        }
+    ));
+    assert!(!output.exists());
+    assert!(temp_archive_dirs(temp_dir.path()).is_empty());
+}
+
+#[test]
+fn tar_bz2_archive_staging_rejects_invalid_compressed_input_without_publishing() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("asset.tar.bz2");
+    std::fs::write(&archive, b"invalid compressed archive").unwrap();
+    let output = temp_dir.path().join("extracted-bz2");
+
+    let error = stage_tar_bz2_archive(&archive, &output).unwrap_err();
+
+    assert!(matches!(
+        error,
+        ArchiveStagingError::ReadArchive { .. } | ArchiveStagingError::EntryPath { .. }
+    ));
+    assert!(!output.exists());
+    assert!(temp_archive_dirs(temp_dir.path()).is_empty());
+}
+
+#[test]
 fn archive_format_detects_supported_wrappers_from_paths() {
     assert_eq!(
         ArchiveFormat::from_path("models/model.tar"),
@@ -1447,6 +1522,18 @@ fn archive_format_detects_supported_wrappers_from_paths() {
     assert_eq!(
         ArchiveFormat::from_path("models/model.tar.zst"),
         Some(ArchiveFormat::TarZst)
+    );
+    assert_eq!(
+        ArchiveFormat::from_path("models/model.tar.bz2"),
+        Some(ArchiveFormat::TarBz2)
+    );
+    assert_eq!(
+        ArchiveFormat::from_path("models/model.tbz2"),
+        Some(ArchiveFormat::TarBz2)
+    );
+    assert_eq!(
+        ArchiveFormat::from_path("models/MODEL.TAR.BZ2"),
+        Some(ArchiveFormat::TarBz2)
     );
     assert_eq!(ArchiveFormat::from_path("models/model.zip"), None);
 }
@@ -1479,6 +1566,25 @@ fn archive_format_dispatches_tar_zst_staging() {
         &[TestTarEntry::File("models/model.bin", b"model")],
     );
     let output = temp_dir.path().join("selected-tar-zst");
+
+    let staged = stage_archive_by_format(&archive, &output).unwrap();
+
+    assert_eq!(staged.file_count, 1);
+    assert_eq!(
+        std::fs::read(output.join("models/model.bin")).unwrap(),
+        b"model"
+    );
+}
+
+#[test]
+fn archive_format_dispatches_tar_bz2_staging() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("asset.tar.bz2");
+    write_test_tar_bz2_archive(
+        &archive,
+        &[TestTarEntry::File("models/model.bin", b"model")],
+    );
+    let output = temp_dir.path().join("selected-tar-bz2");
 
     let staged = stage_archive_by_format(&archive, &output).unwrap();
 
@@ -1534,6 +1640,33 @@ fn archive_staging_paths_plan_asset_archive_tree_and_target_paths() {
     assert_eq!(
         paths.materialize_target_path,
         std::path::PathBuf::from("/var/lib/vinput/assets/models/m.tar.zst")
+    );
+}
+
+#[test]
+fn archive_staging_paths_plan_tar_bz2_archive_tree_name() {
+    let asset = PlannedInstallAsset {
+        entry_kind: RegistryEntryKind::Model,
+        entry_id: "sense".to_owned(),
+        source_path: "models/SenseVoice.TAR.BZ2".to_owned(),
+        target_path: "/var/lib/vinput/assets/models/SenseVoice.TAR.BZ2".to_owned(),
+        urls: vec!["https://example.invalid/models/SenseVoice.TAR.BZ2".to_owned()],
+        sha256: None,
+        size_bytes: Some(42),
+        checksum_policy: ChecksumPolicy::Missing,
+    };
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    let paths = plan_archive_staging_paths(&asset, temp_dir.path()).unwrap();
+
+    assert_eq!(paths.archive_format, ArchiveFormat::TarBz2);
+    assert_eq!(
+        paths.staged_asset_path,
+        temp_dir.path().join("assets/models/SenseVoice.TAR.BZ2")
+    );
+    assert_eq!(
+        paths.archive_extract_path,
+        temp_dir.path().join("trees/models/SenseVoice")
     );
 }
 

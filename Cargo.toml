@@ -18,6 +18,7 @@ repository = "https://github.com/rijuyuezhu/fcitx-vinput-rs"
 rust-version = "1.88"
 
 [workspace.dependencies]
+bzip2 = "0.4.4"
 anyhow = "1.0.98"
 clap = { version = "4.5.40", features = ["derive", "env"] }
 figment = { version = "0.10.19", features = ["json", "toml", "env"] }

@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+bzip2.workspace = true
 reqwest.workspace = true
 schemars.workspace = true
 serde.workspace = true

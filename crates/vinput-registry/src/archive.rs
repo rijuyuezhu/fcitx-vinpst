@@ -1,7 +1,7 @@
 //! Archive extraction safety and staging helpers.
 //!
 //! This module pins validation policy and provides a narrow tar extraction
-//! boundary for already-staged local tar or tar.zst archives. It extracts into a
+//! boundary for already-staged local tar, tar.zst, or tar.bz2 archives. It extracts into a
 //! caller-owned staging directory through a temporary directory and publishes the
 //! staged tree only after every entry passes the safety policy. It does not
 //! install assets, replace install roots, or mutate configuration.
@@ -39,6 +39,8 @@ pub enum ArchiveFormat {
     Tar,
     /// Zstd-compressed tar archive.
     TarZst,
+    /// Bzip2-compressed tar archive.
+    TarBz2,
 }
 
 /// Archive entry safety policy errors.
@@ -210,13 +212,15 @@ impl ArchiveFormat {
     /// Detects the archive format from a source path.
     ///
     /// Detection is intentionally suffix-based and side-effect free. It accepts
-    /// `.tar` and `.tar.zst` paths only; callers remain responsible for
-    /// checksum verification before staging.
+    /// `.tar`, `.tar.zst`, `.tar.bz2`, and `.tbz2` paths only; callers remain
+    /// responsible for checksum verification before staging.
     pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
         let path = path.as_ref().to_string_lossy();
-        if path.ends_with(".tar.zst") {
+        if ascii_suffix_eq(&path, ".tar.zst") {
             Some(Self::TarZst)
-        } else if path.ends_with(".tar") {
+        } else if ascii_suffix_eq(&path, ".tar.bz2") || ascii_suffix_eq(&path, ".tbz2") {
+            Some(Self::TarBz2)
+        } else if ascii_suffix_eq(&path, ".tar") {
             Some(Self::Tar)
         } else {
             None
@@ -237,6 +241,7 @@ pub fn stage_archive_by_format(
     match ArchiveFormat::from_path(archive_path) {
         Some(ArchiveFormat::Tar) => stage_tar_archive(archive_path, output_root),
         Some(ArchiveFormat::TarZst) => stage_tar_zst_archive(archive_path, output_root),
+        Some(ArchiveFormat::TarBz2) => stage_tar_bz2_archive(archive_path, output_root),
         None => Err(ArchiveStagingError::UnsupportedFormat {
             path: display_path(archive_path),
         }),
@@ -281,6 +286,24 @@ pub fn stage_tar_zst_archive(
             message: sanitize_io_error(&error),
         }
     })?;
+    stage_tar_reader(archive_path, output_root, decoder)
+}
+
+/// Extracts an already-staged local bzip2-compressed tar archive into a staged directory.
+///
+/// This is the compressed-wrapper companion to `stage_tar_archive`. It decodes
+/// `.tar.bz2`/`.tbz2` bytes and then applies the same tar entry safety policy
+/// and same-directory temporary-tree publication flow.
+pub fn stage_tar_bz2_archive(
+    archive_path: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+) -> Result<StagedArchiveTree, ArchiveStagingError> {
+    let archive_path = archive_path.as_ref();
+    let file = fs::File::open(archive_path).map_err(|error| ArchiveStagingError::OpenArchive {
+        path: display_path(archive_path),
+        message: sanitize_io_error(&error),
+    })?;
+    let decoder = bzip2::read::BzDecoder::new(file);
     stage_tar_reader(archive_path, output_root, decoder)
 }
 
@@ -524,6 +547,13 @@ fn archive_temp_path(output_root: &Path) -> PathBuf {
 
 fn remove_dir_if_exists(path: &Path) {
     let _ = fs::remove_dir_all(path);
+}
+
+fn ascii_suffix_eq(value: &str, suffix: &str) -> bool {
+    value
+        .as_bytes()
+        .get(value.len().saturating_sub(suffix.len())..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix.as_bytes()))
 }
 
 fn display_path(path: &Path) -> String {

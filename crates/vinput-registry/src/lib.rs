@@ -1,8 +1,8 @@
 //! Registry manifest models, URL resolution helpers, and staged asset boundaries.
 //!
 //! Registry side-effect boundaries can download/verify one planned asset, extract
-//! a staged tar or tar.zst archive into a temporary tree, and materialize a prepared staged
-//! directory with local filesystem renames. Configuration mutation and
+//! a staged tar, tar.zst, or tar.bz2 archive into a temporary tree, and materialize
+//! a prepared staged directory with local filesystem renames. Configuration mutation and
 //! user-facing install commands are intentionally still outside this crate.
 
 mod archive;
@@ -20,7 +20,7 @@ mod staging;
 pub use archive::{
     ArchiveEntryKind, ArchiveFormat, ArchiveSafetyError, ArchiveStagingError, StagedArchiveTree,
     checked_archive_entry_target, stage_archive_by_format, stage_tar_archive,
-    stage_tar_zst_archive,
+    stage_tar_bz2_archive, stage_tar_zst_archive,
 };
 pub use asset::{
     AssetChecksumStatus, RegistryAssetFetchFailure, RegistryAssetSource, RegistryAssetStagingError,

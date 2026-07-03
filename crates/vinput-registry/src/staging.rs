@@ -135,7 +135,18 @@ pub fn plan_archive_staging_paths_for_plan(
 
 fn archive_tree_name(source_path: &str, format: ArchiveFormat) -> &str {
     match format {
-        ArchiveFormat::Tar => source_path.strip_suffix(".tar").unwrap_or(source_path),
-        ArchiveFormat::TarZst => source_path.strip_suffix(".tar.zst").unwrap_or(source_path),
+        ArchiveFormat::Tar => strip_ascii_suffix(source_path, ".tar").unwrap_or(source_path),
+        ArchiveFormat::TarZst => strip_ascii_suffix(source_path, ".tar.zst").unwrap_or(source_path),
+        ArchiveFormat::TarBz2 => strip_ascii_suffix(source_path, ".tar.bz2")
+            .or_else(|| strip_ascii_suffix(source_path, ".tbz2"))
+            .unwrap_or(source_path),
     }
+}
+
+fn strip_ascii_suffix<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
+    value
+        .as_bytes()
+        .get(value.len().saturating_sub(suffix.len())..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix.as_bytes()))
+        .then(|| &value[..value.len().saturating_sub(suffix.len())])
 }

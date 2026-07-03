@@ -193,8 +193,9 @@ fn model_install_dry_run_json_plans_target_and_archive_without_mutation() {
         "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2"
     );
     assert_eq!(value["archive"]["format"], "tar_bz2");
-    assert_eq!(value["archive"]["supported"], false);
+    assert_eq!(value["archive"]["supported"], true);
     assert_eq!(value["archive"]["supported_formats"][0], "tar");
+    assert_eq!(value["archive"]["supported_formats"][2], "tar_bz2");
     assert_eq!(value["archive"]["size_bytes"], 165_675_008);
     assert_eq!(
         value["target"]["model_dir"],
@@ -225,7 +226,7 @@ fn model_install_dry_run_text_reports_no_side_effects() {
     assert!(stdout.contains("dry_run: true"));
     assert!(stdout.contains("target_model_dir: /tmp/vinput-models/onnx-sv-zh-int8-off"));
     assert!(stdout.contains("archive_format: tar_bz2"));
-    assert!(stdout.contains("archive_supported: false"));
+    assert!(stdout.contains("archive_supported: true"));
     assert!(stdout.contains("will_download: false"));
     assert!(stdout.contains("will_extract: false"));
     assert!(stdout.contains("will_write_config: false"));

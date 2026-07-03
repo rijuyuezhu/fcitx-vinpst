@@ -1262,7 +1262,7 @@ fn live_model_install_plan_json(
             "file_name": archive_file_name,
             "format": archive_format,
             "supported": archive_supported,
-            "supported_formats": ["tar", "tar_zst"],
+            "supported_formats": ["tar", "tar_zst", "tar_bz2"],
             "urls": model.urls,
             "sha256": model.sha256,
             "size_bytes": model.size_bytes,
