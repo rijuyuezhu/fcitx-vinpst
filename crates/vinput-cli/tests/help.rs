@@ -109,13 +109,14 @@ fn device_help_lists_list_and_use_options() {
 }
 
 #[test]
-fn provider_help_lists_list_options() {
+fn provider_help_lists_list_and_use_options() {
     let root_output = vinput_command()
         .args(["provider", "--help"])
         .output()
         .expect("run vinput provider --help");
     let root_stdout = assert_stdout_success(root_output, "provider help output");
     assert!(root_stdout.contains("list"));
+    assert!(root_stdout.contains("use"));
 
     let list_output = vinput_command()
         .args(["provider", "list", "--help"])
@@ -124,6 +125,18 @@ fn provider_help_lists_list_options() {
     let list_stdout = assert_stdout_success(list_output, "provider list help output");
     assert!(list_stdout.contains("--config"));
     assert!(list_stdout.contains("--json"));
+
+    let use_output = vinput_command()
+        .args(["provider", "use", "--help"])
+        .output()
+        .expect("run vinput provider use --help");
+    let use_stdout = assert_stdout_success(use_output, "provider use help output");
+    assert!(use_stdout.contains("<ID>"));
+    assert!(use_stdout.contains("--config"));
+    assert!(use_stdout.contains("--output"));
+    assert!(use_stdout.contains("--in-place"));
+    assert!(use_stdout.contains("--dry-run"));
+    assert!(use_stdout.contains("--json"));
 }
 
 #[test]

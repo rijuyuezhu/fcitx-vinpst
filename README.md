@@ -85,6 +85,7 @@ cargo run -q -p vinput-cli -- audio-devices
 cargo run -q -p vinput-cli -- device list --json
 cargo run -q -p vinput-cli -- device use default --dry-run --json
 cargo run -q -p vinput-cli -- provider list --json
+cargo run -q -p vinput-cli -- provider use sherpa-onnx --dry-run --json
 cargo run -q -p vinput-cli -- registry
 cargo run -q -p vinput-cli -- registry validate data/sample-registry-index.json
 cargo run -q -p vinput-cli -- registry plan data/sample-registry-index.json --summary-only

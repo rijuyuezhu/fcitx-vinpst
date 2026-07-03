@@ -309,6 +309,26 @@ enum ProviderCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Select the active ASR provider in config.
+    Use {
+        /// Existing ASR provider id to activate.
+        id: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Model-related commands backed by the live registry catalog.
@@ -1451,7 +1471,46 @@ fn handle_device_command(command: DeviceCommand) -> anyhow::Result<()> {
 fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
     match command {
         ProviderCommand::List { config, json } => print_provider_list(config.as_ref(), json),
+        ProviderCommand::Use {
+            id,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_provider_use(ProviderUseRequest {
+            id: &id,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
     }
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct ProviderUseRequest<'a> {
+    id: &'a str,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct ProviderUseOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    before: String,
+    after: String,
+    provider_type: &'static str,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
 }
 
 struct ProviderListContext {
@@ -1557,6 +1616,120 @@ fn print_provider_list_text(context: &ProviderListContext) {
                 .map_or_else(|| "-".to_owned(), |value| value.to_string())
         );
     }
+}
+
+fn print_provider_use(request: ProviderUseRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_provider_use(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&provider_use_outcome_json(&outcome))?
+        );
+    } else {
+        print_provider_use_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_provider_use(request: &ProviderUseRequest<'_>) -> anyhow::Result<ProviderUseOutcome> {
+    let after = normalize_provider_id(request.id)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for provider use")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for provider use")?;
+    let provider = config
+        .asr
+        .providers
+        .iter()
+        .find(|provider| provider.id == after)
+        .with_context(|| format!("ASR provider `{after}` not found"))?;
+    let provider_type = asr_provider_kind_label(&provider.kind);
+    let before = config.asr.active_provider;
+    *loaded
+        .document
+        .pointer_mut("/asr/active_provider")
+        .with_context(|| "config pointer `/asr/active_provider` not found")? =
+        serde_json::Value::String(after.clone());
+    validate_config_json_value(&loaded.document, "validate updated provider config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+
+    Ok(ProviderUseOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        before,
+        after,
+        provider_type,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn normalize_provider_id(input: &str) -> anyhow::Result<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("ASR provider id cannot be empty");
+    }
+    Ok(trimmed.to_owned())
+}
+
+fn provider_use_outcome_json(outcome: &ProviderUseOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "before": outcome.before,
+        "after": outcome.after,
+        "provider_type": outcome.provider_type,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput provider list to verify the active provider",
+            "run vinput asr-state to inspect the selected provider runtime readiness",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_provider_use_text(outcome: &ProviderUseOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("before: {}", outcome.before);
+    println!("after: {}", outcome.after);
+    println!("provider_type: {}", outcome.provider_type);
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {

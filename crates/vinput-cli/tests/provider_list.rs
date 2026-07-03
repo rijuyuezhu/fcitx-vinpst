@@ -1,8 +1,8 @@
-//! Integration tests for ASR provider listing CLI paths.
+//! Integration tests for ASR provider listing and selection CLI paths.
 
 mod common;
 
-use std::fs;
+use std::{fs, path::Path};
 
 use common::{assert_json_success, assert_stdout_success, vinput_command, write_temp_json};
 
@@ -33,26 +33,7 @@ fn provider_list_json_reports_bundled_default_active_provider() {
 
 #[test]
 fn provider_list_json_reports_multiple_provider_kinds_and_active_marker() {
-    let path = write_temp_json(
-        "vinput-provider-list",
-        r#"
-        {
-          "version": 1,
-          "asr": {
-            "active_provider": "cmd",
-            "providers": [
-              {"id":"local","type":"local","model":"/tmp/model","hotwords_file":"/tmp/hotwords.txt"},
-              {"id":"cmd","type":"command","command":"helper","args":["--json"],"env":{"TOKEN":"redacted"},"timeout_ms":20000},
-              {"id":"remote","type":"remote","endpoint":"https://asr.example.test","model":"cloud"}
-            ]
-          },
-          "scenes": {
-            "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
-          }
-        }
-        "#,
-    );
+    let path = write_provider_fixture("vinput-provider-list");
 
     let output = vinput_command()
         .args(["provider", "ls", "--config"])
@@ -90,25 +71,7 @@ fn provider_list_json_reports_multiple_provider_kinds_and_active_marker() {
 
 #[test]
 fn provider_list_text_prints_table_and_active_marker() {
-    let path = write_temp_json(
-        "vinput-provider-list-text",
-        r#"
-        {
-          "version": 1,
-          "asr": {
-            "active_provider": "cmd",
-            "providers": [
-              {"id":"local","type":"local","model":"fixture-model"},
-              {"id":"cmd","type":"command","command":"helper"}
-            ]
-          },
-          "scenes": {
-            "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
-          }
-        }
-        "#,
-    );
+    let path = write_provider_fixture("vinput-provider-list-text");
 
     let output = vinput_command()
         .args(["provider", "list", "--config"])
@@ -120,8 +83,170 @@ fn provider_list_text_prints_table_and_active_marker() {
     let stdout = assert_stdout_success(output, "provider list text");
     assert!(stdout.contains("source: file"));
     assert!(stdout.contains("active_provider: cmd"));
-    assert!(stdout.contains("provider_count: 2"));
+    assert!(stdout.contains("provider_count: 3"));
     assert!(stdout.contains("active\tid\ttype\tmodel\thotwords\tcommand\tendpoint\ttimeout_ms"));
-    assert!(stdout.contains("\tlocal\tlocal\tfixture-model\tno\tno\tno\t-"));
-    assert!(stdout.contains("*\tcmd\tcommand\t-\tno\tyes\tno\t-"));
+    assert!(stdout.contains("\tlocal\tlocal\t/tmp/model\tyes\tno\tno\t-"));
+    assert!(stdout.contains("*\tcmd\tcommand\t-\tno\tyes\tno\t20000"));
+}
+
+#[test]
+fn provider_use_dry_run_json_validates_existing_provider_without_writing() {
+    let path = write_provider_fixture("vinput-provider-use-dry-run");
+    let before = fs::read_to_string(&path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "use", "remote", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput provider use dry-run");
+
+    let value = assert_json_success(output, "provider use dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["before"], "cmd");
+    assert_eq!(value["after"], "remote");
+    assert_eq!(value["provider_type"], "remote");
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged provider config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary provider config");
+}
+
+#[test]
+fn provider_use_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-provider-use-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, provider_fixture_json()).expect("write provider config");
+    let output_path = root.join("out/provider.json");
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "use", "local", "--config"])
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput provider use --output");
+
+    let value = assert_json_success(output, "provider use output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    assert_eq!(read_json(&output_path)["asr"]["active_provider"], "local");
+    fs::remove_dir_all(root).expect("remove provider output fixture dir");
+}
+
+#[test]
+fn provider_use_in_place_writes_backup() {
+    let root = unique_temp_dir("vinput-provider-use-in-place");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, provider_fixture_json()).expect("write provider config");
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "use", "local", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput provider use --in-place");
+
+    let value = assert_json_success(output, "provider use in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read provider backup config"),
+        before
+    );
+    assert_eq!(read_json(&config_path)["asr"]["active_provider"], "local");
+    fs::remove_dir_all(root).expect("remove provider in-place fixture dir");
+}
+
+#[test]
+fn provider_use_rejects_empty_missing_and_missing_write_target() {
+    let path = write_provider_fixture("vinput-provider-use-errors");
+
+    let empty = vinput_command()
+        .args(["provider", "use", "   ", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider use empty id");
+    assert!(!empty.status.success());
+    let stderr = String::from_utf8(empty.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider id cannot be empty"));
+
+    let missing = vinput_command()
+        .args(["provider", "use", "missing", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider use missing id");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider `missing` not found"));
+
+    let missing_target = vinput_command()
+        .args(["provider", "use", "local", "--config"])
+        .arg(&path)
+        .output()
+        .expect("run vinput provider use without write target");
+    assert!(!missing_target.status.success());
+    let stderr = String::from_utf8(missing_target.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("config set writes require --output <path> or --in-place"));
+
+    fs::remove_file(&path).expect("remove temporary provider config");
+}
+
+fn write_provider_fixture(prefix: &str) -> std::path::PathBuf {
+    write_temp_json(prefix, provider_fixture_json())
+}
+
+fn provider_fixture_json() -> &'static str {
+    r#"
+    {
+      "version": 1,
+      "asr": {
+        "active_provider": "cmd",
+        "providers": [
+          {"id":"local","type":"local","model":"/tmp/model","hotwords_file":"/tmp/hotwords.txt"},
+          {"id":"cmd","type":"command","command":"helper","args":["--json"],"env":{"TOKEN":"redacted"},"timeout_ms":20000},
+          {"id":"remote","type":"remote","endpoint":"https://asr.example.test","model":"cloud"}
+        ]
+      },
+      "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+      }
+    }
+    "#
+}
+
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "{prefix}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&path).expect("create unique temp dir");
+    path
+}
+
+fn read_json(path: &Path) -> serde_json::Value {
+    serde_json::from_str(&fs::read_to_string(path).expect("read json file"))
+        .expect("parse json file")
 }
