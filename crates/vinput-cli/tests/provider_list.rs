@@ -481,6 +481,227 @@ fn provider_add_rejects_invalid_duplicate_and_missing_write_target() {
 }
 
 #[test]
+fn provider_edit_dry_run_json_updates_command_provider_without_writing() {
+    let path = write_provider_fixture("vinput-provider-edit-dry-run");
+    let before = fs::read_to_string(&path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "edit", "cmd", "--config"])
+        .arg(&path)
+        .args([
+            "--command",
+            "helper2",
+            "--arg=--stream",
+            "--env",
+            "TOKEN=new",
+            "--timeout-ms",
+            "31000",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput provider edit dry-run");
+
+    let value = assert_json_success(output, "provider edit dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["provider_id"], "cmd");
+    assert_eq!(value["before_provider_type"], "command");
+    assert_eq!(value["after_provider_type"], "command");
+    assert_eq!(value["active_provider"], "cmd");
+    assert_eq!(value["wrote_config"], false);
+    let changed = value["changed_fields"].as_array().unwrap();
+    assert!(changed.iter().any(|field| field == "command"));
+    assert!(changed.iter().any(|field| field == "args"));
+    assert!(changed.iter().any(|field| field == "env"));
+    assert!(changed.iter().any(|field| field == "timeout_ms"));
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged provider config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary provider config");
+}
+
+#[test]
+fn provider_edit_text_dry_run_outputs_expected_fields() {
+    let path = write_provider_fixture("vinput-provider-edit-text-dry-run");
+
+    let output = vinput_command()
+        .args(["provider", "edit", "local", "--config"])
+        .arg(&path)
+        .args(["--model", "/tmp/new-model", "--dry-run"])
+        .output()
+        .expect("run vinput provider edit text dry-run");
+    fs::remove_file(&path).expect("remove temporary provider config");
+
+    let stdout = assert_stdout_success(output, "provider edit text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("provider_id: local"));
+    assert!(stdout.contains("before_provider_type: local"));
+    assert!(stdout.contains("after_provider_type: local"));
+    assert!(stdout.contains("active_provider: cmd"));
+    assert!(stdout.contains("changed_fields: model"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
+}
+
+#[test]
+fn provider_edit_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-provider-edit-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, provider_fixture_json()).expect("write provider config");
+    let output_path = root.join("out/provider.json");
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "edit", "local", "--config"])
+        .arg(&config_path)
+        .args(["--model", "/tmp/new-model", "--clear-hotwords-file"])
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput provider edit --output");
+
+    let value = assert_json_success(output, "provider edit output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["provider_id"], "local");
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    let json = read_json(&output_path);
+    assert_eq!(json["asr"]["providers"][0]["model"], "/tmp/new-model");
+    assert!(
+        json["asr"]["providers"][0]
+            .as_object()
+            .unwrap()
+            .get("hotwords_file")
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove provider edit output fixture dir");
+}
+
+#[test]
+fn provider_edit_in_place_writes_remote_provider_and_backup() {
+    let root = unique_temp_dir("vinput-provider-edit-in-place");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, provider_fixture_json()).expect("write provider config");
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "edit", "remote", "--config"])
+        .arg(&config_path)
+        .args([
+            "--endpoint",
+            "https://new-asr.example.test",
+            "--model",
+            "cloud-v2",
+            "--in-place",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput provider edit --in-place");
+
+    let value = assert_json_success(output, "provider edit in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["provider_id"], "remote");
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read provider edit backup config"),
+        before
+    );
+    let json = read_json(&config_path);
+    assert_eq!(
+        json["asr"]["providers"][2]["endpoint"],
+        "https://new-asr.example.test"
+    );
+    assert_eq!(json["asr"]["providers"][2]["model"], "cloud-v2");
+    fs::remove_dir_all(root).expect("remove provider edit in-place fixture dir");
+}
+
+#[test]
+fn provider_edit_rejects_invalid_missing_noop_conflicts_and_invalid_config() {
+    let path = write_provider_fixture("vinput-provider-edit-errors");
+
+    let empty = vinput_command()
+        .args(["provider", "edit", "   ", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider edit empty id");
+    assert!(!empty.status.success());
+    let stderr = String::from_utf8(empty.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider id cannot be empty"));
+
+    let missing = vinput_command()
+        .args(["provider", "edit", "missing", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider edit missing id");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("ASR provider `missing` not found"));
+
+    let noop = vinput_command()
+        .args(["provider", "edit", "local", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider edit without field changes");
+    assert!(!noop.status.success());
+    let stderr = String::from_utf8(noop.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("provider edit requires at least one field change"));
+
+    let conflict = vinput_command()
+        .args([
+            "provider",
+            "edit",
+            "local",
+            "--model",
+            "new",
+            "--clear-model",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider edit conflicting model flags");
+    assert!(!conflict.status.success());
+    let stderr = String::from_utf8(conflict.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("provider edit cannot combine --model and --clear-model"));
+
+    let invalid_command = vinput_command()
+        .args(["provider", "edit", "cmd", "--clear-command", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider edit invalid command provider");
+    assert!(!invalid_command.status.success());
+    let stderr = String::from_utf8(invalid_command.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("command ASR provider `cmd` must configure a command"));
+
+    let invalid_remote = vinput_command()
+        .args(["provider", "edit", "remote", "--clear-endpoint", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput provider edit invalid remote provider");
+    assert!(!invalid_remote.status.success());
+    let stderr = String::from_utf8(invalid_remote.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("remote ASR provider `remote` must configure an endpoint"));
+
+    fs::remove_file(&path).expect("remove temporary provider config");
+}
+
+#[test]
 fn provider_remove_dry_run_json_validates_inactive_provider_without_writing() {
     let path = write_provider_fixture("vinput-provider-remove-dry-run");
     let before = fs::read_to_string(&path).expect("read original provider config");

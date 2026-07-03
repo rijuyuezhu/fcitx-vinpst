@@ -118,6 +118,7 @@ fn provider_help_lists_list_and_use_options() {
     assert!(root_stdout.contains("list"));
     assert!(root_stdout.contains("use"));
     assert!(root_stdout.contains("add"));
+    assert!(root_stdout.contains("edit"));
     assert!(root_stdout.contains("remove"));
 
     let list_output = vinput_command()
@@ -147,6 +148,33 @@ fn provider_help_lists_list_and_use_options() {
     assert!(add_stdout.contains("--in-place"));
     assert!(add_stdout.contains("--dry-run"));
     assert!(add_stdout.contains("--json"));
+
+    let edit_output = vinput_command()
+        .args(["provider", "edit", "--help"])
+        .output()
+        .expect("run vinput provider edit --help");
+    let edit_stdout = assert_stdout_success(edit_output, "provider edit help output");
+    assert!(edit_stdout.contains("<ID>"));
+    assert!(edit_stdout.contains("--type"));
+    assert!(edit_stdout.contains("--model"));
+    assert!(edit_stdout.contains("--clear-model"));
+    assert!(edit_stdout.contains("--hotwords-file"));
+    assert!(edit_stdout.contains("--clear-hotwords-file"));
+    assert!(edit_stdout.contains("--command"));
+    assert!(edit_stdout.contains("--clear-command"));
+    assert!(edit_stdout.contains("--arg"));
+    assert!(edit_stdout.contains("--clear-args"));
+    assert!(edit_stdout.contains("--env"));
+    assert!(edit_stdout.contains("--clear-env"));
+    assert!(edit_stdout.contains("--endpoint"));
+    assert!(edit_stdout.contains("--clear-endpoint"));
+    assert!(edit_stdout.contains("--timeout-ms"));
+    assert!(edit_stdout.contains("--clear-timeout"));
+    assert!(edit_stdout.contains("--config"));
+    assert!(edit_stdout.contains("--output"));
+    assert!(edit_stdout.contains("--in-place"));
+    assert!(edit_stdout.contains("--dry-run"));
+    assert!(edit_stdout.contains("--json"));
 
     let use_output = vinput_command()
         .args(["provider", "use", "--help"])

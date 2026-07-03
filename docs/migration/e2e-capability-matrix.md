@@ -86,7 +86,7 @@ audio-devices
 doctor
 activation-service
 model list/ls/info/install/add/use/remove/rm
-provider list/ls/add/use/remove
+provider list/ls/add/edit/use/remove
 hotword get/set/clear/edit
 daemon start/status/reload-asr/stop/restart/log
 recording start/stop/toggle
@@ -106,7 +106,7 @@ Rust CLI strengths:
 Rust CLI weaknesses for a user:
 
 - config `get/set/edit` exists, but broader resource-aware mutations are still incomplete;
-- live registry install/use/remove exists for model flow, provider list/use exists, but provider edit plus scene/LLM commands are still missing; device list/use exists;
+- live registry install/use/remove exists for model flow, provider list/use exists, but remaining provider UX polish plus scene/LLM commands are still missing; device list/use exists;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
 - recording start/stop/toggle exists, but a dedicated `recording status` command is still missing;
 - no global JSON/text output mode equivalent to legacy;
@@ -246,7 +246,7 @@ Acceptance:
 - `vinput provider use <id>` switches `asr.active_provider` to an existing provider. **Done for dry-run/output/in-place writes, backup/validation guards, and JSON/text output.**
 - `vinput provider remove <id>` removes inactive ASR providers. **Done for dry-run/output/in-place writes, backup/validation guards, active-provider protection, and JSON/text output.**
 - `vinput provider add` can configure local, command, and remote provider entries. **Done for dry-run/output/in-place writes, backup/validation guards, duplicate checks, command args/env, remote endpoint, and JSON/text output.**
-- `vinput provider edit` can update existing local, command batch, command streaming, and remote/cloud script providers.
+- `vinput provider edit` can update existing local, command, and remote provider entries. **Done for explicit field patches, clear flags, dry-run/output/in-place writes, backup/validation guards, JSON/text output, and invalid command/remote config rejection.**
 - `vinput hotword get` reports the active or selected provider hotwords path and support marker. **Done for JSON/text output and provider override.**
 - `vinput hotword set/clear` manages the active or selected provider hotwords path. **Done for supported local/command providers, dry-run/output/in-place writes, backup/validation guards, and JSON/text output.**
 - `vinput hotword edit` opens the configured hotwords file in an editor. **Done for provider override, dry-run, editor resolution, and JSON/text output.**

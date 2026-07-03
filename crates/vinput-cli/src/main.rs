@@ -453,6 +453,71 @@ enum ProviderCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Edit an existing ASR provider in config.
+    Edit {
+        /// Existing ASR provider id to edit.
+        id: String,
+        /// Provider type: local, command, or remote.
+        #[arg(long = "type")]
+        kind: Option<String>,
+        /// Set model id/path for this provider.
+        #[arg(long)]
+        model: Option<String>,
+        /// Clear model from this provider.
+        #[arg(long)]
+        clear_model: bool,
+        /// Set hotwords file path for local/command providers.
+        #[arg(long)]
+        hotwords_file: Option<String>,
+        /// Clear hotwords file from this provider.
+        #[arg(long)]
+        clear_hotwords_file: bool,
+        /// Set external command for command providers.
+        #[arg(long)]
+        command: Option<String>,
+        /// Clear command from this provider.
+        #[arg(long)]
+        clear_command: bool,
+        /// Replace command arguments. Repeat for multiple args.
+        #[arg(long = "arg")]
+        args: Vec<String>,
+        /// Clear command arguments from this provider.
+        #[arg(long)]
+        clear_args: bool,
+        /// Replace environment entries with repeated KEY=VALUE assignments.
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Clear environment entries from this provider.
+        #[arg(long)]
+        clear_env: bool,
+        /// Set endpoint URL or label for remote providers.
+        #[arg(long)]
+        endpoint: Option<String>,
+        /// Clear endpoint from this provider.
+        #[arg(long)]
+        clear_endpoint: bool,
+        /// Set provider timeout in milliseconds.
+        #[arg(long)]
+        timeout_ms: Option<u64>,
+        /// Clear provider timeout.
+        #[arg(long)]
+        clear_timeout: bool,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove an inactive ASR provider from config.
     Remove {
         /// Existing inactive ASR provider id to remove.
@@ -2096,6 +2161,7 @@ fn hotword_supported(kind: &AsrProviderKind) -> bool {
     matches!(kind, AsrProviderKind::Local | AsrProviderKind::Command)
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
     match command {
         ProviderCommand::List { config, json } => print_provider_list(config.as_ref(), json),
@@ -2139,6 +2205,51 @@ fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
             env: &env,
             endpoint: endpoint.as_deref(),
             timeout_ms,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
+        ProviderCommand::Edit {
+            id,
+            kind,
+            model,
+            clear_model,
+            hotwords_file,
+            clear_hotwords_file,
+            command,
+            clear_command,
+            args,
+            clear_args,
+            env,
+            clear_env,
+            endpoint,
+            clear_endpoint,
+            timeout_ms,
+            clear_timeout,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_provider_edit(ProviderEditRequest {
+            id: &id,
+            kind: kind.as_deref(),
+            model: model.as_deref(),
+            clear_model,
+            hotwords_file: hotwords_file.as_deref(),
+            clear_hotwords_file,
+            command: command.as_deref(),
+            clear_command,
+            args: &args,
+            clear_args,
+            env: &env,
+            clear_env,
+            endpoint: endpoint.as_deref(),
+            clear_endpoint,
+            timeout_ms,
+            clear_timeout,
             config_path: config.as_ref(),
             output_path: output.as_deref(),
             in_place,
@@ -2190,6 +2301,47 @@ struct ProviderAddOutcome {
     active_provider: String,
     before_provider_count: usize,
     after_provider_count: usize,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct ProviderEditRequest<'a> {
+    id: &'a str,
+    kind: Option<&'a str>,
+    model: Option<&'a str>,
+    clear_model: bool,
+    hotwords_file: Option<&'a str>,
+    clear_hotwords_file: bool,
+    command: Option<&'a str>,
+    clear_command: bool,
+    args: &'a [String],
+    clear_args: bool,
+    env: &'a [String],
+    clear_env: bool,
+    endpoint: Option<&'a str>,
+    clear_endpoint: bool,
+    timeout_ms: Option<u64>,
+    clear_timeout: bool,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct ProviderEditOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    provider_id: String,
+    before_provider_type: &'static str,
+    after_provider_type: &'static str,
+    active_provider: String,
+    changed_fields: Vec<String>,
     output_path: Option<PathBuf>,
     backup_path: Option<PathBuf>,
     in_place: bool,
@@ -2352,6 +2504,135 @@ fn print_provider_list_text(context: &ProviderListContext) {
     }
 }
 
+fn print_provider_edit(request: ProviderEditRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_provider_edit(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&provider_edit_outcome_json(&outcome))?
+        );
+    } else {
+        print_provider_edit_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_provider_edit(request: &ProviderEditRequest<'_>) -> anyhow::Result<ProviderEditOutcome> {
+    let id = normalize_provider_id(request.id)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for provider edit")?;
+    let config =
+        VinputConfig::from_json_str(&contents).context("parse config for provider edit")?;
+    let provider_index = config
+        .asr
+        .providers
+        .iter()
+        .position(|provider| provider.id == id)
+        .with_context(|| format!("ASR provider `{id}` not found"))?;
+    let before_provider = &config.asr.providers[provider_index];
+    let before_provider_type = asr_provider_kind_label(&before_provider.kind);
+
+    let providers = loaded
+        .document
+        .pointer_mut("/asr/providers")
+        .and_then(serde_json::Value::as_array_mut)
+        .with_context(|| "config pointer `/asr/providers` not found or not an array")?;
+    let provider_object = providers
+        .get_mut(provider_index)
+        .and_then(serde_json::Value::as_object_mut)
+        .with_context(|| format!("ASR provider `{id}` is not a JSON object"))?;
+    let changed_fields = apply_provider_edit(provider_object, request)?;
+    if changed_fields.is_empty() {
+        anyhow::bail!("provider edit requires at least one field change");
+    }
+
+    validate_config_json_value(&loaded.document, "validate updated provider config")?;
+    let updated_contents =
+        serde_json::to_string(&loaded.document).context("serialize updated provider config")?;
+    let updated_config =
+        VinputConfig::from_json_str(&updated_contents).context("parse updated provider config")?;
+    let after_provider = &updated_config.asr.providers[provider_index];
+    let after_provider_type = asr_provider_kind_label(&after_provider.kind);
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+
+    Ok(ProviderEditOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        provider_id: id,
+        before_provider_type,
+        after_provider_type,
+        active_provider: config.asr.active_provider,
+        changed_fields,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn provider_edit_outcome_json(outcome: &ProviderEditOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "provider_id": outcome.provider_id,
+        "before_provider_type": outcome.before_provider_type,
+        "after_provider_type": outcome.after_provider_type,
+        "active_provider": outcome.active_provider,
+        "changed_fields": outcome.changed_fields,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput provider list to verify configured ASR providers",
+            "run vinput asr-state to inspect provider runtime readiness",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_provider_edit_text(outcome: &ProviderEditOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("provider_id: {}", outcome.provider_id);
+    println!("before_provider_type: {}", outcome.before_provider_type);
+    println!("after_provider_type: {}", outcome.after_provider_type);
+    println!("active_provider: {}", outcome.active_provider);
+    println!("changed_fields: {}", outcome.changed_fields.join(","));
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
+}
+
 fn print_provider_add(request: ProviderAddRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_provider_add(&request)?;
@@ -2421,6 +2702,114 @@ fn run_provider_add(request: &ProviderAddRequest<'_>) -> anyhow::Result<Provider
         dry_run: request.dry_run,
         wrote_config,
     })
+}
+
+fn apply_provider_edit(
+    provider_object: &mut serde_json::Map<String, serde_json::Value>,
+    request: &ProviderEditRequest<'_>,
+) -> anyhow::Result<Vec<String>> {
+    let mut changed = Vec::new();
+    if let Some(kind) = request.kind {
+        provider_object.insert(
+            "type".to_owned(),
+            serde_json::Value::String(normalize_provider_kind(kind)?.to_owned()),
+        );
+        changed.push("type".to_owned());
+    }
+    apply_optional_provider_string_edit(
+        provider_object,
+        "model",
+        "model",
+        request.model,
+        request.clear_model,
+        &mut changed,
+    )?;
+    apply_optional_provider_string_edit(
+        provider_object,
+        "hotwords_file",
+        "hotwords-file",
+        request.hotwords_file,
+        request.clear_hotwords_file,
+        &mut changed,
+    )?;
+    apply_optional_provider_string_edit(
+        provider_object,
+        "command",
+        "command",
+        request.command,
+        request.clear_command,
+        &mut changed,
+    )?;
+    if !request.args.is_empty() && request.clear_args {
+        anyhow::bail!("provider edit cannot combine --arg and --clear-args");
+    }
+    if !request.args.is_empty() {
+        provider_object.insert("args".to_owned(), serde_json::json!(request.args));
+        changed.push("args".to_owned());
+    } else if request.clear_args {
+        provider_object.remove("args");
+        changed.push("args".to_owned());
+    }
+    if !request.env.is_empty() && request.clear_env {
+        anyhow::bail!("provider edit cannot combine --env and --clear-env");
+    }
+    if !request.env.is_empty() {
+        provider_object.insert(
+            "env".to_owned(),
+            serde_json::json!(parse_provider_env(request.env)?),
+        );
+        changed.push("env".to_owned());
+    } else if request.clear_env {
+        provider_object.remove("env");
+        changed.push("env".to_owned());
+    }
+    apply_optional_provider_string_edit(
+        provider_object,
+        "endpoint",
+        "endpoint",
+        request.endpoint,
+        request.clear_endpoint,
+        &mut changed,
+    )?;
+    if request.timeout_ms.is_some() && request.clear_timeout {
+        anyhow::bail!("provider edit cannot combine --timeout-ms and --clear-timeout");
+    }
+    if let Some(timeout_ms) = request.timeout_ms {
+        provider_object.insert("timeout_ms".to_owned(), serde_json::json!(timeout_ms));
+        changed.push("timeout_ms".to_owned());
+    } else if request.clear_timeout {
+        provider_object.remove("timeout_ms");
+        changed.push("timeout_ms".to_owned());
+    }
+    Ok(changed)
+}
+
+fn apply_optional_provider_string_edit(
+    provider_object: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    option_name: &str,
+    value: Option<&str>,
+    clear: bool,
+    changed: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    if value.is_some() && clear {
+        anyhow::bail!("provider edit cannot combine --{option_name} and --clear-{option_name}");
+    }
+    if let Some(value) = value {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            anyhow::bail!("provider field `{key}` cannot be empty");
+        }
+        provider_object.insert(
+            key.to_owned(),
+            serde_json::Value::String(trimmed.to_owned()),
+        );
+        changed.push(key.to_owned());
+    } else if clear {
+        provider_object.remove(key);
+        changed.push(key.to_owned());
+    }
+    Ok(())
 }
 
 fn provider_add_json_object(
