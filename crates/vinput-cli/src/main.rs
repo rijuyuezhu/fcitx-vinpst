@@ -39,6 +39,39 @@ enum ConfigCommand {
         #[arg(long)]
         summary_only: bool,
     },
+    /// Read a config value by JSON pointer.
+    Get {
+        /// JSON pointer such as `/global/default_language`. Use an empty string for the whole document.
+        pointer: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print machine-readable JSON instead of the raw value.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set an existing config value by JSON pointer.
+    Set {
+        /// JSON pointer such as `/global/default_language`. The pointer must already exist.
+        pointer: String,
+        /// New value. Parsed as JSON when possible, otherwise treated as a string.
+        value: String,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the validated config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print, list, or write a bundled example config JSON file.
     Example {
         /// Example config to export. Omit with --list to show available examples.
@@ -529,6 +562,28 @@ fn main() -> anyhow::Result<()> {
             Some(ConfigCommand::Validate { path, summary_only }) => {
                 validate_config_file(&path, summary_only)
             }
+            Some(ConfigCommand::Get {
+                pointer,
+                config,
+                json,
+            }) => handle_config_get(&pointer, config.as_ref(), json),
+            Some(ConfigCommand::Set {
+                pointer,
+                value,
+                config,
+                output,
+                in_place,
+                dry_run,
+                json,
+            }) => handle_config_set(ConfigSetRequest {
+                pointer: &pointer,
+                raw_value: &value,
+                config_path: config.as_ref(),
+                output_path: output.as_deref(),
+                in_place,
+                dry_run,
+                json_output: json,
+            }),
             Some(ConfigCommand::Example { kind, list, output }) => {
                 handle_config_example(kind, list, output.as_deref())
             }
@@ -3764,6 +3819,355 @@ fn validate_registry_index(path: &PathBuf) -> anyhow::Result<()> {
         "asset_count": index_summary.asset_count,
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
+    Ok(())
+}
+
+fn handle_config_get(
+    pointer: &str,
+    config_path: Option<&PathBuf>,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    ensure_json_pointer(pointer)?;
+    let loaded = load_config_json(config_path)?;
+    let value = loaded
+        .document
+        .pointer(pointer)
+        .with_context(|| format!("config pointer `{pointer}` not found"))?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "ok": true,
+                "config_path": loaded.path,
+                "source": loaded.source,
+                "pointer": pointer,
+                "value": value,
+            }))?
+        );
+    } else {
+        print_config_value(value)?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct ConfigSetRequest<'a> {
+    pointer: &'a str,
+    raw_value: &'a str,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct LoadedConfigJson {
+    path: Option<PathBuf>,
+    source: &'static str,
+    document: serde_json::Value,
+}
+
+#[derive(Clone)]
+enum ConfigSetWriteTarget {
+    DryRun,
+    Output(PathBuf),
+    InPlace {
+        config_path: PathBuf,
+        backup_path: Option<PathBuf>,
+    },
+}
+
+impl ConfigSetWriteTarget {
+    fn output_path(&self) -> Option<PathBuf> {
+        match self {
+            Self::DryRun => None,
+            Self::Output(path) => Some(path.clone()),
+            Self::InPlace { config_path, .. } => Some(config_path.clone()),
+        }
+    }
+
+    fn backup_path(&self) -> Option<PathBuf> {
+        match self {
+            Self::InPlace { backup_path, .. } => backup_path.clone(),
+            Self::DryRun | Self::Output(_) => None,
+        }
+    }
+
+    fn in_place(&self) -> bool {
+        matches!(self, Self::InPlace { .. })
+    }
+}
+
+struct ConfigSetOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    pointer: String,
+    raw_value: String,
+    parsed_value_kind: &'static str,
+    before: serde_json::Value,
+    after: serde_json::Value,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
+fn handle_config_set(request: ConfigSetRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_config_set(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&config_set_outcome_json(&outcome))?
+        );
+    } else {
+        print_config_set_outcome_text(&outcome)?;
+    }
+    Ok(())
+}
+
+fn run_config_set(request: &ConfigSetRequest<'_>) -> anyhow::Result<ConfigSetOutcome> {
+    ensure_json_pointer(request.pointer)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let before = loaded
+        .document
+        .pointer(request.pointer)
+        .with_context(|| format!("config pointer `{}` not found", request.pointer))?
+        .clone();
+    let (after, parsed_value_kind) = parse_config_set_value(request.raw_value);
+    *loaded
+        .document
+        .pointer_mut(request.pointer)
+        .with_context(|| format!("config pointer `{}` not found", request.pointer))? =
+        after.clone();
+
+    validate_config_json_value(&loaded.document, "validate updated config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+
+    Ok(ConfigSetOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        pointer: request.pointer.to_owned(),
+        raw_value: request.raw_value.to_owned(),
+        parsed_value_kind,
+        before,
+        after,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn config_set_write_target(
+    output_path: Option<&Path>,
+    in_place: bool,
+    dry_run: bool,
+    input_path: Option<&PathBuf>,
+    default_path: &Path,
+) -> anyhow::Result<ConfigSetWriteTarget> {
+    if output_path.is_some() && in_place {
+        anyhow::bail!("config set cannot combine --output and --in-place");
+    }
+    if dry_run {
+        return Ok(ConfigSetWriteTarget::DryRun);
+    }
+    if in_place {
+        let target = input_path
+            .cloned()
+            .unwrap_or_else(|| default_path.to_path_buf());
+        let backup_path = target.exists().then(|| config_backup_path(&target));
+        return Ok(ConfigSetWriteTarget::InPlace {
+            config_path: target,
+            backup_path,
+        });
+    }
+    let output_path = output_path.with_context(|| {
+        "config set writes require --output <path> or --in-place; rerun with --dry-run to inspect the config patch"
+    })?;
+    if let Some(input_path) = input_path
+        && same_path_text(input_path, output_path)
+    {
+        anyhow::bail!(
+            "refusing to overwrite input config `{}` with --output; use --in-place to create a backup",
+            input_path.display()
+        );
+    }
+    Ok(ConfigSetWriteTarget::Output(output_path.to_path_buf()))
+}
+
+fn write_config_set_document(
+    document: &serde_json::Value,
+    target: &ConfigSetWriteTarget,
+) -> anyhow::Result<()> {
+    match target {
+        ConfigSetWriteTarget::DryRun => Ok(()),
+        ConfigSetWriteTarget::Output(output_path) => write_config_json_value(document, output_path),
+        ConfigSetWriteTarget::InPlace {
+            config_path,
+            backup_path,
+        } => {
+            if let Some(backup_path) = backup_path {
+                fs::copy(config_path, backup_path).with_context(|| {
+                    format!(
+                        "backup config `{}` to `{}`",
+                        config_path.display(),
+                        backup_path.display()
+                    )
+                })?;
+            }
+            write_config_json_value(document, config_path)
+        }
+    }
+}
+
+fn write_config_json_value(document: &serde_json::Value, output_path: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create config output directory `{}`", parent.display()))?;
+    }
+    let contents = serde_json::to_string_pretty(document).context("serialize updated config")?;
+    write_file_atomically(output_path, &format!("{contents}\n"))
+        .with_context(|| format!("write updated config `{}`", output_path.display()))
+}
+
+fn config_set_outcome_json(outcome: &ConfigSetOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path,
+        "source": outcome.source,
+        "pointer": outcome.pointer,
+        "raw_value": outcome.raw_value,
+        "parsed_value_kind": outcome.parsed_value_kind,
+        "before": outcome.before,
+        "after": outcome.after,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+    })
+}
+
+fn print_config_set_outcome_text(outcome: &ConfigSetOutcome) -> anyhow::Result<()> {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("pointer: {}", outcome.pointer);
+    println!("parsed_value_kind: {}", outcome.parsed_value_kind);
+    print!("before: ");
+    print_config_value_inline(&outcome.before)?;
+    print!("after: ");
+    print_config_value_inline(&outcome.after)?;
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
+    Ok(())
+}
+
+fn load_config_json(config_path: Option<&PathBuf>) -> anyhow::Result<LoadedConfigJson> {
+    let path = if let Some(path) = config_path {
+        Some(path.clone())
+    } else {
+        let default_path = default_config_path()?;
+        default_path.exists().then_some(default_path)
+    };
+    let (source, contents) = match &path {
+        Some(path) => (
+            "file",
+            fs::read_to_string(path)
+                .with_context(|| format!("read config `{}`", path.display()))?,
+        ),
+        None => (
+            "bundled-default",
+            config_example_contents(ConfigExample::Default).to_owned(),
+        ),
+    };
+    let document = serde_json::from_str::<serde_json::Value>(&contents)
+        .with_context(|| format!("parse {source} config as JSON"))?;
+    validate_config_json_value(&document, "validate config")?;
+    Ok(LoadedConfigJson {
+        path,
+        source,
+        document,
+    })
+}
+
+fn validate_config_json_value(document: &serde_json::Value, context: &str) -> anyhow::Result<()> {
+    let contents = serde_json::to_string(document).context("serialize config for validation")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config")?;
+    config.validate().with_context(|| context.to_owned())
+}
+
+fn ensure_json_pointer(pointer: &str) -> anyhow::Result<()> {
+    if pointer.is_empty() || pointer.starts_with('/') {
+        Ok(())
+    } else {
+        anyhow::bail!("config pointer `{pointer}` is not a JSON pointer; use /section/key")
+    }
+}
+
+fn parse_config_set_value(raw_value: &str) -> (serde_json::Value, &'static str) {
+    match serde_json::from_str::<serde_json::Value>(raw_value) {
+        Ok(value) => {
+            let kind = match &value {
+                serde_json::Value::Null => "null",
+                serde_json::Value::Bool(_) => "bool",
+                serde_json::Value::Number(_) => "number",
+                serde_json::Value::String(_) => "string",
+                serde_json::Value::Array(_) => "array",
+                serde_json::Value::Object(_) => "object",
+            };
+            (value, kind)
+        }
+        Err(_) => (serde_json::Value::String(raw_value.to_owned()), "string"),
+    }
+}
+
+fn print_config_value(value: &serde_json::Value) -> anyhow::Result<()> {
+    if let Some(value) = value.as_str() {
+        println!("{value}");
+    } else {
+        println!("{}", serde_json::to_string_pretty(value)?);
+    }
+    Ok(())
+}
+
+fn print_config_value_inline(value: &serde_json::Value) -> anyhow::Result<()> {
+    if let Some(value) = value.as_str() {
+        println!("{value}");
+    } else {
+        println!("{}", serde_json::to_string(value)?);
+    }
     Ok(())
 }
 

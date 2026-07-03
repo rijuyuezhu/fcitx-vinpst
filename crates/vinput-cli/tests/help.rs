@@ -41,6 +41,31 @@ fn init_help_lists_first_run_options() {
 }
 
 #[test]
+fn config_get_set_help_lists_pointer_and_write_options() {
+    let get_output = vinput_command()
+        .args(["config", "get", "--help"])
+        .output()
+        .expect("run vinput config get --help");
+    let get_stdout = assert_stdout_success(get_output, "config get help output");
+    assert!(get_stdout.contains("<POINTER>"));
+    assert!(get_stdout.contains("--config"));
+    assert!(get_stdout.contains("--json"));
+
+    let set_output = vinput_command()
+        .args(["config", "set", "--help"])
+        .output()
+        .expect("run vinput config set --help");
+    let set_stdout = assert_stdout_success(set_output, "config set help output");
+    assert!(set_stdout.contains("<POINTER>"));
+    assert!(set_stdout.contains("<VALUE>"));
+    assert!(set_stdout.contains("--config"));
+    assert!(set_stdout.contains("--output"));
+    assert!(set_stdout.contains("--in-place"));
+    assert!(set_stdout.contains("--dry-run"));
+    assert!(set_stdout.contains("--json"));
+}
+
+#[test]
 fn audio_devices_help_lists_config_option() {
     let output = vinput_command()
         .args(["audio-devices", "--help"])

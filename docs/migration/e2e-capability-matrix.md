@@ -79,7 +79,7 @@ Rust currently exposes:
 ```text
 init
 protocol
-config validate/example
+config validate/example/get/set
 registry validate/plan/install-plan
 asr-state
 audio-devices
@@ -103,7 +103,7 @@ Rust CLI strengths:
 
 Rust CLI weaknesses for a user:
 
-- no config mutation commands;
+- config `get/set` exists, but interactive `edit` and broader resource-aware mutations are still incomplete;
 - live registry install/use/remove exists for model flow, but provider/scene/LLM/hotword/device management commands are still missing;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
 - recording start/stop/toggle exists, but a dedicated `recording status` command is still missing;
@@ -187,9 +187,9 @@ scenes.definitions[]
 
 The gap is not the base schema; the gap is user-facing mutation and resource-aware configuration:
 
-- legacy has JSON-pointer `config get/set/edit`;
+- legacy has JSON-pointer `config get/set/edit`; Rust now has guarded JSON-pointer `get/set`, while `edit` remains pending;
 - legacy model/provider/adapter/scene commands edit config safely;
-- Rust validates and consumes config but cannot yet mutate most config from CLI;
+- Rust validates and consumes config and can mutate existing config values with guarded JSON-pointer `set`; resource-specific mutations are still incomplete;
 - Rust install profiles generate specific configs, but they are not a general replacement for CLI config management.
 
 ## P0 plan: replicate usable CLI and daemon experience
@@ -229,7 +229,7 @@ Port enough config mutation to stop hand-editing JSON.
 Acceptance:
 
 - `vinput init` creates default config and managed directories idempotently. **Done for default config, model/cache dirs, JSON/text output, and activation-service hints.**
-- `vinput config get <json-pointer>` and `set <json-pointer> <value>` work with type-aware parsing and validation.
+- `vinput config get <json-pointer>` and `set <json-pointer> <value>` work with type-aware parsing and validation. **Done for existing JSON pointers, dry-run, output writes, in-place backup, and validation guards.**
 - `vinput config edit` opens the config path from `$EDITOR` and validates afterward.
 - Config writes use same-directory temp files and rename; `model use --in-place` preserves a `<config>.bak` backup.
 - All commands have `--json` and text output.
