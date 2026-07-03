@@ -583,11 +583,6 @@ fn print_recording_action(
         }
         return Ok(());
     }
-    if action == "toggle" {
-        anyhow::bail!(
-            "recording toggle currently requires --dry-run until status-based dispatch is enabled"
-        );
-    }
     let result = recording_action_via_dbus(action, selected_text, scene)?;
     if json_output {
         println!("{}", serde_json::to_string_pretty(&result)?);
@@ -628,9 +623,48 @@ fn recording_action_via_dbus(
                 Some(payload.as_str()),
             ));
         }
+        ("toggle", _) => return recording_toggle_via_dbus(&proxy, selected_text, scene),
         _ => anyhow::bail!("unsupported recording action `{action}`"),
     };
     Ok(recording_result_json(action, method, scene, None))
+}
+
+
+fn recording_toggle_via_dbus(
+    proxy: &zbus::blocking::Proxy<'_>,
+    selected_text: Option<&str>,
+    scene: Option<&str>,
+) -> anyhow::Result<serde_json::Value> {
+    let status: String = proxy
+        .call(dbus::method::GET_STATUS, &())
+        .context("call GetStatus on daemon D-Bus service")?;
+    if status == "recording" {
+        let payload: String = proxy
+            .call(dbus::method::STOP_RECORDING, &(scene.unwrap_or("")))
+            .context("call StopRecording on daemon D-Bus service")?;
+        let mut output = recording_result_json(
+            "toggle",
+            dbus::method::STOP_RECORDING,
+            scene,
+            Some(payload.as_str()),
+        );
+        output["status_before"] = serde_json::json!(status);
+        return Ok(output);
+    }
+    let method = if let Some(text) = selected_text {
+        let _: () = proxy
+            .call(dbus::method::START_COMMAND_RECORDING, &(text))
+            .context("call StartCommandRecording on daemon D-Bus service")?;
+        dbus::method::START_COMMAND_RECORDING
+    } else {
+        let _: () = proxy
+            .call(dbus::method::START_RECORDING, &())
+            .context("call StartRecording on daemon D-Bus service")?;
+        dbus::method::START_RECORDING
+    };
+    let mut output = recording_result_json("toggle", method, scene, None);
+    output["status_before"] = serde_json::json!(status);
+    Ok(output)
 }
 
 fn recording_result_json(
