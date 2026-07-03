@@ -27,8 +27,10 @@ set -euo pipefail
 if [[ -z "\${DBUS_SESSION_BUS_ADDRESS:-}" && -n "\${DBUS_STARTER_ADDRESS:-}" ]]; then
   export DBUS_SESSION_BUS_ADDRESS="\${DBUS_STARTER_ADDRESS}"
 fi
+export RUST_LOG="\${RUST_LOG:-info}"
 echo "DBUS_SESSION_BUS_ADDRESS=\${DBUS_SESSION_BUS_ADDRESS:-}" >"${daemon_log}"
 echo "DBUS_STARTER_ADDRESS=\${DBUS_STARTER_ADDRESS:-}" >>"${daemon_log}"
+echo "RUST_LOG=\${RUST_LOG}" >>"${daemon_log}"
 exec "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" >>"${daemon_log}" 2>&1
 EOF
 chmod +x "${daemon_wrapper}"
@@ -66,7 +68,25 @@ if XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/shar
       wait "${daemon_pid}" 2>/dev/null || true
     }
     trap cleanup EXIT
-    sleep 1
+    has_owner() {
+      dbus-send --session --dest=org.freedesktop.DBus --type=method_call --print-reply \
+        /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner string:org.fcitx.Vinput \
+        2>/dev/null | grep -q "boolean true"
+    }
+    for _ in $(seq 1 60); do
+      if has_owner; then
+        break
+      fi
+      if ! kill -0 "${daemon_pid}" 2>/dev/null; then
+        echo "staged daemon exited before owning org.fcitx.Vinput" >&2
+        exit 1
+      fi
+      sleep 0.5
+    done
+    if ! has_owner; then
+      echo "staged daemon did not own org.fcitx.Vinput before smoke timeout" >&2
+      exit 1
+    fi
     "${2}"
     "${3}"
   ' bash "${daemon_wrapper}" "${smoke_bin}" "${addon_smoke_bin}"; then
