@@ -367,6 +367,27 @@ enum ModelCommand {
 /// Supported bootstrap commands.
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Initialize per-user config and managed directories.
+    Init {
+        /// Config path to create. Defaults to $XDG_CONFIG_HOME/fcitx-vinput/config.json.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Managed model root to create. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
+        #[arg(long)]
+        model_root: Option<PathBuf>,
+        /// Managed cache root to create. Defaults to $XDG_CACHE_HOME/fcitx-vinput.
+        #[arg(long)]
+        cache_root: Option<PathBuf>,
+        /// Overwrite an existing config file with the bundled default config.
+        #[arg(long)]
+        force: bool,
+        /// Print the initialization plan without writing files or creating directories.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print stable D-Bus names and methods.
     Protocol,
     /// Inspect or validate vinput config metadata.
@@ -483,10 +504,26 @@ enum Command {
     },
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     match args.command {
+        Command::Init {
+            config,
+            model_root,
+            cache_root,
+            force,
+            dry_run,
+            json,
+        } => handle_init(InitRequest {
+            config_path: config.as_deref(),
+            model_root: model_root.as_deref(),
+            cache_root: cache_root.as_deref(),
+            force,
+            dry_run,
+            json_output: json,
+        }),
         Command::Protocol => print_protocol(),
         Command::Config { command } => match command {
             Some(ConfigCommand::Validate { path, summary_only }) => {
@@ -1374,6 +1411,215 @@ fn print_protocol() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct InitRequest<'a> {
+    config_path: Option<&'a Path>,
+    model_root: Option<&'a Path>,
+    cache_root: Option<&'a Path>,
+    force: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+struct InitOutcome {
+    dry_run: bool,
+    force: bool,
+    config_path: PathBuf,
+    config_existed: bool,
+    wrote_config: bool,
+    model_root: PathBuf,
+    model_root_existed: bool,
+    created_model_root: bool,
+    cache_root: PathBuf,
+    cache_root_existed: bool,
+    created_cache_root: bool,
+    activation_service_path: Option<PathBuf>,
+    activation_command_argv: Vec<String>,
+}
+
+fn handle_init(request: InitRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_init(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&init_outcome_json(&outcome))?
+        );
+    } else {
+        print_init_outcome_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_init(request: &InitRequest<'_>) -> anyhow::Result<InitOutcome> {
+    let config_path = match request.config_path {
+        Some(path) => path.to_path_buf(),
+        None => default_config_path()?,
+    };
+    let model_root = match request.model_root {
+        Some(path) => path.to_path_buf(),
+        None => default_model_root()?,
+    };
+    let cache_root = match request.cache_root {
+        Some(path) => path.to_path_buf(),
+        None => default_cache_root()?,
+    };
+    let activation_service_path = user_activation_service_path().ok();
+    let activation_command_argv = init_activation_command_argv(&config_path);
+
+    let config_existed = config_path.exists();
+    let model_root_existed = model_root.exists();
+    let cache_root_existed = cache_root.exists();
+    let mut wrote_config = false;
+    let mut created_model_root = false;
+    let mut created_cache_root = false;
+
+    let bundled_config = VinputConfig::bundled_default().context("parse bundled init config")?;
+    bundled_config
+        .validate()
+        .context("validate bundled init config")?;
+
+    if !request.dry_run {
+        if !config_existed || request.force {
+            if let Some(parent) = config_path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("create config directory `{}`", parent.display()))?;
+            }
+            let contents = config_example_contents(ConfigExample::Default);
+            write_file_atomically(&config_path, contents)
+                .with_context(|| format!("write default config `{}`", config_path.display()))?;
+            wrote_config = true;
+        }
+        if !model_root_existed {
+            fs::create_dir_all(&model_root)
+                .with_context(|| format!("create model root `{}`", model_root.display()))?;
+            created_model_root = true;
+        }
+        if !cache_root_existed {
+            fs::create_dir_all(&cache_root)
+                .with_context(|| format!("create cache root `{}`", cache_root.display()))?;
+            created_cache_root = true;
+        }
+    }
+
+    Ok(InitOutcome {
+        dry_run: request.dry_run,
+        force: request.force,
+        config_path,
+        config_existed,
+        wrote_config,
+        model_root,
+        model_root_existed,
+        created_model_root,
+        cache_root,
+        cache_root_existed,
+        created_cache_root,
+        activation_service_path,
+        activation_command_argv,
+    })
+}
+
+fn init_outcome_json(outcome: &InitOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "force": outcome.force,
+        "config": {
+            "path": outcome.config_path,
+            "existed": outcome.config_existed,
+            "will_write": outcome.dry_run && (!outcome.config_existed || outcome.force),
+            "wrote": outcome.wrote_config,
+        },
+        "directories": {
+            "model_root": {
+                "path": outcome.model_root,
+                "existed": outcome.model_root_existed,
+                "will_create": outcome.dry_run && !outcome.model_root_existed,
+                "created": outcome.created_model_root,
+            },
+            "cache_root": {
+                "path": outcome.cache_root,
+                "existed": outcome.cache_root_existed,
+                "will_create": outcome.dry_run && !outcome.cache_root_existed,
+                "created": outcome.created_cache_root,
+            },
+        },
+        "activation_service": {
+            "user_service_path": outcome.activation_service_path,
+            "command": outcome.activation_command_argv.join(" "),
+            "command_argv": outcome.activation_command_argv,
+        },
+        "next_steps": [
+            "install a model with vinput model install <id-or-short-id>",
+            "select it with vinput model use <id-or-short-id> --config <path> --in-place",
+            "install D-Bus activation with the suggested activation-service command"
+        ],
+    })
+}
+
+fn print_init_outcome_text(outcome: &InitOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("force: {}", outcome.force);
+    println!("config_path: {}", outcome.config_path.display());
+    println!("config_existed: {}", outcome.config_existed);
+    println!(
+        "config_will_write: {}",
+        outcome.dry_run && (!outcome.config_existed || outcome.force)
+    );
+    println!("config_wrote: {}", outcome.wrote_config);
+    println!("model_root: {}", outcome.model_root.display());
+    println!("model_root_existed: {}", outcome.model_root_existed);
+    println!(
+        "model_root_will_create: {}",
+        outcome.dry_run && !outcome.model_root_existed
+    );
+    println!("model_root_created: {}", outcome.created_model_root);
+    println!("cache_root: {}", outcome.cache_root.display());
+    println!("cache_root_existed: {}", outcome.cache_root_existed);
+    println!(
+        "cache_root_will_create: {}",
+        outcome.dry_run && !outcome.cache_root_existed
+    );
+    println!("cache_root_created: {}", outcome.created_cache_root);
+    if let Some(path) = &outcome.activation_service_path {
+        println!("activation_service_path: {}", path.display());
+    }
+    println!(
+        "activation_service_command: {}",
+        outcome.activation_command_argv.join(" ")
+    );
+    println!("next: vinput model install <id-or-short-id>");
+}
+
+fn init_activation_command_argv(config_path: &Path) -> Vec<String> {
+    vec![
+        "vinput".to_owned(),
+        "activation-service".to_owned(),
+        "--daemon".to_owned(),
+        default_daemon_path_hint().to_string_lossy().into_owned(),
+        "--config".to_owned(),
+        config_path.to_string_lossy().into_owned(),
+        "--configured-backends".to_owned(),
+        "--user".to_owned(),
+    ]
+}
+
+fn default_daemon_path_hint() -> PathBuf {
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(parent) = current_exe.parent()
+    {
+        let sibling = parent.join("vinput-daemon");
+        if sibling.exists() {
+            return sibling;
+        }
+    }
+    PathBuf::from("vinput-daemon")
+}
+
 fn validate_config() -> anyhow::Result<()> {
     let config = VinputConfig::bundled_default().context("parse bundled config")?;
     config.validate().context("validate bundled config")?;
@@ -1674,6 +1920,17 @@ fn user_activation_service_path() -> anyhow::Result<PathBuf> {
         .join("org.fcitx.Vinput.service"))
 }
 
+fn default_config_path() -> anyhow::Result<PathBuf> {
+    Ok(user_config_home()?.join("fcitx-vinput").join("config.json"))
+}
+
+fn user_config_home() -> anyhow::Result<PathBuf> {
+    match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
+        _ => Ok(user_home()?.join(".config")),
+    }
+}
+
 fn user_data_home() -> anyhow::Result<PathBuf> {
     match std::env::var_os("XDG_DATA_HOME") {
         Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
@@ -1690,6 +1947,10 @@ fn user_cache_home() -> anyhow::Result<PathBuf> {
 
 fn default_model_root() -> anyhow::Result<PathBuf> {
     Ok(user_data_home()?.join("fcitx-vinput").join("models"))
+}
+
+fn default_cache_root() -> anyhow::Result<PathBuf> {
+    Ok(user_cache_home()?.join("fcitx-vinput"))
 }
 
 fn default_model_install_staging_root() -> anyhow::Result<PathBuf> {

@@ -38,7 +38,7 @@ The next project target should be: **replicate the legacy CLI and daemon experie
 
 | Journey | Legacy behavior | Rust current behavior | Gap | Target acceptance |
 | --- | --- | --- | --- | --- |
-| J0: first-run init | `vinput init` creates config/dirs and default files. GUI/packaging also expect stable paths. | No equivalent CLI init. User install scripts can write selected profile configs. | Missing general first-run CLI. | `vinput init` creates default config, managed dirs, activation-service hint, and prints JSON/text summary. |
+| J0: first-run init | `vinput init` creates config/dirs and default files. GUI/packaging also expect stable paths. | Rust has `vinput init` for default config, managed model/cache dirs, dry-run/JSON output, and activation-service hints. User install scripts can still write selected profile configs. | Mostly implemented; still needs broader config get/set/edit. | `vinput init` creates default config, managed dirs, activation-service hint, and prints JSON/text summary. |
 | J1: list and install local ASR model | `vinput model list/add/use/info/remove` fetches registry metadata, downloads assets, materializes model, updates config. | Manual download works; Rust registry CLI only validates/plans sample `index.json`; no live `models.json` install command. | Major. | `vinput model list`, `vinput model install <id|short_id>`, `vinput model use <id|path>`, `vinput model info`, `vinput model remove` work with live registry and sha256 checks. |
 | J2: normal dictation with local model | Fcitx trigger starts PipeWire capture, ASR, optional postprocess, commit. | Native SenseVoice recognizes a WAV file; user profile install exists; live Fcitx/PipeWire/native model path not proven. | Major live proof and runtime library handling. | Real desktop checklist passes: trigger, preedit, capture, inference, commit into app, `doctor` green. |
 | J3: command dictation over selected text | Fcitx command trigger captures selected text or fallback, ASR command scene, LLM/text transform, replace selection. | Surrounding-text command path and replacement logic exist; clipboard fallback and live proof incomplete. | Medium-major. | In two apps, selected text replacement works; fallback path has clear diagnostics when unavailable. |
@@ -77,6 +77,7 @@ Legacy also supports a global `-j/--json` output mode.
 Rust currently exposes:
 
 ```text
+init
 protocol
 config validate/example
 registry validate/plan/install-plan
@@ -102,7 +103,6 @@ Rust CLI strengths:
 
 Rust CLI weaknesses for a user:
 
-- no first-run `init`;
 - no config mutation commands;
 - live registry install/use/remove exists for model flow, but provider/scene/LLM/hotword/device management commands are still missing;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
@@ -228,7 +228,7 @@ Port enough config mutation to stop hand-editing JSON.
 
 Acceptance:
 
-- `vinput init` creates default config and managed directories idempotently.
+- `vinput init` creates default config and managed directories idempotently. **Done for default config, model/cache dirs, JSON/text output, and activation-service hints.**
 - `vinput config get <json-pointer>` and `set <json-pointer> <value>` work with type-aware parsing and validation.
 - `vinput config edit` opens the config path from `$EDITOR` and validates afterward.
 - Config writes use same-directory temp files and rename; `model use --in-place` preserves a `<config>.bak` backup.

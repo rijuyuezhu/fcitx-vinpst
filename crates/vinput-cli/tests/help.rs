@@ -12,6 +12,7 @@ fn help_lists_diagnostic_commands() {
         .expect("run vinput --help");
 
     let stdout = assert_stdout_success(output, "help output");
+    assert!(stdout.contains("init"));
     assert!(stdout.contains("asr-state"));
     assert!(stdout.contains("audio-devices"));
     assert!(stdout.contains("doctor"));
@@ -21,6 +22,22 @@ fn help_lists_diagnostic_commands() {
     assert!(stdout.contains("daemon"));
     assert!(stdout.contains("recording"));
     assert!(stdout.contains("activation-service"));
+}
+
+#[test]
+fn init_help_lists_first_run_options() {
+    let output = vinput_command()
+        .args(["init", "--help"])
+        .output()
+        .expect("run vinput init --help");
+
+    let stdout = assert_stdout_success(output, "init help output");
+    assert!(stdout.contains("--config"));
+    assert!(stdout.contains("--model-root"));
+    assert!(stdout.contains("--cache-root"));
+    assert!(stdout.contains("--force"));
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
 }
 
 #[test]
