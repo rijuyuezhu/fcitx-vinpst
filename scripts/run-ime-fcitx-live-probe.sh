@@ -139,6 +139,44 @@ except Exception:
 PY
 }
 
+
+bus_pid_from_reply() {
+  local reply="$1"
+  "${python_bin}" - "${reply}" <<'PY'
+import re
+import sys
+match = re.search(r"\b(\d+)\b", sys.argv[1])
+if match:
+    print(match.group(1))
+PY
+}
+
+describe_bus_owner_process() {
+  local owner="$1"
+  local pid_output pid_status pid exe cmdline
+  set +e
+  pid_output="$(${gdbus_bin} call --session \
+    --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.GetConnectionUnixProcessID \
+    "${owner}" 2>&1)"
+  pid_status=$?
+  set -e
+  if [[ "${pid_status}" != "0" ]]; then
+    add_warning "bus-owner-process-unavailable" "could not query process id for ${owner}: ${pid_output}"
+    return 0
+  fi
+  pid="$(bus_pid_from_reply "${pid_output}")"
+  if [[ -z "${pid}" ]]; then
+    add_warning "bus-owner-process-unavailable" "could not parse process id for ${owner}: ${pid_output}"
+    return 0
+  fi
+  exe="$(readlink "/proc/${pid}/exe" 2>/dev/null || true)"
+  cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
+  printf 'Current org.fcitx.Vinput owner process: pid=%s exe=%s cmdline=%s\n' \
+    "${pid}" "${exe:-<unavailable>}" "${cmdline:-<unavailable>}"
+}
+
 check_install_shape() {
   if [[ -f "${module_path}" ]]; then
     printf 'User addon module: %s (present)\n' "${module_path}"
@@ -273,6 +311,7 @@ probe_runtime_status() {
     owner="$(bus_owner_from_reply "${owner_output}")"
     if [[ -n "${owner}" ]]; then
       add_warning "bus-name-owned" "org.fcitx.Vinput is already owned on the current session bus by ${owner}; probing it for Rust runtime diagnostics"
+      describe_bus_owner_process "${owner}"
     fi
   fi
 

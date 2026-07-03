@@ -43,6 +43,10 @@ chmod +x "${stub_bin}/fcitx5-remote"
 cat >"${stub_bin}/gdbus" <<'SH'
 #!/usr/bin/env bash
 args=" $* "
+if [[ "${args}" == *" org.freedesktop.DBus.GetConnectionUnixProcessID "* ]]; then
+  printf '(uint32 4242,)\n'
+  exit 0
+fi
 if [[ "${args}" == *" org.freedesktop.DBus.GetNameOwner org.fcitx.Vinput "* ]]; then
   if [[ -n "${VINPUT_STUB_BUS_OWNER:-}" ]]; then
     printf "('%s',)\n" "${VINPUT_STUB_BUS_OWNER}"
@@ -171,6 +175,7 @@ expect_failure stale-bus \
     VINPUT_STUB_BUS_OWNER=:1.77 \
     VINPUT_STUB_RUNTIME_STATUS=unknown-method \
     "${probe}"
+expect_output stale-bus 'Current org.fcitx.Vinput owner process: pid=4242'
 expect_output stale-bus 'FAIL[runtime-status-unavailable]'
 expect_output stale-bus 'FAIL[stale-bus-owner]'
 
