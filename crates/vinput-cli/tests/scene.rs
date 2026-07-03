@@ -82,6 +82,355 @@ fn scene_list_text_prints_table_and_active_marker() {
 }
 
 #[test]
+fn scene_add_dry_run_json_validates_without_writing() {
+    let path = write_scene_fixture("vinput-scene-add-dry-run");
+    let before = fs::read_to_string(&path).expect("read original scene config");
+
+    let output = vinput_command()
+        .args([
+            "scene",
+            "add",
+            "summarize",
+            "--label",
+            "Summarize",
+            "--config",
+        ])
+        .arg(&path)
+        .args([
+            "--prompt",
+            "Summarize selected text",
+            "--provider-id",
+            "openai",
+            "--model",
+            "gpt-scene",
+            "--candidate-count",
+            "2",
+            "--timeout-ms",
+            "2500",
+            "--context-lines",
+            "4",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput scene add dry-run");
+
+    let value = assert_json_success(output, "scene add dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["scene_id"], "summarize");
+    assert_eq!(value["active_scene"], "rewrite");
+    assert_eq!(value["before_scene_count"], 5);
+    assert_eq!(value["after_scene_count"], 6);
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged scene config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary scene config");
+}
+
+#[test]
+fn scene_add_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-scene-add-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, scene_fixture_json()).expect("write scene config");
+    let output_path = root.join("out/scene.json");
+    let before = fs::read_to_string(&config_path).expect("read original scene config");
+
+    let output = vinput_command()
+        .args([
+            "scene",
+            "add",
+            "summarize",
+            "--label",
+            "Summarize",
+            "--config",
+        ])
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput scene add --output");
+
+    let value = assert_json_success(output, "scene add output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    let json = read_json(&output_path);
+    let scenes = json["scenes"]["definitions"].as_array().unwrap();
+    assert!(scenes.iter().any(|scene| scene["id"] == "summarize"));
+    fs::remove_dir_all(root).expect("remove scene add output fixture dir");
+}
+
+#[test]
+fn scene_remove_dry_run_json_validates_inactive_scene_without_writing() {
+    let path = write_scene_fixture("vinput-scene-remove-dry-run");
+    let before = fs::read_to_string(&path).expect("read original scene config");
+
+    let output = vinput_command()
+        .args(["scene", "remove", "command", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput scene remove dry-run");
+
+    let value = assert_json_success(output, "scene remove dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["removed_scene_id"], "command");
+    assert_eq!(value["active_scene"], "rewrite");
+    assert_eq!(value["before_scene_count"], 5);
+    assert_eq!(value["after_scene_count"], 4);
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged scene config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary scene config");
+}
+
+#[test]
+fn scene_remove_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-scene-remove-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, scene_fixture_json()).expect("write scene config");
+    let output_path = root.join("out/scene.json");
+    let before = fs::read_to_string(&config_path).expect("read original scene config");
+
+    let output = vinput_command()
+        .args(["scene", "remove", "command", "--config"])
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput scene remove --output");
+
+    let value = assert_json_success(output, "scene remove output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    let scenes = read_json(&output_path)["scenes"]["definitions"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(scenes.iter().all(|scene| scene["id"] != "command"));
+    fs::remove_dir_all(root).expect("remove scene remove output fixture dir");
+}
+
+#[test]
+fn scene_edit_dry_run_json_validates_without_writing() {
+    let path = write_scene_fixture("vinput-scene-edit-dry-run");
+    let before = fs::read_to_string(&path).expect("read original scene config");
+
+    let output = vinput_command()
+        .args(["scene", "edit", "rewrite", "--config"])
+        .arg(&path)
+        .args([
+            "--label",
+            "Rewrite Better",
+            "--prompt",
+            "Rewrite with style",
+            "--clear-model",
+            "--candidate-count",
+            "3",
+            "--clear-timeout",
+            "--context-lines",
+            "2",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput scene edit dry-run");
+
+    let value = assert_json_success(output, "scene edit dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["scene_id"], "rewrite");
+    assert_eq!(value["active_scene"], "rewrite");
+    let changed = value["changed_fields"].as_array().unwrap();
+    assert!(changed.iter().any(|field| field == "label"));
+    assert!(changed.iter().any(|field| field == "prompt"));
+    assert!(changed.iter().any(|field| field == "model"));
+    assert!(changed.iter().any(|field| field == "candidate_count"));
+    assert!(changed.iter().any(|field| field == "timeout_ms"));
+    assert!(changed.iter().any(|field| field == "context_lines"));
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged scene config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary scene config");
+}
+
+#[test]
+fn scene_edit_text_dry_run_outputs_expected_fields() {
+    let path = write_scene_fixture("vinput-scene-edit-text-dry-run");
+
+    let output = vinput_command()
+        .args([
+            "scene",
+            "edit",
+            "rewrite",
+            "--label",
+            "Rewrite Better",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput scene edit text dry-run");
+    fs::remove_file(&path).expect("remove temporary scene config");
+
+    let stdout = assert_stdout_success(output, "scene edit text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("scene_id: rewrite"));
+    assert!(stdout.contains("active_scene: rewrite"));
+    assert!(stdout.contains("changed_fields: label"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
+}
+
+#[test]
+fn scene_edit_in_place_writes_backup_and_updates_fields() {
+    let root = unique_temp_dir("vinput-scene-edit-in-place");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, scene_fixture_json()).expect("write scene config");
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original scene config");
+
+    let output = vinput_command()
+        .args(["scene", "edit", "rewrite", "--config"])
+        .arg(&config_path)
+        .args([
+            "--label",
+            "Rewrite Better",
+            "--clear-model",
+            "--in-place",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput scene edit --in-place");
+
+    let value = assert_json_success(output, "scene edit in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read scene edit backup config"),
+        before
+    );
+    let json = read_json(&config_path);
+    assert_eq!(json["scenes"]["definitions"][1]["label"], "Rewrite Better");
+    assert!(
+        json["scenes"]["definitions"][1]
+            .as_object()
+            .unwrap()
+            .get("model")
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove scene edit in-place fixture dir");
+}
+
+#[test]
+fn scene_mutations_reject_invalid_inputs() {
+    let path = write_scene_fixture("vinput-scene-mutation-errors");
+
+    let duplicate = vinput_command()
+        .args(["scene", "add", "rewrite", "--label", "Rewrite", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput scene add duplicate id");
+    assert!(!duplicate.status.success());
+    let stderr = String::from_utf8(duplicate.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("scene `rewrite` already exists"));
+
+    let missing = vinput_command()
+        .args(["scene", "edit", "missing", "--label", "Missing", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput scene edit missing id");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("scene `missing` not found"));
+
+    let implicit_builtin = vinput_command()
+        .args(["scene", "edit", "__raw__", "--label", "Raw", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput scene edit implicit builtin id");
+    assert!(!implicit_builtin.status.success());
+    let stderr = String::from_utf8(implicit_builtin.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("scene `__raw__` is not explicitly configured"));
+
+    let noop = vinput_command()
+        .args(["scene", "edit", "rewrite", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput scene edit without field changes");
+    assert!(!noop.status.success());
+    let stderr = String::from_utf8(noop.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("scene edit requires at least one field change"));
+
+    let conflict = vinput_command()
+        .args([
+            "scene",
+            "edit",
+            "rewrite",
+            "--prompt",
+            "Prompt",
+            "--clear-prompt",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput scene edit conflicting prompt flags");
+    assert!(!conflict.status.success());
+    let stderr = String::from_utf8(conflict.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("scene edit cannot combine --prompt and --clear-prompt"));
+
+    let active = vinput_command()
+        .args(["scene", "remove", "rewrite", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput scene remove active id");
+    assert!(!active.status.success());
+    let stderr = String::from_utf8(active.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("refusing to remove active scene `rewrite`"));
+
+    let missing_target = vinput_command()
+        .args(["scene", "add", "new", "--label", "New", "--config"])
+        .arg(&path)
+        .output()
+        .expect("run vinput scene add without write target");
+    assert!(!missing_target.status.success());
+    let stderr = String::from_utf8(missing_target.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("config set writes require --output <path> or --in-place"));
+
+    fs::remove_file(&path).expect("remove temporary scene config");
+}
+
+#[test]
 fn scene_use_dry_run_json_validates_existing_scene_without_writing() {
     let path = write_scene_fixture("vinput-scene-use-dry-run");
     let before = fs::read_to_string(&path).expect("read original scene config");

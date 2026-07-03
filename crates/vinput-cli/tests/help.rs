@@ -117,7 +117,10 @@ fn scene_help_lists_list_and_use_options() {
         .expect("run vinput scene --help");
     let root_stdout = assert_stdout_success(root_output, "scene help output");
     assert!(root_stdout.contains("list"));
+    assert!(root_stdout.contains("add"));
+    assert!(root_stdout.contains("edit"));
     assert!(root_stdout.contains("use"));
+    assert!(root_stdout.contains("remove"));
 
     let list_output = vinput_command()
         .args(["scene", "list", "--help"])
@@ -126,6 +129,48 @@ fn scene_help_lists_list_and_use_options() {
     let list_stdout = assert_stdout_success(list_output, "scene list help output");
     assert!(list_stdout.contains("--config"));
     assert!(list_stdout.contains("--json"));
+
+    let add_output = vinput_command()
+        .args(["scene", "add", "--help"])
+        .output()
+        .expect("run vinput scene add --help");
+    let add_stdout = assert_stdout_success(add_output, "scene add help output");
+    assert!(add_stdout.contains("<ID>"));
+    assert!(add_stdout.contains("--label"));
+    assert!(add_stdout.contains("--prompt"));
+    assert!(add_stdout.contains("--provider-id"));
+    assert!(add_stdout.contains("--model"));
+    assert!(add_stdout.contains("--candidate-count"));
+    assert!(add_stdout.contains("--timeout-ms"));
+    assert!(add_stdout.contains("--context-lines"));
+    assert!(add_stdout.contains("--config"));
+    assert!(add_stdout.contains("--output"));
+    assert!(add_stdout.contains("--in-place"));
+    assert!(add_stdout.contains("--dry-run"));
+    assert!(add_stdout.contains("--json"));
+
+    let edit_output = vinput_command()
+        .args(["scene", "edit", "--help"])
+        .output()
+        .expect("run vinput scene edit --help");
+    let edit_stdout = assert_stdout_success(edit_output, "scene edit help output");
+    assert!(edit_stdout.contains("<ID>"));
+    assert!(edit_stdout.contains("--label"));
+    assert!(edit_stdout.contains("--prompt"));
+    assert!(edit_stdout.contains("--clear-prompt"));
+    assert!(edit_stdout.contains("--provider-id"));
+    assert!(edit_stdout.contains("--clear-provider-id"));
+    assert!(edit_stdout.contains("--model"));
+    assert!(edit_stdout.contains("--clear-model"));
+    assert!(edit_stdout.contains("--candidate-count"));
+    assert!(edit_stdout.contains("--timeout-ms"));
+    assert!(edit_stdout.contains("--clear-timeout"));
+    assert!(edit_stdout.contains("--context-lines"));
+    assert!(edit_stdout.contains("--config"));
+    assert!(edit_stdout.contains("--output"));
+    assert!(edit_stdout.contains("--in-place"));
+    assert!(edit_stdout.contains("--dry-run"));
+    assert!(edit_stdout.contains("--json"));
 
     let use_output = vinput_command()
         .args(["scene", "use", "--help"])
@@ -138,6 +183,18 @@ fn scene_help_lists_list_and_use_options() {
     assert!(use_stdout.contains("--in-place"));
     assert!(use_stdout.contains("--dry-run"));
     assert!(use_stdout.contains("--json"));
+
+    let remove_output = vinput_command()
+        .args(["scene", "remove", "--help"])
+        .output()
+        .expect("run vinput scene remove --help");
+    let remove_stdout = assert_stdout_success(remove_output, "scene remove help output");
+    assert!(remove_stdout.contains("<ID>"));
+    assert!(remove_stdout.contains("--config"));
+    assert!(remove_stdout.contains("--output"));
+    assert!(remove_stdout.contains("--in-place"));
+    assert!(remove_stdout.contains("--dry-run"));
+    assert!(remove_stdout.contains("--json"));
 }
 
 #[test]
