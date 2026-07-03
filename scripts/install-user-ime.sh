@@ -25,6 +25,38 @@ addon_conf_path="${addon_dir}/vinput.conf"
 build_dir="target/cpp/fcitx5-user-ime"
 command_asr_wav_helper_path="${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-${bin_dir}/vinput-command-asr-wav-helper}"
 
+
+profile_cargo_features() {
+  case "${profile}" in
+    configured-pipewire-live|real-command-asr-wav)
+      printf '%s\n' 'pipewire-backend'
+      ;;
+    sherpa-sense-voice-live)
+      printf '%s\n' 'pipewire-backend,sherpa-onnx-backend'
+      ;;
+  esac
+}
+
+cargo_build_vinput_cli() {
+  local cargo_features
+  cargo_features="$(profile_cargo_features)"
+  if [[ -n "${cargo_features}" ]]; then
+    cargo build -q -p vinput-cli --features "${cargo_features}"
+  else
+    cargo build -q -p vinput-cli
+  fi
+}
+
+cargo_build_vinput_binaries() {
+  local cargo_features
+  cargo_features="$(profile_cargo_features)"
+  if [[ -n "${cargo_features}" ]]; then
+    cargo build -q -p vinput-cli -p vinput-daemon --features "${cargo_features}"
+  else
+    cargo build -q -p vinput-cli -p vinput-daemon
+  fi
+}
+
 shell_quote() {
   python3 - "$1" <<'PY'
 import shlex
@@ -185,9 +217,7 @@ remove_fcitx_env_integration() {
 }
 
 doctor_status() {
-  if [[ ! -x target/debug/vinput ]]; then
-    cargo build -q -p vinput-cli
-  fi
+  cargo_build_vinput_cli
 
   local status_config="${config_path:-}"
   if [[ -z "${status_config}" ]]; then
@@ -241,7 +271,7 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
     rm -f "${command_asr_wav_helper_path}"
   fi
   remove_fcitx_env_integration
-  cargo build -q -p vinput-cli
+  cargo_build_vinput_cli
   target/debug/vinput activation-service --remove-user
   echo "Removed user IME files if present:"
   echo "  ${module_path}"
@@ -266,7 +296,6 @@ if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   exit 0
 fi
 
-features=()
 config_path=""
 audio_backend="${VINPUT_USER_AUDIO_BACKEND:-}"
 daemon_args=()
@@ -285,14 +314,12 @@ case "${profile}" in
     daemon_args+=(--daemon-arg=--wav --daemon-arg "${wav_path}")
     ;;
   configured-pipewire-live)
-    features+=(--features pipewire-backend)
     configured_backends="1"
     audio_backend="${audio_backend:-pipewire}"
     config_path="${VINPUT_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
     install -Dm644 data/e2e-configured-pipewire-live.json "${config_path}"
     ;;
   real-command-asr-wav)
-    features+=(--features pipewire-backend)
     configured_backends="1"
     audio_backend="${audio_backend:-pipewire}"
     config_path="${VINPUT_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
@@ -308,7 +335,6 @@ case "${profile}" in
     write_command_asr_wav_helper_config "${config_path}" "${command_asr_wav_helper_path}" "${external_asr_command}" "${helper_timeout_ms}" "${provider_timeout_ms}"
     ;;
   sherpa-sense-voice-live)
-    features+=(--features pipewire-backend,sherpa-onnx-backend)
     configured_backends="1"
     audio_backend="${audio_backend:-pipewire}"
     config_path="${VINPUT_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
@@ -327,7 +353,7 @@ case "${profile}" in
     ;;
 esac
 
-cargo build -q -p vinput-cli -p vinput-daemon "${features[@]}"
+cargo_build_vinput_binaries
 install -Dm755 target/debug/vinput-daemon "${daemon_path}"
 
 rm -rf "${build_dir}"

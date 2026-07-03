@@ -174,4 +174,27 @@ if ! grep -Fq -- "--config ${config_path}" "${calls_log}"; then
   exit 1
 fi
 
+: >"${cargo_calls_log}"
+: >"${calls_log}"
+rm -f target/debug/vinput
+PATH="${stub_bin}:${PATH}" \
+HOME="${home_dir}" \
+XDG_DATA_HOME="${home_dir}/.local/share" \
+VINPUT_STUB_CALLS="${calls_log}" \
+VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
+VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+VINPUT_USER_STATUS=1 \
+scripts/install-user-ime.sh >"${out_dir}/status.log" 2>&1
+
+if ! grep -Fq -- '--features pipewire-backend,sherpa-onnx-backend' "${cargo_calls_log}"; then
+  cat "${cargo_calls_log}" >&2
+  echo "status build did not enable the sherpa and pipewire features" >&2
+  exit 1
+fi
+if ! grep -Fq -- "doctor --config ${config_path}" "${calls_log}"; then
+  cat "${calls_log}" >&2
+  echo "status call did not run doctor against generated sherpa config" >&2
+  exit 1
+fi
+
 printf 'user-ime-sherpa-sense-voice smoke passed\n'
