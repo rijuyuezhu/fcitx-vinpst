@@ -2164,6 +2164,35 @@ fn sherpa_onnx_offline_runtime_plan_accepts_non_int8_sense_voice_model() {
 }
 
 #[test]
+fn sherpa_onnx_offline_runtime_plan_rejects_invalid_vinput_model_metadata() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+    let model_dir = root.join("bad-meta");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    std::fs::write(model_dir.join("vinput-model.json"), b"not json").unwrap();
+    let provider = AsrProviderConfig {
+        id: "sherpa-onnx".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("bad-meta".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    let error = spec.resolve_offline_runtime_plan(root).unwrap_err();
+
+    assert!(matches!(
+        error,
+        SherpaOnnxModelPathError::InvalidModelMetadata { path, message }
+            if path.ends_with("vinput-model.json") && message.contains("expected")
+    ));
+}
+
+#[test]
 fn sherpa_onnx_offline_runtime_plan_rejects_unknown_layout() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path();

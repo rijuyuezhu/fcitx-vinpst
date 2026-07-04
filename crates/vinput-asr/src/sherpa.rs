@@ -126,6 +126,14 @@ pub enum SherpaOnnxModelPathError {
         /// Resolved hotwords path.
         path: String,
     },
+    /// vinput-model.json exists but cannot be read or parsed.
+    #[error("sherpa-onnx model metadata `{path}` is invalid: {message}")]
+    InvalidModelMetadata {
+        /// Metadata JSON path.
+        path: String,
+        /// Sanitized read or parse message.
+        message: String,
+    },
     /// Model directory exists but does not match a supported offline layout.
     #[error(
         "sherpa-onnx model directory `{path}` does not contain a supported offline model layout"
@@ -269,14 +277,16 @@ fn infer_offline_layout_from_metadata(
     if !metadata_path.is_file() {
         return Ok(None);
     }
-    let metadata_text = fs::read_to_string(&metadata_path).map_err(|_| {
-        SherpaOnnxModelPathError::UnsupportedOfflineLayout {
-            path: display_path(model_dir),
+    let metadata_text = fs::read_to_string(&metadata_path).map_err(|error| {
+        SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&metadata_path),
+            message: error.kind().to_string(),
         }
     })?;
-    let metadata = serde_json::from_str::<serde_json::Value>(&metadata_text).map_err(|_| {
-        SherpaOnnxModelPathError::UnsupportedOfflineLayout {
-            path: display_path(model_dir),
+    let metadata = serde_json::from_str::<serde_json::Value>(&metadata_text).map_err(|error| {
+        SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&metadata_path),
+            message: error.to_string(),
         }
     })?;
     let family = metadata
