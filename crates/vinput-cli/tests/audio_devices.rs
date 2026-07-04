@@ -157,6 +157,16 @@ fn doctor_reports_combined_local_diagnostics() {
     );
     assert_eq!(value["fcitx_addon"]["user_module_exists"], false);
     assert_eq!(
+        value["daemon_owner_probe"]["target_name"],
+        vinput_protocol::dbus::SERVICE_BUS_NAME
+    );
+    assert!(
+        value["daemon_owner_probe"]["process_fields"]
+            .as_array()
+            .expect("doctor daemon owner probe fields")
+            .contains(&serde_json::json!("cmdline"))
+    );
+    assert_eq!(
         value["fcitx_addon"]["user_addon_metadata_path"],
         data_home
             .join("fcitx5")
@@ -180,6 +190,7 @@ fn doctor_reports_combined_local_diagnostics() {
     assert!(next_steps_text.contains("vinput hotword get"));
     assert!(next_steps_text.contains("vinput device list"));
     assert!(next_steps_text.contains("vinput device use <target>"));
+    assert!(next_steps_text.contains("daemon D-Bus owner/procfs probes"));
 }
 
 #[test]

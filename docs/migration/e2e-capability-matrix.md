@@ -252,7 +252,7 @@ Acceptance:
 - `vinput hotword edit` opens the configured hotwords file in an editor. **Done for provider override, dry-run, editor resolution, and JSON/text output.**
 - `vinput device list/use` uses Rust PipeWire diagnostics and updates `global.capture_device`. **Done with JSON/text list, dry-run/output/in-place writes, and backup/validation guards.**
 - `vinput scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls --configured/--available; adapter add/edit/install-plan/start/stop/status/remove` inspects and selects configured recognition scenes. **Done for dry-run/output/in-place writes, backup/validation guards, JSON/text output, and README/just smoke.**
-- `vinput doctor` references provider/hotword/device commands in remediation text. **Done for JSON `next_steps` covering provider list/use, hotword get, device list/use, and daemon status previews.**
+- `vinput doctor` references provider/hotword/device commands in remediation text. **Done for JSON `next_steps` covering provider list/use, hotword get, device list/use, daemon status previews, and daemon owner/procfs probe diagnostics.**
 
 ### P0.5 daemon and recording control commands
 

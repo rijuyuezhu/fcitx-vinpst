@@ -7693,6 +7693,7 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
         "audio": audio,
         "activation_service": activation_service,
         "fcitx_addon": user_fcitx_addon_json(),
+        "daemon_owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": doctor_next_steps(&config),
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
@@ -7710,7 +7711,8 @@ fn doctor_next_steps(config: &VinputConfig) -> Vec<String> {
         "run vinput device list --json to inspect capture devices".to_owned(),
         "run vinput device use <target> --dry-run --json to preview capture-device selection"
             .to_owned(),
-        "run vinput daemon status --dry-run --json to inspect daemon D-Bus calls".to_owned(),
+        "run vinput daemon status --dry-run --json to inspect daemon D-Bus owner/procfs probes"
+            .to_owned(),
     ]
 }
 
