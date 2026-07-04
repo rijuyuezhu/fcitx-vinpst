@@ -6,6 +6,24 @@ use std::fs;
 
 use common::{assert_json_success, assert_stdout_success, vinput_command, write_temp_json};
 
+fn assert_daemon_owner_probe_plan(value: &serde_json::Value) {
+    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
+    let owner_methods = value["owner_probe"]["methods"]
+        .as_array()
+        .expect("owner probe methods");
+    assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
+    assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
+    let process_fields = value["owner_probe"]["process_fields"]
+        .as_array()
+        .expect("owner probe process fields");
+    for field in ["unix_process_id", "exe", "cmdline"] {
+        assert!(
+            process_fields.contains(&serde_json::json!(field)),
+            "missing owner probe process field {field}"
+        );
+    }
+}
+
 #[test]
 fn llm_list_json_reports_bundled_default_empty_providers() {
     let output = vinput_command()
@@ -1027,7 +1045,7 @@ fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["called"], false);
     assert_eq!(value["dbus"]["method"], "StartAdapter");
-    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
+    assert_daemon_owner_probe_plan(&value);
 
     let stop = vinput_command()
         .args(["adapter", "stop", "command-adapter", "--dry-run", "--json"])
@@ -1039,7 +1057,7 @@ fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
     assert_eq!(value["action"], "stop");
     assert_eq!(value["adapter_id"], "command-adapter");
     assert_eq!(value["dbus"]["method"], "StopAdapter");
-    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
+    assert_daemon_owner_probe_plan(&value);
 }
 
 #[test]
@@ -1098,7 +1116,7 @@ fn adapter_status_dry_run_json_reports_text_adapter_state_plan() {
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["called"], false);
     assert_eq!(value["dbus"]["method"], "GetTextAdapterState");
-    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
+    assert_daemon_owner_probe_plan(&value);
 }
 
 #[test]
@@ -1134,6 +1152,7 @@ fn global_json_flag_forces_adapter_status_json() {
     assert_eq!(value["action"], "status");
     assert_eq!(value["adapter_id"], "command-adapter");
     assert_eq!(value["dbus"]["method"], "GetTextAdapterState");
+    assert_daemon_owner_probe_plan(&value);
 }
 
 #[test]

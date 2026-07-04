@@ -4,6 +4,24 @@ mod common;
 
 use common::{assert_json_success, assert_stdout_success, vinput_command};
 
+fn assert_daemon_owner_probe_plan(value: &serde_json::Value) {
+    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
+    let owner_methods = value["owner_probe"]["methods"]
+        .as_array()
+        .expect("owner probe methods");
+    assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
+    assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
+    let process_fields = value["owner_probe"]["process_fields"]
+        .as_array()
+        .expect("owner probe process fields");
+    for field in ["unix_process_id", "exe", "cmdline"] {
+        assert!(
+            process_fields.contains(&serde_json::json!(field)),
+            "missing owner probe process field {field}"
+        );
+    }
+}
+
 #[test]
 fn recording_status_dry_run_json_reports_get_status_plan() {
     let output = vinput_command()
@@ -18,7 +36,7 @@ fn recording_status_dry_run_json_reports_get_status_plan() {
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["called"], false);
     assert_eq!(value["dbus"]["method"], "GetStatus");
-    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
+    assert_daemon_owner_probe_plan(&value);
 }
 
 #[test]
@@ -63,6 +81,7 @@ fn global_json_flag_forces_recording_status_json() {
     assert_eq!(value["ok"], true);
     assert_eq!(value["action"], "status");
     assert_eq!(value["dbus"]["method"], "GetStatus");
+    assert_daemon_owner_probe_plan(&value);
 }
 
 #[test]
