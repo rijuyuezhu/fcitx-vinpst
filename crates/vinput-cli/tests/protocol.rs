@@ -749,6 +749,24 @@ fn daemon_user_service_real_commands_report_external_output_json() {
 }
 
 #[test]
+fn daemon_user_service_real_text_prints_tool_program() {
+    let output = vinput_command()
+        .env("VINPUT_DAEMON_SYSTEMCTL", "/bin/echo")
+        .args(["daemon", "stop"])
+        .output()
+        .expect("run vinput daemon stop text with echo systemctl");
+
+    let stdout = assert_stdout_success(output, "daemon stop real text");
+    assert!(stdout.contains("dry_run: false"));
+    assert!(stdout.contains("ok: true"));
+    assert!(stdout.contains("tool: systemctl"));
+    assert!(stdout.contains("tool_program: /bin/echo"));
+    assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_SYSTEMCTL"));
+    assert!(stdout.contains("tool_overridden: true"));
+    assert!(stdout.contains("stdout: --user stop fcitx-vinput.service"));
+}
+
+#[test]
 fn daemon_log_dry_run_next_step_mentions_lines() {
     let output = vinput_command()
         .args(["daemon", "log", "--lines", "5", "--dry-run"])
