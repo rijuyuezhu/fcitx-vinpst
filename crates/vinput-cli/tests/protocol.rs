@@ -702,6 +702,7 @@ fn daemon_user_service_missing_tool_text_prints_fallback_step() {
     assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_SYSTEMCTL"));
     assert!(stdout.contains("tool_overridden: true"));
     assert!(stdout.contains("fallback_step: run vinput activation-service --user-status"));
+    assert!(stdout.contains("next_step: run vinput daemon status to verify daemon availability"));
 }
 
 #[test]
