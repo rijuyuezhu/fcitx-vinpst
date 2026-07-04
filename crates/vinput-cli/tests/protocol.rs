@@ -330,6 +330,7 @@ fn daemon_status_dry_run_prints_dbus_plan_json() {
     assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
     assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
     let process_fields = value["owner_probe"]["process_fields"].as_array().unwrap();
+    assert!(process_fields.contains(&serde_json::json!("unix_process_id")));
     assert!(process_fields.contains(&serde_json::json!("exe")));
     assert!(process_fields.contains(&serde_json::json!("cmdline")));
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
