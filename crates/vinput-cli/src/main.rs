@@ -2078,6 +2078,7 @@ fn daemon_user_service_dry_run_json(
         "strategy": "systemd-user-service",
         "command": command.display(),
         "command_argv": command.argv(),
+        "owner_probe": daemon_owner_probe_plan_json(),
         "fallback": daemon_user_service_fallback(),
         "next_steps": daemon_user_service_next_steps(action),
     })
@@ -2089,6 +2090,7 @@ fn print_daemon_user_service_dry_run_text(action: &str, command: &UserServiceCom
     println!("will_mutate_user_service: false");
     println!("strategy: systemd-user-service");
     println!("command: {}", command.display());
+    println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     println!("fallback: {}", daemon_user_service_fallback());
     println!("next_step: {}", daemon_user_service_next_steps(action)[0]);
 }
@@ -2111,6 +2113,7 @@ fn run_daemon_user_service_command(
                 "strategy": "systemd-user-service",
                 "command": command.display(),
                 "command_argv": command.argv(),
+                "owner_probe": daemon_owner_probe_plan_json(),
                 "exit_status": exit_status,
                 "stdout": String::from_utf8_lossy(&output.stdout),
                 "stderr": String::from_utf8_lossy(&output.stderr),
@@ -2126,6 +2129,7 @@ fn run_daemon_user_service_command(
             "strategy": "systemd-user-service",
             "command": command.display(),
             "command_argv": command.argv(),
+            "owner_probe": daemon_owner_probe_plan_json(),
             "exit_status": null,
             "stdout": "",
             "stderr": "",

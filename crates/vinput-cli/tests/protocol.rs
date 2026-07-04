@@ -434,6 +434,13 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
         assert_eq!(value["will_mutate_user_service"], false);
         assert_eq!(value["strategy"], "systemd-user-service");
         assert_eq!(value["command"], expected);
+        assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
+        assert!(
+            value["owner_probe"]["process_fields"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("cmdline"))
+        );
         assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
             step.as_str()
                 .is_some_and(|step| step.contains("vinput daemon"))
@@ -546,6 +553,7 @@ fn daemon_user_service_real_commands_report_external_output_json() {
         assert_eq!(value["will_mutate_user_service"], will_mutate);
         assert_eq!(value["strategy"], "systemd-user-service");
         assert_eq!(value["command_argv"][0], "/bin/echo");
+        assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
         assert_eq!(value["exit_status"], 0);
         assert_eq!(value["stdout"], expected_stdout);
         assert_eq!(value["stderr"], "");
@@ -578,5 +586,9 @@ fn daemon_stop_text_dry_run_prints_user_service_plan() {
     assert!(stdout.contains("action: stop"));
     assert!(stdout.contains("will_mutate_user_service: false"));
     assert!(stdout.contains("systemctl --user stop fcitx-vinput.service"));
+    assert!(
+        stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
     assert!(stdout.contains("next_step: run vinput daemon status to verify daemon availability"));
 }
