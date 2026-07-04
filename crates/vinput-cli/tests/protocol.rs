@@ -183,6 +183,10 @@ fn activation_service_remove_user_deletes_xdg_data_home_service() {
         value["user_service_path"],
         service_path.to_string_lossy().as_ref()
     );
+    assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+        step.as_str()
+            .is_some_and(|step| step.contains("daemon start --dry-run"))
+    }));
     assert!(!service_path.exists());
     std::fs::remove_dir_all(data_home).expect("remove service fixture");
 }

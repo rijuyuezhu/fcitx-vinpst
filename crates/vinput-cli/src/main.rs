@@ -8055,6 +8055,7 @@ fn remove_user_activation_service() -> anyhow::Result<()> {
             "ok": true,
             "removed": existed,
             "user_service_path": path,
+            "next_steps": activation_service_status_next_steps(),
         }))?
     );
     Ok(())
