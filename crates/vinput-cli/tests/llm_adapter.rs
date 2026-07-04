@@ -859,6 +859,94 @@ fn adapter_start_stop_reject_empty_id_before_dbus() {
 }
 
 #[test]
+fn llm_test_dry_run_json_reports_redacted_request_without_http() {
+    let path = write_llm_fixture("vinput-llm-test-dry-run");
+
+    let output = vinput_command()
+        .args(["llm", "test", "openai", "--config"])
+        .arg(&path)
+        .args([
+            "--text",
+            "hello from vinput",
+            "--timeout-ms",
+            "1500",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput llm test dry-run json");
+    fs::remove_file(&path).expect("remove temporary llm config");
+
+    let value = assert_json_success(output, "llm test dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["provider_id"], "openai");
+    assert_eq!(value["timeout_ms"], 1500);
+    assert_eq!(value["will_call_http"], false);
+    assert_eq!(value["called"], false);
+    assert_eq!(
+        value["request"]["url"],
+        "https://llm.example.test/v1/chat/completions"
+    );
+    let serialized = value.to_string();
+    assert!(serialized.contains("<redacted>"));
+    assert!(serialized.contains("hello from vinput"));
+    assert!(!serialized.contains("secret-token"));
+    assert!(value["result"].is_null());
+}
+
+#[test]
+fn llm_test_text_dry_run_outputs_expected_fields_without_secrets() {
+    let path = write_llm_fixture("vinput-llm-test-text-dry-run");
+
+    let output = vinput_command()
+        .args(["llm", "test", "openai", "--config"])
+        .arg(&path)
+        .args(["--timeout-ms", "1500", "--dry-run"])
+        .output()
+        .expect("run vinput llm test text dry-run");
+    fs::remove_file(&path).expect("remove temporary llm config");
+
+    let stdout = assert_stdout_success(output, "llm test text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("provider_id: openai"));
+    assert!(stdout.contains("timeout_ms: 1500"));
+    assert!(stdout.contains("will_call_http: false"));
+    assert!(stdout.contains("called: false"));
+    assert!(stdout.contains("url: https://llm.example.test/v1/chat/completions"));
+    assert!(!stdout.contains("secret-token"));
+}
+
+#[test]
+fn llm_test_rejects_missing_and_empty_provider_before_http() {
+    let path = write_llm_fixture("vinput-llm-test-errors");
+
+    let empty = vinput_command()
+        .args(["llm", "test", "   ", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput llm test empty id");
+    assert!(!empty.status.success());
+    let stderr = String::from_utf8(empty.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("LLM provider id cannot be empty"));
+
+    let missing = vinput_command()
+        .args(["llm", "test", "missing", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput llm test missing id");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("LLM provider `missing` not found"));
+
+    fs::remove_file(&path).expect("remove temporary llm config");
+}
+
+#[test]
 fn adapter_list_json_reports_bundled_default_empty_adapters() {
     let output = vinput_command()
         .args(["adapter", "list", "--json"])

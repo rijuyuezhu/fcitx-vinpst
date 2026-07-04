@@ -121,6 +121,7 @@ fn llm_and_adapter_help_list_options() {
     assert!(llm_root_stdout.contains("list"));
     assert!(llm_root_stdout.contains("add"));
     assert!(llm_root_stdout.contains("edit"));
+    assert!(llm_root_stdout.contains("test"));
     assert!(llm_root_stdout.contains("remove"));
 
     let llm_list_output = vinput_command()
@@ -165,6 +166,18 @@ fn llm_and_adapter_help_list_options() {
     assert!(llm_edit_stdout.contains("--in-place"));
     assert!(llm_edit_stdout.contains("--dry-run"));
     assert!(llm_edit_stdout.contains("--json"));
+
+    let llm_test_output = vinput_command()
+        .args(["llm", "test", "--help"])
+        .output()
+        .expect("run vinput llm test --help");
+    let llm_test_stdout = assert_stdout_success(llm_test_output, "llm test help output");
+    assert!(llm_test_stdout.contains("<ID>"));
+    assert!(llm_test_stdout.contains("--text"));
+    assert!(llm_test_stdout.contains("--timeout-ms"));
+    assert!(llm_test_stdout.contains("--config"));
+    assert!(llm_test_stdout.contains("--dry-run"));
+    assert!(llm_test_stdout.contains("--json"));
 
     let llm_remove_output = vinput_command()
         .args(["llm", "remove", "--help"])

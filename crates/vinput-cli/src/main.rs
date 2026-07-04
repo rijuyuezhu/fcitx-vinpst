@@ -12,13 +12,19 @@ use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 use vinput_asr::AsrBackendFactory;
 use vinput_audio::CaptureTarget;
-use vinput_config::{AsrProviderConfig, AsrProviderKind, RegistryConfig, VinputConfig};
+use vinput_config::{
+    AsrProviderConfig, AsrProviderKind, RegistryConfig, SceneDefinition, VinputConfig,
+};
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
 use vinput_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelInstallRequest,
     LiveModelInstallResult, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata,
     PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryAssetSource,
     ReqwestRegistryTextSource, install_live_model,
+};
+use vinput_text::{
+    OpenAiCompatibleTextAdapter, ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,
+    build_openai_compatible_chat_request,
 };
 
 /// CLI for inspecting and controlling the vinput daemon.
@@ -457,6 +463,26 @@ enum LlmCommand {
         #[arg(long)]
         in_place: bool,
         /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Test an LLM provider with an OpenAI-compatible chat request.
+    Test {
+        /// Existing LLM provider id to test.
+        id: String,
+        /// Raw text used in the synthetic connectivity test prompt.
+        #[arg(long, default_value = "vinput LLM connectivity test")]
+        text: String,
+        /// Optional timeout in milliseconds for the test request.
+        #[arg(long)]
+        timeout_ms: Option<u64>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print the request plan without contacting the provider.
         #[arg(long)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
@@ -2728,6 +2754,14 @@ fn handle_llm_command(command: LlmCommand) -> anyhow::Result<()> {
             dry_run,
             json_output: json,
         }),
+        LlmCommand::Test {
+            id,
+            text,
+            timeout_ms,
+            config,
+            dry_run,
+            json,
+        } => print_llm_test(&id, &text, timeout_ms, config.as_ref(), dry_run, json),
         LlmCommand::Remove {
             id,
             config,
@@ -2793,6 +2827,174 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
             dry_run,
             json_output: json,
         }),
+    }
+}
+
+fn print_llm_test(
+    id: &str,
+    text: &str,
+    timeout_ms: Option<u64>,
+    config_path: Option<&PathBuf>,
+    dry_run: bool,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let outcome = run_llm_test(id, text, timeout_ms, config_path, dry_run)?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&outcome)?);
+    } else {
+        print_llm_test_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_llm_test(
+    id: &str,
+    text: &str,
+    timeout_ms: Option<u64>,
+    config_path: Option<&PathBuf>,
+    dry_run: bool,
+) -> anyhow::Result<serde_json::Value> {
+    let id = normalize_llm_provider_id(id)?;
+    let loaded = load_config_json(config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for llm test")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for llm test")?;
+    config.validate().context("validate config for llm test")?;
+    let provider = config
+        .llm
+        .providers
+        .iter()
+        .find(|provider| provider.id == id)
+        .with_context(|| format!("LLM provider `{id}` not found"))?;
+    let scene = llm_test_scene(provider, timeout_ms);
+    let request = TextRequest {
+        raw_text: text,
+        scene: &scene,
+        selected_text: None,
+    };
+    let built =
+        build_openai_compatible_chat_request(&request, provider, "")?.with_context(|| {
+            format!("LLM provider `{id}` cannot build an OpenAI-compatible request")
+        })?;
+    if dry_run {
+        return Ok(llm_test_output(
+            loaded.path.as_ref(),
+            loaded.source,
+            &id,
+            timeout_ms,
+            true,
+            &built,
+            None,
+            None,
+        ));
+    }
+
+    let adapter = OpenAiCompatibleTextAdapter::new(
+        provider.clone(),
+        ReqwestOpenAiCompatibleChatTransport::new(),
+    );
+    let payload = adapter
+        .finish(&request)
+        .with_context(|| format!("test LLM provider `{id}`"))?;
+    Ok(llm_test_output(
+        loaded.path.as_ref(),
+        loaded.source,
+        &id,
+        timeout_ms,
+        false,
+        &built,
+        Some(&payload),
+        Some(payload.candidates.len()),
+    ))
+}
+
+fn llm_test_scene(
+    provider: &vinput_config::LlmProviderConfig,
+    timeout_ms: Option<u64>,
+) -> SceneDefinition {
+    SceneDefinition {
+        id: "__llm_test__".to_owned(),
+        label: "LLM Test".to_owned(),
+        prompt: Some(
+            "Return a JSON object with a candidates array containing one short connectivity result."
+                .to_owned(),
+        ),
+        provider_id: Some(provider.id.clone()),
+        model: provider.model.clone(),
+        candidate_count: 1,
+        timeout_ms,
+        context_lines: 0,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn llm_test_output(
+    config_path: Option<&PathBuf>,
+    source: &'static str,
+    provider_id: &str,
+    timeout_ms: Option<u64>,
+    dry_run: bool,
+    request: &vinput_text::OpenAiCompatibleChatRequest,
+    payload: Option<&RecognitionPayload>,
+    candidate_count: Option<usize>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": dry_run,
+        "config_path": config_path,
+        "source": source,
+        "provider_id": provider_id,
+        "timeout_ms": timeout_ms,
+        "will_call_http": !dry_run,
+        "called": !dry_run,
+        "request": {
+            "url": request.url,
+            "headers": request.redacted_headers(),
+            "body": request.body,
+            "ignored_extra_body_keys": request.ignored_extra_body_keys,
+        },
+        "result": payload.map(|payload| serde_json::json!({
+            "commit_text": payload.commit_text,
+            "candidate_count": candidate_count.unwrap_or(0),
+        })),
+        "next_steps": [
+            "run vinput llm list to verify configured LLM providers",
+            "run vinput scene list to inspect scene/provider bindings",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_llm_test_text(outcome: &serde_json::Value) {
+    println!("dry_run: {}", outcome["dry_run"]);
+    println!("source: {}", outcome["source"].as_str().unwrap_or("-"));
+    if let Some(config_path) = outcome["config_path"].as_str() {
+        println!("config_path: {config_path}");
+    }
+    println!(
+        "provider_id: {}",
+        outcome["provider_id"].as_str().unwrap_or("-")
+    );
+    println!("timeout_ms: {}", value_or_dash(&outcome["timeout_ms"]));
+    println!("will_call_http: {}", outcome["will_call_http"]);
+    println!("called: {}", outcome["called"]);
+    if let Some(url) = outcome["request"]["url"].as_str() {
+        println!("url: {url}");
+    }
+    if let Some(result) = outcome.get("result").filter(|value| !value.is_null()) {
+        println!(
+            "commit_text: {}",
+            result["commit_text"].as_str().unwrap_or("-")
+        );
+        println!("candidate_count: {}", result["candidate_count"]);
+    }
+}
+
+fn value_or_dash(value: &serde_json::Value) -> String {
+    if value.is_null() {
+        "-".to_owned()
+    } else {
+        value.to_string()
     }
 }
 
