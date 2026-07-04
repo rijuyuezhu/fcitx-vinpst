@@ -66,6 +66,54 @@ fn config_get_text_prints_scalar_value() {
 }
 
 #[test]
+fn config_get_exists_json_reports_missing_pointer_without_error() {
+    let output = vinput_command()
+        .args(["config", "get", "/global/missing", "--exists", "--config"])
+        .arg(workspace_file("data/default-config.json"))
+        .arg("--json")
+        .output()
+        .expect("run vinput config get --exists json");
+
+    let value = assert_json_success(output, "config get --exists json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["pointer"], "/global/missing");
+    assert_eq!(value["exists"], false);
+    assert_eq!(value.get("value"), None);
+}
+
+#[test]
+fn config_get_exists_text_prints_boolean() {
+    let output = vinput_command()
+        .args([
+            "config",
+            "get",
+            "/global/default_language",
+            "--exists",
+            "--config",
+        ])
+        .arg(workspace_file("data/default-config.json"))
+        .output()
+        .expect("run vinput config get --exists text");
+
+    let stdout = assert_stdout_success(output, "config get --exists text");
+    assert_eq!(stdout, "true\n");
+}
+
+#[test]
+fn config_get_missing_pointer_without_exists_still_errors() {
+    let output = vinput_command()
+        .args(["config", "get", "/global/missing", "--config"])
+        .arg(workspace_file("data/default-config.json"))
+        .output()
+        .expect("run vinput config get missing pointer");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("config pointer `/global/missing` not found"));
+}
+
+#[test]
 fn config_set_dry_run_json_validates_without_writing() {
     let root = unique_temp_dir("vinput-cli-config-set-dry-run");
     let config_path = copy_default_config(&root);

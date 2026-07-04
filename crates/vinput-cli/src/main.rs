@@ -56,6 +56,9 @@ enum ConfigCommand {
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Check whether POINTER exists and do not fail when it is missing.
+        #[arg(long)]
+        exists: bool,
         /// Print machine-readable JSON instead of the raw value.
         #[arg(long)]
         json: bool,
@@ -1510,8 +1513,9 @@ fn main() -> anyhow::Result<()> {
             Some(ConfigCommand::Get {
                 pointer,
                 config,
+                exists,
                 json,
-            }) => handle_config_get(&pointer, config.as_ref(), json),
+            }) => handle_config_get(&pointer, config.as_ref(), exists, json),
             Some(ConfigCommand::Set {
                 pointer,
                 value,
@@ -9715,14 +9719,17 @@ fn validate_registry_index(path: &PathBuf) -> anyhow::Result<()> {
 fn handle_config_get(
     pointer: &str,
     config_path: Option<&PathBuf>,
+    exists_only: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
     ensure_json_pointer(pointer)?;
     let loaded = load_config_json(config_path)?;
-    let value = loaded
-        .document
-        .pointer(pointer)
-        .with_context(|| format!("config pointer `{pointer}` not found"))?;
+    let value = loaded.document.pointer(pointer);
+    if exists_only {
+        print_config_get_exists(&loaded, pointer, value, json_output)?;
+        return Ok(());
+    }
+    let value = value.with_context(|| format!("config pointer `{pointer}` not found"))?;
     if json_output {
         println!(
             "{}",
@@ -9731,11 +9738,37 @@ fn handle_config_get(
                 "config_path": loaded.path,
                 "source": loaded.source,
                 "pointer": pointer,
+                "exists": true,
                 "value": value,
             }))?
         );
     } else {
         print_config_value(value)?;
+    }
+    Ok(())
+}
+
+fn print_config_get_exists(
+    loaded: &LoadedConfigJson,
+    pointer: &str,
+    value: Option<&serde_json::Value>,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let exists = value.is_some();
+    if json_output {
+        let mut payload = serde_json::json!({
+            "ok": true,
+            "config_path": loaded.path.clone(),
+            "source": loaded.source,
+            "pointer": pointer,
+            "exists": exists,
+        });
+        if let Some(value) = value {
+            payload["value"] = value.clone();
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("{exists}");
     }
     Ok(())
 }

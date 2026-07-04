@@ -55,6 +55,7 @@ fn config_get_set_edit_help_lists_pointer_and_write_options() {
     let get_stdout = assert_stdout_success(get_output, "config get help output");
     assert!(get_stdout.contains("<POINTER>"));
     assert!(get_stdout.contains("--config"));
+    assert!(get_stdout.contains("--exists"));
     assert!(get_stdout.contains("--json"));
 
     let set_output = vinput_command()
