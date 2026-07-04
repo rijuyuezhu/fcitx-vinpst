@@ -251,6 +251,15 @@ enum RecordingCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Query current daemon recording/status state.
+    Status {
+        /// Print the D-Bus call plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Toggle recording by querying daemon status first.
     Toggle {
         /// Selected text context used when toggle starts command-mode recording.
@@ -1470,6 +1479,7 @@ fn handle_recording_command(command: RecordingCommand) -> anyhow::Result<()> {
             dry_run,
             json,
         } => print_recording_action("stop", None, scene.as_deref(), dry_run, json),
+        RecordingCommand::Status { dry_run, json } => print_recording_status(dry_run, json),
         RecordingCommand::Toggle {
             selected_text,
             scene,
@@ -1482,6 +1492,88 @@ fn handle_recording_command(command: RecordingCommand) -> anyhow::Result<()> {
             dry_run,
             json,
         ),
+    }
+}
+
+fn print_recording_status(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
+    let output = if dry_run {
+        recording_status_plan_json()
+    } else {
+        recording_status_via_dbus()?
+    };
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_recording_status_text(&output);
+    }
+    Ok(())
+}
+
+fn recording_status_via_dbus() -> anyhow::Result<serde_json::Value> {
+    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let proxy = daemon_service_proxy(&connection)?;
+    let status: String = proxy
+        .call(dbus::method::GET_STATUS, &())
+        .context("call GetStatus on daemon D-Bus service")?;
+    Ok(recording_status_result_json(&status))
+}
+
+fn recording_status_plan_json() -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "action": "status",
+        "will_call_dbus": false,
+        "called": false,
+        "dbus": {
+            "service": dbus::SERVICE_BUS_NAME,
+            "object_path": dbus::SERVICE_OBJECT_PATH,
+            "interface": dbus::SERVICE_INTERFACE,
+            "method": dbus::method::GET_STATUS,
+        },
+        "next_steps": [
+            "run vinput daemon status --json for full daemon diagnostics",
+            "run vinput recording start --dry-run --json to inspect start calls",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn recording_status_result_json(status: &str) -> serde_json::Value {
+    let parsed = ServiceStatus::parse_wire(status).ok();
+    serde_json::json!({
+        "ok": true,
+        "dry_run": false,
+        "action": "status",
+        "will_call_dbus": true,
+        "called": true,
+        "dbus": {
+            "service": dbus::SERVICE_BUS_NAME,
+            "object_path": dbus::SERVICE_OBJECT_PATH,
+            "interface": dbus::SERVICE_INTERFACE,
+            "method": dbus::method::GET_STATUS,
+        },
+        "status": status,
+        "known_status": parsed.is_some(),
+        "is_recording": parsed == Some(ServiceStatus::Recording),
+        "is_busy": matches!(parsed, Some(ServiceStatus::Recording | ServiceStatus::Inferring | ServiceStatus::Postprocessing)),
+    })
+}
+
+fn print_recording_status_text(output: &serde_json::Value) {
+    println!("dry_run: {}", output["dry_run"]);
+    println!("action: status");
+    println!("will_call_dbus: {}", output["will_call_dbus"]);
+    println!("called: {}", output["called"]);
+    println!("service: {}", dbus::SERVICE_BUS_NAME);
+    println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+    println!("interface: {}", dbus::SERVICE_INTERFACE);
+    println!("method: {}", dbus::method::GET_STATUS);
+    if let Some(status) = output["status"].as_str() {
+        println!("status: {status}");
+        println!("known_status: {}", output["known_status"]);
+        println!("is_recording: {}", output["is_recording"]);
+        println!("is_busy: {}", output["is_busy"]);
     }
 }
 

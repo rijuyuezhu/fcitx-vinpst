@@ -222,6 +222,7 @@ smoke:
     cargo run -q -p vinput-cli -- recording start --selected-text demo --dry-run --json
     cargo run -q -p vinput-cli -- recording stop --scene demo --dry-run --json
     cargo run -q -p vinput-cli -- recording toggle --dry-run --json
+    cargo run -q -p vinput-cli -- recording status --dry-run --json
     cargo run -q -p vinput-cli -- mock-result '你好'
     cargo run -q -p vinput-daemon -- print-config
     cargo run -q -p vinput-daemon -- asr-state

@@ -680,3 +680,24 @@ fn daemon_user_service_help_lists_dry_run_and_json_options() {
         assert!(stdout.contains("--json"));
     }
 }
+
+#[test]
+fn recording_help_lists_status_options() {
+    let root_output = vinput_command()
+        .args(["recording", "--help"])
+        .output()
+        .expect("run vinput recording --help");
+    let root_stdout = assert_stdout_success(root_output, "recording help output");
+    assert!(root_stdout.contains("start"));
+    assert!(root_stdout.contains("stop"));
+    assert!(root_stdout.contains("toggle"));
+    assert!(root_stdout.contains("status"));
+
+    let status_output = vinput_command()
+        .args(["recording", "status", "--help"])
+        .output()
+        .expect("run vinput recording status --help");
+    let status_stdout = assert_stdout_success(status_output, "recording status help output");
+    assert!(status_stdout.contains("--dry-run"));
+    assert!(status_stdout.contains("--json"));
+}
