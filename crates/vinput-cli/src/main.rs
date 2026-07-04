@@ -518,6 +518,12 @@ enum AdapterCommand {
     /// List configured text adapters.
     #[command(alias = "ls")]
     List {
+        /// Legacy-compatible flag for listing registry-available text adapters.
+        #[arg(short = 'a', long)]
+        available: bool,
+        /// Optional local registry index JSON used by --available.
+        #[arg(long)]
+        registry: Option<PathBuf>,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -2853,7 +2859,12 @@ fn handle_llm_command(command: LlmCommand) -> anyhow::Result<()> {
 
 fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
     match command {
-        AdapterCommand::List { config, json } => print_adapter_list(config.as_ref(), json),
+        AdapterCommand::List {
+            available,
+            registry,
+            config,
+            json,
+        } => print_adapter_list(config.as_ref(), available, registry.as_deref(), json),
         AdapterCommand::Add {
             id,
             command,
@@ -4154,7 +4165,15 @@ fn print_adapter_remove_text(outcome: &AdapterRemoveOutcome) {
     println!("wrote_config: {}", outcome.wrote_config);
 }
 
-fn print_adapter_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
+fn print_adapter_list(
+    config_path: Option<&PathBuf>,
+    available: bool,
+    registry_path: Option<&Path>,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    if available {
+        return print_available_adapter_list(registry_path, config_path, json_output);
+    }
     let context = load_adapter_list_context(config_path)?;
     if json_output {
         println!(
@@ -4165,6 +4184,114 @@ fn print_adapter_list(config_path: Option<&PathBuf>, json_output: bool) -> anyho
         print_adapter_list_text(&context);
     }
     Ok(())
+}
+
+fn print_available_adapter_list(
+    registry_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let registry_path =
+        registry_path.with_context(|| "adapter list --available requires --registry <path>")?;
+    let input = fs::read_to_string(registry_path)
+        .with_context(|| format!("read registry index `{}`", registry_path.display()))?;
+    let index = RegistryIndex::from_json_str(&input)
+        .with_context(|| format!("validate registry index `{}`", registry_path.display()))?;
+    let context = load_adapter_list_context(config_path)?;
+    let configured_ids = context
+        .config
+        .llm
+        .adapters
+        .iter()
+        .map(|adapter| adapter.id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let adapters = index
+        .adapters
+        .iter()
+        .map(|adapter| available_adapter_json(adapter, &configured_ids))
+        .collect::<Vec<_>>();
+    let output = serde_json::json!({
+        "ok": true,
+        "registry_path": registry_path,
+        "config_path": context.config_path.as_ref(),
+        "config_source": context.source,
+        "adapter_count": adapters.len(),
+        "adapters": adapters,
+        "next_steps": [
+            "run vinput registry plan <path> --adapter <id> to inspect assets",
+            "run vinput adapter add <id> --command <path> --dry-run --json to preview config",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_available_adapter_list_text(registry_path, &context, &index, &configured_ids);
+    }
+    Ok(())
+}
+
+fn available_adapter_json(
+    adapter: &vinput_registry::AdapterEntry,
+    configured_ids: &std::collections::BTreeSet<&str>,
+) -> serde_json::Value {
+    let known_size_bytes = adapter
+        .assets
+        .iter()
+        .filter_map(|asset| asset.size_bytes)
+        .sum::<u64>();
+    let unknown_size_count = adapter
+        .assets
+        .iter()
+        .filter(|asset| asset.size_bytes.is_none())
+        .count();
+    serde_json::json!({
+        "id": adapter.id,
+        "label": adapter.label,
+        "kind": adapter.kind,
+        "configured": configured_ids.contains(adapter.id.as_str()),
+        "asset_count": adapter.assets.len(),
+        "known_size_bytes": known_size_bytes,
+        "unknown_size_count": unknown_size_count,
+        "assets": adapter.assets,
+    })
+}
+
+fn print_available_adapter_list_text(
+    registry_path: &Path,
+    context: &AdapterListContext,
+    index: &RegistryIndex,
+    configured_ids: &std::collections::BTreeSet<&str>,
+) {
+    println!("registry_path: {}", registry_path.display());
+    println!("config_source: {}", context.source);
+    if let Some(path) = &context.config_path {
+        println!("config_path: {}", path.display());
+    }
+    println!("adapter_count: {}", index.adapters.len());
+    println!("id	kind	configured	assets	known_size_bytes	unknown_size_count	label");
+    for adapter in &index.adapters {
+        let known_size_bytes = adapter
+            .assets
+            .iter()
+            .filter_map(|asset| asset.size_bytes)
+            .sum::<u64>();
+        let unknown_size_count = adapter
+            .assets
+            .iter()
+            .filter(|asset| asset.size_bytes.is_none())
+            .count();
+        println!(
+            "{}	{}	{}	{}	{}	{}	{}",
+            adapter.id,
+            adapter.kind,
+            bool_label(configured_ids.contains(adapter.id.as_str())),
+            adapter.assets.len(),
+            known_size_bytes,
+            unknown_size_count,
+            adapter.label,
+        );
+    }
 }
 
 fn load_adapter_list_context(config_path: Option<&PathBuf>) -> anyhow::Result<AdapterListContext> {

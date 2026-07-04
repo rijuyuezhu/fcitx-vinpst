@@ -1165,6 +1165,78 @@ fn llm_test_rejects_missing_and_empty_provider_before_http() {
 }
 
 #[test]
+fn adapter_list_available_json_reports_registry_adapters_and_configured_marker() {
+    let config_path = write_llm_fixture("vinput-adapter-available-config-json");
+    let registry_path = write_registry_fixture("vinput-adapter-available-registry-json");
+
+    let output = vinput_command()
+        .args(["adapter", "list", "--available", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput adapter list --available --json");
+    fs::remove_file(&config_path).expect("remove temporary config");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+
+    let value = assert_json_success(output, "adapter list available json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(
+        value["registry_path"],
+        registry_path.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["config_source"], "file");
+    assert_eq!(value["adapter_count"], 2);
+    let adapters = value["adapters"].as_array().unwrap();
+    assert_eq!(adapters[0]["id"], "command-adapter");
+    assert_eq!(adapters[0]["label"], "Command Adapter");
+    assert_eq!(adapters[0]["kind"], "command");
+    assert_eq!(adapters[0]["configured"], true);
+    assert_eq!(adapters[0]["asset_count"], 1);
+    assert_eq!(adapters[0]["known_size_bytes"], 1234);
+    assert_eq!(adapters[0]["unknown_size_count"], 0);
+    assert_eq!(adapters[1]["id"], "registry-only");
+    assert_eq!(adapters[1]["configured"], false);
+    assert_eq!(adapters[1]["unknown_size_count"], 1);
+}
+
+#[test]
+fn adapter_list_available_text_prints_registry_table() {
+    let config_path = write_llm_fixture("vinput-adapter-available-config-text");
+    let registry_path = write_registry_fixture("vinput-adapter-available-registry-text");
+
+    let output = vinput_command()
+        .args(["adapter", "ls", "-a", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .output()
+        .expect("run vinput adapter ls --available text");
+    fs::remove_file(&config_path).expect("remove temporary config");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+
+    let stdout = assert_stdout_success(output, "adapter list available text");
+    assert!(stdout.contains("registry_path:"));
+    assert!(stdout.contains("config_source: file"));
+    assert!(stdout.contains("adapter_count: 2"));
+    assert!(stdout.contains("id	kind	configured	assets	known_size_bytes	unknown_size_count	label"));
+    assert!(stdout.contains("command-adapter	command	yes	1	1234	0	Command Adapter"));
+    assert!(stdout.contains("registry-only	command	no	1	0	1	Registry Only"));
+}
+
+#[test]
+fn adapter_list_available_requires_registry_path() {
+    let output = vinput_command()
+        .args(["adapter", "list", "--available", "--json"])
+        .output()
+        .expect("run vinput adapter list --available without registry");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("adapter list --available requires --registry <path>"));
+}
+
+#[test]
 fn adapter_list_json_reports_bundled_default_empty_adapters() {
     let output = vinput_command()
         .args(["adapter", "list", "--json"])
@@ -1229,6 +1301,10 @@ fn write_llm_fixture(prefix: &str) -> std::path::PathBuf {
     write_temp_json(prefix, llm_fixture_json())
 }
 
+fn write_registry_fixture(prefix: &str) -> std::path::PathBuf {
+    write_temp_json(prefix, registry_fixture_json())
+}
+
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!(
@@ -1246,6 +1322,29 @@ fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 fn read_json(path: &std::path::Path) -> serde_json::Value {
     serde_json::from_str(&fs::read_to_string(path).expect("read json file"))
         .expect("parse json file")
+}
+
+fn registry_fixture_json() -> &'static str {
+    r#"
+    {
+      "version": 1,
+      "models": [],
+      "adapters": [
+        {
+          "id": "command-adapter",
+          "label": "Command Adapter",
+          "kind": "command",
+          "assets": [{"path":"adapters/command-adapter.tar.zst","size_bytes":1234}]
+        },
+        {
+          "id": "registry-only",
+          "label": "Registry Only",
+          "kind": "command",
+          "assets": [{"path":"adapters/registry-only.tar.zst"}]
+        }
+      ]
+    }
+    "#
 }
 
 fn llm_fixture_json() -> &'static str {

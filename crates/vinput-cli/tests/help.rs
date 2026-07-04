@@ -209,6 +209,8 @@ fn llm_and_adapter_help_list_options() {
         .expect("run vinput adapter list --help");
     let adapter_list_stdout =
         assert_stdout_success(adapter_list_output, "adapter list help output");
+    assert!(adapter_list_stdout.contains("--available"));
+    assert!(adapter_list_stdout.contains("--registry"));
     assert!(adapter_list_stdout.contains("--config"));
     assert!(adapter_list_stdout.contains("--json"));
 }
