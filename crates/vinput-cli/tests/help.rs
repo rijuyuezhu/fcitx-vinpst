@@ -65,6 +65,7 @@ fn config_get_set_edit_help_lists_pointer_and_write_options() {
     assert!(set_stdout.contains("<POINTER>"));
     assert!(set_stdout.contains("<VALUE>"));
     assert!(set_stdout.contains("--config"));
+    assert!(set_stdout.contains("--string"));
     assert!(set_stdout.contains("--output"));
     assert!(set_stdout.contains("--in-place"));
     assert!(set_stdout.contains("--dry-run"));

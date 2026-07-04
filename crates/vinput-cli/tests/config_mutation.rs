@@ -90,6 +90,7 @@ fn config_set_dry_run_json_validates_without_writing() {
     assert_eq!(value["wrote_config"], false);
     assert_eq!(value["source"], "file");
     assert_eq!(value["pointer"], "/global/default_language");
+    assert_eq!(value["force_string"], false);
     assert_eq!(value["parsed_value_kind"], "string");
     assert_eq!(value["before"], "zh");
     assert_eq!(value["after"], "en");
@@ -97,6 +98,57 @@ fn config_set_dry_run_json_validates_without_writing() {
         std::fs::read_to_string(&config_path).expect("read unchanged config"),
         before
     );
+}
+
+#[test]
+fn config_set_string_flag_preserves_json_looking_value_as_string() {
+    let root = unique_temp_dir("vinput-cli-config-set-string");
+    let config_path = copy_default_config(&root);
+
+    let output = vinput_command()
+        .args([
+            "config",
+            "set",
+            "/global/capture_device",
+            "true",
+            "--string",
+            "--config",
+        ])
+        .arg(&config_path)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput config set --string dry-run json");
+
+    let value = assert_json_success(output, "config set --string dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["force_string"], true);
+    assert_eq!(value["parsed_value_kind"], "string");
+    assert_eq!(value["after"], "true");
+}
+
+#[test]
+fn config_set_string_flag_text_reports_force_string() {
+    let root = unique_temp_dir("vinput-cli-config-set-string-text");
+    let config_path = copy_default_config(&root);
+
+    let output = vinput_command()
+        .args([
+            "config",
+            "set",
+            "/global/capture_device",
+            "true",
+            "--string",
+            "--config",
+        ])
+        .arg(&config_path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput config set --string dry-run text");
+
+    let stdout = assert_stdout_success(output, "config set --string dry-run text");
+    assert!(stdout.contains("force_string: true"));
+    assert!(stdout.contains("parsed_value_kind: string"));
+    assert!(stdout.contains("after: true"));
 }
 
 #[test]

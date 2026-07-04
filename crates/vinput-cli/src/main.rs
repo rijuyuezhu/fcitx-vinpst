@@ -66,6 +66,9 @@ enum ConfigCommand {
         pointer: String,
         /// New value. Parsed as JSON when possible, otherwise treated as a string.
         value: String,
+        /// Treat VALUE as a literal string without JSON parsing.
+        #[arg(long)]
+        string: bool,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -1512,6 +1515,7 @@ fn main() -> anyhow::Result<()> {
             Some(ConfigCommand::Set {
                 pointer,
                 value,
+                string,
                 config,
                 output,
                 in_place,
@@ -1520,6 +1524,7 @@ fn main() -> anyhow::Result<()> {
             }) => handle_config_set(ConfigSetRequest {
                 pointer: &pointer,
                 raw_value: &value,
+                force_string: string,
                 config_path: config.as_ref(),
                 output_path: output.as_deref(),
                 in_place,
@@ -9740,6 +9745,7 @@ fn handle_config_get(
 struct ConfigSetRequest<'a> {
     pointer: &'a str,
     raw_value: &'a str,
+    force_string: bool,
     config_path: Option<&'a PathBuf>,
     output_path: Option<&'a Path>,
     in_place: bool,
@@ -9784,11 +9790,13 @@ impl ConfigSetWriteTarget {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct ConfigSetOutcome {
     config_path: Option<PathBuf>,
     source: &'static str,
     pointer: String,
     raw_value: String,
+    force_string: bool,
     parsed_value_kind: &'static str,
     before: serde_json::Value,
     after: serde_json::Value,
@@ -9822,7 +9830,8 @@ fn run_config_set(request: &ConfigSetRequest<'_>) -> anyhow::Result<ConfigSetOut
         .pointer(request.pointer)
         .with_context(|| format!("config pointer `{}` not found", request.pointer))?
         .clone();
-    let (after, parsed_value_kind) = parse_config_set_value(request.raw_value);
+    let (after, parsed_value_kind) =
+        parse_config_set_value(request.raw_value, request.force_string);
     *loaded
         .document
         .pointer_mut(request.pointer)
@@ -9850,6 +9859,7 @@ fn run_config_set(request: &ConfigSetRequest<'_>) -> anyhow::Result<ConfigSetOut
         source: loaded.source,
         pointer: request.pointer.to_owned(),
         raw_value: request.raw_value.to_owned(),
+        force_string: request.force_string,
         parsed_value_kind,
         before,
         after,
@@ -9944,6 +9954,7 @@ fn config_set_outcome_json(outcome: &ConfigSetOutcome) -> serde_json::Value {
         "source": outcome.source,
         "pointer": outcome.pointer,
         "raw_value": outcome.raw_value,
+        "force_string": outcome.force_string,
         "parsed_value_kind": outcome.parsed_value_kind,
         "before": outcome.before,
         "after": outcome.after,
@@ -9962,6 +9973,7 @@ fn print_config_set_outcome_text(outcome: &ConfigSetOutcome) -> anyhow::Result<(
         println!("config_path: {}", config_path.display());
     }
     println!("pointer: {}", outcome.pointer);
+    println!("force_string: {}", outcome.force_string);
     println!("parsed_value_kind: {}", outcome.parsed_value_kind);
     print!("before: ");
     print_config_value_inline(&outcome.before)?;
@@ -10021,7 +10033,13 @@ fn ensure_json_pointer(pointer: &str) -> anyhow::Result<()> {
     }
 }
 
-fn parse_config_set_value(raw_value: &str) -> (serde_json::Value, &'static str) {
+fn parse_config_set_value(
+    raw_value: &str,
+    force_string: bool,
+) -> (serde_json::Value, &'static str) {
+    if force_string {
+        return (serde_json::Value::String(raw_value.to_owned()), "string");
+    }
     match serde_json::from_str::<serde_json::Value>(raw_value) {
         Ok(value) => {
             let kind = match &value {

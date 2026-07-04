@@ -189,7 +189,7 @@ scenes.definitions[]
 
 The gap is not the base schema; the gap is user-facing mutation and resource-aware configuration:
 
-- legacy has JSON-pointer `config get/set/edit`; Rust now has guarded JSON-pointer `get/set` and validated editor-based `edit`;
+- legacy has JSON-pointer `config get/set/edit`; Rust now has guarded JSON-pointer `get/set` with JSON parsing plus `--string`, and validated editor-based `edit`;
 - legacy model/provider/adapter/scene commands edit config safely;
 - Rust validates and consumes config and can mutate existing config values with guarded JSON-pointer `set`; resource-specific mutations are still incomplete;
 - Rust install profiles generate specific configs, but they are not a general replacement for CLI config management.
@@ -231,7 +231,7 @@ Port enough config mutation to stop hand-editing JSON.
 Acceptance:
 
 - `vinput init` creates default config and managed directories idempotently. **Done for default config, model/cache dirs, JSON/text output, and activation-service hints.**
-- `vinput config get <json-pointer>` and `set <json-pointer> <value>` work with type-aware parsing and validation. **Done for existing JSON pointers, dry-run, output writes, in-place backup, and validation guards.**
+- `vinput config get <json-pointer>` and `set <json-pointer> <value>` work with type-aware parsing, `--string` literal values, and validation. **Done for existing JSON pointers, dry-run, output writes, in-place backup, and validation guards.**
 - `vinput config edit` opens the config path from `$EDITOR` and validates afterward.
 - Config writes use same-directory temp files and rename; `model use --in-place` preserves a `<config>.bak` backup.
 - All commands have `--json` and text output.
