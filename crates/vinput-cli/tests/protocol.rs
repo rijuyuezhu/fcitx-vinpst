@@ -342,6 +342,10 @@ fn recording_start_dry_run_prints_dbus_plan_json() {
     );
     assert_eq!(value["args"]["selected_text_present"], true);
     assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
+    assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+        step.as_str()
+            .is_some_and(|step| step.contains("daemon owner/procfs probes"))
+    }));
 }
 
 #[test]
@@ -357,6 +361,7 @@ fn recording_stop_and_toggle_dry_run_print_text_plans() {
         stop_stdout
             .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
     );
+    assert!(stop_stdout.contains("next_step: run vinput recording status --dry-run --json"));
     assert!(stop_stdout.contains("scene: demo"));
 
     let toggle = vinput_command()
@@ -372,6 +377,7 @@ fn recording_stop_and_toggle_dry_run_print_text_plans() {
         toggle_stdout
             .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
     );
+    assert!(toggle_stdout.contains("next_step: run vinput recording status --dry-run --json"));
 }
 
 #[test]

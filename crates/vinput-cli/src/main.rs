@@ -1940,7 +1940,21 @@ fn recording_plan_json(
             "selected_text_present": selected_text.is_some(),
             "scene": scene.unwrap_or(""),
         },
+        "next_steps": recording_action_next_steps(action),
     })
+}
+
+fn recording_action_next_steps(action: &str) -> Vec<&'static str> {
+    match action {
+        "stop" | "toggle" => vec![
+            "run vinput recording status --dry-run --json to inspect status calls",
+            "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
+        ],
+        _ => vec![
+            "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
+            "run vinput doctor to inspect full local diagnostics",
+        ],
+    }
 }
 
 fn print_recording_plan_text(action: &str, selected_text: Option<&str>, scene: Option<&str>) {
@@ -1963,6 +1977,13 @@ fn print_recording_plan_text(action: &str, selected_text: Option<&str>, scene: O
             .unwrap_or_default()
     );
     println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
+    if let Some(next_step) = output["next_steps"]
+        .as_array()
+        .and_then(|steps| steps.first())
+        .and_then(serde_json::Value::as_str)
+    {
+        println!("next_step: {next_step}");
+    }
     println!("selected_text_present: {}", selected_text.is_some());
     println!("scene: {}", scene.unwrap_or(""));
 }
