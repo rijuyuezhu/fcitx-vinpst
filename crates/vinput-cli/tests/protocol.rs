@@ -769,6 +769,25 @@ fn daemon_user_service_real_text_prints_tool_program() {
 }
 
 #[test]
+fn daemon_log_real_text_prints_tool_program() {
+    let output = vinput_command()
+        .env("VINPUT_DAEMON_JOURNALCTL", "/bin/echo")
+        .args(["daemon", "log"])
+        .output()
+        .expect("run vinput daemon log text with echo journalctl");
+
+    let stdout = assert_stdout_success(output, "daemon log real text");
+    assert!(stdout.contains("dry_run: false"));
+    assert!(stdout.contains("ok: true"));
+    assert!(stdout.contains("tool: journalctl"));
+    assert!(stdout.contains("tool_program: /bin/echo"));
+    assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_JOURNALCTL"));
+    assert!(stdout.contains("tool_overridden: true"));
+    assert!(stdout.contains("stdout: --user -u fcitx-vinput.service"));
+    assert!(stdout.contains("next_step: adjust --lines"));
+}
+
+#[test]
 fn daemon_log_dry_run_next_step_mentions_lines() {
     let output = vinput_command()
         .args(["daemon", "log", "--lines", "5", "--dry-run"])
