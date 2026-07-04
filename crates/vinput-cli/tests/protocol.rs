@@ -620,6 +620,42 @@ fn daemon_log_lines_rejects_zero() {
 }
 
 #[test]
+fn daemon_user_service_missing_tool_reports_fallback_steps_json() {
+    let output = vinput_command()
+        .env(
+            "VINPUT_DAEMON_SYSTEMCTL",
+            "/definitely/missing/vinput-systemctl",
+        )
+        .args(["daemon", "stop", "--json"])
+        .output()
+        .expect("run vinput daemon stop with missing systemctl");
+
+    let value = assert_json_success(output, "daemon missing systemctl json");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["tool"]["name"], "systemctl");
+    assert_eq!(
+        value["tool"]["program"],
+        "/definitely/missing/vinput-systemctl"
+    );
+    assert_eq!(value["tool"]["overridden"], true);
+    assert!(
+        value["error"]
+            .as_str()
+            .is_some_and(|error| { error.contains("No such file") || error.contains("not found") })
+    );
+    assert!(
+        value["fallback_steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|step| {
+                step.as_str()
+                    .is_some_and(|step| step.contains("activation-service --user-status"))
+            })
+    );
+}
+
+#[test]
 fn daemon_user_service_real_commands_report_external_output_json() {
     for (command, expected_stdout, will_mutate) in [
         ("stop", "--user stop fcitx-vinput.service\n", true),
