@@ -106,10 +106,10 @@ Rust CLI strengths:
 Rust CLI weaknesses for a user:
 
 - config `get/set/edit` exists, but broader resource-aware mutations are still incomplete;
-- live registry install/use/remove exists for model flow, provider/scene/LLM/adapter config UX exists, but Adapter live install UX polish and desktop proof are still missing; device list/use exists;
-- daemon lifecycle commands include owner/PID/procfs stale-owner diagnostics; non-systemd fallback UX and live desktop proof still need hardening;
+- live registry install/use/remove exists for model flow, provider/scene/LLM/adapter config UX exists, but adapter live install UX polish and desktop proof are still missing; device list/use exists;
+- daemon lifecycle commands include owner/PID/procfs diagnostics, activation-service fallback steps, and tool/env override metadata; remaining risk is live desktop/non-systemd proof rather than CLI probe coverage;
 - recording start/stop/toggle/status exists;
-- no global JSON/text output mode equivalent to legacy;
+- root and trailing `-j/--json` aliases work for JSON-capable subcommands; fully uniform legacy-style output mode is still incomplete;
 - no command aliases for short IDs from live registry.
 
 ## Daemon capability comparison
