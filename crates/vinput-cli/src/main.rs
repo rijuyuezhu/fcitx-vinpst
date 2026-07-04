@@ -2607,6 +2607,7 @@ fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> anyhow::Res
         println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
         println!("interface: {}", dbus::SERVICE_INTERFACE);
         println!("method: {}", dbus::method::RELOAD_ASR_BACKEND);
+        println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     }
     Ok(())
 }
@@ -2623,6 +2624,7 @@ fn daemon_reload_asr_output(dry_run: bool) -> serde_json::Value {
             "interface": dbus::SERVICE_INTERFACE,
             "method": dbus::method::RELOAD_ASR_BACKEND,
         },
+        "owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": [
             "run vinput daemon status to verify the selected ASR backend",
             "use vinput protocol to inspect the stable method contract"

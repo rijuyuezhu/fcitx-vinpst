@@ -238,6 +238,7 @@ fn daemon_reload_asr_dry_run_prints_dbus_plan_json() {
     assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
     assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);
     assert_eq!(value["dbus"]["method"], dbus::method::RELOAD_ASR_BACKEND);
+    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
 }
 
 #[test]
@@ -252,6 +253,10 @@ fn daemon_reload_asr_text_dry_run_prints_dbus_plan() {
     assert!(stdout.contains("called: false"));
     assert!(stdout.contains("service: org.fcitx.Vinput"));
     assert!(stdout.contains("method: ReloadAsrBackend"));
+    assert!(
+        stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
 }
 
 #[test]
