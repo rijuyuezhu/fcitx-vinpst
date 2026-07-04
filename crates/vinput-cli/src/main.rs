@@ -2206,6 +2206,7 @@ fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
                 "interface": dbus::SERVICE_INTERFACE,
                 "method": dbus::method::GET_STATUS,
             },
+            "owner_probe": daemon_owner_probe_plan_json(),
             "next_steps": daemon_start_next_steps(),
         });
         if json_output {
@@ -2219,6 +2220,7 @@ fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
             println!("service: {}", dbus::SERVICE_BUS_NAME);
             println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
             println!("interface: {}", dbus::SERVICE_INTERFACE);
+            println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID");
             println!("next_step: {}", daemon_start_next_steps()[0]);
         }
         return Ok(());

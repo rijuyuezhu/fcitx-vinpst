@@ -378,6 +378,13 @@ fn daemon_start_dry_run_prints_activation_plan_json() {
     assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
     assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);
     assert_eq!(value["dbus"]["method"], dbus::method::GET_STATUS);
+    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
+    assert!(
+        value["owner_probe"]["methods"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("GetNameOwner"))
+    );
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
         step.as_str()
             .is_some_and(|step| step.contains("daemon status"))
@@ -396,6 +403,7 @@ fn daemon_start_text_dry_run_prints_activation_plan() {
     assert!(stdout.contains("strategy: dbus-service-activation"));
     assert!(stdout.contains("method: GetStatus"));
     assert!(stdout.contains("service: org.fcitx.Vinput"));
+    assert!(stdout.contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID"));
     assert!(
         stdout.contains("next_step: run vinput daemon status to inspect live D-Bus/runtime state")
     );
