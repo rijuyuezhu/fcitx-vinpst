@@ -169,12 +169,20 @@ fn doctor_reports_combined_local_diagnostics() {
         value["daemon_owner_probe"]["target_name"],
         vinput_protocol::dbus::SERVICE_BUS_NAME
     );
-    assert!(
-        value["daemon_owner_probe"]["process_fields"]
-            .as_array()
-            .expect("doctor daemon owner probe fields")
-            .contains(&serde_json::json!("cmdline"))
-    );
+    let owner_methods = value["daemon_owner_probe"]["methods"]
+        .as_array()
+        .expect("doctor daemon owner probe methods");
+    assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
+    assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
+    let process_fields = value["daemon_owner_probe"]["process_fields"]
+        .as_array()
+        .expect("doctor daemon owner probe fields");
+    for field in ["unix_process_id", "exe", "cmdline"] {
+        assert!(
+            process_fields.contains(&serde_json::json!(field)),
+            "missing doctor daemon owner probe process field {field}"
+        );
+    }
     assert_eq!(
         value["fcitx_addon"]["user_addon_metadata_path"],
         data_home
