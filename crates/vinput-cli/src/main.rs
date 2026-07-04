@@ -1718,7 +1718,7 @@ fn recording_status_plan_json() -> serde_json::Value {
         },
         "owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": [
-            "run vinput daemon status --json for full daemon diagnostics",
+            "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
             "run vinput recording start --dry-run --json to inspect start calls",
             "run vinput doctor to inspect full local diagnostics"
         ],
@@ -4377,7 +4377,7 @@ fn adapter_lifecycle_output(
         },
         "owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": [
-            "run vinput daemon status --json to inspect text adapter runtime state",
+            "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
             "run vinput adapter list to verify configured text adapters",
             "run vinput doctor to inspect full local diagnostics"
         ],
@@ -4669,7 +4669,7 @@ fn adapter_edit_outcome_json(outcome: &AdapterEditOutcome) -> serde_json::Value 
         "wrote_config": outcome.wrote_config,
         "next_steps": [
             "run vinput adapter list to verify configured text adapters",
-            "run vinput daemon status --json to inspect text adapter runtime state",
+            "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
             "run vinput doctor to inspect full local diagnostics"
         ],
     })
@@ -5139,7 +5139,7 @@ fn adapter_list_json(context: &AdapterListContext) -> serde_json::Value {
         "adapters": adapters,
         "next_steps": [
             "run vinput scene list to inspect scenes that need adapters",
-            "run vinput daemon status --dry-run --json to inspect daemon D-Bus calls",
+            "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
             "run vinput doctor to inspect full local diagnostics"
         ],
     })
