@@ -563,6 +563,26 @@ enum AdapterCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Print a dry-run install plan for a registry adapter.
+    InstallPlan {
+        /// Adapter id from the registry index.
+        id: String,
+        /// Local registry index JSON containing adapter entries.
+        #[arg(long)]
+        registry: PathBuf,
+        /// Target root directory for planned adapter asset installation.
+        #[arg(long)]
+        target_root: PathBuf,
+        /// Optional config JSON file that provides registry mirrors.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Print only summary fields without per-asset rows.
+        #[arg(long)]
+        summary_only: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Edit a configured command text adapter.
     Edit {
         /// Existing adapter id to edit.
@@ -2888,6 +2908,21 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
             dry_run,
             json_output: json,
         }),
+        AdapterCommand::InstallPlan {
+            id,
+            registry,
+            target_root,
+            config,
+            summary_only,
+            json,
+        } => print_adapter_install_plan(
+            &id,
+            &registry,
+            &target_root,
+            config.as_ref(),
+            summary_only,
+            json,
+        ),
         AdapterCommand::Start { id, dry_run, json } => {
             print_adapter_lifecycle("start", &id, dbus::method::START_ADAPTER, dry_run, json)
         }
@@ -3654,6 +3689,88 @@ fn print_llm_list_text(context: &LlmListContext) {
                     .is_some_and(|object| !object.is_empty())
             ),
             provider.extra.len(),
+        );
+    }
+}
+
+fn print_adapter_install_plan(
+    id: &str,
+    registry_path: &Path,
+    target_root: &Path,
+    config_path: Option<&PathBuf>,
+    summary_only: bool,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let id = normalize_adapter_id(id)?;
+    let input = fs::read_to_string(registry_path)
+        .with_context(|| format!("read registry index `{}`", registry_path.display()))?;
+    let index = RegistryIndex::from_json_str(&input)
+        .with_context(|| format!("validate registry index `{}`", registry_path.display()))?;
+    let config = match config_path {
+        Some(config_path) => load_config_file(config_path)?,
+        None => VinputConfig::bundled_default().context("parse bundled config")?,
+    };
+    let target_root_string = target_root.to_string_lossy();
+    let plan = index.install_adapter_plan(&id, &config.registry, &target_root_string)?;
+    if json_output {
+        let output = if summary_only {
+            serde_json::json!({
+                "ok": true,
+                "adapter_id": id,
+                "registry_path": registry_path,
+                "target_root": plan.target_root,
+                "asset_count": plan.summary.asset_count,
+                "known_size_bytes": plan.summary.known_size_bytes,
+                "missing_checksum_count": plan.summary.missing_checksum_count,
+            })
+        } else {
+            serde_json::json!({
+                "ok": true,
+                "adapter_id": id,
+                "registry_path": registry_path,
+                "target_root": plan.target_root,
+                "asset_count": plan.summary.asset_count,
+                "known_size_bytes": plan.summary.known_size_bytes,
+                "missing_checksum_count": plan.summary.missing_checksum_count,
+                "assets": plan.assets,
+            })
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_adapter_install_plan_text(&id, registry_path, &plan, summary_only);
+    }
+    Ok(())
+}
+
+fn print_adapter_install_plan_text(
+    id: &str,
+    registry_path: &Path,
+    plan: &vinput_registry::InstallPlan,
+    summary_only: bool,
+) {
+    println!("adapter_id: {id}");
+    println!("registry_path: {}", registry_path.display());
+    println!("target_root: {}", plan.target_root);
+    println!("asset_count: {}", plan.summary.asset_count);
+    println!("known_size_bytes: {}", plan.summary.known_size_bytes);
+    println!(
+        "missing_checksum_count: {}",
+        plan.summary.missing_checksum_count
+    );
+    if summary_only {
+        return;
+    }
+    println!("source_path	target_path	urls	checksum_policy	size_bytes");
+    for asset in &plan.assets {
+        println!(
+            "{}	{}	{}	{:?}	{}",
+            asset.source_path,
+            asset.target_path,
+            asset.urls.len(),
+            asset.checksum_policy,
+            asset
+                .size_bytes
+                .map_or_else(|| "-".to_owned(), |size| size.to_string()),
         );
     }
 }

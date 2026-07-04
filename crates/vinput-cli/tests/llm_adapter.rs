@@ -1165,6 +1165,100 @@ fn llm_test_rejects_missing_and_empty_provider_before_http() {
 }
 
 #[test]
+fn adapter_install_plan_json_reports_registry_asset_plan() {
+    let registry_path = write_registry_fixture("vinput-adapter-install-plan-registry-json");
+    let root = unique_temp_dir("vinput-adapter-install-plan-json");
+    let target_root = root.join("adapters");
+
+    let output = vinput_command()
+        .args(["adapter", "install-plan", "command-adapter", "--registry"])
+        .arg(&registry_path)
+        .arg("--target-root")
+        .arg(&target_root)
+        .arg("--json")
+        .output()
+        .expect("run vinput adapter install-plan --json");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_dir_all(root).expect("remove install plan root");
+
+    let value = assert_json_success(output, "adapter install-plan json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["adapter_id"], "command-adapter");
+    assert_eq!(
+        value["registry_path"],
+        registry_path.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["target_root"], target_root.to_string_lossy().as_ref());
+    assert_eq!(value["asset_count"], 1);
+    assert_eq!(value["known_size_bytes"], 1234);
+    assert_eq!(value["missing_checksum_count"], 1);
+    let assets = value["assets"].as_array().unwrap();
+    assert_eq!(assets[0]["entry_id"], "command-adapter");
+    assert_eq!(assets[0]["source_path"], "adapters/command-adapter.tar.zst");
+}
+
+#[test]
+fn adapter_install_plan_text_and_summary_only_outputs_expected_fields() {
+    let registry_path = write_registry_fixture("vinput-adapter-install-plan-registry-text");
+    let root = unique_temp_dir("vinput-adapter-install-plan-text");
+    let target_root = root.join("adapters");
+
+    let output = vinput_command()
+        .args(["adapter", "install-plan", "command-adapter", "--registry"])
+        .arg(&registry_path)
+        .arg("--target-root")
+        .arg(&target_root)
+        .output()
+        .expect("run vinput adapter install-plan text");
+    let stdout = assert_stdout_success(output, "adapter install-plan text");
+    assert!(stdout.contains("adapter_id: command-adapter"));
+    assert!(stdout.contains("asset_count: 1"));
+    assert!(stdout.contains("source_path	target_path	urls	checksum_policy	size_bytes"));
+    assert!(stdout.contains("adapters/command-adapter.tar.zst"));
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "install-plan",
+            "command-adapter",
+            "--summary-only",
+            "--registry",
+        ])
+        .arg(&registry_path)
+        .arg("--target-root")
+        .arg(&target_root)
+        .output()
+        .expect("run vinput adapter install-plan summary text");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_dir_all(root).expect("remove install plan root");
+
+    let stdout = assert_stdout_success(output, "adapter install-plan summary text");
+    assert!(stdout.contains("asset_count: 1"));
+    assert!(!stdout.contains("source_path	target_path"));
+}
+
+#[test]
+fn adapter_install_plan_rejects_unknown_adapter() {
+    let registry_path = write_registry_fixture("vinput-adapter-install-plan-missing");
+    let root = unique_temp_dir("vinput-adapter-install-plan-missing-root");
+
+    let output = vinput_command()
+        .args(["adapter", "install-plan", "missing", "--registry"])
+        .arg(&registry_path)
+        .arg("--target-root")
+        .arg(&root)
+        .arg("--json")
+        .output()
+        .expect("run vinput adapter install-plan missing");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_dir_all(root).expect("remove install plan root");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("unknown adapter id `missing`"));
+}
+
+#[test]
 fn adapter_list_available_json_reports_registry_adapters_and_configured_marker() {
     let config_path = write_llm_fixture("vinput-adapter-available-config-json");
     let registry_path = write_registry_fixture("vinput-adapter-available-registry-json");
