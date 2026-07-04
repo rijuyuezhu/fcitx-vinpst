@@ -2280,7 +2280,7 @@ fn daemon_user_service_next_steps(action: &str) -> Vec<&'static str> {
 
 fn daemon_user_service_fallback_steps() -> Vec<&'static str> {
     vec![
-        "run vinput activation status to inspect the per-user D-Bus activation service",
+        "run vinput activation-service --user-status to inspect the per-user D-Bus activation service",
         "run vinput daemon start --dry-run --json to inspect activation strategy",
         "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
     ]
@@ -7906,6 +7906,7 @@ fn user_activation_service_json(path: &Path) -> serde_json::Value {
             "user_service_name_matches": false,
             "user_service_exec": null,
             "read_error": null,
+            "next_steps": activation_service_status_next_steps(),
         });
     }
 
@@ -7919,6 +7920,7 @@ fn user_activation_service_json(path: &Path) -> serde_json::Value {
                 "user_service_name_matches": name.as_deref() == Some(dbus::SERVICE_BUS_NAME),
                 "user_service_exec": activation_service_field(&contents, "Exec"),
                 "read_error": null,
+                "next_steps": activation_service_status_next_steps(),
             })
         }
         Err(error) => serde_json::json!({
@@ -7928,8 +7930,17 @@ fn user_activation_service_json(path: &Path) -> serde_json::Value {
             "user_service_name_matches": false,
             "user_service_exec": null,
             "read_error": error.to_string(),
+            "next_steps": activation_service_status_next_steps(),
         }),
     }
+}
+
+fn activation_service_status_next_steps() -> Vec<&'static str> {
+    vec![
+        "run vinput daemon start --dry-run --json to inspect activation strategy",
+        "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
+        "run vinput doctor to inspect activation, addon, audio, and config diagnostics",
+    ]
 }
 
 fn activation_service_field(contents: &str, key: &str) -> Option<String> {

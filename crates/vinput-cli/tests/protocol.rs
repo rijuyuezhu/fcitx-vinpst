@@ -220,6 +220,10 @@ fn activation_service_user_status_reports_existing_service() {
     assert_eq!(value["user_service_name"], "org.fcitx.Vinput");
     assert_eq!(value["user_service_name_matches"], true);
     assert_eq!(value["user_service_exec"], "/usr/bin/vinput-daemon --dbus");
+    assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+        step.as_str()
+            .is_some_and(|step| step.contains("daemon owner/procfs probes"))
+    }));
     std::fs::remove_dir_all(data_home).expect("remove service fixture");
 }
 
@@ -479,7 +483,7 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
                 .iter()
                 .any(|step| {
                     step.as_str()
-                        .is_some_and(|step| step.contains("activation status"))
+                        .is_some_and(|step| step.contains("activation-service --user-status"))
                 })
         );
         assert_eq!(value["command"], expected);
@@ -649,7 +653,7 @@ fn daemon_stop_text_dry_run_prints_user_service_plan() {
     assert!(stdout.contains("tool: systemctl"));
     assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_SYSTEMCTL"));
     assert!(stdout.contains("tool_overridden: false"));
-    assert!(stdout.contains("fallback_step: run vinput activation status"));
+    assert!(stdout.contains("fallback_step: run vinput activation-service --user-status"));
     assert!(stdout.contains("systemctl --user stop fcitx-vinput.service"));
     assert!(
         stdout
