@@ -472,6 +472,16 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
         assert_eq!(value["tool"]["program"], tool);
         assert_eq!(value["tool"]["env_override"], env_override);
         assert_eq!(value["tool"]["overridden"], false);
+        assert!(
+            value["fallback_steps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|step| {
+                    step.as_str()
+                        .is_some_and(|step| step.contains("activation status"))
+                })
+        );
         assert_eq!(value["command"], expected);
         assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
         assert!(
@@ -593,6 +603,16 @@ fn daemon_user_service_real_commands_report_external_output_json() {
         assert_eq!(value["strategy"], "systemd-user-service");
         assert_eq!(value["tool"]["program"], "/bin/echo");
         assert_eq!(value["tool"]["overridden"], true);
+        assert!(
+            value["fallback_steps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|step| {
+                    step.as_str()
+                        .is_some_and(|step| step.contains("daemon start --dry-run"))
+                })
+        );
         assert_eq!(value["command_argv"][0], "/bin/echo");
         assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
         assert_eq!(value["exit_status"], 0);
@@ -629,6 +649,7 @@ fn daemon_stop_text_dry_run_prints_user_service_plan() {
     assert!(stdout.contains("tool: systemctl"));
     assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_SYSTEMCTL"));
     assert!(stdout.contains("tool_overridden: false"));
+    assert!(stdout.contains("fallback_step: run vinput activation status"));
     assert!(stdout.contains("systemctl --user stop fcitx-vinput.service"));
     assert!(
         stdout

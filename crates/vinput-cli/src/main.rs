@@ -2108,6 +2108,7 @@ fn daemon_user_service_dry_run_json(
         "command_argv": command.argv(),
         "owner_probe": daemon_owner_probe_plan_json(),
         "fallback": daemon_user_service_fallback(),
+        "fallback_steps": daemon_user_service_fallback_steps(),
         "next_steps": daemon_user_service_next_steps(action),
     })
 }
@@ -2149,6 +2150,7 @@ fn print_daemon_user_service_dry_run_text(action: &str, command: &UserServiceCom
     println!("command: {}", command.display());
     println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     println!("fallback: {}", daemon_user_service_fallback());
+    println!("fallback_step: {}", daemon_user_service_fallback_steps()[0]);
     println!("next_step: {}", daemon_user_service_next_steps(action)[0]);
 }
 
@@ -2176,6 +2178,7 @@ fn run_daemon_user_service_command(
                 "stdout": String::from_utf8_lossy(&output.stdout),
                 "stderr": String::from_utf8_lossy(&output.stderr),
                 "fallback": daemon_user_service_fallback(),
+                "fallback_steps": daemon_user_service_fallback_steps(),
                 "next_steps": daemon_user_service_next_steps(action),
             })
         }
@@ -2194,6 +2197,7 @@ fn run_daemon_user_service_command(
             "stderr": "",
             "error": error.to_string(),
             "fallback": daemon_user_service_fallback(),
+            "fallback_steps": daemon_user_service_fallback_steps(),
             "next_steps": daemon_user_service_next_steps(action),
         }),
     }
@@ -2240,6 +2244,13 @@ fn print_daemon_user_service_result_text(output: &serde_json::Value) {
     }
     if output["ok"].as_bool() != Some(true) {
         println!("fallback: {}", daemon_user_service_fallback());
+        if let Some(fallback_step) = output["fallback_steps"]
+            .as_array()
+            .and_then(|steps| steps.first())
+            .and_then(serde_json::Value::as_str)
+        {
+            println!("fallback_step: {fallback_step}");
+        }
     }
     if let Some(next_step) = output["next_steps"]
         .as_array()
@@ -2265,6 +2276,14 @@ fn daemon_user_service_next_steps(action: &str) -> Vec<&'static str> {
             "run vinput daemon log --lines 100 if service control failed",
         ],
     }
+}
+
+fn daemon_user_service_fallback_steps() -> Vec<&'static str> {
+    vec![
+        "run vinput activation status to inspect the per-user D-Bus activation service",
+        "run vinput daemon start --dry-run --json to inspect activation strategy",
+        "run vinput daemon status --dry-run --json to inspect daemon owner/procfs probes",
+    ]
 }
 
 const fn daemon_user_service_fallback() -> &'static str {

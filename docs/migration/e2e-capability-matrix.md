@@ -263,8 +263,8 @@ Acceptance:
 - `vinput daemon reload-asr` calls the legacy `ReloadAsrBackend` D-Bus method; `--dry-run` prints the planned service/object/interface/method without contacting the daemon.
 - `vinput daemon status` calls `GetStatus`, `GetAsrBackendState`, and `GetRuntimeStatus`; dry-run reports the planned D-Bus owner probe, and live JSON/text output includes bus owner unique name/PID plus procfs executable/cmdline when available. Text output now includes ASR target/effective models, reload error, remote endpoints, runtime status, uptime, active session, and text-adapter count. Activation status is still tracked separately.
 - `vinput daemon start` triggers D-Bus activation or starts the user service/profile strategy used by install scripts; dry-run also reports the D-Bus owner and procfs probe used to diagnose stale bus owners.
-- `vinput daemon stop/restart` executes `systemctl --user stop/restart fcitx-vinput.service`, reports argv/stdout/stderr/exit status, tool/env override metadata, plus owner-probe next diagnostics, and keeps dry-run CI-safe.
-- `vinput daemon log` executes `journalctl --user -u fcitx-vinput.service`, reports argv/stdout/stderr/exit status, tool/env override metadata, plus owner-probe next diagnostics, and keeps dry-run CI-safe.
+- `vinput daemon stop/restart` executes `systemctl --user stop/restart fcitx-vinput.service`, reports argv/stdout/stderr/exit status, tool/env override metadata, fallback steps, plus owner-probe next diagnostics, and keeps dry-run CI-safe.
+- `vinput daemon log` executes `journalctl --user -u fcitx-vinput.service`, reports argv/stdout/stderr/exit status, tool/env override metadata, fallback steps, plus owner-probe next diagnostics, and keeps dry-run CI-safe.
 - `vinput recording start`, `stop [--scene]`, and `toggle` have CLI D-Bus paths; dry-run output includes owner-probe diagnostics and next steps as the stable CI-tested plan surface.
 
 ### P0.6 native sherpa desktop runtime hardening
