@@ -454,6 +454,12 @@ fn daemon_start_dry_run_prints_activation_plan_json() {
             .unwrap()
             .contains(&serde_json::json!("GetNameOwner"))
     );
+    assert!(
+        value["owner_probe"]["process_fields"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("cmdline"))
+    );
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
         step.as_str()
             .is_some_and(|step| step.contains("daemon status"))
