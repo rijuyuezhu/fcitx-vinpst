@@ -1027,6 +1027,7 @@ fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["called"], false);
     assert_eq!(value["dbus"]["method"], "StartAdapter");
+    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
 
     let stop = vinput_command()
         .args(["adapter", "stop", "command-adapter", "--dry-run", "--json"])
@@ -1038,6 +1039,7 @@ fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
     assert_eq!(value["action"], "stop");
     assert_eq!(value["adapter_id"], "command-adapter");
     assert_eq!(value["dbus"]["method"], "StopAdapter");
+    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
 }
 
 #[test]
@@ -1053,6 +1055,10 @@ fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
     assert!(stdout.contains("will_call_dbus: false"));
     assert!(stdout.contains("called: false"));
     assert!(stdout.contains("method: StartAdapter"));
+    assert!(
+        stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
 
     let stop = vinput_command()
         .args(["adapter", "stop", "command-adapter", "--dry-run"])
@@ -1063,6 +1069,10 @@ fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
     assert!(stdout.contains("adapter_id: command-adapter"));
     assert!(stdout.contains("action: stop"));
     assert!(stdout.contains("method: StopAdapter"));
+    assert!(
+        stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
 }
 
 #[test]
@@ -1086,6 +1096,7 @@ fn adapter_status_dry_run_json_reports_text_adapter_state_plan() {
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["called"], false);
     assert_eq!(value["dbus"]["method"], "GetTextAdapterState");
+    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
 }
 
 #[test]
@@ -1102,6 +1113,10 @@ fn adapter_status_dry_run_text_outputs_expected_fields() {
     assert!(stdout.contains("will_call_dbus: false"));
     assert!(stdout.contains("called: false"));
     assert!(stdout.contains("method: GetTextAdapterState"));
+    assert!(
+        stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
 }
 
 #[test]

@@ -4344,6 +4344,7 @@ fn print_adapter_lifecycle(
         println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
         println!("interface: {}", dbus::SERVICE_INTERFACE);
         println!("method: {method}");
+        println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     }
     Ok(())
 }
@@ -4367,6 +4368,7 @@ fn adapter_lifecycle_output(
             "interface": dbus::SERVICE_INTERFACE,
             "method": method,
         },
+        "owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": [
             "run vinput daemon status --json to inspect text adapter runtime state",
             "run vinput adapter list to verify configured text adapters",
@@ -4427,6 +4429,7 @@ fn adapter_status_plan_json(adapter_id: Option<&str>) -> serde_json::Value {
             "interface": dbus::SERVICE_INTERFACE,
             "method": dbus::method::GET_TEXT_ADAPTER_STATE,
         },
+        "owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": [
             "run vinput adapter status without --dry-run to query daemon runtime state",
             "run vinput adapter start or stop to change adapter runtime state"
@@ -4485,6 +4488,7 @@ fn print_adapter_status_text(output: &serde_json::Value) {
         println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
         println!("interface: {}", dbus::SERVICE_INTERFACE);
         println!("method: {}", dbus::method::GET_TEXT_ADAPTER_STATE);
+        println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
         return;
     }
     println!(
