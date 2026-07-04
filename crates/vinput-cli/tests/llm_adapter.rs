@@ -1059,6 +1059,7 @@ fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
         stdout
             .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
     );
+    assert!(stdout.contains("next_step: run vinput daemon status --json"));
 
     let stop = vinput_command()
         .args(["adapter", "stop", "command-adapter", "--dry-run"])
@@ -1073,6 +1074,7 @@ fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
         stdout
             .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
     );
+    assert!(stdout.contains("next_step: run vinput daemon status --json"));
 }
 
 #[test]
@@ -1117,6 +1119,7 @@ fn adapter_status_dry_run_text_outputs_expected_fields() {
         stdout
             .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
     );
+    assert!(stdout.contains("next_step: run vinput adapter status without --dry-run"));
 }
 
 #[test]

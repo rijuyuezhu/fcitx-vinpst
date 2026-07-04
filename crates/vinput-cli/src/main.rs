@@ -4345,6 +4345,13 @@ fn print_adapter_lifecycle(
         println!("interface: {}", dbus::SERVICE_INTERFACE);
         println!("method: {method}");
         println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
+        if let Some(next_step) = output["next_steps"]
+            .as_array()
+            .and_then(|steps| steps.first())
+            .and_then(serde_json::Value::as_str)
+        {
+            println!("next_step: {next_step}");
+        }
     }
     Ok(())
 }
@@ -4489,6 +4496,13 @@ fn print_adapter_status_text(output: &serde_json::Value) {
         println!("interface: {}", dbus::SERVICE_INTERFACE);
         println!("method: {}", dbus::method::GET_TEXT_ADAPTER_STATE);
         println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
+        if let Some(next_step) = output["next_steps"]
+            .as_array()
+            .and_then(|steps| steps.first())
+            .and_then(serde_json::Value::as_str)
+        {
+            println!("next_step: {next_step}");
+        }
         return;
     }
     println!(
