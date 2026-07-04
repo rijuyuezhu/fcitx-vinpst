@@ -2225,6 +2225,17 @@ fn daemon_status_dry_run_json() -> serde_json::Value {
         "dry_run": true,
         "will_call_dbus": false,
         "dbus": daemon_status_dbus_plan_json(),
+        "reports": [
+            "service_status",
+            "asr_backend",
+            "runtime_status",
+            "text_adapters"
+        ],
+        "next_steps": [
+            "run vinput daemon status without --dry-run to query live daemon diagnostics",
+            "run vinput adapter status to inspect text adapter PID/running state",
+            "run vinput doctor to inspect local setup and activation readiness"
+        ],
     })
 }
 
@@ -2253,6 +2264,8 @@ fn print_daemon_status_dry_run_text() {
         dbus::method::GET_ASR_BACKEND_STATE,
         dbus::method::GET_RUNTIME_STATUS
     );
+    println!("reports: service_status, asr_backend, runtime_status, text_adapters");
+    println!("next_step: run vinput daemon status without --dry-run");
 }
 
 fn daemon_status_via_dbus() -> anyhow::Result<serde_json::Value> {
@@ -2296,8 +2309,20 @@ fn print_daemon_status_text(snapshot: &serde_json::Value) {
         optional_json_str(&snapshot["asr_backend"]["target_provider_id"])
     );
     println!(
+        "target_model_id: {}",
+        optional_json_str(&snapshot["asr_backend"]["target_model_id"])
+    );
+    println!(
         "effective_provider_id: {}",
         optional_json_str(&snapshot["asr_backend"]["effective_provider_id"])
+    );
+    println!(
+        "effective_model_id: {}",
+        optional_json_str(&snapshot["asr_backend"]["effective_model_id"])
+    );
+    println!(
+        "last_error: {}",
+        optional_json_str(&snapshot["asr_backend"]["last_error"])
     );
     println!(
         "reload_in_progress: {}",
@@ -2311,10 +2336,51 @@ fn print_daemon_status_text(snapshot: &serde_json::Value) {
             .as_bool()
             .unwrap_or(false)
     );
+    println!(
+        "remote_endpoints: {}",
+        json_string_array_summary(&snapshot["asr_backend"]["remote_endpoints"])
+    );
+    println!(
+        "runtime_status: {}",
+        optional_json_str(&snapshot["runtime_status"]["status"])
+    );
+    println!(
+        "runtime_uptime_ms: {}",
+        snapshot["runtime_status"]["uptime_ms"]
+            .as_u64()
+            .unwrap_or(0)
+    );
+    println!(
+        "active_session: {}",
+        snapshot["runtime_status"]["active_session"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+    println!(
+        "text_adapter_count: {}",
+        snapshot["runtime_status"]["text_adapters"]["adapter_count"]
+            .as_u64()
+            .unwrap_or(0)
+    );
 }
 
 fn optional_json_str(value: &serde_json::Value) -> &str {
     value.as_str().unwrap_or("-")
+}
+
+fn json_string_array_summary(value: &serde_json::Value) -> String {
+    let values = value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        "-".to_owned()
+    } else {
+        values.join(", ")
+    }
 }
 
 fn daemon_service_proxy(

@@ -272,6 +272,15 @@ fn daemon_status_dry_run_prints_dbus_plan_json() {
     assert!(methods.contains(&serde_json::json!(dbus::method::GET_STATUS)));
     assert!(methods.contains(&serde_json::json!(dbus::method::GET_ASR_BACKEND_STATE)));
     assert!(methods.contains(&serde_json::json!(dbus::method::GET_RUNTIME_STATUS)));
+    let reports = value["reports"].as_array().unwrap();
+    assert!(reports.contains(&serde_json::json!("service_status")));
+    assert!(reports.contains(&serde_json::json!("asr_backend")));
+    assert!(reports.contains(&serde_json::json!("runtime_status")));
+    assert!(reports.contains(&serde_json::json!("text_adapters")));
+    assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+        step.as_str()
+            .is_some_and(|step| step.contains("without --dry-run"))
+    }));
 }
 
 #[test]
@@ -287,6 +296,8 @@ fn daemon_status_text_dry_run_prints_dbus_plan() {
     assert!(stdout.contains("GetStatus"));
     assert!(stdout.contains("GetAsrBackendState"));
     assert!(stdout.contains("GetRuntimeStatus"));
+    assert!(stdout.contains("reports: service_status, asr_backend, runtime_status, text_adapters"));
+    assert!(stdout.contains("next_step: run vinput daemon status without --dry-run"));
 }
 
 #[test]
