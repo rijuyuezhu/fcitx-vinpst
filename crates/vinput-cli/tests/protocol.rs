@@ -660,6 +660,33 @@ fn daemon_user_service_missing_tool_reports_fallback_steps_json() {
 }
 
 #[test]
+fn daemon_log_missing_tool_reports_fallback_steps_json() {
+    let output = vinput_command()
+        .env("VINPUT_DAEMON_JOURNALCTL", "/tmp/vinput-no-journalctl")
+        .args(["daemon", "log", "--json"])
+        .output()
+        .expect("run vinput daemon log with missing journalctl");
+
+    let value = assert_json_success(output, "daemon missing journalctl json");
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["action"], "log");
+    assert_eq!(value["will_mutate_user_service"], false);
+    assert_eq!(value["tool"]["name"], "journalctl");
+    assert_eq!(value["tool"]["program"], "/tmp/vinput-no-journalctl");
+    assert_eq!(value["tool"]["overridden"], true);
+    assert!(
+        value["fallback_steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|step| {
+                step.as_str()
+                    .is_some_and(|step| step.contains("activation-service --user-status"))
+            })
+    );
+}
+
+#[test]
 fn daemon_user_service_missing_tool_text_prints_fallback_step() {
     let output = vinput_command()
         .env("VINPUT_DAEMON_SYSTEMCTL", "/tmp/vinput-no-systemctl")
