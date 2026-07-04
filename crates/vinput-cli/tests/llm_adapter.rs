@@ -796,6 +796,224 @@ fn adapter_mutations_reject_invalid_inputs() {
 }
 
 #[test]
+fn adapter_edit_dry_run_json_validates_without_writing() {
+    let path = write_llm_fixture("vinput-adapter-edit-dry-run");
+    let before = fs::read_to_string(&path).expect("read original adapter config");
+
+    let output = vinput_command()
+        .args(["adapter", "edit", "command-adapter", "--config"])
+        .arg(&path)
+        .args([
+            "--command",
+            "new-helper",
+            "--arg=--mode=json",
+            "--env",
+            "TOKEN=new-secret",
+            "--clear-working-dir",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput adapter edit dry-run");
+
+    let value = assert_json_success(output, "adapter edit dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["source"], "file");
+    assert_eq!(value["adapter_id"], "command-adapter");
+    let changed = value["changed_fields"].as_array().unwrap();
+    assert!(changed.iter().any(|field| field == "command"));
+    assert!(changed.iter().any(|field| field == "args"));
+    assert!(changed.iter().any(|field| field == "env"));
+    assert!(changed.iter().any(|field| field == "working_dir"));
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged adapter config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary adapter config");
+}
+
+#[test]
+fn adapter_edit_text_dry_run_outputs_expected_fields_without_secrets() {
+    let path = write_llm_fixture("vinput-adapter-edit-text-dry-run");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "edit",
+            "command-adapter",
+            "--env",
+            "TOKEN=new-secret",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter edit text dry-run");
+    fs::remove_file(&path).expect("remove temporary adapter config");
+
+    let stdout = assert_stdout_success(output, "adapter edit text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("source: file"));
+    assert!(stdout.contains("adapter_id: command-adapter"));
+    assert!(stdout.contains("changed_fields: env"));
+    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("wrote_config: false"));
+    assert!(!stdout.contains("new-secret"));
+}
+
+#[test]
+fn adapter_edit_output_writes_valid_config_without_overwriting_input() {
+    let root = unique_temp_dir("vinput-adapter-edit-output");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, llm_fixture_json()).expect("write adapter config");
+    let output_path = root.join("out/adapter.json");
+    let before = fs::read_to_string(&config_path).expect("read original adapter config");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "edit",
+            "command-adapter",
+            "--command",
+            "new-helper",
+            "--clear-args",
+            "--config",
+        ])
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput adapter edit --output");
+
+    let value = assert_json_success(output, "adapter edit output json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], false);
+    assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    let json = read_json(&output_path);
+    assert_eq!(json["llm"]["adapters"][0]["command"], "new-helper");
+    assert!(
+        json["llm"]["adapters"][0]
+            .as_object()
+            .unwrap()
+            .get("args")
+            .is_none()
+    );
+    fs::remove_dir_all(root).expect("remove adapter edit output fixture dir");
+}
+
+#[test]
+fn adapter_edit_in_place_writes_backup() {
+    let root = unique_temp_dir("vinput-adapter-edit-in-place");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, llm_fixture_json()).expect("write adapter config");
+    let backup_path = root.join("config.json.bak");
+    let before = fs::read_to_string(&config_path).expect("read original adapter config");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "edit",
+            "command-adapter",
+            "--working-dir",
+            "/var/tmp",
+            "--config",
+        ])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput adapter edit --in-place");
+
+    let value = assert_json_success(output, "adapter edit in-place json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["backup_path"], backup_path.to_string_lossy().as_ref());
+    assert_eq!(
+        fs::read_to_string(&backup_path).expect("read adapter edit backup config"),
+        before
+    );
+    assert_eq!(
+        read_json(&config_path)["llm"]["adapters"][0]["working_dir"],
+        "/var/tmp"
+    );
+    fs::remove_dir_all(root).expect("remove adapter edit in-place fixture dir");
+}
+
+#[test]
+fn adapter_edit_rejects_invalid_inputs() {
+    let path = write_llm_fixture("vinput-adapter-edit-errors");
+
+    let missing = vinput_command()
+        .args([
+            "adapter",
+            "edit",
+            "missing",
+            "--command",
+            "helper",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter edit missing id");
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter `missing` not found"));
+
+    let noop = vinput_command()
+        .args(["adapter", "edit", "command-adapter", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter edit without changes");
+    assert!(!noop.status.success());
+    let stderr = String::from_utf8(noop.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter edit requires at least one field change"));
+
+    let conflict = vinput_command()
+        .args([
+            "adapter",
+            "edit",
+            "command-adapter",
+            "--arg=one",
+            "--clear-args",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter edit conflicting arg flags");
+    assert!(!conflict.status.success());
+    let stderr = String::from_utf8(conflict.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter edit cannot combine --arg and --clear-args"));
+
+    let empty_command = vinput_command()
+        .args([
+            "adapter",
+            "edit",
+            "command-adapter",
+            "--command",
+            "   ",
+            "--config",
+        ])
+        .arg(&path)
+        .arg("--dry-run")
+        .output()
+        .expect("run vinput adapter edit empty command");
+    assert!(!empty_command.status.success());
+    let stderr = String::from_utf8(empty_command.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("text adapter command cannot be empty"));
+
+    fs::remove_file(&path).expect("remove temporary adapter config");
+}
+
+#[test]
 fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
     let start = vinput_command()
         .args(["adapter", "start", "command-adapter", "--dry-run", "--json"])

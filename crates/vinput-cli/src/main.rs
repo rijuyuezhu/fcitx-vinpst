@@ -557,6 +557,47 @@ enum AdapterCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Edit a configured command text adapter.
+    Edit {
+        /// Existing adapter id to edit.
+        id: String,
+        /// Set adapter executable path or command name.
+        #[arg(long)]
+        command: Option<String>,
+        /// Replace adapter command arguments. Repeat for multiple args.
+        #[arg(long = "arg")]
+        args: Vec<String>,
+        /// Clear adapter command arguments.
+        #[arg(long)]
+        clear_args: bool,
+        /// Replace adapter environment entries with KEY=VALUE assignments.
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Clear adapter environment entries.
+        #[arg(long)]
+        clear_env: bool,
+        /// Set optional working directory for the adapter process.
+        #[arg(long)]
+        working_dir: Option<String>,
+        /// Clear adapter working directory.
+        #[arg(long)]
+        clear_working_dir: bool,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Start a configured text adapter through daemon D-Bus.
     Start {
         /// Existing adapter id to start.
@@ -2658,6 +2699,36 @@ struct AdapterAddRequest<'a> {
 
 #[derive(Clone, Copy)]
 #[allow(clippy::struct_excessive_bools)]
+struct AdapterEditRequest<'a> {
+    id: &'a str,
+    command: Option<&'a str>,
+    args: &'a [String],
+    clear_args: bool,
+    env: &'a [String],
+    clear_env: bool,
+    working_dir: Option<&'a str>,
+    clear_working_dir: bool,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct AdapterEditOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    adapter_id: String,
+    changed_fields: Vec<String>,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_config: bool,
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 struct AdapterRemoveRequest<'a> {
     id: &'a str,
     config_path: Option<&'a PathBuf>,
@@ -2812,6 +2883,35 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
         AdapterCommand::Stop { id, dry_run, json } => {
             print_adapter_lifecycle("stop", &id, dbus::method::STOP_ADAPTER, dry_run, json)
         }
+        AdapterCommand::Edit {
+            id,
+            command,
+            args,
+            clear_args,
+            env,
+            clear_env,
+            working_dir,
+            clear_working_dir,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_adapter_edit(AdapterEditRequest {
+            id: &id,
+            command: command.as_deref(),
+            args: &args,
+            clear_args,
+            env: &env,
+            clear_env,
+            working_dir: working_dir.as_deref(),
+            clear_working_dir,
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
         AdapterCommand::Remove {
             id,
             config,
@@ -3609,6 +3709,164 @@ fn call_adapter_lifecycle_via_dbus(method: &str, adapter_id: &str) -> anyhow::Re
         .call(method, &(adapter_id))
         .with_context(|| format!("call {method} on daemon D-Bus service"))?;
     Ok(())
+}
+
+fn print_adapter_edit(request: AdapterEditRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_adapter_edit(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&adapter_edit_outcome_json(&outcome))?
+        );
+    } else {
+        print_adapter_edit_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_adapter_edit(request: &AdapterEditRequest<'_>) -> anyhow::Result<AdapterEditOutcome> {
+    let id = normalize_adapter_id(request.id)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for adapter edit")?;
+    let config = VinputConfig::from_json_str(&contents).context("parse config for adapter edit")?;
+    config
+        .validate()
+        .context("validate config for adapter edit")?;
+    if !config.llm.adapters.iter().any(|adapter| adapter.id == id) {
+        anyhow::bail!("text adapter `{id}` not found");
+    }
+    let adapter_index = explicit_adapter_index(&loaded.document, &id)?;
+    let adapter_object = llm_adapters_array_mut(&mut loaded.document)?
+        .get_mut(adapter_index)
+        .and_then(serde_json::Value::as_object_mut)
+        .with_context(|| format!("text adapter `{id}` is not a JSON object"))?;
+    let changed_fields = apply_adapter_edit(adapter_object, request)?;
+    if changed_fields.is_empty() {
+        anyhow::bail!("text adapter edit requires at least one field change");
+    }
+    validate_config_json_value(&loaded.document, "validate updated adapter config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+    let mut wrote_config = false;
+    if !request.dry_run {
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+    Ok(AdapterEditOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        adapter_id: id,
+        changed_fields,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_config,
+    })
+}
+
+fn apply_adapter_edit(
+    adapter_object: &mut serde_json::Map<String, serde_json::Value>,
+    request: &AdapterEditRequest<'_>,
+) -> anyhow::Result<Vec<String>> {
+    let mut changed = Vec::new();
+    if let Some(command) = request.command {
+        adapter_object.insert(
+            "command".to_owned(),
+            serde_json::Value::String(normalize_adapter_command(command)?),
+        );
+        changed.push("command".to_owned());
+    }
+    if !request.args.is_empty() && request.clear_args {
+        anyhow::bail!("text adapter edit cannot combine --arg and --clear-args");
+    }
+    if !request.args.is_empty() {
+        adapter_object.insert("args".to_owned(), serde_json::json!(request.args));
+        changed.push("args".to_owned());
+    } else if request.clear_args {
+        adapter_object.remove("args");
+        changed.push("args".to_owned());
+    }
+    if !request.env.is_empty() && request.clear_env {
+        anyhow::bail!("text adapter edit cannot combine --env and --clear-env");
+    }
+    if !request.env.is_empty() {
+        adapter_object.insert(
+            "env".to_owned(),
+            serde_json::json!(parse_adapter_env(request.env)?),
+        );
+        changed.push("env".to_owned());
+    } else if request.clear_env {
+        adapter_object.remove("env");
+        changed.push("env".to_owned());
+    }
+    if request.working_dir.is_some() && request.clear_working_dir {
+        anyhow::bail!("text adapter edit cannot combine --working-dir and --clear-working-dir");
+    }
+    if let Some(working_dir) = request.working_dir {
+        let working_dir = working_dir.trim();
+        if working_dir.is_empty() {
+            anyhow::bail!("text adapter field `working_dir` cannot be empty");
+        }
+        adapter_object.insert(
+            "working_dir".to_owned(),
+            serde_json::Value::String(working_dir.to_owned()),
+        );
+        changed.push("working_dir".to_owned());
+    } else if request.clear_working_dir {
+        adapter_object.remove("working_dir");
+        changed.push("working_dir".to_owned());
+    }
+    Ok(changed)
+}
+
+fn adapter_edit_outcome_json(outcome: &AdapterEditOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "adapter_id": outcome.adapter_id,
+        "changed_fields": outcome.changed_fields,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_write_config": !outcome.dry_run,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "run vinput adapter list to verify configured text adapters",
+            "run vinput daemon status --json to inspect text adapter runtime state",
+            "run vinput doctor to inspect full local diagnostics"
+        ],
+    })
+}
+
+fn print_adapter_edit_text(outcome: &AdapterEditOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("adapter_id: {}", outcome.adapter_id);
+    println!("changed_fields: {}", outcome.changed_fields.join(","));
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 fn print_adapter_add(request: AdapterAddRequest<'_>) -> anyhow::Result<()> {

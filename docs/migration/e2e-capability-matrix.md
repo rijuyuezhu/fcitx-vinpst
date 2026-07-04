@@ -61,7 +61,7 @@ init
 config get/set/edit
 model list/add/remove/use/info
 provider list/add/use/edit/remove
-hotword get/set/clear/edit; scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls/add/start/stop/remove
+hotword get/set/clear/edit; scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls/add/edit/start/stop/remove
 device list/use
 llm list/add/remove/edit/test
 adapter list/add/start/stop
@@ -87,7 +87,7 @@ doctor
 activation-service
 model list/ls/info/install/add/use/remove/rm
 provider list/ls/add/edit/use/remove
-hotword get/set/clear/edit; scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls/add/start/stop/remove
+hotword get/set/clear/edit; scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls/add/edit/start/stop/remove
 daemon start/status/reload-asr/stop/restart/log
 recording start/stop/toggle
 mock-result
@@ -106,7 +106,7 @@ Rust CLI strengths:
 Rust CLI weaknesses for a user:
 
 - config `get/set/edit` exists, but broader resource-aware mutations are still incomplete;
-- live registry install/use/remove exists for model flow, provider list/use exists, but remaining provider UX polish plus Adapter edit/install UX polish is still missing; device list/use exists;
+- live registry install/use/remove exists for model flow, provider list/use exists, but remaining provider UX polish plus Adapter install/available UX polish is still missing; device list/use exists;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
 - recording start/stop/toggle exists, but a dedicated `recording status` command is still missing;
 - no global JSON/text output mode equivalent to legacy;
@@ -251,7 +251,7 @@ Acceptance:
 - `vinput hotword set/clear` manages the active or selected provider hotwords path. **Done for supported local/command providers, dry-run/output/in-place writes, backup/validation guards, and JSON/text output.**
 - `vinput hotword edit` opens the configured hotwords file in an editor. **Done for provider override, dry-run, editor resolution, and JSON/text output.**
 - `vinput device list/use` uses Rust PipeWire diagnostics and updates `global.capture_device`. **Done with JSON/text list, dry-run/output/in-place writes, and backup/validation guards.**
-- `vinput scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls/add/start/stop/remove` inspects and selects configured recognition scenes. **Done for dry-run/output/in-place writes, backup/validation guards, JSON/text output, and README/just smoke.**
+- `vinput scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls/add/edit/start/stop/remove` inspects and selects configured recognition scenes. **Done for dry-run/output/in-place writes, backup/validation guards, JSON/text output, and README/just smoke.**
 - `vinput doctor` references provider/hotword/device commands in remediation text. **Done for JSON `next_steps` covering provider list/use, hotword get, device list/use, and daemon status previews.**
 
 ### P0.5 daemon and recording control commands
