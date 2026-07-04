@@ -7789,6 +7789,7 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
             "user_service_exec": null,
             "read_error": null,
             "path_error": format!("{error:#}"),
+            "next_steps": activation_service_status_next_steps(),
         }),
     };
     let summary = serde_json::json!({

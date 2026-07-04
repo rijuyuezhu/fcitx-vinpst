@@ -148,6 +148,15 @@ fn doctor_reports_combined_local_diagnostics() {
             .as_ref()
     );
     assert_eq!(value["activation_service"]["user_service_exists"], false);
+    assert!(
+        value["activation_service"]["next_steps"]
+            .as_array()
+            .expect("doctor activation service next steps")
+            .iter()
+            .any(|step| step
+                .as_str()
+                .is_some_and(|step| step.contains("daemon owner/procfs probes")))
+    );
     assert_eq!(
         value["fcitx_addon"]["user_module_path"],
         addon_lib_dir
@@ -237,6 +246,15 @@ fn doctor_reports_existing_user_activation_exec_line() {
     assert_eq!(
         value["activation_service"]["read_error"],
         serde_json::Value::Null
+    );
+    assert!(
+        value["activation_service"]["next_steps"]
+            .as_array()
+            .expect("activation service next steps")
+            .iter()
+            .any(|step| step
+                .as_str()
+                .is_some_and(|step| step.contains("daemon start --dry-run")))
     );
     std::fs::remove_dir_all(data_home).expect("remove service fixture");
 }
