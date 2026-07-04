@@ -139,6 +139,49 @@ fn config_get_default_json_returns_fallback_for_missing_pointer() {
 }
 
 #[test]
+fn config_get_default_string_preserves_json_looking_fallback_as_string() {
+    let output = vinput_command()
+        .args([
+            "config",
+            "get",
+            "/global/missing",
+            "--default",
+            "false",
+            "--default-string",
+            "--config",
+        ])
+        .arg(workspace_file("data/default-config.json"))
+        .arg("--json")
+        .output()
+        .expect("run vinput config get --default-string json");
+
+    let value = assert_json_success(output, "config get --default-string json");
+    assert_eq!(value["exists"], false);
+    assert_eq!(value["default_used"], true);
+    assert_eq!(value["parsed_default_kind"], "string");
+    assert_eq!(value["value"], "false");
+}
+
+#[test]
+fn config_get_default_string_requires_default_value() {
+    let output = vinput_command()
+        .args([
+            "config",
+            "get",
+            "/global/default_language",
+            "--default-string",
+            "--config",
+        ])
+        .arg(workspace_file("data/default-config.json"))
+        .output()
+        .expect("run vinput config get --default-string without default");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("config get --default-string requires --default <VALUE>"));
+}
+
+#[test]
 fn config_get_default_text_uses_existing_value_first() {
     let output = vinput_command()
         .args([

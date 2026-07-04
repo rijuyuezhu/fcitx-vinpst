@@ -79,6 +79,7 @@ cargo run -q -p vinput-cli -- config validate data/default-config.json --summary
 cargo run -q -p vinput-cli -- config get /global/default_language --config data/default-config.json --json
 cargo run -q -p vinput-cli -- config get /global/missing --exists --config data/default-config.json --json
 cargo run -q -p vinput-cli -- config get /global/missing --default false --config data/default-config.json --json
+cargo run -q -p vinput-cli -- config get /global/missing --default false --default-string --config data/default-config.json --json
 cargo run -q -p vinput-cli -- config set /global/default_language en --config data/default-config.json --dry-run --json
 cargo run -q -p vinput-cli -- config set /global/capture_device true --string --config data/default-config.json --dry-run --json
 cargo run -q -p vinput-cli -- config edit --dry-run --editor true --json

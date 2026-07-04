@@ -62,6 +62,9 @@ enum ConfigCommand {
         /// Value to print when POINTER is missing. Parsed as JSON when possible.
         #[arg(long, value_name = "VALUE", conflicts_with = "exists")]
         default: Option<String>,
+        /// Treat --default VALUE as a literal string without JSON parsing.
+        #[arg(long, conflicts_with = "exists")]
+        default_string: bool,
         /// Print machine-readable JSON instead of the raw value.
         #[arg(long)]
         json: bool,
@@ -1518,8 +1521,16 @@ fn main() -> anyhow::Result<()> {
                 config,
                 exists,
                 default,
+                default_string,
                 json,
-            }) => handle_config_get(&pointer, config.as_ref(), exists, default.as_deref(), json),
+            }) => handle_config_get(
+                &pointer,
+                config.as_ref(),
+                exists,
+                default.as_deref(),
+                default_string,
+                json,
+            ),
             Some(ConfigCommand::Set {
                 pointer,
                 value,
@@ -9802,9 +9813,13 @@ fn handle_config_get(
     config_path: Option<&PathBuf>,
     exists_only: bool,
     default_value: Option<&str>,
+    default_string: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
     ensure_json_pointer(pointer)?;
+    if default_string && default_value.is_none() {
+        anyhow::bail!("config get --default-string requires --default <VALUE>");
+    }
     let loaded = load_config_json(config_path)?;
     let value = loaded.document.pointer(pointer);
     if exists_only {
@@ -9816,7 +9831,7 @@ fn handle_config_get(
     } else {
         let default_value =
             default_value.with_context(|| format!("config pointer `{pointer}` not found"))?;
-        let (value, kind) = parse_config_set_value(default_value, false);
+        let (value, kind) = parse_config_set_value(default_value, default_string);
         (value, false, true, Some(kind))
     };
     if json_output {

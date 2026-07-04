@@ -57,6 +57,7 @@ fn config_get_set_edit_help_lists_pointer_and_write_options() {
     assert!(get_stdout.contains("--config"));
     assert!(get_stdout.contains("--exists"));
     assert!(get_stdout.contains("--default"));
+    assert!(get_stdout.contains("--default-string"));
     assert!(get_stdout.contains("--json"));
 
     let set_output = vinput_command()
