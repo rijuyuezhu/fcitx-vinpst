@@ -5,7 +5,10 @@
 //! Cargo feature so default CI and command-demo installs do not download or link
 //! native ASR libraries.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -253,13 +256,104 @@ impl SherpaOnnxSpec {
 fn infer_offline_layout(
     model_dir: &Path,
 ) -> Result<SherpaOnnxOfflineModelLayout, SherpaOnnxModelPathError> {
-    let model = ["model.int8.onnx", "model.onnx"]
-        .into_iter()
-        .map(|file_name| model_dir.join(file_name))
-        .find(|path| path.is_file())
+    if let Some(layout) = infer_offline_layout_from_metadata(model_dir)? {
+        return Ok(layout);
+    }
+    infer_sense_voice_layout_from_files(model_dir, "auto", true)
+}
+
+fn infer_offline_layout_from_metadata(
+    model_dir: &Path,
+) -> Result<Option<SherpaOnnxOfflineModelLayout>, SherpaOnnxModelPathError> {
+    let metadata_path = model_dir.join("vinput-model.json");
+    if !metadata_path.is_file() {
+        return Ok(None);
+    }
+    let metadata_text = fs::read_to_string(&metadata_path).map_err(|_| {
+        SherpaOnnxModelPathError::UnsupportedOfflineLayout {
+            path: display_path(model_dir),
+        }
+    })?;
+    let metadata = serde_json::from_str::<serde_json::Value>(&metadata_text).map_err(|_| {
+        SherpaOnnxModelPathError::UnsupportedOfflineLayout {
+            path: display_path(model_dir),
+        }
+    })?;
+    let family = metadata
+        .pointer("/family")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            metadata
+                .pointer("/model_type")
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if family != Some("sense_voice") {
+        return Err(SherpaOnnxModelPathError::UnsupportedOfflineLayout {
+            path: display_path(model_dir),
+        });
+    }
+    let sense_voice = metadata.pointer("/model/sense_voice");
+    let model = sense_voice
+        .and_then(|value| value.get("model"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| resolve_against(model_dir, value))
+        .or_else(|| find_sense_voice_model_file(model_dir))
         .ok_or_else(|| SherpaOnnxModelPathError::UnsupportedOfflineLayout {
             path: display_path(model_dir),
         })?;
+    if !model.is_file() {
+        return Err(SherpaOnnxModelPathError::UnsupportedOfflineLayout {
+            path: display_path(model_dir),
+        });
+    }
+    let tokens = metadata
+        .pointer("/model/tokens")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map_or_else(
+            || model_dir.join("tokens.txt"),
+            |value| resolve_against(model_dir, value),
+        );
+    if !tokens.is_file() {
+        return Err(SherpaOnnxModelPathError::MissingTokensFile {
+            path: display_path(model_dir),
+        });
+    }
+    let language = sense_voice
+        .and_then(|value| value.get("language"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| metadata.get("language").and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("auto")
+        .to_owned();
+    let use_itn = sense_voice
+        .and_then(|value| value.get("use_itn"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true);
+    Ok(Some(SherpaOnnxOfflineModelLayout::SenseVoice {
+        model,
+        tokens,
+        language,
+        use_itn,
+    }))
+}
+
+fn infer_sense_voice_layout_from_files(
+    model_dir: &Path,
+    language: &str,
+    use_itn: bool,
+) -> Result<SherpaOnnxOfflineModelLayout, SherpaOnnxModelPathError> {
+    let model = find_sense_voice_model_file(model_dir).ok_or_else(|| {
+        SherpaOnnxModelPathError::UnsupportedOfflineLayout {
+            path: display_path(model_dir),
+        }
+    })?;
     let tokens = model_dir.join("tokens.txt");
     if !tokens.is_file() {
         return Err(SherpaOnnxModelPathError::MissingTokensFile {
@@ -269,9 +363,16 @@ fn infer_offline_layout(
     Ok(SherpaOnnxOfflineModelLayout::SenseVoice {
         model,
         tokens,
-        language: "auto".to_owned(),
-        use_itn: true,
+        language: language.to_owned(),
+        use_itn,
     })
+}
+
+fn find_sense_voice_model_file(model_dir: &Path) -> Option<PathBuf> {
+    ["model.int8.onnx", "model.onnx"]
+        .into_iter()
+        .map(|file_name| model_dir.join(file_name))
+        .find(|path| path.is_file())
 }
 
 fn resolve_against(root: &Path, value: &str) -> PathBuf {

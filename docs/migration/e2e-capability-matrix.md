@@ -70,7 +70,7 @@ daemon status/start/stop/restart/log
 recording start/stop/toggle
 ```
 
-Legacy also supports a global `-j/--json` output mode; Rust now accepts root/global `-j/--json` and forwards it to JSON-capable subcommands.
+Legacy also supports a global `-j/--json` output mode; Rust now accepts root/global `-j/--json` and trailing `-j/--json` aliases for JSON-capable subcommands.
 
 ### Rust CLI commands
 
@@ -108,7 +108,7 @@ Rust CLI weaknesses for a user:
 - config `get/set/edit` exists, but broader resource-aware mutations are still incomplete;
 - live registry install/use/remove exists for model flow, provider list/use exists, but remaining provider UX polish plus Adapter live install UX polish is still missing; device list/use exists;
 - daemon lifecycle commands exist, but full stale-owner detection and non-systemd fallback UX still need hardening;
-- recording start/stop/toggle exists, but a dedicated `recording status` command is still missing;
+- recording start/stop/toggle/status exists;
 - no global JSON/text output mode equivalent to legacy;
 - no command aliases for short IDs from live registry.
 
@@ -130,7 +130,7 @@ Rust CLI weaknesses for a user:
 | Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice layout works. | Partial. |
 | Sherpa streaming | Implemented. | Not implemented. | Missing. |
 | VAD | `vad_trimmer` with sherpa VAD model. | Config parses VAD but native trimming is not implemented. | Missing/partial. |
-| Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust currently infers SenseVoice file layout from directory. | Major gap. |
+| Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust reads `vinput-model.json` for SenseVoice model/tokens/language/use_itn and falls back to directory inference. | Partial; more families still need metadata mapping. |
 | Text postprocess | OpenAI-compatible HTTP, prompt files/interpolation/context/candidates, command scene. | Command adapter and OpenAI-compatible paths exist; real UX/config incomplete. | Partial. |
 | Adapter supervisor | Process supervision, PID files, stderr notifications. | Process supervision, PID files, D-Bus start/stop, diagnostics. | Mostly aligned. |
 | Remote text service | Legacy has HTTP/WebSocket remote text service. | Not implemented. | Missing. |

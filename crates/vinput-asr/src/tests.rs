@@ -2025,6 +2025,115 @@ fn sherpa_onnx_offline_runtime_plan_detects_sense_voice_layout() {
 }
 
 #[test]
+fn sherpa_onnx_offline_runtime_plan_uses_vinput_model_metadata() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+    let model_dir = root.join("sense-voice-meta");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    std::fs::write(model_dir.join("custom.onnx"), b"onnx").unwrap();
+    std::fs::write(
+        model_dir.join("custom-tokens.txt"),
+        b"<blank> 0
+",
+    )
+    .unwrap();
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        r#"{
+            "backend": "sherpa-offline",
+            "family": "sense_voice",
+            "language": "zh",
+            "runtime": "offline",
+            "model": {
+                "tokens": "custom-tokens.txt",
+                "sense_voice": {
+                    "model": "custom.onnx",
+                    "language": "zh",
+                    "use_itn": false
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+    let provider = AsrProviderConfig {
+        id: "sherpa-onnx".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("sense-voice-meta".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    let plan = spec.resolve_offline_runtime_plan(root).unwrap();
+
+    assert_eq!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::SenseVoice {
+            model: model_dir.join("custom.onnx"),
+            tokens: model_dir.join("custom-tokens.txt"),
+            language: "zh".to_owned(),
+            use_itn: false,
+        }
+    );
+}
+
+#[test]
+fn sherpa_onnx_offline_runtime_plan_uses_model_type_metadata_fallback() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+    let model_dir = root.join("sense-voice-legacy-meta");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    std::fs::write(model_dir.join("model.int8.onnx"), b"onnx").unwrap();
+    std::fs::write(
+        model_dir.join("tokens.txt"),
+        b"<blank> 0
+",
+    )
+    .unwrap();
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        r#"{
+            "model_type": "sense_voice",
+            "language": "ja",
+            "model": {
+                "sense_voice": {
+                    "use_itn": false
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+    let provider = AsrProviderConfig {
+        id: "sherpa-onnx".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("sense-voice-legacy-meta".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    let plan = spec.resolve_offline_runtime_plan(root).unwrap();
+
+    assert_eq!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::SenseVoice {
+            model: model_dir.join("model.int8.onnx"),
+            tokens: model_dir.join("tokens.txt"),
+            language: "ja".to_owned(),
+            use_itn: false,
+        }
+    );
+}
+
+#[test]
 fn sherpa_onnx_offline_runtime_plan_accepts_non_int8_sense_voice_model() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path();
