@@ -341,6 +341,7 @@ fn recording_start_dry_run_prints_dbus_plan_json() {
         dbus::method::START_COMMAND_RECORDING
     );
     assert_eq!(value["args"]["selected_text_present"], true);
+    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
 }
 
 #[test]
@@ -352,6 +353,10 @@ fn recording_stop_and_toggle_dry_run_print_text_plans() {
     let stop_stdout = assert_stdout_success(stop, "recording stop dry-run text");
     assert!(stop_stdout.contains("action: stop"));
     assert!(stop_stdout.contains("StopRecording"));
+    assert!(
+        stop_stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
     assert!(stop_stdout.contains("scene: demo"));
 
     let toggle = vinput_command()
@@ -363,6 +368,10 @@ fn recording_stop_and_toggle_dry_run_print_text_plans() {
     assert!(toggle_stdout.contains("GetStatus"));
     assert!(toggle_stdout.contains("StartRecording"));
     assert!(toggle_stdout.contains("StopRecording"));
+    assert!(
+        toggle_stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
 }
 
 #[test]

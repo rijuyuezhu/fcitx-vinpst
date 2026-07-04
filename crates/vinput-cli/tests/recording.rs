@@ -18,6 +18,7 @@ fn recording_status_dry_run_json_reports_get_status_plan() {
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["called"], false);
     assert_eq!(value["dbus"]["method"], "GetStatus");
+    assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
 }
 
 #[test]
@@ -33,6 +34,10 @@ fn recording_status_dry_run_text_reports_expected_fields() {
     assert!(stdout.contains("will_call_dbus: false"));
     assert!(stdout.contains("called: false"));
     assert!(stdout.contains("method: GetStatus"));
+    assert!(
+        stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
 }
 
 #[test]

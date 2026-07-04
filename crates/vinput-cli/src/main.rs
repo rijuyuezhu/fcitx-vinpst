@@ -1716,6 +1716,7 @@ fn recording_status_plan_json() -> serde_json::Value {
             "interface": dbus::SERVICE_INTERFACE,
             "method": dbus::method::GET_STATUS,
         },
+        "owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": [
             "run vinput daemon status --json for full daemon diagnostics",
             "run vinput recording start --dry-run --json to inspect start calls",
@@ -1754,6 +1755,9 @@ fn print_recording_status_text(output: &serde_json::Value) {
     println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
     println!("interface: {}", dbus::SERVICE_INTERFACE);
     println!("method: {}", dbus::method::GET_STATUS);
+    if output["owner_probe"].is_object() {
+        println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
+    }
     if let Some(status) = output["status"].as_str() {
         println!("status: {status}");
         println!("known_status: {}", output["known_status"]);
@@ -1931,6 +1935,7 @@ fn recording_plan_json(
             "interface": dbus::SERVICE_INTERFACE,
             "methods": methods,
         },
+        "owner_probe": daemon_owner_probe_plan_json(),
         "args": {
             "selected_text_present": selected_text.is_some(),
             "scene": scene.unwrap_or(""),
@@ -1957,6 +1962,7 @@ fn print_recording_plan_text(action: &str, selected_text: Option<&str>, scene: O
                 .join(", "))
             .unwrap_or_default()
     );
+    println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     println!("selected_text_present: {}", selected_text.is_some());
     println!("scene: {}", scene.unwrap_or(""));
 }
