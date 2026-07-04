@@ -71,6 +71,17 @@ pub struct SherpaOnnxOfflineRuntimePlan {
     pub paths: SherpaOnnxModelPaths,
     /// Inferred offline model layout.
     pub layout: SherpaOnnxOfflineModelLayout,
+    /// Source used to infer the layout, such as `metadata` or `files`.
+    pub layout_source: String,
+    /// vinput-model.json path when metadata drove layout selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_path: Option<PathBuf>,
+}
+
+struct InferredOfflineLayout {
+    layout: SherpaOnnxOfflineModelLayout,
+    source: String,
+    metadata_path: Option<PathBuf>,
 }
 
 /// Local sherpa model path validation errors.
@@ -247,8 +258,13 @@ impl SherpaOnnxSpec {
         model_root: impl AsRef<Path>,
     ) -> Result<SherpaOnnxOfflineRuntimePlan, SherpaOnnxModelPathError> {
         let paths = self.resolve_model_paths(model_root)?;
-        let layout = infer_offline_layout(&paths.model_dir)?;
-        Ok(SherpaOnnxOfflineRuntimePlan { paths, layout })
+        let inferred = infer_offline_layout(&paths.model_dir)?;
+        Ok(SherpaOnnxOfflineRuntimePlan {
+            paths,
+            layout: inferred.layout,
+            layout_source: inferred.source,
+            metadata_path: inferred.metadata_path,
+        })
     }
 
     /// Returns the explicit runtime-unavailable error for builds without sherpa runtime support.
@@ -263,16 +279,20 @@ impl SherpaOnnxSpec {
 
 fn infer_offline_layout(
     model_dir: &Path,
-) -> Result<SherpaOnnxOfflineModelLayout, SherpaOnnxModelPathError> {
-    if let Some(layout) = infer_offline_layout_from_metadata(model_dir)? {
-        return Ok(layout);
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    if let Some(inferred) = infer_offline_layout_from_metadata(model_dir)? {
+        return Ok(inferred);
     }
-    infer_sense_voice_layout_from_files(model_dir, "auto", true)
+    Ok(InferredOfflineLayout {
+        layout: infer_sense_voice_layout_from_files(model_dir, "auto", true)?,
+        source: "files".to_owned(),
+        metadata_path: None,
+    })
 }
 
 fn infer_offline_layout_from_metadata(
     model_dir: &Path,
-) -> Result<Option<SherpaOnnxOfflineModelLayout>, SherpaOnnxModelPathError> {
+) -> Result<Option<InferredOfflineLayout>, SherpaOnnxModelPathError> {
     let metadata_path = model_dir.join("vinput-model.json");
     if !metadata_path.is_file() {
         return Ok(None);
@@ -346,11 +366,15 @@ fn infer_offline_layout_from_metadata(
         .and_then(|value| value.get("use_itn"))
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(true);
-    Ok(Some(SherpaOnnxOfflineModelLayout::SenseVoice {
-        model,
-        tokens,
-        language,
-        use_itn,
+    Ok(Some(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::SenseVoice {
+            model,
+            tokens,
+            language,
+            use_itn,
+        },
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
     }))
 }
 

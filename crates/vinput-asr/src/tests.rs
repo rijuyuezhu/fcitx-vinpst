@@ -2013,6 +2013,8 @@ fn sherpa_onnx_offline_runtime_plan_detects_sense_voice_layout() {
     let plan = spec.resolve_offline_runtime_plan(root).unwrap();
 
     assert_eq!(plan.paths.model_dir, model_dir);
+    assert_eq!(plan.layout_source, "files");
+    assert_eq!(plan.metadata_path, None);
     assert_eq!(
         plan.layout,
         SherpaOnnxOfflineModelLayout::SenseVoice {
@@ -2070,6 +2072,11 @@ fn sherpa_onnx_offline_runtime_plan_uses_vinput_model_metadata() {
 
     let plan = spec.resolve_offline_runtime_plan(root).unwrap();
 
+    assert_eq!(plan.layout_source, "metadata");
+    assert_eq!(
+        plan.metadata_path,
+        Some(model_dir.join("vinput-model.json"))
+    );
     assert_eq!(
         plan.layout,
         SherpaOnnxOfflineModelLayout::SenseVoice {
@@ -2122,6 +2129,11 @@ fn sherpa_onnx_offline_runtime_plan_uses_model_type_metadata_fallback() {
 
     let plan = spec.resolve_offline_runtime_plan(root).unwrap();
 
+    assert_eq!(plan.layout_source, "metadata");
+    assert_eq!(
+        plan.metadata_path,
+        Some(model_dir.join("vinput-model.json"))
+    );
     assert_eq!(
         plan.layout,
         SherpaOnnxOfflineModelLayout::SenseVoice {
