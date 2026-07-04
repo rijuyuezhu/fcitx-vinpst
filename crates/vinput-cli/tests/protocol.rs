@@ -22,6 +22,24 @@ fn fixture_json(input: &str) -> &str {
     input.trim_end()
 }
 
+fn assert_daemon_owner_probe_plan(value: &serde_json::Value) {
+    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
+    let owner_methods = value["owner_probe"]["methods"]
+        .as_array()
+        .expect("owner probe methods");
+    assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
+    assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
+    let process_fields = value["owner_probe"]["process_fields"]
+        .as_array()
+        .expect("owner probe process fields");
+    for field in ["unix_process_id", "exe", "cmdline"] {
+        assert!(
+            process_fields.contains(&serde_json::json!(field)),
+            "missing owner probe process field {field}"
+        );
+    }
+}
+
 #[test]
 fn shared_recognition_fixtures_roundtrip_through_protocol_crate() {
     for fixture in [RAW_PAYLOAD_JSON, MENU_PAYLOAD_JSON, SENTINEL_PAYLOAD_JSON] {
@@ -280,7 +298,7 @@ fn daemon_reload_asr_dry_run_prints_dbus_plan_json() {
     assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
     assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);
     assert_eq!(value["dbus"]["method"], dbus::method::RELOAD_ASR_BACKEND);
-    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
+    assert_daemon_owner_probe_plan(&value);
 }
 
 #[test]
@@ -325,14 +343,7 @@ fn daemon_status_dry_run_prints_dbus_plan_json() {
     assert!(reports.contains(&serde_json::json!("asr_backend")));
     assert!(reports.contains(&serde_json::json!("runtime_status")));
     assert!(reports.contains(&serde_json::json!("text_adapters")));
-    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
-    let owner_methods = value["owner_probe"]["methods"].as_array().unwrap();
-    assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
-    assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
-    let process_fields = value["owner_probe"]["process_fields"].as_array().unwrap();
-    assert!(process_fields.contains(&serde_json::json!("unix_process_id")));
-    assert!(process_fields.contains(&serde_json::json!("exe")));
-    assert!(process_fields.contains(&serde_json::json!("cmdline")));
+    assert_daemon_owner_probe_plan(&value);
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
         step.as_str()
             .is_some_and(|step| step.contains("without --dry-run"))
@@ -387,7 +398,7 @@ fn recording_start_dry_run_prints_dbus_plan_json() {
         dbus::method::START_COMMAND_RECORDING
     );
     assert_eq!(value["args"]["selected_text_present"], true);
-    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
+    assert_daemon_owner_probe_plan(&value);
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
         step.as_str()
             .is_some_and(|step| step.contains("daemon owner/procfs probes"))
@@ -447,19 +458,7 @@ fn daemon_start_dry_run_prints_activation_plan_json() {
     assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
     assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);
     assert_eq!(value["dbus"]["method"], dbus::method::GET_STATUS);
-    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
-    assert!(
-        value["owner_probe"]["methods"]
-            .as_array()
-            .unwrap()
-            .contains(&serde_json::json!("GetNameOwner"))
-    );
-    assert!(
-        value["owner_probe"]["process_fields"]
-            .as_array()
-            .unwrap()
-            .contains(&serde_json::json!("cmdline"))
-    );
+    assert_daemon_owner_probe_plan(&value);
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
         step.as_str()
             .is_some_and(|step| step.contains("daemon status"))
@@ -535,13 +534,7 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
                 })
         );
         assert_eq!(value["command"], expected);
-        assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
-        assert!(
-            value["owner_probe"]["process_fields"]
-                .as_array()
-                .unwrap()
-                .contains(&serde_json::json!("cmdline"))
-        );
+        assert_daemon_owner_probe_plan(&value);
         assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
             step.as_str()
                 .is_some_and(|step| step.contains("vinput daemon"))
@@ -748,7 +741,7 @@ fn daemon_user_service_real_commands_report_external_output_json() {
                 })
         );
         assert_eq!(value["command_argv"][0], "/bin/echo");
-        assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
+        assert_daemon_owner_probe_plan(&value);
         assert_eq!(value["exit_status"], 0);
         assert_eq!(value["stdout"], expected_stdout);
         assert_eq!(value["stderr"], "");
