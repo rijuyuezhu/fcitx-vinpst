@@ -218,6 +218,9 @@ enum DaemonCommand {
     },
     /// Print daemon logs from the user service journal.
     Log {
+        /// Limit journal output to the last N lines.
+        #[arg(short = 'n', long)]
+        lines: Option<u16>,
         /// Print the log retrieval plan without invoking external tools.
         #[arg(long)]
         dry_run: bool,
@@ -1940,23 +1943,26 @@ fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<()> {
         DaemonCommand::Status { dry_run, json } => print_daemon_status(*dry_run, *json),
         DaemonCommand::ReloadAsr { dry_run, json } => print_daemon_reload_asr_plan(*dry_run, *json),
         DaemonCommand::Stop { dry_run, json } => {
-            print_daemon_user_service_plan("stop", *dry_run, *json)
+            print_daemon_user_service_plan("stop", None, *dry_run, *json)
         }
         DaemonCommand::Restart { dry_run, json } => {
-            print_daemon_user_service_plan("restart", *dry_run, *json)
+            print_daemon_user_service_plan("restart", None, *dry_run, *json)
         }
-        DaemonCommand::Log { dry_run, json } => {
-            print_daemon_user_service_plan("log", *dry_run, *json)
-        }
+        DaemonCommand::Log {
+            lines,
+            dry_run,
+            json,
+        } => print_daemon_user_service_plan("log", *lines, *dry_run, *json),
     }
 }
 
 fn print_daemon_user_service_plan(
     action: &str,
+    log_lines: Option<u16>,
     dry_run: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    let command = daemon_user_service_command(action)?;
+    let command = daemon_user_service_command(action, log_lines)?;
     if dry_run {
         let output = daemon_user_service_dry_run_json(action, &command);
         if json_output {
@@ -1993,8 +1999,14 @@ impl UserServiceCommand {
     }
 }
 
-fn daemon_user_service_command(action: &str) -> anyhow::Result<UserServiceCommand> {
+fn daemon_user_service_command(
+    action: &str,
+    log_lines: Option<u16>,
+) -> anyhow::Result<UserServiceCommand> {
     const SERVICE_NAME: &str = "fcitx-vinput.service";
+    if log_lines == Some(0) {
+        anyhow::bail!("daemon log --lines must be greater than 0");
+    }
     match action {
         "stop" => Ok(UserServiceCommand {
             program: std::env::var("VINPUT_DAEMON_SYSTEMCTL")
@@ -2012,14 +2024,20 @@ fn daemon_user_service_command(action: &str) -> anyhow::Result<UserServiceComman
                 .map(str::to_owned)
                 .collect(),
         }),
-        "log" => Ok(UserServiceCommand {
-            program: std::env::var("VINPUT_DAEMON_JOURNALCTL")
-                .unwrap_or_else(|_| "journalctl".to_owned()),
-            args: ["--user", "-u", SERVICE_NAME]
+        "log" => {
+            let mut args = ["--user", "-u", SERVICE_NAME]
                 .into_iter()
                 .map(str::to_owned)
-                .collect(),
-        }),
+                .collect::<Vec<_>>();
+            if let Some(lines) = log_lines {
+                args.extend(["-n".to_owned(), lines.to_string()]);
+            }
+            Ok(UserServiceCommand {
+                program: std::env::var("VINPUT_DAEMON_JOURNALCTL")
+                    .unwrap_or_else(|_| "journalctl".to_owned()),
+                args,
+            })
+        }
         _ => anyhow::bail!("unsupported daemon user service action `{action}`"),
     }
 }
@@ -2037,6 +2055,7 @@ fn daemon_user_service_dry_run_json(
         "command": command.display(),
         "command_argv": command.argv(),
         "fallback": daemon_user_service_fallback(),
+        "next_steps": daemon_user_service_next_steps(action),
     })
 }
 
@@ -2047,6 +2066,7 @@ fn print_daemon_user_service_dry_run_text(action: &str, command: &UserServiceCom
     println!("strategy: systemd-user-service");
     println!("command: {}", command.display());
     println!("fallback: {}", daemon_user_service_fallback());
+    println!("next_step: {}", daemon_user_service_next_steps(action)[0]);
 }
 
 fn run_daemon_user_service_command(
@@ -2071,6 +2091,7 @@ fn run_daemon_user_service_command(
                 "stdout": String::from_utf8_lossy(&output.stdout),
                 "stderr": String::from_utf8_lossy(&output.stderr),
                 "fallback": daemon_user_service_fallback(),
+                "next_steps": daemon_user_service_next_steps(action),
             })
         }
         Err(error) => serde_json::json!({
@@ -2086,6 +2107,7 @@ fn run_daemon_user_service_command(
             "stderr": "",
             "error": error.to_string(),
             "fallback": daemon_user_service_fallback(),
+            "next_steps": daemon_user_service_next_steps(action),
         }),
     }
 }
@@ -2124,6 +2146,30 @@ fn print_daemon_user_service_result_text(output: &serde_json::Value) {
     if output["ok"].as_bool() != Some(true) {
         println!("fallback: {}", daemon_user_service_fallback());
     }
+    if let Some(next_step) = output["next_steps"]
+        .as_array()
+        .and_then(|steps| steps.first())
+        .and_then(serde_json::Value::as_str)
+    {
+        println!("next_step: {next_step}");
+    }
+}
+
+fn daemon_user_service_next_steps(action: &str) -> Vec<&'static str> {
+    match action {
+        "log" => vec![
+            "adjust --lines to inspect more or fewer journal entries",
+            "run vinput daemon status to inspect live D-Bus/runtime state",
+        ],
+        "restart" => vec![
+            "run vinput daemon status to verify the restarted daemon",
+            "run vinput daemon log --lines 100 if restart failed",
+        ],
+        _ => vec![
+            "run vinput daemon status to verify daemon availability",
+            "run vinput daemon log --lines 100 if service control failed",
+        ],
+    }
 }
 
 const fn daemon_user_service_fallback() -> &'static str {
@@ -2147,6 +2193,7 @@ fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
                 "interface": dbus::SERVICE_INTERFACE,
                 "method": dbus::method::GET_STATUS,
             },
+            "next_steps": daemon_start_next_steps(),
         });
         if json_output {
             println!("{}", serde_json::to_string_pretty(&output)?);
@@ -2159,6 +2206,7 @@ fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
             println!("service: {}", dbus::SERVICE_BUS_NAME);
             println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
             println!("interface: {}", dbus::SERVICE_INTERFACE);
+            println!("next_step: {}", daemon_start_next_steps()[0]);
         }
         return Ok(());
     }
@@ -2175,6 +2223,7 @@ fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
             "trigger_method": dbus::method::GET_STATUS,
         },
         "daemon": status,
+        "next_steps": daemon_start_next_steps(),
     });
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -2186,6 +2235,13 @@ fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
         println!("status: {}", optional_json_str(&output["daemon"]["status"]));
     }
     Ok(())
+}
+
+fn daemon_start_next_steps() -> Vec<&'static str> {
+    vec![
+        "run vinput daemon status to inspect live D-Bus/runtime state",
+        "run vinput daemon log --lines 100 if activation failed",
+    ]
 }
 
 type DaemonAsrBackendStateTuple = (

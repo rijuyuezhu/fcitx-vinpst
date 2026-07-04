@@ -665,6 +665,9 @@ fn recording_help_lists_dry_run_options() {
         let stdout = assert_stdout_success(output, "recording help output");
         assert!(stdout.contains("--dry-run"));
         assert!(stdout.contains("--json"));
+        if command == "log" {
+            assert!(stdout.contains("--lines"));
+        }
     }
 }
 

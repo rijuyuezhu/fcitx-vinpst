@@ -370,6 +370,10 @@ fn daemon_start_dry_run_prints_activation_plan_json() {
     assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
     assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);
     assert_eq!(value["dbus"]["method"], dbus::method::GET_STATUS);
+    assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+        step.as_str()
+            .is_some_and(|step| step.contains("daemon status"))
+    }));
 }
 
 #[test]
@@ -384,6 +388,9 @@ fn daemon_start_text_dry_run_prints_activation_plan() {
     assert!(stdout.contains("strategy: dbus-service-activation"));
     assert!(stdout.contains("method: GetStatus"));
     assert!(stdout.contains("service: org.fcitx.Vinput"));
+    assert!(
+        stdout.contains("next_step: run vinput daemon status to inspect live D-Bus/runtime state")
+    );
 }
 
 #[test]
@@ -405,7 +412,95 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
         assert_eq!(value["will_mutate_user_service"], false);
         assert_eq!(value["strategy"], "systemd-user-service");
         assert_eq!(value["command"], expected);
+        assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+            step.as_str()
+                .is_some_and(|step| step.contains("vinput daemon"))
+        }));
     }
+}
+
+#[test]
+fn daemon_log_lines_dry_run_adds_journalctl_limit() {
+    let output = vinput_command()
+        .args(["daemon", "log", "--lines", "42", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput daemon log --lines --dry-run --json");
+
+    let value = assert_json_success(output, "daemon log lines dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["action"], "log");
+    assert_eq!(
+        value["command"],
+        "journalctl --user -u fcitx-vinput.service -n 42"
+    );
+    assert_eq!(
+        value["command_argv"],
+        serde_json::json!([
+            "journalctl",
+            "--user",
+            "-u",
+            "fcitx-vinput.service",
+            "-n",
+            "42"
+        ])
+    );
+}
+
+#[test]
+fn daemon_log_lines_text_dry_run_prints_limit() {
+    let output = vinput_command()
+        .args(["daemon", "log", "--lines", "7", "--dry-run"])
+        .output()
+        .expect("run vinput daemon log --lines --dry-run");
+
+    let stdout = assert_stdout_success(output, "daemon log lines dry-run text");
+    assert!(stdout.contains("action: log"));
+    assert!(stdout.contains("journalctl --user -u fcitx-vinput.service -n 7"));
+}
+
+#[test]
+fn daemon_log_lines_real_command_reports_limited_argv() {
+    let output = vinput_command()
+        .env("VINPUT_DAEMON_JOURNALCTL", "/bin/echo")
+        .args(["daemon", "log", "--lines", "3", "--json"])
+        .output()
+        .expect("run vinput daemon log --lines --json");
+
+    let value = assert_json_success(output, "daemon log lines real json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["action"], "log");
+    assert_eq!(value["will_mutate_user_service"], false);
+    assert_eq!(value["command_argv"][0], "/bin/echo");
+    assert_eq!(value["stdout"], "--user -u fcitx-vinput.service -n 3\n");
+}
+
+#[test]
+fn global_json_flag_forces_daemon_log_lines_json() {
+    let output = vinput_command()
+        .args(["-j", "daemon", "log", "--lines", "9", "--dry-run"])
+        .output()
+        .expect("run vinput -j daemon log --lines --dry-run");
+
+    let value = assert_json_success(output, "global json daemon log lines dry-run");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["action"], "log");
+    assert_eq!(
+        value["command"],
+        "journalctl --user -u fcitx-vinput.service -n 9"
+    );
+}
+
+#[test]
+fn daemon_log_lines_rejects_zero() {
+    let output = vinput_command()
+        .args(["daemon", "log", "--lines", "0", "--dry-run"])
+        .output()
+        .expect("run vinput daemon log --lines 0");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("daemon log --lines must be greater than 0"));
 }
 
 #[test]
@@ -432,7 +527,22 @@ fn daemon_user_service_real_commands_report_external_output_json() {
         assert_eq!(value["exit_status"], 0);
         assert_eq!(value["stdout"], expected_stdout);
         assert_eq!(value["stderr"], "");
+        assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+            step.as_str()
+                .is_some_and(|step| step.contains("vinput daemon"))
+        }));
     }
+}
+
+#[test]
+fn daemon_log_dry_run_next_step_mentions_lines() {
+    let output = vinput_command()
+        .args(["daemon", "log", "--lines", "5", "--dry-run"])
+        .output()
+        .expect("run vinput daemon log --lines --dry-run text");
+
+    let stdout = assert_stdout_success(output, "daemon log lines next-step text");
+    assert!(stdout.contains("next_step: adjust --lines to inspect more or fewer journal entries"));
 }
 
 #[test]
@@ -446,4 +556,5 @@ fn daemon_stop_text_dry_run_prints_user_service_plan() {
     assert!(stdout.contains("action: stop"));
     assert!(stdout.contains("will_mutate_user_service: false"));
     assert!(stdout.contains("systemctl --user stop fcitx-vinput.service"));
+    assert!(stdout.contains("next_step: run vinput daemon status to verify daemon availability"));
 }
