@@ -1027,8 +1027,14 @@ enum ModelCommand {
     },
     /// Show one live registry model by full id or short id.
     Info {
-        /// Full model id or `short_id`.
+        /// Full model id, `short_id`, installed path, or managed model directory name with --installed.
         id: String,
+        /// Read installed model metadata from the managed model root instead of the live registry.
+        #[arg(long)]
+        installed: bool,
+        /// Managed model root used by --installed. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
+        #[arg(long)]
+        model_root: Option<PathBuf>,
         /// Optional local live registry/models.json file. Omitted to fetch configured mirrors.
         #[arg(long)]
         registry: Option<PathBuf>,
@@ -1079,6 +1085,9 @@ enum ModelCommand {
     Use {
         /// Full model id, `short_id`, installed model path, or managed model dir name.
         selector: String,
+        /// Treat selector as an installed managed model directory name instead of a live registry id.
+        #[arg(long)]
+        installed: bool,
         /// Optional local live registry/models.json file for resolving `id`/`short_id`.
         #[arg(long)]
         registry: Option<PathBuf>,
@@ -1118,6 +1127,9 @@ enum ModelCommand {
     Remove {
         /// Full model id, `short_id`, managed model dir name, or installed path under model root.
         selector: String,
+        /// Treat selector as an installed managed model directory name instead of a live registry id.
+        #[arg(long)]
+        installed: bool,
         /// Optional local live registry/models.json file for resolving `id`/`short_id`.
         #[arg(long)]
         registry: Option<PathBuf>,
@@ -6885,19 +6897,23 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
         }),
         ModelCommand::Info {
             id,
+            installed,
+            model_root,
             registry,
             i18n,
             config,
             locale,
             json,
-        } => print_model_info(
-            &id,
-            registry.as_deref(),
-            i18n.as_deref(),
-            config.as_ref(),
-            &locale,
-            json,
-        ),
+        } => print_model_info(ModelInfoRequest {
+            id_or_short_id: &id,
+            installed,
+            model_root: model_root.as_deref(),
+            registry_path: registry.as_deref(),
+            i18n_path: i18n.as_deref(),
+            config_path: config.as_ref(),
+            locale: &locale,
+            json_output: json,
+        }),
         ModelCommand::Install {
             id,
             registry,
@@ -6921,6 +6937,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
         }),
         ModelCommand::Use {
             selector,
+            installed,
             registry,
             i18n,
             config,
@@ -6934,6 +6951,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             json,
         } => print_model_use_preview(ModelUseRequest {
             selector: &selector,
+            installed,
             registry_path: registry.as_deref(),
             i18n_path: i18n.as_deref(),
             config_path: config.as_ref(),
@@ -6948,6 +6966,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
         }),
         ModelCommand::Remove {
             selector,
+            installed,
             registry,
             i18n,
             config,
@@ -6958,6 +6977,7 @@ fn handle_model_command(command: ModelCommand) -> anyhow::Result<()> {
             json,
         } => print_model_remove_plan(ModelRemoveRequest {
             selector: &selector,
+            installed,
             registry_path: registry.as_deref(),
             i18n_path: i18n.as_deref(),
             config_path: config.as_ref(),
@@ -7779,17 +7799,27 @@ fn load_installed_model_list(model_root: &Path) -> anyhow::Result<Vec<InstalledM
     Ok(models)
 }
 
-fn print_model_info(
-    id_or_short_id: &str,
-    registry_path: Option<&Path>,
-    i18n_path: Option<&Path>,
-    config_path: Option<&PathBuf>,
-    locale: &str,
+#[derive(Clone, Copy)]
+struct ModelInfoRequest<'a> {
+    id_or_short_id: &'a str,
+    installed: bool,
+    model_root: Option<&'a Path>,
+    registry_path: Option<&'a Path>,
+    i18n_path: Option<&'a Path>,
+    config_path: Option<&'a PathBuf>,
+    locale: &'a str,
     json_output: bool,
-) -> anyhow::Result<()> {
-    if is_model_path_selector(id_or_short_id) {
-        let info = load_installed_model_info(Path::new(id_or_short_id))?;
-        if json_output {
+}
+
+fn print_model_info(request: ModelInfoRequest<'_>) -> anyhow::Result<()> {
+    if request.installed || is_model_path_selector(request.id_or_short_id) {
+        let model_dir = resolve_installed_model_info_selector(
+            request.id_or_short_id,
+            request.installed,
+            request.model_root,
+        )?;
+        let info = load_installed_model_info(&model_dir)?;
+        if request.json_output {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&installed_model_info_json(&info)?)?
@@ -7800,19 +7830,44 @@ fn print_model_info(
         return Ok(());
     }
 
-    let (loaded, i18n) = load_live_model_catalog(registry_path, i18n_path, config_path, locale)?;
+    let (loaded, i18n) = load_live_model_catalog(
+        request.registry_path,
+        request.i18n_path,
+        request.config_path,
+        request.locale,
+    )?;
     let model = loaded
         .registry
-        .model_by_id_or_short_id(id_or_short_id)
-        .with_context(|| format!("unknown model id or short_id `{id_or_short_id}`"))?;
+        .model_by_id_or_short_id(request.id_or_short_id)
+        .with_context(|| format!("unknown model id or short_id `{}`", request.id_or_short_id))?;
     let output = live_model_info_json(model, i18n.i18n.as_ref(), &loaded, &i18n)?;
 
-    if json_output {
+    if request.json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         print_model_info_text(model, i18n.i18n.as_ref(), &loaded, &i18n);
     }
     Ok(())
+}
+
+fn resolve_installed_model_info_selector(
+    selector: &str,
+    installed: bool,
+    model_root: Option<&Path>,
+) -> anyhow::Result<PathBuf> {
+    if is_model_path_selector(selector) {
+        if installed {
+            anyhow::bail!(
+                "model info --installed expects a managed model directory name, not a path"
+            );
+        }
+        return Ok(PathBuf::from(selector));
+    }
+    let model_root = match model_root {
+        Some(path) => path.to_path_buf(),
+        None => default_model_root()?,
+    };
+    Ok(model_root.join(safe_path_component(selector)))
 }
 
 struct InstalledModelInfo {
@@ -7970,8 +8025,10 @@ fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> anyhow::Res
 }
 
 #[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 struct ModelRemoveRequest<'a> {
     selector: &'a str,
+    installed: bool,
     registry_path: Option<&'a Path>,
     i18n_path: Option<&'a Path>,
     config_path: Option<&'a PathBuf>,
@@ -8030,12 +8087,13 @@ fn build_model_remove_plan(
 ) -> anyhow::Result<ModelRemovePlan> {
     let resolution = resolve_model_remove_target(
         request.selector,
+        request.installed,
         request.registry_path,
         request.i18n_path,
         request.config_path,
         request.locale,
         model_root,
-    );
+    )?;
     ensure_managed_remove_target(model_root, &resolution.target_path)?;
     let metadata = fs::metadata(&resolution.target_path);
     let (exists, is_dir) = match metadata {
@@ -8117,43 +8175,50 @@ struct ModelRemoveResolution {
 
 fn resolve_model_remove_target(
     selector: &str,
+    installed: bool,
     registry_path: Option<&Path>,
     i18n_path: Option<&Path>,
     config_path: Option<&PathBuf>,
     locale: &str,
     model_root: &Path,
-) -> ModelRemoveResolution {
+) -> anyhow::Result<ModelRemoveResolution> {
     let selector_path = Path::new(selector);
     if selector_path.is_absolute() || selector.contains('/') {
-        return ModelRemoveResolution {
+        if installed {
+            anyhow::bail!(
+                "model remove --installed expects a managed model directory name, not a path"
+            );
+        }
+        return Ok(ModelRemoveResolution {
             target_path: selector_path.to_path_buf(),
             selector_kind: "path".to_owned(),
             resolved_model_id: None,
             resolved_short_id: None,
             resolved_title: None,
-        };
+        });
     }
 
-    if let Ok((loaded, i18n)) =
-        load_live_model_catalog(registry_path, i18n_path, config_path, locale)
+    if !installed
+        && let Ok((loaded, i18n)) =
+            load_live_model_catalog(registry_path, i18n_path, config_path, locale)
         && let Some(model) = loaded.registry.model_by_id_or_short_id(selector)
     {
-        return ModelRemoveResolution {
+        return Ok(ModelRemoveResolution {
             target_path: model_root.join(managed_model_dir_name(model)),
             selector_kind: "registry".to_owned(),
             resolved_model_id: Some(model.id.clone()),
             resolved_short_id: model.short_id.clone(),
             resolved_title: Some(model.resolved_title(i18n.i18n.as_ref())),
-        };
+        });
     }
 
-    ModelRemoveResolution {
+    Ok(ModelRemoveResolution {
         target_path: model_root.join(safe_path_component(selector)),
         selector_kind: "managed-dir".to_owned(),
         resolved_model_id: None,
         resolved_short_id: None,
         resolved_title: None,
-    }
+    })
 }
 
 fn ensure_managed_remove_target(model_root: &Path, target_path: &Path) -> anyhow::Result<()> {
@@ -8230,6 +8295,7 @@ fn print_model_remove_plan_text(plan: &ModelRemovePlan) {
 #[allow(clippy::struct_excessive_bools)]
 struct ModelUseRequest<'a> {
     selector: &'a str,
+    installed: bool,
     registry_path: Option<&'a Path>,
     i18n_path: Option<&'a Path>,
     config_path: Option<&'a PathBuf>,
@@ -8353,12 +8419,13 @@ fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
     };
     let resolution = resolve_model_use_value(
         request.selector,
+        request.installed,
         request.registry_path,
         request.i18n_path,
         request.config_path,
         request.locale,
         &model_root,
-    );
+    )?;
     let provider_id = request
         .provider
         .map_or_else(|| config.asr.active_provider.clone(), str::to_owned);
@@ -8422,28 +8489,35 @@ fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
 
 fn resolve_model_use_value(
     selector: &str,
+    installed: bool,
     registry_path: Option<&Path>,
     i18n_path: Option<&Path>,
     config_path: Option<&PathBuf>,
     locale: &str,
     model_root: &Path,
-) -> ModelUseResolution {
+) -> anyhow::Result<ModelUseResolution> {
     let selector_path = Path::new(selector);
     if selector_path.is_absolute() || selector.contains('/') {
-        return ModelUseResolution {
+        if installed {
+            anyhow::bail!(
+                "model use --installed expects a managed model directory name, not a path"
+            );
+        }
+        return Ok(ModelUseResolution {
             model_value: selector_path.to_string_lossy().into_owned(),
             selector_kind: "path".to_owned(),
             resolved_model_id: None,
             resolved_short_id: None,
             resolved_title: None,
-        };
+        });
     }
 
-    if let Ok((loaded, i18n)) =
-        load_live_model_catalog(registry_path, i18n_path, config_path, locale)
+    if !installed
+        && let Ok((loaded, i18n)) =
+            load_live_model_catalog(registry_path, i18n_path, config_path, locale)
         && let Some(model) = loaded.registry.model_by_id_or_short_id(selector)
     {
-        return ModelUseResolution {
+        return Ok(ModelUseResolution {
             model_value: model_root
                 .join(managed_model_dir_name(model))
                 .to_string_lossy()
@@ -8452,10 +8526,10 @@ fn resolve_model_use_value(
             resolved_model_id: Some(model.id.clone()),
             resolved_short_id: model.short_id.clone(),
             resolved_title: Some(model.resolved_title(i18n.i18n.as_ref())),
-        };
+        });
     }
 
-    ModelUseResolution {
+    Ok(ModelUseResolution {
         model_value: model_root
             .join(safe_path_component(selector))
             .to_string_lossy()
@@ -8464,7 +8538,7 @@ fn resolve_model_use_value(
         resolved_model_id: None,
         resolved_short_id: None,
         resolved_title: None,
-    }
+    })
 }
 
 fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {

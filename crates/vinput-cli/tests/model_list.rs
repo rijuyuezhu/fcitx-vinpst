@@ -490,6 +490,79 @@ fn model_use_dry_run_json_previews_config_patch_for_registry_model() {
 }
 
 #[test]
+fn model_use_dry_run_json_accepts_managed_model_name_without_registry() {
+    let output = vinput_command()
+        .args([
+            "model",
+            "use",
+            "custom-managed",
+            "--model-root",
+            "/tmp/vinput-models",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput model use managed name --dry-run --json");
+
+    let value = assert_json_success(output, "model use managed name dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["selector"]["kind"], "managed-dir");
+    assert_eq!(
+        value["patch"]["asr.providers[].model"]["after"],
+        "/tmp/vinput-models/custom-managed"
+    );
+    assert_eq!(value["will_write_config"], false);
+}
+
+#[test]
+fn model_use_installed_bypasses_registry_id_resolution() {
+    let output = vinput_command()
+        .args([
+            "model",
+            "use",
+            "onnx-sv-zh-int8-off",
+            "--installed",
+            "--registry",
+        ])
+        .arg(live_models_fixture())
+        .args(["--model-root", "/tmp/vinput-models", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput model use --installed --dry-run --json");
+
+    let value = assert_json_success(output, "model use installed dry-run json");
+    assert_eq!(value["selector"]["kind"], "managed-dir");
+    assert_eq!(
+        value["selector"]["resolved_short_id"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        value["patch"]["asr.providers[].model"]["after"],
+        "/tmp/vinput-models/onnx-sv-zh-int8-off"
+    );
+}
+
+#[test]
+fn model_use_installed_rejects_path_selector() {
+    let output = vinput_command()
+        .args([
+            "model",
+            "use",
+            "foo/bar",
+            "--installed",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput model use --installed with path selector");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains("model use --installed expects a managed model directory name, not a path")
+    );
+}
+
+#[test]
 fn model_use_dry_run_text_accepts_installed_path_without_registry() {
     let output = vinput_command()
         .args([
@@ -761,6 +834,57 @@ fn model_rm_alias_dry_run_text_accepts_managed_dir_name() {
 }
 
 #[test]
+fn model_remove_installed_bypasses_registry_id_resolution() {
+    let output = vinput_command()
+        .args([
+            "model",
+            "remove",
+            "onnx-sv-zh-int8-off",
+            "--installed",
+            "--registry",
+        ])
+        .arg(live_models_fixture())
+        .args(["--model-root", "/tmp/vinput-models", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput model remove --installed --dry-run --json");
+
+    let value = assert_json_success(output, "model remove installed dry-run json");
+    assert_eq!(value["selector"]["kind"], "managed-dir");
+    assert_eq!(
+        value["selector"]["resolved_short_id"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        value["target"]["path"],
+        "/tmp/vinput-models/onnx-sv-zh-int8-off"
+    );
+    assert_eq!(value["removed"], false);
+}
+
+#[test]
+fn model_remove_installed_rejects_path_selector() {
+    let output = vinput_command()
+        .args([
+            "model",
+            "remove",
+            "foo/bar",
+            "--installed",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput model remove --installed with path selector");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr.contains(
+            "model remove --installed expects a managed model directory name, not a path"
+        )
+    );
+}
+
+#[test]
 fn model_remove_dry_run_rejects_path_outside_model_root() {
     let temp_root = unique_temp_dir("vinput-cli-model-remove-outside");
     let model_root = temp_root.join("models");
@@ -923,6 +1047,66 @@ fn model_info_json_reads_installed_model_metadata_from_path() {
     assert!(files.iter().any(|file| file == "subdir/extra.bin"));
     assert!(files.iter().any(|file| file == "vinput-model.json"));
     let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_info_json_reads_installed_model_metadata_by_managed_name() {
+    let temp_root = unique_temp_dir("vinput-cli-model-info-installed-name");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("test-installed");
+    std::fs::create_dir_all(&model_dir).expect("create installed model dir");
+    std::fs::write(model_dir.join("model.int8.onnx"), b"onnx").expect("write model file");
+    std::fs::write(model_dir.join("tokens.txt"), b"tokens").expect("write tokens file");
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        serde_json::json!({
+            "backend": "sherpa-offline",
+            "family": "sense_voice",
+            "language": "zh",
+            "runtime": "offline",
+            "supports_hotwords": false
+        })
+        .to_string(),
+    )
+    .expect("write installed metadata");
+
+    let output = vinput_command()
+        .args([
+            "model",
+            "info",
+            "test-installed",
+            "--installed",
+            "--model-root",
+        ])
+        .arg(&model_root)
+        .arg("--json")
+        .output()
+        .expect("run vinput model info --installed --json");
+
+    let value = assert_json_success(output, "installed model info by name json");
+    assert_eq!(value["source"]["kind"], "installed");
+    assert_eq!(
+        value["model"]["model_dir"],
+        model_dir.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["model"]["family"], "sense_voice");
+    assert_eq!(value["model"]["file_count"], 3);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_info_installed_rejects_path_selector() {
+    let output = vinput_command()
+        .args(["model", "info", "foo/bar", "--installed", "--json"])
+        .output()
+        .expect("run vinput model info --installed with path selector");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(
+        stderr
+            .contains("model info --installed expects a managed model directory name, not a path")
+    );
 }
 
 #[test]

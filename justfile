@@ -211,6 +211,7 @@ smoke:
     cargo run -q -p vinput-cli -- registry validate data/sample-registry-index.json
     cargo run -q -p vinput-cli -- registry plan data/sample-registry-index.json --summary-only
     cargo run -q -p vinput-cli -- model list --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --json
+    cargo run -q -p vinput-cli -- model info onnx-sv-zh-int8-off --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --json
     cargo run -q -p vinput-cli -- daemon start --dry-run --json
     cargo run -q -p vinput-cli -- daemon status --dry-run --json
     cargo run -q -p vinput-cli -- daemon reload-asr --dry-run --json
@@ -218,6 +219,8 @@ smoke:
     cargo run -q -p vinput-cli -- daemon restart --dry-run --json
     cargo run -q -p vinput-cli -- daemon log --dry-run --json
     cargo run -q -p vinput-cli -- model use onnx-sv-zh-int8-off --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --model-root /tmp/vinput-models --reload-daemon --dry-run --json
+    cargo run -q -p vinput-cli -- model use onnx-sv-zh-int8-off --installed --model-root /tmp/vinput-models --dry-run --json
+    cargo run -q -p vinput-cli -- model remove onnx-sv-zh-int8-off --installed --model-root /tmp/vinput-models --dry-run --json
     cargo run -q -p vinput-cli -- recording start --dry-run --json
     cargo run -q -p vinput-cli -- recording start --selected-text demo --dry-run --json
     cargo run -q -p vinput-cli -- recording stop --scene demo --dry-run --json
