@@ -70,7 +70,7 @@ daemon status/start/stop/restart/log
 recording start/stop/toggle
 ```
 
-Legacy also supports a global `-j/--json` output mode.
+Legacy also supports a global `-j/--json` output mode; Rust now accepts root/global `-j/--json` and forwards it to JSON-capable subcommands.
 
 ### Rust CLI commands
 

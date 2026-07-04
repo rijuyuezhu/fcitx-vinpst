@@ -31,6 +31,9 @@ use vinput_text::{
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Args {
+    /// Force machine-readable JSON output for JSON-capable subcommands.
+    #[arg(short = 'j', long, global = true)]
+    json: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -1318,9 +1321,140 @@ enum Command {
     },
 }
 
+fn parse_args_with_global_json_alias() -> Args {
+    match Args::try_parse() {
+        Ok(args) => args,
+        Err(original_error) => {
+            let (filtered_args, saw_json_alias) = strip_global_json_aliases(std::env::args_os());
+            if !saw_json_alias {
+                original_error.exit();
+            }
+            match Args::try_parse_from(filtered_args) {
+                Ok(mut args) => {
+                    args.json = true;
+                    args
+                }
+                Err(_) => original_error.exit(),
+            }
+        }
+    }
+}
+
+fn strip_global_json_aliases(
+    args: impl IntoIterator<Item = std::ffi::OsString>,
+) -> (Vec<std::ffi::OsString>, bool) {
+    let mut saw_json_alias = false;
+    let mut after_argument_delimiter = false;
+    let filtered = args
+        .into_iter()
+        .filter(|arg| {
+            if after_argument_delimiter {
+                return true;
+            }
+            if arg == "--" {
+                after_argument_delimiter = true;
+                return true;
+            }
+            if arg == "-j" || arg == "--json" {
+                saw_json_alias = true;
+                return false;
+            }
+            true
+        })
+        .collect::<Vec<_>>();
+    (filtered, saw_json_alias)
+}
+
+fn force_json_output(command: &mut Command) {
+    match command {
+        Command::Init { json, .. } => *json = true,
+        Command::Config { command } => {
+            if let Some(command) = command {
+                match command {
+                    ConfigCommand::Get { json, .. }
+                    | ConfigCommand::Set { json, .. }
+                    | ConfigCommand::Edit { json, .. } => *json = true,
+                    ConfigCommand::Validate { .. } | ConfigCommand::Example { .. } => {}
+                }
+            }
+        }
+        Command::Daemon { command } => match command {
+            DaemonCommand::Start { json, .. }
+            | DaemonCommand::Status { json, .. }
+            | DaemonCommand::ReloadAsr { json, .. }
+            | DaemonCommand::Stop { json, .. }
+            | DaemonCommand::Restart { json, .. }
+            | DaemonCommand::Log { json, .. } => *json = true,
+        },
+        Command::Recording { command } => match command {
+            RecordingCommand::Start { json, .. }
+            | RecordingCommand::Stop { json, .. }
+            | RecordingCommand::Status { json, .. }
+            | RecordingCommand::Toggle { json, .. } => *json = true,
+        },
+        Command::Device { command } => match command {
+            DeviceCommand::List { json, .. } | DeviceCommand::Use { json, .. } => *json = true,
+        },
+        Command::Hotword { command } => match command {
+            HotwordCommand::Get { json, .. }
+            | HotwordCommand::Set { json, .. }
+            | HotwordCommand::Clear { json, .. }
+            | HotwordCommand::Edit { json, .. } => *json = true,
+        },
+        Command::Llm { command } => match command {
+            LlmCommand::List { json, .. }
+            | LlmCommand::Add { json, .. }
+            | LlmCommand::Edit { json, .. }
+            | LlmCommand::Test { json, .. }
+            | LlmCommand::Remove { json, .. } => *json = true,
+        },
+        Command::Adapter { command } => match command {
+            AdapterCommand::List { json, .. }
+            | AdapterCommand::Add { json, .. }
+            | AdapterCommand::InstallPlan { json, .. }
+            | AdapterCommand::Edit { json, .. }
+            | AdapterCommand::Start { json, .. }
+            | AdapterCommand::Stop { json, .. }
+            | AdapterCommand::Remove { json, .. } => *json = true,
+        },
+        Command::Scene { command } => match command {
+            SceneCommand::List { json, .. }
+            | SceneCommand::Add { json, .. }
+            | SceneCommand::Edit { json, .. }
+            | SceneCommand::Use { json, .. }
+            | SceneCommand::Remove { json, .. } => *json = true,
+        },
+        Command::Provider { command } => match command {
+            ProviderCommand::List { json, .. }
+            | ProviderCommand::Add { json, .. }
+            | ProviderCommand::Use { json, .. }
+            | ProviderCommand::Edit { json, .. }
+            | ProviderCommand::Remove { json, .. } => *json = true,
+        },
+        Command::Model { command } => match command {
+            ModelCommand::List { json, .. }
+            | ModelCommand::Info { json, .. }
+            | ModelCommand::Install { json, .. }
+            | ModelCommand::Use { json, .. }
+            | ModelCommand::Remove { json, .. } => *json = true,
+        },
+        Command::Registry { .. }
+        | Command::Protocol
+        | Command::AsrState { .. }
+        | Command::AudioDevices { .. }
+        | Command::Doctor { .. }
+        | Command::ActivationService { .. }
+        | Command::MockResult { .. }
+        | Command::Status { .. } => {}
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let mut args = parse_args_with_global_json_alias();
+    if args.json {
+        force_json_output(&mut args.command);
+    }
 
     match args.command {
         Command::Init {

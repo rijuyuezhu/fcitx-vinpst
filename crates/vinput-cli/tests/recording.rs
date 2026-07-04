@@ -46,3 +46,29 @@ fn recording_status_help_lists_dry_run_and_json() {
     assert!(stdout.contains("--dry-run"));
     assert!(stdout.contains("--json"));
 }
+
+#[test]
+fn global_json_flag_forces_recording_status_json() {
+    let output = vinput_command()
+        .args(["-j", "recording", "status", "--dry-run"])
+        .output()
+        .expect("run vinput -j recording status --dry-run");
+
+    let value = assert_json_success(output, "global json recording status");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["action"], "status");
+    assert_eq!(value["dbus"]["method"], "GetStatus");
+}
+
+#[test]
+fn global_json_flag_is_accepted_after_subcommands() {
+    let output = vinput_command()
+        .args(["recording", "status", "--dry-run", "-j"])
+        .output()
+        .expect("run vinput recording status --dry-run -j");
+
+    let value = assert_json_success(output, "post-subcommand global json recording status");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["dbus"]["method"], "GetStatus");
+}
