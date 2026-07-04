@@ -112,6 +112,7 @@ fn device_help_lists_list_and_use_options() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn llm_and_adapter_help_list_options() {
     let llm_root_output = vinput_command()
         .args(["llm", "--help"])
@@ -202,6 +203,7 @@ fn llm_and_adapter_help_list_options() {
     assert!(adapter_root_stdout.contains("install-plan"));
     assert!(adapter_root_stdout.contains("start"));
     assert!(adapter_root_stdout.contains("stop"));
+    assert!(adapter_root_stdout.contains("status"));
     assert!(adapter_root_stdout.contains("remove"));
 
     let adapter_list_output = vinput_command()
@@ -214,6 +216,16 @@ fn llm_and_adapter_help_list_options() {
     assert!(adapter_list_stdout.contains("--registry"));
     assert!(adapter_list_stdout.contains("--config"));
     assert!(adapter_list_stdout.contains("--json"));
+
+    let adapter_status_output = vinput_command()
+        .args(["adapter", "status", "--help"])
+        .output()
+        .expect("run vinput adapter status --help");
+    let adapter_status_stdout =
+        assert_stdout_success(adapter_status_output, "adapter status help output");
+    assert!(adapter_status_stdout.contains("[ID]"));
+    assert!(adapter_status_stdout.contains("--dry-run"));
+    assert!(adapter_status_stdout.contains("--json"));
 }
 
 #[test]

@@ -1066,6 +1066,59 @@ fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
 }
 
 #[test]
+fn adapter_status_dry_run_json_reports_text_adapter_state_plan() {
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "status",
+            "command-adapter",
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run vinput adapter status dry-run json");
+
+    let value = assert_json_success(output, "adapter status dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["action"], "status");
+    assert_eq!(value["adapter_id"], "command-adapter");
+    assert_eq!(value["will_call_dbus"], false);
+    assert_eq!(value["called"], false);
+    assert_eq!(value["dbus"]["method"], "GetTextAdapterState");
+}
+
+#[test]
+fn adapter_status_dry_run_text_outputs_expected_fields() {
+    let output = vinput_command()
+        .args(["adapter", "status", "--dry-run"])
+        .output()
+        .expect("run vinput adapter status text dry-run");
+
+    let stdout = assert_stdout_success(output, "adapter status text dry-run");
+    assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("action: status"));
+    assert!(stdout.contains("adapter_id: -"));
+    assert!(stdout.contains("will_call_dbus: false"));
+    assert!(stdout.contains("called: false"));
+    assert!(stdout.contains("method: GetTextAdapterState"));
+}
+
+#[test]
+fn global_json_flag_forces_adapter_status_json() {
+    let output = vinput_command()
+        .args(["-j", "adapter", "status", "command-adapter", "--dry-run"])
+        .output()
+        .expect("run vinput -j adapter status dry-run");
+
+    let value = assert_json_success(output, "global json adapter status dry-run");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["action"], "status");
+    assert_eq!(value["adapter_id"], "command-adapter");
+    assert_eq!(value["dbus"]["method"], "GetTextAdapterState");
+}
+
+#[test]
 fn adapter_start_stop_reject_empty_id_before_dbus() {
     let output = vinput_command()
         .args(["adapter", "start", "   ", "--dry-run"])

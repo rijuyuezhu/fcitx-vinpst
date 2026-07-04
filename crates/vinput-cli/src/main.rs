@@ -15,7 +15,7 @@ use vinput_audio::CaptureTarget;
 use vinput_config::{
     AsrProviderConfig, AsrProviderKind, RegistryConfig, SceneDefinition, VinputConfig,
 };
-use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
+use vinput_protocol::{RecognitionPayload, ServiceStatus, TextAdapterState, dbus};
 use vinput_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelInstallRequest,
     LiveModelInstallResult, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata,
@@ -651,6 +651,17 @@ enum AdapterCommand {
     Stop {
         /// Existing adapter id to stop.
         id: String,
+        /// Print the D-Bus call plan without contacting the daemon.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect daemon text adapter runtime state.
+    Status {
+        /// Optional adapter id to filter. Omitted to show all adapters.
+        id: Option<String>,
         /// Print the D-Bus call plan without contacting the daemon.
         #[arg(long)]
         dry_run: bool,
@@ -1427,6 +1438,7 @@ fn force_json_output(command: &mut Command) {
             | AdapterCommand::Edit { json, .. }
             | AdapterCommand::Start { json, .. }
             | AdapterCommand::Stop { json, .. }
+            | AdapterCommand::Status { json, .. }
             | AdapterCommand::Remove { json, .. } => *json = true,
         },
         Command::Scene { command } => match command {
@@ -3167,6 +3179,9 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
         AdapterCommand::Stop { id, dry_run, json } => {
             print_adapter_lifecycle("stop", &id, dbus::method::STOP_ADAPTER, dry_run, json)
         }
+        AdapterCommand::Status { id, dry_run, json } => {
+            print_adapter_status(id.as_deref(), dry_run, json)
+        }
         AdapterCommand::Edit {
             id,
             command,
@@ -4075,6 +4090,140 @@ fn call_adapter_lifecycle_via_dbus(method: &str, adapter_id: &str) -> anyhow::Re
         .call(method, &(adapter_id))
         .with_context(|| format!("call {method} on daemon D-Bus service"))?;
     Ok(())
+}
+
+fn print_adapter_status(
+    adapter_id: Option<&str>,
+    dry_run: bool,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let adapter_id = adapter_id.map(normalize_adapter_id).transpose()?;
+    let output = if dry_run {
+        adapter_status_plan_json(adapter_id.as_deref())
+    } else {
+        let state = call_text_adapter_state_via_dbus()?;
+        adapter_status_state_json(adapter_id.as_deref(), &state)?
+    };
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_adapter_status_text(&output);
+    }
+    Ok(())
+}
+
+fn call_text_adapter_state_via_dbus() -> anyhow::Result<TextAdapterState> {
+    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let proxy = daemon_service_proxy(&connection)?;
+    let raw: String = proxy
+        .call(dbus::method::GET_TEXT_ADAPTER_STATE, &())
+        .context("call GetTextAdapterState on daemon D-Bus service")?;
+    serde_json::from_str::<TextAdapterState>(&raw).context("parse GetTextAdapterState response")
+}
+
+fn adapter_status_plan_json(adapter_id: Option<&str>) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "action": "status",
+        "adapter_id": adapter_id,
+        "will_call_dbus": false,
+        "called": false,
+        "dbus": {
+            "service": dbus::SERVICE_BUS_NAME,
+            "object_path": dbus::SERVICE_OBJECT_PATH,
+            "interface": dbus::SERVICE_INTERFACE,
+            "method": dbus::method::GET_TEXT_ADAPTER_STATE,
+        },
+        "next_steps": [
+            "run vinput adapter status without --dry-run to query daemon runtime state",
+            "run vinput adapter start or stop to change adapter runtime state"
+        ],
+    })
+}
+
+fn adapter_status_state_json(
+    adapter_id: Option<&str>,
+    state: &TextAdapterState,
+) -> anyhow::Result<serde_json::Value> {
+    let state_json = serde_json::json!({
+        "adapter_count": state.adapter_count,
+        "adapter_ids": state.adapter_ids,
+        "single_adapter_id": state.single_adapter_id,
+    });
+    if let Some(adapter_id) = adapter_id {
+        let adapter = state
+            .adapters
+            .iter()
+            .find(|adapter| adapter.id == adapter_id)
+            .with_context(|| format!("text adapter `{adapter_id}` not found in daemon state"))?;
+        return Ok(serde_json::json!({
+            "ok": true,
+            "dry_run": false,
+            "action": "status",
+            "adapter_id": adapter_id,
+            "state": state_json,
+            "adapter": adapter,
+        }));
+    }
+    Ok(serde_json::json!({
+        "ok": true,
+        "dry_run": false,
+        "action": "status",
+        "adapter_id": serde_json::Value::Null,
+        "state": state_json,
+        "adapters": state.adapters,
+    }))
+}
+
+fn print_adapter_status_text(output: &serde_json::Value) {
+    println!("dry_run: {}", output["dry_run"].as_bool().unwrap_or(false));
+    println!("action: status");
+    println!(
+        "adapter_id: {}",
+        output["adapter_id"].as_str().unwrap_or("-")
+    );
+    if output["dry_run"].as_bool().unwrap_or(false) {
+        println!(
+            "will_call_dbus: {}",
+            output["will_call_dbus"].as_bool().unwrap_or(false)
+        );
+        println!("called: {}", output["called"].as_bool().unwrap_or(false));
+        println!("service: {}", dbus::SERVICE_BUS_NAME);
+        println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
+        println!("interface: {}", dbus::SERVICE_INTERFACE);
+        println!("method: {}", dbus::method::GET_TEXT_ADAPTER_STATE);
+        return;
+    }
+    println!(
+        "adapter_count: {}",
+        output["state"]["adapter_count"].as_u64().unwrap_or(0)
+    );
+    if let Some(adapter) = output.get("adapter") {
+        print_adapter_status_row(adapter);
+        return;
+    }
+    println!("id	kind	running	pid	args	env	working_dir");
+    if let Some(adapters) = output["adapters"].as_array() {
+        for adapter in adapters {
+            print_adapter_status_row(adapter);
+        }
+    }
+}
+
+fn print_adapter_status_row(adapter: &serde_json::Value) {
+    println!(
+        "{}	{}	{}	{}	{}	{}	{}",
+        adapter["id"].as_str().unwrap_or("-"),
+        adapter["kind"].as_str().unwrap_or("-"),
+        adapter["is_running"].as_bool().unwrap_or(false),
+        adapter["pid"]
+            .as_u64()
+            .map_or_else(|| "-".to_owned(), |pid| pid.to_string()),
+        adapter["args_count"].as_u64().unwrap_or(0),
+        adapter["env_count"].as_u64().unwrap_or(0),
+        adapter["has_working_dir"].as_bool().unwrap_or(false),
+    );
 }
 
 fn print_adapter_edit(request: AdapterEditRequest<'_>) -> anyhow::Result<()> {

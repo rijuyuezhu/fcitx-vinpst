@@ -44,7 +44,7 @@ The next project target should be: **replicate the legacy CLI and daemon experie
 | J3: command dictation over selected text | Fcitx command trigger captures selected text or fallback, ASR command scene, LLM/text transform, replace selection. | Surrounding-text command path and replacement logic exist; clipboard fallback and live proof incomplete. | Medium-major. | In two apps, selected text replacement works; fallback path has clear diagnostics when unavailable. |
 | J4: command ASR provider | Legacy supports command batch and streaming providers. | Rust has command ASR, command WAV helper, streaming command partial tests, and user profile for real command WAV. | Mostly implemented, needs CLI config parity. | `vinput provider add/use/edit/remove` can configure command ASR without hand-editing JSON. |
 | J5: LLM/text postprocess | Legacy supports OpenAI-compatible providers, command adapters, scenes, prompt files, candidate_count, command scene. | Rust has command text adapters, OpenAI-compatible provider tests, prompt/context pieces. | CLI/config UX incomplete and real provider validation limited. | `vinput llm`, `vinput adapter`, and `vinput scene` commands configure and validate postprocess paths. |
-| J6: adapter lifecycle | Legacy `vinput adapter start/stop` and daemon D-Bus `StartAdapter/StopAdapter` supervise local adapters and PID files. | Rust daemon can start/stop supervised command adapters, and `vinput adapter start/stop` calls the daemon D-Bus lifecycle methods. | Mostly implemented; PID/running reporting can still improve. | `vinput adapter start/stop/list` calls daemon and reports PID/running state. |
+| J6: adapter lifecycle | Legacy `vinput adapter start/stop` and daemon D-Bus `StartAdapter/StopAdapter` supervise local adapters and PID files. | Rust daemon can start/stop supervised command adapters, `vinput adapter start/stop` calls the daemon D-Bus lifecycle methods, and `vinput adapter status` reads `GetTextAdapterState` for PID/running diagnostics. | Mostly implemented; live desktop proof can still improve. | `vinput adapter start/stop/status/list` calls daemon and reports PID/running state. |
 | J7: daemon control | Legacy `vinput daemon status/start/stop/restart/log` integrates D-Bus/systemd/logs. | Rust has `daemon status/start/reload-asr`, real user-service `stop/restart/log` execution, dry-run plans, activation service generation, and runtime-status diagnostics. | Mostly implemented; owner/stale-process reporting and fallback UX still need hardening. | User can start/stop/restart/status/log daemon from CLI, using activation/systemd/user-mode strategy. |
 | J8: recording control from CLI | Legacy `vinput recording start/stop/toggle`. | Rust CLI calls daemon D-Bus `StartRecording`, `StartCommandRecording`, `StopRecording`, and toggle via `GetStatus`; dry-run JSON/text is CI-tested. | Mostly implemented; `recording status` and live desktop error handling can still improve. | `vinput recording start/stop/toggle/status [--scene] [--selected-text]` works against D-Bus service and prints result/status. |
 | J9: device selection | Legacy `device list/use`, PipeWire device enumeration, config mutation. | Rust has `audio-devices` diagnostics plus `vinput device list/use` for JSON/text listing and guarded `global.capture_device` mutation. | Mostly implemented; live PipeWire selection still needs desktop proof. | `vinput device list/use` maps PipeWire nodes to config and validates with doctor. |
@@ -61,10 +61,10 @@ init
 config get/set/edit
 model list/add/remove/use/info
 provider list/add/use/edit/remove
-hotword get/set/clear/edit; scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls --configured/--available; adapter add/edit/install-plan/start/stop/remove
+hotword get/set/clear/edit; scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls --configured/--available; adapter add/edit/install-plan/start/stop/status/remove
 device list/use
 llm list/add/remove/edit/test
-adapter list/add/start/stop
+adapter list/add/start/stop/status
 scene list/add/use/remove/edit
 daemon status/start/stop/restart/log
 recording start/stop/toggle
@@ -87,7 +87,7 @@ doctor
 activation-service
 model list/ls/info/install/add/use/remove/rm
 provider list/ls/add/edit/use/remove
-hotword get/set/clear/edit; scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls --configured/--available; adapter add/edit/install-plan/start/stop/remove
+hotword get/set/clear/edit; scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls --configured/--available; adapter add/edit/install-plan/start/stop/status/remove
 daemon start/status/reload-asr/stop/restart/log
 recording start/stop/toggle
 mock-result
@@ -251,7 +251,7 @@ Acceptance:
 - `vinput hotword set/clear` manages the active or selected provider hotwords path. **Done for supported local/command providers, dry-run/output/in-place writes, backup/validation guards, and JSON/text output.**
 - `vinput hotword edit` opens the configured hotwords file in an editor. **Done for provider override, dry-run, editor resolution, and JSON/text output.**
 - `vinput device list/use` uses Rust PipeWire diagnostics and updates `global.capture_device`. **Done with JSON/text list, dry-run/output/in-place writes, and backup/validation guards.**
-- `vinput scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls --configured/--available; adapter add/edit/install-plan/start/stop/remove` inspects and selects configured recognition scenes. **Done for dry-run/output/in-place writes, backup/validation guards, JSON/text output, and README/just smoke.**
+- `vinput scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls --configured/--available; adapter add/edit/install-plan/start/stop/status/remove` inspects and selects configured recognition scenes. **Done for dry-run/output/in-place writes, backup/validation guards, JSON/text output, and README/just smoke.**
 - `vinput doctor` references provider/hotword/device commands in remediation text. **Done for JSON `next_steps` covering provider list/use, hotword get, device list/use, and daemon status previews.**
 
 ### P0.5 daemon and recording control commands
@@ -309,7 +309,7 @@ Acceptance:
 Acceptance:
 
 - `vinput llm list/add/remove/edit/test` manages OpenAI-compatible providers.
-- `vinput adapter list/add/start/stop` manages command adapters through config and daemon D-Bus.
+- `vinput adapter list/add/start/stop/status` manages command adapters through config and daemon D-Bus.
 - `vinput scene list/add/use/remove/edit` manages scenes, prompt files, candidate count, model, provider, and context lines.
 - Local mock-server tests cover OpenAI-compatible request and response behavior.
 
