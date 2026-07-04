@@ -228,6 +228,40 @@ fn activation_service_user_status_reports_existing_service() {
 }
 
 #[test]
+fn activation_service_user_status_reports_missing_service_next_steps() {
+    let mut data_home = std::env::temp_dir();
+    data_home.push(format!(
+        "vinput-cli-missing-user-status-service-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+
+    let output = vinput_command()
+        .env("XDG_DATA_HOME", &data_home)
+        .args(["activation-service", "--user-status"])
+        .output()
+        .expect("run vinput activation-service --user-status without service");
+
+    let value = assert_json_success(output, "missing user activation status output");
+    assert_eq!(value["user_service_exists"], false);
+    assert_eq!(value["user_service_name_matches"], false);
+    assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+        step.as_str()
+            .is_some_and(|step| step.contains("daemon start --dry-run"))
+    }));
+    assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
+        step.as_str()
+            .is_some_and(|step| step.contains("daemon owner/procfs probes"))
+    }));
+    if data_home.exists() {
+        std::fs::remove_dir_all(data_home).expect("remove missing service fixture");
+    }
+}
+
+#[test]
 fn daemon_reload_asr_dry_run_prints_dbus_plan_json() {
     let output = vinput_command()
         .args(["daemon", "reload-asr", "--dry-run", "--json"])
