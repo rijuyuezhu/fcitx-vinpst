@@ -329,6 +329,9 @@ fn daemon_status_dry_run_prints_dbus_plan_json() {
     let owner_methods = value["owner_probe"]["methods"].as_array().unwrap();
     assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
     assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
+    let process_fields = value["owner_probe"]["process_fields"].as_array().unwrap();
+    assert!(process_fields.contains(&serde_json::json!("exe")));
+    assert!(process_fields.contains(&serde_json::json!("cmdline")));
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
         step.as_str()
             .is_some_and(|step| step.contains("without --dry-run"))
