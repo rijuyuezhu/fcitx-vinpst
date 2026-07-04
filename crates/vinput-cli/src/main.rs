@@ -9884,6 +9884,7 @@ fn handle_config_get(
                 "pointer": pointer,
                 "exists": exists,
                 "default_used": default_used,
+                "default_string": default_string,
                 "parsed_default_kind": parsed_default_kind,
                 "value": value,
             }))?

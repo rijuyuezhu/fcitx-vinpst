@@ -134,6 +134,7 @@ fn config_get_default_json_returns_fallback_for_missing_pointer() {
     assert_eq!(value["pointer"], "/global/missing");
     assert_eq!(value["exists"], false);
     assert_eq!(value["default_used"], true);
+    assert_eq!(value["default_string"], false);
     assert_eq!(value["parsed_default_kind"], "bool");
     assert_eq!(value["value"], false);
 }
@@ -158,6 +159,7 @@ fn config_get_default_string_preserves_json_looking_fallback_as_string() {
     let value = assert_json_success(output, "config get --default-string json");
     assert_eq!(value["exists"], false);
     assert_eq!(value["default_used"], true);
+    assert_eq!(value["default_string"], true);
     assert_eq!(value["parsed_default_kind"], "string");
     assert_eq!(value["value"], "false");
 }
