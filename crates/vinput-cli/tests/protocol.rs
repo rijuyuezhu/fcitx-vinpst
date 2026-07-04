@@ -764,6 +764,7 @@ fn daemon_user_service_real_text_prints_tool_program() {
     assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_SYSTEMCTL"));
     assert!(stdout.contains("tool_overridden: true"));
     assert!(stdout.contains("stdout: --user stop fcitx-vinput.service"));
+    assert!(stdout.contains("next_step: run vinput daemon status to verify daemon availability"));
 }
 
 #[test]
