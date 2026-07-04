@@ -2296,10 +2296,12 @@ fn daemon_status_dry_run_json() -> serde_json::Value {
         "dbus": daemon_status_dbus_plan_json(),
         "reports": [
             "service_status",
+            "bus_owner",
             "asr_backend",
             "runtime_status",
             "text_adapters"
         ],
+        "owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": [
             "run vinput daemon status without --dry-run to query live daemon diagnostics",
             "run vinput adapter status to inspect text adapter PID/running state",
@@ -2333,13 +2335,33 @@ fn print_daemon_status_dry_run_text() {
         dbus::method::GET_ASR_BACKEND_STATE,
         dbus::method::GET_RUNTIME_STATUS
     );
-    println!("reports: service_status, asr_backend, runtime_status, text_adapters");
+    println!("reports: service_status, bus_owner, asr_backend, runtime_status, text_adapters");
+    println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID");
     println!("next_step: run vinput daemon status without --dry-run");
+}
+
+fn daemon_owner_probe_plan_json() -> serde_json::Value {
+    serde_json::json!({
+        "service": "org.freedesktop.DBus",
+        "object_path": "/org/freedesktop/DBus",
+        "interface": "org.freedesktop.DBus",
+        "target_name": dbus::SERVICE_BUS_NAME,
+        "methods": [
+            "GetNameOwner",
+            "GetConnectionUnixProcessID"
+        ],
+        "stale_owner_hints": [
+            "runtime-status-unavailable",
+            "unexpected owner executable",
+            "activation service points to an old daemon path"
+        ]
+    })
 }
 
 fn daemon_status_via_dbus() -> anyhow::Result<serde_json::Value> {
     let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
     let proxy = daemon_service_proxy(&connection)?;
+    let owner = daemon_owner_diagnostics(&connection);
     let status: String = proxy
         .call(dbus::method::GET_STATUS, &())
         .context("call GetStatus on daemon D-Bus service")?;
@@ -2368,11 +2390,64 @@ fn daemon_status_via_dbus() -> anyhow::Result<serde_json::Value> {
             "remote_endpoints": asr.7,
         },
         "runtime_status": runtime_status,
+        "owner": owner,
     }))
+}
+
+fn daemon_owner_diagnostics(connection: &zbus::blocking::Connection) -> serde_json::Value {
+    let mut output = serde_json::json!({
+        "service": dbus::SERVICE_BUS_NAME,
+        "unique_name": null,
+        "unix_process_id": null,
+        "ok": false,
+    });
+    let bus_proxy = match zbus::blocking::Proxy::new(
+        connection,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+    ) {
+        Ok(proxy) => proxy,
+        Err(error) => {
+            output["error"] = serde_json::json!(error.to_string());
+            return output;
+        }
+    };
+    let owner = match bus_proxy.call::<_, _, String>("GetNameOwner", &(dbus::SERVICE_BUS_NAME)) {
+        Ok(owner) => owner,
+        Err(error) => {
+            output["error"] = serde_json::json!(error.to_string());
+            return output;
+        }
+    };
+    output["unique_name"] = serde_json::json!(owner);
+    let Some(owner) = output["unique_name"].as_str() else {
+        return output;
+    };
+    match bus_proxy.call::<_, _, u32>("GetConnectionUnixProcessID", &(owner)) {
+        Ok(pid) => {
+            output["unix_process_id"] = serde_json::json!(pid);
+            output["ok"] = serde_json::json!(true);
+        }
+        Err(error) => {
+            output["error"] = serde_json::json!(error.to_string());
+        }
+    }
+    output
 }
 
 fn print_daemon_status_text(snapshot: &serde_json::Value) {
     println!("status: {}", optional_json_str(&snapshot["status"]));
+    if !snapshot["owner"].is_null() {
+        println!(
+            "owner_unique_name: {}",
+            optional_json_str(&snapshot["owner"]["unique_name"])
+        );
+        match snapshot["owner"]["unix_process_id"].as_u64() {
+            Some(pid) => println!("owner_pid: {pid}"),
+            None => println!("owner_pid: -"),
+        }
+    }
     println!(
         "target_provider_id: {}",
         optional_json_str(&snapshot["asr_backend"]["target_provider_id"])

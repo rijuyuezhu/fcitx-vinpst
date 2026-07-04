@@ -274,9 +274,14 @@ fn daemon_status_dry_run_prints_dbus_plan_json() {
     assert!(methods.contains(&serde_json::json!(dbus::method::GET_RUNTIME_STATUS)));
     let reports = value["reports"].as_array().unwrap();
     assert!(reports.contains(&serde_json::json!("service_status")));
+    assert!(reports.contains(&serde_json::json!("bus_owner")));
     assert!(reports.contains(&serde_json::json!("asr_backend")));
     assert!(reports.contains(&serde_json::json!("runtime_status")));
     assert!(reports.contains(&serde_json::json!("text_adapters")));
+    assert_eq!(value["owner_probe"]["target_name"], dbus::SERVICE_BUS_NAME);
+    let owner_methods = value["owner_probe"]["methods"].as_array().unwrap();
+    assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
+    assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
         step.as_str()
             .is_some_and(|step| step.contains("without --dry-run"))
@@ -296,7 +301,10 @@ fn daemon_status_text_dry_run_prints_dbus_plan() {
     assert!(stdout.contains("GetStatus"));
     assert!(stdout.contains("GetAsrBackendState"));
     assert!(stdout.contains("GetRuntimeStatus"));
-    assert!(stdout.contains("reports: service_status, asr_backend, runtime_status, text_adapters"));
+    assert!(stdout.contains(
+        "reports: service_status, bus_owner, asr_backend, runtime_status, text_adapters"
+    ));
+    assert!(stdout.contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID"));
     assert!(stdout.contains("next_step: run vinput daemon status without --dry-run"));
 }
 
