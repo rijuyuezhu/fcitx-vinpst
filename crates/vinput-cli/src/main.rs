@@ -2103,6 +2103,7 @@ fn daemon_user_service_dry_run_json(
         "action": action,
         "will_mutate_user_service": false,
         "strategy": "systemd-user-service",
+        "tool": daemon_user_service_tool_json(action, command),
         "command": command.display(),
         "command_argv": command.argv(),
         "owner_probe": daemon_owner_probe_plan_json(),
@@ -2111,11 +2112,40 @@ fn daemon_user_service_dry_run_json(
     })
 }
 
+fn daemon_user_service_tool_json(action: &str, command: &UserServiceCommand) -> serde_json::Value {
+    let (name, env_override) = daemon_user_service_tool(action);
+    serde_json::json!({
+        "name": name,
+        "program": command.program,
+        "env_override": env_override,
+        "overridden": std::env::var_os(env_override).is_some(),
+    })
+}
+
+fn print_daemon_user_service_tool_text(action: &str, command: &UserServiceCommand) {
+    let (name, env_override) = daemon_user_service_tool(action);
+    println!("tool: {name}");
+    println!("tool_program: {}", command.program);
+    println!("tool_env_override: {env_override}");
+    println!(
+        "tool_overridden: {}",
+        std::env::var_os(env_override).is_some()
+    );
+}
+
+fn daemon_user_service_tool(action: &str) -> (&'static str, &'static str) {
+    match action {
+        "log" => ("journalctl", "VINPUT_DAEMON_JOURNALCTL"),
+        _ => ("systemctl", "VINPUT_DAEMON_SYSTEMCTL"),
+    }
+}
+
 fn print_daemon_user_service_dry_run_text(action: &str, command: &UserServiceCommand) {
     println!("dry_run: true");
     println!("action: {action}");
     println!("will_mutate_user_service: false");
     println!("strategy: systemd-user-service");
+    print_daemon_user_service_tool_text(action, command);
     println!("command: {}", command.display());
     println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     println!("fallback: {}", daemon_user_service_fallback());
@@ -2138,6 +2168,7 @@ fn run_daemon_user_service_command(
                 "action": action,
                 "will_mutate_user_service": action != "log",
                 "strategy": "systemd-user-service",
+                "tool": daemon_user_service_tool_json(action, command),
                 "command": command.display(),
                 "command_argv": command.argv(),
                 "owner_probe": daemon_owner_probe_plan_json(),
@@ -2154,6 +2185,7 @@ fn run_daemon_user_service_command(
             "action": action,
             "will_mutate_user_service": action != "log",
             "strategy": "systemd-user-service",
+            "tool": daemon_user_service_tool_json(action, command),
             "command": command.display(),
             "command_argv": command.argv(),
             "owner_probe": daemon_owner_probe_plan_json(),
@@ -2177,6 +2209,14 @@ fn print_daemon_user_service_result_text(output: &serde_json::Value) {
             .unwrap_or(false)
     );
     println!("strategy: systemd-user-service");
+    if output["tool"].is_object() {
+        println!("tool: {}", optional_json_str(&output["tool"]["name"]));
+        println!(
+            "tool_env_override: {}",
+            optional_json_str(&output["tool"]["env_override"])
+        );
+        println!("tool_overridden: {}", output["tool"]["overridden"]);
+    }
     println!("command: {}", optional_json_str(&output["command"]));
     println!("ok: {}", output["ok"].as_bool().unwrap_or(false));
     match output["exit_status"].as_i64() {
