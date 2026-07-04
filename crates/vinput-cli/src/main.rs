@@ -2231,7 +2231,7 @@ fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
             println!("service: {}", dbus::SERVICE_BUS_NAME);
             println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
             println!("interface: {}", dbus::SERVICE_INTERFACE);
-            println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID");
+            println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
             println!("next_step: {}", daemon_start_next_steps()[0]);
         }
         return Ok(());
@@ -2349,7 +2349,7 @@ fn print_daemon_status_dry_run_text() {
         dbus::method::GET_RUNTIME_STATUS
     );
     println!("reports: service_status, bus_owner, asr_backend, runtime_status, text_adapters");
-    println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID");
+    println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     println!("next_step: run vinput daemon status without --dry-run");
 }
 
@@ -2362,6 +2362,11 @@ fn daemon_owner_probe_plan_json() -> serde_json::Value {
         "methods": [
             "GetNameOwner",
             "GetConnectionUnixProcessID"
+        ],
+        "process_fields": [
+            "unix_process_id",
+            "exe",
+            "cmdline"
         ],
         "stale_owner_hints": [
             "runtime-status-unavailable",
@@ -2412,6 +2417,7 @@ fn daemon_owner_diagnostics(connection: &zbus::blocking::Connection) -> serde_js
         "service": dbus::SERVICE_BUS_NAME,
         "unique_name": null,
         "unix_process_id": null,
+        "process": null,
         "ok": false,
     });
     let bus_proxy = match zbus::blocking::Proxy::new(
@@ -2440,6 +2446,7 @@ fn daemon_owner_diagnostics(connection: &zbus::blocking::Connection) -> serde_js
     match bus_proxy.call::<_, _, u32>("GetConnectionUnixProcessID", &(owner)) {
         Ok(pid) => {
             output["unix_process_id"] = serde_json::json!(pid);
+            output["process"] = daemon_owner_process_json(pid);
             output["ok"] = serde_json::json!(true);
         }
         Err(error) => {
@@ -2447,6 +2454,27 @@ fn daemon_owner_diagnostics(connection: &zbus::blocking::Connection) -> serde_js
         }
     }
     output
+}
+
+fn daemon_owner_process_json(pid: u32) -> serde_json::Value {
+    let proc_root = PathBuf::from("/proc").join(pid.to_string());
+    let exe = fs::read_link(proc_root.join("exe"))
+        .ok()
+        .map(|path| path.display().to_string());
+    let cmdline = fs::read(proc_root.join("cmdline"))
+        .ok()
+        .map(|bytes| {
+            bytes
+                .split(|byte| *byte == 0)
+                .filter(|part| !part.is_empty())
+                .map(|part| String::from_utf8_lossy(part).into_owned())
+                .collect::<Vec<_>>()
+        })
+        .filter(|parts| !parts.is_empty());
+    serde_json::json!({
+        "exe": exe,
+        "cmdline": cmdline.unwrap_or_default(),
+    })
 }
 
 fn print_daemon_status_text(snapshot: &serde_json::Value) {
@@ -2460,6 +2488,14 @@ fn print_daemon_status_text(snapshot: &serde_json::Value) {
             Some(pid) => println!("owner_pid: {pid}"),
             None => println!("owner_pid: -"),
         }
+        println!(
+            "owner_exe: {}",
+            optional_json_str(&snapshot["owner"]["process"]["exe"])
+        );
+        println!(
+            "owner_cmdline: {}",
+            json_string_array_summary(&snapshot["owner"]["process"]["cmdline"])
+        );
     }
     println!(
         "target_provider_id: {}",

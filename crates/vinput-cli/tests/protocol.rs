@@ -304,7 +304,10 @@ fn daemon_status_text_dry_run_prints_dbus_plan() {
     assert!(stdout.contains(
         "reports: service_status, bus_owner, asr_backend, runtime_status, text_adapters"
     ));
-    assert!(stdout.contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID"));
+    assert!(
+        stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
     assert!(stdout.contains("next_step: run vinput daemon status without --dry-run"));
 }
 
@@ -403,7 +406,10 @@ fn daemon_start_text_dry_run_prints_activation_plan() {
     assert!(stdout.contains("strategy: dbus-service-activation"));
     assert!(stdout.contains("method: GetStatus"));
     assert!(stdout.contains("service: org.fcitx.Vinput"));
-    assert!(stdout.contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID"));
+    assert!(
+        stdout
+            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
+    );
     assert!(
         stdout.contains("next_step: run vinput daemon status to inspect live D-Bus/runtime state")
     );
