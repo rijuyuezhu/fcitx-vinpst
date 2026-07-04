@@ -114,6 +114,71 @@ fn config_get_missing_pointer_without_exists_still_errors() {
 }
 
 #[test]
+fn config_get_default_json_returns_fallback_for_missing_pointer() {
+    let output = vinput_command()
+        .args([
+            "config",
+            "get",
+            "/global/missing",
+            "--default",
+            "false",
+            "--config",
+        ])
+        .arg(workspace_file("data/default-config.json"))
+        .arg("--json")
+        .output()
+        .expect("run vinput config get --default json");
+
+    let value = assert_json_success(output, "config get --default json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["pointer"], "/global/missing");
+    assert_eq!(value["exists"], false);
+    assert_eq!(value["default_used"], true);
+    assert_eq!(value["parsed_default_kind"], "bool");
+    assert_eq!(value["value"], false);
+}
+
+#[test]
+fn config_get_default_text_uses_existing_value_first() {
+    let output = vinput_command()
+        .args([
+            "config",
+            "get",
+            "/global/default_language",
+            "--default",
+            "en",
+            "--config",
+        ])
+        .arg(workspace_file("data/default-config.json"))
+        .output()
+        .expect("run vinput config get --default text");
+
+    let stdout = assert_stdout_success(output, "config get --default text");
+    assert_eq!(stdout, "zh\n");
+}
+
+#[test]
+fn config_get_default_conflicts_with_exists() {
+    let output = vinput_command()
+        .args([
+            "config",
+            "get",
+            "/global/missing",
+            "--exists",
+            "--default",
+            "fallback",
+            "--config",
+        ])
+        .arg(workspace_file("data/default-config.json"))
+        .output()
+        .expect("run vinput config get conflicting flags");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("cannot be used with"));
+}
+
+#[test]
 fn config_set_dry_run_json_validates_without_writing() {
     let root = unique_temp_dir("vinput-cli-config-set-dry-run");
     let config_path = copy_default_config(&root);

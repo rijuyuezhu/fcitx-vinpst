@@ -59,6 +59,9 @@ enum ConfigCommand {
         /// Check whether POINTER exists and do not fail when it is missing.
         #[arg(long)]
         exists: bool,
+        /// Value to print when POINTER is missing. Parsed as JSON when possible.
+        #[arg(long, value_name = "VALUE", conflicts_with = "exists")]
+        default: Option<String>,
         /// Print machine-readable JSON instead of the raw value.
         #[arg(long)]
         json: bool,
@@ -1514,8 +1517,9 @@ fn main() -> anyhow::Result<()> {
                 pointer,
                 config,
                 exists,
+                default,
                 json,
-            }) => handle_config_get(&pointer, config.as_ref(), exists, json),
+            }) => handle_config_get(&pointer, config.as_ref(), exists, default.as_deref(), json),
             Some(ConfigCommand::Set {
                 pointer,
                 value,
@@ -9720,6 +9724,7 @@ fn handle_config_get(
     pointer: &str,
     config_path: Option<&PathBuf>,
     exists_only: bool,
+    default_value: Option<&str>,
     json_output: bool,
 ) -> anyhow::Result<()> {
     ensure_json_pointer(pointer)?;
@@ -9729,7 +9734,14 @@ fn handle_config_get(
         print_config_get_exists(&loaded, pointer, value, json_output)?;
         return Ok(());
     }
-    let value = value.with_context(|| format!("config pointer `{pointer}` not found"))?;
+    let (value, exists, default_used, parsed_default_kind) = if let Some(value) = value {
+        (value.clone(), true, false, None)
+    } else {
+        let default_value =
+            default_value.with_context(|| format!("config pointer `{pointer}` not found"))?;
+        let (value, kind) = parse_config_set_value(default_value, false);
+        (value, false, true, Some(kind))
+    };
     if json_output {
         println!(
             "{}",
@@ -9738,12 +9750,14 @@ fn handle_config_get(
                 "config_path": loaded.path,
                 "source": loaded.source,
                 "pointer": pointer,
-                "exists": true,
+                "exists": exists,
+                "default_used": default_used,
+                "parsed_default_kind": parsed_default_kind,
                 "value": value,
             }))?
         );
     } else {
-        print_config_value(value)?;
+        print_config_value(&value)?;
     }
     Ok(())
 }
