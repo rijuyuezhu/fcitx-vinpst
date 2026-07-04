@@ -2216,6 +2216,10 @@ fn print_daemon_user_service_result_text(output: &serde_json::Value) {
     if output["tool"].is_object() {
         println!("tool: {}", optional_json_str(&output["tool"]["name"]));
         println!(
+            "tool_program: {}",
+            optional_json_str(&output["tool"]["program"])
+        );
+        println!(
             "tool_env_override: {}",
             optional_json_str(&output["tool"]["env_override"])
         );

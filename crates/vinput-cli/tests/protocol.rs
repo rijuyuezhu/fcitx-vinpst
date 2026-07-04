@@ -660,6 +660,24 @@ fn daemon_user_service_missing_tool_reports_fallback_steps_json() {
 }
 
 #[test]
+fn daemon_user_service_missing_tool_text_prints_fallback_step() {
+    let output = vinput_command()
+        .env("VINPUT_DAEMON_SYSTEMCTL", "/tmp/vinput-no-systemctl")
+        .args(["daemon", "stop"])
+        .output()
+        .expect("run vinput daemon stop text with missing systemctl");
+
+    let stdout = assert_stdout_success(output, "daemon missing systemctl text");
+    assert!(stdout.contains("dry_run: false"));
+    assert!(stdout.contains("ok: false"));
+    assert!(stdout.contains("tool: systemctl"));
+    assert!(stdout.contains("tool_program: /tmp/vinput-no-systemctl"));
+    assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_SYSTEMCTL"));
+    assert!(stdout.contains("tool_overridden: true"));
+    assert!(stdout.contains("fallback_step: run vinput activation-service --user-status"));
+}
+
+#[test]
 fn daemon_user_service_real_commands_report_external_output_json() {
     for (command, expected_stdout, will_mutate) in [
         ("stop", "--user stop fcitx-vinput.service\n", true),
