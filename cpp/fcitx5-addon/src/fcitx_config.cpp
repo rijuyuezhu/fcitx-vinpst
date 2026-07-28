@@ -24,6 +24,10 @@ VinputFrontendConfig::VinputFrontendConfig(const FrontendSettings &settings)
                           settings.scene_menu_triggers, TriggerConstrain()),
       asr_menu_triggers(this, "AsrMenuKey", "ASR Menu Keys", settings.asr_menu_triggers,
                         TriggerConstrain()),
+      page_prev_keys(this, "PagePrevKeys", "Previous Page Keys",
+                     settings.page_prev_keys, TriggerConstrain()),
+      page_next_keys(this, "PageNextKeys", "Next Page Keys", settings.page_next_keys,
+                     TriggerConstrain()),
       trigger_mode(this, "TriggerMode", "Trigger Mode", settings.trigger_mode) {}
 
 FrontendSettings VinputFrontendConfig::settings() const {
@@ -32,6 +36,8 @@ FrontendSettings VinputFrontendConfig::settings() const {
       .command_triggers = command_triggers.value(),
       .scene_menu_triggers = scene_menu_triggers.value(),
       .asr_menu_triggers = asr_menu_triggers.value(),
+      .page_prev_keys = page_prev_keys.value(),
+      .page_next_keys = page_next_keys.value(),
       .trigger_mode = trigger_mode.value(),
   };
 }

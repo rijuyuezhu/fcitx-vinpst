@@ -611,10 +611,12 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
     cursor->prevCandidate();
   } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
     cursor->nextCandidate();
-  } else if (pageable != nullptr && IsKey(key, FcitxKey_Page_Up) &&
+  } else if (pageable != nullptr &&
+             key.checkKeyList(frontend_settings_.page_prev_keys) &&
              pageable->hasPrev()) {
     pageable->prev();
-  } else if (pageable != nullptr && IsKey(key, FcitxKey_Page_Down) &&
+  } else if (pageable != nullptr &&
+             key.checkKeyList(frontend_settings_.page_next_keys) &&
              pageable->hasNext()) {
     pageable->next();
   } else if (IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter)) {
@@ -759,10 +761,12 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
     cursor->prevCandidate();
   } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
     cursor->nextCandidate();
-  } else if (pageable != nullptr && IsKey(key, FcitxKey_Page_Up) &&
+  } else if (pageable != nullptr &&
+             key.checkKeyList(frontend_settings_.page_prev_keys) &&
              pageable->hasPrev()) {
     pageable->prev();
-  } else if (pageable != nullptr && IsKey(key, FcitxKey_Page_Down) &&
+  } else if (pageable != nullptr &&
+             key.checkKeyList(frontend_settings_.page_next_keys) &&
              pageable->hasNext()) {
     pageable->next();
   } else if (IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter)) {

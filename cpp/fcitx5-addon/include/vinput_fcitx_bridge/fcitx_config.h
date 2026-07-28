@@ -25,6 +25,14 @@ struct FrontendSettings {
   fcitx::KeyList command_triggers{fcitx::Key(FcitxKey_F10)};
   fcitx::KeyList scene_menu_triggers{fcitx::Key(FcitxKey_Shift_R)};
   fcitx::KeyList asr_menu_triggers{fcitx::Key(FcitxKey_F8)};
+  fcitx::KeyList page_prev_keys{
+      fcitx::Key(FcitxKey_Page_Up),
+      fcitx::Key(FcitxKey_KP_Page_Up),
+  };
+  fcitx::KeyList page_next_keys{
+      fcitx::Key(FcitxKey_Page_Down),
+      fcitx::Key(FcitxKey_KP_Page_Down),
+  };
   TriggerMode trigger_mode{TriggerMode::Both};
 
   bool operator==(const FrontendSettings &) const = default;
@@ -48,6 +56,10 @@ public:
       scene_menu_triggers;
   fcitx::Option<fcitx::KeyList, fcitx::ListConstrain<fcitx::KeyConstrain>>
       asr_menu_triggers;
+  fcitx::Option<fcitx::KeyList, fcitx::ListConstrain<fcitx::KeyConstrain>>
+      page_prev_keys;
+  fcitx::Option<fcitx::KeyList, fcitx::ListConstrain<fcitx::KeyConstrain>>
+      page_next_keys;
   fcitx::Option<TriggerMode> trigger_mode;
 };
 

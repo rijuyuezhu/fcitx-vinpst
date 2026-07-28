@@ -38,6 +38,8 @@ int main() {
   settings.command_triggers = {fcitx::Key(FcitxKey_F9)};
   settings.scene_menu_triggers = {fcitx::Key(FcitxKey_Shift_R)};
   settings.asr_menu_triggers = {fcitx::Key(FcitxKey_F8), fcitx::Key("Control+F8")};
+  settings.page_prev_keys = {fcitx::Key(FcitxKey_F5), fcitx::Key(FcitxKey_KP_Page_Up)};
+  settings.page_next_keys = {fcitx::Key(FcitxKey_F6), fcitx::Key(FcitxKey_KP_Next)};
   settings.trigger_mode = vinput_fcitx_bridge::TriggerMode::Hold;
   assert(SaveFrontendSettingsToPath(settings, path));
   assert(LoadFrontendSettingsFromPath(path) == settings);
@@ -49,14 +51,19 @@ int main() {
   assert(Contains(contents, "[CommandKeys]"));
   assert(Contains(contents, "[SceneMenuKey]"));
   assert(Contains(contents, "[AsrMenuKey]"));
+  assert(Contains(contents, "[PagePrevKeys]"));
+  assert(Contains(contents, "[PageNextKeys]"));
   assert(Contains(contents, "F6"));
   assert(Contains(contents, "F7"));
   assert(Contains(contents, "Control+F8"));
+  assert(Contains(contents, "KP_Page_Up"));
+  assert(Contains(contents, "KP_Next"));
   assert(Contains(contents, "TriggerMode=Hold"));
 
   {
     std::ofstream rewrite(path, std::ios::trunc);
-    rewrite << contents << "\n[PagePrevKey]\n0=Page_Up\n";
+    rewrite << "LegacySearchMode=enabled\n\n"
+            << contents << "\n[LegacySearchKeys]\n0=Control+F\n";
   }
   settings.command_triggers = {fcitx::Key(FcitxKey_F10)};
   assert(SaveFrontendSettingsToPath(settings, path));
@@ -64,8 +71,9 @@ int main() {
   const std::string merged_contents((std::istreambuf_iterator<char>(merged_input)),
                                     std::istreambuf_iterator<char>());
   assert(Contains(merged_contents, "TriggerMode=Hold"));
-  assert(Contains(merged_contents, "[PagePrevKey]"));
-  assert(Contains(merged_contents, "0=Page_Up"));
+  assert(Contains(merged_contents, "LegacySearchMode=enabled"));
+  assert(Contains(merged_contents, "[LegacySearchKeys]"));
+  assert(Contains(merged_contents, "0=Control+F"));
   assert(LoadFrontendSettingsFromPath(path) == settings);
 
   VinputFrontendConfig config(settings);

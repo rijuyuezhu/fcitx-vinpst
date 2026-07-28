@@ -109,6 +109,8 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
         "fcitx::KeyList command_triggers",
         "fcitx::KeyList scene_menu_triggers",
         "fcitx::KeyList asr_menu_triggers",
+        "fcitx::KeyList page_prev_keys",
+        "fcitx::KeyList page_next_keys",
         "enum class TriggerMode : std::uint8_t",
         "TriggerMode trigger_mode",
     ] {
@@ -122,6 +124,8 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
         "\"CommandKeys\"",
         "\"SceneMenuKey\"",
         "\"AsrMenuKey\"",
+        "\"PagePrevKeys\"",
+        "\"PageNextKeys\"",
         "\"TriggerMode\"",
         "safeSaveAsIni",
         "readAsIni",
@@ -144,6 +148,26 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
             "trigger mode header should pin {required}"
         );
     }
+    let addon_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
+            .expect("read addon source");
+    assert_eq!(
+        addon_source
+            .matches("key.checkKeyList(frontend_settings_.page_prev_keys)")
+            .count(),
+        2,
+        "scene and ASR menus should both use configured previous-page keys"
+    );
+    assert_eq!(
+        addon_source
+            .matches("key.checkKeyList(frontend_settings_.page_next_keys)")
+            .count(),
+        2,
+        "scene and ASR menus should both use configured next-page keys"
+    );
+    assert!(!addon_source.contains("IsKey(key, FcitxKey_Page_Up)"));
+    assert!(!addon_source.contains("IsKey(key, FcitxKey_Page_Down)"));
+
     for required in [
         "void reloadConfig() override",
         "void save() override",
