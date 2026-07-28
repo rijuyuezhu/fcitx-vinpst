@@ -1878,6 +1878,45 @@ fn materialize_staged_tree_moves_new_tree_to_target() {
     assert!(materialize_backup_dirs(materialized.target_path.parent().unwrap()).is_empty());
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn materialize_staged_tree_copies_then_renames_across_filesystems() {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(source_root) = tempfile::Builder::new()
+        .prefix("vinput-registry-cross-device-")
+        .tempdir_in("/dev/shm")
+    else {
+        return;
+    };
+    let target_root = tempfile::tempdir().unwrap();
+    if std::fs::metadata(source_root.path()).unwrap().dev()
+        == std::fs::metadata(target_root.path()).unwrap().dev()
+    {
+        return;
+    }
+
+    let source = source_root.path().join("staged-tree");
+    std::fs::create_dir_all(source.join("nested")).unwrap();
+    std::fs::write(source.join("nested/model.bin"), b"cross-device").unwrap();
+    let target = target_root.path().join("models/test-model");
+
+    let materialized = materialize_staged_tree(&source, &target).unwrap();
+
+    assert!(!source.exists());
+    assert_eq!(
+        std::fs::read(target.join("nested/model.bin")).unwrap(),
+        b"cross-device"
+    );
+    assert_eq!(materialized.target_path, target);
+    assert!(
+        std::fs::read_dir(materialized.target_path.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| !entry.file_name().to_string_lossy().contains(".publish."))
+    );
+}
+
 #[test]
 fn materialize_staged_tree_replaces_existing_target_and_removes_backup() {
     let temp_dir = tempfile::tempdir().unwrap();
@@ -2105,6 +2144,8 @@ fn install_live_model_downloads_verifies_extracts_and_materializes_single_root()
     let source = StaticRegistryAssetSource::default().with_response(url, Ok(archive_bytes));
     let model_dir = temp_dir.path().join("models/test-sense");
     let staging_dir = temp_dir.path().join("stage/test-sense");
+    std::fs::create_dir_all(staging_dir.join("extract/stale-root")).unwrap();
+    std::fs::write(staging_dir.join("extract/stale-root/stale.txt"), b"stale").unwrap();
 
     let installed = install_live_model(
         &source,
@@ -2148,6 +2189,7 @@ fn install_live_model_downloads_verifies_extracts_and_materializes_single_root()
     assert_eq!(metadata["backend"], "sherpa-offline");
     assert_eq!(metadata["model"]["sense_voice"]["model"], "model.int8.onnx");
     assert!(!staging_dir.join("extract/release-root").exists());
+    assert!(!staging_dir.join("extract/stale-root").exists());
 }
 
 #[test]

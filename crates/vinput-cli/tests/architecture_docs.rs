@@ -430,6 +430,9 @@ fn registry_architecture_mentions_root_planning() {
     assert!(registry_doc.contains("Dry-run install plans keep install roots explicit"));
     assert!(registry_doc.contains("filesystem root stays absolute"));
     assert!(registry_doc.contains("without touching the filesystem"));
+    assert!(registry_doc.contains("On `CrossesDevices`"));
+    assert!(registry_doc.contains("hidden sibling on the target filesystem"));
+    assert!(registry_doc.contains("resets a stale extraction directory before each retry"));
 }
 
 #[test]

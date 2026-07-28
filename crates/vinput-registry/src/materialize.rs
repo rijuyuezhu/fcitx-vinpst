@@ -1,7 +1,8 @@
 //! Registry staged-tree materialization boundary.
 //!
-//! This module moves a fully prepared staging directory into a target directory
-//! using same-directory renames and an explicit rollback path for replacements.
+//! This module publishes a fully prepared staging directory into a target
+//! directory using renames, with a target-filesystem copy fallback for `EXDEV`,
+//! and an explicit rollback path for replacements.
 //! It does not download assets, extract archives, mutate configuration, or expose
 //! user-facing install commands.
 
@@ -106,11 +107,11 @@ pub enum RegistryMaterializeError {
 
 /// Moves a staged directory into a target directory.
 ///
-/// The operation consumes `source_path` with `rename`. If the target directory
-/// exists, it is first moved to a same-directory backup; publish failure attempts
-/// to roll that backup back into place. This boundary is intentionally local
-/// filesystem-oriented and does not copy across filesystems, edit config, or run
-/// install commands.
+/// The operation normally consumes `source_path` with `rename`. If source and
+/// target are on different filesystems, it first copies the validated tree to a
+/// hidden sibling of the target and then atomically renames that sibling into
+/// place. If the target directory exists, it is first moved to a same-directory
+/// backup; publish failure attempts to roll that backup back into place.
 pub fn materialize_staged_tree(
     source_path: impl AsRef<Path>,
     target_path: impl AsRef<Path>,
@@ -143,7 +144,7 @@ pub fn materialize_staged_tree(
         })?;
     }
 
-    if let Err(error) = fs::rename(source_path, target_path) {
+    if let Err(error) = publish_staged_tree(source_path, target_path) {
         let publish_message = sanitize_io_error(&error);
         if replaced_existing {
             return rollback_existing_target(
@@ -174,6 +175,56 @@ pub fn materialize_staged_tree(
         target_path: target_path.to_owned(),
         replaced_existing,
     })
+}
+
+fn publish_staged_tree(source_path: &Path, target_path: &Path) -> io::Result<()> {
+    match fs::rename(source_path, target_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
+            publish_cross_device(source_path, target_path)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn publish_cross_device(source_path: &Path, target_path: &Path) -> io::Result<()> {
+    let publish_path = materialize_publish_path(target_path);
+    if let Err(error) = copy_directory_tree(source_path, &publish_path) {
+        remove_dir_if_exists(&publish_path);
+        return Err(error);
+    }
+    if let Err(error) = fs::rename(&publish_path, target_path) {
+        remove_dir_if_exists(&publish_path);
+        return Err(error);
+    }
+    remove_dir_if_exists(source_path);
+    Ok(())
+}
+
+fn copy_directory_tree(source_path: &Path, target_path: &Path) -> io::Result<()> {
+    fs::create_dir(target_path)?;
+    for entry in fs::read_dir(source_path)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let source_entry = entry.path();
+        let target_entry = target_path.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_directory_tree(&source_entry, &target_entry)?;
+        } else if file_type.is_file() {
+            fs::copy(&source_entry, &target_entry)?;
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "staged tree contains a non-file, non-directory entry",
+            ));
+        }
+    }
+    fs::set_permissions(target_path, fs::metadata(source_path)?.permissions())?;
+    Ok(())
+}
+
+fn remove_dir_if_exists(path: &Path) {
+    let _ = fs::remove_dir_all(path);
 }
 
 fn validate_materialize_paths(
@@ -235,6 +286,20 @@ fn materialize_backup_path(target_path: &Path) -> PathBuf {
         .map_or(0, |duration| duration.as_nanos());
     target_path.with_file_name(format!(
         ".{file_name}.backup.{}.{unique}",
+        std::process::id()
+    ))
+}
+
+fn materialize_publish_path(target_path: &Path) -> PathBuf {
+    let file_name = target_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("registry-materialized");
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    target_path.with_file_name(format!(
+        ".{file_name}.publish.{}.{unique}",
         std::process::id()
     ))
 }

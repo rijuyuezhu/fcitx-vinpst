@@ -86,6 +86,16 @@ pub enum LiveModelInstallError {
         /// Archive staging failure.
         source: Box<ArchiveStagingError>,
     },
+    /// A stale extraction tree from an earlier attempt could not be removed.
+    #[error("failed to reset live model extraction directory for `{id}` at `{path}`: {message}")]
+    ResetExtractDir {
+        /// Live model id.
+        id: String,
+        /// Extraction directory path.
+        path: String,
+        /// Sanitized I/O failure.
+        message: String,
+    },
     /// Extracted archive tree could not be inspected.
     #[error("failed to inspect extracted live model tree for `{id}`: {message}")]
     InspectExtractedTree {
@@ -150,6 +160,15 @@ pub fn install_live_model(
             source: Box::new(source),
         }
     })?;
+    if extract_dir.exists() {
+        fs::remove_dir_all(&extract_dir).map_err(|error| {
+            LiveModelInstallError::ResetExtractDir {
+                id: model.id.clone(),
+                path: display_path(&extract_dir),
+                message: sanitize_io_error(&error),
+            }
+        })?;
+    }
     let staged_archive =
         stage_archive_by_format(&staged_asset.path, &extract_dir).map_err(|source| {
             LiveModelInstallError::StageArchive {
