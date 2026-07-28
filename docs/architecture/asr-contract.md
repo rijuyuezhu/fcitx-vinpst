@@ -40,7 +40,7 @@ StopRecording
   -> reset Idle
 ```
 
-This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend currently covers buffered offline SenseVoice and Qwen3 ASR recognition, both proven with real bundled WAV samples. Live PipeWire chunk delivery to streaming ASR, VAD trimming, warmup/reload state, broader sherpa model families, and real worker orchestration still belong to later phases.
+This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend currently covers buffered offline SenseVoice and Qwen3 ASR recognition, both proven with real bundled WAV samples. The daemon now routes recorder callbacks to any chunked ASR session in legacy-compatible 800-frame batches, applies input gain before delivery, polls events after each push, propagates callback failures, and flushes the final short batch without replaying the complete stop buffer. A native sherpa online recognizer, live `RecognitionPartial` emission, VAD trimming, warmup/reload state, and broader sherpa model families still belong to later phases.
 
 ## Command ASR provider contracts
 
@@ -110,11 +110,11 @@ Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendS
 These gaps remain after the behavior-preserving ASR split:
 
 - Native `sherpa-onnx` is feature-gated and currently supports buffered offline SenseVoice and Qwen3 ASR recognition with real WAV smokes. Transducer, Zipformer2 CTC, Moonshine, Dolphin, Paraformer, and other model families, runtime VAD trimming, warmup, full reload state, and decode timeout enforcement are not implemented yet.
-- Runtime streaming has command-helper test seams, but live PipeWire chunk delivery to streaming ASR is not implemented.
+- Runtime streaming now delivers live recorder callbacks to chunked sessions in 800-frame batches and retains polled events until stop. Native sherpa online model construction and live D-Bus partial emission are not implemented yet.
 - Command ASR is runtime-wired for configured command providers; remote ASR provider kinds remain contract-pinned but unavailable.
 
 ## Mock audio push observation
 
-`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests. The log records each `push_audio` or `push_pcm` call, including sample length and optional `PcmSpec` metadata. This is a mock-only observation seam for future runtime streaming tests; it does not imply a real ASR runtime or live recorder is wired.
+`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests. The log records each `push_audio` or `push_pcm` call, including sample length and optional `PcmSpec` metadata. Runtime tests use it to prove 800/800/tail chunk delivery, input metadata preservation, and no stop-time replay. This remains a mock observation seam and does not prove a native online recognizer or a real desktop recording session.
 
 `MockAsrAudioPush` is serde/schema-ready so future diagnostics can expose recorded mock audio pushes without exposing the shared `MockAsrAudioLog` container itself.

@@ -61,7 +61,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 ## Highest-risk gaps
 
 1. Live desktop validation has not proven the complete native path: Fcitx trigger, PipeWire capture, native inference, postprocess, and commit in a real application.
-2. Live PipeWire chunks are not delivered to a native streaming sherpa session; registry streaming families remain unavailable.
+2. Daemon chunked delivery is implemented and tested with legacy-compatible 800-frame batching, but native sherpa online recognizer construction and live D-Bus partial emission remain unavailable.
 3. Native VAD trimming, warmup, decode timeout enforcement, and warm reload semantics remain incomplete.
 4. SenseVoice and Qwen3 ASR are the only native offline family mappings currently implemented; transducer, Zipformer2 CTC, Moonshine, Dolphin, Paraformer, and other registry-compatible families still need runtime support.
 5. Native shared-library resolution is improved for local smoke but still needs a robust activation, desktop-install, and distribution story.
@@ -80,10 +80,11 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 7. Real native SenseVoice smoke that can validate model loading and one WAV recognition before desktop debugging.
 8. Typed live-registry family classification plus a real native Qwen3 ASR registry install and WAV smoke.
 9. Primary-selection clipboard fallback for command mode in applications without usable surrounding text.
+10. Delivery-mode-aware recorder callbacks that stream 800-frame PCM batches, preserve metadata, propagate callback errors, and avoid stop-time replay.
 
 ## Current priority
 
-The next target is **real desktop native-dictation alpha**. First prove the complete SenseVoice path in a real Fcitx session. Then connect PipeWire chunks to native streaming ASR, add VAD/timeout/warm-reload semantics, and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
+The next target is **real desktop native-dictation alpha**. First prove the complete SenseVoice path in a real Fcitx session. Then build a native sherpa online recognizer on top of the implemented chunk-delivery runtime, emit live partial signals, add VAD/timeout/warm-reload semantics, and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
 
 Do not claim full parity until the documented happy path works through a real desktop session and no longer depends on implementation-only profiles:
 

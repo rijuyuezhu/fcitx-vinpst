@@ -25,7 +25,7 @@ The Rust rewrite already has:
 The main gaps are now:
 
 - live desktop addon/load/trigger/PipeWire/native-ASR/commit proof;
-- native streaming chunk delivery, VAD, timeout, warmup, and warm reload behavior;
+- native online recognizer construction, live partial emission, VAD, timeout, warmup, and warm reload behavior;
 - broader sherpa model families;
 - frontend config, scene/ASR menus, and richer notifications;
 - provider/adapter registry installation breadth and remote services;
@@ -42,4 +42,4 @@ The main gaps are now:
 
 ## Next recommended slice
 
-Start with an M4 or native-runtime slice from [`e2e-capability-matrix.md`](e2e-capability-matrix.md): prove the real desktop SenseVoice chain, connect PipeWire chunks to native streaming ASR, add VAD/timeout/warm-reload semantics, or port the next registry model family. Do not start broad GUI polish or distro packaging before real desktop native alpha is proven.
+Start with an M4 or native-runtime slice from [`e2e-capability-matrix.md`](e2e-capability-matrix.md): prove the real desktop SenseVoice chain, construct the native online recognizer and live partial-signal path on top of the implemented chunk delivery, add VAD/timeout/warm-reload semantics, or port the next registry model family. Do not start broad GUI polish or distro packaging before real desktop native alpha is proven.

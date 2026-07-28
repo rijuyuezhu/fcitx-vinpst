@@ -7,7 +7,7 @@ use vinput_asr::{
 };
 use vinput_audio::{
     AudioChunkCallback, AudioError, AudioRecorder, CaptureTarget, CapturedAudio, MockAudioSource,
-    PcmBuffer, PcmSpec,
+    PcmBuffer, PcmSpec, SourceAudioRecorder,
 };
 use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 use vinput_protocol::{RecognitionPayload, ServiceStatus};
@@ -384,6 +384,7 @@ struct EventRecordingRecorder {
     events: Arc<Mutex<Vec<&'static str>>>,
     captured: CapturedAudio,
     recording: bool,
+    chunk_callback: Option<AudioChunkCallback>,
 }
 
 impl EventRecordingRecorder {
@@ -392,6 +393,7 @@ impl EventRecordingRecorder {
             events,
             captured,
             recording: false,
+            chunk_callback: None,
         }
     }
 }
@@ -406,7 +408,9 @@ impl AudioRecorder for EventRecordingRecorder {
         Ok(())
     }
 
-    fn set_chunk_callback(&mut self, _callback: Option<AudioChunkCallback>) {}
+    fn set_chunk_callback(&mut self, callback: Option<AudioChunkCallback>) {
+        self.chunk_callback = callback;
+    }
 
     fn stop_and_get_buffer(&mut self) -> Result<CapturedAudio, AudioError> {
         if !self.recording {
@@ -417,6 +421,9 @@ impl AudioRecorder for EventRecordingRecorder {
             .expect("events lock poisoned")
             .push("stop");
         self.recording = false;
+        if let Some(callback) = &mut self.chunk_callback {
+            callback(&self.captured.pcm);
+        }
         Ok(self.captured.clone())
     }
 
@@ -1336,11 +1343,10 @@ fn early_final_event_is_preserved_until_payload_conversion() {
 }
 
 #[test]
-fn runtime_pushes_processed_pcm_with_metadata_to_asr_session() {
+fn runtime_pushes_processed_pcm_with_metadata_to_buffered_asr_session() {
     let config = VinputConfig::bundled_default().unwrap();
     let audio_log = MockAsrAudioLog::new();
-    let backend =
-        MockAsrBackend::streaming("listening", "custom final").with_audio_log(audio_log.clone());
+    let backend = MockAsrBackend::buffered("custom final").with_audio_log(audio_log.clone());
     let source = MockAudioSource::once(CapturedAudio::anonymous(
         PcmBuffer::with_spec(
             PcmSpec {
@@ -1367,6 +1373,45 @@ fn runtime_pushes_processed_pcm_with_metadata_to_asr_session() {
                 channels: 2,
             }),
         }]
+    );
+}
+
+#[test]
+fn runtime_streams_pcm_in_legacy_sized_batches_without_replaying_final_buffer() {
+    let config = VinputConfig::bundled_default().unwrap();
+    let audio_log = MockAsrAudioLog::new();
+    let backend =
+        MockAsrBackend::streaming("listening", "custom final").with_audio_log(audio_log.clone());
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        vec![64; 1_700],
+    )));
+    let recorder = SourceAudioRecorder::new(Box::new(source))
+        .with_chunk_frames(300)
+        .unwrap();
+    let mut runtime =
+        RuntimeState::with_audio_recorder(config, Box::new(backend), Box::new(recorder)).unwrap();
+
+    runtime.start_recording().unwrap();
+    let report = runtime.stop_recording_report(None).unwrap();
+
+    assert_eq!(report.partial_text.as_deref(), Some("listening"));
+    assert_eq!(report.payload.commit_text, "custom final");
+    assert_eq!(
+        audio_log.records(),
+        vec![
+            MockAsrAudioPush {
+                sample_len: 800,
+                pcm_spec: Some(PcmSpec::default()),
+            },
+            MockAsrAudioPush {
+                sample_len: 800,
+                pcm_spec: Some(PcmSpec::default()),
+            },
+            MockAsrAudioPush {
+                sample_len: 100,
+                pcm_spec: Some(PcmSpec::default()),
+            },
+        ]
     );
 }
 

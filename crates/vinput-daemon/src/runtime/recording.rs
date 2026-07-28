@@ -1,6 +1,6 @@
 //! Recording lifecycle, ASR event draining, and stop-time text finishing.
 
-use vinput_asr::{RecognitionContext, RecognitionEvent, RecognitionSession, events_to_payload};
+use vinput_asr::{AudioDeliveryMode, RecognitionContext, RecognitionEvent, events_to_payload};
 use vinput_audio::{AudioProcessingOptions, PcmBuffer};
 use vinput_protocol::{RecognitionPayload, ServiceStatus};
 use vinput_text::TextRequest;
@@ -48,37 +48,51 @@ impl RuntimeState {
             .unwrap_or_else(|| self.config.scenes.active_scene.clone());
 
         let result = (|| {
-            let mut session = self
+            let session = self
                 .active_session
                 .take()
                 .ok_or(RuntimeError::MissingAsrSession)?;
-            let pcm = match self.stop_and_process_recording() {
+            let captured = match self.stop_recording_buffer() {
                 Ok(pcm) => pcm,
                 Err(error) => {
                     let _ = session.cancel();
                     return Err(error);
                 }
             };
-            if let Err(error) = session.push_pcm(&pcm) {
-                let _ = session.cancel();
-                return Err(RuntimeError::Asr(error));
-            }
-            let mut events = match self.drain_pending_events(&mut *session) {
-                Ok(events) => events,
+
+            let mut events = match session.delivery_mode() {
+                AudioDeliveryMode::Buffered => {
+                    let pcm = self.process_captured_pcm(&captured);
+                    if let Err(error) = session.push_buffered_pcm(&pcm) {
+                        let _ = session.cancel();
+                        return Err(RuntimeError::Asr(error));
+                    }
+                    Vec::new()
+                }
+                AudioDeliveryMode::Chunked => match session.finish_streaming_delivery() {
+                    Ok(events) => events,
+                    Err(error) => {
+                        let _ = session.cancel();
+                        return Err(RuntimeError::Asr(error));
+                    }
+                },
+            };
+            match self.drain_pending_events(&session) {
+                Ok(new_events) => events.extend(new_events),
                 Err(error) => {
                     let _ = session.cancel();
                     return Err(error);
                 }
-            };
+            }
             if let Err(error) = session.finish() {
                 let _ = session.cancel();
                 return Err(RuntimeError::Asr(error));
             }
-            match session.poll_events() {
+            match self.drain_pending_events(&session) {
                 Ok(new_events) => events.extend(new_events),
                 Err(error) => {
                     let _ = session.cancel();
-                    return Err(RuntimeError::Asr(error));
+                    return Err(error);
                 }
             }
             let partial_text = latest_partial_text(&events).or_else(|| self.partial_text.clone());
@@ -123,11 +137,19 @@ impl RuntimeState {
         self.ensure_idle()?;
         let capture_target = self.capture_target_for_runtime()?;
         let context = self.recognition_context(&scene_id, selected_text.as_deref());
-        let mut session = self
+        let delivery_mode = self.asr_backend.describe().capabilities.delivery_mode;
+        let session = self
             .asr_backend
             .create_session(context)
             .map_err(RuntimeError::Asr)?;
+        let (session, chunk_callback) = super::ActiveRecognitionSession::new(
+            session,
+            delivery_mode,
+            self.config.asr.input_gain,
+        );
+        self.audio_recorder.set_chunk_callback(chunk_callback);
         if let Err(error) = self.audio_recorder.begin_recording(capture_target) {
+            self.audio_recorder.set_chunk_callback(None);
             let _ = session.cancel();
             return Err(RuntimeError::Audio(error));
         }
@@ -140,7 +162,7 @@ impl RuntimeState {
 
     fn drain_pending_events(
         &mut self,
-        session: &mut dyn RecognitionSession,
+        session: &super::ActiveRecognitionSession,
     ) -> Result<Vec<RecognitionEvent>, RuntimeError> {
         let mut events = Vec::new();
         for event in session.poll_events().map_err(RuntimeError::Asr)? {
@@ -171,12 +193,12 @@ impl RuntimeState {
         }
     }
 
-    fn stop_and_process_recording(&mut self) -> Result<PcmBuffer, RuntimeError> {
-        let captured = self
-            .audio_recorder
-            .stop_and_get_buffer()
-            .map_err(RuntimeError::Audio)?;
-        Ok(self.process_captured_pcm(&captured.pcm))
+    fn stop_recording_buffer(&mut self) -> Result<PcmBuffer, RuntimeError> {
+        let result = self.audio_recorder.stop_and_get_buffer();
+        self.audio_recorder.set_chunk_callback(None);
+        result
+            .map(|captured| captured.pcm)
+            .map_err(RuntimeError::Audio)
     }
 
     fn process_captured_pcm(&self, pcm: &PcmBuffer) -> PcmBuffer {

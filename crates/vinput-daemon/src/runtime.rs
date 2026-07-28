@@ -1,11 +1,13 @@
 //! Minimal daemon runtime used before real PipeWire/ASR/D-Bus integration lands.
 
+mod active_session;
 mod adapter_process;
 mod diagnostics;
 mod errors;
 mod recording;
 mod reload;
 
+use active_session::ActiveRecognitionSession;
 pub use errors::RuntimeError;
 use reload::PendingAsrReload;
 
@@ -13,7 +15,7 @@ use std::{
     collections::HashMap,
     time::{Duration, Instant},
 };
-use vinput_asr::{AsrBackend, AsrBackendFactory, MockAsrBackend, RecognitionSession};
+use vinput_asr::{AsrBackend, AsrBackendFactory, MockAsrBackend};
 use vinput_audio::{
     AudioRecorder, AudioSource, CaptureTarget, CapturedAudio, MockAudioSource, PcmBuffer,
     SourceAudioRecorder,
@@ -41,7 +43,7 @@ pub struct RuntimeState {
     asr_backend: Box<dyn AsrBackend>,
     audio_recorder: Box<dyn AudioRecorder>,
     text_processor: Box<dyn TextProcessor>,
-    active_session: Option<Box<dyn RecognitionSession>>,
+    active_session: Option<ActiveRecognitionSession>,
     pending_asr_reload: Option<PendingAsrReload>,
     asr_reload_last_error: Option<String>,
     adapter_runtime_paths: AdapterRuntimePaths,
@@ -50,7 +52,8 @@ pub struct RuntimeState {
 
 impl Drop for RuntimeState {
     fn drop(&mut self) {
-        if let Some(mut session) = self.active_session.take() {
+        self.audio_recorder.set_chunk_callback(None);
+        if let Some(session) = self.active_session.take() {
             let _ = session.cancel();
         }
         let _ = self.audio_recorder.cancel_recording();

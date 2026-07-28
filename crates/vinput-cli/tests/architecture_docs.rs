@@ -186,7 +186,11 @@ fn audio_architecture_pins_pipewire_live_test_policy() {
         "pinned `S16LE` 16 kHz mono PCM policy",
         "deterministic chunk planning use frames rather than raw sample count",
         "chunk helpers never split a frame across chunk boundaries",
-        "pushes the processed `PcmBuffer` with explicit `PcmSpec` metadata to the active ASR session",
+        "selects delivery from the active backend descriptor",
+        "legacy-compatible 800-frame batches",
+        "complete accumulated stop buffer is not replayed",
+        "applies only input gain at the callback boundary",
+        "1,700 mono samples become 800, 800, and 100 sample pushes",
         "`PcmBuffer::chunk_ranges_by_frames` can plan complete-frame chunk ranges without copying",
         "can use complete-frame chunk helpers for deterministic streaming callback tests",
     ] {
@@ -215,12 +219,18 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "just sherpa-offline-local-smoke",
         "just sherpa-qwen3-local-smoke",
         "Esta prenda es amplia. Recomiendo elegir una talla menor al habitual.",
-        "VAD trimming, warmup/reload state, broader sherpa model families",
+        "daemon now routes recorder callbacks to any chunked ASR session",
+        "legacy-compatible 800-frame batches",
+        "Native sherpa online model construction and live D-Bus partial emission are not implemented yet",
+        "VAD trimming",
+        "warmup/reload state",
+        "broader sherpa model families",
         "Timeout fields are preserved in config diagnostics but are not yet enforced",
         "runs `runtime-status` by default after install and during `VINPUT_USER_STATUS=1` checks",
         "Set `VINPUT_USER_RUNTIME_STATUS=0` to skip that validation",
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
-        "mock-only observation seam for future runtime streaming tests",
+        "800/800/tail chunk delivery",
+        "does not prove a native online recognizer or a real desktop recording session",
         "`MockAsrAudioPush` is serde/schema-ready",
     ] {
         assert!(
@@ -417,7 +427,8 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
     for required in [
         "Completed: usable CLI/daemon alpha",
         "P0: real desktop native alpha",
-        "Wire live PipeWire chunks",
+        "Implemented at daemon boundary: deliver recorder callbacks in 800-frame batches",
+        "native sherpa online recognizer construction",
         "Port the remaining live-registry model families",
     ] {
         assert!(

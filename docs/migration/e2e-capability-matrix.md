@@ -128,7 +128,7 @@ Rust CLI weaknesses for a user:
 | Command batch ASR | Implemented. | Implemented. | Mostly aligned. |
 | Command streaming ASR | Implemented with partials and process protocol. | Implemented/tested in Rust command ASR path. | Mostly aligned, needs live CLI config. |
 | Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice and Qwen3 ASR both pass real registry-model WAV smokes. | Partial; remaining families are pending. |
-| Sherpa streaming | Implemented. | Not implemented. | Missing. |
+| Sherpa streaming | Implemented. | Daemon recorder callbacks stream 800-frame batches to chunked sessions and poll events; native online recognizer construction and live D-Bus partial emission remain missing. | Partial. |
 | VAD | `vad_trimmer` with sherpa VAD model. | Config parses VAD but native trimming is not implemented. | Missing/partial. |
 | Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust classifies current and legacy registry families, reads SenseVoice and Qwen3 ASR family-specific metadata, validates required assets, and preserves unknown future family names. | Partial; remaining families still need runtime mapping. |
 | Text postprocess | OpenAI-compatible HTTP, prompt files/interpolation/context/candidates, command scene. | Command adapter and OpenAI-compatible paths exist; real UX/config incomplete. | Partial. |
@@ -330,7 +330,7 @@ Acceptance:
 Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Deliver live PipeWire chunks to a native sherpa streaming session and map partial/final events.
+2. Implement native sherpa online recognizer construction and emit callback-polled partial/final events through the live D-Bus path.
 3. Add native VAD trimming, decode timeout enforcement, warmup, and warm reload semantics.
 4. Port transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer metadata/runtime layouts in registry-priority order.
 5. Complete scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.

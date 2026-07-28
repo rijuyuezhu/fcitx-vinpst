@@ -50,7 +50,7 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 1. Implemented and WAV-proven for SenseVoice and Qwen3 ASR: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
 2. Add transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer layouts in registry-priority order.
-3. Add sherpa streaming backend support, deliver live PipeWire chunks, and map partial events to `RecognitionPartial`.
+3. Implemented at daemon boundary: deliver recorder callbacks in 800-frame batches to chunked sessions. Remaining: add native sherpa online recognizer construction and map callback-polled events to live `RecognitionPartial` signals.
 4. Add VAD trimming, warmup, decode timeout, and warm reload semantics where legacy exposes them.
 5. Implemented deterministically: OpenAI-compatible text provider behavior uses local mock-server tests; add one real desktop provider validation.
 6. Continue preserving legacy status strings, method names, signal names, and recognition payload shape.
@@ -82,7 +82,7 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 ## Suggested next slices
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Wire live PipeWire chunks into native sherpa streaming recognition.
+2. Add native sherpa online recognizer construction and live D-Bus partial emission on top of the implemented chunk-delivery runtime.
 3. Add native VAD, timeout, warmup, and warm reload behavior.
 4. Port the remaining live-registry model families.
 5. Add scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.
