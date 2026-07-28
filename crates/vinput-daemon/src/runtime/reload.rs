@@ -185,11 +185,18 @@ impl RuntimeState {
     }
 
     /// Records a background preparation failure if the request is still current.
-    pub(crate) fn fail_prepared_asr_reload(&mut self, generation: u64, error: &RuntimeError) {
+    pub(crate) fn fail_prepared_asr_reload(
+        &mut self,
+        generation: u64,
+        error: &RuntimeError,
+    ) -> Option<String> {
         self.asr_reload_preparing = false;
-        if generation == self.asr_reload_generation {
-            self.asr_reload_last_error = Some(format!("Failed to reload ASR backend. {error}"));
+        if generation != self.asr_reload_generation {
+            return None;
         }
+        let message = format!("Failed to reload ASR backend. {error}");
+        self.asr_reload_last_error = Some(message.clone());
+        Some(message)
     }
 
     /// Reloads the ASR backend state after validating config.

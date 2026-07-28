@@ -470,7 +470,9 @@ fn target_architecture_pins_frontend_packaging_boundary() {
         "3000/5000 ms timeouts",
         "notifications-addon dispatch",
         "stderr fallback",
-        "Asynchronous `DaemonNotification` signal forwarding remains",
+        "Fcitx D-Bus monitor subscribes to `DaemonNotification(ssss)`",
+        "background ASR reload failures through this path",
+        "broader notification categories",
         "persistent Fcitx `KeyList` options",
         "`PagePrevKeys` and `PageNextKeys`",
         "main-keyboard and keypad PageUp/PageDown",
@@ -642,5 +644,24 @@ fn user_install_smokes_isolate_stub_binaries_from_cargo_outputs() {
                 "user install smoke must not mutate Cargo outputs: {forbidden}"
             );
         }
+    }
+}
+
+#[test]
+fn dbus_architecture_pins_async_daemon_notification_forwarding() {
+    let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
+        .expect("read dbus service doc");
+    for required in [
+        "owned `SignalEmitter`",
+        "`asr_backend_reload_failed`",
+        "only for the current reload generation",
+        "matches `GetAsrBackendState.last_error`",
+        "Fcitx D-Bus module",
+        "real session-bus smoke",
+    ] {
+        assert!(
+            dbus_doc.contains(required),
+            "D-Bus docs should pin daemon notification rule: {required}"
+        );
     }
 }

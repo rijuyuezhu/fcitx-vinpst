@@ -45,6 +45,7 @@ type DbusResult<T> = Result<T, VinputDbusError>;
 const MAX_ERROR_DESCRIPTION_LEN: usize = 512;
 const LIVE_PARTIAL_POLL_INTERVAL: Duration = Duration::from_millis(40);
 const ASR_RELOAD_POLL_INTERVAL: Duration = Duration::from_millis(20);
+const ASR_RELOAD_FAILED_CODE: &str = "asr_backend_reload_failed";
 
 #[derive(Debug, Default)]
 struct LivePartialEmissionState {
@@ -97,6 +98,7 @@ fn sanitize_dbus_error_message(message: &str) -> String {
 pub struct VinputDbusService {
     runtime: Arc<Mutex<RuntimeState>>,
     live_partials: Arc<Mutex<LivePartialEmissionState>>,
+    signal_emitter: Arc<Mutex<Option<SignalEmitter<'static>>>>,
 }
 
 impl VinputDbusService {
@@ -106,18 +108,27 @@ impl VinputDbusService {
         Self {
             runtime: Arc::new(Mutex::new(runtime)),
             live_partials: Arc::new(Mutex::new(LivePartialEmissionState::default())),
+            signal_emitter: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Registers the service object and requests the legacy bus name.
     pub async fn serve_on_session_bus(self) -> zbus::Result<Connection> {
         let connection = Connection::session().await?;
+        self.bind_signal_connection(&connection).await?;
         connection
             .object_server()
             .at(dbus::SERVICE_OBJECT_PATH, self)
             .await?;
         connection.request_name(dbus::SERVICE_BUS_NAME).await?;
         Ok(connection)
+    }
+
+    /// Binds background signal emission to the connection hosting this service.
+    pub async fn bind_signal_connection(&self, connection: &Connection) -> zbus::Result<()> {
+        let emitter = SignalEmitter::new(connection, dbus::SERVICE_OBJECT_PATH)?.to_owned();
+        *self.signal_emitter.lock().await = Some(emitter);
+        Ok(())
     }
 
     fn operation_failed(message: impl AsRef<str>) -> VinputDbusError {
@@ -134,6 +145,18 @@ impl VinputDbusService {
 
     fn map_signal_error(error: &zbus::Error) -> VinputDbusError {
         Self::operation_failed(format!("failed to emit signal: {error}"))
+    }
+
+    async fn emit_asr_reload_failure(&self, message: &str) {
+        let emitter = self.signal_emitter.lock().await.clone();
+        let Some(emitter) = emitter else {
+            return;
+        };
+        if let Err(error) =
+            Self::daemon_notification(&emitter, ASR_RELOAD_FAILED_CODE, "", "", message).await
+        {
+            tracing::warn!(%error, "failed to emit ASR reload notification");
+        }
     }
 
     async fn run_asr_reload_worker(self) {
@@ -173,17 +196,25 @@ impl VinputDbusService {
                             }
                         }
                         Ok(Err(error)) => {
-                            self.runtime
+                            let notification = self
+                                .runtime
                                 .lock()
                                 .await
                                 .fail_prepared_asr_reload(generation, &error);
+                            if let Some(message) = notification {
+                                self.emit_asr_reload_failure(&message).await;
+                            }
                         }
                         Err(error) => {
                             let error = RuntimeError::BackgroundTask(error.to_string());
-                            self.runtime
+                            let notification = self
+                                .runtime
                                 .lock()
                                 .await
                                 .fail_prepared_asr_reload(generation, &error);
+                            if let Some(message) = notification {
+                                self.emit_asr_reload_failure(&message).await;
+                            }
                         }
                     }
                 }

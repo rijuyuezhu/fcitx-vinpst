@@ -4,6 +4,8 @@
 
 #include "vinput_fcitx_bridge/fcitx_selection.h"
 
+#include <dbus_public.h>
+
 #ifdef VINPUT_FCITX_HAVE_CLIPBOARD
 #include "clipboard_public.h"
 #include <fcitx-utils/utf8.h>
@@ -271,6 +273,7 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
     event_handlers_.emplace_back(instance_->watchEvent(
         fcitx::EventType::InputContextCreated, fcitx::EventWatcherPhase::PreInputMethod,
         RequestSurroundingText));
+    SetupDaemonSignalMonitor();
   }
 }
 
@@ -298,6 +301,54 @@ void FcitxVinputAddon::setConfig(const fcitx::RawConfig &config) {
   frontend_settings_ = frontend_config->settings();
   ApplyFrontendSettings();
   save();
+}
+
+void FcitxVinputAddon::SetupDaemonSignalMonitor() {
+  auto *dbus_addon = instance_->addonManager().addon("dbus");
+  if (dbus_addon == nullptr) {
+    FCITX_WARN()
+        << "fcitx-vinput DBus module is unavailable; daemon signals are disabled";
+    return;
+  }
+  auto *bus = dbus_addon->call<fcitx::IDBusModule::bus>();
+  daemon_signal_monitor_ = std::make_unique<FcitxDaemonSignalMonitor>(
+      bus, [this](const DaemonNotificationPayload &payload) {
+        HandleDaemonNotification(payload);
+      });
+  if (!daemon_signal_monitor_->active()) {
+    FCITX_WARN() << "fcitx-vinput failed to subscribe to daemon notifications";
+    daemon_signal_monitor_.reset();
+  }
+}
+
+void FcitxVinputAddon::HandleDaemonNotification(
+    const DaemonNotificationPayload &payload) {
+  if (payload.empty()) {
+    return;
+  }
+  const auto kind = ClassifyDaemonNotification(payload);
+  const auto message = RenderDaemonNotification(payload);
+  if (kind == FrontendNotificationKind::Error) {
+    auto *active_ic = active_trigger_ic_.get();
+    HideSceneMenu();
+    HideAsrMenu();
+    CancelTriggerStart();
+    CancelTriggerStop();
+    bridge_.Reset();
+    trigger_mode_controller_.RecordingStopped();
+    daemon_client_.reset();
+    if (active_ic != nullptr) {
+      const BridgeOutcome clear{
+          .kind = BridgeOutcome::Kind::Clear,
+          .text = {},
+          .payload = {},
+          .command_mode = false,
+      };
+      ApplyBridgeOutcomeToInputContext(clear, active_ic);
+    }
+    active_trigger_ic_.unwatch();
+  }
+  Notify(kind, message);
 }
 
 void FcitxVinputAddon::Notify(FrontendNotificationKind kind, std::string_view message) {

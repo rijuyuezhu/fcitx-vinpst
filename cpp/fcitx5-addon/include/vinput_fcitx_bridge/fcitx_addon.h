@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vinput_fcitx_bridge/fcitx_config.h"
+#include "vinput_fcitx_bridge/fcitx_daemon_signal_monitor.h"
 #include "vinput_fcitx_bridge/fcitx_key_trigger.h"
 #include "vinput_fcitx_bridge/fcitx_menu_filter.h"
 #include "vinput_fcitx_bridge/fcitx_notifications.h"
@@ -74,6 +75,8 @@ private:
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
   void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
+  void SetupDaemonSignalMonitor();
+  void HandleDaemonNotification(const DaemonNotificationPayload &payload);
   void Notify(FrontendNotificationKind kind, std::string_view message);
   void HandleTriggerModeAction(fcitx::InputContext *ic, TriggerModeAction action);
   void ScheduleTriggerStart(fcitx::InputContext *ic);
@@ -104,6 +107,7 @@ private:
   fcitx::TrackableObjectReference<fcitx::InputContext> pending_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
+  std::unique_ptr<FcitxDaemonSignalMonitor> daemon_signal_monitor_;
   std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
       event_handlers_;
 };

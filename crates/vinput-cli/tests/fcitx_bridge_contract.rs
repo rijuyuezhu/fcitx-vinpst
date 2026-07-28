@@ -380,3 +380,65 @@ fn cpp_frontend_notifications_keep_legacy_presenter_contract() {
         );
     }
 }
+
+#[test]
+fn cpp_frontend_forwards_daemon_notification_signals() {
+    let header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_daemon_signal_monitor.h",
+    ))
+    .expect("read daemon signal monitor header");
+    let source = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/src/fcitx_daemon_signal_monitor.cpp",
+    ))
+    .expect("read daemon signal monitor source");
+    let addon_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
+            .expect("read addon source");
+    let cmake = std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/CMakeLists.txt"))
+        .expect("read addon CMake file");
+
+    for required in [
+        "struct DaemonNotificationPayload",
+        "ClassifyDaemonNotification",
+        "RenderDaemonNotification",
+        "class FcitxDaemonSignalMonitor",
+    ] {
+        assert!(
+            header.contains(required),
+            "signal header should pin {required}"
+        );
+    }
+    for required in [
+        "dbus::kSignalDaemonNotification",
+        "fcitx::dbus::MatchRule",
+        "std::tuple<std::string, std::string, std::string, std::string>",
+        "notification_callback_(payload)",
+    ] {
+        assert!(
+            source.contains(required),
+            "signal source should pin {required}"
+        );
+    }
+    for required in [
+        "SetupDaemonSignalMonitor",
+        "HandleDaemonNotification",
+        "bridge_.Reset()",
+        "trigger_mode_controller_.RecordingStopped()",
+        "Notify(kind, message)",
+    ] {
+        assert!(
+            addon_source.contains(required),
+            "addon signal path should pin {required}"
+        );
+    }
+    for required in [
+        "Fcitx5::Module::DBus",
+        "vinput_fcitx_bridge_daemon_signal_monitor_smoke",
+        "dbus-run-session",
+    ] {
+        assert!(
+            cmake.contains(required),
+            "addon CMake should pin {required}"
+        );
+    }
+}

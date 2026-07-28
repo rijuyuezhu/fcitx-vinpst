@@ -8,6 +8,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SYSTEMD REQUIRED libsystemd)
 find_package(Fcitx5Core QUIET)
 find_package(Fcitx5ModuleClipboard QUIET)
+find_package(Fcitx5ModuleDBus QUIET)
 option(VINPUT_FCITX_BRIDGE_ENABLE_FCITX_DEPS
        "Probe Fcitx5 dependencies for the retained addon module target" ON)
 option(VINPUT_FCITX_BRIDGE_ENABLE_TESTS
@@ -89,6 +90,7 @@ configure_file(
 
 if(Fcitx5Core_FOUND)
   find_package(Gettext REQUIRED)
+  find_package(Fcitx5ModuleDBus REQUIRED)
   find_package(Fcitx5ModuleNotifications REQUIRED)
   set(VINPUT_FCITX_BUILD_LOCALEDIR "${CMAKE_CURRENT_BINARY_DIR}/locale")
   set(VINPUT_FCITX_ZH_CN_MO
@@ -113,6 +115,7 @@ if(Fcitx5Core_FOUND)
   add_library(vinput_fcitx_bridge_fcitx STATIC
     src/fcitx_i18n.cpp
     src/fcitx_config.cpp
+    src/fcitx_daemon_signal_monitor.cpp
     src/fcitx_candidates.cpp
     src/fcitx_key_trigger.cpp
     src/fcitx_menu_filter.cpp
@@ -155,6 +158,7 @@ if(Fcitx5Core_FOUND)
       vinput_fcitx_bridge::sdbus
       vinput_fcitx_bridge::fcitx
       Fcitx5::Core
+      Fcitx5::Module::DBus
   )
   target_compile_features(fcitx5_vinput_addon PRIVATE cxx_std_20)
   if(Fcitx5ModuleClipboard_FOUND)
@@ -173,6 +177,24 @@ if(Fcitx5Core_FOUND)
   )
   vinput_bridge_apply_warnings(fcitx5_vinput_addon)
 
+
+  add_executable(
+    vinput_fcitx_bridge_daemon_signal_monitor_smoke
+    tests/fcitx_daemon_signal_monitor_smoke.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_bridge_daemon_signal_monitor_smoke
+    PRIVATE
+      vinput_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_bridge_daemon_signal_monitor_smoke)
+  find_program(DBUS_RUN_SESSION_EXECUTABLE dbus-run-session REQUIRED)
+  add_test(
+    NAME vinput_fcitx_bridge_daemon_signal_monitor_smoke
+    COMMAND "${DBUS_RUN_SESSION_EXECUTABLE}" --
+            $<TARGET_FILE:vinput_fcitx_bridge_daemon_signal_monitor_smoke>
+  )
 
   add_executable(
     vinput_fcitx_bridge_notifications_smoke
@@ -330,6 +352,7 @@ if(Fcitx5Core_FOUND)
     src/fcitx_addon.cpp
     src/fcitx_i18n.cpp
     src/fcitx_config.cpp
+    src/fcitx_daemon_signal_monitor.cpp
     src/fcitx_key_trigger.cpp
     src/fcitx_menu_filter.cpp
     src/fcitx_notifications.cpp
@@ -349,6 +372,7 @@ if(Fcitx5Core_FOUND)
     PRIVATE
       vinput_fcitx_bridge::sdbus
       Fcitx5::Core
+      Fcitx5::Module::DBus
       Fcitx5::Module::Notifications
   )
   vinput_bridge_apply_warnings(vinput_fcitx_addon_dbus_smoke)

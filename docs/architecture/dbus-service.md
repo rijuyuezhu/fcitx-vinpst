@@ -53,6 +53,10 @@ Preserve these signal names and payload shapes:
 - `StatusChanged(s)`
 - `DaemonNotification(ssss)`, carrying code, subject, detail, and raw message.
 
+The service keeps an owned `SignalEmitter` bound to the connection hosting the object so background workers can emit without borrowing a method call. A failed ASR backend preparation emits code `asr_backend_reload_failed` only for the current reload generation; stale generations are discarded without notification. Its raw message exactly matches `GetAsrBackendState.last_error`, while the previously effective backend remains active.
+
+The retained C++ addon listens through the Fcitx D-Bus module rather than adding another thread or event loop. Error-like payloads reset frontend recording/timer state before presentation; raw informational payloads are presented without interrupting recording. A real session-bus smoke sends and decodes the four-string signal through the Fcitx bus implementation. Current daemon emission is intentionally limited to background ASR reload failures; other asynchronous categories remain future work.
+
 ## Test coverage
 
 Unit tests call the service facade directly and assert runtime transitions and JSON payloads. The optional integration test runs through a real session bus:
@@ -74,7 +78,7 @@ The Rust service pins these legacy-visible behaviors with unit and D-Bus integra
 - `ReloadAsrBackend` re-reads the daemon config file when an explicit startup path exists, updates the ASR/default-language target, and queues the configured backend through the prepare-before-swap path rather than refreshing metadata only;
 - one non-blocking reload worker performs backend construction and warmup outside the runtime mutex, while `reload_in_progress` covers both queued and physical preparation;
 - `ReloadAsrBackend` returns success while recording/inferring, keeps the request pending until idle, coalesces repeated requests by generation, and discards stale prepared generations;
-- failed background or deferred reloads keep the previously working backend and surface the error in diagnostics;
+- failed background or deferred reloads keep the previously working backend and surface the error in diagnostics; current-generation background preparation failures also emit `DaemonNotification` with the same message;
 - `GetSceneState` returns the active scene plus typed id/label pairs without making the C++ frontend parse daemon config JSON;
 - `SetActiveScene` is idle-only, rejects unknown scenes with the legacy operation error, updates runtime state, and atomically persists the explicit daemon config when one exists; its boolean reply distinguishes persistent and runtime-only selection;
 - `GetAsrMenuState` exposes configured target, actual effective provider/model, reload progress, the last reload error, and typed provider id/kind/model rows without making C++ parse config JSON;

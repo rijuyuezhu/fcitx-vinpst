@@ -83,5 +83,5 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining live-registry model families.
-3. Prove localized searchable scene/ASR menus, persisted registry titles, local notifications, persistent trigger/paging keys, and Tap/Hold/Both timing live; then add asynchronous daemon-notification forwarding.
+3. Prove localized searchable scene/ASR menus, persisted registry titles, local and daemon-originated notifications, persistent trigger/paging keys, and Tap/Hold/Both timing live; then broaden daemon-notification emission beyond background ASR reload failures.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.

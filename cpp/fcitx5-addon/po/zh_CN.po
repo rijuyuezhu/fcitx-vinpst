@@ -94,3 +94,6 @@ msgstr "已请求切换语音识别到“%s”。"
 
 msgid "Failed to save frontend configuration."
 msgstr "保存前端配置失败。"
+
+msgid "Unknown error."
+msgstr "未知错误。"

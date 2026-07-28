@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use super::{AsrReloadWorkerStep, RuntimeState};
+use super::{AsrReloadWorkerStep, RuntimeError, RuntimeState};
 use vinput_asr::{
     AsrBackend, AsrBackendFactory, AsrError, BackendDescriptor, MockAsrAudioLog, MockAsrAudioPush,
     MockAsrBackend, RecognitionContext, RecognitionEvent, RecognitionSession,
@@ -871,6 +871,41 @@ fn background_asr_reload_discards_stale_prepared_generation() {
     let ready = runtime.asr_backend_state();
     assert_eq!(ready.effective_model_id, "mock-streaming");
     assert!(!ready.reload_in_progress);
+}
+
+#[test]
+fn background_asr_reload_failure_notifies_only_for_current_generation() {
+    let initial = VinputConfig::bundled_default().unwrap();
+    let mut runtime = RuntimeState::with_asr_backend(
+        initial,
+        Box::new(MockAsrBackend::buffered("injected final")),
+    )
+    .unwrap();
+
+    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    let AsrReloadWorkerStep::Prepare(first) = runtime.next_asr_reload_worker_step() else {
+        panic!("first queued reload should enter preparation");
+    };
+
+    let mut latest = config_with_mock_asr();
+    latest.global.default_language = "en-US".to_owned();
+    assert!(!runtime.queue_configured_asr_reload(latest));
+    let error = RuntimeError::BackgroundTask("stale failure".to_owned());
+    assert!(
+        runtime
+            .fail_prepared_asr_reload(first.generation(), &error)
+            .is_none()
+    );
+    assert!(runtime.asr_backend_state().last_error.is_empty());
+
+    let AsrReloadWorkerStep::Prepare(latest) = runtime.next_asr_reload_worker_step() else {
+        panic!("latest queued reload should enter preparation");
+    };
+    let message = runtime
+        .fail_prepared_asr_reload(latest.generation(), &error)
+        .expect("current generation should produce one notification message");
+    assert!(message.contains("Failed to reload ASR backend."));
+    assert_eq!(runtime.asr_backend_state().last_error, message);
 }
 
 #[test]

@@ -85,9 +85,11 @@ async fn spawn_runtime_on_unique_name(
         .unique_name()
         .ok_or_else(|| anyhow::anyhow!("session connection should have a unique name"))?
         .to_string();
+    let service = VinputDbusService::new(runtime);
+    service.bind_signal_connection(&connection).await?;
     connection
         .object_server()
-        .at(dbus::SERVICE_OBJECT_PATH, VinputDbusService::new(runtime))
+        .at(dbus::SERVICE_OBJECT_PATH, service)
         .await?;
     Ok((connection, unique_name))
 }
@@ -273,6 +275,15 @@ async fn next_string_signal(stream: &mut zbus::proxy::SignalStream<'_>) -> anyho
     single_string_body(&message)
 }
 
+async fn next_error_info_signal(
+    stream: &mut zbus::proxy::SignalStream<'_>,
+) -> anyhow::Result<(String, String, String, String)> {
+    let message = timeout(Duration::from_secs(2), stream.next())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("signal stream ended"))?;
+    Ok(message.body().deserialize()?)
+}
+
 fn single_string_body(message: &Message) -> anyhow::Result<String> {
     let body: (String,) = message.body().deserialize()?;
     Ok(body.0)
@@ -430,6 +441,42 @@ async fn dbus_get_runtime_status_returns_json_snapshot() -> anyhow::Result<()> {
         "runtime status must not expose selected text content"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn background_asr_reload_failure_emits_daemon_notification() -> anyhow::Result<()> {
+    let config = VinputConfig::bundled_default()?;
+    let runtime = RuntimeState::with_asr_backend(
+        config,
+        Box::new(MockAsrBackend::buffered("injected final")),
+    )?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
+        .await?;
+    let (code, subject, detail, raw_message) = next_error_info_signal(&mut notifications).await?;
+    assert_eq!(code, "asr_backend_reload_failed");
+    assert!(subject.is_empty());
+    assert!(detail.is_empty());
+    assert!(raw_message.contains("Failed to reload ASR backend."));
+
+    let state = wait_for_asr_reload(&proxy).await?;
+    assert!(!state.5);
+    assert_eq!(state.4, raw_message);
+    assert_eq!(state.3, "mock-buffered");
     Ok(())
 }
 
