@@ -63,32 +63,43 @@ int main() {
 
   const std::string object_path(dbus::kServiceObjectPath);
   const std::string interface(dbus::kServiceInterface);
+  std::vector<bool> service_availability;
   std::vector<std::string> statuses;
   std::vector<std::string> partials;
   std::vector<DaemonNotificationPayload> notifications;
   auto finish_when_complete = [&] {
-    if (statuses.size() == 1 && partials.size() == 1 && notifications.size() == 2) {
+    if (service_availability.size() == 2 && statuses.size() == 1 &&
+        partials.size() == 1 && notifications.size() == 2) {
       loop.exit();
     }
   };
   FcitxDaemonSignalMonitor monitor(
-      &receiver, DaemonSignalCallbacks{
-                     .status_changed =
-                         [&](std::string_view status) {
-                           statuses.emplace_back(status);
-                           finish_when_complete();
-                         },
-                     .recognition_partial =
-                         [&](std::string_view partial_text) {
-                           partials.emplace_back(partial_text);
-                           finish_when_complete();
-                         },
-                     .notification =
-                         [&](const DaemonNotificationPayload &payload) {
-                           notifications.push_back(payload);
-                           finish_when_complete();
-                         },
-                 });
+      &receiver,
+      DaemonSignalCallbacks{
+          .service_availability_changed =
+              [&](bool available) {
+                service_availability.push_back(available);
+                if (available && service_availability.size() == 1) {
+                  assert(sender.releaseName(std::string(dbus::kServiceBusName)));
+                }
+                finish_when_complete();
+              },
+          .status_changed =
+              [&](std::string_view status) {
+                statuses.emplace_back(status);
+                finish_when_complete();
+              },
+          .recognition_partial =
+              [&](std::string_view partial_text) {
+                partials.emplace_back(partial_text);
+                finish_when_complete();
+              },
+          .notification =
+              [&](const DaemonNotificationPayload &payload) {
+                notifications.push_back(payload);
+                finish_when_complete();
+              },
+      });
   assert(monitor.active());
 
   bool timed_out = false;
@@ -125,6 +136,7 @@ int main() {
 
   assert(loop.exec());
   assert(!timed_out);
+  assert((service_availability == std::vector<bool>{true, false}));
   assert((statuses == std::vector<std::string>{"recording"}));
   assert((partials == std::vector<std::string>{"live partial"}));
   assert(notifications.size() == 2);

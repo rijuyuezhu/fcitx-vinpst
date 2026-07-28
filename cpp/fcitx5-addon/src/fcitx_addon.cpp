@@ -315,6 +315,8 @@ void FcitxVinputAddon::SetupDaemonSignalMonitor() {
   auto *bus = dbus_addon->call<fcitx::IDBusModule::bus>();
   daemon_signal_monitor_ = std::make_unique<FcitxDaemonSignalMonitor>(
       bus, DaemonSignalCallbacks{
+               .service_availability_changed =
+                   [this](bool available) { HandleDaemonAvailability(available); },
                .status_changed =
                    [this](std::string_view status) { HandleDaemonStatus(status); },
                .recognition_partial =
@@ -330,6 +332,30 @@ void FcitxVinputAddon::SetupDaemonSignalMonitor() {
     FCITX_WARN() << "fcitx-vinput failed to subscribe to daemon notifications";
     daemon_signal_monitor_.reset();
   }
+}
+
+void FcitxVinputAddon::HandleDaemonAvailability(bool available) {
+  daemon_client_.reset();
+  if (available || !bridge_.recording()) {
+    return;
+  }
+
+  auto *active_ic = active_trigger_ic_.get();
+  HideSceneMenu();
+  HideAsrMenu();
+  CancelTriggerStart();
+  CancelTriggerStop();
+  bridge_.Reset();
+  trigger_mode_controller_.RecordingStopped();
+  ResetLiveSignalState();
+  const BridgeOutcome error{
+      .kind = BridgeOutcome::Kind::Error,
+      .text = "Voice input daemon is unavailable.",
+      .payload = {},
+      .command_mode = false,
+  };
+  ApplyBridgeOutcome(active_ic, error);
+  active_trigger_ic_.unwatch();
 }
 
 void FcitxVinputAddon::HandleDaemonStatus(std::string_view status) {

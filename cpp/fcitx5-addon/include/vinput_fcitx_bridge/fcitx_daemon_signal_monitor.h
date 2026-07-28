@@ -3,6 +3,7 @@
 #include "vinput_fcitx_bridge/fcitx_notifications.h"
 
 #include <fcitx-utils/dbus/bus.h>
+#include <fcitx-utils/dbus/servicewatcher.h>
 
 #include <functional>
 #include <memory>
@@ -28,6 +29,7 @@ std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mod
                                        std::string_view partial_text);
 
 struct DaemonSignalCallbacks {
+  std::function<void(bool available)> service_availability_changed;
   std::function<void(std::string_view status)> status_changed;
   std::function<void(std::string_view partial_text)> recognition_partial;
   std::function<void(const DaemonNotificationPayload &payload)> notification;
@@ -47,6 +49,8 @@ public:
 
 private:
   DaemonSignalCallbacks callbacks_;
+  std::unique_ptr<fcitx::dbus::ServiceWatcher> service_watcher_;
+  std::unique_ptr<fcitx::dbus::ServiceWatcherEntry> service_watcher_entry_;
   std::unique_ptr<fcitx::dbus::Slot> status_slot_;
   std::unique_ptr<fcitx::dbus::Slot> partial_slot_;
   std::unique_ptr<fcitx::dbus::Slot> notification_slot_;

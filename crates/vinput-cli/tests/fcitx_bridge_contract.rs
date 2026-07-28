@@ -403,6 +403,8 @@ fn cpp_frontend_forwards_daemon_notification_signals() {
         "RenderDaemonNotification",
         "ComposeDaemonStatusPreedit",
         "struct DaemonSignalCallbacks",
+        "service_availability_changed",
+        "fcitx::dbus::ServiceWatcher",
         "class FcitxDaemonSignalMonitor",
     ] {
         assert!(
@@ -411,6 +413,8 @@ fn cpp_frontend_forwards_daemon_notification_signals() {
         );
     }
     for required in [
+        "service_watcher_->watchService",
+        "callback(!new_owner.empty())",
         "dbus::kSignalStatusChanged",
         "dbus::kSignalRecognitionPartial",
         "dbus::kSignalDaemonNotification",
@@ -426,6 +430,9 @@ fn cpp_frontend_forwards_daemon_notification_signals() {
     }
     for required in [
         "SetupDaemonSignalMonitor",
+        "HandleDaemonAvailability",
+        "Voice input daemon is unavailable.",
+        "ApplyBridgeOutcome(active_ic, error)",
         "HandleDaemonStatus",
         "HandleRecognitionPartial",
         "UpdateLivePreedit",

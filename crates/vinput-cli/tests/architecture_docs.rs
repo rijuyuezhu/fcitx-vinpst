@@ -686,3 +686,23 @@ fn asr_architecture_pins_frontend_live_partial_preedit() {
         );
     }
 }
+
+#[test]
+fn dbus_architecture_pins_frontend_daemon_owner_loss_recovery() {
+    let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
+        .expect("read dbus service doc");
+    for required in [
+        "`ServiceWatcher`",
+        "initial `GetNameOwner`",
+        "startup absence remains silent",
+        "owner disappears during an addon-owned recording",
+        "Voice input daemon is unavailable.",
+        "stale synchronous client",
+        "real session-bus smoke",
+    ] {
+        assert!(
+            dbus_doc.contains(required),
+            "D-Bus docs should pin frontend owner-loss recovery: {required}"
+        );
+    }
+}

@@ -88,6 +88,15 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
     return;
   }
 
+  if (callbacks_.service_availability_changed) {
+    service_watcher_ = std::make_unique<fcitx::dbus::ServiceWatcher>(*bus);
+    service_watcher_entry_ = service_watcher_->watchService(
+        std::string(dbus::kServiceBusName),
+        [callback = callbacks_.service_availability_changed](
+            const std::string &, const std::string &, const std::string &new_owner) {
+          callback(!new_owner.empty());
+        });
+  }
   status_slot_ =
       AddStringSignalMatch(bus, dbus::kSignalStatusChanged, callbacks_.status_changed);
   partial_slot_ = AddStringSignalMatch(bus, dbus::kSignalRecognitionPartial,
@@ -121,8 +130,8 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
 }
 
 bool FcitxDaemonSignalMonitor::active() const {
-  return status_slot_ != nullptr && partial_slot_ != nullptr &&
-         notification_slot_ != nullptr;
+  return service_watcher_entry_ != nullptr && status_slot_ != nullptr &&
+         partial_slot_ != nullptr && notification_slot_ != nullptr;
 }
 
 } // namespace vinput_fcitx_bridge

@@ -76,6 +76,7 @@ private:
   void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
   void SetupDaemonSignalMonitor();
+  void HandleDaemonAvailability(bool available);
   void HandleDaemonStatus(std::string_view status);
   void HandleRecognitionPartial(std::string_view partial_text);
   void HandleDaemonNotification(const DaemonNotificationPayload &payload);
