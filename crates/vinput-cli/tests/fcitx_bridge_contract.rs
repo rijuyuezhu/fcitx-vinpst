@@ -94,14 +94,13 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
     let config_source =
         std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_config.cpp"))
             .expect("read frontend config source");
-    let trigger_mode_header = std::fs::read_to_string(workspace_file(
-        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_trigger_mode.h",
-    ))
-    .expect("read trigger mode header");
     let addon_header = std::fs::read_to_string(workspace_file(
         "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_addon.h",
     ))
     .expect("read addon header");
+    let addon_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
+            .expect("read addon source");
 
     for required in [
         "conf/vinput.conf",
@@ -135,22 +134,6 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
             "frontend config source should pin {required}"
         );
     }
-    for required in [
-        "kTriggerDebounce = std::chrono::milliseconds(80)",
-        "kTriggerHoldThreshold = std::chrono::milliseconds(300)",
-        "kTriggerReleaseTail = std::chrono::milliseconds(500)",
-        "class TriggerModeController",
-        "ScheduleNormalStart",
-        "ScheduleStop",
-    ] {
-        assert!(
-            trigger_mode_header.contains(required),
-            "trigger mode header should pin {required}"
-        );
-    }
-    let addon_source =
-        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
-            .expect("read addon source");
     assert_eq!(
         addon_source
             .matches("key.checkKeyList(frontend_settings_.page_prev_keys)")
@@ -179,4 +162,76 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
             "addon config API should pin {required}"
         );
     }
+}
+
+#[test]
+fn cpp_frontend_trigger_mode_keeps_legacy_timing_contract() {
+    let header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_trigger_mode.h",
+    ))
+    .expect("read trigger mode header");
+    for required in [
+        "kTriggerDebounce = std::chrono::milliseconds(80)",
+        "kTriggerHoldThreshold = std::chrono::milliseconds(300)",
+        "kTriggerReleaseTail = std::chrono::milliseconds(500)",
+        "class TriggerModeController",
+        "ScheduleNormalStart",
+        "ScheduleStop",
+    ] {
+        assert!(
+            header.contains(required),
+            "trigger mode header should pin {required}"
+        );
+    }
+}
+
+#[test]
+fn cpp_frontend_menus_keep_legacy_search_contract() {
+    let filter_header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_menu_filter.h",
+    ))
+    .expect("read menu filter header");
+    let addon_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
+            .expect("read addon source");
+
+    for required in [
+        "class MenuFilterState",
+        "void Backspace()",
+        "void DeleteLastWord()",
+        "bool Matches(std::string_view search_text) const",
+        "IsPrintableMenuInput",
+        "MenuKeyToUtf8",
+    ] {
+        assert!(
+            filter_header.contains(required),
+            "menu filter header should pin {required}"
+        );
+    }
+    for required in [
+        "void FcitxVinputAddon::RebuildSceneMenu()",
+        "void FcitxVinputAddon::RebuildAsrMenu()",
+        r#"scene_menu_filter_.Matches(scene.label + " " + scene.id)"#,
+        "const auto search_text = label +",
+        "target.provider_id",
+        "target.kind",
+        "target.item_id",
+        "target.model_value",
+        "scene_menu_filter_.AppendText(MenuKeyToUtf8(key))",
+        "asr_menu_filter_.AppendText(MenuKeyToUtf8(key))",
+        "IsMenuCtrlShortcut(key, FcitxKey_w)",
+        "IsMenuCtrlShortcut(key, FcitxKey_u)",
+        r#""Scenes /filter""#,
+        r#""ASR Models /filter""#,
+    ] {
+        assert!(
+            addon_source.contains(required),
+            "searchable frontend menus should pin {required}"
+        );
+    }
+    assert_eq!(
+        addon_source.matches("IsPrintableMenuInput(").count(),
+        3,
+        "shared handling plus scene and ASR handlers should pin printable filter input"
+    );
 }

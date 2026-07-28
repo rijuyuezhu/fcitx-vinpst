@@ -2,6 +2,7 @@
 
 #include "vinput_fcitx_bridge/fcitx_config.h"
 #include "vinput_fcitx_bridge/fcitx_key_trigger.h"
+#include "vinput_fcitx_bridge/fcitx_menu_filter.h"
 #include "vinput_fcitx_bridge/fcitx_outcome.h"
 #include "vinput_fcitx_bridge/fcitx_trigger_mode.h"
 #include "vinput_fcitx_bridge/frontend_bridge.h"
@@ -60,11 +61,13 @@ private:
                                     const BridgeOutcome &outcome);
   void HandleKeyEvent(fcitx::Event &event);
   void ShowSceneMenu(fcitx::InputContext *ic);
+  void RebuildSceneMenu();
   void HideSceneMenu();
   bool RefreshSceneState(std::string *error);
   bool HandleSceneMenuKeyEvent(fcitx::KeyEvent &event);
   void SelectScene(std::size_t index, fcitx::InputContext *ic);
   void ShowAsrMenu(fcitx::InputContext *ic);
+  void RebuildAsrMenu();
   void HideAsrMenu();
   bool RefreshAsrMenuState(std::string *error);
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
@@ -84,11 +87,13 @@ private:
   TriggerModeController trigger_mode_controller_;
   mutable std::unique_ptr<VinputFrontendConfig> frontend_config_;
   SceneStateSnapshot scene_state_;
+  MenuFilterState scene_menu_filter_;
   std::vector<std::size_t> scene_menu_indices_;
   std::string active_scene_id_{kDefaultNormalSceneId};
   fcitx::InputContext *scene_menu_ic_ = nullptr;
   bool scene_menu_visible_ = false;
   AsrTargetMenuStateSnapshot asr_menu_state_;
+  MenuFilterState asr_menu_filter_;
   std::vector<std::size_t> asr_menu_indices_;
   fcitx::InputContext *asr_menu_ic_ = nullptr;
   bool asr_menu_visible_ = false;

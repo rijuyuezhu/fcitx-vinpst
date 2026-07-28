@@ -27,7 +27,7 @@ The main gaps are now:
 - live desktop addon/load/trigger/PipeWire/native-ASR/commit proof;
 - real desktop streaming-partial proof and native-model reload validation;
 - broader sherpa model families;
-- live scene/installed-model ASR-menu, trigger/paging-key, and Tap/Hold/Both proof; legacy search/i18n and richer notifications;
+- live searchable scene/installed-model ASR-menu, trigger/paging-key, and Tap/Hold/Both proof; labels/i18n and richer notifications;
 - provider/adapter registry installation breadth and remote services;
 - release packaging and legacy GUI parity.
 

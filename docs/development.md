@@ -145,7 +145,7 @@ Live desktop PipeWire validation still needs manual confirmation. Recorder setup
 If a live check fails, record the exact failure and do not mark the feature as done.
 
 `just addon-dbus-adapter-lifecycle-smoke` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus.
-`just addon-test` includes a frontend config smoke that roundtrips all six persistent KeyLists plus `TriggerMode` through Fcitx INI serialization, including keypad paging defaults, and proves unknown legacy fields survive writes. It also runs a pure TriggerMode smoke covering Tap, Hold, Both, the 80 ms debounce, 300 ms hold threshold, 500 ms release tail, failed-start rollback, and modifier-only release matching. `just addon-install-smoke` verifies installed addon metadata remains `Configurable=True`.
+`just addon-test` includes a frontend config smoke that roundtrips all six persistent KeyLists plus `TriggerMode` through Fcitx INI serialization, including keypad paging defaults, and proves unknown legacy fields survive writes. It also runs a pure TriggerMode smoke covering Tap, Hold, Both, the 80 ms debounce, 300 ms hold threshold, 500 ms release tail, failed-start rollback, and modifier-only release matching. A separate menu-filter smoke covers multi-term matching, UTF-8 Backspace, Ctrl+W deletion, filter titles, printable digits, and configured paging-key exclusion. `just addon-install-smoke` verifies installed addon metadata remains `Configurable=True`.
 `just ime-e2e-smoke` includes fake outcome sink coverage for preedit, commit, command-mode selected-text deletion, candidate menus, and fallback commit behavior.
 
 ## Common commands

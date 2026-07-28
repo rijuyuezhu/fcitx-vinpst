@@ -44,7 +44,8 @@ private:
 };
 
 bool IsKey(const fcitx::Key &key, FcitxKeySym symbol) {
-  return key.normalize().sym() == symbol;
+  const auto normalized = key.normalize();
+  return normalized.sym() == symbol && normalized.states() == fcitx::KeyStates();
 }
 
 int CurrentMenuSelectionIndex(fcitx::CandidateList *candidate_list) {
@@ -54,6 +55,44 @@ int CurrentMenuSelectionIndex(fcitx::CandidateList *candidate_list) {
   auto *pageable = candidate_list->toPageable();
   const int page = pageable != nullptr ? pageable->currentPage() : 0;
   return page * kMenuPageSize + candidate_list->cursorIndex();
+}
+
+std::string DecoratePagedMenuTitle(std::string title,
+                                   fcitx::CandidateList *candidate_list) {
+  auto *pageable = candidate_list != nullptr ? candidate_list->toPageable() : nullptr;
+  if (pageable == nullptr || pageable->totalPages() <= 1 ||
+      pageable->currentPage() < 0) {
+    return title;
+  }
+  title += " (" + std::to_string(pageable->currentPage() + 1) + "/" +
+           std::to_string(pageable->totalPages()) + ")";
+  return title;
+}
+
+void SetFilteredMenuTitle(fcitx::InputContext *ic, std::string_view base_title,
+                          const MenuFilterState &filter,
+                          fcitx::CandidateList *candidate_list) {
+  if (ic == nullptr) {
+    return;
+  }
+  ic->inputPanel().setAuxUp(fcitx::Text(
+      DecoratePagedMenuTitle(filter.DecorateTitle(base_title), candidate_list)));
+}
+
+bool IsMenuEnterKey(const fcitx::Key &key) {
+  return IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter);
+}
+
+bool IsHandledMenuKey(const fcitx::Key &key, bool trigger_key,
+                      const MenuFilterState &filter, const FrontendSettings &settings) {
+  return trigger_key || key.checkKeyList(settings.page_prev_keys) ||
+         key.checkKeyList(settings.page_next_keys) || key.digitSelection() >= 0 ||
+         IsMenuSlashKey(key) || IsMenuBackspaceKey(key) ||
+         IsMenuCtrlShortcut(key, FcitxKey_w) || IsMenuCtrlShortcut(key, FcitxKey_u) ||
+         IsKey(key, FcitxKey_Up) || IsKey(key, FcitxKey_Down) || IsMenuEnterKey(key) ||
+         IsKey(key, FcitxKey_Escape) || IsMenuPureModifierKey(key) ||
+         IsPrintableMenuInput(key, filter.active(), settings.page_prev_keys,
+                              settings.page_next_keys);
 }
 
 bool IsEffectiveAsrTarget(const AsrTargetMenuItem &target,
@@ -526,15 +565,31 @@ void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
     return;
   }
 
+  scene_menu_ic_ = ic;
+  scene_menu_visible_ = true;
+  scene_menu_filter_.Reset();
+  RebuildSceneMenu();
+}
+
+void FcitxVinputAddon::RebuildSceneMenu() {
+  if (!scene_menu_visible_ || scene_menu_ic_ == nullptr) {
+    return;
+  }
+
   auto candidates = std::make_unique<fcitx::CommonCandidateList>();
   candidates->setPageSize(kMenuPageSize);
   candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
   scene_menu_indices_.clear();
+  std::string active_label = active_scene_id_;
   for (std::size_t index = 0; index < scene_state_.scenes.size(); ++index) {
     const auto &scene = scene_state_.scenes[index];
     if (scene.id == active_scene_id_) {
+      active_label = scene.label;
+      continue;
+    }
+    if (!scene_menu_filter_.Matches(scene.label + " " + scene.id)) {
       continue;
     }
     scene_menu_indices_.push_back(index);
@@ -547,12 +602,11 @@ void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
     candidates->setGlobalCursorIndex(0);
   }
 
-  scene_menu_ic_ = ic;
-  scene_menu_visible_ = true;
-  ic->inputPanel().setAuxUp(fcitx::Text("Scenes"));
-  ic->inputPanel().setAuxDown(fcitx::Text("Current: " + active_scene_id_));
-  ic->inputPanel().setCandidateList(std::move(candidates));
-  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  SetFilteredMenuTitle(scene_menu_ic_, "Scenes /filter", scene_menu_filter_,
+                       candidates.get());
+  scene_menu_ic_->inputPanel().setAuxDown(fcitx::Text("Current: " + active_label));
+  scene_menu_ic_->inputPanel().setCandidateList(std::move(candidates));
+  scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
 bool FcitxVinputAddon::RefreshSceneState(std::string *error) {
@@ -570,6 +624,7 @@ void FcitxVinputAddon::HideSceneMenu() {
   auto *ic = scene_menu_ic_;
   scene_menu_visible_ = false;
   scene_menu_ic_ = nullptr;
+  scene_menu_filter_.Reset();
   scene_menu_indices_.clear();
   if (ic == nullptr) {
     return;
@@ -586,19 +641,65 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
     return false;
   }
   const auto &key = event.key();
+  const bool trigger_key = trigger_policy_.IsSceneMenuTrigger(event);
+  const bool printable_filter_input = IsPrintableMenuInput(
+      key, scene_menu_filter_.active(), frontend_settings_.page_prev_keys,
+      frontend_settings_.page_next_keys);
+  const bool handled =
+      IsHandledMenuKey(key, trigger_key, scene_menu_filter_, frontend_settings_);
+
   if (event.isRelease()) {
-    if (trigger_policy_.IsSceneMenuTrigger(event)) {
-      event.filterAndAccept();
-      return true;
+    if (!handled) {
+      return false;
     }
+    event.filterAndAccept();
+    return true;
+  }
+  if (!handled) {
+    HideSceneMenu();
     return false;
   }
-  if (trigger_policy_.IsSceneMenuTrigger(event)) {
+  if (trigger_key || IsMenuPureModifierKey(key)) {
     event.filterAndAccept();
     return true;
   }
   if (IsKey(key, FcitxKey_Escape)) {
-    HideSceneMenu();
+    if (scene_menu_filter_.active() || !scene_menu_filter_.query().empty()) {
+      scene_menu_filter_.ClearAndDeactivate();
+      RebuildSceneMenu();
+    } else {
+      HideSceneMenu();
+    }
+    event.filterAndAccept();
+    return true;
+  }
+  if (IsMenuSlashKey(key)) {
+    scene_menu_filter_.Activate();
+    RebuildSceneMenu();
+    event.filterAndAccept();
+    return true;
+  }
+  if (IsMenuBackspaceKey(key) && scene_menu_filter_.active()) {
+    scene_menu_filter_.Backspace();
+    RebuildSceneMenu();
+    event.filterAndAccept();
+    return true;
+  }
+  if (scene_menu_filter_.active() && IsMenuCtrlShortcut(key, FcitxKey_w)) {
+    scene_menu_filter_.DeleteLastWord();
+    RebuildSceneMenu();
+    event.filterAndAccept();
+    return true;
+  }
+  if (scene_menu_filter_.active() && IsMenuCtrlShortcut(key, FcitxKey_u)) {
+    scene_menu_filter_.ClearAndDeactivate();
+    RebuildSceneMenu();
+    event.filterAndAccept();
+    return true;
+  }
+  if (printable_filter_input) {
+    scene_menu_filter_.AppendText(MenuKeyToUtf8(key));
+    RebuildSceneMenu();
     event.filterAndAccept();
     return true;
   }
@@ -607,27 +708,14 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
   auto *cursor =
       candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
   auto *pageable = candidate_list != nullptr ? candidate_list->toPageable() : nullptr;
-  if (cursor != nullptr && IsKey(key, FcitxKey_Up)) {
-    cursor->prevCandidate();
-  } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
-    cursor->nextCandidate();
-  } else if (pageable != nullptr &&
-             key.checkKeyList(frontend_settings_.page_prev_keys) &&
-             pageable->hasPrev()) {
-    pageable->prev();
-  } else if (pageable != nullptr &&
-             key.checkKeyList(frontend_settings_.page_next_keys) &&
-             pageable->hasNext()) {
-    pageable->next();
-  } else if (IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter)) {
-    const int index = CurrentMenuSelectionIndex(candidate_list.get());
-    if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
-      SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)], scene_menu_ic_);
-    } else {
-      HideSceneMenu();
+  if (key.checkKeyList(frontend_settings_.page_prev_keys)) {
+    if (pageable != nullptr && pageable->hasPrev()) {
+      pageable->prev();
     }
-    event.filterAndAccept();
-    return true;
+  } else if (key.checkKeyList(frontend_settings_.page_next_keys)) {
+    if (pageable != nullptr && pageable->hasNext()) {
+      pageable->next();
+    }
   } else {
     const int digit = key.digitSelection();
     if (digit >= 0) {
@@ -640,9 +728,31 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
       event.filterAndAccept();
       return true;
     }
-    HideSceneMenu();
-    return false;
+    if (cursor != nullptr && IsKey(key, FcitxKey_Up)) {
+      cursor->prevCandidate();
+    } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
+      cursor->nextCandidate();
+    } else if (IsMenuEnterKey(key)) {
+      int index = CurrentMenuSelectionIndex(candidate_list.get());
+      if (index < 0 && !scene_menu_indices_.empty()) {
+        index = 0;
+      }
+      if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
+        SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)],
+                    scene_menu_ic_);
+      } else {
+        HideSceneMenu();
+      }
+      event.filterAndAccept();
+      return true;
+    } else {
+      HideSceneMenu();
+      return false;
+    }
   }
+
+  SetFilteredMenuTitle(scene_menu_ic_, "Scenes /filter", scene_menu_filter_,
+                       candidate_list.get());
   scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   event.filterAndAccept();
   return true;
@@ -680,6 +790,17 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
     return;
   }
 
+  asr_menu_ic_ = ic;
+  asr_menu_visible_ = true;
+  asr_menu_filter_.Reset();
+  RebuildAsrMenu();
+}
+
+void FcitxVinputAddon::RebuildAsrMenu() {
+  if (!asr_menu_visible_ || asr_menu_ic_ == nullptr) {
+    return;
+  }
+
   auto candidates = std::make_unique<fcitx::CommonCandidateList>();
   candidates->setPageSize(kMenuPageSize);
   candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
@@ -691,10 +812,15 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
     if (IsEffectiveAsrTarget(target, asr_menu_state_)) {
       continue;
     }
+    const auto label = AsrTargetLabel(target, asr_menu_state_);
+    const auto search_text = label + " " + target.provider_id + " " + target.kind +
+                             " " + target.item_id + " " + target.model_value;
+    if (!asr_menu_filter_.Matches(search_text)) {
+      continue;
+    }
     asr_menu_indices_.push_back(index);
     candidates->append<MenuCandidateWord>(
-        AsrTargetLabel(target, asr_menu_state_),
-        [this, index](fcitx::InputContext *input_context) {
+        label, [this, index](fcitx::InputContext *input_context) {
           SelectAsrTarget(index, input_context);
         });
   }
@@ -702,13 +828,12 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
     candidates->setGlobalCursorIndex(0);
   }
 
-  asr_menu_ic_ = ic;
-  asr_menu_visible_ = true;
-  ic->inputPanel().setAuxUp(fcitx::Text("ASR Models"));
-  ic->inputPanel().setAuxDown(
+  SetFilteredMenuTitle(asr_menu_ic_, "ASR Models /filter", asr_menu_filter_,
+                       candidates.get());
+  asr_menu_ic_->inputPanel().setAuxDown(
       fcitx::Text("Current: " + EffectiveAsrLabel(asr_menu_state_)));
-  ic->inputPanel().setCandidateList(std::move(candidates));
-  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  asr_menu_ic_->inputPanel().setCandidateList(std::move(candidates));
+  asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
 bool FcitxVinputAddon::RefreshAsrMenuState(std::string *error) {
@@ -720,6 +845,7 @@ void FcitxVinputAddon::HideAsrMenu() {
   auto *ic = asr_menu_ic_;
   asr_menu_visible_ = false;
   asr_menu_ic_ = nullptr;
+  asr_menu_filter_.Reset();
   asr_menu_indices_.clear();
   if (ic == nullptr) {
     return;
@@ -736,19 +862,65 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
     return false;
   }
   const auto &key = event.key();
+  const bool trigger_key = trigger_policy_.IsAsrMenuTrigger(event);
+  const bool printable_filter_input = IsPrintableMenuInput(
+      key, asr_menu_filter_.active(), frontend_settings_.page_prev_keys,
+      frontend_settings_.page_next_keys);
+  const bool handled =
+      IsHandledMenuKey(key, trigger_key, asr_menu_filter_, frontend_settings_);
+
   if (event.isRelease()) {
-    if (trigger_policy_.IsAsrMenuTrigger(event)) {
-      event.filterAndAccept();
-      return true;
+    if (!handled) {
+      return false;
     }
+    event.filterAndAccept();
+    return true;
+  }
+  if (!handled) {
+    HideAsrMenu();
     return false;
   }
-  if (trigger_policy_.IsAsrMenuTrigger(event)) {
+  if (trigger_key || IsMenuPureModifierKey(key)) {
     event.filterAndAccept();
     return true;
   }
   if (IsKey(key, FcitxKey_Escape)) {
-    HideAsrMenu();
+    if (asr_menu_filter_.active() || !asr_menu_filter_.query().empty()) {
+      asr_menu_filter_.ClearAndDeactivate();
+      RebuildAsrMenu();
+    } else {
+      HideAsrMenu();
+    }
+    event.filterAndAccept();
+    return true;
+  }
+  if (IsMenuSlashKey(key)) {
+    asr_menu_filter_.Activate();
+    RebuildAsrMenu();
+    event.filterAndAccept();
+    return true;
+  }
+  if (IsMenuBackspaceKey(key) && asr_menu_filter_.active()) {
+    asr_menu_filter_.Backspace();
+    RebuildAsrMenu();
+    event.filterAndAccept();
+    return true;
+  }
+  if (asr_menu_filter_.active() && IsMenuCtrlShortcut(key, FcitxKey_w)) {
+    asr_menu_filter_.DeleteLastWord();
+    RebuildAsrMenu();
+    event.filterAndAccept();
+    return true;
+  }
+  if (asr_menu_filter_.active() && IsMenuCtrlShortcut(key, FcitxKey_u)) {
+    asr_menu_filter_.ClearAndDeactivate();
+    RebuildAsrMenu();
+    event.filterAndAccept();
+    return true;
+  }
+  if (printable_filter_input) {
+    asr_menu_filter_.AppendText(MenuKeyToUtf8(key));
+    RebuildAsrMenu();
     event.filterAndAccept();
     return true;
   }
@@ -757,27 +929,14 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
   auto *cursor =
       candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
   auto *pageable = candidate_list != nullptr ? candidate_list->toPageable() : nullptr;
-  if (cursor != nullptr && IsKey(key, FcitxKey_Up)) {
-    cursor->prevCandidate();
-  } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
-    cursor->nextCandidate();
-  } else if (pageable != nullptr &&
-             key.checkKeyList(frontend_settings_.page_prev_keys) &&
-             pageable->hasPrev()) {
-    pageable->prev();
-  } else if (pageable != nullptr &&
-             key.checkKeyList(frontend_settings_.page_next_keys) &&
-             pageable->hasNext()) {
-    pageable->next();
-  } else if (IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter)) {
-    const int index = CurrentMenuSelectionIndex(candidate_list.get());
-    if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
-      SelectAsrTarget(asr_menu_indices_[static_cast<std::size_t>(index)], asr_menu_ic_);
-    } else {
-      HideAsrMenu();
+  if (key.checkKeyList(frontend_settings_.page_prev_keys)) {
+    if (pageable != nullptr && pageable->hasPrev()) {
+      pageable->prev();
     }
-    event.filterAndAccept();
-    return true;
+  } else if (key.checkKeyList(frontend_settings_.page_next_keys)) {
+    if (pageable != nullptr && pageable->hasNext()) {
+      pageable->next();
+    }
   } else {
     const int digit = key.digitSelection();
     if (digit >= 0) {
@@ -790,9 +949,31 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
       event.filterAndAccept();
       return true;
     }
-    HideAsrMenu();
-    return false;
+    if (cursor != nullptr && IsKey(key, FcitxKey_Up)) {
+      cursor->prevCandidate();
+    } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
+      cursor->nextCandidate();
+    } else if (IsMenuEnterKey(key)) {
+      int index = CurrentMenuSelectionIndex(candidate_list.get());
+      if (index < 0 && !asr_menu_indices_.empty()) {
+        index = 0;
+      }
+      if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
+        SelectAsrTarget(asr_menu_indices_[static_cast<std::size_t>(index)],
+                        asr_menu_ic_);
+      } else {
+        HideAsrMenu();
+      }
+      event.filterAndAccept();
+      return true;
+    } else {
+      HideAsrMenu();
+      return false;
+    }
   }
+
+  SetFilteredMenuTitle(asr_menu_ic_, "ASR Models /filter", asr_menu_filter_,
+                       candidate_list.get());
   asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   event.filterAndAccept();
   return true;
