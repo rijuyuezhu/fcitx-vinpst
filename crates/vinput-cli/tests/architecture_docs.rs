@@ -209,7 +209,9 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "accepts relative or absolute local model and hotwords paths",
         "rejects empty values and URL-like paths",
         "verifies model directories plus regular hotwords files",
-        "currently covers buffered offline SenseVoice recognition only",
+        "currently covers buffered offline SenseVoice recognition and Qwen3 ASR runtime construction",
+        "Qwen3 real inference remains unverified",
+        "Qwen3 ASR requires typed metadata for its convolution frontend, encoder, decoder, tokenizer, and generation parameters",
         "VAD trimming, warmup/reload state, broader sherpa model families",
         "Timeout fields are preserved in config diagnostics but are not yet enforced",
         "runs `runtime-status` by default after install and during `VINPUT_USER_STATUS=1` checks",
@@ -368,8 +370,8 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
 
     for required in [
         "e2e-capability-matrix.md",
-        "detailed E2E capability comparison and the CLI/daemon parity backlog",
-        "what exactly is missing for usable CLI/daemon parity?",
+        "detailed E2E capability comparison and the native runtime/frontend parity backlog",
+        "what exactly is missing for real desktop and legacy parity?",
     ] {
         assert!(
             docs_readme.contains(required),
@@ -380,16 +382,24 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
     for required in [
         "usable CLI/daemon alpha",
         "Native SenseVoice file-input smoke",
-        "live registry parsing",
-        "daemon/recording D-Bus CLI commands",
+        "Native Qwen3 ASR config/runtime mapping",
+        "real desktop native-dictation alpha",
     ] {
         assert!(
             audit.contains(required),
-            "function gap audit should pin current CLI/daemon target: {required}"
+            "function gap audit should pin current parity and target: {required}"
         );
+    }
+
+    for required in [
+        "Completed: usable CLI/daemon alpha",
+        "P0: real desktop native alpha",
+        "Wire live PipeWire chunks",
+        "Port the remaining live-registry model families",
+    ] {
         assert!(
             plan.contains(required),
-            "E2E replication plan should pin current CLI/daemon target: {required}"
+            "E2E replication plan should pin current milestone target: {required}"
         );
     }
 
@@ -397,8 +407,8 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "CLI command surface comparison",
         "Daemon capability comparison",
         "Registry/resource comparison",
-        "P0.1 live registry v2 read/list layer",
-        "P0.5 daemon and recording control commands",
+        "P1.2 sherpa streaming backend",
+        "Prove real desktop SenseVoice",
         "Do not claim full parity until all of these pass",
         "vinput model install <id-or-short-id>",
     ] {

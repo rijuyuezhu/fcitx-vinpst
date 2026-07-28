@@ -1,24 +1,24 @@
-# E2E capability matrix and CLI/daemon parity plan
+# E2E capability matrix and native runtime/frontend parity plan
 
-Date: 2026-07-03
+Date: 2026-07-28
 
-This is the detailed capability comparison for moving the Rust rewrite from a tested prototype into a user-usable replacement for legacy `fcitx5-vinput`. It focuses on **CLI and daemon experience** because those are now the shortest path to a real user workflow: discover/install a model, configure it, start the daemon, dictate through Fcitx, diagnose failures, and recover without hand-editing JSON.
+This is the detailed capability comparison for moving the Rust rewrite from a usable CLI/daemon alpha into a real desktop replacement for legacy `fcitx5-vinput`. The terminal management surface is now largely implemented, so the active focus is native desktop execution, ASR runtime breadth, frontend UX, packaging, and remote-service parity.
 
 ## Evidence snapshot
 
 - Rust repository: `/workspace/fcitx-vinput-rs`
 - Legacy repository: `/workspace/fcitx5-vinput`
-- Rust audited HEAD: `ced48b6 fix(asr): prefer local sherpa runtime libs`
-- Local branch state at audit time: `main...origin/main [ahead 9, behind 1]`
+- Rust audited HEAD: `fdd4a46 feat(asr): support qwen3 registry models`
+- Audit branch: `feat/accelerate-port-refactor`, based on local `main` at `cab5e0d`; remote `origin/main` was `73e1418`.
 - Rust CLI surface was collected from `target/debug/vinput --help` after `cargo clean -p vinput-cli -p vinput-daemon && cargo build -q -p vinput-cli -p vinput-daemon`.
 - Rust daemon surface was collected from `target/debug/vinput-daemon --help` and `crates/vinput-daemon/src/dbus_service.rs`.
 - Legacy CLI surface was collected from `src/cli/config/register_*.cpp` and `src/cli/control/register_*.cpp`.
 - Legacy daemon surface was collected from `src/common/dbus/dbus_interface.h`, `src/daemon/runtime/dbus_service.cpp`, `src/daemon/runtime/daemon_runtime_controller.*`, `src/daemon/asr/**`, `src/daemon/audio/**`, and `src/daemon/postprocess/**`.
-- Native sherpa evidence: registry model `model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8` was downloaded from live `xifan2333/vinput-registry`, verified by sha256, extracted, and recognized bundled `test_wavs/zh.wav` as `开放时间早上九点至下午五点` through `just sherpa-sense-voice-local-smoke`.
+- Native sherpa evidence: registry model `model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8` was downloaded from live `xifan2333/vinput-registry`, verified by sha256, extracted, and recognized bundled `test_wavs/zh.wav` as `开放时间早上九点至下午五点` through `just sherpa-sense-voice-local-smoke`. Qwen3 ASR live-registry metadata is now mapped to the official Rust binding and feature-build tested, but real Qwen3 inference is not yet proven.
 
 ## Executive conclusion
 
-Rust is **not functionally complete** versus legacy. The protocol spine is strong and a real offline SenseVoice ASR path has been proven, but the product still lacks the CLI/resource/config/runtime glue that makes legacy usable by normal users.
+Rust is **not functionally complete** versus legacy. The protocol spine, CLI/resource/config management, and deterministic E2E coverage are now strong enough for a usable alpha. The dominant gaps have moved to real desktop proof, native streaming/VAD/runtime breadth, frontend UX, packaging, and remote services.
 
 Current parity estimate:
 
@@ -26,13 +26,13 @@ Current parity estimate:
 | --- | ---: | --- |
 | D-Bus ABI and daemon facade | 80-90% | Core method/signal names and payload shapes are preserved, with Rust-only diagnostics added. |
 | Deterministic E2E spine | 85-90% | Command-demo, user install smokes, activation, file-input tests, and adapter lifecycle are strong. |
-| Native local ASR | 45-55% | One SenseVoice offline path is real and tested; streaming, model families, VAD, metadata mapping, and desktop runtime loading are incomplete. |
-| CLI user experience | 20-30% | Rust CLI is mostly diagnostic and dry-run oriented; legacy has full config/model/provider/scene/control commands. |
-| Registry/resource install | 20-30% | Rust has safe primitives and a dry-run `index.json` planner, but live registry `models.json/providers.json/adapters.json` install is not user-facing. |
+| Native local ASR | 60-70% | SenseVoice offline is real and WAV-tested; Qwen3 ASR metadata and recognizer configuration are implemented; streaming, VAD, remaining families, and real Qwen3 inference remain incomplete. |
+| CLI user experience | 75-85% | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, and recording commands exist; remaining work is polish, live proof, edge cases, and continued module extraction. |
+| Registry/resource install | 65-75% | Live model fetch/cache/checksum/extract/install/use/remove works; provider/adapter live install and GUI resource flows remain incomplete. |
 | Real desktop readiness | 45-55% | Install/probe paths exist, but real Fcitx trigger/commit with native model still needs proof and runtime library handling. |
-| Full user-visible parity | 55-65% | Enough pieces exist for targeted alpha work, but not enough for a normal replacement. |
+| Full user-visible parity | 70-75% | CLI/daemon alpha is usable, but native desktop, frontend, packaging, and remote-service parity are incomplete. |
 
-The next project target should be: **replicate the legacy CLI and daemon experience well enough that a user can install a model from registry, choose it, run doctor/status, start/stop recording, and use the daemon through Fcitx without manual JSON editing.**
+The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> commit path, then add native streaming/VAD and the remaining registry model families while completing frontend UX and packaging.**
 
 ## User journeys
 
@@ -40,15 +40,15 @@ The next project target should be: **replicate the legacy CLI and daemon experie
 | --- | --- | --- | --- | --- |
 | J0: first-run init | `vinput init` creates config/dirs and default files. GUI/packaging also expect stable paths. | Rust has `vinput init` for default config, managed model/cache dirs, dry-run/JSON output, and activation-service hints. User install scripts can still write selected profile configs. | Mostly implemented; still needs broader config get/set/edit. | `vinput init` creates default config, managed dirs, activation-service hint, and prints JSON/text summary. |
 | J1: list and install local ASR model | `vinput model list/add/use/info/remove` fetches registry metadata, downloads assets, materializes model, updates config. | Rust live registry flow now lists, infos, installs, uses, and removes managed ASR models with dry-run JSON/text plans. | Mostly implemented; needs more live desktop proof and model-family metadata coverage. | `vinput model list`, `vinput model install <id|short_id>`, `vinput model use <id|path|installed-name>`, `vinput model info [--installed]`, and `vinput model remove [--installed]` work with live/installed metadata and sha256 checks. |
-| J2: normal dictation with local model | Fcitx trigger starts PipeWire capture, ASR, optional postprocess, commit. | Native SenseVoice recognizes a WAV file; user profile install exists; live Fcitx/PipeWire/native model path not proven. | Major live proof and runtime library handling. | Real desktop checklist passes: trigger, preedit, capture, inference, commit into app, `doctor` green. |
-| J3: command dictation over selected text | Fcitx command trigger captures selected text or fallback, ASR command scene, LLM/text transform, replace selection. | Surrounding-text command path and replacement logic exist; clipboard fallback and live proof incomplete. | Medium-major. | In two apps, selected text replacement works; fallback path has clear diagnostics when unavailable. |
-| J4: command ASR provider | Legacy supports command batch and streaming providers. | Rust has command ASR, command WAV helper, streaming command partial tests, and user profile for real command WAV. | Mostly implemented, needs CLI config parity. | `vinput provider add/use/edit/remove` can configure command ASR without hand-editing JSON. |
-| J5: LLM/text postprocess | Legacy supports OpenAI-compatible providers, command adapters, scenes, prompt files, candidate_count, command scene. | Rust has command text adapters, OpenAI-compatible provider tests, prompt/context pieces. | CLI/config UX incomplete and real provider validation limited. | `vinput llm`, `vinput adapter`, and `vinput scene` commands configure and validate postprocess paths. |
+| J2: normal dictation with local model | Fcitx trigger starts PipeWire capture, ASR, optional postprocess, commit. | Native SenseVoice recognizes a WAV file; Qwen3 ASR native config mapping is implemented; user profile install exists; live Fcitx/PipeWire/native model path and real Qwen3 inference are not proven. | Major live proof and runtime library handling. | Real desktop checklist passes: trigger, preedit, capture, inference, commit into app, `doctor` green. |
+| J3: command dictation over selected text | Fcitx command trigger captures selected text or fallback, ASR command scene, LLM/text transform, replace selection. | Surrounding-text selection, primary-selection clipboard fallback, command path, and replacement logic exist; multi-application live proof remains incomplete. | Medium. | In two apps, selected text replacement works; fallback path has clear diagnostics when unavailable. |
+| J4: command ASR provider | Legacy supports command batch and streaming providers. | Rust has command ASR, command WAV helper, streaming command partial tests, user profile for real command WAV, and provider add/use/edit/remove CLI. | Mostly implemented; needs live provider proof and recovery testing. | `vinput provider add/use/edit/remove` configures command ASR without hand-editing JSON and a live helper completes recognition. |
+| J5: LLM/text postprocess | Legacy supports OpenAI-compatible providers, command adapters, scenes, prompt files, candidate_count, command scene. | Rust has command text adapters, OpenAI-compatible provider tests, prompt/context pieces, and LLM/adapter/scene CLI management. | Mostly implemented; real-provider desktop validation remains limited. | `vinput llm`, `vinput adapter`, and `vinput scene` commands configure and validate postprocess paths, and a live provider completes one command-mode replacement. |
 | J6: adapter lifecycle | Legacy `vinput adapter start/stop` and daemon D-Bus `StartAdapter/StopAdapter` supervise local adapters and PID files. | Rust daemon can start/stop supervised command adapters, `vinput adapter start/stop` calls the daemon D-Bus lifecycle methods, dry-run includes daemon owner-probe diagnostics and next steps, and `vinput adapter status` reads `GetTextAdapterState` for PID/running diagnostics. | Mostly implemented; live desktop proof can still improve. | `vinput adapter start/stop/status/list` calls daemon and reports PID/running state. |
 | J7: daemon control | Legacy `vinput daemon status/start/stop/restart/log` integrates D-Bus/systemd/logs. | Rust has `daemon status/start/reload-asr`, real user-service `stop/restart/log` execution, dry-run owner-probe plans, activation service generation, D-Bus owner/PID/executable/cmdline probe diagnostics, and expanded runtime-status diagnostics for ASR/runtime/text-adapter state. | Mostly implemented; remaining work is live desktop/non-systemd proof rather than CLI probe coverage. | User can start/stop/restart/status/log daemon from CLI, including bounded daemon log output, using activation/systemd/user-mode strategy. |
 | J8: recording control from CLI | Legacy `vinput recording start/stop/toggle`. | Rust CLI calls daemon D-Bus `StartRecording`, `StartCommandRecording`, `StopRecording`, toggle via `GetStatus`, and status diagnostics; dry-run JSON/text includes owner-probe next steps. | Mostly implemented; live desktop error handling can still improve. | `vinput recording start/stop/toggle/status [--scene] [--selected-text]` works against D-Bus service and prints result/status. |
 | J9: device selection | Legacy `device list/use`, PipeWire device enumeration, config mutation. | Rust has `audio-devices` diagnostics plus `vinput device list/use` for JSON/text listing and guarded `global.capture_device` mutation. | Mostly implemented; live PipeWire selection still needs desktop proof. | `vinput device list/use` maps PipeWire nodes to config and validates with doctor. |
-| J10: diagnose and recover | Legacy has CLI, GUI, notifications, logs. | Rust `doctor`, `runtime-status`, `audio-devices`, live probe are better than legacy in several areas. | Mostly done, but needs user-facing commands. | One `vinput doctor` explains config, activation, model, runtime libs, audio, daemon owner, and next command. |
+| J10: diagnose and recover | Legacy has CLI, GUI, notifications, logs. | Rust `doctor`, `runtime-status`, `audio-devices`, live probe, daemon owner/PID/procfs diagnostics, and bounded logs are better than legacy in several areas. | Mostly done; needs live validation and message polish. | One `vinput doctor` explains config, activation, model, runtime libs, audio, daemon owner, and next command. |
 
 ## CLI command surface comparison
 
@@ -127,10 +127,10 @@ Rust CLI weaknesses for a user:
 | File input | Not a first-class user path. | `--wav` and `--pcm16le` are first-class for smoke/debug. | Rust improved. |
 | Command batch ASR | Implemented. | Implemented. | Mostly aligned. |
 | Command streaming ASR | Implemented with partials and process protocol. | Implemented/tested in Rust command ASR path. | Mostly aligned, needs live CLI config. |
-| Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice layout works. | Partial. |
+| Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice works and Qwen3 ASR registry metadata maps to native frontend/encoder/decoder/tokenizer and generation parameters. | Partial; real Qwen3 inference and remaining families are pending. |
 | Sherpa streaming | Implemented. | Not implemented. | Missing. |
 | VAD | `vad_trimmer` with sherpa VAD model. | Config parses VAD but native trimming is not implemented. | Missing/partial. |
-| Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust reads `vinput-model.json` for SenseVoice model/tokens/language/use_itn and falls back to directory inference. | Partial; more families still need metadata mapping. |
+| Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust classifies current and legacy registry families, reads SenseVoice and Qwen3 ASR family-specific metadata, validates required assets, and preserves unknown future family names. | Partial; remaining families still need runtime mapping. |
 | Text postprocess | OpenAI-compatible HTTP, prompt files/interpolation/context/candidates, command scene. | Command adapter and OpenAI-compatible paths exist; real UX/config incomplete. | Partial. |
 | Adapter supervisor | Process supervision, PID files, stderr notifications. | Process supervision, PID files, D-Bus start/stop, diagnostics. | Mostly aligned. |
 | Remote text service | Legacy has HTTP/WebSocket remote text service. | Not implemented. | Missing. |
@@ -187,20 +187,20 @@ scenes.active_scene
 scenes.definitions[]
 ```
 
-The gap is not the base schema; the gap is user-facing mutation and resource-aware configuration:
+The base schema and terminal-facing mutation layer are implemented. Remaining configuration work is concentrated in frontend settings, provider/adapter resource installation breadth, and live validation:
 
-- legacy has JSON-pointer `config get/set/edit`; Rust now has guarded JSON-pointer `get/set`, `config get --exists`, `get --default`, and `get --default-string` for missing-pointer scripting, JSON parsing plus `--string`, and validated editor-based `edit`;
-- legacy model/provider/adapter/scene commands edit config safely;
-- Rust validates and consumes config and can mutate existing config values with guarded JSON-pointer `set`; resource-specific mutations are still incomplete;
-- Rust install profiles generate specific configs, but they are not a general replacement for CLI config management.
+- Rust has guarded JSON-pointer `get/set`, existence/default scripting helpers, type-aware parsing, validated editor-based `edit`, atomic writes, and backups;
+- model/provider/hotword/device/scene/LLM/adapter commands perform resource-aware validated mutations;
+- model registry install/use/remove is implemented with safe fetch, checksum, extraction, materialization, and config updates;
+- user install profiles remain useful for desktop activation and native-runtime experiments, not as a substitute for CLI configuration.
 
-## P0 plan: replicate usable CLI and daemon experience
+## Completed M3 CLI/daemon slices and remaining desktop hardening
 
-This phase should avoid GUI and distro packaging. The goal is a terminal-first user flow that works in a real desktop session.
+The terminal-first CLI/daemon alpha is implemented. P0.1 through P0.5 below retain their acceptance record; P0.6 remains active under the real desktop milestone.
 
-### P0.1 live registry v2 read/list layer
+### Completed P0.1 live registry v2 read/list layer
 
-Implement live registry parsing in `vinput-registry` without replacing the existing safe asset primitives.
+Live model registry parsing is implemented in `vinput-registry` on top of the existing safe asset primitives. Provider/adapter registry installation breadth remains incomplete.
 
 Acceptance:
 
@@ -236,7 +236,7 @@ Acceptance:
 - Config writes use same-directory temp files and rename; `model use --in-place` preserves a `<config>.bak` backup.
 - All commands have `--json` and text output.
 
-### P0.4 provider/hotword/device commands
+### Completed P0.4 provider/hotword/device commands
 
 Expose ASR provider UX before broad LLM UX.
 
@@ -254,7 +254,7 @@ Acceptance:
 - `vinput scene list/ls/add/edit/use/remove; llm list/ls/add/edit/remove/test; adapter list/ls --configured/--available; adapter add/edit/install-plan/start/stop/status/remove` inspects and selects configured recognition scenes. **Done for dry-run/output/in-place writes, backup/validation guards, JSON/text output, and README/just smoke.**
 - `vinput doctor` references provider/hotword/device commands in remediation text. **Done for JSON `next_steps` covering provider list/use, hotword get, device list/use, daemon status previews, and daemon owner/procfs probe diagnostics.**
 
-### P0.5 daemon and recording control commands
+### Completed P0.5 daemon and recording control commands
 
 Use the Rust D-Bus ABI instead of telling users to call low-level tools.
 
@@ -267,7 +267,7 @@ Acceptance:
 - `vinput daemon log` executes `journalctl --user -u fcitx-vinput.service`, reports argv/stdout/stderr/exit status, tool/env override metadata, activation-service fallback steps, plus owner-probe next diagnostics, and keeps dry-run CI-safe.
 - `vinput recording start`, `stop [--scene]`, and `toggle` have CLI D-Bus paths; dry-run output includes owner-probe diagnostics and next steps as the stable CI-tested plan surface.
 
-### P0.6 native sherpa desktop runtime hardening
+### Active P0.6 native sherpa desktop runtime hardening
 
 Convert the proven local smoke into a real desktop path.
 
@@ -284,9 +284,11 @@ Acceptance:
 
 Acceptance:
 
-- Rust reads registry/local `vinput_model` metadata and builds native backend config from it.
-- SenseVoice behavior stops relying only on directory inference.
-- Dolphin and Qwen3 metadata are parsed even before their recognizer runtime is fully enabled, with clear unsupported-family errors.
+- Implemented: Rust reads registry/local `vinput_model` metadata and builds native backend config from it.
+- Implemented: SenseVoice uses metadata with directory inference as a compatibility fallback.
+- Implemented: Qwen3 ASR maps frontend, encoder, decoder, tokenizer, generation parameters, and optional hotwords to the official Rust binding.
+- Implemented: known unsupported and unknown future families retain their exact family names in diagnostics.
+- Remaining acceptance: run real Qwen3 model inference and add native layouts for the other live-registry families.
 
 ### P1.2 sherpa streaming backend
 
@@ -308,15 +310,16 @@ Acceptance:
 
 Acceptance:
 
-- `vinput llm list/add/remove/edit/test` manages OpenAI-compatible providers.
-- `vinput adapter list/add/start/stop/status` manages command adapters through config and daemon D-Bus.
-- `vinput scene list/add/use/remove/edit` manages scenes, prompt files, candidate count, model, provider, and context lines.
-- Local mock-server tests cover OpenAI-compatible request and response behavior.
+- Implemented: `vinput llm list/add/remove/edit/test` manages OpenAI-compatible providers.
+- Implemented: `vinput adapter list/add/start/stop/status` manages command adapters through config and daemon D-Bus.
+- Implemented: `vinput scene list/add/use/remove/edit` manages scenes, prompt files, candidate count, model, provider, and context lines.
+- Implemented: local mock-server tests cover OpenAI-compatible request and response behavior.
+- Remaining acceptance: validate one real provider in a desktop command-mode flow.
 
 ## P2 plan: frontend and release polish
 
 - Scene menu, ASR menu, paging/search candidates, and persistent frontend trigger config.
-- Clipboard fallback for selected text where Fcitx surrounding text is unavailable.
+- Live validation of the implemented primary-selection clipboard fallback across applications where Fcitx surrounding text is unavailable.
 - User-facing install guide based on `vinput init`, `model install/use`, `doctor`, and `daemon start`.
 - Distro packaging after P0 live desktop native path is proven.
 - GUI can be deferred until CLI/daemon experience is usable.
@@ -325,12 +328,12 @@ Acceptance:
 
 Pick one focused slice at a time:
 
-1. Add `vinput-registry` live `models.json` parser and tests using the current registry SenseVoice item.
-2. Add `vinput model list --json` and text output with `id`, `short_id`, `language`, `size_bytes`, `family`, and supported/unsupported marker.
-3. Add `vinput model install <id|short_id> --target-root ... --dry-run/--json`, then real download/materialize.
-4. Add config mutation primitives for `vinput model use`.
-5. Add D-Bus client commands for `vinput daemon status` and `vinput recording start/stop`.
-6. Harden activation service runtime library environment for native sherpa.
+1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
+2. Download the current Qwen3 ASR registry model and add a real local WAV smoke for the new native mapping.
+3. Deliver live PipeWire chunks to a native sherpa streaming session and map partial/final events.
+4. Implement native VAD trimming, decode timeout enforcement, warmup, and warm reload semantics.
+5. Port transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer metadata/runtime layouts in registry-priority order.
+6. Complete scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.
 
 ## Stop conditions
 

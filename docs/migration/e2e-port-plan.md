@@ -1,10 +1,10 @@
 # E2E Rust port plan
 
-This file is kept as the stable historical entry point for the E2E port. The active plan has been consolidated into [`e2e-replication-plan.md`](e2e-replication-plan.md), the current parity baseline is tracked in [`function-gap-audit.md`](function-gap-audit.md), and the detailed CLI/daemon E2E gap matrix lives in [`e2e-capability-matrix.md`](e2e-capability-matrix.md).
+This file is kept as the stable historical entry point for the E2E port. The active plan has been consolidated into [`e2e-replication-plan.md`](e2e-replication-plan.md), the current parity baseline is tracked in [`function-gap-audit.md`](function-gap-audit.md), and the detailed native-runtime/frontend gap matrix lives in [`e2e-capability-matrix.md`](e2e-capability-matrix.md).
 
 ## Current objective
 
-Move from deterministic product-spine coverage and one proven native SenseVoice file-input path to **usable CLI/daemon alpha**, then real desktop native dictation, then legacy feature parity.
+Move from the completed **usable CLI/daemon alpha** and proven native SenseVoice file-input path to real desktop native dictation, broader native ASR parity, then legacy feature parity.
 
 The goal is functional replication of legacy user-visible behavior, not a line-by-line C++ port. Rust internals should stay simpler and more testable while preserving service contracts, config semantics, Fcitx integration expectations, ASR/text flow behavior, install paths, and diagnostics.
 
@@ -14,22 +14,22 @@ The Rust rewrite already has:
 
 - clear workspace crates for protocol, config, audio, ASR, text, registry, daemon, and CLI;
 - retained C++ Fcitx5 addon under `cpp/fcitx5-addon`;
-- deterministic command-demo E2E path;
-- user install script for daemon, addon module, addon metadata, activation service, config, WAV fixture, and env file;
+- deterministic command-demo E2E path and user install/activation profiles;
+- broad CLI management for config, models, providers, hotwords, devices, scenes, LLMs, adapters, daemon, and recording;
+- safe live model registry fetch, install, use, info, and remove flows;
 - optional PipeWire recorder path;
-- feature-gated native sherpa SenseVoice backend with a verified registry model/WAV smoke;
-- `vinput doctor` diagnostics;
-- strong deterministic CI/smoke coverage.
+- feature-gated native SenseVoice with a verified registry model/WAV smoke and Qwen3 ASR recognizer configuration mapping;
+- surrounding-text plus primary-selection clipboard fallback in command mode;
+- `vinput doctor` diagnostics and strong deterministic CI/smoke coverage.
 
 The main gaps are now:
 
-- legacy-style CLI management for init/config/model/provider/hotword/device/scene/LLM/adapter/daemon/recording;
-- live registry `models.json/providers.json/adapters.json` resource install;
-- live desktop addon/load/trigger/commit verification with native ASR;
-- frontend config and legacy menus;
-- selected-text fallback;
-- broader sherpa model families, streaming, VAD, and runtime metadata mapping;
-- release packaging.
+- live desktop addon/load/trigger/PipeWire/native-ASR/commit proof;
+- native streaming chunk delivery, VAD, timeout, warmup, and warm reload behavior;
+- real Qwen3 inference and broader sherpa model families;
+- frontend config, scene/ASR menus, and richer notifications;
+- provider/adapter registry installation breadth and remote services;
+- release packaging and legacy GUI parity.
 
 ## Required reading order for implementation agents
 
@@ -42,4 +42,4 @@ The main gaps are now:
 
 ## Next recommended slice
 
-Start with a P0 slice from [`e2e-capability-matrix.md`](e2e-capability-matrix.md): live registry `models.json` parsing, `vinput model list/install/use`, config mutation, daemon/recording D-Bus CLI commands, or native sherpa activation library-path hardening. Do not start GUI or distro packaging before the terminal-first CLI/daemon happy path works without manual JSON edits.
+Start with an M4 or native-runtime slice from [`e2e-capability-matrix.md`](e2e-capability-matrix.md): prove the real desktop SenseVoice chain, run real Qwen3 inference, connect PipeWire chunks to native streaming ASR, add VAD/timeout/warm-reload semantics, or port the next registry model family. Do not start broad GUI polish or distro packaging before real desktop native alpha is proven.

@@ -7,7 +7,7 @@ This directory is task-oriented. New agents should follow the reading order inst
 1. [`../AGENTS.md`](../AGENTS.md): short root instruction file for agents.
 2. [`development.md`](development.md): project style, commit message style, validation tiers, and test commands.
 3. [`migration/function-gap-audit.md`](migration/function-gap-audit.md): current tracked legacy-vs-Rust parity baseline.
-4. [`migration/e2e-capability-matrix.md`](migration/e2e-capability-matrix.md): detailed E2E capability comparison and the CLI/daemon parity backlog.
+4. [`migration/e2e-capability-matrix.md`](migration/e2e-capability-matrix.md): detailed E2E capability comparison and the native runtime/frontend parity backlog.
 5. [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md): active milestone plan for real user workflows.
 6. [`migration/live-desktop-validation.md`](migration/live-desktop-validation.md): manual/live checklist for proving real Fcitx desktop behavior.
 7. [`migration/e2e-port-plan.md`](migration/e2e-port-plan.md): historical E2E entry point that now links to the active plan.
@@ -36,7 +36,7 @@ This directory is task-oriented. New agents should follow the reading order inst
 ## Consistency rules
 
 - `function-gap-audit.md` answers "where are we?".
-- `e2e-capability-matrix.md` answers "what exactly is missing for usable CLI/daemon parity?".
+- `e2e-capability-matrix.md` answers "what exactly is missing for real desktop and legacy parity?".
 - `e2e-replication-plan.md` answers "what should we do next?".
 - `live-desktop-validation.md` answers "how do we prove real desktop behavior?".
 - `agent-kickoff.md` answers "how should a fresh agent start?".

@@ -1,6 +1,6 @@
 # Complete E2E replication plan
 
-This is the active milestone plan for moving from the current deterministic product spine and one proven native SenseVoice file-input path to a user-usable replacement. Read this after [`function-gap-audit.md`](function-gap-audit.md) and use [`e2e-capability-matrix.md`](e2e-capability-matrix.md) for the detailed CLI/daemon backlog.
+This is the active milestone plan for moving from the current usable CLI/daemon alpha and proven native SenseVoice file-input path to a real desktop replacement. Read this after [`function-gap-audit.md`](function-gap-audit.md) and use [`e2e-capability-matrix.md`](e2e-capability-matrix.md) for the detailed runtime/frontend backlog.
 
 ## Product target
 
@@ -27,16 +27,16 @@ Functional replication means user-visible compatibility, not line-by-line C++ re
 | M6 | Resource/install parity slice | Model/provider/adapter install can download, verify, materialize, update config, and run runtime validation. |
 | M7 | Release candidate | Packaging, install docs, live validation checklist, and regression tests are ready for external users. |
 
-## P0: usable CLI/daemon alpha
+## Completed: usable CLI/daemon alpha
 
-This is the next target. Details and acceptance criteria live in [`e2e-capability-matrix.md`](e2e-capability-matrix.md).
+The M3 management surface is implemented and covered by deterministic tests. Remaining live-registry work is provider/adapter installation breadth rather than the core model workflow.
 
-1. Add live registry parsing for `models.json/providers.json/adapters.json` with i18n and `short_id` support.
-2. Add `vinput model list/install/use/info/remove` around the existing safe fetch/checksum/archive/staging/materialization primitives.
-3. Add `vinput init` and `vinput config get/set/edit` so users do not hand-edit JSON.
-4. Add `vinput provider`, `vinput hotword`, and `vinput device` commands for the most common ASR setup tasks.
-5. Add daemon/recording D-Bus CLI commands for `vinput daemon status/start/stop/restart/log` and `vinput recording start/stop/toggle`.
-6. Harden native sherpa runtime library handling for D-Bus activation, not just local smoke.
+1. Implemented: live model registry parsing with i18n and `short_id` support.
+2. Implemented: `vinput model list/install/use/info/remove` around safe fetch/checksum/archive/staging/materialization primitives.
+3. Implemented: `vinput init` and `vinput config get/set/edit` for normal configuration workflows.
+4. Implemented: provider, hotword, device, scene, LLM, and adapter management commands.
+5. Implemented: daemon and recording D-Bus/lifecycle CLI commands.
+6. Implemented locally: native sherpa activation profiles and runtime-library diagnostics; distribution hardening remains under M4/M7.
 
 ## P0: real desktop native alpha
 
@@ -48,20 +48,20 @@ This is the next target. Details and acceptance criteria live in [`e2e-capabilit
 
 ## P1: daemon runtime parity
 
-1. Map registry/local `vinput_model` metadata into Rust native sherpa config instead of relying only on directory inference.
-2. Add broader offline families such as Dolphin and Qwen/Qwen3 as supported or explicitly diagnosed unsupported paths.
-3. Add sherpa streaming backend support and map partial events to `RecognitionPartial`.
-4. Add VAD trimming and timeout semantics where legacy exposes them.
-5. Validate OpenAI-compatible text provider behavior with a local mock server.
-6. Preserve legacy status strings, method names, signal names, and recognition payload shape.
+1. Implemented for SenseVoice and Qwen3 ASR: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
+2. Prove real Qwen3 ASR inference, then add transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer layouts in registry-priority order.
+3. Add sherpa streaming backend support, deliver live PipeWire chunks, and map partial events to `RecognitionPartial`.
+4. Add VAD trimming, warmup, decode timeout, and warm reload semantics where legacy exposes them.
+5. Implemented deterministically: OpenAI-compatible text provider behavior uses local mock-server tests; add one real desktop provider validation.
+6. Continue preserving legacy status strings, method names, signal names, and recognition payload shape.
 
 ## P1: legacy UX parity
 
 1. Add persistent frontend config for normal trigger, command trigger, and trigger mode; keep environment overrides as a development escape hatch.
 2. Add minimal scene and ASR menus before recreating every legacy menu detail.
-3. Verify command-mode candidate selection replaces selected text.
-4. Add selected-text fallback beyond surrounding text so command mode works in more applications.
-5. Add LLM/provider/adapter/scene CLI parity after the model/provider/daemon core is in place.
+3. Verify command-mode candidate selection replaces selected text in multiple real applications.
+4. Validate the implemented primary-selection clipboard fallback where surrounding text is unavailable.
+5. LLM/provider/adapter/scene CLI parity is implemented; validate live providers and improve user-facing errors.
 
 ## P2: release readiness
 
@@ -72,7 +72,7 @@ This is the next target. Details and acceptance criteria live in [`e2e-capabilit
 
 ## Work selection rules
 
-- Prefer tasks that move M3 or M4 forward.
+- Prefer tasks that move M4 or native runtime parity forward.
 - Do not count deterministic smoke tests as full parity unless they prove the relevant real behavior.
 - Avoid broad refactors unless they unblock a milestone.
 - Preserve legacy service names, method names, status strings, config semantics, and recognition payload shape.
@@ -81,9 +81,9 @@ This is the next target. Details and acceptance criteria live in [`e2e-capabilit
 
 ## Suggested next slices
 
-1. Add live `registry/models.json` parser and fixture tests.
-2. Add `vinput model list --json` and text output.
-3. Add model install dry-run and real install/materialize.
-4. Add `vinput model use` and minimal config mutation primitives.
-5. Add `vinput daemon status` and `vinput recording start/stop` D-Bus client commands.
-6. Harden D-Bus activation library-path handling for native sherpa.
+1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
+2. Download the current Qwen3 ASR model and add a real local WAV smoke for the implemented mapping.
+3. Wire live PipeWire chunks into native sherpa streaming recognition.
+4. Add native VAD, timeout, warmup, and warm reload behavior.
+5. Port the remaining live-registry model families.
+6. Add scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.

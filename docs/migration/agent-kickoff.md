@@ -4,7 +4,7 @@ Use this as the copyable startup context for an implementation agent that will c
 
 ## Mission
 
-Continue the `fcitx-vinput-rs` migration toward **usable CLI/daemon alpha**, then real desktop native alpha. The project is no longer just architecture scaffolding: deterministic command-demo, retained Fcitx addon, Rust daemon, user install, activation, doctor, staged E2E, user install smokes, command ASR helpers, and a proven native SenseVoice WAV smoke already exist. Do not reimplement them. Focus on the remaining P0 gaps from [`e2e-capability-matrix.md`](e2e-capability-matrix.md) and [`e2e-replication-plan.md`](e2e-replication-plan.md).
+Continue the `fcitx-vinput-rs` migration from the completed **usable CLI/daemon alpha** toward real desktop native alpha and real ASR parity. The project already has the retained Fcitx addon, Rust daemon, broad management CLI, live model registry install/use/remove, user activation profiles, deterministic E2E smokes, a real SenseVoice WAV smoke, typed model-family classification, and native Qwen3 ASR recognizer configuration. Do not reimplement those surfaces. Focus on the current M4/native-runtime gaps from [`e2e-capability-matrix.md`](e2e-capability-matrix.md) and [`e2e-replication-plan.md`](e2e-replication-plan.md).
 
 ## Repositories
 
@@ -50,24 +50,26 @@ Then read, in order:
 
 ## Current parity baseline
 
-- Overall legacy feature parity: about **55-65%**.
-- Real desktop readiness: **prototype usable / early alpha**.
-- Deterministic product spine: strong and tested.
+- Overall legacy feature parity: approximately **70-75%** as a planning estimate.
+- CLI/daemon alpha: usable and broadly covered by deterministic tests.
+- Real desktop readiness: **prototype usable / early alpha**; the full native desktop chain is not yet proven.
 - Native SenseVoice file-input path: proven with a registry-downloaded model and bundled WAV.
-- Biggest blockers: CLI management parity, live registry install, daemon/recording control commands, native sherpa desktop activation library paths, live desktop verification, frontend config/menus, selected-text fallback.
+- Native Qwen3 ASR: registry metadata and recognizer configuration are implemented and feature-build tested; real inference remains unverified.
+- Selected-text primary-selection fallback: implemented in the retained addon; live multi-application proof remains.
+- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> commit proof, streaming chunk delivery, VAD/timeout/warm-reload semantics, remaining sherpa families, frontend menus/configuration, packaging, and remote services.
 
 ## First recommended implementation slices
 
-Pick one focused P0 slice:
+Pick one focused M4 or native-runtime slice:
 
-1. Add live `registry/models.json` parser and fixture tests in `vinput-registry`.
-2. Add `vinput model list --json` and text output using live registry ids and short ids.
-3. Add `vinput model install/use/info/remove` around the existing safe fetch/checksum/archive/materialization primitives.
-4. Add minimal `vinput init` and `vinput config get/set/edit` so the happy path avoids manual JSON edits.
-5. Add D-Bus client commands for `vinput daemon status` and `vinput recording start/stop`.
-6. Harden D-Bus activation runtime library paths for native sherpa.
+1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
+2. Download the current Qwen3 ASR model and add a real local WAV smoke for the implemented mapping.
+3. Wire live PipeWire chunks into native sherpa streaming recognition and map partial events.
+4. Add native VAD, timeout, warmup, and warm reload behavior.
+5. Port transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer in registry-priority order.
+6. Add scene/ASR menus and persistent frontend trigger configuration where they directly support live validation.
 
-Do not start distro packaging, GUI polish, or broad refactors before usable CLI/daemon alpha is proven.
+Do not start broad GUI polish or distro packaging before real desktop native alpha is proven. Keep refactors feature-driven and scoped to the next migration slice.
 
 ## Implementation rules
 
