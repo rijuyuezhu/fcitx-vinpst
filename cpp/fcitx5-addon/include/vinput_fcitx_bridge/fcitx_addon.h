@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vinput_fcitx_bridge/fcitx_config.h"
 #include "vinput_fcitx_bridge/fcitx_key_trigger.h"
 #include "vinput_fcitx_bridge/fcitx_outcome.h"
 #include "vinput_fcitx_bridge/frontend_bridge.h"
@@ -27,6 +28,11 @@ public:
   FcitxVinputAddon &operator=(const FcitxVinputAddon &) = delete;
   FcitxVinputAddon(FcitxVinputAddon &&) = delete;
   FcitxVinputAddon &operator=(FcitxVinputAddon &&) = delete;
+
+  void reloadConfig() override;
+  void save() override;
+  const fcitx::Configuration *getConfig() const override;
+  void setConfig(const fcitx::RawConfig &config) override;
 
   fcitx::Instance *instance() const {
     return instance_;
@@ -60,10 +66,13 @@ private:
   bool RefreshAsrMenuState(std::string *error);
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
   void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
+  void ApplyFrontendSettings();
 
   fcitx::Instance *instance_ = nullptr;
   FrontendBridge bridge_;
+  FrontendSettings frontend_settings_;
   FcitxKeyTriggerPolicy trigger_policy_;
+  mutable std::unique_ptr<VinputFrontendConfig> frontend_config_;
   SceneStateSnapshot scene_state_;
   std::vector<std::size_t> scene_menu_indices_;
   std::string active_scene_id_{kDefaultNormalSceneId};

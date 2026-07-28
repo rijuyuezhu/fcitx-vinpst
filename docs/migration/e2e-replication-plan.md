@@ -58,7 +58,7 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 ## P1: legacy UX parity
 
 1. Implemented deterministically: the minimal scene menu uses Right Shift, typed D-Bus scene state, candidate navigation/selection, and atomic active-scene persistence. Prove it in a real Fcitx session.
-2. Implemented deterministically: the F8 ASR menu exposes target/effective/loading/error state, scans flat and legacy installed-model layouts, and persists provider/model selection before background reload. Add persistent frontend config for normal, command, scene-menu, and ASR-menu triggers plus trigger mode; keep environment overrides as a development escape hatch.
+2. Implemented deterministically: the F8 ASR menu exposes target/effective/loading/error state, scans flat and legacy installed-model layouts, and persists provider/model selection before background reload. The normal, command, scene-menu, and ASR-menu triggers are persistent legacy-named Fcitx KeyLists; valid environment values remain temporary single-key overrides, and unknown legacy fields survive writes. Add trigger mode and paging/search-key configuration next.
 3. Verify command-mode candidate selection replaces selected text in multiple real applications.
 4. Validate the implemented primary-selection clipboard fallback where surrounding text is unavailable.
 5. LLM/provider/adapter/scene CLI parity is implemented; validate live providers and improve user-facing errors.
@@ -83,5 +83,5 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining live-registry model families.
-3. Prove the scene and installed-model ASR menus live, then add persistent frontend config and legacy search/i18n details needed for real desktop validation.
+3. Prove the scene menu, installed-model ASR menu, and persistent hotkey config live, then add trigger mode/paging configuration and legacy search/i18n details needed for real desktop validation.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.

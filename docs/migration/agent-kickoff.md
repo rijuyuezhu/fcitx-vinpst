@@ -64,7 +64,8 @@ Then read, in order:
 - Timeout semantics: command helpers enforce configured deadlines; native synchronous sherpa decode is explicitly classified as unsupported/diagnostic-only in `vinput doctor` with an isolation hint.
 - Reload semantics: the legacy D-Bus method re-reads explicit daemon config files and queues one non-blocking worker; startup/readiness/reload paths share prepare-before-swap, physical progress is observable, stale generations are discarded, and failure preserves the previous effective backend.
 - Frontend menus: a minimal Right-Shift scene menu and installed-model-aware F8 ASR menu are implemented with typed D-Bus state and atomic explicit-config persistence. ASR provider/model selection queues background reload and is proven through the C++ client; real desktop menu proof is still missing.
-- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, remaining sherpa families, persistent frontend configuration, packaging, and remote services.
+- Frontend config: normal, command, scene-menu, and ASR-menu triggers are persistent legacy-named Fcitx KeyLists with immediate reload and temporary environment overrides; unknown legacy fields are preserved. Trigger mode and paging/search config remain.
+- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, remaining sherpa families, remaining frontend mode/paging configuration, packaging, and remote services.
 
 ## First recommended implementation slices
 
@@ -72,7 +73,7 @@ Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining families in registry-priority order; Moonshine v1 is already live-registry installed and WAV-proven.
-3. Prove the scene and installed-model ASR menus live, then add persistent frontend trigger/mode configuration and legacy search/i18n details.
+3. Prove the scene menu, installed-model ASR menu, and persistent hotkey config live, then add trigger mode/paging configuration and legacy search/i18n details.
 4. Advance packaging and remote-service breadth only where they unblock the native desktop path.
 
 Do not start broad GUI polish or distro packaging before real desktop native alpha is proven. Keep refactors feature-driven and scoped to the next migration slice.
@@ -83,7 +84,7 @@ Do not start broad GUI polish or distro packaging before real desktop native alp
 - Keep code, comments, test names, file paths, and commit messages in English.
 - Preserve legacy service names, method names, status strings, config semantics, and recognition payload shape.
 - Do not count deterministic smokes as live desktop proof.
-- Keep environment overrides for development even if persistent frontend config is added.
+- Keep environment overrides as temporary development escapes over persistent frontend KeyLists.
 - Keep user-profile mutations explicit and opt-in.
 - Keep commits small and scoped.
 

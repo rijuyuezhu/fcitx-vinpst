@@ -5,7 +5,7 @@ Category=Module
 Library=fcitx5-vinput
 Type=SharedLibrary
 OnDemand=False
-Configurable=False
+Configurable=True
 Version=@PROJECT_VERSION@
 
 [Addon/Dependencies]

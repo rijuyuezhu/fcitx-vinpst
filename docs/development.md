@@ -145,6 +145,7 @@ Live desktop PipeWire validation still needs manual confirmation. Recorder setup
 If a live check fails, record the exact failure and do not mark the feature as done.
 
 `just addon-dbus-adapter-lifecycle-smoke` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus.
+`just addon-test` includes a frontend config smoke that roundtrips all four persistent KeyLists through Fcitx INI serialization and proves unknown legacy fields survive writes. `just addon-install-smoke` verifies installed addon metadata remains `Configurable=True`.
 `just ime-e2e-smoke` includes fake outcome sink coverage for preedit, commit, command-mode selected-text deletion, candidate menus, and fallback commit behavior.
 
 ## Common commands

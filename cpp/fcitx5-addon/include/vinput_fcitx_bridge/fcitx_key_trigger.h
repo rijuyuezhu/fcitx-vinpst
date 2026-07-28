@@ -22,23 +22,26 @@ enum class FcitxTriggerAction : std::uint8_t {
 class FcitxKeyTriggerPolicy {
 public:
   explicit FcitxKeyTriggerPolicy(
-      fcitx::Key normal_trigger = fcitx::Key(FcitxKey_Control_R),
-      fcitx::Key command_trigger = fcitx::Key(FcitxKey_F10),
-      fcitx::Key scene_menu_trigger = fcitx::Key(FcitxKey_Shift_R),
-      fcitx::Key asr_menu_trigger = fcitx::Key(FcitxKey_F8));
+      fcitx::KeyList normal_triggers = {fcitx::Key(FcitxKey_Control_R)},
+      fcitx::KeyList command_triggers = {fcitx::Key(FcitxKey_F10)},
+      fcitx::KeyList scene_menu_triggers = {fcitx::Key(FcitxKey_Shift_R)},
+      fcitx::KeyList asr_menu_triggers = {fcitx::Key(FcitxKey_F8)});
   static FcitxKeyTriggerPolicy FromEnvironment();
+  static FcitxKeyTriggerPolicy WithEnvironmentOverrides(
+      fcitx::KeyList normal_triggers, fcitx::KeyList command_triggers,
+      fcitx::KeyList scene_menu_triggers, fcitx::KeyList asr_menu_triggers);
 
-  const fcitx::Key &normal_trigger() const {
-    return normal_trigger_;
+  const fcitx::KeyList &normal_triggers() const {
+    return normal_triggers_;
   }
-  const fcitx::Key &command_trigger() const {
-    return command_trigger_;
+  const fcitx::KeyList &command_triggers() const {
+    return command_triggers_;
   }
-  const fcitx::Key &scene_menu_trigger() const {
-    return scene_menu_trigger_;
+  const fcitx::KeyList &scene_menu_triggers() const {
+    return scene_menu_triggers_;
   }
-  const fcitx::Key &asr_menu_trigger() const {
-    return asr_menu_trigger_;
+  const fcitx::KeyList &asr_menu_triggers() const {
+    return asr_menu_triggers_;
   }
 
   FcitxTriggerAction Classify(const fcitx::KeyEvent &event) const;
@@ -48,10 +51,10 @@ public:
   bool IsAsrMenuTrigger(const fcitx::KeyEvent &event) const;
 
 private:
-  fcitx::Key normal_trigger_;
-  fcitx::Key command_trigger_;
-  fcitx::Key scene_menu_trigger_;
-  fcitx::Key asr_menu_trigger_;
+  fcitx::KeyList normal_triggers_;
+  fcitx::KeyList command_triggers_;
+  fcitx::KeyList scene_menu_triggers_;
+  fcitx::KeyList asr_menu_triggers_;
 };
 
 } // namespace vinput_fcitx_bridge

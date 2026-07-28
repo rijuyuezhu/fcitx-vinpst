@@ -79,3 +79,60 @@ fn cpp_bridge_dbus_contract_matches_rust_protocol() {
         assert_eq!(cpp_constant(&header, name), expected, "{name} should match");
     }
 }
+
+#[test]
+fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
+    let addon_metadata =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/vinput-addon.conf.in"))
+            .expect("read addon metadata");
+    assert!(addon_metadata.contains("Configurable=True"));
+
+    let config_header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_config.h",
+    ))
+    .expect("read frontend config header");
+    let config_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_config.cpp"))
+            .expect("read frontend config source");
+    let addon_header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_addon.h",
+    ))
+    .expect("read addon header");
+
+    for required in [
+        "conf/vinput.conf",
+        "fcitx::KeyList normal_triggers",
+        "fcitx::KeyList command_triggers",
+        "fcitx::KeyList scene_menu_triggers",
+        "fcitx::KeyList asr_menu_triggers",
+    ] {
+        assert!(
+            config_header.contains(required),
+            "frontend config header should pin {required}"
+        );
+    }
+    for required in [
+        "\"TriggerKey\"",
+        "\"CommandKeys\"",
+        "\"SceneMenuKey\"",
+        "\"AsrMenuKey\"",
+        "safeSaveAsIni",
+        "readAsIni",
+    ] {
+        assert!(
+            config_source.contains(required),
+            "frontend config source should pin {required}"
+        );
+    }
+    for required in [
+        "void reloadConfig() override",
+        "void save() override",
+        "const fcitx::Configuration *getConfig() const override",
+        "void setConfig(const fcitx::RawConfig &config) override",
+    ] {
+        assert!(
+            addon_header.contains(required),
+            "addon config API should pin {required}"
+        );
+    }
+}

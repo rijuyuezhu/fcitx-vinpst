@@ -4,49 +4,61 @@
 
 namespace {
 
-fcitx::Key KeyFromEnvironment(const char *name, const fcitx::Key &fallback) {
+fcitx::KeyList KeyListFromEnvironment(const char *name, fcitx::KeyList fallback) {
   const auto *value = std::getenv(name);
   if (value == nullptr || value[0] == '\0') {
     return fallback;
   }
   fcitx::Key key(value);
-  return key.isValid() ? key : fallback;
+  return key.isValid() ? fcitx::KeyList{key} : std::move(fallback);
 }
 
 } // namespace
 
 namespace vinput_fcitx_bridge {
 
-FcitxKeyTriggerPolicy::FcitxKeyTriggerPolicy(fcitx::Key normal_trigger,
-                                             fcitx::Key command_trigger,
-                                             fcitx::Key scene_menu_trigger,
-                                             fcitx::Key asr_menu_trigger)
-    : normal_trigger_(normal_trigger), command_trigger_(command_trigger),
-      scene_menu_trigger_(scene_menu_trigger), asr_menu_trigger_(asr_menu_trigger) {}
+FcitxKeyTriggerPolicy::FcitxKeyTriggerPolicy(fcitx::KeyList normal_triggers,
+                                             fcitx::KeyList command_triggers,
+                                             fcitx::KeyList scene_menu_triggers,
+                                             fcitx::KeyList asr_menu_triggers)
+    : normal_triggers_(std::move(normal_triggers)),
+      command_triggers_(std::move(command_triggers)),
+      scene_menu_triggers_(std::move(scene_menu_triggers)),
+      asr_menu_triggers_(std::move(asr_menu_triggers)) {}
 
 FcitxKeyTriggerPolicy FcitxKeyTriggerPolicy::FromEnvironment() {
+  return WithEnvironmentOverrides(
+      {fcitx::Key(FcitxKey_Control_R)}, {fcitx::Key(FcitxKey_F10)},
+      {fcitx::Key(FcitxKey_Shift_R)}, {fcitx::Key(FcitxKey_F8)});
+}
+
+FcitxKeyTriggerPolicy FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
+    fcitx::KeyList normal_triggers, fcitx::KeyList command_triggers,
+    fcitx::KeyList scene_menu_triggers, fcitx::KeyList asr_menu_triggers) {
   return FcitxKeyTriggerPolicy(
-      KeyFromEnvironment("VINPUT_FCITX_NORMAL_TRIGGER", fcitx::Key(FcitxKey_Control_R)),
-      KeyFromEnvironment("VINPUT_FCITX_COMMAND_TRIGGER", fcitx::Key(FcitxKey_F10)),
-      KeyFromEnvironment("VINPUT_FCITX_SCENE_MENU_TRIGGER",
-                         fcitx::Key(FcitxKey_Shift_R)),
-      KeyFromEnvironment("VINPUT_FCITX_ASR_MENU_TRIGGER", fcitx::Key(FcitxKey_F8)));
+      KeyListFromEnvironment("VINPUT_FCITX_NORMAL_TRIGGER", std::move(normal_triggers)),
+      KeyListFromEnvironment("VINPUT_FCITX_COMMAND_TRIGGER",
+                             std::move(command_triggers)),
+      KeyListFromEnvironment("VINPUT_FCITX_SCENE_MENU_TRIGGER",
+                             std::move(scene_menu_triggers)),
+      KeyListFromEnvironment("VINPUT_FCITX_ASR_MENU_TRIGGER",
+                             std::move(asr_menu_triggers)));
 }
 
 FcitxTriggerAction FcitxKeyTriggerPolicy::Classify(const fcitx::KeyEvent &event) const {
-  if (event.key().check(normal_trigger_)) {
+  if (event.key().checkKeyList(normal_triggers_)) {
     return event.isRelease() ? FcitxTriggerAction::StopNormal
                              : FcitxTriggerAction::StartNormal;
   }
-  if (event.key().check(command_trigger_)) {
+  if (event.key().checkKeyList(command_triggers_)) {
     return event.isRelease() ? FcitxTriggerAction::StopCommand
                              : FcitxTriggerAction::StartCommand;
   }
-  if (event.key().check(scene_menu_trigger_)) {
+  if (event.key().checkKeyList(scene_menu_triggers_)) {
     return event.isRelease() ? FcitxTriggerAction::ConsumeSceneMenuRelease
                              : FcitxTriggerAction::ShowSceneMenu;
   }
-  if (event.key().check(asr_menu_trigger_)) {
+  if (event.key().checkKeyList(asr_menu_triggers_)) {
     return event.isRelease() ? FcitxTriggerAction::ConsumeAsrMenuRelease
                              : FcitxTriggerAction::ShowAsrMenu;
   }
@@ -54,19 +66,19 @@ FcitxTriggerAction FcitxKeyTriggerPolicy::Classify(const fcitx::KeyEvent &event)
 }
 
 bool FcitxKeyTriggerPolicy::IsNormalTrigger(const fcitx::KeyEvent &event) const {
-  return event.isRelease() && event.key().check(normal_trigger_);
+  return event.isRelease() && event.key().checkKeyList(normal_triggers_);
 }
 
 bool FcitxKeyTriggerPolicy::IsCommandTrigger(const fcitx::KeyEvent &event) const {
-  return event.isRelease() && event.key().check(command_trigger_);
+  return event.isRelease() && event.key().checkKeyList(command_triggers_);
 }
 
 bool FcitxKeyTriggerPolicy::IsSceneMenuTrigger(const fcitx::KeyEvent &event) const {
-  return event.key().check(scene_menu_trigger_);
+  return event.key().checkKeyList(scene_menu_triggers_);
 }
 
 bool FcitxKeyTriggerPolicy::IsAsrMenuTrigger(const fcitx::KeyEvent &event) const {
-  return event.key().check(asr_menu_trigger_);
+  return event.key().checkKeyList(asr_menu_triggers_);
 }
 
 } // namespace vinput_fcitx_bridge

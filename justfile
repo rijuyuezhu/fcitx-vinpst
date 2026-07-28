@@ -55,7 +55,7 @@ addon-install-smoke: addon-fcitx-build
     grep -qx 'Library=fcitx5-vinput' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx 'Type=SharedLibrary' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx 'OnDemand=False' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
-    grep -qx 'Configurable=False' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
+    grep -qx 'Configurable=True' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx '0=dbus' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx '1=clipboard' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     ! grep -qE '^(Name|Comment)\[' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf

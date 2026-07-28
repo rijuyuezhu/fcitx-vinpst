@@ -97,6 +97,17 @@ std::string EffectiveAsrLabel(const AsrTargetMenuStateSnapshot &state) {
   return label;
 }
 
+std::string TriggerListDescription(const fcitx::KeyList &keys) {
+  std::string description;
+  for (const auto &key : keys) {
+    if (!description.empty()) {
+      description += ", ";
+    }
+    description += key.toString();
+  }
+  return description.empty() ? "<disabled>" : description;
+}
+
 #ifdef VINPUT_FCITX_HAVE_CLIPBOARD
 std::string PrimarySelectionFromClipboard(fcitx::Instance *instance,
                                           fcitx::InputContext *ic) {
@@ -164,12 +175,19 @@ void RequestSurroundingText(fcitx::Event &event) {
 } // namespace
 
 FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
-    : instance_(instance), trigger_policy_(FcitxKeyTriggerPolicy::FromEnvironment()) {
-  FCITX_INFO() << "fcitx-vinput addon loaded with normal trigger "
-               << trigger_policy_.normal_trigger() << " and command trigger "
-               << trigger_policy_.command_trigger() << " and scene menu trigger "
-               << trigger_policy_.scene_menu_trigger() << " and ASR menu trigger "
-               << trigger_policy_.asr_menu_trigger();
+    : instance_(instance), frontend_settings_(LoadFrontendSettings()),
+      trigger_policy_(FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
+          frontend_settings_.normal_triggers, frontend_settings_.command_triggers,
+          frontend_settings_.scene_menu_triggers,
+          frontend_settings_.asr_menu_triggers)) {
+  FCITX_INFO() << "fcitx-vinput addon loaded with normal triggers "
+               << TriggerListDescription(trigger_policy_.normal_triggers())
+               << ", command triggers "
+               << TriggerListDescription(trigger_policy_.command_triggers())
+               << ", scene menu triggers "
+               << TriggerListDescription(trigger_policy_.scene_menu_triggers())
+               << ", and ASR menu triggers "
+               << TriggerListDescription(trigger_policy_.asr_menu_triggers());
   if (instance_ != nullptr) {
     event_handlers_.emplace_back(
         instance_->watchEvent(fcitx::EventType::InputContextKeyEvent,
@@ -179,6 +197,36 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
         fcitx::EventType::InputContextCreated, fcitx::EventWatcherPhase::PreInputMethod,
         RequestSurroundingText));
   }
+}
+
+void FcitxVinputAddon::reloadConfig() {
+  frontend_settings_ = LoadFrontendSettings();
+  ApplyFrontendSettings();
+}
+
+void FcitxVinputAddon::save() {
+  if (!SaveFrontendSettings(frontend_settings_)) {
+    FCITX_ERROR() << "fcitx-vinput failed to save frontend configuration";
+  }
+}
+
+const fcitx::Configuration *FcitxVinputAddon::getConfig() const {
+  frontend_config_ = BuildFrontendConfig(frontend_settings_);
+  return frontend_config_.get();
+}
+
+void FcitxVinputAddon::setConfig(const fcitx::RawConfig &config) {
+  auto frontend_config = BuildFrontendConfig(frontend_settings_);
+  frontend_config->load(config, true);
+  frontend_settings_ = frontend_config->settings();
+  ApplyFrontendSettings();
+  save();
+}
+
+void FcitxVinputAddon::ApplyFrontendSettings() {
+  trigger_policy_ = FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
+      frontend_settings_.normal_triggers, frontend_settings_.command_triggers,
+      frontend_settings_.scene_menu_triggers, frontend_settings_.asr_menu_triggers);
 }
 
 SdBusDaemonClient *FcitxVinputAddon::EnsureDaemonClient(std::string *error) {
