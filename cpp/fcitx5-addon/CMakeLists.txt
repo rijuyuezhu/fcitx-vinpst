@@ -92,6 +92,7 @@ if(Fcitx5Core_FOUND)
     src/fcitx_config.cpp
     src/fcitx_candidates.cpp
     src/fcitx_key_trigger.cpp
+    src/fcitx_trigger_mode.cpp
     src/fcitx_outcome.cpp
     src/fcitx_selection.cpp
   )
@@ -188,6 +189,22 @@ if(Fcitx5Core_FOUND)
   )
 
   add_executable(
+    vinput_fcitx_bridge_trigger_mode_smoke
+    tests/fcitx_trigger_mode_smoke.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_bridge_trigger_mode_smoke
+    PRIVATE
+      vinput_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_bridge_trigger_mode_smoke)
+  add_test(
+    NAME vinput_fcitx_bridge_trigger_mode_smoke
+    COMMAND vinput_fcitx_bridge_trigger_mode_smoke
+  )
+
+  add_executable(
     vinput_fcitx_bridge_selection_smoke
     tests/fcitx_selection_smoke.cpp
   )
@@ -225,6 +242,7 @@ if(Fcitx5Core_FOUND)
     src/fcitx_addon.cpp
     src/fcitx_config.cpp
     src/fcitx_key_trigger.cpp
+    src/fcitx_trigger_mode.cpp
     src/fcitx_selection.cpp
   )
   target_link_libraries(

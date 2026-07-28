@@ -17,6 +17,7 @@
 #include <fcitx/text.h>
 #include <fcitx/userinterface.h>
 
+#include <chrono>
 #include <functional>
 #include <utility>
 
@@ -179,7 +180,8 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
       trigger_policy_(FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
           frontend_settings_.normal_triggers, frontend_settings_.command_triggers,
           frontend_settings_.scene_menu_triggers,
-          frontend_settings_.asr_menu_triggers)) {
+          frontend_settings_.asr_menu_triggers)),
+      trigger_mode_controller_(frontend_settings_.trigger_mode) {
   FCITX_INFO() << "fcitx-vinput addon loaded with normal triggers "
                << TriggerListDescription(trigger_policy_.normal_triggers())
                << ", command triggers "
@@ -187,7 +189,9 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
                << ", scene menu triggers "
                << TriggerListDescription(trigger_policy_.scene_menu_triggers())
                << ", and ASR menu triggers "
-               << TriggerListDescription(trigger_policy_.asr_menu_triggers());
+               << TriggerListDescription(trigger_policy_.asr_menu_triggers())
+               << ", trigger mode "
+               << TriggerModeToString(frontend_settings_.trigger_mode);
   if (instance_ != nullptr) {
     event_handlers_.emplace_back(
         instance_->watchEvent(fcitx::EventType::InputContextKeyEvent,
@@ -224,9 +228,16 @@ void FcitxVinputAddon::setConfig(const fcitx::RawConfig &config) {
 }
 
 void FcitxVinputAddon::ApplyFrontendSettings() {
+  CancelTriggerStart();
   trigger_policy_ = FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
       frontend_settings_.normal_triggers, frontend_settings_.command_triggers,
       frontend_settings_.scene_menu_triggers, frontend_settings_.asr_menu_triggers);
+  trigger_mode_controller_.SetMode(frontend_settings_.trigger_mode);
+  if (!bridge_.recording()) {
+    CancelTriggerStop();
+    trigger_mode_controller_.RecordingStopped();
+    active_trigger_ic_.unwatch();
+  }
 }
 
 SdBusDaemonClient *FcitxVinputAddon::EnsureDaemonClient(std::string *error) {
@@ -351,9 +362,157 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
   }
 
   FCITX_INFO() << "fcitx-vinput handling trigger " << TriggerActionName(action);
-  ApplyTriggerAction(key_event.inputContext(), action,
-                     SelectedTextFromInputContext(instance_, key_event.inputContext()));
+  if (action == FcitxTriggerAction::ShowSceneMenu ||
+      action == FcitxTriggerAction::ConsumeSceneMenuRelease ||
+      action == FcitxTriggerAction::ShowAsrMenu ||
+      action == FcitxTriggerAction::ConsumeAsrMenuRelease) {
+    ApplyTriggerAction(key_event.inputContext(), action);
+    key_event.filterAndAccept();
+    return;
+  }
+
+  const bool normal = action == FcitxTriggerAction::StartNormal ||
+                      action == FcitxTriggerAction::StopNormal;
+  const auto kind = normal ? TriggerKind::Normal : TriggerKind::Command;
+  TriggerModeAction mode_action = TriggerModeAction::None;
+  if (key_event.isRelease()) {
+    mode_action = trigger_mode_controller_.OnRelease(
+        kind, key_event.key(), TriggerModeController::Clock::now());
+  } else {
+    mode_action = trigger_mode_controller_.OnPress(kind, key_event.key(),
+                                                   TriggerModeController::Clock::now(),
+                                                   bridge_.recording());
+    if (mode_action != TriggerModeAction::None &&
+        mode_action != TriggerModeAction::Consume) {
+      CancelTriggerStop();
+    }
+  }
+  HandleTriggerModeAction(key_event.inputContext(), mode_action);
   key_event.filterAndAccept();
+}
+
+void FcitxVinputAddon::HandleTriggerModeAction(fcitx::InputContext *ic,
+                                               TriggerModeAction action) {
+  switch (action) {
+  case TriggerModeAction::None:
+  case TriggerModeAction::Consume:
+    return;
+  case TriggerModeAction::StartNormal:
+    ApplyTriggerAction(ic, FcitxTriggerAction::StartNormal);
+    break;
+  case TriggerModeAction::StartCommand:
+    ApplyTriggerAction(ic, FcitxTriggerAction::StartCommand,
+                       SelectedTextFromInputContext(instance_, ic));
+    break;
+  case TriggerModeAction::StopActive:
+    StopActiveRecording(ic);
+    return;
+  case TriggerModeAction::ScheduleNormalStart:
+  case TriggerModeAction::ScheduleCommandStart:
+    ScheduleTriggerStart(ic);
+    return;
+  case TriggerModeAction::CancelPendingStart:
+    CancelTriggerStart();
+    return;
+  case TriggerModeAction::ScheduleStop:
+    ScheduleTriggerStop(ic);
+    return;
+  }
+
+  const bool started = bridge_.recording();
+  trigger_mode_controller_.ConfirmStart(started);
+  if (started && ic != nullptr) {
+    active_trigger_ic_ = ic->watch();
+  }
+}
+
+void FcitxVinputAddon::ScheduleTriggerStart(fcitx::InputContext *ic) {
+  CancelTriggerStart();
+  if (instance_ == nullptr || ic == nullptr) {
+    trigger_mode_controller_.RecordingStopped();
+    return;
+  }
+  pending_trigger_ic_ = ic->watch();
+  const auto fire_at =
+      fcitx::now(CLOCK_MONOTONIC) +
+      static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(kTriggerHoldThreshold)
+              .count());
+  pending_trigger_start_event_ = instance_->eventLoop().addTimeEvent(
+      CLOCK_MONOTONIC, fire_at, 0, [this](fcitx::EventSourceTime *, std::uint64_t) {
+        auto *input_context = pending_trigger_ic_.get();
+        pending_trigger_start_event_.reset();
+        pending_trigger_ic_.unwatch();
+        const auto action = trigger_mode_controller_.FirePendingStart();
+        if (input_context == nullptr) {
+          trigger_mode_controller_.ConfirmStart(false);
+          return false;
+        }
+        HandleTriggerModeAction(input_context, action);
+        return false;
+      });
+  pending_trigger_start_event_->setOneShot();
+}
+
+void FcitxVinputAddon::CancelTriggerStart() {
+  if (pending_trigger_start_event_ != nullptr) {
+    pending_trigger_start_event_->setEnabled(false);
+    pending_trigger_start_event_.reset();
+  }
+  pending_trigger_ic_.unwatch();
+}
+
+void FcitxVinputAddon::ScheduleTriggerStop(fcitx::InputContext *fallback_ic) {
+  CancelTriggerStop();
+  if (!active_trigger_ic_.isValid() && fallback_ic != nullptr) {
+    active_trigger_ic_ = fallback_ic->watch();
+  }
+  if (instance_ == nullptr) {
+    StopActiveRecording(fallback_ic);
+    return;
+  }
+  const auto fire_at =
+      fcitx::now(CLOCK_MONOTONIC) +
+      static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(kTriggerReleaseTail)
+              .count());
+  pending_trigger_stop_event_ = instance_->eventLoop().addTimeEvent(
+      CLOCK_MONOTONIC, fire_at, 0, [this](fcitx::EventSourceTime *, std::uint64_t) {
+        pending_trigger_stop_event_.reset();
+        if (trigger_mode_controller_.FirePendingStop() ==
+            TriggerModeAction::StopActive) {
+          StopActiveRecording(active_trigger_ic_.get());
+        }
+        return false;
+      });
+  pending_trigger_stop_event_->setOneShot();
+}
+
+void FcitxVinputAddon::CancelTriggerStop() {
+  if (pending_trigger_stop_event_ != nullptr) {
+    pending_trigger_stop_event_->setEnabled(false);
+    pending_trigger_stop_event_.reset();
+  }
+}
+
+void FcitxVinputAddon::StopActiveRecording(fcitx::InputContext *fallback_ic) {
+  auto *ic = active_trigger_ic_.get();
+  if (ic == nullptr) {
+    ic = fallback_ic;
+  }
+  if (bridge_.recording()) {
+    if (bridge_.command_mode()) {
+      ApplyTriggerAction(ic, FcitxTriggerAction::StopCommand);
+    } else {
+      ApplyTriggerAction(ic, FcitxTriggerAction::StopNormal);
+    }
+  }
+  if (!bridge_.recording()) {
+    CancelTriggerStart();
+    CancelTriggerStop();
+    trigger_mode_controller_.RecordingStopped();
+    active_trigger_ic_.unwatch();
+  }
 }
 
 void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {

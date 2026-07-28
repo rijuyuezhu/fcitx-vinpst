@@ -94,6 +94,10 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
     let config_source =
         std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_config.cpp"))
             .expect("read frontend config source");
+    let trigger_mode_header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_trigger_mode.h",
+    ))
+    .expect("read trigger mode header");
     let addon_header = std::fs::read_to_string(workspace_file(
         "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_addon.h",
     ))
@@ -105,6 +109,8 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
         "fcitx::KeyList command_triggers",
         "fcitx::KeyList scene_menu_triggers",
         "fcitx::KeyList asr_menu_triggers",
+        "enum class TriggerMode : std::uint8_t",
+        "TriggerMode trigger_mode",
     ] {
         assert!(
             config_header.contains(required),
@@ -116,12 +122,26 @@ fn cpp_frontend_hotkey_config_remains_persistent_and_configurable() {
         "\"CommandKeys\"",
         "\"SceneMenuKey\"",
         "\"AsrMenuKey\"",
+        "\"TriggerMode\"",
         "safeSaveAsIni",
         "readAsIni",
     ] {
         assert!(
             config_source.contains(required),
             "frontend config source should pin {required}"
+        );
+    }
+    for required in [
+        "kTriggerDebounce = std::chrono::milliseconds(80)",
+        "kTriggerHoldThreshold = std::chrono::milliseconds(300)",
+        "kTriggerReleaseTail = std::chrono::milliseconds(500)",
+        "class TriggerModeController",
+        "ScheduleNormalStart",
+        "ScheduleStop",
+    ] {
+        assert!(
+            trigger_mode_header.contains(required),
+            "trigger mode header should pin {required}"
         );
     }
     for required in [

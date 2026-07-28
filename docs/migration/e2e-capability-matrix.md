@@ -328,7 +328,7 @@ Acceptance:
 
 ## P2 plan: frontend and release polish
 
-- Implemented and deterministic-test proven: minimal scene menu with Right Shift default and installed-model-aware ASR menu with F8 default; both use typed D-Bus state, keyboard/paging/digit/mouse selection, and atomic explicit-config persistence. The daemon scans flat Rust and legacy engine/model layouts outside the runtime mutex; provider/model selection queues background reload and is proven through C++/sd-bus with subsequent recognition. Four legacy-named Fcitx KeyLists are persistent/configurable with immediate reload and temporary environment overrides; unknown legacy fields are preserved. Remaining: real desktop UI proof, trigger mode/paging config, legacy search, and richer labels/i18n.
+- Implemented and deterministic-test proven: minimal scene menu with Right Shift default and installed-model-aware ASR menu with F8 default; both use typed D-Bus state, keyboard/paging/digit/mouse selection, and atomic explicit-config persistence. The daemon scans flat Rust and legacy engine/model layouts outside the runtime mutex; provider/model selection queues background reload and is proven through C++/sd-bus with subsequent recognition. Four legacy-named Fcitx KeyLists plus TriggerMode are persistent/configurable with immediate reload and temporary environment overrides; Tap/Hold/Both, 80 ms debounce, the 300 ms hold threshold, and 500 ms release tail are deterministic-test proven, while unknown legacy fields are preserved. Remaining: real desktop UI proof, paging/search config, legacy search, and richer labels/i18n.
 - Live validation of the implemented primary-selection clipboard fallback across applications where Fcitx surrounding text is unavailable.
 - User-facing install guide based on `vinput init`, `model install/use`, `doctor`, and `daemon start`.
 - Distro packaging after P0 live desktop native path is proven.
@@ -340,7 +340,7 @@ Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
-3. Prove the scene, installed-model ASR menu, and persistent hotkey config in a real Fcitx session, then add trigger mode/paging configuration and legacy menu search/i18n details.
+3. Prove the scene menu, installed-model ASR menu, persistent hotkeys, and Tap/Hold/Both timing in a real Fcitx session, then add paging/search configuration and legacy menu search/i18n details.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.
 
 ## Stop conditions

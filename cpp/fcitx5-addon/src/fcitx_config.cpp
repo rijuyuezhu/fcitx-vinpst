@@ -23,7 +23,8 @@ VinputFrontendConfig::VinputFrontendConfig(const FrontendSettings &settings)
       scene_menu_triggers(this, "SceneMenuKey", "Scene Menu Keys",
                           settings.scene_menu_triggers, TriggerConstrain()),
       asr_menu_triggers(this, "AsrMenuKey", "ASR Menu Keys", settings.asr_menu_triggers,
-                        TriggerConstrain()) {}
+                        TriggerConstrain()),
+      trigger_mode(this, "TriggerMode", "Trigger Mode", settings.trigger_mode) {}
 
 FrontendSettings VinputFrontendConfig::settings() const {
   return FrontendSettings{
@@ -31,6 +32,7 @@ FrontendSettings VinputFrontendConfig::settings() const {
       .command_triggers = command_triggers.value(),
       .scene_menu_triggers = scene_menu_triggers.value(),
       .asr_menu_triggers = asr_menu_triggers.value(),
+      .trigger_mode = trigger_mode.value(),
   };
 }
 

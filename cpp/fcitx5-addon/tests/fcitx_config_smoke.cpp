@@ -38,6 +38,7 @@ int main() {
   settings.command_triggers = {fcitx::Key(FcitxKey_F9)};
   settings.scene_menu_triggers = {fcitx::Key(FcitxKey_Shift_R)};
   settings.asr_menu_triggers = {fcitx::Key(FcitxKey_F8), fcitx::Key("Control+F8")};
+  settings.trigger_mode = vinput_fcitx_bridge::TriggerMode::Hold;
   assert(SaveFrontendSettingsToPath(settings, path));
   assert(LoadFrontendSettingsFromPath(path) == settings);
 
@@ -51,17 +52,18 @@ int main() {
   assert(Contains(contents, "F6"));
   assert(Contains(contents, "F7"));
   assert(Contains(contents, "Control+F8"));
+  assert(Contains(contents, "TriggerMode=Hold"));
 
   {
     std::ofstream rewrite(path, std::ios::trunc);
-    rewrite << "TriggerMode=hold\n\n" << contents << "\n[PagePrevKey]\n0=Page_Up\n";
+    rewrite << contents << "\n[PagePrevKey]\n0=Page_Up\n";
   }
   settings.command_triggers = {fcitx::Key(FcitxKey_F10)};
   assert(SaveFrontendSettingsToPath(settings, path));
   std::ifstream merged_input(path);
   const std::string merged_contents((std::istreambuf_iterator<char>(merged_input)),
                                     std::istreambuf_iterator<char>());
-  assert(Contains(merged_contents, "TriggerMode=hold"));
+  assert(Contains(merged_contents, "TriggerMode=Hold"));
   assert(Contains(merged_contents, "[PagePrevKey]"));
   assert(Contains(merged_contents, "0=Page_Up"));
   assert(LoadFrontendSettingsFromPath(path) == settings);

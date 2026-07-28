@@ -3,6 +3,7 @@
 #include "vinput_fcitx_bridge/fcitx_config.h"
 #include "vinput_fcitx_bridge/fcitx_key_trigger.h"
 #include "vinput_fcitx_bridge/fcitx_outcome.h"
+#include "vinput_fcitx_bridge/fcitx_trigger_mode.h"
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 #include "vinput_fcitx_bridge/scene_defaults.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
@@ -12,9 +13,11 @@
 #include <string_view>
 #include <vector>
 
+#include <fcitx-utils/event.h>
 #include <fcitx-utils/handlertable.h>
 #include <fcitx/addoninstance.h>
 #include <fcitx/event.h>
+#include <fcitx/inputcontext.h>
 #include <fcitx/instance.h>
 
 namespace vinput_fcitx_bridge {
@@ -67,11 +70,18 @@ private:
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
   void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
+  void HandleTriggerModeAction(fcitx::InputContext *ic, TriggerModeAction action);
+  void ScheduleTriggerStart(fcitx::InputContext *ic);
+  void CancelTriggerStart();
+  void ScheduleTriggerStop(fcitx::InputContext *fallback_ic);
+  void CancelTriggerStop();
+  void StopActiveRecording(fcitx::InputContext *fallback_ic);
 
   fcitx::Instance *instance_ = nullptr;
   FrontendBridge bridge_;
   FrontendSettings frontend_settings_;
   FcitxKeyTriggerPolicy trigger_policy_;
+  TriggerModeController trigger_mode_controller_;
   mutable std::unique_ptr<VinputFrontendConfig> frontend_config_;
   SceneStateSnapshot scene_state_;
   std::vector<std::size_t> scene_menu_indices_;
@@ -82,6 +92,10 @@ private:
   std::vector<std::size_t> asr_menu_indices_;
   fcitx::InputContext *asr_menu_ic_ = nullptr;
   bool asr_menu_visible_ = false;
+  std::unique_ptr<fcitx::EventSourceTime> pending_trigger_start_event_;
+  std::unique_ptr<fcitx::EventSourceTime> pending_trigger_stop_event_;
+  fcitx::TrackableObjectReference<fcitx::InputContext> pending_trigger_ic_;
+  fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
       event_handlers_;
