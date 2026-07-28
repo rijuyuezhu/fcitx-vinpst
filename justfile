@@ -243,9 +243,17 @@ sherpa-onnx-check:
     cargo check -p vinput-asr --features=sherpa-onnx-backend
     cargo check -p vinput-daemon --features=sherpa-onnx-backend
 
-# Run native sherpa SenseVoice inference on a user-supplied model and WAV file.
+# Run native sherpa offline inference using typed registry metadata or the legacy SenseVoice layout.
+sherpa-offline-local-smoke:
+    scripts/run-sherpa-offline-local-smoke.sh
+
+# Preserve the original metadata-free SenseVoice smoke entry point.
 sherpa-sense-voice-local-smoke:
     scripts/run-sherpa-sense-voice-local-smoke.sh
+
+# Run native Qwen3 ASR inference using registry-generated vinput-model.json metadata.
+sherpa-qwen3-local-smoke:
+    VINPUT_SHERPA_EXPECT_FAMILY=qwen3_asr VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-qwen3-local-smoke} scripts/run-sherpa-offline-local-smoke.sh
 
 # Compile and test optional PipeWire feature paths without requiring a live daemon.
 pipewire-check:

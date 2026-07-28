@@ -15,17 +15,17 @@ Tracked audit for Rust versus legacy feature parity. This file answers "where ar
 
 The Rust rewrite is approximately **70-75%** of legacy user-visible feature parity. This is a planning estimate, not a release metric.
 
-The Rust version now has a real product spine: retained C++ Fcitx5 addon, Rust daemon compatibility layer, deterministic command-demo path, command ASR and text adapter process runners, optional PipeWire recorder, user-level installation, broad model/provider/config/hotword/device/scene/LLM/adapter/daemon/recording CLI management, live model registry installation, `vinput doctor`, staged IME smokes, bus activation smokes, adapter lifecycle checks, and feature-gated native sherpa SenseVoice and Qwen3 ASR configuration paths.
+The Rust version now has a real product spine: retained C++ Fcitx5 addon, Rust daemon compatibility layer, deterministic command-demo path, command ASR and text adapter process runners, optional PipeWire recorder, user-level installation, broad model/provider/config/hotword/device/scene/LLM/adapter/daemon/recording CLI management, live model registry installation, `vinput doctor`, staged IME smokes, bus activation smokes, adapter lifecycle checks, and feature-gated native sherpa SenseVoice and Qwen3 ASR inference paths.
 
 A real local ASR file-input path has been proven: live registry model `model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8` was downloaded, sha256-verified, extracted, and used with bundled `test_wavs/zh.wav`; `just sherpa-sense-voice-local-smoke` produced `开放时间早上九点至下午五点`.
 
-It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy replacement. The main blocker is no longer CLI coverage: it is proving and hardening the real desktop chain from Fcitx trigger through PipeWire capture and native ASR to application commit. Native SenseVoice has a proven WAV smoke. Qwen3 ASR registry metadata and native recognizer configuration are implemented and feature-build tested, but a real Qwen3 model inference has not yet been run. Native streaming, VAD, timeout/warm-reload parity, remaining sherpa families, frontend menus/configuration, packaging, and remote services remain incomplete.
+It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy replacement. The main blocker is no longer CLI coverage: it is proving and hardening the real desktop chain from Fcitx trigger through PipeWire capture and native ASR to application commit. Native SenseVoice and Qwen3 ASR both have proven local WAV smokes. Native streaming, VAD, timeout/warm-reload parity, remaining sherpa families, frontend menus/configuration, packaging, and remote services remain incomplete.
 
 | Target | Readiness |
 | --- | --- |
 | Deterministic command-demo product spine | Usable for development and CI |
 | Native SenseVoice file-input smoke | Proven with one registry model |
-| Native Qwen3 ASR config/runtime mapping | Implemented and feature-build tested; real inference unverified |
+| Native Qwen3 ASR file-input smoke | Proven with the live registry model and bundled Spanish WAV |
 | Real desktop trial | Prototype usable / early alpha |
 | Legacy CLI experience | Mostly implemented; `init`, UX polish, and some resource install paths remain |
 | Legacy daemon runtime coverage | Partial |
@@ -46,7 +46,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 | Bus service contract | Legacy service names, object path, interface, methods, signals, status strings. | Legacy contract is preserved and diagnostic extensions exist. | Mostly done |
 | Runtime lifecycle | Async workers, capture callbacks, status transitions, reload, adapter lifecycle, remote service. | Normal/command lifecycle, reload deferral, adapter supervisor, file input, activation. | Partial |
 | ASR mock/demo | Command backends, but no first-class deterministic product spine. | Strong mock and deterministic command-demo path. | Rust improved |
-| Real ASR | Real `sherpa-onnx` offline/streaming, command batch, command streaming, remote providers. | Command batch/streaming implemented; native offline SenseVoice is feature-gated and WAV-verified; Qwen3 ASR metadata, assets, generation parameters, and recognizer config are implemented and compile-tested. | Partial |
+| Real ASR | Real `sherpa-onnx` offline/streaming, command batch, command streaming, remote providers. | Command batch/streaming implemented; native offline SenseVoice and Qwen3 ASR are feature-gated and WAV-verified. | Partial |
 | File audio | Not a first-class daemon path. | `--wav` and `--pcm16le` deterministic inputs. | Rust improved |
 | Live PipeWire | PipeWire capture with fixed 16 kHz mono format and target object support. | Feature-gated PipeWire recorder and diagnostics exist. | Partial, needs live verification |
 | Text postprocess | OpenAI-compatible HTTP, prompt files/placeholders/context, candidates, command fallback. | Command adapter and OpenAI-compatible paths plus LLM/adapter/scene CLI management exist; real-provider desktop validation remains limited. | Mostly done with risks |
@@ -78,12 +78,12 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 5. File input for deterministic ASR/text pipeline tests.
 6. Safer registry primitives for checksum, staging, archive extraction, and atomic materialization.
 7. Real native SenseVoice smoke that can validate model loading and one WAV recognition before desktop debugging.
-8. Typed live-registry family classification plus native Qwen3 ASR asset and recognizer configuration mapping.
+8. Typed live-registry family classification plus a real native Qwen3 ASR registry install and WAV smoke.
 9. Primary-selection clipboard fallback for command mode in applications without usable surrounding text.
 
 ## Current priority
 
-The next target is **real desktop native-dictation alpha**. First prove the complete SenseVoice path in a real Fcitx session. Then run a real Qwen3 WAV smoke, connect PipeWire chunks to native streaming ASR, add VAD/timeout/warm-reload semantics, and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
+The next target is **real desktop native-dictation alpha**. First prove the complete SenseVoice path in a real Fcitx session. Then connect PipeWire chunks to native streaming ASR, add VAD/timeout/warm-reload semantics, and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
 
 Do not claim full parity until the documented happy path works through a real desktop session and no longer depends on implementation-only profiles:
 

@@ -209,9 +209,12 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "accepts relative or absolute local model and hotwords paths",
         "rejects empty values and URL-like paths",
         "verifies model directories plus regular hotwords files",
-        "currently covers buffered offline SenseVoice recognition and Qwen3 ASR runtime construction",
-        "Qwen3 real inference remains unverified",
+        "currently covers buffered offline SenseVoice and Qwen3 ASR recognition",
+        "both proven with real bundled WAV samples",
         "Qwen3 ASR requires typed metadata for its convolution frontend, encoder, decoder, tokenizer, and generation parameters",
+        "just sherpa-offline-local-smoke",
+        "just sherpa-qwen3-local-smoke",
+        "Esta prenda es amplia. Recomiendo elegir una talla menor al habitual.",
         "VAD trimming, warmup/reload state, broader sherpa model families",
         "Timeout fields are preserved in config diagnostics but are not yet enforced",
         "runs `runtime-status` by default after install and during `VINPUT_USER_STATUS=1` checks",
@@ -232,6 +235,9 @@ fn development_doc_pins_optional_pipewire_recipes() {
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
         .expect("read development guide");
     let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+    let offline_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-sherpa-offline-local-smoke.sh"))
+            .expect("read generic sherpa offline smoke");
 
     for required in [
         "just pipewire-check",
@@ -242,8 +248,11 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
         "VINPUT_TEST_PIPEWIRE_ENUMERATE=1",
         "VINPUT_TEST_PIPEWIRE_RECORD=1",
+        "just sherpa-offline-local-smoke",
         "just sherpa-sense-voice-local-smoke",
-        "validates model loading and one WAV recognition outside Fcitx5",
+        "just sherpa-qwen3-local-smoke",
+        "validates typed registry metadata and one WAV recognition outside Fcitx5",
+        "live registry Qwen3 model has passed",
         "intentionally excluded from `just ci`",
         "C++ bridge plus Rust daemon D-Bus path",
         "prints the daemon build's `audio-devices` JSON diagnostics",
@@ -269,7 +278,21 @@ fn development_doc_pins_optional_pipewire_recipes() {
     assert!(justfile.contains("pipewire-live:"));
     assert!(justfile.contains("ime-pipewire-live:"));
     assert!(justfile.contains("ime-configured-pipewire-live:"));
+    assert!(justfile.contains("sherpa-offline-local-smoke:"));
     assert!(justfile.contains("sherpa-sense-voice-local-smoke:"));
+    assert!(justfile.contains("sherpa-qwen3-local-smoke:"));
+    for required in [
+        "VINPUT_SHERPA_EXPECT_FAMILY",
+        "vinput-model.json",
+        "metadata-free SenseVoice layout",
+        "runtime-status",
+        "--once --wav",
+    ] {
+        assert!(
+            offline_smoke.contains(required),
+            "generic sherpa smoke should pin native preflight/runtime behavior: {required}"
+        );
+    }
     let check_line = justfile
         .lines()
         .find(|line| line.starts_with("check:"))
@@ -382,7 +405,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
     for required in [
         "usable CLI/daemon alpha",
         "Native SenseVoice file-input smoke",
-        "Native Qwen3 ASR config/runtime mapping",
+        "Native Qwen3 ASR file-input smoke",
         "real desktop native-dictation alpha",
     ] {
         assert!(

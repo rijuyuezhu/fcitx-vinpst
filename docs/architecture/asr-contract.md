@@ -40,7 +40,7 @@ StopRecording
   -> reset Idle
 ```
 
-This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend currently covers buffered offline SenseVoice recognition and Qwen3 ASR runtime construction; Qwen3 real inference remains unverified. Live PipeWire chunk delivery to streaming ASR, VAD trimming, warmup/reload state, broader sherpa model families, and real worker orchestration still belong to later phases.
+This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend currently covers buffered offline SenseVoice and Qwen3 ASR recognition, both proven with real bundled WAV samples. Live PipeWire chunk delivery to streaming ASR, VAD trimming, warmup/reload state, broader sherpa model families, and real worker orchestration still belong to later phases.
 
 ## Command ASR provider contracts
 
@@ -90,13 +90,16 @@ This profile builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writ
 Before mutating the desktop profile, a local WAV can be used to validate the same native backend outside Fcitx5:
 
 ```sh
-VINPUT_SHERPA_MODEL=/path/to/sense-voice-model-dir \
+VINPUT_SHERPA_MODEL=/path/to/offline-model-dir \
   VINPUT_SHERPA_WAV=/path/to/input.wav \
-  just sherpa-sense-voice-local-smoke
+  just sherpa-offline-local-smoke
 ```
 
-That smoke builds the feature-gated daemon, runs `runtime-status` to force model construction, and then runs `--once --wav` through the configured ASR/text pipeline.
-It prepends `target/debug` to `LD_LIBRARY_PATH` by default so the cargo-provided `libsherpa-onnx` and `libonnxruntime` are preferred over incompatible system libraries; override with `VINPUT_SHERPA_RUNTIME_LIB_DIR` when testing another runtime bundle.
+`just sherpa-sense-voice-local-smoke` preserves the metadata-free SenseVoice compatibility path. `just sherpa-qwen3-local-smoke` requires the registry-generated `vinput-model.json` and verifies that its family is `qwen3_asr`. The generic smoke builds the feature-gated daemon, runs `runtime-status` to force model construction, and then runs `--once --wav` through the configured ASR/text pipeline.
+
+The live registry Qwen3 model `model.sherpa-onnx.qwen3-asr-0.6b-int8` has been downloaded, SHA-256 verified, extracted, and recognized its bundled `test_wavs/es1.wav` as `Esta prenda es amplia. Recomiendo elegir una talla menor al habitual.` through `just sherpa-qwen3-local-smoke`.
+
+The smoke prepends `target/debug` to `LD_LIBRARY_PATH` by default so the cargo-provided `libsherpa-onnx` and `libonnxruntime` are preferred over incompatible system libraries; override with `VINPUT_SHERPA_RUNTIME_LIB_DIR` when testing another runtime bundle.
 
 ## Diagnostics
 
@@ -106,7 +109,7 @@ Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendS
 
 These gaps remain after the behavior-preserving ASR split:
 
-- Native `sherpa-onnx` is feature-gated and currently supports buffered offline SenseVoice and Qwen3 ASR runtime plans. SenseVoice has a real WAV smoke; Qwen3 ASR family-specific assets and recognizer parameters are mapped to the official Rust binding and feature-build tested, but real Qwen3 inference is not yet proven. Transducer, Zipformer2 CTC, Moonshine, Dolphin, Paraformer, and other model families, runtime VAD trimming, warmup, full reload state, and decode timeout enforcement are not implemented yet.
+- Native `sherpa-onnx` is feature-gated and currently supports buffered offline SenseVoice and Qwen3 ASR recognition with real WAV smokes. Transducer, Zipformer2 CTC, Moonshine, Dolphin, Paraformer, and other model families, runtime VAD trimming, warmup, full reload state, and decode timeout enforcement are not implemented yet.
 - Runtime streaming has command-helper test seams, but live PipeWire chunk delivery to streaming ASR is not implemented.
 - Command ASR is runtime-wired for configured command providers; remote ASR provider kinds remain contract-pinned but unavailable.
 

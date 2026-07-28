@@ -14,7 +14,7 @@ This is the detailed capability comparison for moving the Rust rewrite from a us
 - Rust daemon surface was collected from `target/debug/vinput-daemon --help` and `crates/vinput-daemon/src/dbus_service.rs`.
 - Legacy CLI surface was collected from `src/cli/config/register_*.cpp` and `src/cli/control/register_*.cpp`.
 - Legacy daemon surface was collected from `src/common/dbus/dbus_interface.h`, `src/daemon/runtime/dbus_service.cpp`, `src/daemon/runtime/daemon_runtime_controller.*`, `src/daemon/asr/**`, `src/daemon/audio/**`, and `src/daemon/postprocess/**`.
-- Native sherpa evidence: registry model `model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8` was downloaded from live `xifan2333/vinput-registry`, verified by sha256, extracted, and recognized bundled `test_wavs/zh.wav` as `开放时间早上九点至下午五点` through `just sherpa-sense-voice-local-smoke`. Qwen3 ASR live-registry metadata is now mapped to the official Rust binding and feature-build tested, but real Qwen3 inference is not yet proven.
+- Native sherpa evidence: registry model `model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8` was downloaded from live `xifan2333/vinput-registry`, verified by SHA-256, extracted, and recognized bundled `test_wavs/zh.wav` as `开放时间早上九点至下午五点` through `just sherpa-sense-voice-local-smoke`. Registry model `model.sherpa-onnx.qwen3-asr-0.6b-int8` was likewise verified and recognized bundled `test_wavs/es1.wav` as `Esta prenda es amplia. Recomiendo elegir una talla menor al habitual.` through `just sherpa-qwen3-local-smoke`.
 
 ## Executive conclusion
 
@@ -26,7 +26,7 @@ Current parity estimate:
 | --- | ---: | --- |
 | D-Bus ABI and daemon facade | 80-90% | Core method/signal names and payload shapes are preserved, with Rust-only diagnostics added. |
 | Deterministic E2E spine | 85-90% | Command-demo, user install smokes, activation, file-input tests, and adapter lifecycle are strong. |
-| Native local ASR | 60-70% | SenseVoice offline is real and WAV-tested; Qwen3 ASR metadata and recognizer configuration are implemented; streaming, VAD, remaining families, and real Qwen3 inference remain incomplete. |
+| Native local ASR | 65-75% | SenseVoice and Qwen3 ASR are real and WAV-tested; streaming, VAD, timeout/reload parity, and remaining families remain incomplete. |
 | CLI user experience | 75-85% | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, and recording commands exist; remaining work is polish, live proof, edge cases, and continued module extraction. |
 | Registry/resource install | 65-75% | Live model fetch/cache/checksum/extract/install/use/remove works; provider/adapter live install and GUI resource flows remain incomplete. |
 | Real desktop readiness | 45-55% | Install/probe paths exist, but real Fcitx trigger/commit with native model still needs proof and runtime library handling. |
@@ -40,7 +40,7 @@ The next project target should be: **prove and harden the real Fcitx -> PipeWire
 | --- | --- | --- | --- | --- |
 | J0: first-run init | `vinput init` creates config/dirs and default files. GUI/packaging also expect stable paths. | Rust has `vinput init` for default config, managed model/cache dirs, dry-run/JSON output, and activation-service hints. User install scripts can still write selected profile configs. | Mostly implemented; still needs broader config get/set/edit. | `vinput init` creates default config, managed dirs, activation-service hint, and prints JSON/text summary. |
 | J1: list and install local ASR model | `vinput model list/add/use/info/remove` fetches registry metadata, downloads assets, materializes model, updates config. | Rust live registry flow now lists, infos, installs, uses, and removes managed ASR models with dry-run JSON/text plans. | Mostly implemented; needs more live desktop proof and model-family metadata coverage. | `vinput model list`, `vinput model install <id|short_id>`, `vinput model use <id|path|installed-name>`, `vinput model info [--installed]`, and `vinput model remove [--installed]` work with live/installed metadata and sha256 checks. |
-| J2: normal dictation with local model | Fcitx trigger starts PipeWire capture, ASR, optional postprocess, commit. | Native SenseVoice recognizes a WAV file; Qwen3 ASR native config mapping is implemented; user profile install exists; live Fcitx/PipeWire/native model path and real Qwen3 inference are not proven. | Major live proof and runtime library handling. | Real desktop checklist passes: trigger, preedit, capture, inference, commit into app, `doctor` green. |
+| J2: normal dictation with local model | Fcitx trigger starts PipeWire capture, ASR, optional postprocess, commit. | Native SenseVoice and Qwen3 ASR recognize bundled WAV files; user profile install exists; the live Fcitx/PipeWire/native model path remains unproven. | Major live proof and runtime library handling. | Real desktop checklist passes: trigger, preedit, capture, inference, commit into app, `doctor` green. |
 | J3: command dictation over selected text | Fcitx command trigger captures selected text or fallback, ASR command scene, LLM/text transform, replace selection. | Surrounding-text selection, primary-selection clipboard fallback, command path, and replacement logic exist; multi-application live proof remains incomplete. | Medium. | In two apps, selected text replacement works; fallback path has clear diagnostics when unavailable. |
 | J4: command ASR provider | Legacy supports command batch and streaming providers. | Rust has command ASR, command WAV helper, streaming command partial tests, user profile for real command WAV, and provider add/use/edit/remove CLI. | Mostly implemented; needs live provider proof and recovery testing. | `vinput provider add/use/edit/remove` configures command ASR without hand-editing JSON and a live helper completes recognition. |
 | J5: LLM/text postprocess | Legacy supports OpenAI-compatible providers, command adapters, scenes, prompt files, candidate_count, command scene. | Rust has command text adapters, OpenAI-compatible provider tests, prompt/context pieces, and LLM/adapter/scene CLI management. | Mostly implemented; real-provider desktop validation remains limited. | `vinput llm`, `vinput adapter`, and `vinput scene` commands configure and validate postprocess paths, and a live provider completes one command-mode replacement. |
@@ -127,7 +127,7 @@ Rust CLI weaknesses for a user:
 | File input | Not a first-class user path. | `--wav` and `--pcm16le` are first-class for smoke/debug. | Rust improved. |
 | Command batch ASR | Implemented. | Implemented. | Mostly aligned. |
 | Command streaming ASR | Implemented with partials and process protocol. | Implemented/tested in Rust command ASR path. | Mostly aligned, needs live CLI config. |
-| Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice works and Qwen3 ASR registry metadata maps to native frontend/encoder/decoder/tokenizer and generation parameters. | Partial; real Qwen3 inference and remaining families are pending. |
+| Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice and Qwen3 ASR both pass real registry-model WAV smokes. | Partial; remaining families are pending. |
 | Sherpa streaming | Implemented. | Not implemented. | Missing. |
 | VAD | `vad_trimmer` with sherpa VAD model. | Config parses VAD but native trimming is not implemented. | Missing/partial. |
 | Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust classifies current and legacy registry families, reads SenseVoice and Qwen3 ASR family-specific metadata, validates required assets, and preserves unknown future family names. | Partial; remaining families still need runtime mapping. |
@@ -287,8 +287,9 @@ Acceptance:
 - Implemented: Rust reads registry/local `vinput_model` metadata and builds native backend config from it.
 - Implemented: SenseVoice uses metadata with directory inference as a compatibility fallback.
 - Implemented: Qwen3 ASR maps frontend, encoder, decoder, tokenizer, generation parameters, and optional hotwords to the official Rust binding.
+- Proven: live-registry Qwen3 model install, native construction, and bundled WAV recognition pass.
 - Implemented: known unsupported and unknown future families retain their exact family names in diagnostics.
-- Remaining acceptance: run real Qwen3 model inference and add native layouts for the other live-registry families.
+- Remaining acceptance: add native layouts for the other live-registry families.
 
 ### P1.2 sherpa streaming backend
 
@@ -329,11 +330,10 @@ Acceptance:
 Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Download the current Qwen3 ASR registry model and add a real local WAV smoke for the new native mapping.
-3. Deliver live PipeWire chunks to a native sherpa streaming session and map partial/final events.
-4. Implement native VAD trimming, decode timeout enforcement, warmup, and warm reload semantics.
-5. Port transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer metadata/runtime layouts in registry-priority order.
-6. Complete scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.
+2. Deliver live PipeWire chunks to a native sherpa streaming session and map partial/final events.
+3. Add native VAD trimming, decode timeout enforcement, warmup, and warm reload semantics.
+4. Port transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer metadata/runtime layouts in registry-priority order.
+5. Complete scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.
 
 ## Stop conditions
 

@@ -54,7 +54,7 @@ Then read, in order:
 - CLI/daemon alpha: usable and broadly covered by deterministic tests.
 - Real desktop readiness: **prototype usable / early alpha**; the full native desktop chain is not yet proven.
 - Native SenseVoice file-input path: proven with a registry-downloaded model and bundled WAV.
-- Native Qwen3 ASR: registry metadata and recognizer configuration are implemented and feature-build tested; real inference remains unverified.
+- Native Qwen3 ASR: proven with the live registry model and its bundled `test_wavs/es1.wav` through `just sherpa-qwen3-local-smoke`.
 - Selected-text primary-selection fallback: implemented in the retained addon; live multi-application proof remains.
 - Biggest blockers: real Fcitx -> PipeWire -> native ASR -> commit proof, streaming chunk delivery, VAD/timeout/warm-reload semantics, remaining sherpa families, frontend menus/configuration, packaging, and remote services.
 
@@ -63,11 +63,10 @@ Then read, in order:
 Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Download the current Qwen3 ASR model and add a real local WAV smoke for the implemented mapping.
-3. Wire live PipeWire chunks into native sherpa streaming recognition and map partial events.
-4. Add native VAD, timeout, warmup, and warm reload behavior.
-5. Port transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer in registry-priority order.
-6. Add scene/ASR menus and persistent frontend trigger configuration where they directly support live validation.
+2. Wire live PipeWire chunks into native sherpa streaming recognition and map partial events.
+3. Add native VAD, timeout, warmup, and warm reload behavior.
+4. Port transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer in registry-priority order.
+5. Add scene/ASR menus and persistent frontend trigger configuration where they directly support live validation.
 
 Do not start broad GUI polish or distro packaging before real desktop native alpha is proven. Keep refactors feature-driven and scoped to the next migration slice.
 
