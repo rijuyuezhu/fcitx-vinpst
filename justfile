@@ -259,6 +259,10 @@ sherpa-qwen3-local-smoke:
 sherpa-moonshine-local-smoke:
     VINPUT_SHERPA_EXPECT_FAMILY=moonshine VINPUT_SHERPA_EXPECT_TEXT="After early nightfall, the yellow lamps would light up here and there the squalid quarter of the brothels." VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-moonshine-local-smoke} scripts/run-sherpa-offline-local-smoke.sh
 
+# Reload an already-running mock daemon to a real Moonshine backend over D-Bus.
+sherpa-moonshine-dbus-reload-smoke:
+    VINPUT_SHERPA_EXPECT_FAMILY=moonshine VINPUT_SHERPA_EXPECT_TEXT="After early nightfall, the yellow lamps would light up here and there the squalid quarter of the brothels." VINPUT_SHERPA_RELOAD_SMOKE_DIR=${VINPUT_SHERPA_RELOAD_SMOKE_DIR:-target/tmp/sherpa-moonshine-dbus-reload-smoke} scripts/run-sherpa-dbus-reload-smoke.sh
+
 # Run native sherpa online inference using typed live-registry metadata.
 sherpa-online-local-smoke:
     scripts/run-sherpa-online-local-smoke.sh

@@ -234,6 +234,8 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "SenseVoice, Qwen3 ASR, Moonshine v1, and Zipformer2 CTC are proven with real registry-model WAV samples",
         "Moonshine v1",
         "just sherpa-moonshine-local-smoke",
+        "just sherpa-moonshine-dbus-reload-smoke",
+        "target/effective separation during background preparation",
         "After early nightfall, the yellow lamps would light up here and there the squalid quarter of the brothels.",
         "Qwen3 ASR requires typed metadata for its convolution frontend, encoder, decoder, tokenizer, and generation parameters",
         "just sherpa-offline-local-smoke",
@@ -307,6 +309,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just sherpa-qwen3-local-smoke",
         "just sherpa-online-local-smoke",
         "just sherpa-zipformer2-ctc-local-smoke",
+        "just sherpa-moonshine-dbus-reload-smoke",
         "validates typed registry metadata and one WAV recognition outside Fcitx5",
         "live registry Qwen3 model has passed",
         "live registry model has passed with bundled `test_wavs/0.wav`",
@@ -354,6 +357,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
     assert!(justfile.contains("sherpa-qwen3-local-smoke:"));
     assert!(justfile.contains("sherpa-online-local-smoke:"));
     assert!(justfile.contains("sherpa-zipformer2-ctc-local-smoke:"));
+    assert!(justfile.contains("sherpa-moonshine-dbus-reload-smoke:"));
     for required in [
         "VINPUT_SHERPA_EXPECT_FAMILY",
         "vinput-model.json",
