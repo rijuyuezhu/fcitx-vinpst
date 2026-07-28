@@ -54,12 +54,13 @@ Then read, in order:
 - CLI/daemon alpha: usable and broadly covered by deterministic tests.
 - Real desktop readiness: **prototype usable / early alpha**; the full native desktop chain is not yet proven.
 - Native SenseVoice file-input path: proven with a registry-downloaded model and bundled WAV.
+- Native offline transducer: the registry Zipformer multi-Chinese int8 model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍那么我想说的是大家如果对我的研究感兴趣` through `just sherpa-offline-transducer-local-smoke`.
 - Native Dolphin: the registry multilingual int8 model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍哈那么我想说的是呢大家如果对我的研究感兴趣呢。` through `just sherpa-dolphin-local-smoke`.
 - Native Paraformer: the registry small model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯` through `just sherpa-paraformer-local-smoke`.
 - Native Qwen3 ASR: proven with the live registry model and its bundled `test_wavs/es1.wav` through `just sherpa-qwen3-local-smoke`.
 - Selected-text primary-selection fallback: implemented in the retained addon; live multi-application proof remains.
 - Daemon chunked delivery: implemented with 800-frame batching, callback event polling, error propagation, and no final-buffer replay.
-- Native online ASR: transducer and Zipformer2 CTC metadata/runtime mappings are implemented; Zipformer2 CTC passes a real registry-model WAV smoke.
+- Native online ASR: transducer and Zipformer2 CTC metadata/runtime mappings are implemented; Zipformer2 CTC passes a real registry-model WAV smoke. Offline transducer is separately registry-WAV proven.
 - Live partial signals: generation-scoped D-Bus emission is implemented and session-bus tested before stop, with stop-time deduplication. The retained addon now consumes `StatusChanged` and `RecognitionPartial` through the Fcitx bus and maps partial-first status to active-context preedit; real desktop rendering remains unproven.
 - Offline VAD: the tracked Silero model, strict legacy-compatible config, native trimming, user install, no-speech fallback, and real SenseVoice/Qwen3 WAV regressions are implemented.
 - Online endpoint/warmup: legacy endpoint defaults and metadata overrides are forwarded, and every native online recognizer runs the legacy-compatible 200 ms silence warmup.

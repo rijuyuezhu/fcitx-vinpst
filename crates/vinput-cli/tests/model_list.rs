@@ -108,6 +108,52 @@ fn model_list_json_reports_qwen3_asr_as_supported() {
 }
 
 #[test]
+fn model_list_json_reports_offline_transducer_as_supported() {
+    let registry_path = write_temp_json(
+        "live-model-offline-transducer-support",
+        &serde_json::json!({
+            "version": 2,
+            "items": [
+                {
+                    "id": "model.sherpa-onnx.zipformer-multi-zh-hans",
+                    "short_id": "onnx-zf-zh-multi-int8-off",
+                    "urls": ["https://example.invalid/transducer.tar.bz2"],
+                    "vinput_model": {
+                        "backend": "sherpa-offline",
+                        "family": "transducer",
+                        "runtime": "offline",
+                        "model": {
+                            "tokens": "tokens.txt",
+                            "transducer": {
+                                "encoder": "encoder.onnx",
+                                "decoder": "decoder.onnx",
+                                "joiner": "joiner.onnx"
+                            }
+                        }
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    );
+
+    let output = vinput_command()
+        .args(["model", "list", "--registry"])
+        .arg(&registry_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list offline transducer --json");
+
+    let value = assert_json_success(output, "model list offline transducer json");
+    assert_eq!(value["models"][0]["family"], "transducer");
+    assert_eq!(value["models"][0]["runtime"], "offline");
+    assert_eq!(value["models"][0]["supported"], true);
+    assert_eq!(value["models"][0]["support"], "supported");
+
+    std::fs::remove_file(registry_path).ok();
+}
+
+#[test]
 fn model_list_json_reports_dolphin_as_supported() {
     let registry_path = write_temp_json(
         "live-model-dolphin-support",

@@ -8698,6 +8698,7 @@ fn live_model_support(model: &LiveModelEntry) -> ModelSupport {
             Some("sherpa-offline"),
             Some(
                 LiveModelFamily::Dolphin
+                | LiveModelFamily::Transducer
                 | LiveModelFamily::SenseVoice
                 | LiveModelFamily::Paraformer
                 | LiveModelFamily::Qwen3Asr
@@ -8717,6 +8718,7 @@ fn live_model_support(model: &LiveModelEntry) -> ModelSupport {
             Some("sherpa-offline"),
             Some(
                 LiveModelFamily::Dolphin
+                | LiveModelFamily::Transducer
                 | LiveModelFamily::SenseVoice
                 | LiveModelFamily::Paraformer
                 | LiveModelFamily::Qwen3Asr

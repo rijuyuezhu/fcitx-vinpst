@@ -2089,6 +2089,72 @@ fn sherpa_onnx_offline_runtime_plan_uses_vinput_model_metadata() {
 }
 
 #[test]
+fn sherpa_onnx_offline_runtime_plan_uses_transducer_metadata() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+    let model_dir = root.join("transducer");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    for file_name in ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"] {
+        std::fs::write(model_dir.join(file_name), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        r#"{
+          "backend":"sherpa-offline",
+          "family":"transducer",
+          "runtime":"offline",
+          "supports_hotwords":true,
+          "model": {
+            "tokens":"tokens.txt",
+            "num_threads":2,
+            "provider":"cpu",
+            "transducer": {
+              "encoder":"encoder.onnx",
+              "decoder":"decoder.onnx",
+              "joiner":"joiner.onnx"
+            }
+          },
+          "recognizer": {
+            "feat_config":{"sample_rate":16000,"feature_dim":80},
+            "decoding_method":"modified_beam_search",
+            "max_active_paths":4,
+            "hotwords_score":1.5
+          }
+        }"#,
+    )
+    .unwrap();
+    let provider = AsrProviderConfig {
+        id: "sherpa-onnx".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("transducer".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    let plan = spec.resolve_offline_runtime_plan(root).unwrap();
+
+    assert_eq!(plan.layout_source, "metadata");
+    assert_eq!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::Transducer {
+            encoder: model_dir.join("encoder.onnx"),
+            decoder: model_dir.join("decoder.onnx"),
+            joiner: model_dir.join("joiner.onnx"),
+            tokens: model_dir.join("tokens.txt"),
+        }
+    );
+    assert_eq!(plan.settings.num_threads, 2);
+    assert_eq!(plan.settings.model_type.as_deref(), Some("transducer"));
+    assert_eq!(plan.settings.decoding_method, "modified_beam_search");
+    assert_eq!(plan.settings.max_active_paths, 4);
+}
+
+#[test]
 fn sherpa_onnx_offline_runtime_plan_uses_dolphin_metadata() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path();

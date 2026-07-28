@@ -53,6 +53,17 @@ pub struct SherpaOnnxModelPaths {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SherpaOnnxOfflineModelLayout {
+    /// Offline transducer model with encoder, decoder, joiner, and tokens assets.
+    Transducer {
+        /// Encoder model.
+        encoder: PathBuf,
+        /// Decoder model.
+        decoder: PathBuf,
+        /// Joiner model.
+        joiner: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
     /// Dolphin model directory with a single ONNX model and tokens file.
     Dolphin {
         /// ONNX model file.
@@ -488,6 +499,13 @@ fn infer_offline_layout_from_metadata(
             path: display_path(model_dir),
         })?;
     match family {
+        "transducer" => infer_offline_transducer_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path.clone(),
+            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
+        )
+        .map(Some),
         "dolphin" => infer_single_model_layout_from_metadata(
             model_dir,
             &metadata,
@@ -586,6 +604,38 @@ fn infer_sense_voice_layout_from_metadata(
             tokens,
             language,
             use_itn,
+        },
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
+fn infer_offline_transducer_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let transducer = metadata
+        .pointer("/model/transducer")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&metadata_path),
+            message: "missing object `/model/transducer`".to_owned(),
+        })?;
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::Transducer {
+            encoder: required_model_asset(model_dir, transducer, "transducer", "encoder")?,
+            decoder: required_model_asset(model_dir, transducer, "transducer", "decoder")?,
+            joiner: required_model_asset(model_dir, transducer, "transducer", "joiner")?,
+            tokens: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/tokens",
+                "transducer",
+                "tokens",
+            )?,
         },
         settings,
         source: "metadata".to_owned(),
@@ -1349,6 +1399,19 @@ fn offline_recognizer_config(
     let mut config = sherpa_onnx::OfflineRecognizerConfig::default();
     apply_offline_settings(&mut config, plan);
     match &plan.layout {
+        SherpaOnnxOfflineModelLayout::Transducer {
+            encoder,
+            decoder,
+            joiner,
+            tokens,
+        } => {
+            config.model_config.transducer = sherpa_onnx::OfflineTransducerModelConfig {
+                encoder: Some(display_path(encoder)),
+                decoder: Some(display_path(decoder)),
+                joiner: Some(display_path(joiner)),
+            };
+            config.model_config.tokens = Some(display_path(tokens));
+        }
         SherpaOnnxOfflineModelLayout::Dolphin { model, tokens } => {
             config.model_config.dolphin = sherpa_onnx::OfflineDolphinModelConfig {
                 model: Some(display_path(model)),
