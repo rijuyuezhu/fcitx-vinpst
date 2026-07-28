@@ -89,6 +89,7 @@ configure_file(
 
 if(Fcitx5Core_FOUND)
   find_package(Gettext REQUIRED)
+  find_package(Fcitx5ModuleNotifications REQUIRED)
   set(VINPUT_FCITX_BUILD_LOCALEDIR "${CMAKE_CURRENT_BINARY_DIR}/locale")
   set(VINPUT_FCITX_ZH_CN_MO
       "${VINPUT_FCITX_BUILD_LOCALEDIR}/zh_CN/LC_MESSAGES/fcitx5-vinput.mo")
@@ -115,6 +116,7 @@ if(Fcitx5Core_FOUND)
     src/fcitx_candidates.cpp
     src/fcitx_key_trigger.cpp
     src/fcitx_menu_filter.cpp
+    src/fcitx_notifications.cpp
     src/fcitx_trigger_mode.cpp
     src/fcitx_outcome.cpp
     src/fcitx_selection.cpp
@@ -124,6 +126,8 @@ if(Fcitx5Core_FOUND)
     PUBLIC
       vinput_fcitx_bridge::core
       Fcitx5::Core
+    PRIVATE
+      Fcitx5::Module::Notifications
   )
   target_compile_features(vinput_fcitx_bridge_fcitx PUBLIC cxx_std_20)
   target_compile_definitions(
@@ -169,6 +173,22 @@ if(Fcitx5Core_FOUND)
   )
   vinput_bridge_apply_warnings(fcitx5_vinput_addon)
 
+
+  add_executable(
+    vinput_fcitx_bridge_notifications_smoke
+    tests/fcitx_notifications_smoke.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_bridge_notifications_smoke
+    PRIVATE
+      vinput_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_bridge_notifications_smoke)
+  add_test(
+    NAME vinput_fcitx_bridge_notifications_smoke
+    COMMAND vinput_fcitx_bridge_notifications_smoke
+  )
 
   add_executable(
     vinput_fcitx_bridge_i18n_smoke
@@ -312,6 +332,7 @@ if(Fcitx5Core_FOUND)
     src/fcitx_config.cpp
     src/fcitx_key_trigger.cpp
     src/fcitx_menu_filter.cpp
+    src/fcitx_notifications.cpp
     src/fcitx_trigger_mode.cpp
     src/fcitx_selection.cpp
   )
@@ -328,6 +349,7 @@ if(Fcitx5Core_FOUND)
     PRIVATE
       vinput_fcitx_bridge::sdbus
       Fcitx5::Core
+      Fcitx5::Module::Notifications
   )
   vinput_bridge_apply_warnings(vinput_fcitx_addon_dbus_smoke)
 

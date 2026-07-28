@@ -281,7 +281,9 @@ void FcitxVinputAddon::reloadConfig() {
 
 void FcitxVinputAddon::save() {
   if (!SaveFrontendSettings(frontend_settings_)) {
+    const auto message = FrontendText("Failed to save frontend configuration.");
     FCITX_ERROR() << "fcitx-vinput failed to save frontend configuration";
+    Notify(FrontendNotificationKind::Error, message);
   }
 }
 
@@ -296,6 +298,13 @@ void FcitxVinputAddon::setConfig(const fcitx::RawConfig &config) {
   frontend_settings_ = frontend_config->settings();
   ApplyFrontendSettings();
   save();
+}
+
+void FcitxVinputAddon::Notify(FrontendNotificationKind kind, std::string_view message) {
+  if (message.empty()) {
+    return;
+  }
+  SendFrontendNotification(instance_, BuildFrontendNotification(kind, message));
 }
 
 void FcitxVinputAddon::ApplyFrontendSettings() {
@@ -322,8 +331,8 @@ AppliedOutcome FcitxVinputAddon::ApplyDaemonUnavailable(fcitx::InputContext *ic,
                                                         std::string error) {
   BridgeOutcome outcome;
   outcome.kind = BridgeOutcome::Kind::Error;
-  outcome.text =
-      error.empty() ? "Voice input daemon is unavailable." : std::move(error);
+  outcome.text = error.empty() ? FrontendText("Voice input daemon is unavailable.")
+                               : std::move(error);
   FCITX_WARN() << "fcitx-vinput daemon unavailable: " << outcome.text;
   return ApplyBridgeOutcome(ic, outcome);
 }
@@ -332,6 +341,7 @@ AppliedOutcome FcitxVinputAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
                                                     const BridgeOutcome &outcome) {
   if (outcome.kind == BridgeOutcome::Kind::Error) {
     daemon_client_.reset();
+    Notify(FrontendNotificationKind::Error, outcome.text);
   }
   return ApplyBridgeOutcomeToInputContext(outcome, ic);
 }
@@ -808,6 +818,8 @@ void FcitxVinputAddon::SelectScene(std::size_t index, fcitx::InputContext *ic) {
   active_scene_id_ = scene.id;
   scene_state_.active_scene_id = scene.id;
   HideSceneMenu();
+  const auto message = FrontendValueText("Switched scene to '%s'.", scene.label);
+  Notify(FrontendNotificationKind::Info, message);
   FCITX_INFO() << "fcitx-vinput switched active scene to " << scene.id
                << " persisted=" << persisted;
 }
@@ -1030,6 +1042,11 @@ void FcitxVinputAddon::SelectAsrTarget(std::size_t index, fcitx::InputContext *i
     return;
   }
   HideAsrMenu();
+  const auto display_title =
+      target.display_title.empty() ? target.item_id : target.display_title;
+  const auto message =
+      FrontendValueText("ASR switch requested for '%s'.", display_title);
+  Notify(FrontendNotificationKind::Info, message);
   FCITX_INFO() << "fcitx-vinput requested ASR target switch to " << target.provider_id
                << '/' << target.item_id << " persisted=" << persisted;
 }

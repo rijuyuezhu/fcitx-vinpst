@@ -3,6 +3,7 @@
 #include "vinput_fcitx_bridge/fcitx_config.h"
 #include "vinput_fcitx_bridge/fcitx_key_trigger.h"
 #include "vinput_fcitx_bridge/fcitx_menu_filter.h"
+#include "vinput_fcitx_bridge/fcitx_notifications.h"
 #include "vinput_fcitx_bridge/fcitx_outcome.h"
 #include "vinput_fcitx_bridge/fcitx_trigger_mode.h"
 #include "vinput_fcitx_bridge/frontend_bridge.h"
@@ -73,6 +74,7 @@ private:
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
   void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
+  void Notify(FrontendNotificationKind kind, std::string_view message);
   void HandleTriggerModeAction(fcitx::InputContext *ic, TriggerModeAction action);
   void ScheduleTriggerStart(fcitx::InputContext *ic);
   void CancelTriggerStart();

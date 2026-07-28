@@ -65,7 +65,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 3. Prepare-before-swap warm reload, config-file re-read, busy-time deferral, physical `reload_in_progress`, generation coalescing, and non-blocking backend preparation are implemented and session-bus tested.
 4. SenseVoice, Qwen3 ASR, Moonshine v1, transducer, and Zipformer2 CTC mappings are implemented; Dolphin, Paraformer, and other registry-compatible families still need runtime support. Moonshine Tiny int8 is live-registry installed and real-WAV proven.
 5. Native shared-library resolution is improved for local smoke but still needs a robust activation, desktop-install, and distribution story.
-6. Fcitx UX parity is incomplete: the searchable scene menu, installed-model-aware ASR menu, six persistent KeyLists, Tap/Hold/Both state machine, and static zh_CN gettext labels are deterministically tested but not live-desktop proven; real desktop validation and rich notifications remain missing or partial.
+6. Fcitx UX parity is incomplete: the searchable scene menu, installed-model-aware ASR menu, six persistent KeyLists, Tap/Hold/Both state machine, static zh_CN gettext labels, and local error/switch notifications are deterministically tested but not live-desktop proven; asynchronous daemon-notification forwarding and real desktop validation remain missing or partial.
 7. Remote ASR/text services, full provider/adapter registry installation, distro packaging, and the legacy GUI remain incomplete.
 8. `vinput-cli/src/main.rs` remains large even after daemon and recording control were extracted; further feature-driven module splits are needed.
 

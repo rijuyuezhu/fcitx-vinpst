@@ -77,3 +77,20 @@ msgstr "下一页快捷键"
 
 msgid "Trigger Mode"
 msgstr "触发模式"
+
+msgid "Voice Input"
+msgstr "语音输入"
+
+msgid "Voice input daemon is unavailable."
+msgstr "语音输入守护进程不可用。"
+
+#, c-format
+msgid "Switched scene to '%s'."
+msgstr "已切换场景到“%s”。"
+
+#, c-format
+msgid "ASR switch requested for '%s'."
+msgstr "已请求切换语音识别到“%s”。"
+
+msgid "Failed to save frontend configuration."
+msgstr "保存前端配置失败。"

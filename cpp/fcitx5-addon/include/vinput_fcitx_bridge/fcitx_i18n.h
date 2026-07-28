@@ -12,6 +12,7 @@ inline constexpr const char *kFrontendLocaleOverride = "VINPUT_FCITX_LOCALEDIR";
 void InitFrontendI18n();
 std::string FrontendText(std::string_view message);
 std::string FrontendCountText(std::string_view format, std::size_t count);
+std::string FrontendValueText(std::string_view format, std::string_view value);
 std::string FrontendPageText(int current_page, int total_pages);
 
 } // namespace vinput_fcitx_bridge

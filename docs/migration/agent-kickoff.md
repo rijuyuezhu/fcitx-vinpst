@@ -66,6 +66,7 @@ Then read, in order:
 - Frontend menus: a minimal Right-Shift scene menu and installed-model-aware F8 ASR menu are implemented with typed D-Bus state and atomic explicit-config persistence. ASR provider/model selection queues background reload and is proven through the C++ client; real desktop menu proof is still missing.
 - Frontend config: normal, command, scene-menu, ASR-menu, previous-page, and next-page keys are persistent legacy-named Fcitx KeyLists with immediate reload; both menus consume the configured paging lists, including keypad defaults. TriggerMode implements Tap/Hold/Both with legacy debounce/hold/release-tail timing, temporary trigger overrides remain, and unknown legacy fields are preserved. Both menus implement legacy slash filtering, multi-term matching, UTF-8/Ctrl editing, and two-stage Escape. Static menu/config/result labels use a compiled and installed zh_CN gettext catalog with English fallback.
 - Model titles: registry installs persist full ids and the selected locale title; the additive display-menu D-Bus row is C++/session-bus tested, and old installs fall back to stable ids.
+- Frontend notifications: local errors and scene/ASR switch confirmations use translated Fcitx notifications with legacy icons/timeouts and stderr fallback; asynchronous `DaemonNotification` forwarding remains.
 - Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, remaining sherpa families, packaging, and remote services.
 
 ## First recommended implementation slices

@@ -134,7 +134,7 @@ Rust CLI weaknesses for a user:
 | Text postprocess | OpenAI-compatible HTTP, prompt files/interpolation/context/candidates, command scene. | Command adapter and OpenAI-compatible paths exist; real UX/config incomplete. | Partial. |
 | Adapter supervisor | Process supervision, PID files, stderr notifications. | Process supervision, PID files, D-Bus start/stop, diagnostics. | Mostly aligned. |
 | Remote text service | Legacy has HTTP/WebSocket remote text service. | Not implemented. | Missing. |
-| Notifications | Legacy classifies/forwards daemon notifications to frontend. | Error info and notification signal exist; coverage less mature. | Partial. |
+| Notifications | Legacy classifies/forwards daemon notifications to frontend. | Local frontend errors and scene/ASR switch confirmations use translated Fcitx notifications with legacy icons/timeouts and stderr fallback; the daemon signal and typed error payload exist, but retained-addon asynchronous forwarding is not implemented yet. | Partial. |
 
 ## Registry/resource comparison
 

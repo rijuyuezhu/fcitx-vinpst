@@ -6,6 +6,7 @@ int main() {
   using vinput_fcitx_bridge::FrontendCountText;
   using vinput_fcitx_bridge::FrontendPageText;
   using vinput_fcitx_bridge::FrontendText;
+  using vinput_fcitx_bridge::FrontendValueText;
   using vinput_fcitx_bridge::InitFrontendI18n;
 
   InitFrontendI18n();
@@ -16,6 +17,11 @@ int main() {
   assert(FrontendText("Voice Command") == "语音命令");
   assert(FrontendCountText("Choose Result (%zu)", 6) == "选择结果（6项）");
   assert(FrontendPageText(2, 4) == "（2/4页）");
+  assert(FrontendText("Voice Input") == "语音输入");
+  assert(FrontendValueText("Switched scene to '%s'.", "工作") ==
+         "已切换场景到“工作”。");
+  assert(FrontendValueText("ASR switch requested for '%s'.", "月光") ==
+         "已请求切换语音识别到“月光”。");
   assert(FrontendText("translation-fallback") == "translation-fallback");
   return 0;
 }

@@ -317,3 +317,66 @@ fn cpp_frontend_i18n_builds_loads_and_installs_chinese_catalog() {
         );
     }
 }
+
+#[test]
+fn cpp_frontend_notifications_keep_legacy_presenter_contract() {
+    let header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_notifications.h",
+    ))
+    .expect("read notification header");
+    let source = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/src/fcitx_notifications.cpp",
+    ))
+    .expect("read notification source");
+    let addon_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
+            .expect("read addon source");
+    let cmake = std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/CMakeLists.txt"))
+        .expect("read addon CMake file");
+
+    for required in [
+        "kInfoNotificationTimeoutMs = 3000",
+        "kErrorNotificationTimeoutMs = 5000",
+        "enum class FrontendNotificationKind",
+        "BuildFrontendNotification",
+        "SendFrontendNotification",
+    ] {
+        assert!(
+            header.contains(required),
+            "notification header should pin {required}"
+        );
+    }
+    for required in [
+        "Fcitx5::Module::Notifications",
+        "vinput_fcitx_bridge_notifications_smoke",
+    ] {
+        assert!(
+            cmake.contains(required),
+            "addon CMake should pin {required}"
+        );
+    }
+    for required in [
+        "dialog-information",
+        "dialog-warning",
+        "dialog-error",
+        "fcitx::INotifications::sendNotification",
+        "addon(\"notifications\", true)",
+        "vinput: %s: %s",
+    ] {
+        assert!(
+            source.contains(required),
+            "notification source should pin {required}"
+        );
+    }
+    for required in [
+        "Notify(FrontendNotificationKind::Error, outcome.text)",
+        r#"FrontendValueText("Switched scene to '%s'.", scene.label)"#,
+        r#"FrontendValueText("ASR switch requested for '%s'.", display_title)"#,
+        "Notify(FrontendNotificationKind::Info, message)",
+    ] {
+        assert!(
+            addon_source.contains(required),
+            "addon notification path should pin {required}"
+        );
+    }
+}

@@ -126,6 +126,10 @@ std::string FrontendCountText(std::string_view format, std::size_t count) {
   return FormatTranslated(format, count);
 }
 
+std::string FrontendValueText(std::string_view format, std::string_view value) {
+  return FormatTranslated(format, std::string(value).c_str());
+}
+
 std::string FrontendPageText(int current_page, int total_pages) {
   auto translated = FrontendText(" (%d/%d)");
   const int size =
