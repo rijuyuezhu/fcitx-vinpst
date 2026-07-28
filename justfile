@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -327,6 +327,10 @@ command-asr-wav-helper-smoke:
 # Run user-profile IME install smoke for a real command-ASR WAV helper profile.
 user-ime-real-command-asr-wav-smoke:
     scripts/run-user-ime-real-command-asr-wav-smoke.sh
+
+# Run user-profile IME install smoke for a generic typed native sherpa profile.
+user-ime-sherpa-native-smoke:
+    scripts/run-user-ime-sherpa-native-smoke.sh
 
 # Run user-profile IME install smoke for the native sherpa SenseVoice profile.
 user-ime-sherpa-sense-voice-smoke:

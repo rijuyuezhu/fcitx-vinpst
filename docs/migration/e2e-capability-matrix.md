@@ -26,21 +26,21 @@ Current parity estimate:
 | --- | ---: | --- |
 | D-Bus ABI and daemon facade | 80-90% | Core method/signal names and payload shapes are preserved, with Rust-only diagnostics added. |
 | Deterministic E2E spine | 85-90% | Command-demo, user install smokes, activation, file-input tests, and adapter lifecycle are strong. |
-| Native local ASR | 90% | Offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, and Moonshine v1 are real-WAV tested with offline Silero VAD active; online transducer and Zipformer2 CTC are real-WAV tested with legacy endpoint-rule forwarding and 200 ms warmup; live D-Bus partial emission is implemented. Command timeout enforcement and explicit native timeout diagnostics are implemented. Real desktop proof, reload parity, and remaining families remain incomplete. |
+| Native local ASR | 90% | Offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, and Moonshine v1 are real-WAV tested with offline Silero VAD active; online transducer and Zipformer2 CTC are real-WAV tested with legacy endpoint-rule forwarding and 200 ms warmup; live D-Bus partial emission is implemented. Command timeout enforcement and explicit native timeout diagnostics are implemented. Real desktop proof, broader legacy-family coverage, and distribution hardening remain incomplete. |
 | CLI user experience | 75-85% | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, and recording commands exist; remaining work is polish, live proof, edge cases, and continued module extraction. |
 | Registry/resource install | 65-75% | Live model fetch/cache/checksum/extract/install/use/remove works; provider/adapter live install and GUI resource flows remain incomplete. |
-| Real desktop readiness | 45-55% | Install/probe paths exist, but real Fcitx trigger/commit with native model still needs proof and runtime library handling. |
+| Real desktop readiness | 50-60% | Generic native install, runtime-bundle activation, readiness diagnostics, and probes exist; real Fcitx trigger/partial/commit with a native model still needs proof. |
 | Full user-visible parity | 70-75% | CLI/daemon alpha is usable, but native desktop, frontend, packaging, and remote-service parity are incomplete. |
 
-The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit path, then add the remaining registry model families while completing frontend UX and packaging.**
+The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit path, then broaden legacy sherpa coverage as needed while completing frontend UX and packaging.**
 
 ## User journeys
 
 | Journey | Legacy behavior | Rust current behavior | Gap | Target acceptance |
 | --- | --- | --- | --- | --- |
 | J0: first-run init | `vinput init` creates config/dirs and default files. GUI/packaging also expect stable paths. | Rust has `vinput init` for default config, managed model/cache dirs, dry-run/JSON output, and activation-service hints. User install scripts can still write selected profile configs. | Mostly implemented; still needs broader config get/set/edit. | `vinput init` creates default config, managed dirs, activation-service hint, and prints JSON/text summary. |
-| J1: list and install local ASR model | `vinput model list/add/use/info/remove` fetches registry metadata, downloads assets, materializes model, updates config. | Rust live registry flow now lists, infos, installs, uses, and removes managed ASR models with dry-run JSON/text plans. | Mostly implemented; needs more live desktop proof and model-family metadata coverage. | `vinput model list`, `vinput model install <id|short_id>`, `vinput model use <id|path|installed-name>`, `vinput model info [--installed]`, and `vinput model remove [--installed]` work with live/installed metadata and sha256 checks. |
-| J2: normal dictation with local model | Fcitx trigger starts PipeWire capture, ASR, optional postprocess, commit. | Native SenseVoice and Qwen3 ASR recognize bundled WAV files; user profile install exists; the live Fcitx/PipeWire/native model path remains unproven. | Major live proof and runtime library handling. | Real desktop checklist passes: trigger, preedit, capture, inference, commit into app, `doctor` green. |
+| J1: list and install local ASR model | `vinput model list/add/use/info/remove` fetches registry metadata, downloads assets, materializes model, updates config. | Rust live registry flow now lists, infos, installs, uses, and removes managed ASR models with dry-run JSON/text plans. | Mostly implemented; needs more live desktop proof and broader legacy-family metadata coverage. | `vinput model list`, `vinput model install <id|short_id>`, `vinput model use <id|path|installed-name>`, `vinput model info [--installed]`, and `vinput model remove [--installed]` work with live/installed metadata and sha256 checks. |
+| J2: normal dictation with local model | Fcitx trigger starts PipeWire capture, ASR, optional postprocess, commit. | Native offline/online registry families recognize bundled WAV files; `sherpa-native-live` copies the validated runtime bundle, generates wrapper-based activation, and passes real temporary-HOME readiness with an online transducer. The live Fcitx/PipeWire/native model path remains unproven. | Major real-desktop trigger/partial/commit proof. | Real desktop checklist passes: trigger, preedit, capture, inference, commit into app, `doctor` green. |
 | J3: command dictation over selected text | Fcitx command trigger captures selected text or fallback, ASR command scene, LLM/text transform, replace selection. | Surrounding-text selection, primary-selection clipboard fallback, command path, and replacement logic exist; multi-application live proof remains incomplete. | Medium. | In two apps, selected text replacement works; fallback path has clear diagnostics when unavailable. |
 | J4: command ASR provider | Legacy supports command batch and streaming providers. | Rust has command ASR, command WAV helper, streaming command partial tests, user profile for real command WAV, and provider add/use/edit/remove CLI. | Mostly implemented; needs live provider proof and recovery testing. | `vinput provider add/use/edit/remove` configures command ASR without hand-editing JSON and a live helper completes recognition. |
 | J5: LLM/text postprocess | Legacy supports OpenAI-compatible providers, command adapters, scenes, prompt files, candidate_count, command scene. | Rust has command text adapters, OpenAI-compatible provider tests, prompt/context pieces, and LLM/adapter/scene CLI management. | Mostly implemented; real-provider desktop validation remains limited. | `vinput llm`, `vinput adapter`, and `vinput scene` commands configure and validate postprocess paths, and a live provider completes one command-mode replacement. |
@@ -277,10 +277,10 @@ Convert the proven local smoke into a real desktop path.
 
 Acceptance:
 
-- Activation service can set or wrap `LD_LIBRARY_PATH` for the selected native runtime bundle, not only local smoke.
-- `sherpa-sense-voice-live` install with the downloaded model passes `runtime-status` from the generated activation environment.
-- Real Fcitx session proves normal trigger -> capture -> native ASR -> commit.
-- Failure message identifies mismatched `libsherpa-onnx`/`libonnxruntime` before Fcitx restart.
+- **Implemented:** `sherpa-native-live` copies the selected `libsherpa-onnx`/`libonnxruntime` bundle into the user data tree and points D-Bus activation at `vinput-daemon-with-vinput-env.sh`.
+- **Implemented:** both the generic profile and the legacy `sherpa-sense-voice-live` alias pass isolated install/status smokes; a real temporary-HOME generic install constructs an online transducer through the generated activation environment.
+- **Implemented:** missing runtime bundle files fail before Fcitx restart, while `doctor`/`runtime-status` use the installed bundle instead of incompatible system libraries.
+- **Remaining:** a real Fcitx session proves normal trigger -> capture -> native ASR -> partial/preedit -> commit.
 
 ## P1 plan: complete daemon parity slices
 

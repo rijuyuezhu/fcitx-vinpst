@@ -54,6 +54,7 @@ Then read, in order:
 - CLI/daemon alpha: usable and broadly covered by deterministic tests.
 - Real desktop readiness: **prototype usable / early alpha**; the full native desktop chain is not yet proven.
 - Native SenseVoice file-input path: proven with a registry-downloaded model and bundled WAV.
+- Native desktop install: `sherpa-native-live` accepts supported typed offline/online models, copies the validated `libsherpa-onnx`/`libonnxruntime` bundle, uses wrapper-based D-Bus activation, and passes real temporary-HOME online-transducer readiness. The old `sherpa-sense-voice-live` alias remains tested. Real Fcitx commit proof remains.
 - Native offline transducer: the registry Zipformer multi-Chinese int8 model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍那么我想说的是大家如果对我的研究感兴趣` through `just sherpa-offline-transducer-local-smoke`.
 - Native Dolphin: the registry multilingual int8 model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍哈那么我想说的是呢大家如果对我的研究感兴趣呢。` through `just sherpa-dolphin-local-smoke`.
 - Native Paraformer: the registry small model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯` through `just sherpa-paraformer-local-smoke`.
@@ -70,14 +71,14 @@ Then read, in order:
 - Frontend config: normal, command, scene-menu, ASR-menu, previous-page, and next-page keys are persistent legacy-named Fcitx KeyLists with immediate reload; both menus consume the configured paging lists, including keypad defaults. TriggerMode implements Tap/Hold/Both with legacy debounce/hold/release-tail timing, temporary trigger overrides remain, and unknown legacy fields are preserved. Both menus implement legacy slash filtering, multi-term matching, UTF-8/Ctrl editing, and two-stage Escape. Static menu/config/result labels use a compiled and installed zh_CN gettext catalog with English fallback.
 - Model titles: registry installs persist full ids and the selected locale title; the additive display-menu D-Bus row is C++/session-bus tested, and old installs fall back to stable ids.
 - Frontend notifications/recovery: local errors and scene/ASR switch confirmations use translated Fcitx notifications with legacy icons/timeouts and stderr fallback. The retained addon subscribes to daemon signals and uses race-free service-owner tracking; owner loss during recording or status-only recovery clears the frontend state with a localized error. Trigger-time `GetStatus` reconciliation also adopts and stops externally started normal recordings while external busy states become tracked preedit instead of conflicting Start calls. Current-generation background ASR reload failures are emitted and session-bus tested; broader notification categories and live desktop presentation remain.
-- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, remaining sherpa families, packaging, and remote services.
+- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, broader legacy sherpa families, distro packaging, and remote services.
 
 ## First recommended implementation slices
 
 Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Port other remaining families in registry-priority order; Dolphin, Paraformer, and Moonshine v1 are already registry-installed and WAV-proven.
+2. Broaden legacy sherpa family coverage according to concrete demand; current registry families are already supported, and Dolphin, Paraformer, and Moonshine v1 are registry-installed and WAV-proven.
 3. Prove localized searchable scene/ASR menus, persisted registry titles, persistent trigger/paging keys, and Tap/Hold/Both timing live.
 4. Advance packaging and remote-service breadth only where they unblock the native desktop path.
 

@@ -88,6 +88,7 @@ Run `just addon-lint` when Fcitx5 headers and clang-tidy are available.
 just ime-e2e-smoke
 just user-ime-command-demo-smoke
 just user-ime-real-command-asr-wav-smoke
+just user-ime-sherpa-native-smoke
 just user-ime-sherpa-sense-voice-smoke
 ```
 
@@ -104,14 +105,14 @@ HOME="$tmp_home" VINPUT_USER_PROFILE=real-command-asr-wav \
   VINPUT_USER_AUDIO_BACKEND=mock \
   VINPUT_USER_COMMAND_ASR_WAV_COMMAND='cat "$VINPUT_ASR_WAV" >/dev/null; printf ready' \
   scripts/install-user-ime.sh
-mkdir -p "$tmp_home/model"
-printf 'onnx\n' >"$tmp_home/model/model.int8.onnx"
-printf '<blank> 0\n' >"$tmp_home/model/tokens.txt"
-HOME="$tmp_home" VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+HOME="$tmp_home" VINPUT_USER_PROFILE=sherpa-native-live \
   VINPUT_USER_AUDIO_BACKEND=mock \
-  VINPUT_USER_SHERPA_MODEL="$tmp_home/model" \
+  VINPUT_USER_SHERPA_MODEL="$PWD/target/models/onnx-zf-en-20m-stream" \
+  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="$PWD/target/debug" \
   scripts/install-user-ime.sh
-HOME="$tmp_home" VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
+HOME="$tmp_home" VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_STATUS=1 \
+  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="$PWD/target/debug" \
+  scripts/install-user-ime.sh
 rm -rf "$tmp_home"
 ```
 
@@ -137,7 +138,7 @@ Optional PipeWire recipes are intentionally excluded from `just ci`. `just pipew
 `just sherpa-offline-local-smoke` requires `VINPUT_SHERPA_MODEL` and `VINPUT_SHERPA_WAV`; it validates typed registry metadata and one WAV recognition outside Fcitx5. `just sherpa-sense-voice-local-smoke` preserves metadata-free SenseVoice layout inference, while `just sherpa-offline-transducer-local-smoke`, `just sherpa-dolphin-local-smoke`, `just sherpa-paraformer-local-smoke`, and `just sherpa-qwen3-local-smoke` require registry-generated `vinput-model.json` with the matching family.
 The registry offline transducer model has passed `just sherpa-offline-transducer-local-smoke` with bundled `test_wavs/0.wav` and output `对我做了介绍那么我想说的是大家如果对我的研究感兴趣`. The registry Dolphin model has passed `just sherpa-dolphin-local-smoke` with bundled `test_wavs/0.wav` and output `对我做了介绍哈那么我想说的是呢大家如果对我的研究感兴趣呢。`. The registry Paraformer small model has passed `just sherpa-paraformer-local-smoke` with bundled `test_wavs/0.wav` and output `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯`. The live registry Qwen3 model has passed `just sherpa-qwen3-local-smoke` with bundled `test_wavs/es1.wav`. The local sherpa smoke defaults `VINPUT_SHERPA_RUNTIME_LIB_DIR` to `target/debug` to prefer the shared libraries provided by the cargo build over system-wide sherpa/ONNX Runtime libraries.
 `just sherpa-online-local-smoke` requires registry-generated online metadata and runs the same runtime-status plus WAV path through the native online recognizer. `just sherpa-online-transducer-local-smoke` pins family `transducer`; the SHA-256-verified registry model has passed with bundled `test_wavs/0.wav`, the 200 ms warmup, and output `THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLEL`. `just sherpa-zipformer2-ctc-local-smoke` pins family `zipformer2_ctc`; the live registry model has passed with bundled `test_wavs/0.wav` and output `对我做了介绍那么我想说的是呢大家如果对我的研究感兴趣呢`. Both dedicated recipes assert the exact transcript. `just sherpa-moonshine-dbus-reload-smoke` starts an isolated D-Bus daemon with the mock backend, atomically rewrites its explicit config to Moonshine, verifies `reload_in_progress` while the old backend remains effective, waits for the native swap, and recognizes the bundled WAV through D-Bus `StartRecording`/`StopRecording`.
-`VINPUT_USER_PROFILE=sherpa-sense-voice-live scripts/install-user-ime.sh` runs `runtime-status` by default after install and during status checks; set `VINPUT_USER_RUNTIME_STATUS=0` to skip native model construction when debugging only file placement.
+`VINPUT_USER_PROFILE=sherpa-native-live scripts/install-user-ime.sh` accepts any supported typed offline or online registry model. It copies `libsherpa-onnx*.so*` and `libonnxruntime.so*` from `VINPUT_USER_SHERPA_RUNTIME_LIB_DIR` (default `target/debug`) into the user data tree, writes `vinput-daemon-with-vinput-env.sh`, points D-Bus activation at that wrapper, and runs `runtime-status` by default after install and during status checks. The older `sherpa-sense-voice-live` profile remains compatible with metadata-free SenseVoice directories. Set `VINPUT_USER_RUNTIME_STATUS=0` only when debugging file placement without native model construction.
 `just addon-dbus-pipewire-live` covers the C++ bridge plus Rust daemon D-Bus path, prints the daemon build's `audio-devices` JSON diagnostics, uses `VINPUT_DBUS_SMOKE_RECORD_MS=100`, and passes `--record-ms 100` through the start/wait/stop smoke.
 `just ime-pipewire-live` staged D-Bus activation starts the PipeWire-enabled daemon with `--dbus --audio-backend pipewire`, writes under `target/tmp/fcitx-ime-pipewire-live-smoke`, and prints the staged daemon's `audio-devices` JSON diagnostics.
 Live desktop PipeWire validation still needs manual confirmation. Recorder setup errors are expected to include the same target/format/sample-rate/channel plan.
@@ -171,6 +172,7 @@ just ime-configured-activation-smoke
 just ime-e2e-smoke
 just user-ime-command-demo-smoke
 just user-ime-real-command-asr-wav-smoke
+just user-ime-sherpa-native-smoke
 just user-ime-sherpa-sense-voice-smoke
 just user-ime-command-demo
 just user-ime-pipewire-live

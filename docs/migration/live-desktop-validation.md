@@ -9,6 +9,7 @@ cd /workspace/fcitx-vinput-rs
 git status --porcelain=v1 -b
 just user-ime-command-demo-smoke
 just user-ime-real-command-asr-wav-smoke
+just user-ime-sherpa-native-smoke
 just user-ime-sherpa-sense-voice-smoke
 just ime-fcitx-live-probe-smoke
 ```
@@ -103,17 +104,20 @@ VINPUT_USER_PROFILE=real-command-asr-wav VINPUT_USER_STATUS=1 scripts/install-us
 Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `real-command-asr-wav`, with `has_effective_backend: true` and an empty `last_error`. This proves a real command-ASR helper profile is configured; it does not prove native `sherpa-onnx` support.
 
 
-## Native sherpa SenseVoice profile
+## Generic native sherpa profile
 
-Use this when you have a local SenseVoice model directory supported by the native `sherpa-onnx` backend. This mutates the real user profile and expects a real PipeWire desktop session.
+Use this when you have a registry-installed model supported by the native `sherpa-onnx` backend. This mutates the real user profile and expects a real PipeWire desktop session, so run it only with explicit user approval.
 
-The model directory must contain `model.int8.onnx` or `model.onnx`, plus `tokens.txt`.
+Validate the model with its matching local smoke first, then install it:
 
 ```sh
-VINPUT_USER_PROFILE=sherpa-sense-voice-live \
-  VINPUT_USER_SHERPA_MODEL=/path/to/sherpa-onnx-sense-voice-model \
+VINPUT_USER_PROFILE=sherpa-native-live \
+  VINPUT_USER_SHERPA_MODEL=/path/to/registry-installed-model \
+  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/bundle \
   scripts/install-user-ime.sh
 ```
+
+Typed `vinput-model.json` may select an offline or online family. The legacy `sherpa-sense-voice-live` profile remains available for a metadata-free SenseVoice directory containing `model.int8.onnx` or `model.onnx` plus `tokens.txt`.
 
 Optional knobs:
 
@@ -122,25 +126,17 @@ VINPUT_USER_SHERPA_HOTWORDS_FILE=/path/to/hotwords.txt
 VINPUT_USER_SHERPA_TIMEOUT_MS=30000
 ```
 
-Before mutating the real user profile, validate the model and a known-good speech WAV without Fcitx5:
+The install builds with `pipewire-backend,sherpa-onnx-backend`, copies `libsherpa-onnx*.so*` and `libonnxruntime.so*` into `~/.local/share/fcitx-vinput/runtime/lib`, writes `fcitx-vinput.env`, creates `vinput-daemon-with-vinput-env.sh`, and points the user D-Bus activation service at the wrapper. Offline metadata enables the installed Silero VAD; online metadata disables it. `runtime-status` runs by default to force model construction through the same installed runtime bundle before Fcitx5 restart.
+
+Check it before restarting Fcitx5:
 
 ```sh
-VINPUT_SHERPA_MODEL=/path/to/sherpa-onnx-sense-voice-model \
-  VINPUT_SHERPA_WAV=/path/to/input.wav \
-  just sherpa-sense-voice-local-smoke
-```
-
-The local smoke prints `runtime-status` first, then the `--once --wav` recognition payload. If it fails, fix model layout, native library loading, WAV format, or ASR decode before debugging Fcitx5.
-
-The install builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. It runs `runtime-status` by default to force native model construction before Fcitx5 restart. Use `VINPUT_USER_RUNTIME_STATUS=0` only when you deliberately want to skip this model-load check. Check it before restarting Fcitx5:
-
-```sh
-VINPUT_USER_PROFILE=sherpa-sense-voice-live VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
+VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
 # Lightweight status without native model construction:
-VINPUT_USER_PROFILE=sherpa-sense-voice-live VINPUT_USER_STATUS=1 VINPUT_USER_RUNTIME_STATUS=0 scripts/install-user-ime.sh
+VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_STATUS=1 VINPUT_USER_RUNTIME_STATUS=0 scripts/install-user-ime.sh
 ```
 
-Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `sherpa-onnx`, with `has_effective_backend: true` and an empty `last_error`. If model loading fails, keep the exact `last_error`; do not mark native ASR ready.
+Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `sherpa-onnx`, `has_effective_backend: true`, an empty `last_error`, and an activation-service `Exec` pointing at `vinput-daemon-with-vinput-env.sh`. If model or library loading fails, keep the exact `last_error`; do not mark native ASR ready.
 
 ## PipeWire live checks
 
@@ -168,11 +164,10 @@ A feature is not live-done until these are true in one real desktop session:
 
 ## Native sherpa desktop note
 
-The native SenseVoice backend has been proven outside Fcitx with a registry-downloaded model and `just sherpa-sense-voice-local-smoke`. The remaining desktop-specific checks are:
+A temporary-HOME install has proven that `sherpa-native-live` can materialize a typed online transducer config, copy the validated native runtime bundle, generate wrapper-based D-Bus activation, and construct the recognizer through `runtime-status`. The remaining desktop-specific checks are:
 
-1. install using a registry/materialized model path rather than a hand-written config;
-2. ensure D-Bus activation loads the same `libsherpa-onnx` and `libonnxruntime` bundle that passed local smoke;
-3. restart Fcitx through the generated environment wrapper;
-4. prove normal trigger -> PipeWire capture -> native ASR -> commit in a real application.
+1. install into the explicitly approved real user profile;
+2. restart Fcitx through the generated environment wrapper;
+3. prove normal trigger -> PipeWire capture -> native ASR -> partial/preedit -> commit in a real application.
 
-Until activation library-path handling is hardened, local smoke success does not by itself prove the desktop activation path.
+The runtime-library activation boundary is now deterministic; it is not yet real-desktop proof.

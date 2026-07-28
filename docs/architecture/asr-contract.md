@@ -77,15 +77,16 @@ The native backend uses the official `sherpa-onnx` Rust crate only when built wi
 
 The runtime remains buffered: the daemon collects PCM, then `SherpaOnnxRecognitionSession` converts signed 16-bit samples to `f32`, calls `OfflineRecognizer::decode`, and emits one final-text payload. The official native API is synchronous and exposes no safe cancellation handle, so a configured native `timeout_ms` is diagnostic-only rather than a fake deadline implemented by leaking a detached decode thread. Command ASR providers remain genuinely cancellable and kill their helper process on timeout. `vinput doctor` reports `not_configured`, `enforced`, or `unsupported` together with the configured value and an actionable reason.
 
-A user-level live profile is available for real desktop trials:
+A generic user-level live profile is available for real desktop trials:
 
 ```sh
-VINPUT_USER_PROFILE=sherpa-sense-voice-live \
-  VINPUT_USER_SHERPA_MODEL=/path/to/sense-voice-model-dir \
+VINPUT_USER_PROFILE=sherpa-native-live \
+  VINPUT_USER_SHERPA_MODEL=/path/to/registry-installed-model-dir \
+  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/validated/runtime/lib-dir \
   scripts/install-user-ime.sh
 ```
 
-This profile builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-sense-voice-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. It also runs `runtime-status` by default after install and during `VINPUT_USER_STATUS=1` checks so native model or library loading failures are visible before Fcitx5 restart. Set `VINPUT_USER_RUNTIME_STATUS=0` to skip that validation, or `VINPUT_USER_RUNTIME_STATUS=1` to opt into the same validation for another configured profile.
+The profile accepts supported typed offline or online `vinput-model.json` metadata and keeps `sherpa-sense-voice-live` as a compatibility alias for metadata-free SenseVoice directories. It builds the daemon with `pipewire-backend,sherpa-onnx-backend`, writes `sherpa-native-live.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. The installer copies `libsherpa-onnx*.so*` and `libonnxruntime.so*` into the user data tree, writes `fcitx-vinput.env` with the installed `LD_LIBRARY_PATH`, creates `vinput-daemon-with-vinput-env.sh`, and points the D-Bus service `Exec` at that wrapper. `doctor` and `runtime-status` use the same installed bundle, preventing a successful local smoke from silently falling back to incompatible system libraries. `runtime-status` runs by default after install and during `VINPUT_USER_STATUS=1` checks; set `VINPUT_USER_RUNTIME_STATUS=0` only for file-placement debugging.
 
 Before mutating the desktop profile, a local WAV can be used to validate the same native backend outside Fcitx5:
 
@@ -99,7 +100,7 @@ VINPUT_SHERPA_MODEL=/path/to/offline-model-dir \
 
 The registry online transducer model `model.sherpa-onnx.streaming-zipformer-en-20m-2023-02-17` has been downloaded, SHA-256 verified, extracted, completed the 200 ms warmup, and recognized bundled `test_wavs/0.wav` as `THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLEL` through `just sherpa-online-transducer-local-smoke`. The registry offline transducer model `model.sherpa-onnx.zipformer-multi-zh-hans` has been downloaded, SHA-256 verified, extracted, and recognized its bundled `test_wavs/0.wav` as `对我做了介绍那么我想说的是大家如果对我的研究感兴趣` through `just sherpa-offline-transducer-local-smoke`. The registry Dolphin model `model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8` has been downloaded, SHA-256 verified, extracted, and recognized its bundled `test_wavs/0.wav` as `对我做了介绍哈那么我想说的是呢大家如果对我的研究感兴趣呢。` through `just sherpa-dolphin-local-smoke`. The registry Paraformer model `model.sherpa-onnx.paraformer-zh-small` has been downloaded, SHA-256 verified, extracted, and recognized its bundled `test_wavs/0.wav` as `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯` through `just sherpa-paraformer-local-smoke`. The live registry Qwen3 model `model.sherpa-onnx.qwen3-asr-0.6b-int8` has likewise recognized its bundled `test_wavs/es1.wav` as `Esta prenda es amplia. Recomiendo elegir una talla menor al habitual.` through `just sherpa-qwen3-local-smoke`.
 
-The smoke prepends `target/debug` to `LD_LIBRARY_PATH` by default so the cargo-provided `libsherpa-onnx` and `libonnxruntime` are preferred over incompatible system libraries; override with `VINPUT_SHERPA_RUNTIME_LIB_DIR` when testing another runtime bundle.
+The local smoke prepends `target/debug` to `LD_LIBRARY_PATH` by default so the cargo-provided `libsherpa-onnx` and `libonnxruntime` are preferred over incompatible system libraries; override with `VINPUT_SHERPA_RUNTIME_LIB_DIR` when testing another runtime bundle. The generic user installer applies the same rule persistently by copying the validated bundle and using the daemon environment wrapper for activation.
 
 ## Diagnostics
 

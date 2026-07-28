@@ -9,13 +9,32 @@ stub_bin="${tmp_dir}/bin"
 home_dir="${tmp_dir}/home"
 out_dir="${tmp_dir}/out"
 runtime_bin="${out_dir}/runtime-bin"
+runtime_source_dir="${out_dir}/runtime-source"
+profile="${VINPUT_TEST_SHERPA_PROFILE:-sherpa-sense-voice-live}"
+case "${profile}" in
+  sherpa-native-live)
+    config_name="sherpa-native-live.json"
+    typed_metadata="1"
+    ;;
+  sherpa-sense-voice-live)
+    config_name="sherpa-sense-voice-live.json"
+    typed_metadata=""
+    ;;
+  *)
+    echo "unsupported VINPUT_TEST_SHERPA_PROFILE: ${profile}" >&2
+    exit 2
+    ;;
+esac
 
 cleanup() {
   rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-mkdir -p "${stub_bin}" "${home_dir}" "${out_dir}" "${runtime_bin}"
+mkdir -p "${stub_bin}" "${home_dir}" "${out_dir}" "${runtime_bin}" "${runtime_source_dir}"
+printf 'stub sherpa runtime\n' >"${runtime_source_dir}/libsherpa-onnx-c-api.so"
+printf 'stub sherpa cxx runtime\n' >"${runtime_source_dir}/libsherpa-onnx-cxx-api.so"
+printf 'stub onnx runtime\n' >"${runtime_source_dir}/libonnxruntime.so"
 
 cat >"${stub_bin}/cargo" <<'SH'
 #!/usr/bin/env bash
@@ -32,6 +51,11 @@ case "${1:-}" in
   activation-service)
     service_dir="${XDG_DATA_HOME:-${HOME}/.local/share}/dbus-1/services"
     mkdir -p "${service_dir}"
+    if [[ " $* " == *" --remove-user "* ]]; then
+      rm -f "${service_dir}/org.fcitx.Vinput.service"
+      printf '{"activation":"removed"}\n'
+      exit 0
+    fi
     daemon=""
     args=("$@")
     for ((index = 0; index < ${#args[@]}; index++)); do
@@ -58,7 +82,7 @@ chmod +x "${VINPUT_USER_CLI_BINARY}"
 cat >"${VINPUT_USER_DAEMON_BINARY}" <<'DAEMON'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'daemon %s\n' "$*" >>"${VINPUT_STUB_CALLS:?}"
+printf 'daemon LD_LIBRARY_PATH=%s args=%s\n' "${LD_LIBRARY_PATH:-}" "$*" >>"${VINPUT_STUB_CALLS:?}"
 printf '{"runtime":"ok"}\n'
 DAEMON
 chmod +x "${VINPUT_USER_DAEMON_BINARY}"
@@ -100,6 +124,26 @@ mkdir -p "${model_dir}"
 printf 'onnx\n' >"${model_dir}/model.int8.onnx"
 printf '<blank> 0\n' >"${model_dir}/tokens.txt"
 printf 'hello 1.0\n' >"${model_dir}/hotwords.txt"
+if [[ "${typed_metadata}" == "1" ]]; then
+  printf 'encoder\n' >"${model_dir}/encoder.onnx"
+  printf 'decoder\n' >"${model_dir}/decoder.onnx"
+  printf 'joiner\n' >"${model_dir}/joiner.onnx"
+  cat >"${model_dir}/vinput-model.json" <<'JSON'
+{
+  "backend": "sherpa-streaming",
+  "family": "transducer",
+  "runtime": "online",
+  "model": {
+    "tokens": "tokens.txt",
+    "transducer": {
+      "encoder": "encoder.onnx",
+      "decoder": "decoder.onnx",
+      "joiner": "joiner.onnx"
+    }
+  }
+}
+JSON
+fi
 
 calls_log="${out_dir}/vinput-calls.log"
 cargo_calls_log="${out_dir}/cargo-calls.log"
@@ -111,19 +155,23 @@ VINPUT_STUB_CALLS="${calls_log}" \
 VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
 VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
 VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
-VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="${runtime_source_dir}" \
+VINPUT_USER_PROFILE="${profile}" \
 VINPUT_USER_AUDIO_BACKEND=mock \
 VINPUT_USER_SHERPA_MODEL="${model_dir}" \
 VINPUT_USER_SHERPA_HOTWORDS_FILE=hotwords.txt \
 VINPUT_USER_SHERPA_TIMEOUT_MS=7000 \
 scripts/install-user-ime.sh >"${out_dir}/install.log" 2>&1
 
-config_path="${home_dir}/.local/share/fcitx-vinput/sherpa-sense-voice-live.json"
+config_path="${home_dir}/.local/share/fcitx-vinput/${config_name}"
 service_path="${home_dir}/.local/share/dbus-1/services/org.fcitx.Vinput.service"
 vad_model_path="${home_dir}/.local/share/fcitx-vinput/vad/silero_vad.onnx"
 vad_license_path="${home_dir}/.local/share/fcitx-vinput/vad/LICENSE"
+runtime_lib_dir="${home_dir}/.local/share/fcitx-vinput/runtime/lib"
+env_path="${home_dir}/.local/share/fcitx-vinput/fcitx-vinput.env"
+daemon_wrapper_path="${home_dir}/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh"
 
-for path in "${config_path}" "${service_path}" "${vad_model_path}" "${vad_license_path}"; do
+for path in "${config_path}" "${service_path}" "${vad_model_path}" "${vad_license_path}" "${env_path}" "${daemon_wrapper_path}" "${runtime_lib_dir}/libsherpa-onnx-c-api.so" "${runtime_lib_dir}/libsherpa-onnx-cxx-api.so" "${runtime_lib_dir}/libonnxruntime.so"; do
   if [[ ! -e "${path}" ]]; then
     cat "${out_dir}/install.log" >&2
     echo "missing expected file: ${path}" >&2
@@ -133,19 +181,50 @@ done
 
 cmp data/vad/silero_vad.onnx "${vad_model_path}"
 cmp data/vad/LICENSE "${vad_license_path}"
+cmp "${runtime_source_dir}/libsherpa-onnx-c-api.so" "${runtime_lib_dir}/libsherpa-onnx-c-api.so"
+cmp "${runtime_source_dir}/libsherpa-onnx-cxx-api.so" "${runtime_lib_dir}/libsherpa-onnx-cxx-api.so"
+cmp "${runtime_source_dir}/libonnxruntime.so" "${runtime_lib_dir}/libonnxruntime.so"
+if ! grep -Fq -- "export VINPUT_SHERPA_RUNTIME_LIB_DIR=\"${runtime_lib_dir}\"" "${env_path}"; then
+  cat "${env_path}" >&2
+  echo "environment file did not expose the installed runtime bundle" >&2
+  exit 1
+fi
+if ! grep -Fq -- "export LD_LIBRARY_PATH=\"${runtime_lib_dir}" "${env_path}"; then
+  cat "${env_path}" >&2
+  echo "environment file did not prepend the installed runtime bundle" >&2
+  exit 1
+fi
+if ! grep -Fq -- "Exec=${daemon_wrapper_path} --dbus" "${service_path}"; then
+  cat "${service_path}" >&2
+  echo "activation service did not use the daemon environment wrapper" >&2
+  exit 1
+fi
+if ! grep -Fq -- ". ${env_path}" "${daemon_wrapper_path}"; then
+  cat "${daemon_wrapper_path}" >&2
+  echo "daemon wrapper did not source the generated environment" >&2
+  exit 1
+fi
+VINPUT_STUB_CALLS="${calls_log}" "${daemon_wrapper_path}" --wrapper-probe >/dev/null
+if ! grep -Fq -- "LD_LIBRARY_PATH=${runtime_lib_dir}" "${calls_log}" ||
+   ! grep -Fq -- "args=--wrapper-probe" "${calls_log}"; then
+  cat "${calls_log}" >&2
+  echo "daemon wrapper did not launch with the installed runtime library path" >&2
+  exit 1
+fi
 
-python3 - "${config_path}" "${model_dir}" <<'PY'
+python3 - "${config_path}" "${model_dir}" "${typed_metadata}" <<'PY'
 import json
 import pathlib
 import sys
 
 config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 model_dir = pathlib.Path(sys.argv[2]).resolve()
+typed_metadata = bool(sys.argv[3])
 provider = config["asr"]["providers"][0]
 vad = config["asr"]["vad"]
 assert config["asr"]["active_provider"] == "sherpa-onnx", config
 assert vad == {
-    "enabled": True,
+    "enabled": not typed_metadata,
     "threshold": 0.45,
     "min_speech_duration": 0.15,
     "min_silence_duration": 0.5,
@@ -179,7 +258,8 @@ if ! grep -Fq -- "--config ${config_path}" "${calls_log}"; then
   echo "activation call did not point at generated sherpa config" >&2
   exit 1
 fi
-if ! grep -Fq -- "daemon --configured-backends --config ${config_path} runtime-status" "${calls_log}"; then
+if ! grep -Fq -- "LD_LIBRARY_PATH=${runtime_lib_dir}" "${calls_log}" ||
+   ! grep -Fq -- "args=--configured-backends --config ${config_path} runtime-status" "${calls_log}"; then
   cat "${calls_log}" >&2
   echo "install did not run runtime-status validation against generated sherpa config" >&2
   exit 1
@@ -194,13 +274,19 @@ VINPUT_STUB_CALLS="${calls_log}" \
 VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
 VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
 VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
-VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="${runtime_source_dir}" \
+VINPUT_USER_PROFILE="${profile}" \
 VINPUT_USER_STATUS=1 \
 scripts/install-user-ime.sh >"${out_dir}/status.log" 2>&1
 
-if ! grep -Fq -- '--features pipewire-backend,sherpa-onnx-backend' "${cargo_calls_log}"; then
+if ! grep -Fq -- '-p vinput-cli --features pipewire-backend' "${cargo_calls_log}"; then
   cat "${cargo_calls_log}" >&2
-  echo "status build did not enable the sherpa and pipewire features" >&2
+  echo "status build did not keep the CLI free of native sherpa linkage" >&2
+  exit 1
+fi
+if grep -F -- '-p vinput-cli' "${cargo_calls_log}" | grep -Fq -- 'sherpa-onnx-backend'; then
+  cat "${cargo_calls_log}" >&2
+  echo "status CLI unexpectedly linked the native sherpa runtime" >&2
   exit 1
 fi
 if ! grep -Fq -- "doctor --config ${config_path}" "${calls_log}"; then
@@ -208,7 +294,8 @@ if ! grep -Fq -- "doctor --config ${config_path}" "${calls_log}"; then
   echo "status call did not run doctor against generated sherpa config" >&2
   exit 1
 fi
-if ! grep -Fq -- "daemon --configured-backends --config ${config_path} runtime-status" "${calls_log}"; then
+if ! grep -Fq -- "LD_LIBRARY_PATH=${runtime_lib_dir}" "${calls_log}" ||
+   ! grep -Fq -- "args=--configured-backends --config ${config_path} runtime-status" "${calls_log}"; then
   cat "${calls_log}" >&2
   echo "status call did not run runtime-status validation against generated sherpa config" >&2
   exit 1
@@ -223,7 +310,8 @@ VINPUT_STUB_CALLS="${calls_log}" \
 VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
 VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
 VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
-VINPUT_USER_PROFILE=sherpa-sense-voice-live \
+VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="${runtime_source_dir}" \
+VINPUT_USER_PROFILE="${profile}" \
 VINPUT_USER_STATUS=1 \
 VINPUT_USER_RUNTIME_STATUS=0 \
 scripts/install-user-ime.sh >"${out_dir}/status-skip-runtime.log" 2>&1
@@ -234,4 +322,49 @@ if grep -Fq -- "runtime-status" "${calls_log}"; then
   exit 1
 fi
 
-printf 'user-ime-sherpa-sense-voice smoke passed\n'
+rm -f "${runtime_lib_dir}/libonnxruntime.so"
+set +e
+PATH="${stub_bin}:${PATH}" \
+HOME="${home_dir}" \
+XDG_DATA_HOME="${home_dir}/.local/share" \
+VINPUT_STUB_CALLS="${calls_log}" \
+VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
+VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
+VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
+VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="${runtime_source_dir}" \
+VINPUT_USER_PROFILE="${profile}" \
+VINPUT_USER_STATUS=1 \
+scripts/install-user-ime.sh >"${out_dir}/status-missing-runtime.log" 2>&1
+missing_runtime_status=$?
+set -e
+if [[ "${missing_runtime_status}" -eq 0 ]]; then
+  cat "${out_dir}/status-missing-runtime.log" >&2
+  echo "status unexpectedly accepted a missing installed runtime library" >&2
+  exit 1
+fi
+if ! grep -Fq -- "installed native sherpa runtime library is missing: ${runtime_lib_dir}/libonnxruntime.so" "${out_dir}/status-missing-runtime.log"; then
+  cat "${out_dir}/status-missing-runtime.log" >&2
+  echo "missing runtime failure did not identify the exact library" >&2
+  exit 1
+fi
+
+PATH="${stub_bin}:${PATH}" \
+HOME="${home_dir}" \
+XDG_DATA_HOME="${home_dir}/.local/share" \
+VINPUT_STUB_CALLS="${calls_log}" \
+VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
+VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
+VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
+VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="${runtime_source_dir}" \
+VINPUT_USER_PROFILE="${profile}" \
+VINPUT_USER_REMOVE=1 \
+scripts/install-user-ime.sh >"${out_dir}/remove.log" 2>&1
+for removed in "${service_path}" "${runtime_lib_dir}" "${env_path}" "${daemon_wrapper_path}"; do
+  if [[ -e "${removed}" ]]; then
+    cat "${out_dir}/remove.log" >&2
+    echo "remove left native install artifact: ${removed}" >&2
+    exit 1
+  fi
+done
+
+printf 'user-ime-sherpa profile %s smoke passed\n' "${profile}"

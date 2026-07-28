@@ -292,8 +292,8 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "official native API is synchronous and exposes no safe cancellation handle",
         "`not_configured`, `enforced`, or `unsupported`",
         "Command ASR providers remain genuinely cancellable",
-        "runs `runtime-status` by default after install and during `VINPUT_USER_STATUS=1` checks",
-        "Set `VINPUT_USER_RUNTIME_STATUS=0` to skip that validation",
+        "`runtime-status` runs by default after install and during `VINPUT_USER_STATUS=1` checks",
+        "set `VINPUT_USER_RUNTIME_STATUS=0` only for file-placement debugging",
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
         "800/800/tail chunk delivery",
         "real session-bus integration test additionally proves that a partial signal arrives before `StopRecording`",
@@ -563,8 +563,8 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
 
     for required in [
         "usable CLI/daemon alpha",
-        "Native SenseVoice file-input smoke",
-        "Native Qwen3 ASR file-input smoke",
+        "Current registry native ASR families",
+        "Generic native user install",
         "real desktop native-dictation alpha",
     ] {
         assert!(
@@ -657,6 +657,95 @@ fn user_install_smokes_isolate_stub_binaries_from_cargo_outputs() {
             );
         }
     }
+}
+
+#[test]
+fn native_user_install_pins_runtime_bundle_activation() {
+    let readme = std::fs::read_to_string(workspace_file("README.md")).expect("read README");
+    let development = std::fs::read_to_string(workspace_file("docs/development.md"))
+        .expect("read development guide");
+    let asr_doc = std::fs::read_to_string(architecture_dir().join("asr-contract.md"))
+        .expect("read ASR architecture doc");
+    let live_doc =
+        std::fs::read_to_string(workspace_file("docs/migration/live-desktop-validation.md"))
+            .expect("read live desktop validation doc");
+    let matrix = std::fs::read_to_string(workspace_file("docs/migration/e2e-capability-matrix.md"))
+        .expect("read capability matrix");
+    let install = std::fs::read_to_string(workspace_file("scripts/install-user-ime.sh"))
+        .expect("read user install script");
+    let native_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-user-ime-sherpa-native-smoke.sh",
+    ))
+    .expect("read generic native user smoke");
+    let sherpa_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-user-ime-sherpa-sense-voice-smoke.sh",
+    ))
+    .expect("read shared sherpa user smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "sherpa-native-live",
+        "sherpa-sense-voice-live",
+        "profile_cli_features",
+        "profile_daemon_features",
+        "VINPUT_USER_SHERPA_RUNTIME_LIB_DIR",
+        "libsherpa-onnx-c-api.so",
+        "libonnxruntime.so",
+        "vinput-daemon-with-vinput-env.sh",
+        "LD_LIBRARY_PATH",
+        "installed daemon is missing or not executable",
+        "with_native_runtime \"${daemon_path}\"",
+        "runtime-status",
+    ] {
+        assert!(
+            install.contains(required),
+            "native installer should pin runtime activation contract: {required}"
+        );
+    }
+
+    for required in [
+        "VINPUT_TEST_SHERPA_PROFILE=sherpa-native-live",
+        "run-user-ime-sherpa-sense-voice-smoke.sh",
+    ] {
+        assert!(
+            native_smoke.contains(required),
+            "generic native smoke wrapper should pin {required}"
+        );
+    }
+
+    for required in [
+        "runtime_source_dir=",
+        "vinput-daemon-with-vinput-env.sh",
+        "Exec=${daemon_wrapper_path} --dbus",
+        "LD_LIBRARY_PATH=${runtime_lib_dir}",
+        r#""family": "transducer""#,
+        r#""runtime": "online""#,
+        "sherpa-sense-voice-live",
+        "installed native sherpa runtime library is missing",
+        "VINPUT_USER_REMOVE=1",
+    ] {
+        assert!(
+            sherpa_smoke.contains(required),
+            "shared native installer smoke should cover {required}"
+        );
+    }
+
+    for document in [&readme, &development, &asr_doc, &live_doc, &matrix] {
+        for required in [
+            "sherpa-native-live",
+            "vinput-daemon-with-vinput-env.sh",
+            "libsherpa-onnx",
+            "libonnxruntime",
+        ] {
+            assert!(
+                document.contains(required),
+                "native install docs should pin runtime bundle contract: {required}"
+            );
+        }
+    }
+
+    assert!(justfile.contains("user-ime-sherpa-native-smoke:"));
+    assert!(justfile.contains("user-ime-sherpa-native-smoke"));
 }
 
 #[test]
