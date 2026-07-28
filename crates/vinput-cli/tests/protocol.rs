@@ -294,6 +294,7 @@ fn daemon_reload_asr_dry_run_prints_dbus_plan_json() {
     assert_eq!(value["ok"], true);
     assert_eq!(value["dry_run"], true);
     assert_eq!(value["will_call_dbus"], false);
+    assert!(value["asr_backend"].is_null());
     assert_eq!(value["dbus"]["service"], dbus::SERVICE_BUS_NAME);
     assert_eq!(value["dbus"]["object_path"], dbus::SERVICE_OBJECT_PATH);
     assert_eq!(value["dbus"]["interface"], dbus::SERVICE_INTERFACE);

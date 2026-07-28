@@ -38,4 +38,7 @@ pub enum RuntimeError {
     /// Text adapter process supervision failed.
     #[error("text adapter supervisor error: {0}")]
     TextAdapterSupervisor(#[source] vinput_text::TextError),
+    /// A daemon background task terminated before returning its result.
+    #[error("background task failed: {0}")]
+    BackgroundTask(String),
 }

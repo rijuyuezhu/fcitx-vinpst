@@ -30,7 +30,7 @@ impl RuntimeState {
     #[must_use]
     pub fn configured_asr_state_for_runtime(&self) -> AsrBackendState {
         let mut state = Self::configured_asr_state(&self.config);
-        state.reload_in_progress = self.pending_asr_reload.is_some();
+        state.reload_in_progress = self.pending_asr_reload.is_some() || self.asr_reload_preparing;
         state.last_error = self
             .asr_reload_last_error
             .clone()
@@ -128,7 +128,7 @@ impl RuntimeState {
         state.target_provider_id = configured.target_provider_id;
         state.target_model_id = configured.target_model_id;
         state.remote_endpoints = configured.remote_endpoints;
-        state.reload_in_progress = self.pending_asr_reload.is_some();
+        state.reload_in_progress = self.pending_asr_reload.is_some() || self.asr_reload_preparing;
         state.last_error = self.asr_reload_last_error.clone().unwrap_or_default();
         state
     }

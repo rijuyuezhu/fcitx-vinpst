@@ -6,7 +6,7 @@ use tokio::{sync::Mutex, time::MissedTickBehavior};
 use vinput_protocol::{AsrBackendState, ServiceStatus, dbus};
 use zbus::{Connection, DBusError, object_server::SignalEmitter};
 
-use crate::{RuntimeError, RuntimeState};
+use crate::{RuntimeError, RuntimeState, runtime::AsrReloadWorkerStep};
 
 /// Legacy `GetAsrBackendState` D-Bus output tuple.
 type AsrBackendStateTuple = (
@@ -37,6 +37,7 @@ type DbusResult<T> = Result<T, VinputDbusError>;
 
 const MAX_ERROR_DESCRIPTION_LEN: usize = 512;
 const LIVE_PARTIAL_POLL_INTERVAL: Duration = Duration::from_millis(40);
+const ASR_RELOAD_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 #[derive(Debug, Default)]
 struct LivePartialEmissionState {
@@ -126,6 +127,61 @@ impl VinputDbusService {
 
     fn map_signal_error(error: &zbus::Error) -> VinputDbusError {
         Self::operation_failed(format!("failed to emit signal: {error}"))
+    }
+
+    async fn run_asr_reload_worker(self) {
+        loop {
+            let step = {
+                let mut runtime = self.runtime.lock().await;
+                runtime.next_asr_reload_worker_step()
+            };
+            match step {
+                AsrReloadWorkerStep::Wait => {
+                    tokio::time::sleep(ASR_RELOAD_POLL_INTERVAL).await;
+                }
+                AsrReloadWorkerStep::Stop => return,
+                AsrReloadWorkerStep::Prepare(request) => {
+                    let generation = request.generation();
+                    let result = tokio::task::spawn_blocking(move || request.prepare()).await;
+                    match result {
+                        Ok(Ok(prepared)) => {
+                            let mut prepared = Some(prepared);
+                            loop {
+                                let applied = {
+                                    let mut runtime = self.runtime.lock().await;
+                                    if runtime.can_apply_prepared_asr_reload() {
+                                        let Some(prepared) = prepared.take() else {
+                                            return;
+                                        };
+                                        runtime.complete_prepared_asr_reload(prepared);
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                };
+                                if applied {
+                                    break;
+                                }
+                                tokio::time::sleep(ASR_RELOAD_POLL_INTERVAL).await;
+                            }
+                        }
+                        Ok(Err(error)) => {
+                            self.runtime
+                                .lock()
+                                .await
+                                .fail_prepared_asr_reload(generation, &error);
+                        }
+                        Err(error) => {
+                            let error = RuntimeError::BackgroundTask(error.to_string());
+                            self.runtime
+                                .lock()
+                                .await
+                                .fail_prepared_asr_reload(generation, &error);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     async fn start_recording_state(&self) -> DbusResult<(String, Option<String>)> {
@@ -367,10 +423,22 @@ impl VinputDbusService {
     /// Reload ASR backend using the legacy void method signature.
     #[zbus(name = "ReloadAsrBackend")]
     async fn reload_asr_backend(&self) -> Result<(), VinputDbusError> {
-        let mut runtime = self.runtime.lock().await;
-        runtime
-            .reload_configured_asr_backend()
+        let config_source = self.runtime.lock().await.asr_reload_config_source();
+        let config = tokio::task::spawn_blocking(move || config_source.load())
+            .await
+            .map_err(|error| Self::operation_failed(format!("ASR reload task failed: {error}")))?
             .map_err(|error| Self::map_runtime_error(&error))?;
+        let should_spawn_worker = self
+            .runtime
+            .lock()
+            .await
+            .queue_configured_asr_reload(config);
+        if should_spawn_worker {
+            let service = self.clone();
+            tokio::spawn(async move {
+                service.run_asr_reload_worker().await;
+            });
+        }
         Ok(())
     }
 
@@ -428,8 +496,9 @@ impl VinputDbusService {
 
 #[cfg(test)]
 mod tests {
-    use super::{LivePartialEmissionState, VinputDbusService};
+    use super::{AsrBackendStateTuple, LivePartialEmissionState, VinputDbusService};
     use crate::RuntimeState;
+    use tokio::time::{Duration, sleep, timeout};
     use vinput_asr::MockAsrBackend;
     use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinputConfig};
     use vinput_protocol::{RecognitionPayload, TextAdapterState};
@@ -437,6 +506,20 @@ mod tests {
     fn service() -> VinputDbusService {
         let config = VinputConfig::bundled_default().unwrap();
         VinputDbusService::new(RuntimeState::new(config).unwrap())
+    }
+
+    async fn wait_for_asr_reload(service: &VinputDbusService) -> AsrBackendStateTuple {
+        timeout(Duration::from_secs(2), async {
+            loop {
+                let state = service.get_asr_backend_state().await;
+                if !state.5 {
+                    return state;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("ASR reload should finish")
     }
 
     fn unique_adapter_runtime_dir(name: &str) -> std::path::PathBuf {
@@ -481,7 +564,10 @@ mod tests {
             RecognitionPayload::from_json_str(&service.stop_recording_payload("").await.unwrap().0)
                 .unwrap();
         assert_eq!(payload.commit_text, "mock recognition result");
-        assert!(!service.get_asr_backend_state().await.5);
+        let state = wait_for_asr_reload(&service).await;
+        assert_eq!(state.2, "mock");
+        assert_eq!(state.3, "mock-streaming");
+        assert!(state.4.contains("Failed to reload ASR backend"));
     }
 
     #[tokio::test]
@@ -508,7 +594,7 @@ mod tests {
 
         assert_eq!(service.get_asr_backend_state().await.3, "mock-buffered");
         service.reload_asr_backend().await.unwrap();
-        let state = service.get_asr_backend_state().await;
+        let state = wait_for_asr_reload(&service).await;
         assert_eq!(state.0, "mock");
         assert_eq!(state.2, "mock");
         assert_eq!(state.3, "mock-streaming");

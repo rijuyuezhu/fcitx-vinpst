@@ -9,10 +9,12 @@ mod reload;
 
 use active_session::ActiveRecognitionSession;
 pub use errors::RuntimeError;
+pub(crate) use reload::AsrReloadWorkerStep;
 use reload::PendingAsrReload;
 
 use std::{
     collections::HashMap,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 use vinput_asr::{AsrBackend, AsrBackendFactory, MockAsrBackend};
@@ -45,7 +47,12 @@ pub struct RuntimeState {
     text_processor: Box<dyn TextProcessor>,
     active_session: Option<ActiveRecognitionSession>,
     pending_asr_reload: Option<PendingAsrReload>,
+    pending_asr_reload_config: Option<(u64, VinputConfig)>,
+    asr_reload_worker_running: bool,
+    asr_reload_preparing: bool,
+    asr_reload_generation: u64,
     asr_reload_last_error: Option<String>,
+    config_path: Option<PathBuf>,
     adapter_runtime_paths: AdapterRuntimePaths,
     adapter_processes: HashMap<String, StartedAdapterProcess>,
 }
@@ -197,7 +204,12 @@ impl RuntimeState {
             text_processor,
             active_session: None,
             pending_asr_reload: None,
+            pending_asr_reload_config: None,
+            asr_reload_worker_running: false,
+            asr_reload_preparing: false,
+            asr_reload_generation: 0,
             asr_reload_last_error: None,
+            config_path: None,
             adapter_runtime_paths: AdapterRuntimePaths::for_current_user(),
             adapter_processes: HashMap::new(),
         })

@@ -19,6 +19,17 @@ use vinput_protocol::{RecognitionPayload, TextAdapterState, dbus};
 use vinput_text::AdapterRuntimePaths;
 use zbus::{Message, Proxy};
 
+type AsrBackendStateTuple = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    bool,
+    bool,
+    Vec<String>,
+);
+
 const RAW_PAYLOAD_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/recognition/raw.json"
@@ -50,6 +61,25 @@ async fn spawn_runtime_on_unique_name(
         .at(dbus::SERVICE_OBJECT_PATH, VinputDbusService::new(runtime))
         .await?;
     Ok((connection, unique_name))
+}
+
+async fn get_asr_backend_state(proxy: &Proxy<'_>) -> zbus::Result<AsrBackendStateTuple> {
+    proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await
+}
+
+async fn wait_for_asr_reload(proxy: &Proxy<'_>) -> anyhow::Result<AsrBackendStateTuple> {
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let state = get_asr_backend_state(proxy).await?;
+            if !state.5 {
+                return Ok::<_, zbus::Error>(state);
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("ASR reload did not finish"))?
+    .map_err(Into::into)
 }
 
 fn configured_command_runtime() -> anyhow::Result<RuntimeState> {
@@ -375,10 +405,11 @@ async fn dbus_get_runtime_status_returns_json_snapshot() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn dbus_reload_rebuilds_the_configured_backend() -> anyhow::Result<()> {
-    let mut config = VinputConfig::bundled_default()?;
-    config.asr.active_provider = "mock".to_owned();
-    config.asr.providers.push(AsrProviderConfig {
+async fn dbus_reload_rereads_config_and_rebuilds_backend() -> anyhow::Result<()> {
+    let runtime_config = VinputConfig::bundled_default()?;
+    let mut reload_config = runtime_config.clone();
+    reload_config.asr.active_provider = "mock".to_owned();
+    reload_config.asr.providers.push(AsrProviderConfig {
         id: "mock".to_owned(),
         kind: AsrProviderKind::Local,
         timeout_ms: None,
@@ -389,10 +420,14 @@ async fn dbus_reload_rebuilds_the_configured_backend() -> anyhow::Result<()> {
         env: std::collections::HashMap::new(),
         endpoint: None,
     });
-    let runtime = RuntimeState::with_asr_backend(
-        config,
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&reload_config)?)?;
+    let mut runtime = RuntimeState::with_asr_backend(
+        runtime_config,
         Box::new(MockAsrBackend::buffered("injected final")),
     )?;
+    runtime.set_config_path(Some(config_path));
     let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
     let client_connection = zbus::Connection::session().await?;
     let proxy = Proxy::new(
@@ -403,31 +438,14 @@ async fn dbus_reload_rebuilds_the_configured_backend() -> anyhow::Result<()> {
     )
     .await?;
 
-    let before: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        Vec<String>,
-    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    let before = get_asr_backend_state(&proxy).await?;
+    assert_eq!(before.0, "sherpa-onnx");
     assert_eq!(before.3, "mock-buffered");
 
     proxy
         .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
         .await?;
-    let after: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        Vec<String>,
-    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    let after = wait_for_asr_reload(&proxy).await?;
     assert_eq!(after.0, "mock");
     assert_eq!(after.2, "mock");
     assert_eq!(after.3, "mock-streaming");
@@ -568,17 +586,8 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload, payload);
     assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
-    let state: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        Vec<String>,
-    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
-    assert!(!state.5, "pending reload should be applied once idle");
+    let state = wait_for_asr_reload(&proxy).await?;
+    assert!(!state.5, "pending reload should finish once idle");
 
     proxy
         .call::<_, _, ()>(dbus::method::START_COMMAND_RECORDING, &"selected text")
@@ -607,24 +616,13 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     );
     assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
 
-    let state: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        Vec<String>,
-    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    let state = wait_for_asr_reload(&proxy).await?;
     assert!(state.6);
     assert_eq!(state.0, "sherpa-onnx");
     assert_eq!(state.2, "mock");
     assert_eq!(state.3, "mock-streaming");
     assert!(
-        state
-            .4
-            .contains("Failed to apply deferred ASR backend reload"),
+        state.4.contains("Failed to reload ASR backend"),
         "unexpected deferred reload error: {}",
         state.4
     );
@@ -638,25 +636,14 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     assert!(text_adapter_state.adapters.is_empty());
     assert!(text_adapter_state.single_adapter_id.is_none());
 
-    let idle_reload: zbus::Result<()> = proxy.call(dbus::method::RELOAD_ASR_BACKEND, &()).await;
-    let idle_reload_error = idle_reload.expect_err("unavailable configured backend should fail");
-    assert_legacy_operation_failed(
-        &idle_reload_error,
-        "sherpa-onnx runtime for provider `sherpa-onnx` is not enabled",
-    );
-    let state: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        Vec<String>,
-    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    proxy
+        .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
+        .await?;
+    let state = wait_for_asr_reload(&proxy).await?;
     assert_eq!(state.2, "mock");
     assert_eq!(state.3, "mock-streaming");
     assert!(state.6);
+    assert!(state.4.contains("Failed to reload ASR backend"));
     let adapter_start: zbus::Result<()> = proxy
         .call(dbus::method::START_ADAPTER, &"mock-adapter")
         .await;

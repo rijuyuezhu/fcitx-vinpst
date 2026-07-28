@@ -25,7 +25,7 @@ The Rust rewrite already has:
 The main gaps are now:
 
 - live desktop addon/load/trigger/PipeWire/native-ASR/commit proof;
-- real desktop streaming-partial proof and a non-blocking reload worker;
+- real desktop streaming-partial proof and native-model reload validation;
 - broader sherpa model families;
 - frontend config, scene/ASR menus, and richer notifications;
 - provider/adapter registry installation breadth and remote services;
@@ -42,4 +42,4 @@ The main gaps are now:
 
 ## Next recommended slice
 
-Start with an M4 or native-runtime slice from [`e2e-capability-matrix.md`](e2e-capability-matrix.md): prove the real desktop native chain including partial preedit, move prepared reload to a non-blocking worker, or port the next registry model family. Offline Silero VAD, endpoint rules, recognizer warmup, timeout diagnostics, and prepare-before-swap reload are already implemented. Do not start broad GUI polish or distro packaging before real desktop native alpha is proven.
+Start with an M4 or native-runtime slice from [`e2e-capability-matrix.md`](e2e-capability-matrix.md): prove the real desktop native chain including partial preedit, validate native-model reload on the desktop, or port the next registry model family. Offline Silero VAD, endpoint rules, recognizer warmup, timeout diagnostics, prepare-before-swap, config re-read, and the non-blocking reload worker are already implemented. Do not start broad GUI polish or distro packaging before real desktop native alpha is proven.

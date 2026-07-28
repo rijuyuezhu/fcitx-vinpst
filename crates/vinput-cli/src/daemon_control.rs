@@ -672,6 +672,10 @@ pub(crate) fn optional_json_str(value: &serde_json::Value) -> &str {
     value.as_str().unwrap_or("-")
 }
 
+fn empty_as_dash(value: &str) -> &str {
+    if value.is_empty() { "-" } else { value }
+}
+
 fn json_string_array_summary(value: &serde_json::Value) -> String {
     let values = value
         .as_array()
@@ -700,10 +704,12 @@ pub(crate) fn daemon_service_proxy(
 }
 
 fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
-    if !dry_run {
-        reload_asr_backend_via_dbus()?;
-    }
-    let output = daemon_reload_asr_output(dry_run);
+    let asr_state = if dry_run {
+        None
+    } else {
+        Some(request_asr_reload_via_dbus()?)
+    };
+    let output = daemon_reload_asr_output(dry_run, asr_state.as_ref());
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
@@ -714,17 +720,41 @@ fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> anyhow::Res
         println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
         println!("interface: {}", dbus::SERVICE_INTERFACE);
         println!("method: {}", dbus::method::RELOAD_ASR_BACKEND);
+        if let Some(asr) = asr_state {
+            println!("reload_in_progress: {}", asr.5);
+            println!("target_provider_id: {}", empty_as_dash(&asr.0));
+            println!("target_model_id: {}", empty_as_dash(&asr.1));
+            println!("effective_provider_id: {}", empty_as_dash(&asr.2));
+            println!("effective_model_id: {}", empty_as_dash(&asr.3));
+            println!("last_error: {}", empty_as_dash(&asr.4));
+        }
         println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     }
     Ok(())
 }
 
-fn daemon_reload_asr_output(dry_run: bool) -> serde_json::Value {
+fn daemon_reload_asr_output(
+    dry_run: bool,
+    asr_state: Option<&DaemonAsrBackendStateTuple>,
+) -> serde_json::Value {
+    let asr_backend = asr_state.map(|asr| {
+        serde_json::json!({
+            "target_provider_id": asr.0,
+            "target_model_id": asr.1,
+            "effective_provider_id": asr.2,
+            "effective_model_id": asr.3,
+            "last_error": asr.4,
+            "reload_in_progress": asr.5,
+            "has_effective_backend": asr.6,
+            "remote_endpoints": asr.7,
+        })
+    });
     serde_json::json!({
         "ok": true,
         "dry_run": dry_run,
         "will_call_dbus": !dry_run,
         "called": !dry_run,
+        "asr_backend": asr_backend,
         "dbus": {
             "service": dbus::SERVICE_BUS_NAME,
             "object_path": dbus::SERVICE_OBJECT_PATH,
@@ -740,10 +770,16 @@ fn daemon_reload_asr_output(dry_run: bool) -> serde_json::Value {
 }
 
 pub(crate) fn reload_asr_backend_via_dbus() -> anyhow::Result<()> {
+    request_asr_reload_via_dbus().map(|_| ())
+}
+
+fn request_asr_reload_via_dbus() -> anyhow::Result<DaemonAsrBackendStateTuple> {
     let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
     let proxy = daemon_service_proxy(&connection)?;
     let _: () = proxy
         .call(dbus::method::RELOAD_ASR_BACKEND, &())
         .context("call ReloadAsrBackend on daemon D-Bus service")?;
-    Ok(())
+    proxy
+        .call(dbus::method::GET_ASR_BACKEND_STATE, &())
+        .context("call GetAsrBackendState after ReloadAsrBackend")
 }

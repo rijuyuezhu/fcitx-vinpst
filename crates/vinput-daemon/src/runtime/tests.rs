@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use super::RuntimeState;
+use super::{AsrReloadWorkerStep, RuntimeState};
 use vinput_asr::{
     AsrBackend, AsrBackendFactory, AsrError, BackendDescriptor, MockAsrAudioLog, MockAsrAudioPush,
     MockAsrBackend, RecognitionContext, RecognitionEvent, RecognitionSession,
@@ -790,6 +790,87 @@ fn configured_asr_builds_mock_provider() {
     });
     let runtime = RuntimeState::with_configured_asr(config).unwrap();
     assert_eq!(runtime.asr_backend_state().effective_provider_id, "mock");
+}
+
+fn config_with_mock_asr() -> VinputConfig {
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.asr.active_provider = "mock".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("mock-model".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    config
+}
+
+#[test]
+fn background_asr_reload_reports_pending_and_physical_preparation() {
+    let initial = VinputConfig::bundled_default().unwrap();
+    let mut runtime = RuntimeState::with_asr_backend(
+        initial,
+        Box::new(MockAsrBackend::buffered("injected final")),
+    )
+    .unwrap();
+
+    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    let pending = runtime.asr_backend_state();
+    assert!(pending.reload_in_progress);
+    assert_eq!(pending.target_provider_id, "mock");
+    assert_eq!(pending.effective_model_id, "mock-buffered");
+
+    let AsrReloadWorkerStep::Prepare(request) = runtime.next_asr_reload_worker_step() else {
+        panic!("queued reload should enter physical preparation");
+    };
+    assert!(runtime.asr_backend_state().reload_in_progress);
+    let prepared = request.prepare().unwrap();
+    runtime.complete_prepared_asr_reload(prepared);
+
+    let ready = runtime.asr_backend_state();
+    assert!(!ready.reload_in_progress);
+    assert_eq!(ready.effective_provider_id, "mock");
+    assert_eq!(ready.effective_model_id, "mock-streaming");
+    assert!(matches!(
+        runtime.next_asr_reload_worker_step(),
+        AsrReloadWorkerStep::Stop
+    ));
+}
+
+#[test]
+fn background_asr_reload_discards_stale_prepared_generation() {
+    let initial = VinputConfig::bundled_default().unwrap();
+    let mut runtime = RuntimeState::with_asr_backend(
+        initial,
+        Box::new(MockAsrBackend::buffered("injected final")),
+    )
+    .unwrap();
+
+    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    let AsrReloadWorkerStep::Prepare(first) = runtime.next_asr_reload_worker_step() else {
+        panic!("first queued reload should enter preparation");
+    };
+    let first = first.prepare().unwrap();
+
+    let mut latest = config_with_mock_asr();
+    latest.global.default_language = "en-US".to_owned();
+    assert!(!runtime.queue_configured_asr_reload(latest));
+    runtime.complete_prepared_asr_reload(first);
+    let stale = runtime.asr_backend_state();
+    assert_eq!(stale.effective_model_id, "mock-buffered");
+    assert!(stale.reload_in_progress);
+
+    let AsrReloadWorkerStep::Prepare(latest) = runtime.next_asr_reload_worker_step() else {
+        panic!("latest queued reload should enter preparation");
+    };
+    runtime.complete_prepared_asr_reload(latest.prepare().unwrap());
+    let ready = runtime.asr_backend_state();
+    assert_eq!(ready.effective_model_id, "mock-streaming");
+    assert!(!ready.reload_in_progress);
 }
 
 #[test]

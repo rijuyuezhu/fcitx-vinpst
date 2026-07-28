@@ -71,9 +71,10 @@ The Rust service pins these legacy-visible behaviors with unit and D-Bus integra
 
 - operation failures use the legacy error name `org.fcitx.Vinput.Error.OperationFailed`;
 - `GetAsrBackendState` combines the configured target provider/model with the descriptor of the backend that is actually effective in the runtime; it must not report a merely constructible configured backend as already active;
-- `ReloadAsrBackend` rebuilds the configured backend through the prepare-before-swap path, rather than refreshing metadata only;
-- `ReloadAsrBackend` returns success while recording/inferring, marks the configured reload pending, and applies it when the runtime returns to idle;
-- failed deferred reloads keep the previously working backend and surface the deferred error in diagnostics;
+- `ReloadAsrBackend` re-reads the daemon config file when an explicit startup path exists, updates the ASR/default-language target, and queues the configured backend through the prepare-before-swap path rather than refreshing metadata only;
+- one non-blocking reload worker performs backend construction and warmup outside the runtime mutex, while `reload_in_progress` covers both queued and physical preparation;
+- `ReloadAsrBackend` returns success while recording/inferring, keeps the request pending until idle, coalesces repeated requests by generation, and discards stale prepared generations;
+- failed background or deferred reloads keep the previously working backend and surface the error in diagnostics;
 - status strings and core legacy method/signal names remain centralized in `vinput-protocol`.
 
 A real legacy `postprocessing` runtime phase is still not wired; current text finishing runs synchronously inside stop handling. Status ordering must stay covered by tests when that phase becomes real.

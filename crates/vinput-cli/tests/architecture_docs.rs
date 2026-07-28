@@ -99,8 +99,12 @@ fn dbus_architecture_labels_diagnostic_extension_and_postprocessing_gap() {
         "D-Bus docs must distinguish configured ASR targets from the effective backend"
     );
     assert!(
-        dbus_doc.contains("rebuilds the configured backend through the prepare-before-swap path"),
+        dbus_doc.contains("queues the configured backend through the prepare-before-swap path"),
         "D-Bus docs must pin configured backend reload behavior"
+    );
+    assert!(
+        dbus_doc.contains("one non-blocking reload worker"),
+        "D-Bus docs must pin non-blocking reload preparation"
     );
 }
 
@@ -254,7 +258,10 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "prepare-before-swap boundary",
         "candidate backend must create and cancel a normal warmup session",
         "preparation failure leaves the previous effective backend untouched",
-        "background worker",
+        "single non-blocking reload worker",
+        "re-reads the daemon config file",
+        "`reload_in_progress` remains true during physical preparation",
+        "stale reload generations are discarded",
         "remaining model families",
         "official native API is synchronous and exposes no safe cancellation handle",
         "`not_configured`, `enforced`, or `unsupported`",

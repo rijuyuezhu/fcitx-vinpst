@@ -160,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let mut runtime = build_runtime(&args, config).context("initialize runtime")?;
+    runtime.set_config_path(args.config.clone());
 
     if args.once {
         if let Some(selected_text) = args.selected_text {
