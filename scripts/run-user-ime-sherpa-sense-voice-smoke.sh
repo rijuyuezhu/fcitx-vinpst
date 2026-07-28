@@ -120,14 +120,19 @@ scripts/install-user-ime.sh >"${out_dir}/install.log" 2>&1
 
 config_path="${home_dir}/.local/share/fcitx-vinput/sherpa-sense-voice-live.json"
 service_path="${home_dir}/.local/share/dbus-1/services/org.fcitx.Vinput.service"
+vad_model_path="${home_dir}/.local/share/fcitx-vinput/vad/silero_vad.onnx"
+vad_license_path="${home_dir}/.local/share/fcitx-vinput/vad/LICENSE"
 
-for path in "${config_path}" "${service_path}"; do
+for path in "${config_path}" "${service_path}" "${vad_model_path}" "${vad_license_path}"; do
   if [[ ! -e "${path}" ]]; then
     cat "${out_dir}/install.log" >&2
     echo "missing expected file: ${path}" >&2
     exit 1
   fi
 done
+
+cmp data/vad/silero_vad.onnx "${vad_model_path}"
+cmp data/vad/LICENSE "${vad_license_path}"
 
 python3 - "${config_path}" "${model_dir}" <<'PY'
 import json
@@ -137,7 +142,15 @@ import sys
 config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 model_dir = pathlib.Path(sys.argv[2]).resolve()
 provider = config["asr"]["providers"][0]
+vad = config["asr"]["vad"]
 assert config["asr"]["active_provider"] == "sherpa-onnx", config
+assert vad == {
+    "enabled": True,
+    "threshold": 0.45,
+    "min_speech_duration": 0.15,
+    "min_silence_duration": 0.5,
+    "speech_pad_ms": 300,
+}, vad
 assert provider["id"] == "sherpa-onnx", provider
 assert provider["type"] == "local", provider
 assert provider["model"] == str(model_dir), provider

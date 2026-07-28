@@ -13,6 +13,8 @@ use std::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+#[cfg(feature = "sherpa-onnx-backend")]
+use vinput_config::VadConfig;
 use vinput_config::{AsrProviderConfig, AsrProviderKind};
 
 use crate::AsrError;
@@ -663,8 +665,14 @@ pub struct SherpaOnnxBackend {
 
 #[cfg(feature = "sherpa-onnx-backend")]
 enum SherpaOnnxRuntime {
-    Offline(std::sync::Arc<sherpa_onnx::OfflineRecognizer>),
+    Offline(SherpaOnnxOfflineRuntime),
     Online(crate::sherpa_online::SherpaOnnxOnlineRuntime),
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+struct SherpaOnnxOfflineRuntime {
+    recognizer: std::sync::Arc<sherpa_onnx::OfflineRecognizer>,
+    vad: Option<std::sync::Arc<std::sync::Mutex<crate::sherpa_vad::SherpaOnnxVadTrimmer>>>,
 }
 
 #[cfg(feature = "sherpa-onnx-backend")]
@@ -682,6 +690,14 @@ impl std::fmt::Debug for SherpaOnnxBackend {
 impl SherpaOnnxBackend {
     /// Builds an offline or online `sherpa-onnx` backend from typed model metadata.
     pub fn with_config(provider: &AsrProviderConfig) -> Result<Self, AsrError> {
+        Self::with_config_and_vad(provider, None)
+    }
+
+    /// Builds a backend and enables legacy offline VAD when a model can be resolved.
+    pub fn with_config_and_vad(
+        provider: &AsrProviderConfig,
+        vad_config: Option<&VadConfig>,
+    ) -> Result<Self, AsrError> {
         let spec = SherpaOnnxSpec::from_provider(provider)?;
         let model_root = std::env::var_os("VINPUT_SHERPA_MODEL_ROOT")
             .map_or_else(|| PathBuf::from("."), PathBuf::from);
@@ -710,8 +726,30 @@ impl SherpaOnnxBackend {
                     spec.provider_id
                 ))
             })?;
+            let vad = vad_config.and_then(|config| {
+                if !config.enabled {
+                    return None;
+                }
+                let Some(plan) = crate::sherpa_vad::SherpaOnnxVadPlan::resolve(config) else {
+                    eprintln!(
+                        "vinput: VAD enabled but silero_vad.onnx was not found; using untrimmed audio"
+                    );
+                    return None;
+                };
+                let Some(trimmer) = crate::sherpa_vad::SherpaOnnxVadTrimmer::create(&plan) else {
+                    eprintln!(
+                        "vinput: failed to load Silero VAD model {}; using untrimmed audio",
+                        plan.model.display()
+                    );
+                    return None;
+                };
+                Some(std::sync::Arc::new(std::sync::Mutex::new(trimmer)))
+            });
             (
-                SherpaOnnxRuntime::Offline(std::sync::Arc::new(recognizer)),
+                SherpaOnnxRuntime::Offline(SherpaOnnxOfflineRuntime {
+                    recognizer: std::sync::Arc::new(recognizer),
+                    vad,
+                }),
                 "sherpa-onnx offline ASR",
                 BackendCapabilities::buffered(),
             )
@@ -792,8 +830,9 @@ impl AsrBackend for SherpaOnnxBackend {
         _context: RecognitionContext,
     ) -> Result<Box<dyn RecognitionSession>, AsrError> {
         match &self.runtime {
-            SherpaOnnxRuntime::Offline(recognizer) => Ok(Box::new(SherpaOnnxRecognitionSession {
-                recognizer: std::sync::Arc::clone(recognizer),
+            SherpaOnnxRuntime::Offline(runtime) => Ok(Box::new(SherpaOnnxRecognitionSession {
+                recognizer: std::sync::Arc::clone(&runtime.recognizer),
+                vad: runtime.vad.as_ref().map(std::sync::Arc::clone),
                 pcm: vinput_audio::PcmSpec::default(),
                 samples: Vec::new(),
                 events: Vec::new(),
@@ -808,6 +847,7 @@ impl AsrBackend for SherpaOnnxBackend {
 #[cfg(feature = "sherpa-onnx-backend")]
 struct SherpaOnnxRecognitionSession {
     recognizer: std::sync::Arc<sherpa_onnx::OfflineRecognizer>,
+    vad: Option<std::sync::Arc<std::sync::Mutex<crate::sherpa_vad::SherpaOnnxVadTrimmer>>>,
     pcm: vinput_audio::PcmSpec,
     samples: Vec<i16>,
     events: Vec<RecognitionEvent>,
@@ -872,11 +912,19 @@ impl RecognitionSession for SherpaOnnxRecognitionSession {
         }
         self.finished = true;
         let stream = self.recognizer.create_stream();
-        let samples = self
+        let mut samples = self
             .samples
             .iter()
             .map(|sample| f32::from(*sample) / f32::from(i16::MAX))
             .collect::<Vec<_>>();
+        if self.pcm.channels == 1
+            && let Some(vad) = &self.vad
+        {
+            samples = vad
+                .lock()
+                .map_err(|_| AsrError::Backend("sherpa-onnx VAD lock poisoned".to_owned()))?
+                .trim(&samples, self.pcm.sample_rate_hz);
+        }
         let sample_rate = i32::try_from(self.pcm.sample_rate_hz).map_err(|_| {
             AsrError::Backend(format!(
                 "sherpa-onnx sample rate {} does not fit i32",

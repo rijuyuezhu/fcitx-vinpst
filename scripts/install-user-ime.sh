@@ -27,6 +27,9 @@ module_path="${lib_dir}/fcitx5-vinput.so"
 addon_conf_path="${addon_dir}/vinput.conf"
 build_dir="target/cpp/fcitx5-user-ime"
 command_asr_wav_helper_path="${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-${bin_dir}/vinput-command-asr-wav-helper}"
+vad_dir="${data_home}/fcitx-vinput/vad"
+vad_model_path="${vad_dir}/silero_vad.onnx"
+vad_license_path="${vad_dir}/LICENSE"
 
 
 profile_cargo_features() {
@@ -178,6 +181,13 @@ config = {
         "active_provider": "sherpa-onnx",
         "normalize_audio": False,
         "input_gain": 1.0,
+        "vad": {
+            "enabled": True,
+            "threshold": 0.45,
+            "min_speech_duration": 0.15,
+            "min_silence_duration": 0.5,
+            "speech_pad_ms": 300,
+        },
         "providers": [provider],
     },
     "scenes": {
@@ -315,6 +325,7 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   if [[ -z "${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-}" ]]; then
     rm -f "${command_asr_wav_helper_path}"
   fi
+  rm -f "${vad_model_path}" "${vad_license_path}"
   remove_fcitx_env_integration
   cargo_build_vinput_cli
   "${cli_binary}" activation-service --remove-user
@@ -325,6 +336,7 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   echo "  ${fcitx_env_wrapper}"
   echo "  ${fcitx_autostart_file}"
   echo "  ${command_asr_wav_helper_path}"
+  echo "  ${vad_model_path}"
   exit 0
 fi
 
@@ -334,6 +346,7 @@ if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   printf '  addon metadata: %s (%s)\n' "${addon_conf_path}" "$([[ -f "${addon_conf_path}" ]] && echo present || echo missing)"
   printf '  daemon: %s (%s)\n' "${daemon_path}" "$([[ -x "${daemon_path}" ]] && echo executable || echo missing)"
   printf '  command ASR WAV helper: %s (%s)\n' "${command_asr_wav_helper_path}" "$([[ -x "${command_asr_wav_helper_path}" ]] && echo executable || echo missing)"
+  printf '  Silero VAD model: %s (%s)\n' "${vad_model_path}" "$([[ -f "${vad_model_path}" ]] && echo present || echo missing)"
   printf '  environment file: %s (%s)\n' "${env_file}" "$([[ -f "${env_file}" ]] && echo present || echo missing)"
   printf '  Fcitx env wrapper: %s (%s)\n' "${fcitx_env_wrapper}" "$([[ -x "${fcitx_env_wrapper}" ]] && echo executable || echo missing)"
   printf '  Fcitx autostart: %s (%s)\n' "${fcitx_autostart_file}" "$([[ -f "${fcitx_autostart_file}" ]] && echo present || echo missing)"
@@ -345,6 +358,7 @@ fi
 audio_backend="${VINPUT_USER_AUDIO_BACKEND:-}"
 daemon_args=()
 configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-}"
+install_sherpa_vad=""
 
 case "${profile}" in
   mock)
@@ -381,6 +395,7 @@ case "${profile}" in
     ;;
   sherpa-sense-voice-live)
     configured_backends="1"
+    install_sherpa_vad="1"
     audio_backend="${audio_backend:-pipewire}"
     config_path="${VINPUT_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
     sherpa_model_dir="${VINPUT_USER_SHERPA_MODEL:-}"
@@ -400,6 +415,10 @@ esac
 
 cargo_build_vinput_binaries
 install -Dm755 "${daemon_binary}" "${daemon_path}"
+if [[ "${install_sherpa_vad}" == "1" ]]; then
+  install -Dm644 data/vad/silero_vad.onnx "${vad_model_path}"
+  install -Dm644 data/vad/LICENSE "${vad_license_path}"
+fi
 
 rm -rf "${build_dir}"
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \

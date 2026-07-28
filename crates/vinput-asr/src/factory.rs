@@ -1,6 +1,6 @@
 //! ASR backend factory and config-derived diagnostic state.
 
-use vinput_config::{AsrConfig, AsrProviderConfig, AsrProviderKind};
+use vinput_config::{AsrConfig, AsrProviderConfig, AsrProviderKind, VadConfig};
 use vinput_protocol::AsrBackendState;
 
 #[cfg(feature = "sherpa-onnx-backend")]
@@ -26,7 +26,7 @@ impl AsrBackendFactory {
     pub fn build_active(config: &AsrConfig) -> Result<Box<dyn AsrBackend>, AsrError> {
         let provider = active_provider(config)
             .ok_or_else(|| AsrError::UnknownProvider(config.active_provider.clone()))?;
-        Self::build_provider(provider)
+        Self::build_provider_with_vad(provider, Some(&config.vad))
     }
 
     /// Parses an external command ASR provider into an executable spec.
@@ -36,6 +36,15 @@ impl AsrBackendFactory {
 
     /// Builds a backend from one provider entry.
     pub fn build_provider(provider: &AsrProviderConfig) -> Result<Box<dyn AsrBackend>, AsrError> {
+        Self::build_provider_with_vad(provider, None)
+    }
+
+    fn build_provider_with_vad(
+        provider: &AsrProviderConfig,
+        vad: Option<&VadConfig>,
+    ) -> Result<Box<dyn AsrBackend>, AsrError> {
+        #[cfg(not(feature = "sherpa-onnx-backend"))]
+        let _ = vad;
         if provider.id == "mock" {
             return Ok(Box::new(MockAsrBackend::streaming(
                 "mock partial",
@@ -58,7 +67,9 @@ impl AsrBackendFactory {
         if provider.id == SHERPA_ONNX_PROVIDER_ID && provider.kind == AsrProviderKind::Local {
             #[cfg(feature = "sherpa-onnx-backend")]
             {
-                return Ok(Box::new(SherpaOnnxBackend::with_config(provider)?));
+                return Ok(Box::new(SherpaOnnxBackend::with_config_and_vad(
+                    provider, vad,
+                )?));
             }
             #[cfg(not(feature = "sherpa-onnx-backend"))]
             {

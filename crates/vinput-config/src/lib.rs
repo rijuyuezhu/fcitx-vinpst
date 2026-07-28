@@ -236,6 +236,7 @@ fn validate_scene_definition<'a>(
 }
 
 fn validate_asr(asr: &AsrConfig) -> Result<(), ConfigError> {
+    validate_vad(&asr.vad)?;
     let mut provider_ids = HashSet::new();
     for provider in &asr.providers {
         validate_asr_provider(provider, &mut provider_ids)?;
@@ -249,6 +250,26 @@ fn validate_asr(asr: &AsrConfig) -> Result<(), ConfigError> {
         return Err(ConfigError::UnknownActiveAsrProvider(
             asr.active_provider.clone(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_vad(vad: &VadConfig) -> Result<(), ConfigError> {
+    if !vad.threshold.is_finite() || !(0.05..=0.95).contains(&vad.threshold) {
+        return Err(ConfigError::InvalidVadThreshold(vad.threshold));
+    }
+    if !vad.min_speech_duration.is_finite() || !(0.05..=2.0).contains(&vad.min_speech_duration) {
+        return Err(ConfigError::InvalidVadMinSpeechDuration(
+            vad.min_speech_duration,
+        ));
+    }
+    if !vad.min_silence_duration.is_finite() || !(0.05..=5.0).contains(&vad.min_silence_duration) {
+        return Err(ConfigError::InvalidVadMinSilenceDuration(
+            vad.min_silence_duration,
+        ));
+    }
+    if vad.speech_pad_ms > 2_000 {
+        return Err(ConfigError::InvalidVadSpeechPadMs(vad.speech_pad_ms));
     }
     Ok(())
 }
@@ -491,11 +512,29 @@ pub struct VadConfig {
     /// Whether VAD trimming is enabled.
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Silero speech probability threshold.
+    #[serde(default = "default_vad_threshold")]
+    pub threshold: f32,
+    /// Minimum accepted speech duration in seconds.
+    #[serde(default = "default_vad_min_speech_duration")]
+    pub min_speech_duration: f32,
+    /// Minimum silence duration used to close a segment, in seconds.
+    #[serde(default = "default_vad_min_silence_duration")]
+    pub min_silence_duration: f32,
+    /// Padding added before and after each detected speech segment.
+    #[serde(default = "default_vad_speech_pad_ms")]
+    pub speech_pad_ms: u32,
 }
 
 impl Default for VadConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            threshold: default_vad_threshold(),
+            min_speech_duration: default_vad_min_speech_duration(),
+            min_silence_duration: default_vad_min_silence_duration(),
+            speech_pad_ms: default_vad_speech_pad_ms(),
+        }
     }
 }
 
@@ -763,6 +802,18 @@ pub enum ConfigError {
         /// Invalid environment key.
         key: String,
     },
+    /// VAD threshold is outside the supported strict range.
+    #[error("invalid VAD threshold {0}; expected a finite value in 0.05..=0.95")]
+    InvalidVadThreshold(f32),
+    /// VAD minimum speech duration is outside the supported strict range.
+    #[error("invalid VAD min_speech_duration {0}; expected a finite value in 0.05..=2.0")]
+    InvalidVadMinSpeechDuration(f32),
+    /// VAD minimum silence duration is outside the supported strict range.
+    #[error("invalid VAD min_silence_duration {0}; expected a finite value in 0.05..=5.0")]
+    InvalidVadMinSilenceDuration(f32),
+    /// VAD speech padding exceeds the supported cap.
+    #[error("invalid VAD speech_pad_ms {0}; max is 2000")]
+    InvalidVadSpeechPadMs(u32),
     /// Empty LLM provider id.
     #[error("invalid empty LLM provider id")]
     InvalidLlmProviderId(String),
@@ -832,13 +883,31 @@ const fn default_input_gain() -> f32 {
     1.0
 }
 
+const fn default_vad_threshold() -> f32 {
+    0.45
+}
+
+const fn default_vad_min_speech_duration() -> f32 {
+    0.15
+}
+
+const fn default_vad_min_silence_duration() -> f32 {
+    0.5
+}
+
+const fn default_vad_speech_pad_ms() -> u32 {
+    300
+}
+
 fn default_json_object() -> serde_json::Value {
     serde_json::json!({})
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AsrProviderKind, COMMAND_SCENE_ID, RAW_SCENE_ID, VinputConfig};
+    use super::{
+        AsrProviderKind, COMMAND_SCENE_ID, ConfigError, RAW_SCENE_ID, VadConfig, VinputConfig,
+    };
     use vinput_protocol::CandidateSource;
 
     #[test]
@@ -1102,6 +1171,63 @@ mod tests {
         assert_eq!(config.asr.providers[0].kind, AsrProviderKind::Local);
         assert_eq!(config.scenes.active_scene, RAW_SCENE_ID);
         assert_eq!(config.active_scene().unwrap().id, RAW_SCENE_ID);
+    }
+
+    #[test]
+    fn vad_defaults_match_legacy_offline_contract() {
+        assert_eq!(
+            VadConfig::default(),
+            VadConfig {
+                enabled: true,
+                threshold: 0.45,
+                min_speech_duration: 0.15,
+                min_silence_duration: 0.5,
+                speech_pad_ms: 300,
+            }
+        );
+        let config = VinputConfig::from_json_str(
+            r#"{
+              "version": 1,
+              "asr": {
+                "active_provider": "p",
+                "vad": {"enabled": true},
+                "providers": [{"id":"p","type":"local"}]
+              }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(config.asr.vad, VadConfig::default());
+    }
+
+    #[test]
+    fn validation_rejects_out_of_range_vad_values() {
+        let mut config = VinputConfig::bundled_default().unwrap();
+        config.asr.vad.threshold = 1.0;
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::InvalidVadThreshold(value)) if (value - 1.0).abs() < f32::EPSILON
+        ));
+
+        config.asr.vad = VadConfig::default();
+        config.asr.vad.min_speech_duration = 0.0;
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::InvalidVadMinSpeechDuration(value)) if value.abs() < f32::EPSILON
+        ));
+
+        config.asr.vad = VadConfig::default();
+        config.asr.vad.min_silence_duration = 6.0;
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::InvalidVadMinSilenceDuration(value)) if (value - 6.0).abs() < f32::EPSILON
+        ));
+
+        config.asr.vad = VadConfig::default();
+        config.asr.vad.speech_pad_ms = 2_001;
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::InvalidVadSpeechPadMs(2_001))
+        ));
     }
 
     #[test]

@@ -19,7 +19,7 @@ The committed baseline intentionally fixes these compatibility fields:
 - active scene `__raw__`, with `__command__` kept as the command-mode prompt fixture.
 - empty `llm.providers` and `llm.adapters`, so text-adapter diagnostics report no configured adapters.
 
-Runtime availability is not implied by the fixture; local `sherpa-onnx` remains a placeholder until the concrete backend is implemented.
+Runtime availability is not implied by the fixture; local `sherpa-onnx` requires the feature-gated native backend and a compatible installed model.
 
 ## Legacy compatibility policy
 
@@ -30,11 +30,16 @@ Pinned decisions, covered by `crates/vinput-config/tests/legacy_compat.rs`:
 - duplicate or blank registry mirrors are rejected, not deduplicated or dropped.
 - duplicate or blank LLM provider, LLM adapter, and ASR provider ids are rejected.
 - command ASR providers must configure a non-empty `command`.
+- VAD threshold and duration values are strictly range-checked instead of silently clamped: threshold `0.05..=0.95`, minimum speech `0.05..=2.0` seconds, minimum silence `0.05..=5.0` seconds, and speech padding at most `2000` ms.
 - scene `candidate_count`, `timeout_ms`, and `context_lines` limits are strict and are not clamped/defaulted after invalid values are provided.
 - missing active scene and active ASR provider references are rejected.
 - unknown scene `provider_id`, blank scene `model`, and blank scene `prompt` are rejected. Non-empty `model` or `prompt` without a provider remains accepted by the current validation contract.
 
 These tests document compatibility policy rather than feature parity: future migration work may choose to implement more legacy-style repair, but it must update the tests and this document deliberately.
+
+## Offline VAD fields
+
+`asr.vad` preserves the legacy offline Silero controls: `enabled`, `threshold`, `min_speech_duration`, `min_silence_duration`, and `speech_pad_ms`. Defaults are `true`, `0.45`, `0.15`, `0.5`, and `300` respectively. The native runtime applies them only to buffered offline sherpa recognition; online/streaming recognition does not use this trimmer.
 
 ## Diagnostics behavior
 

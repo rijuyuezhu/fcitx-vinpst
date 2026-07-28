@@ -418,6 +418,43 @@ fn config_validate_fails_for_unknown_active_scene() {
 }
 
 #[test]
+fn config_validate_fails_for_invalid_vad_values() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "vad": {
+              "enabled": true,
+              "threshold": 1.0,
+              "min_speech_duration": 0.15,
+              "min_silence_duration": 0.5,
+              "speech_pad_ms": 300
+            },
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinput_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinput config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid VAD threshold 1"));
+}
+
+#[test]
 fn config_validate_fails_for_duplicate_registry_mirrors() {
     let path = write_temp_config(
         r#"

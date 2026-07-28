@@ -18,7 +18,7 @@ This is the detailed capability comparison for moving the Rust rewrite from a us
 
 ## Executive conclusion
 
-Rust is **not functionally complete** versus legacy. The protocol spine, CLI/resource/config management, and deterministic E2E coverage are now strong enough for a usable alpha. The dominant gaps have moved to real desktop proof, native streaming/VAD/runtime breadth, frontend UX, packaging, and remote services.
+Rust is **not functionally complete** versus legacy. The protocol spine, CLI/resource/config management, deterministic E2E coverage, online partial delivery, and offline VAD are now strong enough for a usable alpha. The dominant gaps have moved to real desktop proof, remaining native runtime breadth, frontend UX, packaging, and remote services.
 
 Current parity estimate:
 
@@ -26,13 +26,13 @@ Current parity estimate:
 | --- | ---: | --- |
 | D-Bus ABI and daemon facade | 80-90% | Core method/signal names and payload shapes are preserved, with Rust-only diagnostics added. |
 | Deterministic E2E spine | 85-90% | Command-demo, user install smokes, activation, file-input tests, and adapter lifecycle are strong. |
-| Native local ASR | 80-90% | SenseVoice, Qwen3 ASR, and online Zipformer2 CTC are real and WAV-tested; transducer mapping and live D-Bus partial emission are implemented; real desktop proof, VAD/endpoint, timeout/reload parity, and remaining families remain incomplete. |
+| Native local ASR | 85-90% | SenseVoice and Qwen3 ASR are real-WAV tested with offline Silero VAD active; online Zipformer2 CTC is also real-WAV tested; transducer mapping and live D-Bus partial emission are implemented. Real desktop proof, complete endpoint/timeout/reload parity, and remaining families remain incomplete. |
 | CLI user experience | 75-85% | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, and recording commands exist; remaining work is polish, live proof, edge cases, and continued module extraction. |
 | Registry/resource install | 65-75% | Live model fetch/cache/checksum/extract/install/use/remove works; provider/adapter live install and GUI resource flows remain incomplete. |
 | Real desktop readiness | 45-55% | Install/probe paths exist, but real Fcitx trigger/commit with native model still needs proof and runtime library handling. |
 | Full user-visible parity | 70-75% | CLI/daemon alpha is usable, but native desktop, frontend, packaging, and remote-service parity are incomplete. |
 
-The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit path, then add VAD/endpoint semantics and the remaining registry model families while completing frontend UX and packaging.**
+The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit path, then add complete endpoint/timeout/reload semantics and the remaining registry model families while completing frontend UX and packaging.**
 
 ## User journeys
 
@@ -128,8 +128,8 @@ Rust CLI weaknesses for a user:
 | Command batch ASR | Implemented. | Implemented. | Mostly aligned. |
 | Command streaming ASR | Implemented with partials and process protocol. | Implemented/tested in Rust command ASR path. | Mostly aligned, needs live CLI config. |
 | Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice and Qwen3 ASR both pass real registry-model WAV smokes. | Partial; remaining families are pending. |
-| Sherpa streaming | Implemented. | Native transducer and Zipformer2 CTC mappings exist; recorder callbacks stream 800-frame batches, decode hypotheses, and emit deduplicated `RecognitionPartial` signals before stop. Zipformer2 CTC passes a real registry-model WAV smoke. | Mostly implemented; real desktop proof and endpoint/VAD parity remain. |
-| VAD | `vad_trimmer` with sherpa VAD model. | Config parses VAD but native trimming is not implemented. | Missing/partial. |
+| Sherpa streaming | Implemented. | Native transducer and Zipformer2 CTC mappings exist; recorder callbacks stream 800-frame batches, decode hypotheses, and emit deduplicated `RecognitionPartial` signals before stop. Zipformer2 CTC passes a real registry-model WAV smoke. | Mostly implemented; real desktop proof and complete endpoint parity remain. |
+| VAD | `vad_trimmer` with sherpa VAD model for offline recognition; streaming disables it. | Implemented for buffered offline sherpa with the tracked Silero model, legacy thresholds/durations/padding, graceful fallback, a cold-start guard, user installation, and real SenseVoice/Qwen3 WAV regressions. | Mostly aligned; real microphone proof remains. |
 | Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust classifies current and legacy registry families; maps SenseVoice, Qwen3 ASR, transducer, and Zipformer2 CTC assets/config; validates required files; and preserves unknown future family names. | Partial; Moonshine, Dolphin, Paraformer, and other families still need runtime mapping. |
 | Text postprocess | OpenAI-compatible HTTP, prompt files/interpolation/context/candidates, command scene. | Command adapter and OpenAI-compatible paths exist; real UX/config incomplete. | Partial. |
 | Adapter supervisor | Process supervision, PID files, stderr notifications. | Process supervision, PID files, D-Bus start/stop, diagnostics. | Mostly aligned. |
@@ -180,6 +180,10 @@ asr.active_provider
 asr.normalize_audio
 asr.input_gain
 asr.vad.enabled
+asr.vad.threshold
+asr.vad.min_speech_duration
+asr.vad.min_silence_duration
+asr.vad.speech_pad_ms
 asr.providers[]
 llm.providers[]
 llm.adapters[]
@@ -305,9 +309,10 @@ Acceptance:
 
 Acceptance:
 
-- `asr.vad.enabled` loads the bundled or configured VAD model and trims buffered offline audio.
+- Implemented: `asr.vad` loads the explicit, XDG-installed, system-installed, or development Silero model and trims buffered offline audio with strict legacy-compatible parameters.
+- Implemented: missing/unloadable VAD assets degrade to untrimmed recognition; no-speech output preserves the original recording; a 500 ms cold-start guard protects the first syllable.
 - Decode timeout fields are enforced or explicitly reported as unsupported per backend.
-- `doctor` reports VAD model availability.
+- Remaining: add dedicated `doctor` VAD availability diagnostics and complete endpoint/timeout behavior.
 
 ### P1.4 text/LLM CLI parity
 
@@ -332,7 +337,7 @@ Acceptance:
 Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Add native VAD trimming, endpoint behavior, decode timeout enforcement, warmup, and warm reload semantics.
+2. Add native endpoint behavior, decode timeout enforcement, warmup, and warm reload semantics on top of the implemented offline VAD path.
 3. Port Moonshine, Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
 4. Complete scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.
 

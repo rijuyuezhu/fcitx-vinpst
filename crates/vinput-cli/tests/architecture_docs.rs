@@ -159,6 +159,11 @@ fn config_architecture_pins_summary_redaction_contract() {
         "working directories",
         "provider base URLs",
         "forward-compatible extra bodies",
+        "`asr.vad` preserves the legacy offline Silero controls",
+        "threshold `0.05..=0.95`",
+        "minimum speech `0.05..=2.0` seconds",
+        "speech padding at most `2000` ms",
+        "online/streaming recognition does not use this trimmer",
         "`vinput-daemon --config data/default-config.json print-config`",
     ] {
         assert!(
@@ -225,7 +230,10 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "generation-scoped 40 ms poller",
         "Stop cancels the poller and suppresses a duplicate final partial",
         "transducer construction remains metadata/feature-build tested",
-        "VAD trimming",
+        "Buffered offline recognition uses the migrated Silero VAD model",
+        "500 ms cold-start guard",
+        "missing or unloadable model degrades to untrimmed recognition",
+        "user-install profile installs the tracked MIT-licensed model",
         "warmup/reload state",
         "remaining model families",
         "Timeout fields are preserved in config diagnostics but are not yet enforced",

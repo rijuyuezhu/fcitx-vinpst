@@ -11,6 +11,7 @@ mod mock;
 mod payload;
 mod sherpa;
 mod sherpa_online;
+mod sherpa_vad;
 mod traits;
 
 pub use command::{
@@ -30,6 +31,7 @@ pub use sherpa::{
     SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan, SherpaOnnxSpec,
 };
 pub use sherpa_online::{SherpaOnnxOnlineModelLayout, SherpaOnnxOnlineRuntimePlan};
+pub use sherpa_vad::SherpaOnnxVadPlan;
 pub use traits::{
     AsrBackend, AudioDeliveryMode, BackendCapabilities, BackendDescriptor, RecognitionContext,
     RecognitionEvent, RecognitionSession,

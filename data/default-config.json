@@ -16,7 +16,11 @@
     "normalize_audio": true,
     "input_gain": 1.0,
     "vad": {
-      "enabled": true
+      "enabled": true,
+      "threshold": 0.45,
+      "min_speech_duration": 0.15,
+      "min_silence_duration": 0.5,
+      "speech_pad_ms": 300
     },
     "providers": [
       {
