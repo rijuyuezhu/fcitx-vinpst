@@ -255,6 +255,14 @@ sherpa-sense-voice-local-smoke:
 sherpa-qwen3-local-smoke:
     VINPUT_SHERPA_EXPECT_FAMILY=qwen3_asr VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-qwen3-local-smoke} scripts/run-sherpa-offline-local-smoke.sh
 
+# Run native sherpa online inference using typed live-registry metadata.
+sherpa-online-local-smoke:
+    scripts/run-sherpa-online-local-smoke.sh
+
+# Run the small live-registry Zipformer2 CTC streaming model smoke.
+sherpa-zipformer2-ctc-local-smoke:
+    VINPUT_SHERPA_EXPECT_FAMILY=zipformer2_ctc VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-zipformer2-ctc-local-smoke} scripts/run-sherpa-online-local-smoke.sh
+
 # Compile and test optional PipeWire feature paths without requiring a live daemon.
 pipewire-check:
     cargo test -p vinput-daemon --features=pipewire-backend

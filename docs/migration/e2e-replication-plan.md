@@ -49,8 +49,8 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 ## P1: daemon runtime parity
 
 1. Implemented and WAV-proven for SenseVoice and Qwen3 ASR: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
-2. Add transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer layouts in registry-priority order.
-3. Implemented at daemon boundary: deliver recorder callbacks in 800-frame batches to chunked sessions. Remaining: add native sherpa online recognizer construction and map callback-polled events to live `RecognitionPartial` signals.
+2. Implemented for online transducer and Zipformer2 CTC; Zipformer2 CTC is WAV-proven. Add Moonshine, Dolphin, and Paraformer layouts in registry-priority order.
+3. Implemented through the native recognizer boundary: deliver recorder callbacks in 800-frame batches, decode online hypotheses, and retain partial/final events. Remaining: map callback-polled partials to live `RecognitionPartial` signals.
 4. Add VAD trimming, warmup, decode timeout, and warm reload semantics where legacy exposes them.
 5. Implemented deterministically: OpenAI-compatible text provider behavior uses local mock-server tests; add one real desktop provider validation.
 6. Continue preserving legacy status strings, method names, signal names, and recognition payload shape.
@@ -82,7 +82,7 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 ## Suggested next slices
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Add native sherpa online recognizer construction and live D-Bus partial emission on top of the implemented chunk-delivery runtime.
+2. Add live D-Bus partial emission on top of the implemented native online recognizer and chunk-delivery runtime.
 3. Add native VAD, timeout, warmup, and warm reload behavior.
-4. Port the remaining live-registry model families.
+4. Port Moonshine, Dolphin, Paraformer, and other remaining live-registry model families.
 5. Add scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.

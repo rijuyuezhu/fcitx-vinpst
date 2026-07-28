@@ -19,7 +19,7 @@ The Rust version now has a real product spine: retained C++ Fcitx5 addon, Rust d
 
 A real local ASR file-input path has been proven: live registry model `model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8` was downloaded, sha256-verified, extracted, and used with bundled `test_wavs/zh.wav`; `just sherpa-sense-voice-local-smoke` produced `开放时间早上九点至下午五点`.
 
-It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy replacement. The main blocker is no longer CLI coverage: it is proving and hardening the real desktop chain from Fcitx trigger through PipeWire capture and native ASR to application commit. Native SenseVoice and Qwen3 ASR both have proven local WAV smokes. Native streaming, VAD, timeout/warm-reload parity, remaining sherpa families, frontend menus/configuration, packaging, and remote services remain incomplete.
+It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy replacement. The main blocker is no longer CLI coverage: it is proving and hardening the real desktop chain from Fcitx trigger through PipeWire capture and native ASR to application commit. Native SenseVoice, Qwen3 ASR, and online Zipformer2 CTC have proven local WAV smokes; online transducer metadata/runtime construction is implemented and contract-tested. Live partial-signal emission, VAD, timeout/warm-reload parity, remaining sherpa families, frontend menus/configuration, packaging, and remote services remain incomplete.
 
 | Target | Readiness |
 | --- | --- |
@@ -61,9 +61,9 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 ## Highest-risk gaps
 
 1. Live desktop validation has not proven the complete native path: Fcitx trigger, PipeWire capture, native inference, postprocess, and commit in a real application.
-2. Daemon chunked delivery is implemented and tested with legacy-compatible 800-frame batching, but native sherpa online recognizer construction and live D-Bus partial emission remain unavailable.
+2. Native online recognizer construction and chunked decoding are implemented for transducer and Zipformer2 CTC, but live D-Bus partial emission during recording remains unavailable.
 3. Native VAD trimming, warmup, decode timeout enforcement, and warm reload semantics remain incomplete.
-4. SenseVoice and Qwen3 ASR are the only native offline family mappings currently implemented; transducer, Zipformer2 CTC, Moonshine, Dolphin, Paraformer, and other registry-compatible families still need runtime support.
+4. SenseVoice, Qwen3 ASR, transducer, and Zipformer2 CTC mappings are implemented; Moonshine, Dolphin, Paraformer, and other registry-compatible families still need runtime support.
 5. Native shared-library resolution is improved for local smoke but still needs a robust activation, desktop-install, and distribution story.
 6. Fcitx UX parity is incomplete: scene menu, ASR menu, frontend config UI, tap/hold/both behavior, paging/search menus, and rich notifications are missing or partial.
 7. Remote ASR/text services, full provider/adapter registry installation, distro packaging, and the legacy GUI remain incomplete.
@@ -84,7 +84,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 
 ## Current priority
 
-The next target is **real desktop native-dictation alpha**. First prove the complete SenseVoice path in a real Fcitx session. Then build a native sherpa online recognizer on top of the implemented chunk-delivery runtime, emit live partial signals, add VAD/timeout/warm-reload semantics, and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
+The next target is **real desktop native-dictation alpha**. First prove the complete native path in a real Fcitx session. Then emit callback-polled online hypotheses as live D-Bus partial signals, add VAD/endpoint/timeout/warm-reload semantics, and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
 
 Do not claim full parity until the documented happy path works through a real desktop session and no longer depends on implementation-only profiles:
 

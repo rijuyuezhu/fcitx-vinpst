@@ -10,6 +10,7 @@ mod factory;
 mod mock;
 mod payload;
 mod sherpa;
+mod sherpa_online;
 mod traits;
 
 pub use command::{
@@ -28,6 +29,7 @@ pub use sherpa::{
     SHERPA_ONNX_PROVIDER_ID, SherpaOnnxModelPathError, SherpaOnnxModelPaths,
     SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan, SherpaOnnxSpec,
 };
+pub use sherpa_online::{SherpaOnnxOnlineModelLayout, SherpaOnnxOnlineRuntimePlan};
 pub use traits::{
     AsrBackend, AudioDeliveryMode, BackendCapabilities, BackendDescriptor, RecognitionContext,
     RecognitionEvent, RecognitionSession,

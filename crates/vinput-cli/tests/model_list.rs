@@ -108,6 +108,57 @@ fn model_list_json_reports_qwen3_asr_as_supported() {
 }
 
 #[test]
+fn model_list_json_reports_native_streaming_families_as_supported() {
+    let registry_path = write_temp_json(
+        "live-model-streaming-support",
+        &serde_json::json!({
+            "version": 2,
+            "items": [
+                {
+                    "id": "model.sherpa-onnx.streaming-transducer",
+                    "short_id": "online-transducer",
+                    "urls": ["https://example.invalid/transducer.tar.bz2"],
+                    "vinput_model": {
+                        "backend": "sherpa-streaming",
+                        "family": "transducer",
+                        "runtime": "online"
+                    }
+                },
+                {
+                    "id": "model.sherpa-onnx.streaming-zipformer2-ctc",
+                    "short_id": "online-zipformer2-ctc",
+                    "urls": ["https://example.invalid/zipformer2.tar.bz2"],
+                    "vinput_model": {
+                        "backend": "sherpa-streaming",
+                        "family": "zipformer2_ctc",
+                        "runtime": "online"
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    );
+
+    let output = vinput_command()
+        .args(["model", "list", "--registry"])
+        .arg(&registry_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list streaming --json");
+
+    let value = assert_json_success(output, "model list streaming json");
+    assert_eq!(value["model_count"], 2);
+    for model in value["models"].as_array().unwrap() {
+        assert_eq!(model["backend"], "sherpa-streaming");
+        assert_eq!(model["runtime"], "online");
+        assert_eq!(model["supported"], true);
+        assert_eq!(model["support"], "supported");
+    }
+
+    std::fs::remove_file(registry_path).ok();
+}
+
+#[test]
 fn model_list_text_prints_source_columns_and_support_marker() {
     let output = vinput_command()
         .args(["model", "list", "--registry"])

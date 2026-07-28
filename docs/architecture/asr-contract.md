@@ -40,7 +40,7 @@ StopRecording
   -> reset Idle
 ```
 
-This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend currently covers buffered offline SenseVoice and Qwen3 ASR recognition, both proven with real bundled WAV samples. The daemon now routes recorder callbacks to any chunked ASR session in legacy-compatible 800-frame batches, applies input gain before delivery, polls events after each push, propagates callback failures, and flushes the final short batch without replaying the complete stop buffer. A native sherpa online recognizer, live `RecognitionPartial` emission, VAD trimming, warmup/reload state, and broader sherpa model families still belong to later phases.
+This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend covers buffered offline SenseVoice and Qwen3 ASR plus online transducer and Zipformer2 CTC metadata/runtime layouts. SenseVoice, Qwen3 ASR, and Zipformer2 CTC are proven with real registry-model WAV samples; transducer metadata and asset mapping are contract-tested. The daemon routes recorder callbacks to chunked ASR sessions in legacy-compatible 800-frame batches, applies input gain before delivery, polls native hypotheses after each push, propagates callback failures, and flushes the final short batch without replaying the complete stop buffer. Live D-Bus `RecognitionPartial` emission during recording, VAD trimming, complete endpoint semantics, warmup/reload state, and the remaining model families still belong to later phases.
 
 ## Command ASR provider contracts
 
@@ -109,12 +109,12 @@ Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendS
 
 These gaps remain after the behavior-preserving ASR split:
 
-- Native `sherpa-onnx` is feature-gated and currently supports buffered offline SenseVoice and Qwen3 ASR recognition with real WAV smokes. Transducer, Zipformer2 CTC, Moonshine, Dolphin, Paraformer, and other model families, runtime VAD trimming, warmup, full reload state, and decode timeout enforcement are not implemented yet.
-- Runtime streaming now delivers live recorder callbacks to chunked sessions in 800-frame batches and retains polled events until stop. Native sherpa online model construction and live D-Bus partial emission are not implemented yet.
+- Native `sherpa-onnx` is feature-gated and supports offline SenseVoice/Qwen3 ASR plus online transducer/Zipformer2 CTC layouts. SenseVoice, Qwen3 ASR, and Zipformer2 CTC have real WAV smokes; transducer construction remains metadata/feature-build tested. Moonshine, Dolphin, Paraformer, runtime VAD trimming, warmup, full reload state, and decode timeout enforcement are not implemented yet.
+- Runtime streaming delivers recorder callbacks to native online sessions in 800-frame batches and retains callback-polled partial/final events until stop. Live D-Bus partial emission during an active recording is not implemented yet.
 - Command ASR is runtime-wired for configured command providers; remote ASR provider kinds remain contract-pinned but unavailable.
 
 ## Mock audio push observation
 
-`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests. The log records each `push_audio` or `push_pcm` call, including sample length and optional `PcmSpec` metadata. Runtime tests use it to prove 800/800/tail chunk delivery, input metadata preservation, and no stop-time replay. This remains a mock observation seam and does not prove a native online recognizer or a real desktop recording session.
+`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests. The log records each `push_audio` or `push_pcm` call, including sample length and optional `PcmSpec` metadata. Runtime tests use it to prove 800/800/tail chunk delivery, input metadata preservation, and no stop-time replay. Native Zipformer2 CTC now proves the recognizer/runtime path separately; neither seam proves a real desktop recording session or live D-Bus partial delivery.
 
 `MockAsrAudioPush` is serde/schema-ready so future diagnostics can expose recorded mock audio pushes without exposing the shared `MockAsrAudioLog` container itself.

@@ -185,6 +185,22 @@ pub enum SherpaOnnxModelPathError {
         /// Declared model family.
         family: String,
     },
+    /// Model directory exists but does not contain typed online metadata.
+    #[error(
+        "sherpa-onnx model directory `{path}` does not contain a supported online model layout"
+    )]
+    UnsupportedOnlineLayout {
+        /// Resolved model path.
+        path: String,
+    },
+    /// Metadata declares an online sherpa family that this runtime does not support yet.
+    #[error("sherpa-onnx online model family `{family}` is not supported for `{path}`")]
+    UnsupportedOnlineFamily {
+        /// Resolved model path.
+        path: String,
+        /// Declared model family.
+        family: String,
+    },
     /// A family-specific model asset is absent from the extracted model directory.
     #[error("sherpa-onnx {family} model asset `{asset}` is missing at `{path}`")]
     MissingModelAsset {
@@ -307,6 +323,24 @@ impl SherpaOnnxSpec {
             layout_source: inferred.source,
             metadata_path: inferred.metadata_path,
         })
+    }
+
+    /// Returns whether typed model metadata selects native online recognition.
+    pub fn uses_online_runtime(
+        &self,
+        model_root: impl AsRef<Path>,
+    ) -> Result<bool, SherpaOnnxModelPathError> {
+        let paths = self.resolve_model_paths(model_root)?;
+        crate::sherpa_online::metadata_requests_online(&paths.model_dir)
+    }
+
+    /// Resolves typed online metadata into a native recognizer plan.
+    pub fn resolve_online_runtime_plan(
+        &self,
+        model_root: impl AsRef<Path>,
+    ) -> Result<crate::SherpaOnnxOnlineRuntimePlan, SherpaOnnxModelPathError> {
+        let paths = self.resolve_model_paths(model_root)?;
+        crate::sherpa_online::resolve_online_runtime_plan(&paths)
     }
 
     /// Returns the explicit runtime-unavailable error for builds without sherpa runtime support.
@@ -624,7 +658,13 @@ fn display_path(path: &Path) -> String {
 pub struct SherpaOnnxBackend {
     spec: SherpaOnnxSpec,
     descriptor: BackendDescriptor,
-    recognizer: std::sync::Arc<sherpa_onnx::OfflineRecognizer>,
+    runtime: SherpaOnnxRuntime,
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+enum SherpaOnnxRuntime {
+    Offline(std::sync::Arc<sherpa_onnx::OfflineRecognizer>),
+    Online(crate::sherpa_online::SherpaOnnxOnlineRuntime),
 }
 
 #[cfg(feature = "sherpa-onnx-backend")]
@@ -640,31 +680,52 @@ impl std::fmt::Debug for SherpaOnnxBackend {
 
 #[cfg(feature = "sherpa-onnx-backend")]
 impl SherpaOnnxBackend {
-    /// Builds an offline `sherpa-onnx` backend from config.
+    /// Builds an offline or online `sherpa-onnx` backend from typed model metadata.
     pub fn with_config(provider: &AsrProviderConfig) -> Result<Self, AsrError> {
         let spec = SherpaOnnxSpec::from_provider(provider)?;
         let model_root = std::env::var_os("VINPUT_SHERPA_MODEL_ROOT")
             .map_or_else(|| PathBuf::from("."), PathBuf::from);
-        let plan = spec
-            .resolve_offline_runtime_plan(model_root)
+        let online = spec
+            .uses_online_runtime(&model_root)
             .map_err(|error| AsrError::Backend(error.to_string()))?;
-        let config = offline_recognizer_config(&plan);
-        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
-            AsrError::Backend(format!(
-                "failed to create sherpa-onnx offline recognizer for provider `{}`",
-                spec.provider_id
-            ))
-        })?;
+        let (runtime, description, capabilities) = if online {
+            let plan = spec
+                .resolve_online_runtime_plan(&model_root)
+                .map_err(|error| AsrError::Backend(error.to_string()))?;
+            let runtime =
+                crate::sherpa_online::SherpaOnnxOnlineRuntime::create(&plan, &spec.provider_id)?;
+            (
+                SherpaOnnxRuntime::Online(runtime),
+                "sherpa-onnx online ASR",
+                BackendCapabilities::streaming(),
+            )
+        } else {
+            let plan = spec
+                .resolve_offline_runtime_plan(model_root)
+                .map_err(|error| AsrError::Backend(error.to_string()))?;
+            let config = offline_recognizer_config(&plan);
+            let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+                AsrError::Backend(format!(
+                    "failed to create sherpa-onnx offline recognizer for provider `{}`",
+                    spec.provider_id
+                ))
+            })?;
+            (
+                SherpaOnnxRuntime::Offline(std::sync::Arc::new(recognizer)),
+                "sherpa-onnx offline ASR",
+                BackendCapabilities::buffered(),
+            )
+        };
         let model_id = spec.model.clone().unwrap_or_default();
         Ok(Self {
             descriptor: BackendDescriptor::new(
                 spec.provider_id.clone(),
                 model_id,
-                "sherpa-onnx offline ASR",
-                BackendCapabilities::buffered(),
+                description,
+                capabilities,
             ),
             spec,
-            recognizer: std::sync::Arc::new(recognizer),
+            runtime,
         })
     }
 }
@@ -730,14 +791,17 @@ impl AsrBackend for SherpaOnnxBackend {
         &self,
         _context: RecognitionContext,
     ) -> Result<Box<dyn RecognitionSession>, AsrError> {
-        Ok(Box::new(SherpaOnnxRecognitionSession {
-            recognizer: std::sync::Arc::clone(&self.recognizer),
-            pcm: vinput_audio::PcmSpec::default(),
-            samples: Vec::new(),
-            events: Vec::new(),
-            finished: false,
-            cancelled: false,
-        }))
+        match &self.runtime {
+            SherpaOnnxRuntime::Offline(recognizer) => Ok(Box::new(SherpaOnnxRecognitionSession {
+                recognizer: std::sync::Arc::clone(recognizer),
+                pcm: vinput_audio::PcmSpec::default(),
+                samples: Vec::new(),
+                events: Vec::new(),
+                finished: false,
+                cancelled: false,
+            })),
+            SherpaOnnxRuntime::Online(runtime) => Ok(runtime.create_session()),
+        }
     }
 }
 

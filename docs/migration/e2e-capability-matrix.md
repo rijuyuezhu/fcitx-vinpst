@@ -26,13 +26,13 @@ Current parity estimate:
 | --- | ---: | --- |
 | D-Bus ABI and daemon facade | 80-90% | Core method/signal names and payload shapes are preserved, with Rust-only diagnostics added. |
 | Deterministic E2E spine | 85-90% | Command-demo, user install smokes, activation, file-input tests, and adapter lifecycle are strong. |
-| Native local ASR | 65-75% | SenseVoice and Qwen3 ASR are real and WAV-tested; streaming, VAD, timeout/reload parity, and remaining families remain incomplete. |
+| Native local ASR | 75-85% | SenseVoice, Qwen3 ASR, and online Zipformer2 CTC are real and WAV-tested; transducer mapping is implemented; live partial signals, VAD/endpoint, timeout/reload parity, and remaining families remain incomplete. |
 | CLI user experience | 75-85% | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, and recording commands exist; remaining work is polish, live proof, edge cases, and continued module extraction. |
 | Registry/resource install | 65-75% | Live model fetch/cache/checksum/extract/install/use/remove works; provider/adapter live install and GUI resource flows remain incomplete. |
 | Real desktop readiness | 45-55% | Install/probe paths exist, but real Fcitx trigger/commit with native model still needs proof and runtime library handling. |
 | Full user-visible parity | 70-75% | CLI/daemon alpha is usable, but native desktop, frontend, packaging, and remote-service parity are incomplete. |
 
-The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> commit path, then add native streaming/VAD and the remaining registry model families while completing frontend UX and packaging.**
+The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> commit path, emit native online hypotheses as live partial signals, then add VAD/endpoint semantics and the remaining registry model families while completing frontend UX and packaging.**
 
 ## User journeys
 
@@ -128,9 +128,9 @@ Rust CLI weaknesses for a user:
 | Command batch ASR | Implemented. | Implemented. | Mostly aligned. |
 | Command streaming ASR | Implemented with partials and process protocol. | Implemented/tested in Rust command ASR path. | Mostly aligned, needs live CLI config. |
 | Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice and Qwen3 ASR both pass real registry-model WAV smokes. | Partial; remaining families are pending. |
-| Sherpa streaming | Implemented. | Daemon recorder callbacks stream 800-frame batches to chunked sessions and poll events; native online recognizer construction and live D-Bus partial emission remain missing. | Partial. |
+| Sherpa streaming | Implemented. | Native transducer and Zipformer2 CTC metadata/runtime mappings exist; recorder callbacks stream 800-frame batches and decode hypotheses. Zipformer2 CTC passes a real registry-model WAV smoke. | Mostly implemented; live D-Bus partial emission and endpoint/VAD parity remain. |
 | VAD | `vad_trimmer` with sherpa VAD model. | Config parses VAD but native trimming is not implemented. | Missing/partial. |
-| Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust classifies current and legacy registry families, reads SenseVoice and Qwen3 ASR family-specific metadata, validates required assets, and preserves unknown future family names. | Partial; remaining families still need runtime mapping. |
+| Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust classifies current and legacy registry families; maps SenseVoice, Qwen3 ASR, transducer, and Zipformer2 CTC assets/config; validates required files; and preserves unknown future family names. | Partial; Moonshine, Dolphin, Paraformer, and other families still need runtime mapping. |
 | Text postprocess | OpenAI-compatible HTTP, prompt files/interpolation/context/candidates, command scene. | Command adapter and OpenAI-compatible paths exist; real UX/config incomplete. | Partial. |
 | Adapter supervisor | Process supervision, PID files, stderr notifications. | Process supervision, PID files, D-Bus start/stop, diagnostics. | Mostly aligned. |
 | Remote text service | Legacy has HTTP/WebSocket remote text service. | Not implemented. | Missing. |
@@ -289,15 +289,16 @@ Acceptance:
 - Implemented: Qwen3 ASR maps frontend, encoder, decoder, tokenizer, generation parameters, and optional hotwords to the official Rust binding.
 - Proven: live-registry Qwen3 model install, native construction, and bundled WAV recognition pass.
 - Implemented: known unsupported and unknown future families retain their exact family names in diagnostics.
-- Remaining acceptance: add native layouts for the other live-registry families.
+- Implemented: online transducer and Zipformer2 CTC typed metadata/runtime mapping; Zipformer2 CTC is registry-model WAV-proven.
+- Remaining acceptance: add native layouts for Moonshine, Dolphin, Paraformer, and other live-registry families.
 
 ### P1.2 sherpa streaming backend
 
 Acceptance:
 
-- Add `sherpa-streaming` backend family support behind `sherpa-onnx-backend`.
-- Streaming partial events map to `RecognitionPartial`.
-- Stop/final behavior matches legacy signatures and status transitions.
+- Implemented: `sherpa-streaming` transducer and Zipformer2 CTC support behind `sherpa-onnx-backend`.
+- Implemented: online session partial/final event generation and stop/final behavior through the runtime path.
+- Remaining: emit callback-polled partial events as live `RecognitionPartial` D-Bus signals while recording.
 
 ### P1.3 VAD and timeout semantics
 
@@ -330,9 +331,9 @@ Acceptance:
 Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Implement native sherpa online recognizer construction and emit callback-polled partial/final events through the live D-Bus path.
+2. Emit callback-polled native online hypotheses as live `RecognitionPartial` signals through the D-Bus path.
 3. Add native VAD trimming, decode timeout enforcement, warmup, and warm reload semantics.
-4. Port transducer, Zipformer2 CTC, Moonshine, Dolphin, and Paraformer metadata/runtime layouts in registry-priority order.
+4. Port Moonshine, Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
 5. Complete scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.
 
 ## Stop conditions

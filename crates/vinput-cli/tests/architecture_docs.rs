@@ -213,24 +213,26 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "accepts relative or absolute local model and hotwords paths",
         "rejects empty values and URL-like paths",
         "verifies model directories plus regular hotwords files",
-        "currently covers buffered offline SenseVoice and Qwen3 ASR recognition",
-        "both proven with real bundled WAV samples",
+        "online transducer and Zipformer2 CTC metadata/runtime layouts",
+        "SenseVoice, Qwen3 ASR, and Zipformer2 CTC are proven with real registry-model WAV samples",
         "Qwen3 ASR requires typed metadata for its convolution frontend, encoder, decoder, tokenizer, and generation parameters",
         "just sherpa-offline-local-smoke",
         "just sherpa-qwen3-local-smoke",
         "Esta prenda es amplia. Recomiendo elegir una talla menor al habitual.",
-        "daemon now routes recorder callbacks to any chunked ASR session",
+        "The daemon routes recorder callbacks to chunked ASR sessions",
         "legacy-compatible 800-frame batches",
-        "Native sherpa online model construction and live D-Bus partial emission are not implemented yet",
+        "Live D-Bus `RecognitionPartial` emission during recording",
+        "transducer construction remains metadata/feature-build tested",
         "VAD trimming",
         "warmup/reload state",
-        "broader sherpa model families",
+        "remaining model families",
         "Timeout fields are preserved in config diagnostics but are not yet enforced",
         "runs `runtime-status` by default after install and during `VINPUT_USER_STATUS=1` checks",
         "Set `VINPUT_USER_RUNTIME_STATUS=0` to skip that validation",
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
         "800/800/tail chunk delivery",
-        "does not prove a native online recognizer or a real desktop recording session",
+        "Native Zipformer2 CTC now proves the recognizer/runtime path separately",
+        "live D-Bus partial delivery",
         "`MockAsrAudioPush` is serde/schema-ready",
     ] {
         assert!(
@@ -248,6 +250,9 @@ fn development_doc_pins_optional_pipewire_recipes() {
     let offline_smoke =
         std::fs::read_to_string(workspace_file("scripts/run-sherpa-offline-local-smoke.sh"))
             .expect("read generic sherpa offline smoke");
+    let online_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-sherpa-online-local-smoke.sh"))
+            .expect("read generic sherpa online smoke");
 
     for required in [
         "just pipewire-check",
@@ -261,8 +266,12 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just sherpa-offline-local-smoke",
         "just sherpa-sense-voice-local-smoke",
         "just sherpa-qwen3-local-smoke",
+        "just sherpa-online-local-smoke",
+        "just sherpa-zipformer2-ctc-local-smoke",
         "validates typed registry metadata and one WAV recognition outside Fcitx5",
         "live registry Qwen3 model has passed",
+        "live registry model has passed with bundled `test_wavs/0.wav`",
+        "对我做了介绍那么我想说的是呢大家如果对我的研究感兴趣呢",
         "intentionally excluded from `just ci`",
         "C++ bridge plus Rust daemon D-Bus path",
         "prints the daemon build's `audio-devices` JSON diagnostics",
@@ -284,6 +293,19 @@ fn development_doc_pins_optional_pipewire_recipes() {
         );
     }
 
+    for required in [
+        "runtime=online",
+        "backend=sherpa-streaming",
+        "vinput-model.json",
+        "runtime-status",
+        "--once --wav",
+    ] {
+        assert!(
+            online_smoke.contains(required),
+            "generic sherpa online smoke should pin typed runtime behavior: {required}"
+        );
+    }
+
     assert!(justfile.contains("pipewire-check:"));
     assert!(justfile.contains("pipewire-live:"));
     assert!(justfile.contains("ime-pipewire-live:"));
@@ -291,6 +313,8 @@ fn development_doc_pins_optional_pipewire_recipes() {
     assert!(justfile.contains("sherpa-offline-local-smoke:"));
     assert!(justfile.contains("sherpa-sense-voice-local-smoke:"));
     assert!(justfile.contains("sherpa-qwen3-local-smoke:"));
+    assert!(justfile.contains("sherpa-online-local-smoke:"));
+    assert!(justfile.contains("sherpa-zipformer2-ctc-local-smoke:"));
     for required in [
         "VINPUT_SHERPA_EXPECT_FAMILY",
         "vinput-model.json",
@@ -427,9 +451,9 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
     for required in [
         "Completed: usable CLI/daemon alpha",
         "P0: real desktop native alpha",
-        "Implemented at daemon boundary: deliver recorder callbacks in 800-frame batches",
-        "native sherpa online recognizer construction",
-        "Port the remaining live-registry model families",
+        "Implemented through the native recognizer boundary",
+        "live `RecognitionPartial` signals",
+        "Port Moonshine, Dolphin, Paraformer",
     ] {
         assert!(
             plan.contains(required),

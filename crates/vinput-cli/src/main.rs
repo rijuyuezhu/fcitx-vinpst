@@ -8740,6 +8740,11 @@ fn live_model_support(model: &LiveModelEntry) -> ModelSupport {
             Some("sherpa-offline"),
             Some(LiveModelFamily::SenseVoice | LiveModelFamily::Qwen3Asr),
             Some("offline"),
+        )
+        | (
+            Some("sherpa-streaming"),
+            Some(LiveModelFamily::Transducer | LiveModelFamily::Zipformer2Ctc),
+            Some("online"),
         ) => ModelSupport {
             supported: true,
             reason: "supported",
@@ -8748,11 +8753,16 @@ fn live_model_support(model: &LiveModelEntry) -> ModelSupport {
             Some("sherpa-offline"),
             Some(LiveModelFamily::SenseVoice | LiveModelFamily::Qwen3Asr),
             _,
+        )
+        | (
+            Some("sherpa-streaming"),
+            Some(LiveModelFamily::Transducer | LiveModelFamily::Zipformer2Ctc),
+            _,
         ) => ModelSupport {
             supported: false,
             reason: "unsupported-runtime",
         },
-        (Some("sherpa-offline"), Some(_), _) => ModelSupport {
+        (Some("sherpa-offline" | "sherpa-streaming"), Some(_), _) => ModelSupport {
             supported: false,
             reason: "unsupported-family",
         },
