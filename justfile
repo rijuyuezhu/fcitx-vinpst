@@ -255,6 +255,10 @@ sherpa-offline-local-smoke:
 sherpa-sense-voice-local-smoke:
     scripts/run-sherpa-sense-voice-local-smoke.sh
 
+# Run native Dolphin inference using registry-generated typed metadata.
+sherpa-dolphin-local-smoke:
+    VINPUT_SHERPA_EXPECT_FAMILY=dolphin VINPUT_SHERPA_EXPECT_TEXT="对我做了介绍哈那么我想说的是呢大家如果对我的研究感兴趣呢。" VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-dolphin-local-smoke} scripts/run-sherpa-offline-local-smoke.sh
+
 # Run native Paraformer inference using registry-generated typed metadata.
 sherpa-paraformer-local-smoke:
     VINPUT_SHERPA_EXPECT_FAMILY=paraformer VINPUT_SHERPA_EXPECT_TEXT="对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯" VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-paraformer-local-smoke} scripts/run-sherpa-offline-local-smoke.sh

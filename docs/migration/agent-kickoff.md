@@ -54,6 +54,7 @@ Then read, in order:
 - CLI/daemon alpha: usable and broadly covered by deterministic tests.
 - Real desktop readiness: **prototype usable / early alpha**; the full native desktop chain is not yet proven.
 - Native SenseVoice file-input path: proven with a registry-downloaded model and bundled WAV.
+- Native Dolphin: the registry multilingual int8 model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍哈那么我想说的是呢大家如果对我的研究感兴趣呢。` through `just sherpa-dolphin-local-smoke`.
 - Native Paraformer: the registry small model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯` through `just sherpa-paraformer-local-smoke`.
 - Native Qwen3 ASR: proven with the live registry model and its bundled `test_wavs/es1.wav` through `just sherpa-qwen3-local-smoke`.
 - Selected-text primary-selection fallback: implemented in the retained addon; live multi-application proof remains.
@@ -75,7 +76,7 @@ Then read, in order:
 Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Port Dolphin and other remaining families in registry-priority order; Paraformer and Moonshine v1 are already registry-installed and WAV-proven.
+2. Port other remaining families in registry-priority order; Dolphin, Paraformer, and Moonshine v1 are already registry-installed and WAV-proven.
 3. Prove localized searchable scene/ASR menus, persisted registry titles, persistent trigger/paging keys, and Tap/Hold/Both timing live.
 4. Advance packaging and remote-service breadth only where they unblock the native desktop path.
 

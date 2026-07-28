@@ -48,8 +48,8 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 ## P1: daemon runtime parity
 
-1. Implemented and WAV-proven for SenseVoice, Paraformer, Qwen3 ASR, and Moonshine v1: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
-2. Implemented for online transducer and Zipformer2 CTC; Zipformer2 CTC is WAV-proven. Add Dolphin and other remaining layouts in registry-priority order.
+1. Implemented and WAV-proven for Dolphin, SenseVoice, Paraformer, Qwen3 ASR, and Moonshine v1: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
+2. Implemented for online transducer and Zipformer2 CTC; Zipformer2 CTC is WAV-proven. Add other remaining layouts in registry-priority order.
 3. Implemented through D-Bus and the retained frontend: deliver recorder callbacks in 800-frame batches, decode online hypotheses, emit deduplicated live `RecognitionPartial` signals, consume `StatusChanged`/`RecognitionPartial` through the Fcitx bus, render partial-first preedit on the active input context, reconcile trigger-time `GetStatus` across clients, adopt/stop externally started normal recordings, and retain final/completed events for synchronous stop.
 4. Offline Silero VAD, endpoint forwarding, recognizer warmup, timeout diagnostics, and prepare-before-swap reload are implemented. The legacy D-Bus method re-reads explicit config files and queues a single non-blocking worker that exposes physical preparation progress, coalesces generations, and reports the actual effective descriptor.
 5. Implemented deterministically: OpenAI-compatible text provider behavior uses local mock-server tests; add one real desktop provider validation.
@@ -82,6 +82,6 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 ## Suggested next slices
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Port Dolphin and other remaining live-registry model families.
+2. Port other remaining live-registry model families.
 3. Prove localized searchable scene/ASR menus, persisted registry titles, local and daemon-originated notifications, persistent trigger/paging keys, and Tap/Hold/Both timing live; then broaden daemon-notification emission beyond background ASR reload failures.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.

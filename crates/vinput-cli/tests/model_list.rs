@@ -108,6 +108,48 @@ fn model_list_json_reports_qwen3_asr_as_supported() {
 }
 
 #[test]
+fn model_list_json_reports_dolphin_as_supported() {
+    let registry_path = write_temp_json(
+        "live-model-dolphin-support",
+        &serde_json::json!({
+            "version": 2,
+            "items": [
+                {
+                    "id": "model.sherpa-onnx.dolphin-base-ctc-multi-lang-int8",
+                    "short_id": "onnx-dolphin-multi-int8-off",
+                    "urls": ["https://example.invalid/dolphin.tar.bz2"],
+                    "vinput_model": {
+                        "backend": "sherpa-offline",
+                        "family": "dolphin",
+                        "runtime": "offline",
+                        "model": {
+                            "tokens": "tokens.txt",
+                            "dolphin": {"model": "model.int8.onnx"}
+                        }
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    );
+
+    let output = vinput_command()
+        .args(["model", "list", "--registry"])
+        .arg(&registry_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list dolphin --json");
+
+    let value = assert_json_success(output, "model list dolphin json");
+    assert_eq!(value["models"][0]["family"], "dolphin");
+    assert_eq!(value["models"][0]["runtime"], "offline");
+    assert_eq!(value["models"][0]["supported"], true);
+    assert_eq!(value["models"][0]["support"], "supported");
+
+    std::fs::remove_file(registry_path).ok();
+}
+
+#[test]
 fn model_list_json_reports_paraformer_as_supported() {
     let registry_path = write_temp_json(
         "live-model-paraformer-support",

@@ -53,6 +53,13 @@ pub struct SherpaOnnxModelPaths {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SherpaOnnxOfflineModelLayout {
+    /// Dolphin model directory with a single ONNX model and tokens file.
+    Dolphin {
+        /// ONNX model file.
+        model: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
     /// Paraformer model directory with a single ONNX model and tokens file.
     Paraformer {
         /// ONNX model file.
@@ -481,6 +488,15 @@ fn infer_offline_layout_from_metadata(
             path: display_path(model_dir),
         })?;
     match family {
+        "dolphin" => infer_single_model_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path.clone(),
+            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
+            "dolphin",
+            |model, tokens| SherpaOnnxOfflineModelLayout::Dolphin { model, tokens },
+        )
+        .map(Some),
         "paraformer" => infer_paraformer_layout_from_metadata(
             model_dir,
             &metadata,
@@ -577,34 +593,46 @@ fn infer_sense_voice_layout_from_metadata(
     })
 }
 
+fn infer_single_model_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+    family: &str,
+    layout: impl FnOnce(PathBuf, PathBuf) -> SherpaOnnxOfflineModelLayout,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let family_config = metadata
+        .pointer(&format!("/model/{family}"))
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&metadata_path),
+            message: format!("missing object `/model/{family}`"),
+        })?;
+    Ok(InferredOfflineLayout {
+        layout: layout(
+            required_model_asset(model_dir, family_config, family, "model")?,
+            metadata_asset_path(model_dir, metadata, "/model/tokens", family, "tokens")?,
+        ),
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
 fn infer_paraformer_layout_from_metadata(
     model_dir: &Path,
     metadata: &serde_json::Value,
     metadata_path: PathBuf,
     settings: SherpaOnnxOfflineSettings,
 ) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
-    let paraformer = metadata
-        .pointer("/model/paraformer")
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
-            path: display_path(&metadata_path),
-            message: "missing object `/model/paraformer`".to_owned(),
-        })?;
-    Ok(InferredOfflineLayout {
-        layout: SherpaOnnxOfflineModelLayout::Paraformer {
-            model: required_model_asset(model_dir, paraformer, "paraformer", "model")?,
-            tokens: metadata_asset_path(
-                model_dir,
-                metadata,
-                "/model/tokens",
-                "paraformer",
-                "tokens",
-            )?,
-        },
+    infer_single_model_layout_from_metadata(
+        model_dir,
+        metadata,
+        metadata_path,
         settings,
-        source: "metadata".to_owned(),
-        metadata_path: Some(metadata_path),
-    })
+        "paraformer",
+        |model, tokens| SherpaOnnxOfflineModelLayout::Paraformer { model, tokens },
+    )
 }
 
 fn infer_qwen3_asr_layout_from_metadata(
@@ -1276,10 +1304,10 @@ impl SherpaOnnxBackend {
 }
 
 #[cfg(feature = "sherpa-onnx-backend")]
-fn offline_recognizer_config(
+fn apply_offline_settings(
+    config: &mut sherpa_onnx::OfflineRecognizerConfig,
     plan: &SherpaOnnxOfflineRuntimePlan,
-) -> sherpa_onnx::OfflineRecognizerConfig {
-    let mut config = sherpa_onnx::OfflineRecognizerConfig::default();
+) {
     let settings = &plan.settings;
     config.model_config.num_threads = settings.num_threads;
     config.model_config.provider = Some(settings.provider.clone());
@@ -1312,7 +1340,21 @@ fn offline_recognizer_config(
     config.blank_penalty = settings.blank_penalty;
     config.hr.lexicon = settings.homophone_lexicon.as_deref().map(display_path);
     config.hr.rule_fsts = settings.homophone_rule_fsts.as_deref().map(display_path);
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+fn offline_recognizer_config(
+    plan: &SherpaOnnxOfflineRuntimePlan,
+) -> sherpa_onnx::OfflineRecognizerConfig {
+    let mut config = sherpa_onnx::OfflineRecognizerConfig::default();
+    apply_offline_settings(&mut config, plan);
     match &plan.layout {
+        SherpaOnnxOfflineModelLayout::Dolphin { model, tokens } => {
+            config.model_config.dolphin = sherpa_onnx::OfflineDolphinModelConfig {
+                model: Some(display_path(model)),
+            };
+            config.model_config.tokens = Some(display_path(tokens));
+        }
         SherpaOnnxOfflineModelLayout::Paraformer { model, tokens } => {
             config.model_config.paraformer = sherpa_onnx::OfflineParaformerModelConfig {
                 model: Some(display_path(model)),
