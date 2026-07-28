@@ -32,7 +32,7 @@ Current parity estimate:
 | Real desktop readiness | 45-55% | Install/probe paths exist, but real Fcitx trigger/commit with native model still needs proof and runtime library handling. |
 | Full user-visible parity | 70-75% | CLI/daemon alpha is usable, but native desktop, frontend, packaging, and remote-service parity are incomplete. |
 
-The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit path, then add reload semantics and the remaining registry model families while completing frontend UX and packaging.**
+The next project target should be: **prove and harden the real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit path, then add the non-blocking reload worker and the remaining registry model families while completing frontend UX and packaging.**
 
 ## User journeys
 
@@ -122,7 +122,7 @@ Rust CLI weaknesses for a user:
 | Signals | Recognition result/partial, status changed, daemon notification. | Same names preserved. | Mostly aligned. |
 | Status strings | `idle`, `recording`, `inferring`, `postprocessing`, `error`. | Same strings. | Aligned. |
 | Runtime state machine | Async/poll worker model with capture/infer/postprocess stages. | Deterministic runtime state with D-Bus facade, file input, reload deferral. | Partial; live async behavior still needs proof. |
-| ASR reload | Legacy reload worker prepares backend and swaps later. | Rust has immediate/deferred reload skeleton and configured reload path. | Partial. |
+| ASR reload | Legacy reload worker prepares a warmup session and swaps later. | Rust startup/readiness/immediate/deferred paths use one prepare-before-swap boundary; failed preparation preserves the old backend and busy reloads remain deferred. | Mostly implemented; idle preparation is still synchronous rather than a background worker. |
 | Audio capture | PipeWire capture with target object support, gain/normalization. | Feature-gated PipeWire recorder and diagnostics. | Partial; needs desktop proof. |
 | File input | Not a first-class user path. | `--wav` and `--pcm16le` are first-class for smoke/debug. | Rust improved. |
 | Command batch ASR | Implemented. | Implemented. | Mostly aligned. |
@@ -339,7 +339,7 @@ Acceptance:
 Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Add warm reload semantics on top of the implemented VAD, endpoint-config, warmup, and timeout diagnostics.
+2. Move idle prepare-before-swap reload work to a non-blocking worker while preserving current failure and deferral semantics.
 3. Port Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
 4. Complete scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.
 

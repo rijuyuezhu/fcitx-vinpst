@@ -83,13 +83,21 @@ impl RuntimeState {
 
     /// Builds an idle runtime from config-selected ASR provider.
     pub fn with_configured_asr(config: VinputConfig) -> Result<Self, RuntimeError> {
-        let backend = AsrBackendFactory::build_active(&config.asr).map_err(RuntimeError::Asr)?;
+        let backend = AsrBackendFactory::build_active_prepared(
+            &config.asr,
+            Some(config.global.default_language.clone()),
+        )
+        .map_err(RuntimeError::Asr)?;
         Self::with_asr_backend(config, backend)
     }
 
     /// Builds an idle runtime from config-selected ASR and command text adapters.
     pub fn with_configured_backends(config: VinputConfig) -> Result<Self, RuntimeError> {
-        let backend = AsrBackendFactory::build_active(&config.asr).map_err(RuntimeError::Asr)?;
+        let backend = AsrBackendFactory::build_active_prepared(
+            &config.asr,
+            Some(config.global.default_language.clone()),
+        )
+        .map_err(RuntimeError::Asr)?;
         Self::with_configured_text(config, backend, Box::new(default_mock_audio_source()))
     }
 

@@ -49,7 +49,10 @@ impl RuntimeState {
         self.config
             .validate()
             .map_err(RuntimeError::InvalidConfig)?;
-        match AsrBackendFactory::build_active(&self.config.asr) {
+        match AsrBackendFactory::build_active_prepared(
+            &self.config.asr,
+            Some(self.config.global.default_language.clone()),
+        ) {
             Ok(backend) => {
                 self.asr_backend = backend;
                 self.asr_reload_last_error = None;
