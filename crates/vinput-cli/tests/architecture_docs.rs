@@ -480,6 +480,10 @@ fn registry_architecture_mentions_root_planning() {
     assert!(registry_doc.contains("On `CrossesDevices`"));
     assert!(registry_doc.contains("hidden sibling on the target filesystem"));
     assert!(registry_doc.contains("resets a stale extraction directory before each retry"));
+    assert!(registry_doc.contains("`scan_installed_models`"));
+    assert!(registry_doc.contains("`<root>/<managed-name>/vinput-model.json`"));
+    assert!(registry_doc.contains("`<root>/<engine>/<name>/vinput-model.json`"));
+    assert!(registry_doc.contains("stable `model.<engine>.<name>` id"));
 }
 
 #[test]

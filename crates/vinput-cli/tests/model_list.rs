@@ -1478,6 +1478,7 @@ fn model_list_installed_json_scans_model_root_metadata() {
     );
     assert_eq!(value["model_count"], 1);
     let model = &value["models"][0];
+    assert_eq!(model["id"], "installed-one");
     assert_eq!(model["name"], "installed-one");
     assert_eq!(model["model_dir"], model_dir.to_string_lossy().as_ref());
     assert_eq!(model["backend"], "sherpa-offline");
@@ -1518,11 +1519,46 @@ fn model_list_installed_text_prints_local_rows() {
     let stdout = assert_stdout_success(output, "model list installed text");
     assert!(stdout.contains(&format!("model_root: {}", model_root.display())));
     assert!(stdout.contains("models: 1"));
-    assert!(
-        stdout.contains("name\tpath\tlanguage\tsize\tbackend\tfamily\truntime\thotwords\tfiles")
-    );
+    assert!(stdout.contains("id\tpath\tlanguage\tsize\tbackend\tfamily\truntime\thotwords\tfiles"));
     assert!(stdout.contains("installed-text"));
     assert!(stdout.contains("sherpa-offline\tsense_voice\toffline\tfalse\t2"));
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn model_list_installed_scans_legacy_engine_model_layout() {
+    let temp_root = unique_temp_dir("vinput-cli-model-list-installed-legacy-layout");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("sherpa-onnx").join("moonshine-v1");
+    std::fs::create_dir_all(&model_dir).expect("create legacy installed model dir");
+    std::fs::write(model_dir.join("tokens.txt"), b"tokens").expect("write tokens file");
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        serde_json::json!({
+            "backend": "sherpa-offline",
+            "family": "moonshine",
+            "language": "en",
+            "runtime": "offline"
+        })
+        .to_string(),
+    )
+    .expect("write legacy installed metadata");
+
+    let output = vinput_command()
+        .args(["model", "list", "--installed", "--model-root"])
+        .arg(&model_root)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list for legacy layout");
+
+    let value = assert_json_success(output, "legacy installed model list json");
+    assert_eq!(value["model_count"], 1);
+    assert_eq!(value["models"][0]["id"], "model.sherpa-onnx.moonshine-v1");
+    assert_eq!(
+        value["models"][0]["model_dir"],
+        model_dir.to_string_lossy().as_ref()
+    );
+    assert_eq!(value["models"][0]["family"], "moonshine");
     let _ = std::fs::remove_dir_all(temp_root);
 }
 

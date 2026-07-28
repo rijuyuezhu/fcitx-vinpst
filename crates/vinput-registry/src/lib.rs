@@ -12,6 +12,7 @@ mod checksum;
 mod error;
 mod fetch;
 mod install;
+mod installed;
 mod live;
 mod materialize;
 mod plan;
@@ -41,6 +42,10 @@ pub use fetch::{
 };
 pub use install::{
     LiveModelInstallError, LiveModelInstallRequest, LiveModelInstallResult, install_live_model,
+};
+pub use installed::{
+    INSTALLED_MODEL_METADATA_FILE, InstalledModelError, InstalledModelInfo,
+    load_installed_model_info, scan_installed_models,
 };
 pub use live::{
     LiveModelEntry, LiveModelFamily, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata,

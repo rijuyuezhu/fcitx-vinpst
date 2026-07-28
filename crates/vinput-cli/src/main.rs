@@ -25,10 +25,11 @@ use vinput_config::{
 };
 use vinput_protocol::{RecognitionPayload, ServiceStatus, TextAdapterState, dbus};
 use vinput_registry::{
-    ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelFamily,
-    LiveModelInstallRequest, LiveModelInstallResult, LiveModelRegistry, LiveRegistryI18n,
-    LiveVinputModelMetadata, PlannedAsset, RegistryIndex, RegistryTextSource,
-    ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
+    ArchiveFormat, AssetEntry, AssetPlanSummary, InstalledModelInfo, LiveModelEntry,
+    LiveModelFamily, LiveModelInstallRequest, LiveModelInstallResult, LiveModelRegistry,
+    LiveRegistryI18n, PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryAssetSource,
+    ReqwestRegistryTextSource, install_live_model,
+    load_installed_model_info as load_registry_installed_model_info, scan_installed_models,
 };
 use vinput_text::{
     OpenAiCompatibleTextAdapter, ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,
@@ -7285,28 +7286,8 @@ fn print_installed_model_list(model_root: Option<&Path>, json_output: bool) -> a
 }
 
 fn load_installed_model_list(model_root: &Path) -> anyhow::Result<Vec<InstalledModelInfo>> {
-    if !model_root.exists() {
-        return Ok(Vec::new());
-    }
-    if !model_root.is_dir() {
-        anyhow::bail!("model root `{}` is not a directory", model_root.display());
-    }
-    let mut models = Vec::new();
-    for entry in fs::read_dir(model_root)
-        .with_context(|| format!("read model root `{}`", model_root.display()))?
-    {
-        let entry =
-            entry.with_context(|| format!("read entry under `{}`", model_root.display()))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("inspect model root entry `{}`", path.display()))?;
-        if file_type.is_dir() && path.join("vinput-model.json").is_file() {
-            models.push(load_installed_model_info(&path)?);
-        }
-    }
-    models.sort_by(|left, right| left.model_dir.cmp(&right.model_dir));
-    Ok(models)
+    scan_installed_models(model_root)
+        .with_context(|| format!("scan installed model root `{}`", model_root.display()))
 }
 
 #[derive(Clone, Copy)]
@@ -7380,85 +7361,14 @@ fn resolve_installed_model_info_selector(
     Ok(model_root.join(safe_path_component(selector)))
 }
 
-struct InstalledModelInfo {
-    model_dir: PathBuf,
-    metadata_path: PathBuf,
-    metadata: LiveVinputModelMetadata,
-    files: Vec<String>,
-    file_count: usize,
-}
-
 fn is_model_path_selector(selector: &str) -> bool {
     let path = Path::new(selector);
     path.is_absolute() || selector.contains('/')
 }
 
 fn load_installed_model_info(model_dir: &Path) -> anyhow::Result<InstalledModelInfo> {
-    if !model_dir.exists() {
-        anyhow::bail!(
-            "installed model directory `{}` does not exist",
-            model_dir.display()
-        );
-    }
-    if !model_dir.is_dir() {
-        anyhow::bail!(
-            "installed model path `{}` is not a directory",
-            model_dir.display()
-        );
-    }
-    let metadata_path = model_dir.join("vinput-model.json");
-    let metadata_text = fs::read_to_string(&metadata_path).with_context(|| {
-        format!(
-            "read installed model metadata `{}`",
-            metadata_path.display()
-        )
-    })?;
-    let metadata =
-        serde_json::from_str::<LiveVinputModelMetadata>(&metadata_text).with_context(|| {
-            format!(
-                "parse installed model metadata `{}`",
-                metadata_path.display()
-            )
-        })?;
-    let files = collect_installed_model_files(model_dir)?;
-    let file_count = files.len();
-    Ok(InstalledModelInfo {
-        model_dir: model_dir.to_path_buf(),
-        metadata_path,
-        metadata,
-        files,
-        file_count,
-    })
-}
-
-fn collect_installed_model_files(model_dir: &Path) -> anyhow::Result<Vec<String>> {
-    let mut files = Vec::new();
-    collect_installed_model_files_inner(model_dir, model_dir, &mut files)?;
-    files.sort();
-    Ok(files)
-}
-
-fn collect_installed_model_files_inner(
-    root: &Path,
-    current: &Path,
-    files: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    for entry in fs::read_dir(current)
-        .with_context(|| format!("read installed model directory `{}`", current.display()))?
-    {
-        let entry = entry.with_context(|| format!("read entry under `{}`", current.display()))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("inspect installed model entry `{}`", path.display()))?;
-        if file_type.is_dir() {
-            collect_installed_model_files_inner(root, &path, files)?;
-        } else if file_type.is_file() {
-            let relative = path.strip_prefix(root).unwrap_or(&path);
-            files.push(relative.to_string_lossy().into_owned());
-        }
-    }
-    Ok(())
+    load_registry_installed_model_info(model_dir)
+        .with_context(|| format!("read installed model `{}`", model_dir.display()))
 }
 
 #[derive(Clone, Copy)]
@@ -8414,6 +8324,7 @@ fn installed_model_list_json(
 
 fn installed_model_list_item_json(info: &InstalledModelInfo) -> serde_json::Value {
     serde_json::json!({
+        "id": info.model_id,
         "name": installed_model_dir_name(&info.model_dir),
         "model_dir": info.model_dir,
         "metadata_path": info.metadata_path,
@@ -8437,6 +8348,7 @@ fn installed_model_info_json(info: &InstalledModelInfo) -> anyhow::Result<serde_
             "metadata_path": info.metadata_path,
         },
         "model": {
+            "id": info.model_id,
             "model_dir": info.model_dir,
             "metadata_path": info.metadata_path,
             "backend": info.metadata.backend,
@@ -8613,11 +8525,11 @@ fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n
 fn print_installed_model_list_text(model_root: &Path, models: &[InstalledModelInfo]) {
     println!("model_root: {}", model_root.display());
     println!("models: {}", models.len());
-    println!("name	path	language	size	backend	family	runtime	hotwords	files");
+    println!("id	path	language	size	backend	family	runtime	hotwords	files");
     for model in models {
         println!(
             "{}	{}	{}	{}	{}	{}	{}	{}	{}",
-            installed_model_dir_name(&model.model_dir),
+            model.model_id,
             model.model_dir.display(),
             optional_str(model.metadata.language.as_deref()),
             format_size_bytes(model.metadata.size_bytes),
@@ -8639,6 +8551,7 @@ fn installed_model_dir_name(model_dir: &Path) -> String {
 
 fn print_installed_model_info_text(info: &InstalledModelInfo) {
     println!("source: installed");
+    println!("id: {}", info.model_id);
     println!("model_dir: {}", info.model_dir.display());
     println!("metadata_path: {}", info.metadata_path.display());
     println!(
