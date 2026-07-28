@@ -1,5 +1,6 @@
 #include "vinput_fcitx_bridge/fcitx_candidates.h"
 
+#include "vinput_fcitx_bridge/fcitx_i18n.h"
 #include "vinput_fcitx_bridge/fcitx_selection.h"
 
 #include <fcitx/inputcontext.h>
@@ -55,7 +56,7 @@ private:
 } // namespace
 
 std::string ResultCandidateMenuTitle(std::size_t count) {
-  return "Choose Result (" + std::to_string(count) + ")";
+  return FrontendCountText("Choose Result (%zu)", count);
 }
 
 const ResultCandidateSelectCallback &DefaultResultCandidateSelectCallback() {
@@ -69,13 +70,13 @@ const ResultCandidateSelectCallback &DefaultResultCandidateSelectCallback() {
 std::string ResultCandidateComment(const Candidate &candidate, std::size_t llm_index) {
   switch (candidate.source) {
   case CandidateSource::Raw:
-    return "ASR raw";
+    return FrontendText("Original");
   case CandidateSource::Asr:
-    return "ASR";
+    return FrontendText("Voice Command");
   case CandidateSource::Llm:
-    return "LLM " + std::to_string(llm_index);
+    return std::to_string(llm_index);
   case CandidateSource::Cancel:
-    return "Cancel";
+    return FrontendText("Cancel");
   }
   return {};
 }

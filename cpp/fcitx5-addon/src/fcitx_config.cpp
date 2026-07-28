@@ -1,5 +1,7 @@
 #include "vinput_fcitx_bridge/fcitx_config.h"
 
+#include "vinput_fcitx_bridge/fcitx_i18n.h"
+
 #include <fcitx-config/iniparser.h>
 #include <fcitx-utils/standardpaths.h>
 
@@ -16,19 +18,20 @@ fcitx::ListConstrain<fcitx::KeyConstrain> TriggerConstrain() {
 } // namespace
 
 VinputFrontendConfig::VinputFrontendConfig(const FrontendSettings &settings)
-    : normal_triggers(this, "TriggerKey", "Normal Dictation Keys",
+    : normal_triggers(this, "TriggerKey", FrontendText("Normal Dictation Keys"),
                       settings.normal_triggers, TriggerConstrain()),
-      command_triggers(this, "CommandKeys", "Command Dictation Keys",
+      command_triggers(this, "CommandKeys", FrontendText("Command Dictation Keys"),
                        settings.command_triggers, TriggerConstrain()),
-      scene_menu_triggers(this, "SceneMenuKey", "Scene Menu Keys",
+      scene_menu_triggers(this, "SceneMenuKey", FrontendText("Scene Menu Keys"),
                           settings.scene_menu_triggers, TriggerConstrain()),
-      asr_menu_triggers(this, "AsrMenuKey", "ASR Menu Keys", settings.asr_menu_triggers,
-                        TriggerConstrain()),
-      page_prev_keys(this, "PagePrevKeys", "Previous Page Keys",
+      asr_menu_triggers(this, "AsrMenuKey", FrontendText("ASR Menu Keys"),
+                        settings.asr_menu_triggers, TriggerConstrain()),
+      page_prev_keys(this, "PagePrevKeys", FrontendText("Previous Page Keys"),
                      settings.page_prev_keys, TriggerConstrain()),
-      page_next_keys(this, "PageNextKeys", "Next Page Keys", settings.page_next_keys,
-                     TriggerConstrain()),
-      trigger_mode(this, "TriggerMode", "Trigger Mode", settings.trigger_mode) {}
+      page_next_keys(this, "PageNextKeys", FrontendText("Next Page Keys"),
+                     settings.page_next_keys, TriggerConstrain()),
+      trigger_mode(this, "TriggerMode", FrontendText("Trigger Mode"),
+                   settings.trigger_mode) {}
 
 FrontendSettings VinputFrontendConfig::settings() const {
   return FrontendSettings{

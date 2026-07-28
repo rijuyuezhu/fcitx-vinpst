@@ -52,6 +52,7 @@ addon-install-smoke: addon-fcitx-build
     cmake --install target/cpp/fcitx5-addon-fcitx --prefix target/tmp/fcitx-addon-install-smoke
     test -f target/tmp/fcitx-addon-install-smoke/usr/local/lib/fcitx5/fcitx5-vinput.so
     test -f target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
+    test -f target/tmp/fcitx-addon-install-smoke/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo
     grep -qx 'Library=fcitx5-vinput' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx 'Type=SharedLibrary' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx 'OnDemand=False' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf

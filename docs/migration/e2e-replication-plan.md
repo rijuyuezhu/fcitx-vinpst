@@ -58,7 +58,7 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 ## P1: legacy UX parity
 
 1. Implemented deterministically: the minimal scene menu uses Right Shift, typed D-Bus scene state, candidate navigation/selection, and atomic active-scene persistence. Prove it in a real Fcitx session.
-2. Implemented deterministically: the F8 ASR menu exposes target/effective/loading/error state, scans flat and legacy installed-model layouts, and persists provider/model selection before background reload. The normal, command, scene-menu, ASR-menu, previous-page, and next-page keys are persistent legacy-named Fcitx KeyLists; both menus consume the current paging lists, including keypad defaults. TriggerMode implements Tap/Hold/Both with the legacy timing constants; valid environment values remain temporary trigger overrides, and unknown legacy fields survive writes. Legacy slash filtering, multi-term matching, UTF-8/Ctrl editing, and two-stage Escape are implemented for both menus; improve labels/i18n next.
+2. Implemented deterministically: the F8 ASR menu exposes target/effective/loading/error state, scans flat and legacy installed-model layouts, and persists provider/model selection before background reload. The normal, command, scene-menu, ASR-menu, previous-page, and next-page keys are persistent legacy-named Fcitx KeyLists; both menus consume the current paging lists, including keypad defaults. TriggerMode implements Tap/Hold/Both with the legacy timing constants; valid environment values remain temporary trigger overrides, and unknown legacy fields survive writes. Legacy slash filtering, multi-term matching, UTF-8/Ctrl editing, and two-stage Escape are implemented for both menus. Static menu/config/result labels use the installed `fcitx5-vinput` zh_CN gettext catalog with English fallback; dynamic registry model titles remain next.
 3. Verify command-mode candidate selection replaces selected text in multiple real applications.
 4. Validate the implemented primary-selection clipboard fallback where surrounding text is unavailable.
 5. LLM/provider/adapter/scene CLI parity is implemented; validate live providers and improve user-facing errors.
@@ -83,5 +83,5 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining live-registry model families.
-3. Prove searchable scene/ASR menus, persistent trigger/paging keys, and Tap/Hold/Both timing live, then improve labels/i18n details needed for desktop parity.
+3. Prove localized searchable scene/ASR menus, persistent trigger/paging keys, and Tap/Hold/Both timing live, then add dynamic registry-backed model titles needed for desktop parity.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.

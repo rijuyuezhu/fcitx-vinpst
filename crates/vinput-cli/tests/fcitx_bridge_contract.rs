@@ -222,7 +222,7 @@ fn cpp_frontend_menus_keep_legacy_search_contract() {
         "IsMenuCtrlShortcut(key, FcitxKey_w)",
         "IsMenuCtrlShortcut(key, FcitxKey_u)",
         r#""Scenes /filter""#,
-        r#""ASR Models /filter""#,
+        r#"FrontendText("Models /filter")"#,
     ] {
         assert!(
             addon_source.contains(required),
@@ -234,4 +234,80 @@ fn cpp_frontend_menus_keep_legacy_search_contract() {
         3,
         "shared handling plus scene and ASR handlers should pin printable filter input"
     );
+}
+
+#[test]
+fn cpp_frontend_i18n_builds_loads_and_installs_chinese_catalog() {
+    let header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_i18n.h",
+    ))
+    .expect("read frontend i18n header");
+    let source = std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_i18n.cpp"))
+        .expect("read frontend i18n source");
+    let cmake = std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/CMakeLists.txt"))
+        .expect("read addon CMake file");
+    let addon_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
+            .expect("read addon source");
+    let candidates =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_candidates.cpp"))
+            .expect("read candidate source");
+
+    for required in [
+        "kFrontendTranslationDomain = \"fcitx5-vinput\"",
+        "VINPUT_FCITX_LOCALEDIR",
+        "InitFrontendI18n",
+        "FrontendText",
+        "FrontendCountText",
+        "FrontendPageText",
+    ] {
+        assert!(
+            header.contains(required),
+            "i18n header should pin {required}"
+        );
+    }
+    for required in [
+        "fcitx::registerDomain",
+        "fcitx::translateDomain",
+        "VINPUT_FCITX_BUILD_LOCALEDIR",
+        "VINPUT_FCITX_INSTALL_LOCALEDIR",
+    ] {
+        assert!(
+            source.contains(required),
+            "i18n source should pin {required}"
+        );
+    }
+    for required in [
+        "find_package(Gettext REQUIRED)",
+        "vinput_fcitx_translations",
+        "zh_CN/LC_MESSAGES/fcitx5-vinput.mo",
+        "vinput_fcitx_bridge_i18n_smoke",
+    ] {
+        assert!(
+            cmake.contains(required),
+            "addon CMake should pin {required}"
+        );
+    }
+    for required in [
+        r#"FrontendText("Scenes /filter")"#,
+        r#"FrontendText("Models /filter")"#,
+        r#"FrontendText("Current: ")"#,
+        r#"FrontendText("Loading: ")"#,
+        r#"FrontendText("Error: ")"#,
+    ] {
+        assert!(
+            addon_source.contains(required),
+            "addon labels should pin {required}"
+        );
+    }
+    for required in [
+        r#"FrontendCountText("Choose Result (%zu)", count)"#,
+        r#"FrontendText("Original")"#,
+        r#"FrontendText("Voice Command")"#,
+    ] {
+        assert!(
+            candidates.contains(required),
+            "candidate labels should pin {required}"
+        );
+    }
 }

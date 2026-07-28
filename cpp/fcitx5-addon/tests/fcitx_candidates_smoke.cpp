@@ -21,9 +21,9 @@ int main() {
   assert(ResultCandidateMenuTitle(1) == "Choose Result (1)");
   assert(ResultCandidateMenuTitle(3) == "Choose Result (3)");
 
-  assert(ResultCandidateComment({"raw", CandidateSource::Raw}, 0) == "ASR raw");
-  assert(ResultCandidateComment({"asr", CandidateSource::Asr}, 0) == "ASR");
-  assert(ResultCandidateComment({"llm", CandidateSource::Llm}, 2) == "LLM 2");
+  assert(ResultCandidateComment({"raw", CandidateSource::Raw}, 0) == "Original");
+  assert(ResultCandidateComment({"asr", CandidateSource::Asr}, 0) == "Voice Command");
+  assert(ResultCandidateComment({"llm", CandidateSource::Llm}, 2) == "2");
   assert(ResultCandidateComment({"cancel", CandidateSource::Cancel}, 0) == "Cancel");
 
   RecognitionPayload payload;
@@ -49,12 +49,12 @@ int main() {
   assert(candidates->globalCursorIndex() == 2);
   assert(candidates->candidateFromAll(0).text().toString() == "raw transcript");
 #ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
-  assert(candidates->candidateFromAll(0).comment().toString() == "ASR raw");
-  assert(candidates->candidateFromAll(1).comment().toString() == "LLM 1");
+  assert(candidates->candidateFromAll(0).comment().toString() == "Original");
+  assert(candidates->candidateFromAll(1).comment().toString() == "1");
 #endif
   assert(candidates->candidateFromAll(2).text().toString() == "polished 2");
 #ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
-  assert(candidates->candidateFromAll(2).comment().toString() == "LLM 2");
+  assert(candidates->candidateFromAll(2).comment().toString() == "2");
 #endif
 
   candidates->candidateFromAll(1).select(nullptr);
@@ -68,7 +68,7 @@ int main() {
   auto asr_candidates = BuildResultCandidateList(asr_payload);
   assert(asr_candidates != nullptr);
 #ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
-  assert(asr_candidates->candidateFromAll(0).comment().toString() == "ASR");
+  assert(asr_candidates->candidateFromAll(0).comment().toString() == "Voice Command");
 #endif
 
   RecognitionPayload mixed_payload;
@@ -83,10 +83,10 @@ int main() {
   assert(mixed_candidates != nullptr);
   assert(mixed_candidates->globalCursorIndex() == 3);
 #ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
-  assert(mixed_candidates->candidateFromAll(0).comment().toString() == "ASR raw");
-  assert(mixed_candidates->candidateFromAll(1).comment().toString() == "ASR");
-  assert(mixed_candidates->candidateFromAll(2).comment().toString() == "LLM 1");
-  assert(mixed_candidates->candidateFromAll(3).comment().toString() == "LLM 2");
+  assert(mixed_candidates->candidateFromAll(0).comment().toString() == "Original");
+  assert(mixed_candidates->candidateFromAll(1).comment().toString() == "Voice Command");
+  assert(mixed_candidates->candidateFromAll(2).comment().toString() == "1");
+  assert(mixed_candidates->candidateFromAll(3).comment().toString() == "2");
 #endif
 
   RecognitionPayload missing_commit_payload;

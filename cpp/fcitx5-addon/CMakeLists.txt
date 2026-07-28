@@ -88,7 +88,29 @@ configure_file(
 
 
 if(Fcitx5Core_FOUND)
+  find_package(Gettext REQUIRED)
+  set(VINPUT_FCITX_BUILD_LOCALEDIR "${CMAKE_CURRENT_BINARY_DIR}/locale")
+  set(VINPUT_FCITX_ZH_CN_MO
+      "${VINPUT_FCITX_BUILD_LOCALEDIR}/zh_CN/LC_MESSAGES/fcitx5-vinput.mo")
+  add_custom_command(
+    OUTPUT "${VINPUT_FCITX_ZH_CN_MO}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${VINPUT_FCITX_BUILD_LOCALEDIR}/zh_CN/LC_MESSAGES"
+    COMMAND "${GETTEXT_MSGFMT_EXECUTABLE}" -o "${VINPUT_FCITX_ZH_CN_MO}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/po/zh_CN.po"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/po/zh_CN.po"
+    COMMENT "Compiling fcitx5-vinput zh_CN translations"
+    VERBATIM
+  )
+  add_custom_target(vinput_fcitx_translations ALL
+                    DEPENDS "${VINPUT_FCITX_ZH_CN_MO}")
+  install(
+    FILES "${VINPUT_FCITX_ZH_CN_MO}"
+    DESTINATION "${CMAKE_INSTALL_LOCALEDIR}/zh_CN/LC_MESSAGES"
+  )
+
   add_library(vinput_fcitx_bridge_fcitx STATIC
+    src/fcitx_i18n.cpp
     src/fcitx_config.cpp
     src/fcitx_candidates.cpp
     src/fcitx_key_trigger.cpp
@@ -104,6 +126,13 @@ if(Fcitx5Core_FOUND)
       Fcitx5::Core
   )
   target_compile_features(vinput_fcitx_bridge_fcitx PUBLIC cxx_std_20)
+  target_compile_definitions(
+    vinput_fcitx_bridge_fcitx
+    PRIVATE
+      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_BUILD_LOCALEDIR}"
+      VINPUT_FCITX_INSTALL_LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
+  )
+  add_dependencies(vinput_fcitx_bridge_fcitx vinput_fcitx_translations)
   if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL "5.1.9")
     target_compile_definitions(
       vinput_fcitx_bridge_fcitx
@@ -140,6 +169,28 @@ if(Fcitx5Core_FOUND)
   )
   vinput_bridge_apply_warnings(fcitx5_vinput_addon)
 
+
+  add_executable(
+    vinput_fcitx_bridge_i18n_smoke
+    tests/fcitx_i18n_smoke.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_bridge_i18n_smoke
+    PRIVATE
+      vinput_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  add_dependencies(vinput_fcitx_bridge_i18n_smoke vinput_fcitx_translations)
+  vinput_bridge_apply_warnings(vinput_fcitx_bridge_i18n_smoke)
+  add_test(
+    NAME vinput_fcitx_bridge_i18n_smoke
+    COMMAND vinput_fcitx_bridge_i18n_smoke
+  )
+  set_tests_properties(
+    vinput_fcitx_bridge_i18n_smoke
+    PROPERTIES ENVIRONMENT
+      "LANGUAGE=zh_CN;LC_ALL=zh_CN.utf8;VINPUT_FCITX_LOCALEDIR=${VINPUT_FCITX_BUILD_LOCALEDIR}"
+  )
 
   add_executable(
     vinput_fcitx_bridge_config_smoke
@@ -257,12 +308,21 @@ if(Fcitx5Core_FOUND)
     vinput_fcitx_addon_dbus_smoke
     tests/fcitx_addon_dbus_smoke.cpp
     src/fcitx_addon.cpp
+    src/fcitx_i18n.cpp
     src/fcitx_config.cpp
     src/fcitx_key_trigger.cpp
     src/fcitx_menu_filter.cpp
     src/fcitx_trigger_mode.cpp
     src/fcitx_selection.cpp
   )
+  target_compile_definitions(
+    vinput_fcitx_addon_dbus_smoke
+    PRIVATE
+      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_BUILD_LOCALEDIR}"
+      VINPUT_FCITX_INSTALL_LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
+  )
+  add_dependencies(vinput_fcitx_addon_dbus_smoke vinput_fcitx_translations)
+
   target_link_libraries(
     vinput_fcitx_addon_dbus_smoke
     PRIVATE

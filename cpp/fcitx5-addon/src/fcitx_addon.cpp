@@ -1,5 +1,7 @@
 #include "vinput_fcitx_bridge/fcitx_addon.h"
 
+#include "vinput_fcitx_bridge/fcitx_i18n.h"
+
 #include "vinput_fcitx_bridge/fcitx_selection.h"
 
 #ifdef VINPUT_FCITX_HAVE_CLIPBOARD
@@ -64,8 +66,7 @@ std::string DecoratePagedMenuTitle(std::string title,
       pageable->currentPage() < 0) {
     return title;
   }
-  title += " (" + std::to_string(pageable->currentPage() + 1) + "/" +
-           std::to_string(pageable->totalPages()) + ")";
+  title += FrontendPageText(pageable->currentPage() + 1, pageable->totalPages());
   return title;
 }
 
@@ -108,13 +109,26 @@ bool IsEffectiveAsrTarget(const AsrTargetMenuItem &target,
          target.model_value == state.target_model_id;
 }
 
+std::string TranslatedProviderKind(std::string_view kind) {
+  if (kind == "local") {
+    return FrontendText("Local");
+  }
+  if (kind == "remote") {
+    return FrontendText("Remote");
+  }
+  if (kind == "command") {
+    return FrontendText("Command");
+  }
+  return std::string(kind);
+}
+
 std::string AsrTargetLabel(const AsrTargetMenuItem &target,
                            const AsrTargetMenuStateSnapshot &state) {
   std::string label = target.item_id.empty() ? target.provider_id : target.item_id;
-  label += " [" + target.kind + "]";
+  label += " [" + TranslatedProviderKind(target.kind) + "]";
   if (state.reload_in_progress && target.provider_id == state.target_provider_id &&
       target.model_value == state.target_model_id) {
-    label += " (loading)";
+    label += FrontendText(" (loading)");
   }
   return label;
 }
@@ -123,16 +137,16 @@ std::string EffectiveAsrLabel(const AsrTargetMenuStateSnapshot &state) {
   std::string label = state.effective_model_id.empty() ? state.effective_provider_id
                                                        : state.effective_model_id;
   if (label.empty()) {
-    label = "unavailable";
+    label = FrontendText("unavailable");
   }
   if (state.reload_in_progress && !state.target_provider_id.empty()) {
-    label += " | Loading: " + state.target_provider_id;
+    label += " | " + FrontendText("Loading: ") + state.target_provider_id;
     if (!state.target_model_id.empty()) {
       label += "/" + state.target_model_id;
     }
   }
   if (!state.last_error.empty()) {
-    label += " | Error: " + state.last_error;
+    label += " | " + FrontendText("Error: ") + state.last_error;
   }
   return label;
 }
@@ -221,6 +235,7 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
           frontend_settings_.scene_menu_triggers,
           frontend_settings_.asr_menu_triggers)),
       trigger_mode_controller_(frontend_settings_.trigger_mode) {
+  InitFrontendI18n();
   FCITX_INFO() << "fcitx-vinput addon loaded with normal triggers "
                << TriggerListDescription(trigger_policy_.normal_triggers())
                << ", command triggers "
@@ -602,9 +617,10 @@ void FcitxVinputAddon::RebuildSceneMenu() {
     candidates->setGlobalCursorIndex(0);
   }
 
-  SetFilteredMenuTitle(scene_menu_ic_, "Scenes /filter", scene_menu_filter_,
-                       candidates.get());
-  scene_menu_ic_->inputPanel().setAuxDown(fcitx::Text("Current: " + active_label));
+  SetFilteredMenuTitle(scene_menu_ic_, FrontendText("Scenes /filter"),
+                       scene_menu_filter_, candidates.get());
+  scene_menu_ic_->inputPanel().setAuxDown(
+      fcitx::Text(FrontendText("Current: ") + active_label));
   scene_menu_ic_->inputPanel().setCandidateList(std::move(candidates));
   scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
@@ -751,8 +767,8 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
     }
   }
 
-  SetFilteredMenuTitle(scene_menu_ic_, "Scenes /filter", scene_menu_filter_,
-                       candidate_list.get());
+  SetFilteredMenuTitle(scene_menu_ic_, FrontendText("Scenes /filter"),
+                       scene_menu_filter_, candidate_list.get());
   scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   event.filterAndAccept();
   return true;
@@ -828,10 +844,10 @@ void FcitxVinputAddon::RebuildAsrMenu() {
     candidates->setGlobalCursorIndex(0);
   }
 
-  SetFilteredMenuTitle(asr_menu_ic_, "ASR Models /filter", asr_menu_filter_,
+  SetFilteredMenuTitle(asr_menu_ic_, FrontendText("Models /filter"), asr_menu_filter_,
                        candidates.get());
   asr_menu_ic_->inputPanel().setAuxDown(
-      fcitx::Text("Current: " + EffectiveAsrLabel(asr_menu_state_)));
+      fcitx::Text(FrontendText("Current: ") + EffectiveAsrLabel(asr_menu_state_)));
   asr_menu_ic_->inputPanel().setCandidateList(std::move(candidates));
   asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
@@ -972,7 +988,7 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
     }
   }
 
-  SetFilteredMenuTitle(asr_menu_ic_, "ASR Models /filter", asr_menu_filter_,
+  SetFilteredMenuTitle(asr_menu_ic_, FrontendText("Models /filter"), asr_menu_filter_,
                        candidate_list.get());
   asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   event.filterAndAccept();
