@@ -61,14 +61,15 @@ Then read, in order:
 - Live partial signals: generation-scoped D-Bus emission is implemented and session-bus tested before stop, with stop-time deduplication.
 - Offline VAD: the tracked Silero model, strict legacy-compatible config, native trimming, user install, no-speech fallback, and real SenseVoice/Qwen3 WAV regressions are implemented.
 - Online endpoint/warmup: legacy endpoint defaults and metadata overrides are forwarded, and every native online recognizer runs the legacy-compatible 200 ms silence warmup.
-- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, timeout/warm-reload semantics, remaining sherpa families, frontend menus/configuration, packaging, and remote services.
+- Timeout semantics: command helpers enforce configured deadlines; native synchronous sherpa decode is explicitly classified as unsupported/diagnostic-only in `vinput doctor` with an isolation hint.
+- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, warm-reload semantics, remaining sherpa families, frontend menus/configuration, packaging, and remote services.
 
 ## First recommended implementation slices
 
 Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Add native decode timeout and warm reload behavior.
+2. Add native warm reload behavior.
 3. Port Moonshine, Dolphin, Paraformer, and other remaining families in registry-priority order.
 4. Add scene/ASR menus and persistent frontend trigger configuration where they directly support live validation.
 

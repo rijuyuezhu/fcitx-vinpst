@@ -171,6 +171,15 @@ fn doctor_reports_combined_local_diagnostics() {
     assert_eq!(value["ok"], true);
     assert_eq!(value["config"]["ok"], true);
     assert_eq!(value["asr"]["target_provider_id"], "sherpa-onnx");
+    assert_eq!(value["asr_timeout"]["provider_id"], "sherpa-onnx");
+    assert_eq!(value["asr_timeout"]["provider_kind"], "local");
+    assert_eq!(value["asr_timeout"]["timeout_ms"], 15_000);
+    assert_eq!(value["asr_timeout"]["enforcement"], "unsupported");
+    assert!(
+        value["asr_timeout"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("diagnostic-only"))
+    );
     assert_eq!(value["vad"]["status"], "missing");
     assert_eq!(value["vad"]["enabled"], true);
     assert_eq!(value["vad"]["available"], false);
@@ -229,6 +238,7 @@ fn doctor_reports_combined_local_diagnostics() {
     assert!(next_steps_text.contains("vinput device use <target>"));
     assert!(next_steps_text.contains("daemon D-Bus owner/procfs probes"));
     assert!(next_steps_text.contains("VINPUT_SHERPA_VAD_MODEL"));
+    assert!(next_steps_text.contains("cancellable command ASR provider"));
 }
 
 #[test]
@@ -272,6 +282,72 @@ fn doctor_reports_explicit_vad_model_readiness() {
                 .unwrap_or_default()
                 .contains("VINPUT_SHERPA_VAD_MODEL"))
     );
+}
+
+#[test]
+fn doctor_distinguishes_command_and_native_timeout_enforcement() {
+    let command_config = write_temp_json(
+        "vinput-doctor-command-timeout",
+        r#"{
+          "version": 1,
+          "asr": {
+            "active_provider": "cmd",
+            "providers": [{
+              "id": "cmd",
+              "type": "command",
+              "command": "helper",
+              "timeout_ms": 250
+            }]
+          }
+        }"#,
+    );
+    let command_output = vinput_command()
+        .args(["doctor", "--config"])
+        .arg(&command_config)
+        .output()
+        .expect("run vinput doctor for command timeout");
+    fs::remove_file(&command_config).expect("remove command timeout fixture");
+    let command = assert_json_success(command_output, "doctor command timeout");
+    assert_eq!(command["asr_timeout"]["provider_kind"], "command");
+    assert_eq!(command["asr_timeout"]["timeout_ms"], 250);
+    assert_eq!(command["asr_timeout"]["enforcement"], "enforced");
+    assert!(
+        command["asr_timeout"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("terminated"))
+    );
+
+    let native_config = write_temp_json(
+        "vinput-doctor-native-timeout",
+        r#"{
+          "version": 1,
+          "asr": {
+            "active_provider": "native",
+            "providers": [{
+              "id": "native",
+              "type": "local",
+              "model": "/tmp/missing-native-model",
+              "timeout_ms": 250
+            }]
+          }
+        }"#,
+    );
+    let native_output = vinput_command()
+        .args(["doctor", "--config"])
+        .arg(&native_config)
+        .output()
+        .expect("run vinput doctor for native timeout");
+    fs::remove_file(&native_config).expect("remove native timeout fixture");
+    let native = assert_json_success(native_output, "doctor native timeout");
+    assert_eq!(native["asr_timeout"]["provider_kind"], "local");
+    assert_eq!(native["asr_timeout"]["timeout_ms"], 250);
+    assert_eq!(native["asr_timeout"]["enforcement"], "unsupported");
+    assert!(
+        native["asr_timeout"]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("diagnostic-only"))
+    );
+    assert!(doctor_next_steps_text(&native).contains("cancellable command ASR provider"));
 }
 
 #[test]

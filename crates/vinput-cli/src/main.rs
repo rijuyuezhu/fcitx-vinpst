@@ -18,7 +18,7 @@ use daemon_control::{
     reload_asr_backend_via_dbus,
 };
 use recording_control::handle_recording_command;
-use vinput_asr::{AsrBackendFactory, SherpaOnnxVadProbe};
+use vinput_asr::{AsrBackendFactory, AsrTimeoutProbe, SherpaOnnxVadProbe};
 use vinput_audio::CaptureTarget;
 use vinput_config::{
     AsrProviderConfig, AsrProviderKind, RegistryConfig, SceneDefinition, VinputConfig,
@@ -6714,6 +6714,7 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
     config.validate().context("validate config for doctor")?;
     let asr_state = AsrBackendFactory::state_for_config(&config.asr);
     let vad = SherpaOnnxVadProbe::inspect(&config.asr.vad);
+    let timeout = AsrTimeoutProbe::inspect(&config.asr);
     let audio = audio_devices_json(&config)?;
     let activation_service = match user_activation_service_path() {
         Ok(path) => user_activation_service_json(&path),
@@ -6732,11 +6733,12 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
         "config": config_summary_json(&config),
         "asr": asr_state,
         "vad": doctor_vad_json(&vad),
+        "asr_timeout": timeout,
         "audio": audio,
         "activation_service": activation_service,
         "fcitx_addon": user_fcitx_addon_json(),
         "daemon_owner_probe": daemon_owner_probe_plan_json(),
-        "next_steps": doctor_next_steps(&config, &vad),
+        "next_steps": doctor_next_steps(&config, &vad, &timeout),
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
@@ -6765,7 +6767,11 @@ fn doctor_vad_json(probe: &SherpaOnnxVadProbe) -> serde_json::Value {
     })
 }
 
-fn doctor_next_steps(config: &VinputConfig, vad: &SherpaOnnxVadProbe) -> Vec<String> {
+fn doctor_next_steps(
+    config: &VinputConfig,
+    vad: &SherpaOnnxVadProbe,
+    timeout: &AsrTimeoutProbe,
+) -> Vec<String> {
     let mut next_steps = vec![
         "run vinput provider list to inspect configured ASR providers".to_owned(),
         format!(
@@ -6782,6 +6788,12 @@ fn doctor_next_steps(config: &VinputConfig, vad: &SherpaOnnxVadProbe) -> Vec<Str
     if vad.enabled && !vad.available {
         next_steps.push(
             "install silero_vad.onnx under $XDG_DATA_HOME/fcitx-vinput/vad or set VINPUT_SHERPA_VAD_MODEL"
+                .to_owned(),
+        );
+    }
+    if timeout.enforcement == vinput_asr::AsrTimeoutEnforcement::Unsupported {
+        next_steps.push(
+            "native timeout_ms is diagnostic-only; remove it or use a cancellable command ASR provider"
                 .to_owned(),
         );
     }

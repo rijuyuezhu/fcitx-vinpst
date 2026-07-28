@@ -12,6 +12,7 @@ mod payload;
 mod sherpa;
 mod sherpa_online;
 mod sherpa_vad;
+mod timeout;
 mod traits;
 
 pub use command::{
@@ -32,6 +33,7 @@ pub use sherpa::{
 };
 pub use sherpa_online::{SherpaOnnxOnlineModelLayout, SherpaOnnxOnlineRuntimePlan};
 pub use sherpa_vad::{SherpaOnnxVadModelSource, SherpaOnnxVadPlan, SherpaOnnxVadProbe};
+pub use timeout::{AsrTimeoutEnforcement, AsrTimeoutProbe};
 pub use traits::{
     AsrBackend, AudioDeliveryMode, BackendCapabilities, BackendDescriptor, RecognitionContext,
     RecognitionEvent, RecognitionSession,

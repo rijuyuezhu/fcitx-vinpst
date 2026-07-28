@@ -19,7 +19,7 @@ The Rust version now has a real product spine: retained C++ Fcitx5 addon, Rust d
 
 A real local ASR file-input path has been proven: live registry model `model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8` was downloaded, sha256-verified, extracted, and used with bundled `test_wavs/zh.wav`; `just sherpa-sense-voice-local-smoke` produced `开放时间早上九点至下午五点`.
 
-It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy replacement. The main blocker is no longer CLI coverage: it is proving and hardening the real desktop chain from Fcitx trigger through PipeWire capture and native ASR to application commit. Native SenseVoice, Qwen3 ASR, and online Zipformer2 CTC have proven local WAV smokes; online transducer metadata/runtime construction is implemented and contract-tested. Live D-Bus partial emission is implemented and session-bus tested. Offline Silero VAD is migrated, installed by the native user profile, and real-WAV tested without recognition regression. Online endpoint rule defaults/overrides and the legacy 200 ms warmup are implemented. Timeout/warm-reload parity, remaining sherpa families, frontend menus/configuration, packaging, and remote services remain incomplete.
+It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy replacement. The main blocker is no longer CLI coverage: it is proving and hardening the real desktop chain from Fcitx trigger through PipeWire capture and native ASR to application commit. Native SenseVoice, Qwen3 ASR, and online Zipformer2 CTC have proven local WAV smokes; online transducer metadata/runtime construction is implemented and contract-tested. Live D-Bus partial emission is implemented and session-bus tested. Offline Silero VAD is migrated, installed by the native user profile, and real-WAV tested without recognition regression. Online endpoint rule defaults/overrides and the legacy 200 ms warmup are implemented. Command timeouts are enforced; native synchronous decode explicitly reports configured timeouts as diagnostic-only instead of pretending cancellation. Warm-reload parity, remaining sherpa families, frontend menus/configuration, packaging, and remote services remain incomplete.
 
 | Target | Readiness |
 | --- | --- |
@@ -62,7 +62,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 
 1. Live desktop validation has not proven the complete native path: Fcitx trigger, PipeWire capture, native inference, postprocess, and commit in a real application.
 2. Native online decoding and live D-Bus partial emission are implemented and session-bus tested, but the complete Fcitx/PipeWire/partial-preedit path remains unproven on a real desktop.
-3. Offline Silero VAD, online endpoint rule forwarding, and recognizer warmup are implemented; decode timeout enforcement and warm reload semantics remain incomplete.
+3. Offline Silero VAD, online endpoint rule forwarding, recognizer warmup, and per-backend timeout capability diagnostics are implemented; warm reload semantics remain incomplete.
 4. SenseVoice, Qwen3 ASR, transducer, and Zipformer2 CTC mappings are implemented; Moonshine, Dolphin, Paraformer, and other registry-compatible families still need runtime support.
 5. Native shared-library resolution is improved for local smoke but still needs a robust activation, desktop-install, and distribution story.
 6. Fcitx UX parity is incomplete: scene menu, ASR menu, frontend config UI, tap/hold/both behavior, paging/search menus, and rich notifications are missing or partial.
@@ -86,7 +86,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 
 ## Current priority
 
-The next target is **real desktop native-dictation alpha**. First prove the complete native path, including streaming partial preedit, in a real Fcitx session. Then finish timeout/warm-reload semantics and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
+The next target is **real desktop native-dictation alpha**. First prove the complete native path, including streaming partial preedit, in a real Fcitx session. Then finish warm-reload semantics and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
 
 Do not claim full parity until the documented happy path works through a real desktop session and no longer depends on implementation-only profiles:
 
