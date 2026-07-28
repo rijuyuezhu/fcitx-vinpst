@@ -7,11 +7,13 @@ cd "${repo_root}"
 model_dir="${VINPUT_SHERPA_MODEL:-}"
 wav_path="${VINPUT_SHERPA_WAV:-}"
 expected_family="${VINPUT_SHERPA_EXPECT_FAMILY:-}"
+expected_text="${VINPUT_SHERPA_EXPECT_TEXT:-}"
 hotwords_file="${VINPUT_SHERPA_HOTWORDS_FILE:-}"
 timeout_ms="${VINPUT_SHERPA_TIMEOUT_MS:-}"
 out_dir="${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-offline-local-smoke}"
 config_path="${out_dir}/sherpa-offline-local.json"
 family_path="${out_dir}/model-family.txt"
+once_output_path="${out_dir}/once-output.json"
 
 if [[ -z "${model_dir}" ]]; then
   echo "VINPUT_SHERPA_MODEL is required and must point at a local offline model directory" >&2
@@ -125,4 +127,8 @@ echo "== native sherpa runtime status =="
 target/debug/vinput-daemon --configured-backends --config "${config_path}" runtime-status
 
 echo "== native sherpa once result =="
-target/debug/vinput-daemon --configured-backends --config "${config_path}" --once --wav "${wav_path}"
+target/debug/vinput-daemon --configured-backends --config "${config_path}" --once --wav "${wav_path}" \
+  | tee "${once_output_path}"
+if [[ -n "${expected_text}" ]]; then
+  grep -Fq "${expected_text}" "${once_output_path}"
+fi

@@ -88,6 +88,19 @@ pub enum SherpaOnnxOfflineModelLayout {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         hotwords: Option<PathBuf>,
     },
+    /// Moonshine v1 model directory with preprocessor, encoder, and decoder assets.
+    MoonshineV1 {
+        /// Audio preprocessor ONNX model.
+        preprocessor: PathBuf,
+        /// Encoder ONNX model.
+        encoder: PathBuf,
+        /// Decoder used for the first token.
+        uncached_decoder: PathBuf,
+        /// Decoder used after the first token.
+        cached_decoder: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
 }
 
 /// Resolved local inputs and inferred runtime layout for offline recognition.
@@ -400,6 +413,9 @@ fn infer_offline_layout_from_metadata(
     if family == Some("qwen3_asr") {
         return infer_qwen3_asr_layout_from_metadata(model_dir, &metadata, metadata_path).map(Some);
     }
+    if family == Some("moonshine") || family == Some("moonshine_v1") {
+        return infer_moonshine_layout_from_metadata(model_dir, &metadata, metadata_path).map(Some);
+    }
     if family != Some("sense_voice") {
         return Err(match family {
             Some(family) => SherpaOnnxModelPathError::UnsupportedOfflineFamily {
@@ -498,6 +514,107 @@ fn infer_qwen3_asr_layout_from_metadata(
         source: "metadata".to_owned(),
         metadata_path: Some(metadata_path),
     })
+}
+
+fn infer_moonshine_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let model_type = metadata
+        .pointer("/model_type")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("moonshine_v1");
+    if model_type != "moonshine_v1" && model_type != "moonshine" {
+        return Err(SherpaOnnxModelPathError::UnsupportedOfflineFamily {
+            path: display_path(model_dir),
+            family: model_type.to_owned(),
+        });
+    }
+    let moonshine = metadata
+        .pointer("/model/moonshine")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&metadata_path),
+            message: "missing object `/model/moonshine`".to_owned(),
+        })?;
+    let tokens = metadata_asset_path(model_dir, metadata, "/model/tokens", "moonshine", "tokens")?;
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::MoonshineV1 {
+            preprocessor: required_model_asset(model_dir, moonshine, "moonshine", "preprocessor")?,
+            encoder: required_model_asset(model_dir, moonshine, "moonshine", "encoder")?,
+            uncached_decoder: required_model_asset(
+                model_dir,
+                moonshine,
+                "moonshine",
+                "uncached_decoder",
+            )?,
+            cached_decoder: required_model_asset(
+                model_dir,
+                moonshine,
+                "moonshine",
+                "cached_decoder",
+            )?,
+            tokens,
+        },
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
+fn required_model_asset(
+    model_dir: &Path,
+    config: &serde_json::Map<String, serde_json::Value>,
+    family: &str,
+    field: &str,
+) -> Result<PathBuf, SherpaOnnxModelPathError> {
+    let value = config
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&model_dir.join("vinput-model.json")),
+            message: format!("missing string `/model/{family}/{field}`"),
+        })?;
+    let path = resolve_against(model_dir, value);
+    if !path.is_file() {
+        return Err(SherpaOnnxModelPathError::MissingModelAsset {
+            family: family.to_owned(),
+            asset: field.to_owned(),
+            path: display_path(&path),
+        });
+    }
+    Ok(path)
+}
+
+fn metadata_asset_path(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    pointer: &str,
+    family: &str,
+    field: &str,
+) -> Result<PathBuf, SherpaOnnxModelPathError> {
+    let value = metadata
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&model_dir.join("vinput-model.json")),
+            message: format!("missing string `{pointer}`"),
+        })?;
+    let path = resolve_against(model_dir, value);
+    if !path.is_file() {
+        return Err(SherpaOnnxModelPathError::MissingModelAsset {
+            family: family.to_owned(),
+            asset: field.to_owned(),
+            path: display_path(&path),
+        });
+    }
+    Ok(path)
 }
 
 fn required_qwen3_asset(
@@ -811,6 +928,22 @@ fn offline_recognizer_config(
                 seed: *seed,
                 hotwords: hotwords.as_deref().map(display_path),
             };
+        }
+        SherpaOnnxOfflineModelLayout::MoonshineV1 {
+            preprocessor,
+            encoder,
+            uncached_decoder,
+            cached_decoder,
+            tokens,
+        } => {
+            config.model_config.moonshine = sherpa_onnx::OfflineMoonshineModelConfig {
+                preprocessor: Some(display_path(preprocessor)),
+                encoder: Some(display_path(encoder)),
+                uncached_decoder: Some(display_path(uncached_decoder)),
+                cached_decoder: Some(display_path(cached_decoder)),
+                merged_decoder: None,
+            };
+            config.model_config.tokens = Some(display_path(tokens));
         }
     }
     if let Some(hotwords_file) = &plan.paths.hotwords_file {

@@ -108,6 +108,54 @@ fn model_list_json_reports_qwen3_asr_as_supported() {
 }
 
 #[test]
+fn model_list_json_reports_moonshine_as_supported() {
+    let registry_path = write_temp_json(
+        "live-model-moonshine-support",
+        &serde_json::json!({
+            "version": 2,
+            "items": [
+                {
+                    "id": "model.sherpa-onnx.moonshine-tiny-en-int8",
+                    "short_id": "onnx-ms-tiny-en-int8-off",
+                    "urls": ["https://example.invalid/moonshine.tar.bz2"],
+                    "vinput_model": {
+                        "backend": "sherpa-offline",
+                        "family": "moonshine",
+                        "model_type": "moonshine_v1",
+                        "runtime": "offline",
+                        "model": {
+                            "moonshine": {
+                                "preprocessor": "preprocess.onnx",
+                                "encoder": "encode.int8.onnx",
+                                "uncached_decoder": "uncached_decode.int8.onnx",
+                                "cached_decoder": "cached_decode.int8.onnx"
+                            },
+                            "tokens": "tokens.txt"
+                        }
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    );
+
+    let output = vinput_command()
+        .args(["model", "list", "--registry"])
+        .arg(&registry_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list moonshine --json");
+
+    let value = assert_json_success(output, "model list moonshine json");
+    assert_eq!(value["models"][0]["family"], "moonshine");
+    assert_eq!(value["models"][0]["runtime"], "offline");
+    assert_eq!(value["models"][0]["supported"], true);
+    assert_eq!(value["models"][0]["support"], "supported");
+
+    std::fs::remove_file(registry_path).ok();
+}
+
+#[test]
 fn model_list_json_reports_native_streaming_families_as_supported() {
     let registry_path = write_temp_json(
         "live-model-streaming-support",

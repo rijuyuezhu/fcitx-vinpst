@@ -219,7 +219,10 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "rejects empty values and URL-like paths",
         "verifies model directories plus regular hotwords files",
         "online transducer and Zipformer2 CTC metadata/runtime layouts",
-        "SenseVoice, Qwen3 ASR, and Zipformer2 CTC are proven with real registry-model WAV samples",
+        "SenseVoice, Qwen3 ASR, Moonshine v1, and Zipformer2 CTC are proven with real registry-model WAV samples",
+        "Moonshine v1",
+        "just sherpa-moonshine-local-smoke",
+        "After early nightfall, the yellow lamps would light up here and there the squalid quarter of the brothels.",
         "Qwen3 ASR requires typed metadata for its convolution frontend, encoder, decoder, tokenizer, and generation parameters",
         "just sherpa-offline-local-smoke",
         "just sherpa-qwen3-local-smoke",
@@ -474,7 +477,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Port Moonshine, Dolphin, Paraformer",
+        "Port Dolphin, Paraformer",
     ] {
         assert!(
             plan.contains(required),

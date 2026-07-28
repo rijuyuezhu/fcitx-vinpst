@@ -2161,14 +2161,37 @@ fn sherpa_onnx_offline_runtime_plan_uses_qwen3_asr_metadata() {
 }
 
 #[test]
-fn sherpa_onnx_offline_runtime_plan_reports_unsupported_metadata_family() {
+fn sherpa_onnx_offline_runtime_plan_uses_moonshine_metadata() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path();
     let model_dir = root.join("moonshine");
     std::fs::create_dir_all(&model_dir).unwrap();
+    for file_name in [
+        "preprocess.onnx",
+        "encode.int8.onnx",
+        "uncached_decode.int8.onnx",
+        "cached_decode.int8.onnx",
+        "tokens.txt",
+    ] {
+        std::fs::write(model_dir.join(file_name), b"fixture").unwrap();
+    }
     std::fs::write(
         model_dir.join("vinput-model.json"),
-        r#"{"backend":"sherpa-offline","family":"moonshine","runtime":"offline"}"#,
+        r#"{
+          "backend":"sherpa-offline",
+          "family":"moonshine",
+          "model_type":"moonshine_v1",
+          "runtime":"offline",
+          "model": {
+            "moonshine": {
+              "preprocessor":"preprocess.onnx",
+              "encoder":"encode.int8.onnx",
+              "uncached_decoder":"uncached_decode.int8.onnx",
+              "cached_decoder":"cached_decode.int8.onnx"
+            },
+            "tokens":"tokens.txt"
+          }
+        }"#,
     )
     .unwrap();
     let provider = AsrProviderConfig {
@@ -2184,15 +2207,19 @@ fn sherpa_onnx_offline_runtime_plan_reports_unsupported_metadata_family() {
     };
     let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
 
-    let error = spec.resolve_offline_runtime_plan(root).unwrap_err();
+    let plan = spec.resolve_offline_runtime_plan(root).unwrap();
 
     assert_eq!(
-        error,
-        SherpaOnnxModelPathError::UnsupportedOfflineFamily {
-            path: model_dir.display().to_string(),
-            family: "moonshine".to_owned(),
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::MoonshineV1 {
+            preprocessor: model_dir.join("preprocess.onnx"),
+            encoder: model_dir.join("encode.int8.onnx"),
+            uncached_decoder: model_dir.join("uncached_decode.int8.onnx"),
+            cached_decoder: model_dir.join("cached_decode.int8.onnx"),
+            tokens: model_dir.join("tokens.txt"),
         }
     );
+    assert_eq!(plan.layout_source, "metadata");
 }
 
 #[test]

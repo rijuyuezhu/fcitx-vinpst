@@ -48,8 +48,8 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 ## P1: daemon runtime parity
 
-1. Implemented and WAV-proven for SenseVoice and Qwen3 ASR: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
-2. Implemented for online transducer and Zipformer2 CTC; Zipformer2 CTC is WAV-proven. Add Moonshine, Dolphin, and Paraformer layouts in registry-priority order.
+1. Implemented and WAV-proven for SenseVoice, Qwen3 ASR, and Moonshine v1: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
+2. Implemented for online transducer and Zipformer2 CTC; Zipformer2 CTC is WAV-proven. Add Dolphin and Paraformer layouts when live-registry entries or compatible fixtures are available.
 3. Implemented through D-Bus: deliver recorder callbacks in 800-frame batches, decode online hypotheses, emit deduplicated live `RecognitionPartial` signals, and retain final/completed events for stop.
 4. Offline Silero VAD, legacy endpoint rule forwarding, 200 ms online recognizer warmup, command deadline enforcement, and explicit native timeout diagnostics are implemented; add warm reload semantics where legacy exposes them.
 5. Implemented deterministically: OpenAI-compatible text provider behavior uses local mock-server tests; add one real desktop provider validation.
@@ -83,5 +83,5 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Add native warm reload behavior on top of the implemented VAD, endpoint-config, warmup, and timeout diagnostics.
-3. Port Moonshine, Dolphin, Paraformer, and other remaining live-registry model families.
+3. Port Dolphin, Paraformer, and other remaining live-registry model families.
 4. Add scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.

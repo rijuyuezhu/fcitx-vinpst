@@ -26,7 +26,7 @@ Current parity estimate:
 | --- | ---: | --- |
 | D-Bus ABI and daemon facade | 80-90% | Core method/signal names and payload shapes are preserved, with Rust-only diagnostics added. |
 | Deterministic E2E spine | 85-90% | Command-demo, user install smokes, activation, file-input tests, and adapter lifecycle are strong. |
-| Native local ASR | 85-90% | SenseVoice and Qwen3 ASR are real-WAV tested with offline Silero VAD active; online Zipformer2 CTC is real-WAV tested with legacy endpoint-rule forwarding and 200 ms warmup; transducer mapping and live D-Bus partial emission are implemented. Command timeout enforcement and explicit native timeout diagnostics are implemented. Real desktop proof, reload parity, and remaining families remain incomplete. |
+| Native local ASR | 90% | SenseVoice, Qwen3 ASR, and Moonshine v1 are real-WAV tested with offline Silero VAD active; online Zipformer2 CTC is real-WAV tested with legacy endpoint-rule forwarding and 200 ms warmup; transducer mapping and live D-Bus partial emission are implemented. Command timeout enforcement and explicit native timeout diagnostics are implemented. Real desktop proof, reload parity, and remaining families remain incomplete. |
 | CLI user experience | 75-85% | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, and recording commands exist; remaining work is polish, live proof, edge cases, and continued module extraction. |
 | Registry/resource install | 65-75% | Live model fetch/cache/checksum/extract/install/use/remove works; provider/adapter live install and GUI resource flows remain incomplete. |
 | Real desktop readiness | 45-55% | Install/probe paths exist, but real Fcitx trigger/commit with native model still needs proof and runtime library handling. |
@@ -127,10 +127,10 @@ Rust CLI weaknesses for a user:
 | File input | Not a first-class user path. | `--wav` and `--pcm16le` are first-class for smoke/debug. | Rust improved. |
 | Command batch ASR | Implemented. | Implemented. | Mostly aligned. |
 | Command streaming ASR | Implemented with partials and process protocol. | Implemented/tested in Rust command ASR path. | Mostly aligned, needs live CLI config. |
-| Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice and Qwen3 ASR both pass real registry-model WAV smokes. | Partial; remaining families are pending. |
+| Sherpa offline | Multiple families through C API metadata. | Feature-gated official Rust binding; SenseVoice, Qwen3 ASR, and Moonshine v1 pass real registry-model WAV smokes. | Mostly implemented; Dolphin/Paraformer and other absent registry families remain. |
 | Sherpa streaming | Implemented. | Native transducer and Zipformer2 CTC mappings exist; legacy endpoint defaults/overrides are forwarded; recognizers run a 200 ms warmup; recorder callbacks stream 800-frame batches, decode hypotheses, and emit deduplicated `RecognitionPartial` signals before stop. Zipformer2 CTC passes a real registry-model WAV smoke. Native timeout configuration is explicitly diagnostic-only because official decode is synchronous. | Mostly implemented; real desktop proof and reload parity remain. |
 | VAD | `vad_trimmer` with sherpa VAD model for offline recognition; streaming disables it. | Implemented for buffered offline sherpa with the tracked Silero model, legacy thresholds/durations/padding, graceful fallback, a cold-start guard, user installation, and real SenseVoice/Qwen3 WAV regressions. | Mostly aligned; real microphone proof remains. |
-| Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust classifies current and legacy registry families; maps SenseVoice, Qwen3 ASR, transducer, and Zipformer2 CTC assets/config; validates required files; and preserves unknown future family names. | Partial; Moonshine, Dolphin, Paraformer, and other families still need runtime mapping. |
+| Model metadata | Legacy reads registry/local `vinput_model` metadata and maps family-specific files. | Rust classifies current and legacy registry families; maps SenseVoice, Qwen3 ASR, Moonshine v1, transducer, and Zipformer2 CTC assets/config; validates required files; and preserves unknown future family names. | Partial; Dolphin, Paraformer, and other families still need runtime mapping. |
 | Text postprocess | OpenAI-compatible HTTP, prompt files/interpolation/context/candidates, command scene. | Command adapter and OpenAI-compatible paths exist; real UX/config incomplete. | Partial. |
 | Adapter supervisor | Process supervision, PID files, stderr notifications. | Process supervision, PID files, D-Bus start/stop, diagnostics. | Mostly aligned. |
 | Remote text service | Legacy has HTTP/WebSocket remote text service. | Not implemented. | Missing. |
@@ -294,7 +294,8 @@ Acceptance:
 - Proven: live-registry Qwen3 model install, native construction, and bundled WAV recognition pass.
 - Implemented: known unsupported and unknown future families retain their exact family names in diagnostics.
 - Implemented: online transducer and Zipformer2 CTC typed metadata/runtime mapping; Zipformer2 CTC is registry-model WAV-proven.
-- Remaining acceptance: add native layouts for Moonshine, Dolphin, Paraformer, and other live-registry families.
+- Implemented: Moonshine v1 typed metadata/runtime mapping and a live-registry Tiny int8 WAV smoke with exact transcript assertion.
+- Remaining acceptance: add native layouts for Dolphin, Paraformer, and other live-registry families.
 
 ### P1.2 sherpa streaming backend
 
@@ -339,7 +340,7 @@ Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Add warm reload semantics on top of the implemented VAD, endpoint-config, warmup, and timeout diagnostics.
-3. Port Moonshine, Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
+3. Port Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
 4. Complete scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.
 
 ## Stop conditions

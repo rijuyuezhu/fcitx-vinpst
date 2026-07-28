@@ -63,7 +63,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 1. Live desktop validation has not proven the complete native path: Fcitx trigger, PipeWire capture, native inference, postprocess, and commit in a real application.
 2. Native online decoding and live D-Bus partial emission are implemented and session-bus tested, but the complete Fcitx/PipeWire/partial-preedit path remains unproven on a real desktop.
 3. Offline Silero VAD, online endpoint rule forwarding, recognizer warmup, and per-backend timeout capability diagnostics are implemented; warm reload semantics remain incomplete.
-4. SenseVoice, Qwen3 ASR, transducer, and Zipformer2 CTC mappings are implemented; Moonshine, Dolphin, Paraformer, and other registry-compatible families still need runtime support.
+4. SenseVoice, Qwen3 ASR, Moonshine v1, transducer, and Zipformer2 CTC mappings are implemented; Dolphin, Paraformer, and other registry-compatible families still need runtime support. Moonshine Tiny int8 is live-registry installed and real-WAV proven.
 5. Native shared-library resolution is improved for local smoke but still needs a robust activation, desktop-install, and distribution story.
 6. Fcitx UX parity is incomplete: scene menu, ASR menu, frontend config UI, tap/hold/both behavior, paging/search menus, and rich notifications are missing or partial.
 7. Remote ASR/text services, full provider/adapter registry installation, distro packaging, and the legacy GUI remain incomplete.

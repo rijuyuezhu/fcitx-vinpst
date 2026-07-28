@@ -70,7 +70,7 @@ Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Add native warm reload behavior.
-3. Port Moonshine, Dolphin, Paraformer, and other remaining families in registry-priority order.
+3. Port Dolphin, Paraformer, and other remaining families in registry-priority order; Moonshine v1 is already live-registry installed and WAV-proven.
 4. Add scene/ASR menus and persistent frontend trigger configuration where they directly support live validation.
 
 Do not start broad GUI polish or distro packaging before real desktop native alpha is proven. Keep refactors feature-driven and scoped to the next migration slice.
