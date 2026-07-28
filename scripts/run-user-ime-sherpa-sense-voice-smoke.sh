@@ -8,34 +8,23 @@ tmp_dir="$(mktemp -d)"
 stub_bin="${tmp_dir}/bin"
 home_dir="${tmp_dir}/home"
 out_dir="${tmp_dir}/out"
-backup_dir="${tmp_dir}/target-backup"
+runtime_bin="${out_dir}/runtime-bin"
 
 cleanup() {
-  mkdir -p target/debug
-  for binary in vinput vinput-daemon; do
-    if [[ -e "${backup_dir}/${binary}" ]]; then
-      cp -a "${backup_dir}/${binary}" "target/debug/${binary}"
-    else
-      rm -f "target/debug/${binary}"
-    fi
-  done
   rm -rf "${tmp_dir}"
 }
 trap cleanup EXIT
 
-mkdir -p "${stub_bin}" "${home_dir}" "${out_dir}" "${backup_dir}"
-for binary in vinput vinput-daemon; do
-  if [[ -e "target/debug/${binary}" ]]; then
-    cp -a "target/debug/${binary}" "${backup_dir}/${binary}"
-  fi
-done
+mkdir -p "${stub_bin}" "${home_dir}" "${out_dir}" "${runtime_bin}"
 
 cat >"${stub_bin}/cargo" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"${VINPUT_STUB_CARGO_CALLS:?}"
-mkdir -p target/debug
-cat >target/debug/vinput <<'VINPUT'
+: "${VINPUT_USER_CLI_BINARY:?}"
+: "${VINPUT_USER_DAEMON_BINARY:?}"
+mkdir -p "$(dirname "${VINPUT_USER_CLI_BINARY}")" "$(dirname "${VINPUT_USER_DAEMON_BINARY}")"
+cat >"${VINPUT_USER_CLI_BINARY}" <<'VINPUT'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >>"${VINPUT_STUB_CALLS:?}"
@@ -65,14 +54,14 @@ SERVICE
     ;;
 esac
 VINPUT
-chmod +x target/debug/vinput
-cat >target/debug/vinput-daemon <<'DAEMON'
+chmod +x "${VINPUT_USER_CLI_BINARY}"
+cat >"${VINPUT_USER_DAEMON_BINARY}" <<'DAEMON'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'daemon %s\n' "$*" >>"${VINPUT_STUB_CALLS:?}"
 printf '{"runtime":"ok"}\n'
 DAEMON
-chmod +x target/debug/vinput-daemon
+chmod +x "${VINPUT_USER_DAEMON_BINARY}"
 SH
 chmod +x "${stub_bin}/cargo"
 
@@ -120,6 +109,8 @@ HOME="${home_dir}" \
 XDG_DATA_HOME="${home_dir}/.local/share" \
 VINPUT_STUB_CALLS="${calls_log}" \
 VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
+VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
+VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
 VINPUT_USER_PROFILE=sherpa-sense-voice-live \
 VINPUT_USER_AUDIO_BACKEND=mock \
 VINPUT_USER_SHERPA_MODEL="${model_dir}" \
@@ -183,12 +174,13 @@ fi
 
 : >"${cargo_calls_log}"
 : >"${calls_log}"
-rm -f target/debug/vinput
 PATH="${stub_bin}:${PATH}" \
 HOME="${home_dir}" \
 XDG_DATA_HOME="${home_dir}/.local/share" \
 VINPUT_STUB_CALLS="${calls_log}" \
 VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
+VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
+VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
 VINPUT_USER_PROFILE=sherpa-sense-voice-live \
 VINPUT_USER_STATUS=1 \
 scripts/install-user-ime.sh >"${out_dir}/status.log" 2>&1
@@ -216,6 +208,8 @@ HOME="${home_dir}" \
 XDG_DATA_HOME="${home_dir}/.local/share" \
 VINPUT_STUB_CALLS="${calls_log}" \
 VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
+VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
+VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
 VINPUT_USER_PROFILE=sherpa-sense-voice-live \
 VINPUT_USER_STATUS=1 \
 VINPUT_USER_RUNTIME_STATUS=0 \

@@ -21,6 +21,8 @@ fcitx_env_wrapper="${config_dir}/fcitx5-with-vinput-env.sh"
 fcitx_autostart_file="${autostart_dir}/org.fcitx.Fcitx5.desktop"
 
 daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
+cli_binary="${VINPUT_USER_CLI_BINARY:-target/debug/vinput}"
+daemon_binary="${VINPUT_USER_DAEMON_BINARY:-target/debug/vinput-daemon}"
 module_path="${lib_dir}/fcitx5-vinput.so"
 addon_conf_path="${addon_dir}/vinput.conf"
 build_dir="target/cpp/fcitx5-user-ime"
@@ -239,7 +241,7 @@ run_runtime_status_validation() {
   fi
   cargo_build_vinput_binaries
   echo "Runtime status validation:"
-  target/debug/vinput-daemon --configured-backends --config "${runtime_config}" runtime-status
+  "${daemon_binary}" --configured-backends --config "${runtime_config}" runtime-status
 }
 
 write_fcitx_env_integration() {
@@ -305,7 +307,7 @@ PY
   if [[ -n "${status_config}" && -f "${status_config}" ]]; then
     args+=(--config "${status_config}")
   fi
-  target/debug/vinput "${args[@]}"
+  "${cli_binary}" "${args[@]}"
 }
 
 if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
@@ -315,7 +317,7 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   fi
   remove_fcitx_env_integration
   cargo_build_vinput_cli
-  target/debug/vinput activation-service --remove-user
+  "${cli_binary}" activation-service --remove-user
   echo "Removed user IME files if present:"
   echo "  ${module_path}"
   echo "  ${addon_conf_path}"
@@ -397,7 +399,7 @@ case "${profile}" in
 esac
 
 cargo_build_vinput_binaries
-install -Dm755 target/debug/vinput-daemon "${daemon_path}"
+install -Dm755 "${daemon_binary}" "${daemon_path}"
 
 rm -rf "${build_dir}"
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
@@ -426,7 +428,7 @@ if [[ -n "${audio_backend}" ]]; then
   activation_args+=(--audio-backend "${audio_backend}")
 fi
 activation_args+=("${daemon_args[@]}")
-target/debug/vinput "${activation_args[@]}"
+"${cli_binary}" "${activation_args[@]}"
 run_runtime_status_validation
 
 cat <<EOF

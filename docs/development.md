@@ -115,6 +115,8 @@ HOME="$tmp_home" VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
 rm -rf "$tmp_home"
 ```
 
+`scripts/install-user-ime.sh` uses `target/debug/vinput` and `target/debug/vinput-daemon` by default. Tests that stub these programs must instead set `VINPUT_USER_CLI_BINARY` and `VINPUT_USER_DAEMON_BINARY` to files under their own temporary directory. User-install smokes must never overwrite, remove, back up, or restore Cargo output binaries because Cargo fingerprints do not detect external replacement reliably.
+
 ### Optional live desktop checks
 
 Run only inside a real desktop session where Fcitx5 and PipeWire are expected to work:

@@ -452,3 +452,60 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         );
     }
 }
+
+#[test]
+fn user_install_smokes_isolate_stub_binaries_from_cargo_outputs() {
+    let development = std::fs::read_to_string(workspace_file("docs/development.md"))
+        .expect("read development guide");
+    let install = std::fs::read_to_string(workspace_file("scripts/install-user-ime.sh"))
+        .expect("read user install script");
+    let smokes = [
+        std::fs::read_to_string(workspace_file(
+            "scripts/run-user-ime-real-command-asr-wav-smoke.sh",
+        ))
+        .expect("read real command ASR user smoke"),
+        std::fs::read_to_string(workspace_file(
+            "scripts/run-user-ime-sherpa-sense-voice-smoke.sh",
+        ))
+        .expect("read sherpa user smoke"),
+    ];
+
+    for required in [
+        "VINPUT_USER_CLI_BINARY",
+        "VINPUT_USER_DAEMON_BINARY",
+        "target/debug/vinput",
+        "target/debug/vinput-daemon",
+    ] {
+        assert!(
+            install.contains(required),
+            "user install script should expose binary source override: {required}"
+        );
+        assert!(
+            development.contains(required),
+            "development guide should document binary isolation: {required}"
+        );
+    }
+
+    for smoke in smokes {
+        for required in [
+            "runtime_bin=",
+            "VINPUT_USER_CLI_BINARY=",
+            "VINPUT_USER_DAEMON_BINARY=",
+        ] {
+            assert!(
+                smoke.contains(required),
+                "user install smoke should keep stubs under its temporary tree: {required}"
+            );
+        }
+        for forbidden in [
+            "cat >target/debug/vinput",
+            "rm -f target/debug/vinput",
+            "backup_dir=",
+        ] {
+            assert!(
+                !smoke.contains(forbidden),
+                "user install smoke must not mutate Cargo outputs: {forbidden}"
+            );
+        }
+    }
+}
