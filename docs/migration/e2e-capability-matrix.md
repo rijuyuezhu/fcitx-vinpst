@@ -328,7 +328,7 @@ Acceptance:
 
 ## P2 plan: frontend and release polish
 
-- Implemented and deterministic-test proven: minimal scene menu with Right Shift default and provider-level ASR menu with F8 default; both use typed D-Bus state, keyboard/paging/digit/mouse selection, and atomic explicit-config persistence. ASR selection queues background reload and is proven through C++/sd-bus with subsequent recognition. Remaining: real desktop menu proof, installed-model ASR rows, legacy search, and persistent frontend trigger/mode config.
+- Implemented and deterministic-test proven: minimal scene menu with Right Shift default and installed-model-aware ASR menu with F8 default; both use typed D-Bus state, keyboard/paging/digit/mouse selection, and atomic explicit-config persistence. The daemon scans flat Rust and legacy engine/model layouts outside the runtime mutex; provider/model selection queues background reload and is proven through C++/sd-bus with subsequent recognition. Remaining: real desktop menu proof, legacy search, richer labels/i18n, and persistent frontend trigger/mode config.
 - Live validation of the implemented primary-selection clipboard fallback across applications where Fcitx surrounding text is unavailable.
 - User-facing install guide based on `vinput init`, `model install/use`, `doctor`, and `daemon start`.
 - Distro packaging after P0 live desktop native path is proven.
@@ -340,7 +340,7 @@ Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
-3. Prove the scene and provider-level ASR menus in a real Fcitx session, then add installed-model ASR rows and persistent frontend trigger/mode configuration.
+3. Prove the scene and installed-model ASR menus in a real Fcitx session, then add persistent frontend trigger/mode configuration and legacy menu search/i18n details.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.
 
 ## Stop conditions

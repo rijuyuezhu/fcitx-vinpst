@@ -12,6 +12,7 @@
 
 using vinput_fcitx_bridge::AsrBackendStateSnapshot;
 using vinput_fcitx_bridge::AsrMenuStateSnapshot;
+using vinput_fcitx_bridge::AsrTargetMenuStateSnapshot;
 using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FrontendBridge;
 using vinput_fcitx_bridge::kDefaultCommandSceneId;
@@ -222,6 +223,82 @@ bool ExpectAsrMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
   return false;
 }
 
+bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
+  AsrTargetMenuStateSnapshot state;
+  if (!client->GetAsrTargetMenuState(&state, error)) {
+    return false;
+  }
+  if (state.target_provider_id.empty() || state.effective_provider_id.empty() ||
+      state.targets.empty()) {
+    if (error != nullptr) {
+      *error = "ASR target menu state did not expose target, effective, and rows";
+    }
+    return false;
+  }
+
+  const auto switch_provider =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_SWITCH_ASR_TARGET_PROVIDER");
+  const auto switch_model =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_SWITCH_ASR_TARGET_MODEL");
+  if (switch_provider.empty() && switch_model.empty()) {
+    return true;
+  }
+  if (switch_provider.empty() || switch_model.empty()) {
+    if (error != nullptr) {
+      *error = "ASR target switch requires both provider and model values";
+    }
+    return false;
+  }
+  bool found = false;
+  for (const auto &target : state.targets) {
+    found = found || (target.provider_id == switch_provider &&
+                      target.model_value == switch_model);
+  }
+  if (!found) {
+    if (error != nullptr) {
+      *error = "ASR target menu state missing requested target: " + switch_provider +
+               "/" + switch_model;
+    }
+    return false;
+  }
+
+  bool persisted = false;
+  if (!client->SetActiveAsrTarget(switch_provider, switch_model, &persisted, error)) {
+    return false;
+  }
+  const bool expect_persisted =
+      !OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_TARGET_PERSISTED").empty();
+  if (persisted != expect_persisted) {
+    if (error != nullptr) {
+      *error = "ASR target persistence result did not match expectation";
+    }
+    return false;
+  }
+
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!client->GetAsrTargetMenuState(&state, error)) {
+      return false;
+    }
+    if (!state.reload_in_progress && state.target_provider_id == switch_provider &&
+        state.target_model_id == switch_model &&
+        state.effective_provider_id == switch_provider) {
+      return state.last_error.empty();
+    }
+    if (!state.reload_in_progress && !state.last_error.empty()) {
+      if (error != nullptr) {
+        *error = "ASR target reload failed: " + state.last_error;
+      }
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (error != nullptr) {
+    *error = "timed out waiting for ASR target switch to " + switch_provider + "/" +
+             switch_model;
+  }
+  return false;
+}
+
 bool ExpectAdapterLifecycle(SdBusDaemonClient *client, std::string_view adapter_id,
                             std::string *error) {
   std::string state_json;
@@ -338,6 +415,10 @@ int main() {
   }
   if (!ExpectAsrMenuLifecycle(client.get(), &error)) {
     std::cerr << "ASR menu lifecycle check failed: " << error << '\n';
+    return 1;
+  }
+  if (!ExpectAsrTargetMenuLifecycle(client.get(), &error)) {
+    std::cerr << "ASR target menu lifecycle check failed: " << error << '\n';
     return 1;
   }
   const auto lifecycle_adapter =

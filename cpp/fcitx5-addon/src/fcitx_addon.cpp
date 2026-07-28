@@ -55,18 +55,31 @@ int CurrentMenuSelectionIndex(fcitx::CandidateList *candidate_list) {
   return page * kMenuPageSize + candidate_list->cursorIndex();
 }
 
-std::string AsrProviderLabel(const AsrMenuProviderItem &provider,
-                             const AsrMenuStateSnapshot &state) {
-  std::string label = provider.model.empty() ? provider.id : provider.model;
-  label += " [" + provider.kind + "]";
-  if (state.reload_in_progress && provider.id == state.target_provider_id &&
-      provider.id != state.effective_provider_id) {
+bool IsEffectiveAsrTarget(const AsrTargetMenuItem &target,
+                          const AsrTargetMenuStateSnapshot &state) {
+  if (target.provider_id != state.effective_provider_id) {
+    return false;
+  }
+  if (target.model_value == state.effective_model_id) {
+    return true;
+  }
+  return !state.reload_in_progress && state.last_error.empty() &&
+         target.provider_id == state.target_provider_id &&
+         target.model_value == state.target_model_id;
+}
+
+std::string AsrTargetLabel(const AsrTargetMenuItem &target,
+                           const AsrTargetMenuStateSnapshot &state) {
+  std::string label = target.item_id.empty() ? target.provider_id : target.item_id;
+  label += " [" + target.kind + "]";
+  if (state.reload_in_progress && target.provider_id == state.target_provider_id &&
+      target.model_value == state.target_model_id) {
     label += " (loading)";
   }
   return label;
 }
 
-std::string EffectiveAsrLabel(const AsrMenuStateSnapshot &state) {
+std::string EffectiveAsrLabel(const AsrTargetMenuStateSnapshot &state) {
   std::string label = state.effective_model_id.empty() ? state.effective_provider_id
                                                        : state.effective_model_id;
   if (label.empty()) {
@@ -74,6 +87,9 @@ std::string EffectiveAsrLabel(const AsrMenuStateSnapshot &state) {
   }
   if (state.reload_in_progress && !state.target_provider_id.empty()) {
     label += " | Loading: " + state.target_provider_id;
+    if (!state.target_model_id.empty()) {
+      label += "/" + state.target_model_id;
+    }
   }
   if (!state.last_error.empty()) {
     label += " | Error: " + state.last_error;
@@ -461,16 +477,16 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
   asr_menu_indices_.clear();
-  for (std::size_t index = 0; index < asr_menu_state_.providers.size(); ++index) {
-    const auto &provider = asr_menu_state_.providers[index];
-    if (provider.id == asr_menu_state_.effective_provider_id) {
+  for (std::size_t index = 0; index < asr_menu_state_.targets.size(); ++index) {
+    const auto &target = asr_menu_state_.targets[index];
+    if (IsEffectiveAsrTarget(target, asr_menu_state_)) {
       continue;
     }
     asr_menu_indices_.push_back(index);
     candidates->append<MenuCandidateWord>(
-        AsrProviderLabel(provider, asr_menu_state_),
+        AsrTargetLabel(target, asr_menu_state_),
         [this, index](fcitx::InputContext *input_context) {
-          SelectAsrProvider(index, input_context);
+          SelectAsrTarget(index, input_context);
         });
   }
   if (candidates->totalSize() > 0) {
@@ -479,7 +495,7 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
 
   asr_menu_ic_ = ic;
   asr_menu_visible_ = true;
-  ic->inputPanel().setAuxUp(fcitx::Text("ASR Providers"));
+  ic->inputPanel().setAuxUp(fcitx::Text("ASR Models"));
   ic->inputPanel().setAuxDown(
       fcitx::Text("Current: " + EffectiveAsrLabel(asr_menu_state_)));
   ic->inputPanel().setCandidateList(std::move(candidates));
@@ -488,7 +504,7 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
 
 bool FcitxVinputAddon::RefreshAsrMenuState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
-  return client != nullptr && client->GetAsrMenuState(&asr_menu_state_, error);
+  return client != nullptr && client->GetAsrTargetMenuState(&asr_menu_state_, error);
 }
 
 void FcitxVinputAddon::HideAsrMenu() {
@@ -545,8 +561,7 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
   } else if (IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter)) {
     const int index = CurrentMenuSelectionIndex(candidate_list.get());
     if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
-      SelectAsrProvider(asr_menu_indices_[static_cast<std::size_t>(index)],
-                        asr_menu_ic_);
+      SelectAsrTarget(asr_menu_indices_[static_cast<std::size_t>(index)], asr_menu_ic_);
     } else {
       HideAsrMenu();
     }
@@ -558,8 +573,8 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
       const int page = pageable != nullptr ? pageable->currentPage() : 0;
       const int index = page * kMenuPageSize + digit;
       if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
-        SelectAsrProvider(asr_menu_indices_[static_cast<std::size_t>(index)],
-                          asr_menu_ic_);
+        SelectAsrTarget(asr_menu_indices_[static_cast<std::size_t>(index)],
+                        asr_menu_ic_);
       }
       event.filterAndAccept();
       return true;
@@ -572,24 +587,25 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
   return true;
 }
 
-void FcitxVinputAddon::SelectAsrProvider(std::size_t index, fcitx::InputContext *ic) {
-  if (index >= asr_menu_state_.providers.size()) {
+void FcitxVinputAddon::SelectAsrTarget(std::size_t index, fcitx::InputContext *ic) {
+  if (index >= asr_menu_state_.targets.size()) {
     HideAsrMenu();
     return;
   }
   std::string error;
   bool persisted = false;
   auto *client = EnsureDaemonClient(&error);
-  const auto &provider = asr_menu_state_.providers[index];
+  const auto &target = asr_menu_state_.targets[index];
   if (client == nullptr ||
-      !client->SetActiveAsrProvider(provider.id, &persisted, &error)) {
+      !client->SetActiveAsrTarget(target.provider_id, target.model_value, &persisted,
+                                  &error)) {
     HideAsrMenu();
     ApplyDaemonUnavailable(ic, std::move(error));
     return;
   }
   HideAsrMenu();
-  FCITX_INFO() << "fcitx-vinput requested ASR provider switch to " << provider.id
-               << " persisted=" << persisted;
+  FCITX_INFO() << "fcitx-vinput requested ASR target switch to " << target.provider_id
+               << '/' << target.item_id << " persisted=" << persisted;
 }
 
 } // namespace vinput_fcitx_bridge

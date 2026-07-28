@@ -59,7 +59,7 @@ private:
   void HideAsrMenu();
   bool RefreshAsrMenuState(std::string *error);
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
-  void SelectAsrProvider(std::size_t index, fcitx::InputContext *ic);
+  void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
 
   fcitx::Instance *instance_ = nullptr;
   FrontendBridge bridge_;
@@ -69,7 +69,7 @@ private:
   std::string active_scene_id_{kDefaultNormalSceneId};
   fcitx::InputContext *scene_menu_ic_ = nullptr;
   bool scene_menu_visible_ = false;
-  AsrMenuStateSnapshot asr_menu_state_;
+  AsrTargetMenuStateSnapshot asr_menu_state_;
   std::vector<std::size_t> asr_menu_indices_;
   fcitx::InputContext *asr_menu_ic_ = nullptr;
   bool asr_menu_visible_ = false;

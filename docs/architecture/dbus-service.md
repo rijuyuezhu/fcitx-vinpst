@@ -32,7 +32,7 @@ Preserve these legacy method names and payload shapes:
 - `StartAdapter`
 - `StopAdapter`
 
-`GetTextAdapterState` and `GetRuntimeStatus` are Rust diagnostic extensions. `GetSceneState() -> sa(ss)`, `SetActiveScene(s) -> b`, `GetAsrMenuState() -> sssbsa(sss)`, and `SetActiveAsrProvider(s) -> b` are Rust configuration extensions used by the retained Fcitx frontend. They can remain available, but they are not part of the original C++ daemon vtable and should be documented as extensions whenever listed.
+`GetTextAdapterState` and `GetRuntimeStatus` are Rust diagnostic extensions. `GetSceneState() -> sa(ss)`, `SetActiveScene(s) -> b`, `GetAsrMenuState() -> sssbsa(sss)`, `SetActiveAsrProvider(s) -> b`, `GetAsrTargetMenuState() -> ssssbsa(ssss)`, and `SetActiveAsrTarget(ss) -> b` are Rust configuration extensions used by the retained Fcitx frontend. They can remain available, but they are not part of the original C++ daemon vtable and should be documented as extensions whenever listed.
 
 ## Status strings
 
@@ -79,6 +79,8 @@ The Rust service pins these legacy-visible behaviors with unit and D-Bus integra
 - `SetActiveScene` is idle-only, rejects unknown scenes with the legacy operation error, updates runtime state, and atomically persists the explicit daemon config when one exists; its boolean reply distinguishes persistent and runtime-only selection;
 - `GetAsrMenuState` exposes configured target, actual effective provider/model, reload progress, the last reload error, and typed provider id/kind/model rows without making C++ parse config JSON;
 - `SetActiveAsrProvider` rejects unknown providers, atomically persists the explicit daemon config when one exists, and queues the selected provider through the same non-blocking prepare-before-swap worker; its boolean reply distinguishes persistent and runtime-only selection;
+- `GetAsrTargetMenuState` scans the configured model root outside the runtime mutex, combines flat Rust and legacy engine/model install layouts with configured provider rows, and exposes stable item ids plus concrete model values;
+- `SetActiveAsrTarget` accepts only a configured model or a path returned by installed-model discovery, atomically persists provider/model selection, and queues the same background prepare-before-swap reload;
 - status strings and core legacy method/signal names remain centralized in `vinput-protocol`.
 
 A real legacy `postprocessing` runtime phase is still not wired; current text finishing runs synchronously inside stop handling. Status ordering must stay covered by tests when that phase becomes real.

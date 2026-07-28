@@ -25,6 +25,9 @@ inline constexpr std::string_view kMethodGetSceneState = "GetSceneState";
 inline constexpr std::string_view kMethodSetActiveScene = "SetActiveScene";
 inline constexpr std::string_view kMethodGetAsrMenuState = "GetAsrMenuState";
 inline constexpr std::string_view kMethodSetActiveAsrProvider = "SetActiveAsrProvider";
+inline constexpr std::string_view kMethodGetAsrTargetMenuState =
+    "GetAsrTargetMenuState";
+inline constexpr std::string_view kMethodSetActiveAsrTarget = "SetActiveAsrTarget";
 inline constexpr std::string_view kMethodReloadAsrBackend = "ReloadAsrBackend";
 inline constexpr std::string_view kMethodStartAdapter = "StartAdapter";
 inline constexpr std::string_view kMethodStopAdapter = "StopAdapter";

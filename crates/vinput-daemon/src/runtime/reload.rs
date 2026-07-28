@@ -87,6 +87,16 @@ impl RuntimeState {
         self.config_path = path;
     }
 
+    /// Configures the installed-model root exposed to frontend menus.
+    pub fn set_model_root(&mut self, model_root: Option<PathBuf>) {
+        self.model_root = model_root;
+    }
+
+    /// Returns the installed-model root without performing file I/O.
+    pub(crate) fn model_root(&self) -> Option<PathBuf> {
+        self.model_root.clone()
+    }
+
     /// Captures the reload config source without performing file I/O.
     /// Returns the explicit daemon config path, if any.
     pub(crate) fn config_path_for_persistence(&self) -> Option<PathBuf> {

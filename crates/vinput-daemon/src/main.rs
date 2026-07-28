@@ -44,6 +44,10 @@ struct Args {
     #[arg(long)]
     config: Option<PathBuf>,
 
+    /// Installed model root exposed to the ASR selection menu.
+    #[arg(long, value_name = "DIR")]
+    model_root: Option<PathBuf>,
+
     /// Raw signed 16-bit little-endian PCM file to use for `--once`.
     #[arg(long, value_name = "PATH")]
     pcm16le: Option<PathBuf>,
@@ -161,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut runtime = build_runtime(&args, config).context("initialize runtime")?;
     runtime.set_config_path(args.config.clone());
+    runtime.set_model_root(Some(resolve_model_root(args.model_root.as_ref())?));
 
     if args.once {
         if let Some(selected_text) = args.selected_text {
@@ -418,6 +423,21 @@ fn read_pcm16le(path: &Path, spec: PcmSpec) -> anyhow::Result<PcmBuffer> {
         std::fs::read(path).with_context(|| format!("read PCM file `{}`", path.display()))?;
     PcmBuffer::from_pcm16le_bytes(spec, &bytes)
         .with_context(|| format!("decode PCM file `{}`", path.display()))
+}
+
+fn resolve_model_root(explicit: Option<&PathBuf>) -> anyhow::Result<PathBuf> {
+    if let Some(path) = explicit {
+        return Ok(path.clone());
+    }
+    if let Some(path) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(path).join("fcitx-vinput").join("models"));
+    }
+    let home = std::env::var_os("HOME")
+        .context("resolve installed model root: HOME is unset and XDG_DATA_HOME is unset")?;
+    Ok(PathBuf::from(home)
+        .join(".local/share")
+        .join("fcitx-vinput")
+        .join("models"))
 }
 
 fn load_config(path: Option<&PathBuf>) -> anyhow::Result<VinputConfig> {

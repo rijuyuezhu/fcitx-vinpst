@@ -1373,6 +1373,7 @@ fn help_lists_diagnostics_commands() {
 
     let stdout = assert_success_stdout(output, "help output");
     assert!(stdout.contains("--config"));
+    assert!(stdout.contains("--model-root"));
     assert!(stdout.contains("--configured-backends"));
     assert!(stdout.contains("--audio-backend"));
     assert!(stdout.contains("--record-ms"));

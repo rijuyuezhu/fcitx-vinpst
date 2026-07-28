@@ -42,6 +42,10 @@ pub mod method {
     pub const GET_ASR_MENU_STATE: &str = "GetAsrMenuState";
     /// Select, persist, and queue reload for a configured ASR provider.
     pub const SET_ACTIVE_ASR_PROVIDER: &str = "SetActiveAsrProvider";
+    /// Return target/effective ASR state plus provider/model rows.
+    pub const GET_ASR_TARGET_MENU_STATE: &str = "GetAsrTargetMenuState";
+    /// Select, persist, and queue reload for an ASR provider/model target.
+    pub const SET_ACTIVE_ASR_TARGET: &str = "SetActiveAsrTarget";
     /// Reload the selected ASR backend.
     pub const RELOAD_ASR_BACKEND: &str = "ReloadAsrBackend";
     /// Start a configured LLM adapter process.
@@ -98,6 +102,8 @@ pub const CONFIG_EXTENSION_METHODS: &[&str] = &[
     method::SET_ACTIVE_SCENE,
     method::GET_ASR_MENU_STATE,
     method::SET_ACTIVE_ASR_PROVIDER,
+    method::GET_ASR_TARGET_MENU_STATE,
+    method::SET_ACTIVE_ASR_TARGET,
 ];
 
 /// Method names exported on [`SERVICE_INTERFACE`] in protocol order.
@@ -113,6 +119,8 @@ pub const SERVICE_METHODS: &[&str] = &[
     method::SET_ACTIVE_SCENE,
     method::GET_ASR_MENU_STATE,
     method::SET_ACTIVE_ASR_PROVIDER,
+    method::GET_ASR_TARGET_MENU_STATE,
+    method::SET_ACTIVE_ASR_TARGET,
     method::RELOAD_ASR_BACKEND,
     method::START_ADAPTER,
     method::STOP_ADAPTER,
@@ -144,6 +152,8 @@ mod tests {
         assert_eq!(method::SET_ACTIVE_SCENE, "SetActiveScene");
         assert_eq!(method::GET_ASR_MENU_STATE, "GetAsrMenuState");
         assert_eq!(method::SET_ACTIVE_ASR_PROVIDER, "SetActiveAsrProvider");
+        assert_eq!(method::GET_ASR_TARGET_MENU_STATE, "GetAsrTargetMenuState");
+        assert_eq!(method::SET_ACTIVE_ASR_TARGET, "SetActiveAsrTarget");
         assert_eq!(method::NOTIFY, "Notify");
         assert_eq!(
             error::OPERATION_FAILED,
@@ -195,6 +205,7 @@ mod tests {
         assert!(DIAGNOSTIC_EXTENSION_METHODS.contains(&method::GET_RUNTIME_STATUS));
         assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_SCENE_STATE));
         assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_ASR_MENU_STATE));
+        assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_ASR_TARGET_MENU_STATE));
     }
 
     #[test]

@@ -201,6 +201,81 @@ bool ReadAsrMenuStateReply(sd_bus_message *message, AsrMenuStateSnapshot *state,
   return true;
 }
 
+bool ReadAsrTargetMenuStateReply(sd_bus_message *message,
+                                 AsrTargetMenuStateSnapshot *state,
+                                 std::string *error) {
+  const char *target_provider_id = nullptr;
+  const char *target_model_id = nullptr;
+  const char *effective_provider_id = nullptr;
+  const char *effective_model_id = nullptr;
+  int reload_in_progress = 0;
+  const char *last_error = nullptr;
+  int result = sd_bus_message_read(
+      message, "ssssbs", &target_provider_id, &target_model_id, &effective_provider_id,
+      &effective_model_id, &reload_in_progress, &last_error);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "read ASR target menu state", result, bus_error);
+    return false;
+  }
+
+  result = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "(ssss)");
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "enter ASR target array", result, bus_error);
+    return false;
+  }
+  std::vector<AsrTargetMenuItem> targets;
+  for (;;) {
+    result = sd_bus_message_enter_container(message, SD_BUS_TYPE_STRUCT, "ssss");
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "enter ASR target item", result, bus_error);
+      return false;
+    }
+    if (result == 0) {
+      break;
+    }
+    const char *provider_id = nullptr;
+    const char *kind = nullptr;
+    const char *item_id = nullptr;
+    const char *model_value = nullptr;
+    result = sd_bus_message_read(message, "ssss", &provider_id, &kind, &item_id,
+                                 &model_value);
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "read ASR target item", result, bus_error);
+      return false;
+    }
+    result = sd_bus_message_exit_container(message);
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "exit ASR target item", result, bus_error);
+      return false;
+    }
+    targets.push_back(AsrTargetMenuItem{
+        provider_id != nullptr ? provider_id : "", kind != nullptr ? kind : "",
+        item_id != nullptr ? item_id : "", model_value != nullptr ? model_value : ""});
+  }
+  result = sd_bus_message_exit_container(message);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "exit ASR target array", result, bus_error);
+    return false;
+  }
+  if (state != nullptr) {
+    state->target_provider_id = target_provider_id != nullptr ? target_provider_id : "";
+    state->target_model_id = target_model_id != nullptr ? target_model_id : "";
+    state->effective_provider_id =
+        effective_provider_id != nullptr ? effective_provider_id : "";
+    state->effective_model_id = effective_model_id != nullptr ? effective_model_id : "";
+    state->reload_in_progress = reload_in_progress != 0;
+    state->last_error = last_error != nullptr ? last_error : "";
+    state->targets = std::move(targets);
+  }
+  return true;
+}
+
 bool ReadAsrBackendStateReply(sd_bus_message *message, AsrBackendStateSnapshot *state,
                               std::string *error) {
   const char *target_provider_id = nullptr;
@@ -273,6 +348,30 @@ bool CallMethod(sd_bus *bus, std::string_view method, const char *signature,
   const int result =
       sd_bus_call_method(bus, bus_name.c_str(), object_path.c_str(), interface.c_str(),
                          method_name.c_str(), &bus_error, reply, signature, argument);
+  if (result < 0) {
+    SetSdBusError(error, method, result, bus_error);
+    sd_bus_error_free(&bus_error);
+    return false;
+  }
+  sd_bus_error_free(&bus_error);
+  return true;
+}
+
+bool CallMethodWithTwoStrings(sd_bus *bus, std::string_view method,
+                              std::string_view first, std::string_view second,
+                              sd_bus_message **reply, std::string *error) {
+  const auto bus_name = std::string(dbus::kServiceBusName);
+  const auto object_path = std::string(dbus::kServiceObjectPath);
+  const auto interface = std::string(dbus::kServiceInterface);
+  const auto method_name = std::string(method);
+  const auto first_argument = std::string(first);
+  const auto second_argument = std::string(second);
+
+  sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+  const int result =
+      sd_bus_call_method(bus, bus_name.c_str(), object_path.c_str(), interface.c_str(),
+                         method_name.c_str(), &bus_error, reply, "ss",
+                         first_argument.c_str(), second_argument.c_str());
   if (result < 0) {
     SetSdBusError(error, method, result, bus_error);
     sd_bus_error_free(&bus_error);
@@ -374,6 +473,25 @@ bool SdBusDaemonClient::SetActiveAsrProvider(std::string_view provider_id,
                                  persisted, error);
 }
 
+bool SdBusDaemonClient::GetAsrTargetMenuState(AsrTargetMenuStateSnapshot *state,
+                                              std::string *error) {
+  sd_bus_message *message = nullptr;
+  if (!CallMethod(bus_, dbus::kMethodGetAsrTargetMenuState, "", nullptr, &message,
+                  error)) {
+    return false;
+  }
+  const bool ok = ReadAsrTargetMenuStateReply(message, state, error);
+  UnrefMessage(message);
+  return ok;
+}
+
+bool SdBusDaemonClient::SetActiveAsrTarget(std::string_view provider_id,
+                                           std::string_view model_value,
+                                           bool *persisted, std::string *error) {
+  return CallBoolReplyWithTwoStrings(dbus::kMethodSetActiveAsrTarget, provider_id,
+                                     model_value, persisted, error);
+}
+
 bool SdBusDaemonClient::GetTextAdapterState(std::string *state_json,
                                             std::string *error) {
   return CallStringReply(dbus::kMethodGetTextAdapterState, state_json, error);
@@ -441,6 +559,19 @@ bool SdBusDaemonClient::CallBoolReplyWithString(std::string_view method,
   const auto argument = std::string(value);
   sd_bus_message *message = nullptr;
   if (!CallMethod(bus_, method, "s", argument.c_str(), &message, error)) {
+    return false;
+  }
+  const bool ok = ReadBoolReply(message, reply, error);
+  UnrefMessage(message);
+  return ok;
+}
+
+bool SdBusDaemonClient::CallBoolReplyWithTwoStrings(std::string_view method,
+                                                    std::string_view first,
+                                                    std::string_view second,
+                                                    bool *reply, std::string *error) {
+  sd_bus_message *message = nullptr;
+  if (!CallMethodWithTwoStrings(bus_, method, first, second, &message, error)) {
     return false;
   }
   const bool ok = ReadBoolReply(message, reply, error);

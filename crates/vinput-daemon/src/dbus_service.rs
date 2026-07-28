@@ -4,11 +4,14 @@
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::MissedTickBehavior};
 use vinput_protocol::{AsrBackendState, ServiceStatus, dbus};
+use vinput_registry::scan_installed_models;
 use zbus::{Connection, DBusError, object_server::SignalEmitter};
 
 use crate::{
     RuntimeError, RuntimeState,
-    runtime::{AsrReloadWorkerStep, persist_config_atomically, select_asr_provider},
+    runtime::{
+        AsrReloadWorkerStep, persist_config_atomically, select_asr_provider, select_asr_target,
+    },
 };
 
 /// Legacy `GetAsrBackendState` D-Bus output tuple.
@@ -501,6 +504,114 @@ impl VinputDbusService {
         })
         .await
         .map_err(|error| Self::operation_failed(format!("ASR selection task failed: {error}")))?
+        .map_err(|error: RuntimeError| Self::map_runtime_error(&error))?;
+        self.queue_asr_reload_config(config).await;
+        Ok(persisted)
+    }
+
+    /// Return target/effective ASR state and configured provider/model rows.
+    #[zbus(
+        name = "GetAsrTargetMenuState",
+        out_args(
+            "target_provider_id",
+            "target_model_id",
+            "effective_provider_id",
+            "effective_model_id",
+            "reload_in_progress",
+            "last_error",
+            "targets"
+        )
+    )]
+    async fn get_asr_target_menu_state(
+        &self,
+    ) -> Result<
+        (
+            String,
+            String,
+            String,
+            String,
+            bool,
+            String,
+            Vec<(String, String, String, String)>,
+        ),
+        VinputDbusError,
+    > {
+        let model_root = self.runtime.lock().await.model_root();
+        let installed_models = tokio::task::spawn_blocking(move || {
+            model_root.map_or_else(
+                || Ok(Vec::new()),
+                |root| scan_installed_models(&root).map_err(RuntimeError::InstalledModels),
+            )
+        })
+        .await
+        .map_err(|error| {
+            Self::operation_failed(format!("installed model scan task failed: {error}"))
+        })?
+        .map_err(|error| Self::map_runtime_error(&error))?;
+        Ok(self
+            .runtime
+            .lock()
+            .await
+            .asr_target_menu_state(&installed_models))
+    }
+
+    /// Select, persist, and queue reload for a configured ASR provider/model target.
+    #[zbus(name = "SetActiveAsrTarget")]
+    async fn set_active_asr_target(
+        &self,
+        provider_id: &str,
+        model_value: &str,
+    ) -> Result<bool, VinputDbusError> {
+        let (config_source, config_path, model_root) = {
+            let runtime = self.runtime.lock().await;
+            (
+                runtime.asr_reload_config_source(),
+                runtime.config_path_for_persistence(),
+                runtime.model_root(),
+            )
+        };
+        let provider_id = provider_id.to_owned();
+        let model_value = model_value.to_owned();
+        let (config, persisted) = tokio::task::spawn_blocking(move || {
+            let installed_models = model_root.map_or_else(
+                || Ok(Vec::new()),
+                |root| scan_installed_models(&root).map_err(RuntimeError::InstalledModels),
+            )?;
+            let config = config_source.load()?;
+            let Some(provider) = config
+                .asr
+                .providers
+                .iter()
+                .find(|provider| provider.id == provider_id)
+            else {
+                return Err(RuntimeError::Asr(vinput_asr::AsrError::UnknownProvider(
+                    provider_id,
+                )));
+            };
+            let configured_model_matches = provider.model.as_deref() == Some(model_value.as_str());
+            let installed_model_matches = provider.kind == vinput_config::AsrProviderKind::Local
+                && installed_models
+                    .iter()
+                    .any(|model| model.config_model_value() == model_value);
+            if !model_value.is_empty() && !configured_model_matches && !installed_model_matches {
+                return Err(RuntimeError::UnknownAsrTarget {
+                    provider: provider_id,
+                    model: model_value,
+                });
+            }
+            let config = select_asr_target(config, &provider_id, Some(&model_value))
+                .map_err(RuntimeError::Asr)?;
+            if let Some(path) = config_path {
+                persist_config_atomically(&path, &config, "asr-target")?;
+                Ok((config, true))
+            } else {
+                Ok((config, false))
+            }
+        })
+        .await
+        .map_err(|error| {
+            Self::operation_failed(format!("ASR target selection task failed: {error}"))
+        })?
         .map_err(|error: RuntimeError| Self::map_runtime_error(&error))?;
         self.queue_asr_reload_config(config).await;
         Ok(persisted)

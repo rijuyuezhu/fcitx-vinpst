@@ -23,6 +23,17 @@ pub enum RuntimeError {
     /// ASR backend/session failed.
     #[error("asr error: {0}")]
     Asr(#[source] AsrError),
+    /// Installed model discovery failed.
+    #[error("installed model discovery failed: {0}")]
+    InstalledModels(#[source] vinput_registry::InstalledModelError),
+    /// Requested provider/model pair is not exposed by the configured menu.
+    #[error("ASR target `{provider}` / `{model}` is not configured or installed")]
+    UnknownAsrTarget {
+        /// Requested provider id.
+        provider: String,
+        /// Requested model value.
+        model: String,
+    },
     /// Audio source failed.
     #[error("audio error: {0}")]
     Audio(#[source] AudioError),

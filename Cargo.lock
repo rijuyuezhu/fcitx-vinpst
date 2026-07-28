@@ -2210,6 +2210,7 @@ dependencies = [
  "vinput-audio",
  "vinput-config",
  "vinput-protocol",
+ "vinput-registry",
  "vinput-text",
  "zbus",
 ]

@@ -39,6 +39,16 @@ type AsrMenuStateTuple = (
     Vec<(String, String, String)>,
 );
 
+type AsrTargetMenuStateTuple = (
+    String,
+    String,
+    String,
+    String,
+    bool,
+    String,
+    Vec<(String, String, String, String)>,
+);
+
 const RAW_PAYLOAD_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/recognition/raw.json"
@@ -520,6 +530,13 @@ async fn scene_selection_persists_through_session_bus() -> anyhow::Result<()> {
 async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> anyhow::Result<()> {
     let temp = tempfile::tempdir()?;
     let config_path = temp.path().join("config.json");
+    let model_root = temp.path().join("models");
+    let model_dir = model_root.join("installed-one");
+    std::fs::create_dir_all(&model_dir)?;
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        r#"{"backend":"sherpa-offline","family":"moonshine"}"#,
+    )?;
     let mut config = VinputConfig::bundled_default()?;
     config.asr.providers.push(AsrProviderConfig {
         id: "mock".to_owned(),
@@ -538,6 +555,7 @@ async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> an
         Box::new(MockAsrBackend::buffered("injected final")),
     )?;
     runtime.set_config_path(Some(config_path.clone()));
+    runtime.set_model_root(Some(model_root));
     let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
     let client_connection = zbus::Connection::session().await?;
     let proxy = Proxy::new(
@@ -565,6 +583,45 @@ async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> an
     assert!(after.4.is_empty());
     let persisted_config = VinputConfig::from_json_file(&config_path)?;
     assert_eq!(persisted_config.asr.active_provider, "mock");
+
+    let target_state: AsrTargetMenuStateTuple = proxy
+        .call(dbus::method::GET_ASR_TARGET_MENU_STATE, &())
+        .await?;
+    let model_value = model_dir.to_string_lossy().into_owned();
+    assert!(
+        target_state
+            .6
+            .iter()
+            .any(|item| { item.0 == "mock" && item.2 == "installed-one" && item.3 == model_value })
+    );
+    let target_persisted: bool = proxy
+        .call(
+            dbus::method::SET_ACTIVE_ASR_TARGET,
+            &("mock", model_value.as_str()),
+        )
+        .await?;
+    assert!(target_persisted);
+    let target_after = wait_for_asr_reload(&proxy).await?;
+    assert_eq!(target_after.0, "mock");
+    assert_eq!(target_after.1, model_value);
+    assert_eq!(target_after.2, "mock");
+    assert_eq!(target_after.3, "mock-streaming");
+    let persisted_config = VinputConfig::from_json_file(&config_path)?;
+    assert_eq!(
+        persisted_config.asr.providers[1].model.as_deref(),
+        Some(model_value.as_str())
+    );
+
+    let unknown_target: zbus::Result<bool> = proxy
+        .call(
+            dbus::method::SET_ACTIVE_ASR_TARGET,
+            &("mock", "/not/an/installed/model"),
+        )
+        .await;
+    assert_legacy_operation_failed(
+        &unknown_target.unwrap_err(),
+        "ASR target `mock` / `/not/an/installed/model` is not configured or installed",
+    );
 
     let unknown: zbus::Result<bool> = proxy
         .call(dbus::method::SET_ACTIVE_ASR_PROVIDER, &"missing")
@@ -628,6 +685,18 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         interface_xml,
         dbus::method::SET_ACTIVE_ASR_PROVIDER,
         "s",
+        "b",
+    )?;
+    assert_method_signature(
+        interface_xml,
+        dbus::method::GET_ASR_TARGET_MENU_STATE,
+        "",
+        "ssssbsa(ssss)",
+    )?;
+    assert_method_signature(
+        interface_xml,
+        dbus::method::SET_ACTIVE_ASR_TARGET,
+        "ss",
         "b",
     )?;
     assert_method_signature(interface_xml, dbus::method::RELOAD_ASR_BACKEND, "", "")?;

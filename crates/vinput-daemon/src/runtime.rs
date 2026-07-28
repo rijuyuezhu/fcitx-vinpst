@@ -11,7 +11,7 @@ mod reload;
 mod scene;
 
 use active_session::ActiveRecognitionSession;
-pub(crate) use asr_menu::select_asr_provider;
+pub(crate) use asr_menu::{select_asr_provider, select_asr_target};
 pub(crate) use config_io::persist_config_atomically;
 pub use errors::RuntimeError;
 pub(crate) use reload::AsrReloadWorkerStep;
@@ -58,6 +58,7 @@ pub struct RuntimeState {
     asr_reload_generation: u64,
     asr_reload_last_error: Option<String>,
     config_path: Option<PathBuf>,
+    model_root: Option<PathBuf>,
     adapter_runtime_paths: AdapterRuntimePaths,
     adapter_processes: HashMap<String, StartedAdapterProcess>,
 }
@@ -215,6 +216,7 @@ impl RuntimeState {
             asr_reload_generation: 0,
             asr_reload_last_error: None,
             config_path: None,
+            model_root: None,
             adapter_runtime_paths: AdapterRuntimePaths::for_current_user(),
             adapter_processes: HashMap::new(),
         })
