@@ -283,9 +283,13 @@ sherpa-moonshine-dbus-reload-smoke:
 sherpa-online-local-smoke:
     scripts/run-sherpa-online-local-smoke.sh
 
+# Run the registry-backed online transducer model smoke.
+sherpa-online-transducer-local-smoke:
+    VINPUT_SHERPA_EXPECT_FAMILY=transducer VINPUT_SHERPA_EXPECT_TEXT="THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLEL" VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-online-transducer-local-smoke} scripts/run-sherpa-online-local-smoke.sh
+
 # Run the small live-registry Zipformer2 CTC streaming model smoke.
 sherpa-zipformer2-ctc-local-smoke:
-    VINPUT_SHERPA_EXPECT_FAMILY=zipformer2_ctc VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-zipformer2-ctc-local-smoke} scripts/run-sherpa-online-local-smoke.sh
+    VINPUT_SHERPA_EXPECT_FAMILY=zipformer2_ctc VINPUT_SHERPA_EXPECT_TEXT="对我做了介绍那么我想说的是呢大家如果对我的研究感兴趣呢" VINPUT_SHERPA_SMOKE_DIR=${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-zipformer2-ctc-local-smoke} scripts/run-sherpa-online-local-smoke.sh
 
 # Compile and test optional PipeWire feature paths without requiring a live daemon.
 pipewire-check:

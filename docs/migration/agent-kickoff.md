@@ -60,7 +60,7 @@ Then read, in order:
 - Native Qwen3 ASR: proven with the live registry model and its bundled `test_wavs/es1.wav` through `just sherpa-qwen3-local-smoke`.
 - Selected-text primary-selection fallback: implemented in the retained addon; live multi-application proof remains.
 - Daemon chunked delivery: implemented with 800-frame batching, callback event polling, error propagation, and no final-buffer replay.
-- Native online ASR: transducer and Zipformer2 CTC metadata/runtime mappings are implemented; Zipformer2 CTC passes a real registry-model WAV smoke. Offline transducer is separately registry-WAV proven.
+- Native online ASR: transducer and Zipformer2 CTC metadata/runtime mappings are implemented and both pass real registry-model WAV smokes with the 200 ms warmup. Online transducer recognizes bundled `test_wavs/0.wav` as `THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLEL` through `just sherpa-online-transducer-local-smoke`. Offline transducer is separately registry-WAV proven.
 - Live partial signals: generation-scoped D-Bus emission is implemented and session-bus tested before stop, with stop-time deduplication. The retained addon now consumes `StatusChanged` and `RecognitionPartial` through the Fcitx bus and maps partial-first status to active-context preedit; real desktop rendering remains unproven.
 - Offline VAD: the tracked Silero model, strict legacy-compatible config, native trimming, user install, no-speech fallback, and real SenseVoice/Qwen3 WAV regressions are implemented.
 - Online endpoint/warmup: legacy endpoint defaults and metadata overrides are forwarded, and every native online recognizer runs the legacy-compatible 200 ms silence warmup.

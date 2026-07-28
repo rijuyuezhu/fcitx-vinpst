@@ -252,7 +252,7 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "rejects empty values and URL-like paths",
         "verifies model directories plus regular hotwords files",
         "online transducer and Zipformer2 CTC metadata/runtime layouts",
-        "Offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, Moonshine v1, and Zipformer2 CTC are proven with real registry-model WAV samples",
+        "Offline transducer, online transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, Moonshine v1, and Zipformer2 CTC are proven with real registry-model WAV samples",
         "Moonshine v1",
         "just sherpa-moonshine-local-smoke",
         "just sherpa-moonshine-dbus-reload-smoke",
@@ -270,7 +270,7 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "emits deduplicated `RecognitionPartial` D-Bus signals during recording",
         "generation-scoped 40 ms poller",
         "Stop cancels the poller and suppresses a duplicate final partial",
-        "transducer construction remains metadata/feature-build tested",
+        "online transducer and Zipformer2 CTC pass real WAV smokes with the 200 ms recognizer warmup",
         "Buffered offline recognition uses the migrated Silero VAD model",
         "500 ms cold-start guard",
         "missing or unloadable model degrades to untrimmed recognition",
@@ -288,7 +288,7 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "re-reads the daemon config file",
         "`reload_in_progress` remains true during physical preparation",
         "stale reload generations are discarded",
-        "remaining model families",
+        "broader legacy sherpa families",
         "official native API is synchronous and exposes no safe cancellation handle",
         "`not_configured`, `enforced`, or `unsupported`",
         "Command ASR providers remain genuinely cancellable",
@@ -332,6 +332,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just sherpa-sense-voice-local-smoke",
         "just sherpa-qwen3-local-smoke",
         "just sherpa-online-local-smoke",
+        "just sherpa-online-transducer-local-smoke",
         "just sherpa-zipformer2-ctc-local-smoke",
         "just sherpa-moonshine-dbus-reload-smoke",
         "validates typed registry metadata and one WAV recognition outside Fcitx5",
@@ -365,6 +366,8 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "vinput-model.json",
         "runtime-status",
         "--once --wav",
+        "VINPUT_SHERPA_EXPECT_TEXT",
+        "once-output.json",
     ] {
         assert!(
             online_smoke.contains(required),
@@ -383,6 +386,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
     assert!(justfile.contains("sherpa-paraformer-local-smoke:"));
     assert!(justfile.contains("sherpa-qwen3-local-smoke:"));
     assert!(justfile.contains("sherpa-online-local-smoke:"));
+    assert!(justfile.contains("sherpa-online-transducer-local-smoke:"));
     assert!(justfile.contains("sherpa-zipformer2-ctc-local-smoke:"));
     assert!(justfile.contains("sherpa-moonshine-dbus-reload-smoke:"));
     for required in [
