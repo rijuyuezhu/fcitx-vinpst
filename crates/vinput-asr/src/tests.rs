@@ -3,9 +3,9 @@ use super::{
     CommandAsrRequest, CommandAsrResponse, CommandAsrRunner, CommandAsrSpec,
     LegacyCommandBatchRunner, LegacyCommandStreamingRunner, MockAsrAudioLog, MockAsrAudioPush,
     MockAsrBackend, ProcessCommandAsrRunner, RecognitionContext, RecognitionEvent,
-    SherpaOnnxModelPathError, SherpaOnnxOfflineModelLayout, SherpaOnnxSpec, events_to_payload,
-    legacy_command_streaming_audio_line, legacy_command_streaming_finish_line,
-    parse_legacy_command_streaming_line,
+    SherpaOnnxModelPathError, SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan,
+    SherpaOnnxSpec, events_to_payload, legacy_command_streaming_audio_line,
+    legacy_command_streaming_finish_line, parse_legacy_command_streaming_line,
 };
 use vinput_audio::{PcmBuffer, PcmSpec};
 use vinput_config::{AsrConfig, AsrProviderConfig, AsrProviderKind};
@@ -2089,6 +2089,123 @@ fn sherpa_onnx_offline_runtime_plan_uses_vinput_model_metadata() {
 }
 
 #[test]
+fn sherpa_onnx_offline_runtime_plan_uses_paraformer_metadata() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+    let model_dir = root.join("paraformer");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    for file_name in [
+        "model.int8.onnx",
+        "tokens.txt",
+        "bpe.vocab",
+        "lm.onnx",
+        "hotwords.txt",
+        "rules.fst",
+        "rules.far",
+        "lexicon.txt",
+        "homophone.fst",
+    ] {
+        std::fs::write(model_dir.join(file_name), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        r#"{
+          "backend":"sherpa-offline",
+          "family":"paraformer",
+          "runtime":"offline",
+          "model": {
+            "tokens":"tokens.txt",
+            "num_threads":3,
+            "debug":1,
+            "provider":"cuda",
+            "model_type":"custom_paraformer",
+            "modeling_unit":"bpe",
+            "bpe_vocab":"bpe.vocab",
+            "paraformer":{"model":"model.int8.onnx"}
+          },
+          "recognizer": {
+            "feat_config":{"sample_rate":8000,"feature_dim":64},
+            "lm_config":{"model":"lm.onnx","scale":0.25},
+            "decoding_method":"modified_beam_search",
+            "max_active_paths":8,
+            "hotwords_file":"hotwords.txt",
+            "hotwords_score":2.5,
+            "rule_fsts":"rules.fst",
+            "rule_fars":"rules.far",
+            "blank_penalty":0.75,
+            "hr":{"lexicon":"lexicon.txt","rule_fsts":"homophone.fst"}
+          }
+        }"#,
+    )
+    .unwrap();
+    let provider = AsrProviderConfig {
+        id: "sherpa-onnx".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("paraformer".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    let plan = spec.resolve_offline_runtime_plan(root).unwrap();
+
+    assert_paraformer_runtime_plan(&plan, &model_dir);
+}
+
+fn assert_paraformer_runtime_plan(
+    plan: &SherpaOnnxOfflineRuntimePlan,
+    model_dir: &std::path::Path,
+) {
+    assert_eq!(plan.layout_source, "metadata");
+    assert_eq!(
+        plan.metadata_path,
+        Some(model_dir.join("vinput-model.json"))
+    );
+    assert_eq!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::Paraformer {
+            model: model_dir.join("model.int8.onnx"),
+            tokens: model_dir.join("tokens.txt"),
+        }
+    );
+    assert_eq!(plan.settings.num_threads, 3);
+    assert_eq!(plan.settings.provider, "cuda");
+    assert!(plan.settings.debug);
+    assert_eq!(
+        plan.settings.model_type.as_deref(),
+        Some("custom_paraformer")
+    );
+    assert_eq!(plan.settings.modeling_unit.as_deref(), Some("bpe"));
+    assert_eq!(plan.settings.bpe_vocab, Some(model_dir.join("bpe.vocab")));
+    assert_eq!(plan.settings.sample_rate, 8000);
+    assert_eq!(plan.settings.feature_dim, 64);
+    assert_eq!(plan.settings.lm_model, Some(model_dir.join("lm.onnx")));
+    assert!((plan.settings.lm_scale - 0.25).abs() < f32::EPSILON);
+    assert_eq!(plan.settings.decoding_method, "modified_beam_search");
+    assert_eq!(plan.settings.max_active_paths, 8);
+    assert_eq!(
+        plan.settings.hotwords_file,
+        Some(model_dir.join("hotwords.txt"))
+    );
+    assert!((plan.settings.hotwords_score - 2.5).abs() < f32::EPSILON);
+    assert_eq!(plan.settings.rule_fsts, Some(model_dir.join("rules.fst")));
+    assert_eq!(plan.settings.rule_fars, Some(model_dir.join("rules.far")));
+    assert!((plan.settings.blank_penalty - 0.75).abs() < f32::EPSILON);
+    assert_eq!(
+        plan.settings.homophone_lexicon,
+        Some(model_dir.join("lexicon.txt"))
+    );
+    assert_eq!(
+        plan.settings.homophone_rule_fsts,
+        Some(model_dir.join("homophone.fst"))
+    );
+}
+
+#[test]
 fn sherpa_onnx_offline_runtime_plan_uses_qwen3_asr_metadata() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path();
@@ -2339,6 +2456,46 @@ fn sherpa_onnx_offline_runtime_plan_rejects_invalid_vinput_model_metadata() {
 }
 
 #[test]
+fn sherpa_onnx_offline_runtime_plan_prioritizes_unsupported_family_diagnostics() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+    let model_dir = root.join("future-family");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        r#"{
+          "backend":"sherpa-offline",
+          "family":"future_family",
+          "runtime":"offline",
+          "model":{"bpe_vocab":"missing.vocab"}
+        }"#,
+    )
+    .unwrap();
+    let provider = AsrProviderConfig {
+        id: "sherpa-onnx".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("future-family".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    let error = spec.resolve_offline_runtime_plan(root).unwrap_err();
+
+    assert_eq!(
+        error,
+        SherpaOnnxModelPathError::UnsupportedOfflineFamily {
+            path: model_dir.display().to_string(),
+            family: "future_family".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn sherpa_onnx_offline_runtime_plan_rejects_unknown_layout() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path();
@@ -2419,6 +2576,7 @@ fn sherpa_onnx_model_paths_reject_directory_hotwords_path() {
     ));
 }
 
+#[cfg(not(feature = "sherpa-onnx-backend"))]
 #[test]
 fn backend_factory_reports_sherpa_onnx_runtime_unavailable() {
     let provider = AsrProviderConfig {
@@ -2467,6 +2625,7 @@ fn backend_factory_reports_unimplemented_provider_kind() {
     ));
 }
 
+#[cfg(not(feature = "sherpa-onnx-backend"))]
 #[test]
 fn backend_factory_state_reports_unavailable_provider() {
     let config = AsrConfig {

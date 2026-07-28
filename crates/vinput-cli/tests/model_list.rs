@@ -108,6 +108,48 @@ fn model_list_json_reports_qwen3_asr_as_supported() {
 }
 
 #[test]
+fn model_list_json_reports_paraformer_as_supported() {
+    let registry_path = write_temp_json(
+        "live-model-paraformer-support",
+        &serde_json::json!({
+            "version": 2,
+            "items": [
+                {
+                    "id": "model.sherpa-onnx.paraformer-zh-small",
+                    "short_id": "onnx-pf-zh-sm-off",
+                    "urls": ["https://example.invalid/paraformer.tar.bz2"],
+                    "vinput_model": {
+                        "backend": "sherpa-offline",
+                        "family": "paraformer",
+                        "runtime": "offline",
+                        "model": {
+                            "tokens": "tokens.txt",
+                            "paraformer": {"model": "model.int8.onnx"}
+                        }
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    );
+
+    let output = vinput_command()
+        .args(["model", "list", "--registry"])
+        .arg(&registry_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list paraformer --json");
+
+    let value = assert_json_success(output, "model list paraformer json");
+    assert_eq!(value["models"][0]["family"], "paraformer");
+    assert_eq!(value["models"][0]["runtime"], "offline");
+    assert_eq!(value["models"][0]["supported"], true);
+    assert_eq!(value["models"][0]["support"], "supported");
+
+    std::fs::remove_file(registry_path).ok();
+}
+
+#[test]
 fn model_list_json_reports_moonshine_as_supported() {
     let registry_path = write_temp_json(
         "live-model-moonshine-support",

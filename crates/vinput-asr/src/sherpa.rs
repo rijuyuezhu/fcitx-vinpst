@@ -53,6 +53,13 @@ pub struct SherpaOnnxModelPaths {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SherpaOnnxOfflineModelLayout {
+    /// Paraformer model directory with a single ONNX model and tokens file.
+    Paraformer {
+        /// ONNX model file.
+        model: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
     /// `SenseVoice` model directory with a model file and tokens file.
     SenseVoice {
         /// ONNX model file.
@@ -103,6 +110,61 @@ pub enum SherpaOnnxOfflineModelLayout {
     },
 }
 
+/// Shared native configuration resolved from offline registry metadata.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SherpaOnnxOfflineSettings {
+    /// Number of native inference threads.
+    pub num_threads: i32,
+    /// Runtime provider such as `cpu`.
+    pub provider: String,
+    /// Native runtime debug logging flag.
+    pub debug: bool,
+    /// Optional native model type override.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<String>,
+    /// Optional token modeling unit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modeling_unit: Option<String>,
+    /// Optional BPE vocabulary file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bpe_vocab: Option<PathBuf>,
+    /// Optional `TeleSpeech` CTC resource.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telespeech_ctc: Option<PathBuf>,
+    /// Feature sample rate.
+    pub sample_rate: i32,
+    /// Feature dimension.
+    pub feature_dim: i32,
+    /// Optional language-model file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lm_model: Option<PathBuf>,
+    /// Language-model scale.
+    pub lm_scale: f32,
+    /// Decoding method.
+    pub decoding_method: String,
+    /// Maximum active decoding paths.
+    pub max_active_paths: i32,
+    /// Optional metadata-provided hotwords file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotwords_file: Option<PathBuf>,
+    /// Hotwords score.
+    pub hotwords_score: f32,
+    /// Optional rule FSTs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_fsts: Option<PathBuf>,
+    /// Optional rule FARs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_fars: Option<PathBuf>,
+    /// CTC blank penalty.
+    pub blank_penalty: f32,
+    /// Optional homophone lexicon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homophone_lexicon: Option<PathBuf>,
+    /// Optional homophone rule FSTs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homophone_rule_fsts: Option<PathBuf>,
+}
+
 /// Resolved local inputs and inferred runtime layout for offline recognition.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SherpaOnnxOfflineRuntimePlan {
@@ -110,6 +172,8 @@ pub struct SherpaOnnxOfflineRuntimePlan {
     pub paths: SherpaOnnxModelPaths,
     /// Inferred offline model layout.
     pub layout: SherpaOnnxOfflineModelLayout,
+    /// Shared native model and recognizer settings.
+    pub settings: SherpaOnnxOfflineSettings,
     /// Source used to infer the layout, such as `metadata` or `files`.
     pub layout_source: String,
     /// vinput-model.json path when metadata drove layout selection.
@@ -119,6 +183,7 @@ pub struct SherpaOnnxOfflineRuntimePlan {
 
 struct InferredOfflineLayout {
     layout: SherpaOnnxOfflineModelLayout,
+    settings: SherpaOnnxOfflineSettings,
     source: String,
     metadata_path: Option<PathBuf>,
 }
@@ -335,6 +400,7 @@ impl SherpaOnnxSpec {
         Ok(SherpaOnnxOfflineRuntimePlan {
             paths,
             layout: inferred.layout,
+            settings: inferred.settings,
             layout_source: inferred.source,
             metadata_path: inferred.metadata_path,
         })
@@ -376,6 +442,7 @@ fn infer_offline_layout(
     }
     Ok(InferredOfflineLayout {
         layout: infer_sense_voice_layout_from_files(model_dir, "auto", true)?,
+        settings: default_offline_settings("sense_voice"),
         source: "files".to_owned(),
         metadata_path: None,
     })
@@ -409,24 +476,52 @@ fn infer_offline_layout_from_metadata(
                 .and_then(serde_json::Value::as_str)
         })
         .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if family == Some("qwen3_asr") {
-        return infer_qwen3_asr_layout_from_metadata(model_dir, &metadata, metadata_path).map(Some);
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| SherpaOnnxModelPathError::UnsupportedOfflineLayout {
+            path: display_path(model_dir),
+        })?;
+    match family {
+        "paraformer" => infer_paraformer_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path.clone(),
+            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
+        )
+        .map(Some),
+        "qwen3_asr" => infer_qwen3_asr_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path.clone(),
+            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
+        )
+        .map(Some),
+        "moonshine" | "moonshine_v1" => infer_moonshine_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path.clone(),
+            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
+        )
+        .map(Some),
+        "sense_voice" => infer_sense_voice_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path.clone(),
+            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
+        )
+        .map(Some),
+        _ => Err(SherpaOnnxModelPathError::UnsupportedOfflineFamily {
+            path: display_path(model_dir),
+            family: family.to_owned(),
+        }),
     }
-    if family == Some("moonshine") || family == Some("moonshine_v1") {
-        return infer_moonshine_layout_from_metadata(model_dir, &metadata, metadata_path).map(Some);
-    }
-    if family != Some("sense_voice") {
-        return Err(match family {
-            Some(family) => SherpaOnnxModelPathError::UnsupportedOfflineFamily {
-                path: display_path(model_dir),
-                family: family.to_owned(),
-            },
-            None => SherpaOnnxModelPathError::UnsupportedOfflineLayout {
-                path: display_path(model_dir),
-            },
-        });
-    }
+}
+
+fn infer_sense_voice_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
     let sense_voice = metadata.pointer("/model/sense_voice");
     let model = sense_voice
         .and_then(|value| value.get("model"))
@@ -469,22 +564,54 @@ fn infer_offline_layout_from_metadata(
         .and_then(|value| value.get("use_itn"))
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(true);
-    Ok(Some(InferredOfflineLayout {
+    Ok(InferredOfflineLayout {
         layout: SherpaOnnxOfflineModelLayout::SenseVoice {
             model,
             tokens,
             language,
             use_itn,
         },
+        settings,
         source: "metadata".to_owned(),
         metadata_path: Some(metadata_path),
-    }))
+    })
+}
+
+fn infer_paraformer_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let paraformer = metadata
+        .pointer("/model/paraformer")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&metadata_path),
+            message: "missing object `/model/paraformer`".to_owned(),
+        })?;
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::Paraformer {
+            model: required_model_asset(model_dir, paraformer, "paraformer", "model")?,
+            tokens: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/tokens",
+                "paraformer",
+                "tokens",
+            )?,
+        },
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
 }
 
 fn infer_qwen3_asr_layout_from_metadata(
     model_dir: &Path,
     metadata: &serde_json::Value,
     metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
 ) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
     let qwen3 = metadata
         .pointer("/model/qwen3_asr")
@@ -511,6 +638,7 @@ fn infer_qwen3_asr_layout_from_metadata(
             seed: qwen3_i32(qwen3, "seed", 42, &metadata_path)?,
             hotwords,
         },
+        settings,
         source: "metadata".to_owned(),
         metadata_path: Some(metadata_path),
     })
@@ -520,6 +648,7 @@ fn infer_moonshine_layout_from_metadata(
     model_dir: &Path,
     metadata: &serde_json::Value,
     metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
 ) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
     let model_type = metadata
         .pointer("/model_type")
@@ -559,6 +688,7 @@ fn infer_moonshine_layout_from_metadata(
             )?,
             tokens,
         },
+        settings,
         source: "metadata".to_owned(),
         metadata_path: Some(metadata_path),
     })
@@ -615,6 +745,266 @@ fn metadata_asset_path(
         });
     }
     Ok(path)
+}
+
+fn default_offline_settings(family: &str) -> SherpaOnnxOfflineSettings {
+    SherpaOnnxOfflineSettings {
+        num_threads: 1,
+        provider: "cpu".to_owned(),
+        debug: false,
+        model_type: Some(family.to_owned()),
+        modeling_unit: Some("cjkchar".to_owned()),
+        bpe_vocab: None,
+        telespeech_ctc: None,
+        sample_rate: 16_000,
+        feature_dim: 80,
+        lm_model: None,
+        lm_scale: 0.5,
+        decoding_method: "greedy_search".to_owned(),
+        max_active_paths: 4,
+        hotwords_file: None,
+        hotwords_score: 1.5,
+        rule_fsts: None,
+        rule_fars: None,
+        blank_penalty: 0.0,
+        homophone_lexicon: None,
+        homophone_rule_fsts: None,
+    }
+}
+
+fn parse_offline_settings(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: &Path,
+    family: &str,
+) -> Result<SherpaOnnxOfflineSettings, SherpaOnnxModelPathError> {
+    let mut settings = default_offline_settings(family);
+    parse_offline_model_settings(&mut settings, model_dir, metadata, metadata_path, family)?;
+    parse_offline_recognizer_settings(&mut settings, model_dir, metadata, metadata_path, family)?;
+    Ok(settings)
+}
+
+fn parse_offline_model_settings(
+    settings: &mut SherpaOnnxOfflineSettings,
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: &Path,
+    family: &str,
+) -> Result<(), SherpaOnnxModelPathError> {
+    settings.num_threads = metadata_positive_i32(
+        metadata,
+        "/model/num_threads",
+        settings.num_threads,
+        metadata_path,
+    )?;
+    if let Some(provider) = metadata_optional_string(metadata, "/model/provider") {
+        settings.provider = provider;
+    }
+    settings.debug = metadata_boolish(metadata, "/model/debug", settings.debug, metadata_path)?;
+    if let Some(model_type) = metadata_optional_string(metadata, "/model/model_type") {
+        settings.model_type = Some(model_type);
+    }
+    if let Some(modeling_unit) = metadata_optional_string(metadata, "/model/modeling_unit") {
+        settings.modeling_unit = Some(modeling_unit);
+    }
+    settings.bpe_vocab =
+        metadata_optional_file(model_dir, metadata, "/model/bpe_vocab", family, "bpe_vocab")?;
+    settings.telespeech_ctc = metadata_optional_file(
+        model_dir,
+        metadata,
+        "/model/telespeech_ctc",
+        family,
+        "telespeech_ctc",
+    )?;
+    Ok(())
+}
+
+fn parse_offline_recognizer_settings(
+    settings: &mut SherpaOnnxOfflineSettings,
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: &Path,
+    family: &str,
+) -> Result<(), SherpaOnnxModelPathError> {
+    settings.sample_rate = metadata_positive_i32(
+        metadata,
+        "/recognizer/feat_config/sample_rate",
+        settings.sample_rate,
+        metadata_path,
+    )?;
+    settings.feature_dim = metadata_positive_i32(
+        metadata,
+        "/recognizer/feat_config/feature_dim",
+        settings.feature_dim,
+        metadata_path,
+    )?;
+    settings.lm_model = metadata_optional_file(
+        model_dir,
+        metadata,
+        "/recognizer/lm_config/model",
+        family,
+        "lm_model",
+    )?;
+    settings.lm_scale = metadata_finite_f32(
+        metadata,
+        "/recognizer/lm_config/scale",
+        settings.lm_scale,
+        metadata_path,
+    )?;
+    if let Some(decoding_method) = metadata_optional_string(metadata, "/recognizer/decoding_method")
+    {
+        settings.decoding_method = decoding_method;
+    }
+    settings.max_active_paths = metadata_positive_i32(
+        metadata,
+        "/recognizer/max_active_paths",
+        settings.max_active_paths,
+        metadata_path,
+    )?;
+    settings.hotwords_file = metadata_optional_file(
+        model_dir,
+        metadata,
+        "/recognizer/hotwords_file",
+        family,
+        "hotwords_file",
+    )?;
+    settings.hotwords_score = metadata_finite_f32(
+        metadata,
+        "/recognizer/hotwords_score",
+        settings.hotwords_score,
+        metadata_path,
+    )?;
+    settings.rule_fsts = metadata_optional_file(
+        model_dir,
+        metadata,
+        "/recognizer/rule_fsts",
+        family,
+        "rule_fsts",
+    )?;
+    settings.rule_fars = metadata_optional_file(
+        model_dir,
+        metadata,
+        "/recognizer/rule_fars",
+        family,
+        "rule_fars",
+    )?;
+    settings.blank_penalty = metadata_finite_f32(
+        metadata,
+        "/recognizer/blank_penalty",
+        settings.blank_penalty,
+        metadata_path,
+    )?;
+    settings.homophone_lexicon = metadata_optional_file(
+        model_dir,
+        metadata,
+        "/recognizer/hr/lexicon",
+        family,
+        "homophone_lexicon",
+    )?;
+    settings.homophone_rule_fsts = metadata_optional_file(
+        model_dir,
+        metadata,
+        "/recognizer/hr/rule_fsts",
+        family,
+        "homophone_rule_fsts",
+    )?;
+    Ok(())
+}
+
+fn metadata_optional_string(metadata: &serde_json::Value, pointer: &str) -> Option<String> {
+    metadata
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn metadata_optional_file(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    pointer: &str,
+    family: &str,
+    asset: &str,
+) -> Result<Option<PathBuf>, SherpaOnnxModelPathError> {
+    let Some(value) = metadata_optional_string(metadata, pointer) else {
+        return Ok(None);
+    };
+    let path = resolve_against(model_dir, &value);
+    if !path.is_file() {
+        return Err(SherpaOnnxModelPathError::MissingModelAsset {
+            family: family.to_owned(),
+            asset: asset.to_owned(),
+            path: display_path(&path),
+        });
+    }
+    Ok(Some(path))
+}
+
+fn metadata_positive_i32(
+    metadata: &serde_json::Value,
+    pointer: &str,
+    default: i32,
+    metadata_path: &Path,
+) -> Result<i32, SherpaOnnxModelPathError> {
+    let Some(value) = metadata.pointer(pointer) else {
+        return Ok(default);
+    };
+    let value = value
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("`{pointer}` must be a positive 32-bit integer"),
+        })?;
+    Ok(value)
+}
+
+fn metadata_boolish(
+    metadata: &serde_json::Value,
+    pointer: &str,
+    default: bool,
+    metadata_path: &Path,
+) -> Result<bool, SherpaOnnxModelPathError> {
+    let Some(value) = metadata.pointer(pointer) else {
+        return Ok(default);
+    };
+    match (value.as_bool(), value.as_i64()) {
+        (Some(value), _) => Ok(value),
+        (None, Some(0)) => Ok(false),
+        (None, Some(1)) => Ok(true),
+        _ => Err(SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("`{pointer}` must be a boolean or 0/1"),
+        }),
+    }
+}
+
+fn metadata_finite_f32(
+    metadata: &serde_json::Value,
+    pointer: &str,
+    default: f32,
+    metadata_path: &Path,
+) -> Result<f32, SherpaOnnxModelPathError> {
+    let Some(value) = metadata.pointer(pointer) else {
+        return Ok(default);
+    };
+    let value = value
+        .as_f64()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("`{pointer}` must be finite numeric value"),
+        })?;
+    if value < f64::from(f32::MIN) || value > f64::from(f32::MAX) {
+        return Err(SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("`{pointer}` is outside the f32 range"),
+        });
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    Ok(value as f32)
 }
 
 fn required_qwen3_asset(
@@ -890,7 +1280,45 @@ fn offline_recognizer_config(
     plan: &SherpaOnnxOfflineRuntimePlan,
 ) -> sherpa_onnx::OfflineRecognizerConfig {
     let mut config = sherpa_onnx::OfflineRecognizerConfig::default();
+    let settings = &plan.settings;
+    config.model_config.num_threads = settings.num_threads;
+    config.model_config.provider = Some(settings.provider.clone());
+    config.model_config.debug = settings.debug;
+    config
+        .model_config
+        .model_type
+        .clone_from(&settings.model_type);
+    config
+        .model_config
+        .modeling_unit
+        .clone_from(&settings.modeling_unit);
+    config.model_config.bpe_vocab = settings.bpe_vocab.as_deref().map(display_path);
+    config.model_config.telespeech_ctc = settings.telespeech_ctc.as_deref().map(display_path);
+    config.feat_config.sample_rate = settings.sample_rate;
+    config.feat_config.feature_dim = settings.feature_dim;
+    config.lm_config.model = settings.lm_model.as_deref().map(display_path);
+    config.lm_config.scale = settings.lm_scale;
+    config.decoding_method = Some(settings.decoding_method.clone());
+    config.max_active_paths = settings.max_active_paths;
+    config.hotwords_file = plan
+        .paths
+        .hotwords_file
+        .as_deref()
+        .or(settings.hotwords_file.as_deref())
+        .map(display_path);
+    config.hotwords_score = settings.hotwords_score;
+    config.rule_fsts = settings.rule_fsts.as_deref().map(display_path);
+    config.rule_fars = settings.rule_fars.as_deref().map(display_path);
+    config.blank_penalty = settings.blank_penalty;
+    config.hr.lexicon = settings.homophone_lexicon.as_deref().map(display_path);
+    config.hr.rule_fsts = settings.homophone_rule_fsts.as_deref().map(display_path);
     match &plan.layout {
+        SherpaOnnxOfflineModelLayout::Paraformer { model, tokens } => {
+            config.model_config.paraformer = sherpa_onnx::OfflineParaformerModelConfig {
+                model: Some(display_path(model)),
+            };
+            config.model_config.tokens = Some(display_path(tokens));
+        }
         SherpaOnnxOfflineModelLayout::SenseVoice {
             model,
             tokens,
@@ -945,9 +1373,6 @@ fn offline_recognizer_config(
             };
             config.model_config.tokens = Some(display_path(tokens));
         }
-    }
-    if let Some(hotwords_file) = &plan.paths.hotwords_file {
-        config.hotwords_file = Some(display_path(hotwords_file));
     }
     config
 }
