@@ -34,6 +34,10 @@ pub mod method {
     pub const GET_TEXT_ADAPTER_STATE: &str = "GetTextAdapterState";
     /// Return a JSON snapshot of current runtime status diagnostics.
     pub const GET_RUNTIME_STATUS: &str = "GetRuntimeStatus";
+    /// Return the active scene and configured scene id/label pairs.
+    pub const GET_SCENE_STATE: &str = "GetSceneState";
+    /// Select and persist the active scene when a config file is available.
+    pub const SET_ACTIVE_SCENE: &str = "SetActiveScene";
     /// Reload the selected ASR backend.
     pub const RELOAD_ASR_BACKEND: &str = "ReloadAsrBackend";
     /// Start a configured LLM adapter process.
@@ -84,6 +88,9 @@ pub const LEGACY_SERVICE_METHODS: &[&str] = &[
 pub const DIAGNOSTIC_EXTENSION_METHODS: &[&str] =
     &[method::GET_TEXT_ADAPTER_STATE, method::GET_RUNTIME_STATUS];
 
+/// Rust configuration extension methods exported on [`SERVICE_INTERFACE`].
+pub const CONFIG_EXTENSION_METHODS: &[&str] = &[method::GET_SCENE_STATE, method::SET_ACTIVE_SCENE];
+
 /// Method names exported on [`SERVICE_INTERFACE`] in protocol order.
 pub const SERVICE_METHODS: &[&str] = &[
     method::START_RECORDING,
@@ -93,6 +100,8 @@ pub const SERVICE_METHODS: &[&str] = &[
     method::GET_ASR_BACKEND_STATE,
     method::GET_TEXT_ADAPTER_STATE,
     method::GET_RUNTIME_STATUS,
+    method::GET_SCENE_STATE,
+    method::SET_ACTIVE_SCENE,
     method::RELOAD_ASR_BACKEND,
     method::START_ADAPTER,
     method::STOP_ADAPTER,
@@ -120,6 +129,8 @@ mod tests {
         assert_eq!(method::START_RECORDING, "StartRecording");
         assert_eq!(method::GET_TEXT_ADAPTER_STATE, "GetTextAdapterState");
         assert_eq!(method::GET_RUNTIME_STATUS, "GetRuntimeStatus");
+        assert_eq!(method::GET_SCENE_STATE, "GetSceneState");
+        assert_eq!(method::SET_ACTIVE_SCENE, "SetActiveScene");
         assert_eq!(method::NOTIFY, "Notify");
         assert_eq!(
             error::OPERATION_FAILED,
@@ -167,13 +178,16 @@ mod tests {
         assert!(!SERVICE_METHODS.contains(&method::NOTIFY));
         assert!(!LEGACY_SERVICE_METHODS.contains(&method::NOTIFY));
         assert!(!DIAGNOSTIC_EXTENSION_METHODS.contains(&method::NOTIFY));
+        assert!(!CONFIG_EXTENSION_METHODS.contains(&method::NOTIFY));
         assert!(DIAGNOSTIC_EXTENSION_METHODS.contains(&method::GET_RUNTIME_STATUS));
+        assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_SCENE_STATE));
     }
 
     #[test]
     fn service_method_list_includes_legacy_methods_and_extensions() {
         let mut combined = LEGACY_SERVICE_METHODS.to_vec();
         combined.splice(5..5, DIAGNOSTIC_EXTENSION_METHODS.iter().copied());
+        combined.splice(7..7, CONFIG_EXTENSION_METHODS.iter().copied());
 
         assert_eq!(SERVICE_METHODS, combined.as_slice());
     }

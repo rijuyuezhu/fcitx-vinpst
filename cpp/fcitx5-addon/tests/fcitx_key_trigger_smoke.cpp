@@ -28,7 +28,10 @@ int main() {
 
   fcitx::KeyEvent shift_release(nullptr, fcitx::Key(FcitxKey_Shift_R), true);
   assert(!policy.IsNormalTrigger(shift_release));
-  assert(policy.Classify(shift_release) == FcitxTriggerAction::None);
+  assert(policy.IsSceneMenuTrigger(shift_release));
+  assert(policy.Classify(shift_release) == FcitxTriggerAction::ConsumeSceneMenuRelease);
+  fcitx::KeyEvent default_scene_press(nullptr, fcitx::Key(FcitxKey_Shift_R), false);
+  assert(policy.Classify(default_scene_press) == FcitxTriggerAction::ShowSceneMenu);
 
   fcitx::KeyEvent command_release(nullptr, fcitx::Key(FcitxKey_F10), true);
   assert(policy.IsCommandTrigger(command_release));
@@ -59,12 +62,15 @@ int main() {
 
   unsetenv("VINPUT_FCITX_NORMAL_TRIGGER");
   unsetenv("VINPUT_FCITX_COMMAND_TRIGGER");
+  unsetenv("VINPUT_FCITX_SCENE_MENU_TRIGGER");
   const auto default_env_policy = FcitxKeyTriggerPolicy::FromEnvironment();
   assert(default_env_policy.normal_trigger().check(fcitx::Key(FcitxKey_Control_R)));
   assert(default_env_policy.command_trigger().check(fcitx::Key(FcitxKey_F10)));
+  assert(default_env_policy.scene_menu_trigger().check(fcitx::Key(FcitxKey_Shift_R)));
 
   setenv("VINPUT_FCITX_NORMAL_TRIGGER", "F8", 1);
   setenv("VINPUT_FCITX_COMMAND_TRIGGER", "F9", 1);
+  setenv("VINPUT_FCITX_SCENE_MENU_TRIGGER", "F7", 1);
   const auto custom_env_policy = FcitxKeyTriggerPolicy::FromEnvironment();
   fcitx::KeyEvent env_normal_press(nullptr, fcitx::Key(FcitxKey_F8), false);
   assert(custom_env_policy.Classify(env_normal_press) ==
@@ -72,14 +78,20 @@ int main() {
   fcitx::KeyEvent env_command_release(nullptr, fcitx::Key(FcitxKey_F9), true);
   assert(custom_env_policy.Classify(env_command_release) ==
          FcitxTriggerAction::StopCommand);
+  fcitx::KeyEvent env_scene_press(nullptr, fcitx::Key(FcitxKey_F7), false);
+  assert(custom_env_policy.Classify(env_scene_press) ==
+         FcitxTriggerAction::ShowSceneMenu);
 
   setenv("VINPUT_FCITX_NORMAL_TRIGGER", "not-a-key", 1);
   setenv("VINPUT_FCITX_COMMAND_TRIGGER", "", 1);
+  setenv("VINPUT_FCITX_SCENE_MENU_TRIGGER", "not-a-key", 1);
   const auto fallback_env_policy = FcitxKeyTriggerPolicy::FromEnvironment();
   assert(fallback_env_policy.normal_trigger().check(fcitx::Key(FcitxKey_Control_R)));
   assert(fallback_env_policy.command_trigger().check(fcitx::Key(FcitxKey_F10)));
+  assert(fallback_env_policy.scene_menu_trigger().check(fcitx::Key(FcitxKey_Shift_R)));
   unsetenv("VINPUT_FCITX_NORMAL_TRIGGER");
   unsetenv("VINPUT_FCITX_COMMAND_TRIGGER");
+  unsetenv("VINPUT_FCITX_SCENE_MENU_TRIGGER");
 
   return 0;
 }

@@ -34,6 +34,9 @@ public:
   const FrontendBridge &bridge() const {
     return bridge_;
   }
+  const std::string &active_scene_id() const {
+    return active_scene_id_;
+  }
   AppliedOutcome TriggerNormal(fcitx::InputContext *ic,
                                std::string_view scene_id = kDefaultNormalSceneId);
   AppliedOutcome TriggerCommand(fcitx::InputContext *ic, std::string_view selected_text,
@@ -47,10 +50,20 @@ private:
   AppliedOutcome ApplyBridgeOutcome(fcitx::InputContext *ic,
                                     const BridgeOutcome &outcome);
   void HandleKeyEvent(fcitx::Event &event);
+  void ShowSceneMenu(fcitx::InputContext *ic);
+  void HideSceneMenu();
+  bool RefreshSceneState(std::string *error);
+  bool HandleSceneMenuKeyEvent(fcitx::KeyEvent &event);
+  void SelectScene(std::size_t index, fcitx::InputContext *ic);
 
   fcitx::Instance *instance_ = nullptr;
   FrontendBridge bridge_;
   FcitxKeyTriggerPolicy trigger_policy_;
+  SceneStateSnapshot scene_state_;
+  std::vector<std::size_t> scene_menu_indices_;
+  std::string active_scene_id_{kDefaultNormalSceneId};
+  fcitx::InputContext *scene_menu_ic_ = nullptr;
+  bool scene_menu_visible_ = false;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
       event_handlers_;

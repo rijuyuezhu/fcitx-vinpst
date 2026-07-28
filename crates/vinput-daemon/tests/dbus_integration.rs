@@ -462,6 +462,51 @@ async fn dbus_reload_rereads_config_and_rebuilds_backend() -> anyhow::Result<()>
     Ok(())
 }
 
+#[tokio::test]
+async fn scene_selection_persists_through_session_bus() -> anyhow::Result<()> {
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.json");
+    let config = VinputConfig::bundled_default()?;
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config)?)?;
+    let mut runtime = RuntimeState::new(config)?;
+    runtime.set_config_path(Some(config_path.clone()));
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+
+    let before: (String, Vec<(String, String)>) =
+        proxy.call(dbus::method::GET_SCENE_STATE, &()).await?;
+    assert_eq!(before.0, vinput_config::RAW_SCENE_ID);
+    assert_eq!(before.1[0].1, "Raw");
+
+    let persisted: bool = proxy
+        .call(
+            dbus::method::SET_ACTIVE_SCENE,
+            &vinput_config::COMMAND_SCENE_ID,
+        )
+        .await?;
+    assert!(persisted);
+    let after: (String, Vec<(String, String)>) =
+        proxy.call(dbus::method::GET_SCENE_STATE, &()).await?;
+    assert_eq!(after.0, vinput_config::COMMAND_SCENE_ID);
+    let persisted_config = VinputConfig::from_json_file(&config_path)?;
+    assert_eq!(
+        persisted_config.scenes.active_scene,
+        vinput_config::COMMAND_SCENE_ID
+    );
+
+    let unknown: zbus::Result<bool> = proxy.call(dbus::method::SET_ACTIVE_SCENE, &"missing").await;
+    assert_legacy_operation_failed(&unknown.unwrap_err(), "scene `missing` is not configured");
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
@@ -501,6 +546,8 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     )?;
     assert_method_signature(interface_xml, dbus::method::GET_TEXT_ADAPTER_STATE, "", "s")?;
     assert_method_signature(interface_xml, dbus::method::GET_RUNTIME_STATUS, "", "s")?;
+    assert_method_signature(interface_xml, dbus::method::GET_SCENE_STATE, "", "sa(ss)")?;
+    assert_method_signature(interface_xml, dbus::method::SET_ACTIVE_SCENE, "s", "b")?;
     assert_method_signature(interface_xml, dbus::method::RELOAD_ASR_BACKEND, "", "")?;
     assert_method_signature(interface_xml, dbus::method::START_ADAPTER, "s", "")?;
     assert_method_signature(interface_xml, dbus::method::STOP_ADAPTER, "s", "")?;

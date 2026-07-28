@@ -57,8 +57,8 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 ## P1: legacy UX parity
 
-1. Add persistent frontend config for normal trigger, command trigger, and trigger mode; keep environment overrides as a development escape hatch.
-2. Add minimal scene and ASR menus before recreating every legacy menu detail.
+1. Implemented deterministically: the minimal scene menu uses Right Shift, typed D-Bus scene state, candidate navigation/selection, and atomic active-scene persistence. Prove it in a real Fcitx session.
+2. Add the ASR menu and persistent frontend config for normal, command, scene-menu, and ASR-menu triggers plus trigger mode; keep environment overrides as a development escape hatch.
 3. Verify command-mode candidate selection replaces selected text in multiple real applications.
 4. Validate the implemented primary-selection clipboard fallback where surrounding text is unavailable.
 5. LLM/provider/adapter/scene CLI parity is implemented; validate live providers and improve user-facing errors.
@@ -83,5 +83,5 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining live-registry model families.
-3. Add scene/ASR menus and persistent frontend config needed for real desktop validation.
+3. Prove the scene menu live, then add the ASR menu and persistent frontend config needed for real desktop validation.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.

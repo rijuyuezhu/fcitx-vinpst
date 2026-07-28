@@ -9,14 +9,51 @@
 
 #include <fcitx-utils/log.h>
 #include <fcitx/addonmanager.h>
+#include <fcitx/candidatelist.h>
 #include <fcitx/event.h>
 #include <fcitx/inputcontext.h>
+#include <fcitx/inputpanel.h>
 #include <fcitx/surroundingtext.h>
+#include <fcitx/text.h>
+#include <fcitx/userinterface.h>
 
+#include <functional>
 #include <utility>
 
 namespace vinput_fcitx_bridge {
 namespace {
+
+constexpr int kSceneMenuPageSize = 10;
+
+class SceneCandidateWord final : public fcitx::CandidateWord {
+public:
+  SceneCandidateWord(std::string label,
+                     std::function<void(fcitx::InputContext *)> on_select)
+      : fcitx::CandidateWord(fcitx::Text(std::move(label))),
+        on_select_(std::move(on_select)) {}
+
+  void select(fcitx::InputContext *input_context) const override {
+    if (on_select_) {
+      on_select_(input_context);
+    }
+  }
+
+private:
+  std::function<void(fcitx::InputContext *)> on_select_;
+};
+
+bool IsKey(const fcitx::Key &key, FcitxKeySym symbol) {
+  return key.normalize().sym() == symbol;
+}
+
+int CurrentSceneSelectionIndex(fcitx::CandidateList *candidate_list) {
+  if (candidate_list == nullptr || candidate_list->cursorIndex() < 0) {
+    return -1;
+  }
+  auto *pageable = candidate_list->toPageable();
+  const int page = pageable != nullptr ? pageable->currentPage() : 0;
+  return page * kSceneMenuPageSize + candidate_list->cursorIndex();
+}
 
 #ifdef VINPUT_FCITX_HAVE_CLIPBOARD
 std::string PrimarySelectionFromClipboard(fcitx::Instance *instance,
@@ -60,6 +97,10 @@ std::string_view TriggerActionName(FcitxTriggerAction action) {
     return "start-command";
   case FcitxTriggerAction::StopCommand:
     return "stop-command";
+  case FcitxTriggerAction::ShowSceneMenu:
+    return "show-scene-menu";
+  case FcitxTriggerAction::ConsumeSceneMenuRelease:
+    return "consume-scene-menu-release";
   }
   return "unknown";
 }
@@ -80,7 +121,8 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
     : instance_(instance), trigger_policy_(FcitxKeyTriggerPolicy::FromEnvironment()) {
   FCITX_INFO() << "fcitx-vinput addon loaded with normal trigger "
                << trigger_policy_.normal_trigger() << " and command trigger "
-               << trigger_policy_.command_trigger();
+               << trigger_policy_.command_trigger() << " and scene menu trigger "
+               << trigger_policy_.scene_menu_trigger();
   if (instance_ != nullptr) {
     event_handlers_.emplace_back(
         instance_->watchEvent(fcitx::EventType::InputContextKeyEvent,
@@ -158,12 +200,14 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
     return AppliedOutcome::None;
   case FcitxTriggerAction::StartNormal:
     if (!bridge_.recording()) {
-      return TriggerNormal(ic);
+      std::string error;
+      RefreshSceneState(&error);
+      return TriggerNormal(ic, active_scene_id_);
     }
     return AppliedOutcome::None;
   case FcitxTriggerAction::StopNormal:
     if (bridge_.recording() && !bridge_.command_mode()) {
-      return TriggerNormal(ic);
+      return TriggerNormal(ic, active_scene_id_);
     }
     return AppliedOutcome::None;
   case FcitxTriggerAction::StartCommand:
@@ -176,6 +220,13 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
       return TriggerCommand(ic, "");
     }
     return AppliedOutcome::None;
+  case FcitxTriggerAction::ShowSceneMenu:
+    if (!bridge_.recording()) {
+      ShowSceneMenu(ic);
+    }
+    return AppliedOutcome::None;
+  case FcitxTriggerAction::ConsumeSceneMenuRelease:
+    return AppliedOutcome::None;
   }
   return AppliedOutcome::None;
 }
@@ -186,6 +237,9 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
   }
 
   auto &key_event = static_cast<fcitx::KeyEvent &>(event);
+  if (scene_menu_visible_ && HandleSceneMenuKeyEvent(key_event)) {
+    return;
+  }
   const auto action = trigger_policy_.Classify(key_event);
   if (action == FcitxTriggerAction::None) {
     return;
@@ -195,6 +249,157 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
   ApplyTriggerAction(key_event.inputContext(), action,
                      SelectedTextFromInputContext(instance_, key_event.inputContext()));
   key_event.filterAndAccept();
+}
+
+void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
+  if (ic == nullptr || bridge_.recording()) {
+    return;
+  }
+  std::string error;
+  if (!RefreshSceneState(&error)) {
+    ApplyDaemonUnavailable(ic, std::move(error));
+    return;
+  }
+
+  auto candidates = std::make_unique<fcitx::CommonCandidateList>();
+  candidates->setPageSize(kSceneMenuPageSize);
+  candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
+  candidates->setCursorPositionAfterPaging(
+      fcitx::CursorPositionAfterPaging::ResetToFirst);
+  scene_menu_indices_.clear();
+  for (std::size_t index = 0; index < scene_state_.scenes.size(); ++index) {
+    const auto &scene = scene_state_.scenes[index];
+    if (scene.id == active_scene_id_) {
+      continue;
+    }
+    scene_menu_indices_.push_back(index);
+    candidates->append<SceneCandidateWord>(
+        scene.label, [this, index](fcitx::InputContext *input_context) {
+          SelectScene(index, input_context);
+        });
+  }
+  if (candidates->totalSize() > 0) {
+    candidates->setGlobalCursorIndex(0);
+  }
+
+  scene_menu_ic_ = ic;
+  scene_menu_visible_ = true;
+  ic->inputPanel().setAuxUp(fcitx::Text("Scenes"));
+  ic->inputPanel().setAuxDown(fcitx::Text("Current: " + active_scene_id_));
+  ic->inputPanel().setCandidateList(std::move(candidates));
+  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+bool FcitxVinputAddon::RefreshSceneState(std::string *error) {
+  auto *client = EnsureDaemonClient(error);
+  if (client == nullptr || !client->GetSceneState(&scene_state_, error)) {
+    return false;
+  }
+  if (!scene_state_.active_scene_id.empty()) {
+    active_scene_id_ = scene_state_.active_scene_id;
+  }
+  return true;
+}
+
+void FcitxVinputAddon::HideSceneMenu() {
+  auto *ic = scene_menu_ic_;
+  scene_menu_visible_ = false;
+  scene_menu_ic_ = nullptr;
+  scene_menu_indices_.clear();
+  if (ic == nullptr) {
+    return;
+  }
+  fcitx::Text empty;
+  ic->inputPanel().setAuxUp(empty);
+  ic->inputPanel().setAuxDown(empty);
+  ic->inputPanel().setCandidateList({});
+  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
+  if (!scene_menu_visible_ || scene_menu_ic_ == nullptr) {
+    return false;
+  }
+  const auto &key = event.key();
+  if (event.isRelease()) {
+    if (trigger_policy_.IsSceneMenuTrigger(event)) {
+      event.filterAndAccept();
+      return true;
+    }
+    return false;
+  }
+  if (trigger_policy_.IsSceneMenuTrigger(event)) {
+    event.filterAndAccept();
+    return true;
+  }
+  if (IsKey(key, FcitxKey_Escape)) {
+    HideSceneMenu();
+    event.filterAndAccept();
+    return true;
+  }
+
+  auto candidate_list = scene_menu_ic_->inputPanel().candidateList();
+  auto *cursor =
+      candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
+  auto *pageable = candidate_list != nullptr ? candidate_list->toPageable() : nullptr;
+  if (cursor != nullptr && IsKey(key, FcitxKey_Up)) {
+    cursor->prevCandidate();
+  } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
+    cursor->nextCandidate();
+  } else if (pageable != nullptr && IsKey(key, FcitxKey_Page_Up) &&
+             pageable->hasPrev()) {
+    pageable->prev();
+  } else if (pageable != nullptr && IsKey(key, FcitxKey_Page_Down) &&
+             pageable->hasNext()) {
+    pageable->next();
+  } else if (IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter)) {
+    const int index = CurrentSceneSelectionIndex(candidate_list.get());
+    if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
+      SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)], scene_menu_ic_);
+    } else {
+      HideSceneMenu();
+    }
+    event.filterAndAccept();
+    return true;
+  } else {
+    const int digit = key.digitSelection();
+    if (digit >= 0) {
+      const int page = pageable != nullptr ? pageable->currentPage() : 0;
+      const int index = page * kSceneMenuPageSize + digit;
+      if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
+        SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)],
+                    scene_menu_ic_);
+      }
+      event.filterAndAccept();
+      return true;
+    }
+    HideSceneMenu();
+    return false;
+  }
+  scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  event.filterAndAccept();
+  return true;
+}
+
+void FcitxVinputAddon::SelectScene(std::size_t index, fcitx::InputContext *ic) {
+  if (index >= scene_state_.scenes.size()) {
+    HideSceneMenu();
+    return;
+  }
+  std::string error;
+  bool persisted = false;
+  auto *client = EnsureDaemonClient(&error);
+  const auto &scene = scene_state_.scenes[index];
+  if (client == nullptr || !client->SetActiveScene(scene.id, &persisted, &error)) {
+    HideSceneMenu();
+    ApplyDaemonUnavailable(ic, std::move(error));
+    return;
+  }
+  active_scene_id_ = scene.id;
+  scene_state_.active_scene_id = scene.id;
+  HideSceneMenu();
+  FCITX_INFO() << "fcitx-vinput switched active scene to " << scene.id
+               << " persisted=" << persisted;
 }
 
 } // namespace vinput_fcitx_bridge

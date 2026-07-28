@@ -22,6 +22,16 @@ struct AsrBackendStateSnapshot {
   std::vector<std::string> remote_endpoints;
 };
 
+struct SceneStateItem {
+  std::string id;
+  std::string label;
+};
+
+struct SceneStateSnapshot {
+  std::string active_scene_id;
+  std::vector<SceneStateItem> scenes;
+};
+
 class SdBusDaemonClient final : public DaemonClient {
 public:
   static std::unique_ptr<SdBusDaemonClient> ConnectSession(std::string *error);
@@ -40,6 +50,8 @@ public:
 
   // Rust-only diagnostic extensions; not used by the frontend bridge hot path.
   bool GetAsrBackendState(AsrBackendStateSnapshot *state, std::string *error);
+  bool GetSceneState(SceneStateSnapshot *state, std::string *error);
+  bool SetActiveScene(std::string_view scene_id, bool *persisted, std::string *error);
   bool GetTextAdapterState(std::string *state_json, std::string *error);
   bool StartAdapter(std::string_view adapter_id, std::string *error);
   bool StopAdapter(std::string_view adapter_id, std::string *error);
@@ -54,6 +66,8 @@ private:
   bool CallStringReply(std::string_view method, std::string *reply, std::string *error);
   bool CallStringReplyWithString(std::string_view method, std::string_view value,
                                  std::string *reply, std::string *error);
+  bool CallBoolReplyWithString(std::string_view method, std::string_view value,
+                               bool *reply, std::string *error);
 
   sd_bus *bus_ = nullptr;
 };

@@ -15,6 +15,7 @@ using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FrontendBridge;
 using vinput_fcitx_bridge::kDefaultCommandSceneId;
 using vinput_fcitx_bridge::kDefaultNormalSceneId;
+using vinput_fcitx_bridge::SceneStateSnapshot;
 using vinput_fcitx_bridge::SdBusDaemonClient;
 
 namespace {
@@ -122,6 +123,37 @@ bool ExpectConfiguredDiagnostics(SdBusDaemonClient *client, std::string *error) 
   }
 
   return true;
+}
+
+bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
+  SceneStateSnapshot state;
+  if (!client->GetSceneState(&state, error)) {
+    return false;
+  }
+  if (state.active_scene_id != kDefaultNormalSceneId || state.scenes.size() < 2) {
+    if (error != nullptr) {
+      *error = "scene state did not expose bundled active scene and menu items";
+    }
+    return false;
+  }
+
+  bool persisted = true;
+  if (!client->SetActiveScene("__command__", &persisted, error)) {
+    return false;
+  }
+  if (persisted) {
+    if (error != nullptr) {
+      *error = "bundled-config smoke unexpectedly reported scene persistence";
+    }
+    return false;
+  }
+  if (!client->GetSceneState(&state, error) || state.active_scene_id != "__command__") {
+    if (error != nullptr && error->empty()) {
+      *error = "scene state did not reflect selected command scene";
+    }
+    return false;
+  }
+  return client->SetActiveScene(kDefaultNormalSceneId, &persisted, error);
 }
 
 bool ExpectAdapterLifecycle(SdBusDaemonClient *client, std::string_view adapter_id,
@@ -232,6 +264,10 @@ int main() {
   }
   if (!ExpectConfiguredDiagnostics(client.get(), &error)) {
     std::cerr << "configured diagnostics check failed: " << error << '\n';
+    return 1;
+  }
+  if (!ExpectSceneLifecycle(client.get(), &error)) {
+    std::cerr << "scene lifecycle check failed: " << error << '\n';
     return 1;
   }
   const auto lifecycle_adapter =

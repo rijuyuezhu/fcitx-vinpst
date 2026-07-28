@@ -106,6 +106,17 @@ fn dbus_architecture_labels_diagnostic_extension_and_postprocessing_gap() {
         dbus_doc.contains("one non-blocking reload worker"),
         "D-Bus docs must pin non-blocking reload preparation"
     );
+    for required in [
+        "`GetSceneState() -> sa(ss)`",
+        "`SetActiveScene(s) -> b`",
+        "atomically persists the explicit daemon config",
+        "runtime-only selection",
+    ] {
+        assert!(
+            dbus_doc.contains(required),
+            "D-Bus docs must pin scene configuration extensions: {required}"
+        );
+    }
 }
 
 #[test]
@@ -435,6 +446,9 @@ fn target_architecture_pins_frontend_packaging_boundary() {
         "Fcitx API integration, menus, preedit/status presentation",
         "selected-text collection",
         "command-mode selected-text replacement",
+        "minimal scene menu",
+        "Right Shift opens the scene candidates",
+        "`GetSceneState` and `SetActiveScene`",
         "frontend-side cleanup",
         "Backend logic, ASR/text processing, registry operations, and runtime state must stay in Rust crates",
         "Do not replace the Fcitx5 addon with a Rust addon",

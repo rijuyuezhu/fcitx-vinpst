@@ -63,7 +63,8 @@ Then read, in order:
 - Online endpoint/warmup: legacy endpoint defaults and metadata overrides are forwarded, and every native online recognizer runs the legacy-compatible 200 ms silence warmup.
 - Timeout semantics: command helpers enforce configured deadlines; native synchronous sherpa decode is explicitly classified as unsupported/diagnostic-only in `vinput doctor` with an isolation hint.
 - Reload semantics: the legacy D-Bus method re-reads explicit daemon config files and queues one non-blocking worker; startup/readiness/reload paths share prepare-before-swap, physical progress is observable, stale generations are discarded, and failure preserves the previous effective backend.
-- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, remaining sherpa families, frontend menus/configuration, packaging, and remote services.
+- Scene UX: a minimal Right-Shift scene menu, typed scene-state D-Bus extension, atomic active-scene persistence, and pre-recording state refresh are implemented and deterministic-test proven; real desktop menu proof is still missing.
+- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, remaining sherpa families, ASR menu/persistent frontend configuration, packaging, and remote services.
 
 ## First recommended implementation slices
 
@@ -71,7 +72,7 @@ Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining families in registry-priority order; Moonshine v1 is already live-registry installed and WAV-proven.
-3. Add scene/ASR menus and persistent frontend trigger configuration where they directly support live validation.
+3. Prove the scene menu live, then add the ASR menu and persistent frontend trigger/mode configuration.
 4. Advance packaging and remote-service breadth only where they unblock the native desktop path.
 
 Do not start broad GUI polish or distro packaging before real desktop native alpha is proven. Keep refactors feature-driven and scoped to the next migration slice.

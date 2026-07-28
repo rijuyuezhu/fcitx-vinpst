@@ -32,7 +32,7 @@ Preserve these legacy method names and payload shapes:
 - `StartAdapter`
 - `StopAdapter`
 
-`GetTextAdapterState` and `GetRuntimeStatus` are Rust diagnostic extensions. They can remain available, but they are not part of the original C++ daemon vtable and should be documented as extensions whenever listed.
+`GetTextAdapterState` and `GetRuntimeStatus` are Rust diagnostic extensions. `GetSceneState() -> sa(ss)` and `SetActiveScene(s) -> b` are Rust configuration extensions used by the retained Fcitx frontend. They can remain available, but they are not part of the original C++ daemon vtable and should be documented as extensions whenever listed.
 
 ## Status strings
 
@@ -75,6 +75,8 @@ The Rust service pins these legacy-visible behaviors with unit and D-Bus integra
 - one non-blocking reload worker performs backend construction and warmup outside the runtime mutex, while `reload_in_progress` covers both queued and physical preparation;
 - `ReloadAsrBackend` returns success while recording/inferring, keeps the request pending until idle, coalesces repeated requests by generation, and discards stale prepared generations;
 - failed background or deferred reloads keep the previously working backend and surface the error in diagnostics;
+- `GetSceneState` returns the active scene plus typed id/label pairs without making the C++ frontend parse daemon config JSON;
+- `SetActiveScene` is idle-only, rejects unknown scenes with the legacy operation error, updates runtime state, and atomically persists the explicit daemon config when one exists; its boolean reply distinguishes persistent and runtime-only selection;
 - status strings and core legacy method/signal names remain centralized in `vinput-protocol`.
 
 A real legacy `postprocessing` runtime phase is still not wired; current text finishing runs synchronously inside stop handling. Status ordering must stay covered by tests when that phase becomes real.

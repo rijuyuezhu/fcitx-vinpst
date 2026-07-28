@@ -6,6 +6,7 @@ mod diagnostics;
 mod errors;
 mod recording;
 mod reload;
+mod scene;
 
 use active_session::ActiveRecognitionSession;
 pub use errors::RuntimeError;

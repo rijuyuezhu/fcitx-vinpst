@@ -420,6 +420,22 @@ impl VinputDbusService {
         serde_json::to_string(&runtime.runtime_status_json()).map_err(Self::map_json_error)
     }
 
+    /// Return active scene and configured scene id/label pairs.
+    #[zbus(name = "GetSceneState", out_args("active_scene", "scenes"))]
+    async fn get_scene_state(&self) -> (String, Vec<(String, String)>) {
+        self.runtime.lock().await.scene_state()
+    }
+
+    /// Select the active scene and persist it when an explicit config file is available.
+    #[zbus(name = "SetActiveScene")]
+    async fn set_active_scene(&self, scene_id: &str) -> Result<bool, VinputDbusError> {
+        self.runtime
+            .lock()
+            .await
+            .set_active_scene(scene_id)
+            .map_err(|error| Self::map_runtime_error(&error))
+    }
+
     /// Reload ASR backend using the legacy void method signature.
     #[zbus(name = "ReloadAsrBackend")]
     async fn reload_asr_backend(&self) -> Result<(), VinputDbusError> {
@@ -912,6 +928,35 @@ mod tests {
         assert_eq!(state.2, "mock");
         assert_eq!(state.3, "mock-streaming");
         assert!(state.4.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dbus_facade_lists_and_selects_scenes() {
+        let service = service();
+        let state = service.get_scene_state().await;
+        assert_eq!(state.0, vinput_config::RAW_SCENE_ID);
+        assert_eq!(
+            state.1,
+            [
+                (vinput_config::RAW_SCENE_ID.to_owned(), "Raw".to_owned()),
+                (
+                    vinput_config::COMMAND_SCENE_ID.to_owned(),
+                    "Command".to_owned()
+                ),
+            ]
+        );
+
+        assert!(
+            !service
+                .set_active_scene(vinput_config::COMMAND_SCENE_ID)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            service.get_scene_state().await.0,
+            vinput_config::COMMAND_SCENE_ID
+        );
+        assert!(service.set_active_scene("missing").await.is_err());
     }
 
     #[test]

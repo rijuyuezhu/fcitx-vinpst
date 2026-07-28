@@ -60,6 +60,77 @@ bool ReadStringReply(sd_bus_message *message, std::string *reply, std::string *e
   return true;
 }
 
+bool ReadBoolReply(sd_bus_message *message, bool *reply, std::string *error) {
+  int wire_reply = 0;
+  const int result = sd_bus_message_read(message, "b", &wire_reply);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "read boolean reply", result, bus_error);
+    return false;
+  }
+  if (reply != nullptr) {
+    *reply = wire_reply != 0;
+  }
+  return true;
+}
+
+bool ReadSceneStateReply(sd_bus_message *message, SceneStateSnapshot *state,
+                         std::string *error) {
+  const char *active_scene_id = nullptr;
+  int result = sd_bus_message_read(message, "s", &active_scene_id);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "read active scene", result, bus_error);
+    return false;
+  }
+
+  result = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "(ss)");
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "enter scene array", result, bus_error);
+    return false;
+  }
+  std::vector<SceneStateItem> scenes;
+  for (;;) {
+    result = sd_bus_message_enter_container(message, SD_BUS_TYPE_STRUCT, "ss");
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "enter scene item", result, bus_error);
+      return false;
+    }
+    if (result == 0) {
+      break;
+    }
+    const char *id = nullptr;
+    const char *label = nullptr;
+    result = sd_bus_message_read(message, "ss", &id, &label);
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "read scene item", result, bus_error);
+      return false;
+    }
+    result = sd_bus_message_exit_container(message);
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "exit scene item", result, bus_error);
+      return false;
+    }
+    scenes.push_back(
+        SceneStateItem{id != nullptr ? id : "", label != nullptr ? label : ""});
+  }
+  result = sd_bus_message_exit_container(message);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "exit scene array", result, bus_error);
+    return false;
+  }
+  if (state != nullptr) {
+    state->active_scene_id = active_scene_id != nullptr ? active_scene_id : "";
+    state->scenes = std::move(scenes);
+  }
+  return true;
+}
+
 bool ReadAsrBackendStateReply(sd_bus_message *message, AsrBackendStateSnapshot *state,
                               std::string *error) {
   const char *target_provider_id = nullptr;
@@ -200,6 +271,22 @@ bool SdBusDaemonClient::GetAsrBackendState(AsrBackendStateSnapshot *state,
   return ok;
 }
 
+bool SdBusDaemonClient::GetSceneState(SceneStateSnapshot *state, std::string *error) {
+  sd_bus_message *message = nullptr;
+  if (!CallMethod(bus_, dbus::kMethodGetSceneState, "", nullptr, &message, error)) {
+    return false;
+  }
+  const bool ok = ReadSceneStateReply(message, state, error);
+  UnrefMessage(message);
+  return ok;
+}
+
+bool SdBusDaemonClient::SetActiveScene(std::string_view scene_id, bool *persisted,
+                                       std::string *error) {
+  return CallBoolReplyWithString(dbus::kMethodSetActiveScene, scene_id, persisted,
+                                 error);
+}
+
 bool SdBusDaemonClient::GetTextAdapterState(std::string *state_json,
                                             std::string *error) {
   return CallStringReply(dbus::kMethodGetTextAdapterState, state_json, error);
@@ -257,6 +344,19 @@ bool SdBusDaemonClient::CallStringReplyWithString(std::string_view method,
   }
 
   const bool ok = ReadStringReply(message, reply, error);
+  UnrefMessage(message);
+  return ok;
+}
+
+bool SdBusDaemonClient::CallBoolReplyWithString(std::string_view method,
+                                                std::string_view value, bool *reply,
+                                                std::string *error) {
+  const auto argument = std::string(value);
+  sd_bus_message *message = nullptr;
+  if (!CallMethod(bus_, method, "s", argument.c_str(), &message, error)) {
+    return false;
+  }
+  const bool ok = ReadBoolReply(message, reply, error);
   UnrefMessage(message);
   return ok;
 }

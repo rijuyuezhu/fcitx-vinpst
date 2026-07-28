@@ -328,7 +328,7 @@ Acceptance:
 
 ## P2 plan: frontend and release polish
 
-- Scene menu, ASR menu, paging/search candidates, and persistent frontend trigger config.
+- Implemented and deterministic-test proven: minimal scene menu with Right Shift default, typed D-Bus scene state, keyboard/paging/digit/mouse selection, runtime refresh, and atomic explicit-config persistence. Remaining: real desktop menu proof, legacy scene search, ASR menu, and persistent frontend trigger/mode config.
 - Live validation of the implemented primary-selection clipboard fallback across applications where Fcitx surrounding text is unavailable.
 - User-facing install guide based on `vinput init`, `model install/use`, `doctor`, and `daemon start`.
 - Distro packaging after P0 live desktop native path is proven.
@@ -340,7 +340,7 @@ Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
-3. Complete scene/ASR menus and persistent frontend trigger/configuration surfaces needed for live validation.
+3. Prove the scene menu in a real Fcitx session, then add the ASR menu and persistent frontend trigger/mode configuration.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.
 
 ## Stop conditions
