@@ -35,6 +35,27 @@ impl InstalledModelInfo {
     pub fn config_model_value(&self) -> String {
         self.model_dir.to_string_lossy().into_owned()
     }
+
+    /// Returns the full registry id when installed display metadata provides one.
+    #[must_use]
+    pub fn stable_model_id(&self) -> &str {
+        self.metadata
+            .display
+            .as_ref()
+            .and_then(|display| display.registry_id.as_deref())
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .unwrap_or(&self.model_id)
+    }
+
+    /// Resolves an installed registry title for the supplied locale candidates.
+    #[must_use]
+    pub fn display_title(&self, locale_candidates: &[String]) -> Option<&str> {
+        self.metadata
+            .display
+            .as_ref()
+            .and_then(|display| display.resolved_title(locale_candidates))
+    }
 }
 
 /// Installed model discovery failures.
@@ -316,6 +337,36 @@ mod tests {
             scan_installed_models(&file).unwrap_err(),
             InstalledModelError::RootNotDirectory { .. }
         ));
+    }
+
+    #[test]
+    fn installed_display_metadata_exposes_registry_id_and_localized_title() {
+        let temp = tempfile::tempdir().unwrap();
+        let model = temp.path().join("managed-name");
+        fs::create_dir_all(&model).unwrap();
+        fs::write(
+            model.join(INSTALLED_MODEL_METADATA_FILE),
+            r#"{
+              "backend":"sherpa-offline",
+              "family":"moonshine",
+              "display":{
+                "registry_id":"model.sherpa-onnx.moonshine-v1",
+                "localized_titles":{"zh_CN":"月光语音模型"}
+              }
+            }"#,
+        )
+        .unwrap();
+
+        let models = scan_installed_models(temp.path()).unwrap();
+        assert_eq!(
+            models[0].stable_model_id(),
+            "model.sherpa-onnx.moonshine-v1"
+        );
+        assert_eq!(
+            models[0].display_title(&["zh_CN.UTF-8".to_owned()]),
+            Some("月光语音模型")
+        );
+        assert_eq!(models[0].display_title(&["en_US".to_owned()]), None);
     }
 
     #[test]

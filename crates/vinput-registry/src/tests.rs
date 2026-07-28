@@ -1,12 +1,12 @@
 use super::{
     ArchiveEntryKind, ArchiveFormat, ArchiveSafetyError, ArchiveStagingError,
-    ArchiveStagingPathError, AssetChecksumStatus, ChecksumPolicy, InstallPlan, LiveModelFamily,
-    LiveModelInstallError, LiveModelInstallRequest, LiveModelRegistry, LiveRegistryI18n,
-    PlannedAsset, PlannedInstallAsset, RegistryAssetSource, RegistryAssetStagingError,
-    RegistryCacheError, RegistryCachedFetchError, RegistryEntryKind, RegistryError,
-    RegistryFetchError, RegistryIndex, RegistryMaterializeError, RegistrySha256Error,
-    RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
-    checked_archive_entry_target, fetch_registry_index_from_mirrors,
+    ArchiveStagingPathError, AssetChecksumStatus, ChecksumPolicy, InstallPlan,
+    InstalledModelDisplayMetadata, LiveModelFamily, LiveModelInstallError, LiveModelInstallRequest,
+    LiveModelRegistry, LiveRegistryI18n, PlannedAsset, PlannedInstallAsset, RegistryAssetSource,
+    RegistryAssetStagingError, RegistryCacheError, RegistryCachedFetchError, RegistryEntryKind,
+    RegistryError, RegistryFetchError, RegistryIndex, RegistryMaterializeError,
+    RegistrySha256Error, RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource,
+    ReqwestRegistryTextSource, checked_archive_entry_target, fetch_registry_index_from_mirrors,
     fetch_registry_index_with_cache, install_live_model, materialize_staged_tree,
     plan_archive_staging_paths, plan_archive_staging_paths_for_plan, sha256_hex,
     stage_archive_by_format, stage_planned_asset, stage_tar_archive, stage_tar_bz2_archive,
@@ -199,6 +199,20 @@ fn resolves_live_model_i18n_title_and_description() {
     assert_eq!(
         model.resolved_description(Some(&i18n)).as_deref(),
         Some("SenseVoice 多语言模型，支持中文、英文、日语、韩语和粤语。")
+    );
+
+    let display = model.installed_display_metadata("zh_CN.UTF-8", Some(&i18n));
+    assert_eq!(
+        display.registry_id.as_deref(),
+        Some("model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8")
+    );
+    assert_eq!(
+        display.localized_titles.get("zh_CN").map(String::as_str),
+        Some("SenseVoice 五语")
+    );
+    assert_eq!(
+        display.resolved_title(&["zh_CN.UTF-8".to_owned()]),
+        Some("SenseVoice 五语")
     );
 }
 
@@ -2153,6 +2167,14 @@ fn install_live_model_downloads_verifies_extracts_and_materializes_single_root()
             model,
             model_dir: model_dir.clone(),
             staging_dir: staging_dir.clone(),
+            display: Some(InstalledModelDisplayMetadata {
+                registry_id: Some("model.test.sense-voice".to_owned()),
+                fallback_title: None,
+                localized_titles: std::collections::BTreeMap::from([(
+                    "zh_CN".to_owned(),
+                    "测试语音模型".to_owned(),
+                )]),
+            }),
         },
     )
     .unwrap();
@@ -2188,6 +2210,11 @@ fn install_live_model_downloads_verifies_extracts_and_materializes_single_root()
     .unwrap();
     assert_eq!(metadata["backend"], "sherpa-offline");
     assert_eq!(metadata["model"]["sense_voice"]["model"], "model.int8.onnx");
+    assert_eq!(metadata["display"]["registry_id"], "model.test.sense-voice");
+    assert_eq!(
+        metadata["display"]["localized_titles"]["zh_CN"],
+        "测试语音模型"
+    );
     assert!(!staging_dir.join("extract/release-root").exists());
     assert!(!staging_dir.join("extract/stale-root").exists());
 }
@@ -2212,6 +2239,7 @@ fn install_live_model_rejects_checksum_mismatch_without_materializing() {
             model,
             model_dir: temp_dir.path().join("models/test-sense"),
             staging_dir: temp_dir.path().join("stage/test-sense"),
+            display: None,
         },
     )
     .unwrap_err();

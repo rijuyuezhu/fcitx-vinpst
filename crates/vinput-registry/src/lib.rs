@@ -48,7 +48,8 @@ pub use installed::{
     load_installed_model_info, scan_installed_models,
 };
 pub use live::{
-    LiveModelEntry, LiveModelFamily, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata,
+    InstalledModelDisplayMetadata, LiveModelEntry, LiveModelFamily, LiveModelRegistry,
+    LiveRegistryI18n, LiveVinputModelMetadata,
 };
 pub use materialize::{
     MaterializedRegistryTree, RegistryMaterializeError, materialize_staged_tree,

@@ -7430,6 +7430,7 @@ fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> anyhow::Res
             model,
             model_dir: model_dir.clone(),
             staging_dir: staging_dir.clone(),
+            display: Some(model.installed_display_metadata(request.locale, i18n.i18n.as_ref())),
         },
     )
     .with_context(|| format!("install live model `{}`", model.id))?;

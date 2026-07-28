@@ -509,6 +509,11 @@ fn registry_architecture_mentions_root_planning() {
     assert!(registry_doc.contains("`<root>/<managed-name>/vinput-model.json`"));
     assert!(registry_doc.contains("`<root>/<engine>/<name>/vinput-model.json`"));
     assert!(registry_doc.contains("stable `model.<engine>.<name>` id"));
+    assert!(registry_doc.contains("optional installed `display` metadata"));
+    assert!(registry_doc.contains("full registry id"));
+    assert!(registry_doc.contains("locale-keyed titles"));
+    assert!(registry_doc.contains("`InstalledModelInfo::stable_model_id`"));
+    assert!(registry_doc.contains("`display_title`"));
 }
 
 #[test]

@@ -13,10 +13,10 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    ArchiveStagingError, AssetChecksumStatus, LiveModelEntry, MaterializedRegistryTree,
-    PlannedInstallAsset, RegistryAssetSource, RegistryAssetStagingError, RegistryEntryKind,
-    RegistryMaterializeError, StagedArchiveTree, StagedRegistryAsset, stage_archive_by_format,
-    stage_planned_asset,
+    ArchiveStagingError, AssetChecksumStatus, InstalledModelDisplayMetadata, LiveModelEntry,
+    MaterializedRegistryTree, PlannedInstallAsset, RegistryAssetSource, RegistryAssetStagingError,
+    RegistryEntryKind, RegistryMaterializeError, StagedArchiveTree, StagedRegistryAsset,
+    stage_archive_by_format, stage_planned_asset,
 };
 
 /// Request for installing one live registry model into a managed model directory.
@@ -28,6 +28,8 @@ pub struct LiveModelInstallRequest<'a> {
     pub model_dir: PathBuf,
     /// Temporary staging directory dedicated to this install attempt.
     pub staging_dir: PathBuf,
+    /// Optional registry display metadata to persist with the runtime metadata.
+    pub display: Option<InstalledModelDisplayMetadata>,
 }
 
 /// Successful live model install result.
@@ -142,13 +144,16 @@ pub fn install_live_model(
     request: &LiveModelInstallRequest<'_>,
 ) -> Result<LiveModelInstallResult, LiveModelInstallError> {
     let model = request.model;
-    let metadata =
-        model
-            .vinput_model
-            .as_ref()
-            .ok_or_else(|| LiveModelInstallError::MissingMetadata {
-                id: model.id.clone(),
-            })?;
+    let mut metadata = model
+        .vinput_model
+        .as_ref()
+        .ok_or_else(|| LiveModelInstallError::MissingMetadata {
+            id: model.id.clone(),
+        })?
+        .clone();
+    if let Some(display) = &request.display {
+        metadata.display = Some(display.clone());
+    }
     let archive_file_name = model_archive_file_name(model)?;
     let archive_path = request.staging_dir.join("archives").join(archive_file_name);
     let extract_dir = request.staging_dir.join("extract");

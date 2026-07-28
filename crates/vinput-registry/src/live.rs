@@ -233,6 +233,27 @@ impl LiveModelEntry {
         self.resolved_i18n_text("description", self.description.as_deref(), i18n)
     }
 
+    /// Builds display metadata that can survive registry-independent installed scans.
+    #[must_use]
+    pub fn installed_display_metadata(
+        &self,
+        locale: &str,
+        i18n: Option<&LiveRegistryI18n>,
+    ) -> InstalledModelDisplayMetadata {
+        let mut localized_titles = BTreeMap::new();
+        let normalized_locale = normalize_locale_tag(locale);
+        if !normalized_locale.is_empty()
+            && let Some(title) = i18n.and_then(|map| map.model_text(&self.id, "title"))
+        {
+            localized_titles.insert(normalized_locale, title.to_owned());
+        }
+        InstalledModelDisplayMetadata {
+            registry_id: Some(self.id.clone()),
+            fallback_title: non_empty_string(self.title.as_deref()).map(str::to_owned),
+            localized_titles,
+        }
+    }
+
     fn resolved_i18n_text(
         &self,
         suffix: &str,
@@ -242,6 +263,42 @@ impl LiveModelEntry {
         non_empty_string(inline)
             .map(str::to_owned)
             .or_else(|| i18n.and_then(|map| map.model_text(&self.id, suffix).map(str::to_owned)))
+    }
+}
+
+/// Optional display metadata persisted into installed `vinput-model.json` files.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct InstalledModelDisplayMetadata {
+    /// Stable full registry id used independently from the managed directory name.
+    #[serde(default)]
+    pub registry_id: Option<String>,
+    /// Inline registry title used before locale-specific fallbacks.
+    #[serde(default)]
+    pub fallback_title: Option<String>,
+    /// Locale-specific registry titles captured during installation.
+    #[serde(default)]
+    pub localized_titles: BTreeMap<String, String>,
+}
+
+impl InstalledModelDisplayMetadata {
+    /// Resolves a title using inline text, exact locales, language fallbacks, then no title.
+    #[must_use]
+    pub fn resolved_title<'a>(&'a self, locale_candidates: &[String]) -> Option<&'a str> {
+        non_empty_string(self.fallback_title.as_deref()).or_else(|| {
+            locale_candidates.iter().find_map(|locale| {
+                let normalized = normalize_locale_tag(locale);
+                self.localized_titles
+                    .get(&normalized)
+                    .and_then(|title| non_empty_string(Some(title)))
+                    .or_else(|| {
+                        normalized.split_once('_').and_then(|(language, _)| {
+                            self.localized_titles
+                                .get(language)
+                                .and_then(|title| non_empty_string(Some(title)))
+                        })
+                    })
+            })
+        })
     }
 }
 
@@ -275,6 +332,9 @@ pub struct LiveVinputModelMetadata {
     /// Model-file configuration subtree kept as raw JSON for backend-specific mapping.
     #[serde(default)]
     pub model: Option<Value>,
+    /// Optional installed display metadata added by the Rust installer.
+    #[serde(default)]
+    pub display: Option<InstalledModelDisplayMetadata>,
     /// Additional metadata fields not yet typed by Rust.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -328,6 +388,20 @@ impl LiveRegistryI18n {
     pub fn model_text(&self, model_id: &str, suffix: &str) -> Option<&str> {
         self.get(&format!("{model_id}.{suffix}"))
     }
+}
+
+fn normalize_locale_tag(input: &str) -> String {
+    input
+        .split(':')
+        .next()
+        .unwrap_or(input)
+        .split('.')
+        .next()
+        .unwrap_or(input)
+        .split('@')
+        .next()
+        .unwrap_or(input)
+        .replace('-', "_")
 }
 
 fn non_empty_string(input: Option<&str>) -> Option<&str> {
