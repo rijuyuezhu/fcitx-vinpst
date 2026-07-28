@@ -6,7 +6,10 @@ use tokio::{sync::Mutex, time::MissedTickBehavior};
 use vinput_protocol::{AsrBackendState, ServiceStatus, dbus};
 use zbus::{Connection, DBusError, object_server::SignalEmitter};
 
-use crate::{RuntimeError, RuntimeState, runtime::AsrReloadWorkerStep};
+use crate::{
+    RuntimeError, RuntimeState,
+    runtime::{AsrReloadWorkerStep, persist_config_atomically, select_asr_provider},
+};
 
 /// Legacy `GetAsrBackendState` D-Bus output tuple.
 type AsrBackendStateTuple = (
@@ -181,6 +184,20 @@ impl VinputDbusService {
                     }
                 }
             }
+        }
+    }
+
+    async fn queue_asr_reload_config(&self, config: vinput_config::VinputConfig) {
+        let should_spawn_worker = self
+            .runtime
+            .lock()
+            .await
+            .queue_configured_asr_reload(config);
+        if should_spawn_worker {
+            let service = self.clone();
+            tokio::spawn(async move {
+                service.run_asr_reload_worker().await;
+            });
         }
     }
 
@@ -436,6 +453,59 @@ impl VinputDbusService {
             .map_err(|error| Self::map_runtime_error(&error))
     }
 
+    /// Return target/effective ASR state and configured provider rows.
+    #[zbus(
+        name = "GetAsrMenuState",
+        out_args(
+            "target_provider_id",
+            "effective_provider_id",
+            "effective_model_id",
+            "reload_in_progress",
+            "last_error",
+            "providers"
+        )
+    )]
+    async fn get_asr_menu_state(
+        &self,
+    ) -> (
+        String,
+        String,
+        String,
+        bool,
+        String,
+        Vec<(String, String, String)>,
+    ) {
+        self.runtime.lock().await.asr_menu_state()
+    }
+
+    /// Select, persist, and queue reload for a configured ASR provider.
+    #[zbus(name = "SetActiveAsrProvider")]
+    async fn set_active_asr_provider(&self, provider_id: &str) -> Result<bool, VinputDbusError> {
+        let (config_source, config_path) = {
+            let runtime = self.runtime.lock().await;
+            (
+                runtime.asr_reload_config_source(),
+                runtime.config_path_for_persistence(),
+            )
+        };
+        let provider_id = provider_id.to_owned();
+        let (config, persisted) = tokio::task::spawn_blocking(move || {
+            let config = config_source.load()?;
+            let config = select_asr_provider(config, &provider_id).map_err(RuntimeError::Asr)?;
+            if let Some(path) = config_path {
+                persist_config_atomically(&path, &config, "asr")?;
+                Ok((config, true))
+            } else {
+                Ok((config, false))
+            }
+        })
+        .await
+        .map_err(|error| Self::operation_failed(format!("ASR selection task failed: {error}")))?
+        .map_err(|error: RuntimeError| Self::map_runtime_error(&error))?;
+        self.queue_asr_reload_config(config).await;
+        Ok(persisted)
+    }
+
     /// Reload ASR backend using the legacy void method signature.
     #[zbus(name = "ReloadAsrBackend")]
     async fn reload_asr_backend(&self) -> Result<(), VinputDbusError> {
@@ -444,17 +514,7 @@ impl VinputDbusService {
             .await
             .map_err(|error| Self::operation_failed(format!("ASR reload task failed: {error}")))?
             .map_err(|error| Self::map_runtime_error(&error))?;
-        let should_spawn_worker = self
-            .runtime
-            .lock()
-            .await
-            .queue_configured_asr_reload(config);
-        if should_spawn_worker {
-            let service = self.clone();
-            tokio::spawn(async move {
-                service.run_asr_reload_worker().await;
-            });
-        }
+        self.queue_asr_reload_config(config).await;
         Ok(())
     }
 
@@ -957,6 +1017,42 @@ mod tests {
             vinput_config::COMMAND_SCENE_ID
         );
         assert!(service.set_active_scene("missing").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn dbus_facade_lists_and_selects_asr_providers() {
+        let mut config = VinputConfig::bundled_default().unwrap();
+        config.asr.providers.push(AsrProviderConfig {
+            id: "mock".to_owned(),
+            kind: AsrProviderKind::Local,
+            timeout_ms: None,
+            model: Some("mock-model".to_owned()),
+            hotwords_file: None,
+            command: None,
+            args: Vec::new(),
+            env: std::collections::HashMap::new(),
+            endpoint: None,
+        });
+        let runtime = RuntimeState::with_asr_backend(
+            config,
+            Box::new(MockAsrBackend::buffered("injected final")),
+        )
+        .unwrap();
+        let service = VinputDbusService::new(runtime);
+
+        let before = service.get_asr_menu_state().await;
+        assert_eq!(before.0, "sherpa-onnx");
+        assert_eq!(before.1, "mock");
+        assert_eq!(before.2, "mock-buffered");
+        assert_eq!(before.5[1].0, "mock");
+
+        assert!(!service.set_active_asr_provider("mock").await.unwrap());
+        let after = wait_for_asr_reload(&service).await;
+        assert_eq!(after.0, "mock");
+        assert_eq!(after.2, "mock");
+        assert_eq!(after.3, "mock-streaming");
+        assert!(after.4.is_empty());
+        assert!(service.set_active_asr_provider("missing").await.is_err());
     }
 
     #[test]

@@ -30,6 +30,15 @@ type AsrBackendStateTuple = (
     Vec<String>,
 );
 
+type AsrMenuStateTuple = (
+    String,
+    String,
+    String,
+    bool,
+    String,
+    Vec<(String, String, String)>,
+);
+
 const RAW_PAYLOAD_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/recognition/raw.json"
@@ -507,6 +516,67 @@ async fn scene_selection_persists_through_session_bus() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> anyhow::Result<()> {
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.json");
+    let mut config = VinputConfig::bundled_default()?;
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("mock-model".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config)?)?;
+    let mut runtime = RuntimeState::with_asr_backend(
+        config,
+        Box::new(MockAsrBackend::buffered("injected final")),
+    )?;
+    runtime.set_config_path(Some(config_path.clone()));
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+
+    let before: AsrMenuStateTuple = proxy.call(dbus::method::GET_ASR_MENU_STATE, &()).await?;
+    assert_eq!(before.0, "sherpa-onnx");
+    assert_eq!(before.1, "mock");
+    assert_eq!(before.2, "mock-buffered");
+    assert_eq!(before.5[1].0, "mock");
+
+    let persisted: bool = proxy
+        .call(dbus::method::SET_ACTIVE_ASR_PROVIDER, &"mock")
+        .await?;
+    assert!(persisted);
+    let after = wait_for_asr_reload(&proxy).await?;
+    assert_eq!(after.0, "mock");
+    assert_eq!(after.2, "mock");
+    assert_eq!(after.3, "mock-streaming");
+    assert!(after.4.is_empty());
+    let persisted_config = VinputConfig::from_json_file(&config_path)?;
+    assert_eq!(persisted_config.asr.active_provider, "mock");
+
+    let unknown: zbus::Result<bool> = proxy
+        .call(dbus::method::SET_ACTIVE_ASR_PROVIDER, &"missing")
+        .await;
+    assert_legacy_operation_failed(
+        &unknown.unwrap_err(),
+        "ASR provider `missing` is not configured",
+    );
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
@@ -548,6 +618,18 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     assert_method_signature(interface_xml, dbus::method::GET_RUNTIME_STATUS, "", "s")?;
     assert_method_signature(interface_xml, dbus::method::GET_SCENE_STATE, "", "sa(ss)")?;
     assert_method_signature(interface_xml, dbus::method::SET_ACTIVE_SCENE, "s", "b")?;
+    assert_method_signature(
+        interface_xml,
+        dbus::method::GET_ASR_MENU_STATE,
+        "",
+        "sssbsa(sss)",
+    )?;
+    assert_method_signature(
+        interface_xml,
+        dbus::method::SET_ACTIVE_ASR_PROVIDER,
+        "s",
+        "b",
+    )?;
     assert_method_signature(interface_xml, dbus::method::RELOAD_ASR_BACKEND, "", "")?;
     assert_method_signature(interface_xml, dbus::method::START_ADAPTER, "s", "")?;
     assert_method_signature(interface_xml, dbus::method::STOP_ADAPTER, "s", "")?;

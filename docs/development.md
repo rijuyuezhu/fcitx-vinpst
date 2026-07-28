@@ -162,6 +162,7 @@ just addon-format-check
 just addon-test
 just addon-smoke
 just addon-dbus-smoke
+just addon-dbus-asr-menu-smoke
 just addon-dbus-activation-smoke
 just addon-dbus-configured-activation-smoke
 just addon-dbus-adapter-lifecycle-smoke

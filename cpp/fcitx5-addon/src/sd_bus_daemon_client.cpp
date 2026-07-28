@@ -131,6 +131,76 @@ bool ReadSceneStateReply(sd_bus_message *message, SceneStateSnapshot *state,
   return true;
 }
 
+bool ReadAsrMenuStateReply(sd_bus_message *message, AsrMenuStateSnapshot *state,
+                           std::string *error) {
+  const char *target_provider_id = nullptr;
+  const char *effective_provider_id = nullptr;
+  const char *effective_model_id = nullptr;
+  int reload_in_progress = 0;
+  const char *last_error = nullptr;
+  int result =
+      sd_bus_message_read(message, "sssbs", &target_provider_id, &effective_provider_id,
+                          &effective_model_id, &reload_in_progress, &last_error);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "read ASR menu state", result, bus_error);
+    return false;
+  }
+
+  result = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "(sss)");
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "enter ASR provider array", result, bus_error);
+    return false;
+  }
+  std::vector<AsrMenuProviderItem> providers;
+  for (;;) {
+    result = sd_bus_message_enter_container(message, SD_BUS_TYPE_STRUCT, "sss");
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "enter ASR provider item", result, bus_error);
+      return false;
+    }
+    if (result == 0) {
+      break;
+    }
+    const char *id = nullptr;
+    const char *kind = nullptr;
+    const char *model = nullptr;
+    result = sd_bus_message_read(message, "sss", &id, &kind, &model);
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "read ASR provider item", result, bus_error);
+      return false;
+    }
+    result = sd_bus_message_exit_container(message);
+    if (result < 0) {
+      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+      SetSdBusError(error, "exit ASR provider item", result, bus_error);
+      return false;
+    }
+    providers.push_back(AsrMenuProviderItem{id != nullptr ? id : "",
+                                            kind != nullptr ? kind : "",
+                                            model != nullptr ? model : ""});
+  }
+  result = sd_bus_message_exit_container(message);
+  if (result < 0) {
+    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
+    SetSdBusError(error, "exit ASR provider array", result, bus_error);
+    return false;
+  }
+  if (state != nullptr) {
+    state->target_provider_id = target_provider_id != nullptr ? target_provider_id : "";
+    state->effective_provider_id =
+        effective_provider_id != nullptr ? effective_provider_id : "";
+    state->effective_model_id = effective_model_id != nullptr ? effective_model_id : "";
+    state->reload_in_progress = reload_in_progress != 0;
+    state->last_error = last_error != nullptr ? last_error : "";
+    state->providers = std::move(providers);
+  }
+  return true;
+}
+
 bool ReadAsrBackendStateReply(sd_bus_message *message, AsrBackendStateSnapshot *state,
                               std::string *error) {
   const char *target_provider_id = nullptr;
@@ -285,6 +355,23 @@ bool SdBusDaemonClient::SetActiveScene(std::string_view scene_id, bool *persiste
                                        std::string *error) {
   return CallBoolReplyWithString(dbus::kMethodSetActiveScene, scene_id, persisted,
                                  error);
+}
+
+bool SdBusDaemonClient::GetAsrMenuState(AsrMenuStateSnapshot *state,
+                                        std::string *error) {
+  sd_bus_message *message = nullptr;
+  if (!CallMethod(bus_, dbus::kMethodGetAsrMenuState, "", nullptr, &message, error)) {
+    return false;
+  }
+  const bool ok = ReadAsrMenuStateReply(message, state, error);
+  UnrefMessage(message);
+  return ok;
+}
+
+bool SdBusDaemonClient::SetActiveAsrProvider(std::string_view provider_id,
+                                             bool *persisted, std::string *error) {
+  return CallBoolReplyWithString(dbus::kMethodSetActiveAsrProvider, provider_id,
+                                 persisted, error);
 }
 
 bool SdBusDaemonClient::GetTextAdapterState(std::string *state_json,

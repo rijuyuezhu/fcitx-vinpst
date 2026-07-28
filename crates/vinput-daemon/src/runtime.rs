@@ -2,6 +2,8 @@
 
 mod active_session;
 mod adapter_process;
+mod asr_menu;
+mod config_io;
 mod diagnostics;
 mod errors;
 mod recording;
@@ -9,6 +11,8 @@ mod reload;
 mod scene;
 
 use active_session::ActiveRecognitionSession;
+pub(crate) use asr_menu::select_asr_provider;
+pub(crate) use config_io::persist_config_atomically;
 pub use errors::RuntimeError;
 pub(crate) use reload::AsrReloadWorkerStep;
 use reload::PendingAsrReload;

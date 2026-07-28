@@ -88,6 +88,11 @@ impl RuntimeState {
     }
 
     /// Captures the reload config source without performing file I/O.
+    /// Returns the explicit daemon config path, if any.
+    pub(crate) fn config_path_for_persistence(&self) -> Option<PathBuf> {
+        self.config_path.clone()
+    }
+
     pub(crate) fn asr_reload_config_source(&self) -> AsrReloadConfigSource {
         self.config_path.as_ref().map_or_else(
             || AsrReloadConfigSource::Snapshot(Box::new(self.config.clone())),

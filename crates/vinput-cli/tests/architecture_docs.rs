@@ -109,6 +109,10 @@ fn dbus_architecture_labels_diagnostic_extension_and_postprocessing_gap() {
     for required in [
         "`GetSceneState() -> sa(ss)`",
         "`SetActiveScene(s) -> b`",
+        "`GetAsrMenuState() -> sssbsa(sss)`",
+        "`SetActiveAsrProvider(s) -> b`",
+        "actual effective provider/model",
+        "same non-blocking prepare-before-swap worker",
         "atomically persists the explicit daemon config",
         "runtime-only selection",
     ] {
@@ -399,6 +403,7 @@ fn development_doc_pins_addon_dbus_smoke_recipes() {
         .expect("read CI workflow");
     for required in [
         "just addon-dbus-smoke",
+        "just addon-dbus-asr-menu-smoke",
         "just addon-dbus-activation-smoke",
         "just addon-dbus-configured-activation-smoke",
         "just addon-dbus-adapter-lifecycle-smoke",
@@ -418,6 +423,7 @@ fn development_doc_pins_addon_dbus_smoke_recipes() {
 
     for recipe in [
         "addon-dbus-smoke:",
+        "addon-dbus-asr-menu-smoke:",
         "addon-dbus-activation-smoke:",
         "addon-dbus-configured-activation-smoke:",
         "addon-dbus-adapter-lifecycle-smoke:",
@@ -447,8 +453,10 @@ fn target_architecture_pins_frontend_packaging_boundary() {
         "selected-text collection",
         "command-mode selected-text replacement",
         "minimal scene menu",
-        "Right Shift opens the scene candidates",
+        "provider-level ASR menu",
+        "Right Shift opens scene candidates and F8 opens ASR provider candidates",
         "`GetSceneState` and `SetActiveScene`",
+        "`GetAsrMenuState` and `SetActiveAsrProvider`",
         "frontend-side cleanup",
         "Backend logic, ASR/text processing, registry operations, and runtime state must stay in Rust crates",
         "Do not replace the Fcitx5 addon with a Rust addon",

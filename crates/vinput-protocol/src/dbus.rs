@@ -38,6 +38,10 @@ pub mod method {
     pub const GET_SCENE_STATE: &str = "GetSceneState";
     /// Select and persist the active scene when a config file is available.
     pub const SET_ACTIVE_SCENE: &str = "SetActiveScene";
+    /// Return target/effective ASR state plus configured provider rows.
+    pub const GET_ASR_MENU_STATE: &str = "GetAsrMenuState";
+    /// Select, persist, and queue reload for a configured ASR provider.
+    pub const SET_ACTIVE_ASR_PROVIDER: &str = "SetActiveAsrProvider";
     /// Reload the selected ASR backend.
     pub const RELOAD_ASR_BACKEND: &str = "ReloadAsrBackend";
     /// Start a configured LLM adapter process.
@@ -89,7 +93,12 @@ pub const DIAGNOSTIC_EXTENSION_METHODS: &[&str] =
     &[method::GET_TEXT_ADAPTER_STATE, method::GET_RUNTIME_STATUS];
 
 /// Rust configuration extension methods exported on [`SERVICE_INTERFACE`].
-pub const CONFIG_EXTENSION_METHODS: &[&str] = &[method::GET_SCENE_STATE, method::SET_ACTIVE_SCENE];
+pub const CONFIG_EXTENSION_METHODS: &[&str] = &[
+    method::GET_SCENE_STATE,
+    method::SET_ACTIVE_SCENE,
+    method::GET_ASR_MENU_STATE,
+    method::SET_ACTIVE_ASR_PROVIDER,
+];
 
 /// Method names exported on [`SERVICE_INTERFACE`] in protocol order.
 pub const SERVICE_METHODS: &[&str] = &[
@@ -102,6 +111,8 @@ pub const SERVICE_METHODS: &[&str] = &[
     method::GET_RUNTIME_STATUS,
     method::GET_SCENE_STATE,
     method::SET_ACTIVE_SCENE,
+    method::GET_ASR_MENU_STATE,
+    method::SET_ACTIVE_ASR_PROVIDER,
     method::RELOAD_ASR_BACKEND,
     method::START_ADAPTER,
     method::STOP_ADAPTER,
@@ -131,6 +142,8 @@ mod tests {
         assert_eq!(method::GET_RUNTIME_STATUS, "GetRuntimeStatus");
         assert_eq!(method::GET_SCENE_STATE, "GetSceneState");
         assert_eq!(method::SET_ACTIVE_SCENE, "SetActiveScene");
+        assert_eq!(method::GET_ASR_MENU_STATE, "GetAsrMenuState");
+        assert_eq!(method::SET_ACTIVE_ASR_PROVIDER, "SetActiveAsrProvider");
         assert_eq!(method::NOTIFY, "Notify");
         assert_eq!(
             error::OPERATION_FAILED,
@@ -181,6 +194,7 @@ mod tests {
         assert!(!CONFIG_EXTENSION_METHODS.contains(&method::NOTIFY));
         assert!(DIAGNOSTIC_EXTENSION_METHODS.contains(&method::GET_RUNTIME_STATUS));
         assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_SCENE_STATE));
+        assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_ASR_MENU_STATE));
     }
 
     #[test]

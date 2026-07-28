@@ -11,6 +11,7 @@
 #include <thread>
 
 using vinput_fcitx_bridge::AsrBackendStateSnapshot;
+using vinput_fcitx_bridge::AsrMenuStateSnapshot;
 using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FrontendBridge;
 using vinput_fcitx_bridge::kDefaultCommandSceneId;
@@ -141,9 +142,11 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   if (!client->SetActiveScene("__command__", &persisted, error)) {
     return false;
   }
-  if (persisted) {
+  const bool expect_persisted =
+      !OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED").empty();
+  if (persisted != expect_persisted) {
     if (error != nullptr) {
-      *error = "bundled-config smoke unexpectedly reported scene persistence";
+      *error = "scene persistence result did not match expectation";
     }
     return false;
   }
@@ -154,6 +157,69 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
     return false;
   }
   return client->SetActiveScene(kDefaultNormalSceneId, &persisted, error);
+}
+
+bool ExpectAsrMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
+  AsrMenuStateSnapshot state;
+  if (!client->GetAsrMenuState(&state, error)) {
+    return false;
+  }
+  if (state.target_provider_id.empty() || state.effective_provider_id.empty() ||
+      state.providers.empty()) {
+    if (error != nullptr) {
+      *error = "ASR menu state did not expose target, effective, and providers";
+    }
+    return false;
+  }
+
+  const auto switch_provider =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_SWITCH_ASR_PROVIDER");
+  if (switch_provider.empty()) {
+    return true;
+  }
+  bool found = false;
+  for (const auto &provider : state.providers) {
+    found = found || provider.id == switch_provider;
+  }
+  if (!found) {
+    if (error != nullptr) {
+      *error = "ASR menu state missing requested switch provider: " + switch_provider;
+    }
+    return false;
+  }
+
+  bool persisted = false;
+  if (!client->SetActiveAsrProvider(switch_provider, &persisted, error)) {
+    return false;
+  }
+  const bool expect_persisted =
+      !OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_PERSISTED").empty();
+  if (persisted != expect_persisted) {
+    if (error != nullptr) {
+      *error = "ASR provider persistence result did not match expectation";
+    }
+    return false;
+  }
+
+  for (int attempt = 0; attempt < 200; ++attempt) {
+    if (!client->GetAsrMenuState(&state, error)) {
+      return false;
+    }
+    if (!state.reload_in_progress && state.effective_provider_id == switch_provider) {
+      return state.last_error.empty();
+    }
+    if (!state.reload_in_progress && !state.last_error.empty()) {
+      if (error != nullptr) {
+        *error = "ASR provider reload failed: " + state.last_error;
+      }
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (error != nullptr) {
+    *error = "timed out waiting for ASR provider switch to " + switch_provider;
+  }
+  return false;
 }
 
 bool ExpectAdapterLifecycle(SdBusDaemonClient *client, std::string_view adapter_id,
@@ -268,6 +334,10 @@ int main() {
   }
   if (!ExpectSceneLifecycle(client.get(), &error)) {
     std::cerr << "scene lifecycle check failed: " << error << '\n';
+    return 1;
+  }
+  if (!ExpectAsrMenuLifecycle(client.get(), &error)) {
+    std::cerr << "ASR menu lifecycle check failed: " << error << '\n';
     return 1;
   }
   const auto lifecycle_adapter =

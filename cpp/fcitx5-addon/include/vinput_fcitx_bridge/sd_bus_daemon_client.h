@@ -32,6 +32,21 @@ struct SceneStateSnapshot {
   std::vector<SceneStateItem> scenes;
 };
 
+struct AsrMenuProviderItem {
+  std::string id;
+  std::string kind;
+  std::string model;
+};
+
+struct AsrMenuStateSnapshot {
+  std::string target_provider_id;
+  std::string effective_provider_id;
+  std::string effective_model_id;
+  bool reload_in_progress = false;
+  std::string last_error;
+  std::vector<AsrMenuProviderItem> providers;
+};
+
 class SdBusDaemonClient final : public DaemonClient {
 public:
   static std::unique_ptr<SdBusDaemonClient> ConnectSession(std::string *error);
@@ -52,6 +67,9 @@ public:
   bool GetAsrBackendState(AsrBackendStateSnapshot *state, std::string *error);
   bool GetSceneState(SceneStateSnapshot *state, std::string *error);
   bool SetActiveScene(std::string_view scene_id, bool *persisted, std::string *error);
+  bool GetAsrMenuState(AsrMenuStateSnapshot *state, std::string *error);
+  bool SetActiveAsrProvider(std::string_view provider_id, bool *persisted,
+                            std::string *error);
   bool GetTextAdapterState(std::string *state_json, std::string *error);
   bool StartAdapter(std::string_view adapter_id, std::string *error);
   bool StopAdapter(std::string_view adapter_id, std::string *error);

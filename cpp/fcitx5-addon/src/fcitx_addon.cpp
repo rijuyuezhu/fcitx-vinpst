@@ -23,12 +23,12 @@
 namespace vinput_fcitx_bridge {
 namespace {
 
-constexpr int kSceneMenuPageSize = 10;
+constexpr int kMenuPageSize = 10;
 
-class SceneCandidateWord final : public fcitx::CandidateWord {
+class MenuCandidateWord final : public fcitx::CandidateWord {
 public:
-  SceneCandidateWord(std::string label,
-                     std::function<void(fcitx::InputContext *)> on_select)
+  MenuCandidateWord(std::string label,
+                    std::function<void(fcitx::InputContext *)> on_select)
       : fcitx::CandidateWord(fcitx::Text(std::move(label))),
         on_select_(std::move(on_select)) {}
 
@@ -46,13 +46,39 @@ bool IsKey(const fcitx::Key &key, FcitxKeySym symbol) {
   return key.normalize().sym() == symbol;
 }
 
-int CurrentSceneSelectionIndex(fcitx::CandidateList *candidate_list) {
+int CurrentMenuSelectionIndex(fcitx::CandidateList *candidate_list) {
   if (candidate_list == nullptr || candidate_list->cursorIndex() < 0) {
     return -1;
   }
   auto *pageable = candidate_list->toPageable();
   const int page = pageable != nullptr ? pageable->currentPage() : 0;
-  return page * kSceneMenuPageSize + candidate_list->cursorIndex();
+  return page * kMenuPageSize + candidate_list->cursorIndex();
+}
+
+std::string AsrProviderLabel(const AsrMenuProviderItem &provider,
+                             const AsrMenuStateSnapshot &state) {
+  std::string label = provider.model.empty() ? provider.id : provider.model;
+  label += " [" + provider.kind + "]";
+  if (state.reload_in_progress && provider.id == state.target_provider_id &&
+      provider.id != state.effective_provider_id) {
+    label += " (loading)";
+  }
+  return label;
+}
+
+std::string EffectiveAsrLabel(const AsrMenuStateSnapshot &state) {
+  std::string label = state.effective_model_id.empty() ? state.effective_provider_id
+                                                       : state.effective_model_id;
+  if (label.empty()) {
+    label = "unavailable";
+  }
+  if (state.reload_in_progress && !state.target_provider_id.empty()) {
+    label += " | Loading: " + state.target_provider_id;
+  }
+  if (!state.last_error.empty()) {
+    label += " | Error: " + state.last_error;
+  }
+  return label;
 }
 
 #ifdef VINPUT_FCITX_HAVE_CLIPBOARD
@@ -101,6 +127,10 @@ std::string_view TriggerActionName(FcitxTriggerAction action) {
     return "show-scene-menu";
   case FcitxTriggerAction::ConsumeSceneMenuRelease:
     return "consume-scene-menu-release";
+  case FcitxTriggerAction::ShowAsrMenu:
+    return "show-asr-menu";
+  case FcitxTriggerAction::ConsumeAsrMenuRelease:
+    return "consume-asr-menu-release";
   }
   return "unknown";
 }
@@ -122,7 +152,8 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
   FCITX_INFO() << "fcitx-vinput addon loaded with normal trigger "
                << trigger_policy_.normal_trigger() << " and command trigger "
                << trigger_policy_.command_trigger() << " and scene menu trigger "
-               << trigger_policy_.scene_menu_trigger();
+               << trigger_policy_.scene_menu_trigger() << " and ASR menu trigger "
+               << trigger_policy_.asr_menu_trigger();
   if (instance_ != nullptr) {
     event_handlers_.emplace_back(
         instance_->watchEvent(fcitx::EventType::InputContextKeyEvent,
@@ -227,6 +258,13 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
     return AppliedOutcome::None;
   case FcitxTriggerAction::ConsumeSceneMenuRelease:
     return AppliedOutcome::None;
+  case FcitxTriggerAction::ShowAsrMenu:
+    if (!bridge_.recording()) {
+      ShowAsrMenu(ic);
+    }
+    return AppliedOutcome::None;
+  case FcitxTriggerAction::ConsumeAsrMenuRelease:
+    return AppliedOutcome::None;
   }
   return AppliedOutcome::None;
 }
@@ -237,6 +275,9 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
   }
 
   auto &key_event = static_cast<fcitx::KeyEvent &>(event);
+  if (asr_menu_visible_ && HandleAsrMenuKeyEvent(key_event)) {
+    return;
+  }
   if (scene_menu_visible_ && HandleSceneMenuKeyEvent(key_event)) {
     return;
   }
@@ -255,6 +296,7 @@ void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
   if (ic == nullptr || bridge_.recording()) {
     return;
   }
+  HideAsrMenu();
   std::string error;
   if (!RefreshSceneState(&error)) {
     ApplyDaemonUnavailable(ic, std::move(error));
@@ -262,7 +304,7 @@ void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
   }
 
   auto candidates = std::make_unique<fcitx::CommonCandidateList>();
-  candidates->setPageSize(kSceneMenuPageSize);
+  candidates->setPageSize(kMenuPageSize);
   candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
@@ -273,7 +315,7 @@ void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
       continue;
     }
     scene_menu_indices_.push_back(index);
-    candidates->append<SceneCandidateWord>(
+    candidates->append<MenuCandidateWord>(
         scene.label, [this, index](fcitx::InputContext *input_context) {
           SelectScene(index, input_context);
         });
@@ -353,7 +395,7 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
              pageable->hasNext()) {
     pageable->next();
   } else if (IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter)) {
-    const int index = CurrentSceneSelectionIndex(candidate_list.get());
+    const int index = CurrentMenuSelectionIndex(candidate_list.get());
     if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
       SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)], scene_menu_ic_);
     } else {
@@ -365,7 +407,7 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
     const int digit = key.digitSelection();
     if (digit >= 0) {
       const int page = pageable != nullptr ? pageable->currentPage() : 0;
-      const int index = page * kSceneMenuPageSize + digit;
+      const int index = page * kMenuPageSize + digit;
       if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
         SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)],
                     scene_menu_ic_);
@@ -399,6 +441,154 @@ void FcitxVinputAddon::SelectScene(std::size_t index, fcitx::InputContext *ic) {
   scene_state_.active_scene_id = scene.id;
   HideSceneMenu();
   FCITX_INFO() << "fcitx-vinput switched active scene to " << scene.id
+               << " persisted=" << persisted;
+}
+
+void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
+  if (ic == nullptr || bridge_.recording()) {
+    return;
+  }
+  HideSceneMenu();
+  std::string error;
+  if (!RefreshAsrMenuState(&error)) {
+    ApplyDaemonUnavailable(ic, std::move(error));
+    return;
+  }
+
+  auto candidates = std::make_unique<fcitx::CommonCandidateList>();
+  candidates->setPageSize(kMenuPageSize);
+  candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
+  candidates->setCursorPositionAfterPaging(
+      fcitx::CursorPositionAfterPaging::ResetToFirst);
+  asr_menu_indices_.clear();
+  for (std::size_t index = 0; index < asr_menu_state_.providers.size(); ++index) {
+    const auto &provider = asr_menu_state_.providers[index];
+    if (provider.id == asr_menu_state_.effective_provider_id) {
+      continue;
+    }
+    asr_menu_indices_.push_back(index);
+    candidates->append<MenuCandidateWord>(
+        AsrProviderLabel(provider, asr_menu_state_),
+        [this, index](fcitx::InputContext *input_context) {
+          SelectAsrProvider(index, input_context);
+        });
+  }
+  if (candidates->totalSize() > 0) {
+    candidates->setGlobalCursorIndex(0);
+  }
+
+  asr_menu_ic_ = ic;
+  asr_menu_visible_ = true;
+  ic->inputPanel().setAuxUp(fcitx::Text("ASR Providers"));
+  ic->inputPanel().setAuxDown(
+      fcitx::Text("Current: " + EffectiveAsrLabel(asr_menu_state_)));
+  ic->inputPanel().setCandidateList(std::move(candidates));
+  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+bool FcitxVinputAddon::RefreshAsrMenuState(std::string *error) {
+  auto *client = EnsureDaemonClient(error);
+  return client != nullptr && client->GetAsrMenuState(&asr_menu_state_, error);
+}
+
+void FcitxVinputAddon::HideAsrMenu() {
+  auto *ic = asr_menu_ic_;
+  asr_menu_visible_ = false;
+  asr_menu_ic_ = nullptr;
+  asr_menu_indices_.clear();
+  if (ic == nullptr) {
+    return;
+  }
+  fcitx::Text empty;
+  ic->inputPanel().setAuxUp(empty);
+  ic->inputPanel().setAuxDown(empty);
+  ic->inputPanel().setCandidateList({});
+  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
+  if (!asr_menu_visible_ || asr_menu_ic_ == nullptr) {
+    return false;
+  }
+  const auto &key = event.key();
+  if (event.isRelease()) {
+    if (trigger_policy_.IsAsrMenuTrigger(event)) {
+      event.filterAndAccept();
+      return true;
+    }
+    return false;
+  }
+  if (trigger_policy_.IsAsrMenuTrigger(event)) {
+    event.filterAndAccept();
+    return true;
+  }
+  if (IsKey(key, FcitxKey_Escape)) {
+    HideAsrMenu();
+    event.filterAndAccept();
+    return true;
+  }
+
+  auto candidate_list = asr_menu_ic_->inputPanel().candidateList();
+  auto *cursor =
+      candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
+  auto *pageable = candidate_list != nullptr ? candidate_list->toPageable() : nullptr;
+  if (cursor != nullptr && IsKey(key, FcitxKey_Up)) {
+    cursor->prevCandidate();
+  } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
+    cursor->nextCandidate();
+  } else if (pageable != nullptr && IsKey(key, FcitxKey_Page_Up) &&
+             pageable->hasPrev()) {
+    pageable->prev();
+  } else if (pageable != nullptr && IsKey(key, FcitxKey_Page_Down) &&
+             pageable->hasNext()) {
+    pageable->next();
+  } else if (IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter)) {
+    const int index = CurrentMenuSelectionIndex(candidate_list.get());
+    if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
+      SelectAsrProvider(asr_menu_indices_[static_cast<std::size_t>(index)],
+                        asr_menu_ic_);
+    } else {
+      HideAsrMenu();
+    }
+    event.filterAndAccept();
+    return true;
+  } else {
+    const int digit = key.digitSelection();
+    if (digit >= 0) {
+      const int page = pageable != nullptr ? pageable->currentPage() : 0;
+      const int index = page * kMenuPageSize + digit;
+      if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
+        SelectAsrProvider(asr_menu_indices_[static_cast<std::size_t>(index)],
+                          asr_menu_ic_);
+      }
+      event.filterAndAccept();
+      return true;
+    }
+    HideAsrMenu();
+    return false;
+  }
+  asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  event.filterAndAccept();
+  return true;
+}
+
+void FcitxVinputAddon::SelectAsrProvider(std::size_t index, fcitx::InputContext *ic) {
+  if (index >= asr_menu_state_.providers.size()) {
+    HideAsrMenu();
+    return;
+  }
+  std::string error;
+  bool persisted = false;
+  auto *client = EnsureDaemonClient(&error);
+  const auto &provider = asr_menu_state_.providers[index];
+  if (client == nullptr ||
+      !client->SetActiveAsrProvider(provider.id, &persisted, &error)) {
+    HideAsrMenu();
+    ApplyDaemonUnavailable(ic, std::move(error));
+    return;
+  }
+  HideAsrMenu();
+  FCITX_INFO() << "fcitx-vinput requested ASR provider switch to " << provider.id
                << " persisted=" << persisted;
 }
 

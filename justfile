@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke command-asr-wav-helper-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -112,6 +112,9 @@ addon-smoke:
 
 addon-dbus-smoke:
     scripts/run-cpp-dbus-smoke.sh
+
+addon-dbus-asr-menu-smoke:
+    scripts/run-cpp-dbus-asr-menu-smoke.sh
 
 addon-dbus-adapter-lifecycle-smoke:
     scripts/run-cpp-dbus-adapter-lifecycle-smoke.sh
