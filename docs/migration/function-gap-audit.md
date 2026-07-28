@@ -19,7 +19,7 @@ The Rust version now has a real product spine: retained C++ Fcitx5 addon, Rust d
 
 A real local ASR file-input path has been proven: live registry model `model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8` was downloaded, sha256-verified, extracted, and used with bundled `test_wavs/zh.wav`; `just sherpa-sense-voice-local-smoke` produced `开放时间早上九点至下午五点`.
 
-It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy replacement. The main blocker is no longer CLI coverage: it is proving and hardening the real desktop chain from Fcitx trigger through PipeWire capture and native ASR to application commit. Native SenseVoice, Qwen3 ASR, and online Zipformer2 CTC have proven local WAV smokes; online transducer metadata/runtime construction is implemented and contract-tested. Live partial-signal emission, VAD, timeout/warm-reload parity, remaining sherpa families, frontend menus/configuration, packaging, and remote services remain incomplete.
+It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy replacement. The main blocker is no longer CLI coverage: it is proving and hardening the real desktop chain from Fcitx trigger through PipeWire capture and native ASR to application commit. Native SenseVoice, Qwen3 ASR, and online Zipformer2 CTC have proven local WAV smokes; online transducer metadata/runtime construction is implemented and contract-tested. Live D-Bus partial emission is implemented and session-bus tested. VAD/endpoint, timeout/warm-reload parity, remaining sherpa families, frontend menus/configuration, packaging, and remote services remain incomplete.
 
 | Target | Readiness |
 | --- | --- |
@@ -61,7 +61,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 ## Highest-risk gaps
 
 1. Live desktop validation has not proven the complete native path: Fcitx trigger, PipeWire capture, native inference, postprocess, and commit in a real application.
-2. Native online recognizer construction and chunked decoding are implemented for transducer and Zipformer2 CTC, but live D-Bus partial emission during recording remains unavailable.
+2. Native online decoding and live D-Bus partial emission are implemented and session-bus tested, but the complete Fcitx/PipeWire/partial-preedit path remains unproven on a real desktop.
 3. Native VAD trimming, warmup, decode timeout enforcement, and warm reload semantics remain incomplete.
 4. SenseVoice, Qwen3 ASR, transducer, and Zipformer2 CTC mappings are implemented; Moonshine, Dolphin, Paraformer, and other registry-compatible families still need runtime support.
 5. Native shared-library resolution is improved for local smoke but still needs a robust activation, desktop-install, and distribution story.
@@ -81,10 +81,11 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 8. Typed live-registry family classification plus a real native Qwen3 ASR registry install and WAV smoke.
 9. Primary-selection clipboard fallback for command mode in applications without usable surrounding text.
 10. Delivery-mode-aware recorder callbacks that stream 800-frame PCM batches, preserve metadata, propagate callback errors, and avoid stop-time replay.
+11. Generation-scoped live `RecognitionPartial` emission with deduplication, stop-time cancellation, and a real session-bus partial-before-stop regression test.
 
 ## Current priority
 
-The next target is **real desktop native-dictation alpha**. First prove the complete native path in a real Fcitx session. Then emit callback-polled online hypotheses as live D-Bus partial signals, add VAD/endpoint/timeout/warm-reload semantics, and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
+The next target is **real desktop native-dictation alpha**. First prove the complete native path, including streaming partial preedit, in a real Fcitx session. Then add VAD/endpoint/timeout/warm-reload semantics and port the remaining live-registry model families. Frontend menus/configuration and packaging should advance in parallel where they directly support that path.
 
 Do not claim full parity until the documented happy path works through a real desktop session and no longer depends on implementation-only profiles:
 

@@ -24,6 +24,29 @@ impl RuntimeState {
         )
     }
 
+    /// Takes newly decoded streaming partials while a recording is active.
+    pub fn take_live_partial_texts(&mut self) -> Result<Vec<String>, RuntimeError> {
+        if self.status != ServiceStatus::Recording {
+            return Ok(Vec::new());
+        }
+        let session = self
+            .active_session
+            .as_ref()
+            .ok_or(RuntimeError::MissingAsrSession)?;
+        let partials = session
+            .take_streaming_partial_texts()
+            .map_err(RuntimeError::Asr)?;
+        let mut new_partials = Vec::new();
+        for text in partials {
+            if self.partial_text.as_deref() == Some(text.as_str()) {
+                continue;
+            }
+            self.partial_text = Some(text.clone());
+            new_partials.push(text);
+        }
+        Ok(new_partials)
+    }
+
     /// Stops recording and returns a deterministic mock result payload.
     pub fn stop_recording(
         &mut self,

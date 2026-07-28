@@ -58,17 +58,17 @@ Then read, in order:
 - Selected-text primary-selection fallback: implemented in the retained addon; live multi-application proof remains.
 - Daemon chunked delivery: implemented with 800-frame batching, callback event polling, error propagation, and no final-buffer replay.
 - Native online ASR: transducer and Zipformer2 CTC metadata/runtime mappings are implemented; Zipformer2 CTC passes a real registry-model WAV smoke.
-- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> commit proof, live online partial signals, VAD/endpoint/timeout/warm-reload semantics, remaining sherpa families, frontend menus/configuration, packaging, and remote services.
+- Live partial signals: generation-scoped D-Bus emission is implemented and session-bus tested before stop, with stop-time deduplication.
+- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, VAD/endpoint/timeout/warm-reload semantics, remaining sherpa families, frontend menus/configuration, packaging, and remote services.
 
 ## First recommended implementation slices
 
 Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Emit native online hypotheses as live D-Bus partial signals during recording.
-3. Add native VAD, timeout, warmup, and warm reload behavior.
-4. Port Moonshine, Dolphin, Paraformer, and other remaining families in registry-priority order.
-5. Add scene/ASR menus and persistent frontend trigger configuration where they directly support live validation.
+2. Add native VAD/endpoint, timeout, warmup, and warm reload behavior.
+3. Port Moonshine, Dolphin, Paraformer, and other remaining families in registry-priority order.
+4. Add scene/ASR menus and persistent frontend trigger configuration where they directly support live validation.
 
 Do not start broad GUI polish or distro packaging before real desktop native alpha is proven. Keep refactors feature-driven and scoped to the next migration slice.
 

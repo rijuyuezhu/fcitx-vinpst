@@ -1,8 +1,8 @@
 //! `zbus` service facade for the legacy daemon D-Bus ABI.
 #![allow(missing_docs)]
 
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::{sync::Arc, time::Duration};
+use tokio::{sync::Mutex, time::MissedTickBehavior};
 use vinput_protocol::{AsrBackendState, ServiceStatus, dbus};
 use zbus::{Connection, DBusError, object_server::SignalEmitter};
 
@@ -36,6 +36,30 @@ fn asr_backend_state_tuple(state: AsrBackendState) -> AsrBackendStateTuple {
 type DbusResult<T> = Result<T, VinputDbusError>;
 
 const MAX_ERROR_DESCRIPTION_LEN: usize = 512;
+const LIVE_PARTIAL_POLL_INTERVAL: Duration = Duration::from_millis(40);
+
+#[derive(Debug, Default)]
+struct LivePartialEmissionState {
+    generation: u64,
+    last_emitted: Option<String>,
+}
+
+impl LivePartialEmissionState {
+    fn begin(&mut self, last_emitted: Option<String>) -> u64 {
+        self.generation = self.generation.wrapping_add(1);
+        self.last_emitted = last_emitted;
+        self.generation
+    }
+
+    fn cancel(&mut self) -> Option<String> {
+        self.generation = self.generation.wrapping_add(1);
+        self.last_emitted.take()
+    }
+
+    fn is_current(&self, generation: u64) -> bool {
+        self.generation == generation
+    }
+}
 
 #[derive(Debug, DBusError)]
 #[zbus(prefix = "org.fcitx.Vinput.Error")]
@@ -64,6 +88,7 @@ fn sanitize_dbus_error_message(message: &str) -> String {
 #[derive(Clone)]
 pub struct VinputDbusService {
     runtime: Arc<Mutex<RuntimeState>>,
+    live_partials: Arc<Mutex<LivePartialEmissionState>>,
 }
 
 impl VinputDbusService {
@@ -72,6 +97,7 @@ impl VinputDbusService {
     pub fn new(runtime: RuntimeState) -> Self {
         Self {
             runtime: Arc::new(Mutex::new(runtime)),
+            live_partials: Arc::new(Mutex::new(LivePartialEmissionState::default())),
         }
     }
 
@@ -157,6 +183,58 @@ impl VinputDbusService {
             report.partial_text,
         ))
     }
+
+    async fn begin_live_partial_emission(&self, last_emitted: Option<String>) -> u64 {
+        self.live_partials.lock().await.begin(last_emitted)
+    }
+
+    async fn cancel_live_partial_emission(&self) -> Option<String> {
+        self.live_partials.lock().await.cancel()
+    }
+
+    fn spawn_live_partial_emitter(&self, emitter: SignalEmitter<'static>, generation: u64) {
+        let runtime = Arc::clone(&self.runtime);
+        let live_partials = Arc::clone(&self.live_partials);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(LIVE_PARTIAL_POLL_INTERVAL);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                if !live_partials.lock().await.is_current(generation) {
+                    break;
+                }
+
+                let partials = {
+                    let mut runtime = runtime.lock().await;
+                    if runtime.status() != ServiceStatus::Recording {
+                        break;
+                    }
+                    match runtime.take_live_partial_texts() {
+                        Ok(partials) => partials,
+                        Err(_) => break,
+                    }
+                };
+
+                for partial in partials {
+                    let should_emit = {
+                        let state = live_partials.lock().await;
+                        state.is_current(generation)
+                            && state.last_emitted.as_deref() != Some(partial.as_str())
+                    };
+                    if !should_emit {
+                        continue;
+                    }
+                    if Self::recognition_partial(&emitter, &partial).await.is_err() {
+                        return;
+                    }
+                    let mut state = live_partials.lock().await;
+                    if state.is_current(generation) {
+                        state.last_emitted = Some(partial);
+                    }
+                }
+            }
+        });
+    }
 }
 
 #[allow(missing_docs)]
@@ -172,11 +250,13 @@ impl VinputDbusService {
         Self::status_changed(&emitter, &status)
             .await
             .map_err(|error| Self::map_signal_error(&error))?;
-        if let Some(partial_text) = partial_text {
-            Self::recognition_partial(&emitter, &partial_text)
+        if let Some(partial_text) = &partial_text {
+            Self::recognition_partial(&emitter, partial_text)
                 .await
                 .map_err(|error| Self::map_signal_error(&error))?;
         }
+        let generation = self.begin_live_partial_emission(partial_text).await;
+        self.spawn_live_partial_emitter(emitter.to_owned(), generation);
         Ok(())
     }
 
@@ -191,11 +271,13 @@ impl VinputDbusService {
         Self::status_changed(&emitter, &status)
             .await
             .map_err(|error| Self::map_signal_error(&error))?;
-        if let Some(partial_text) = partial_text {
-            Self::recognition_partial(&emitter, &partial_text)
+        if let Some(partial_text) = &partial_text {
+            Self::recognition_partial(&emitter, partial_text)
                 .await
                 .map_err(|error| Self::map_signal_error(&error))?;
         }
+        let generation = self.begin_live_partial_emission(partial_text).await;
+        self.spawn_live_partial_emitter(emitter.to_owned(), generation);
         Ok(())
     }
 
@@ -207,11 +289,14 @@ impl VinputDbusService {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<String, VinputDbusError> {
         self.ensure_recording_for_stop().await?;
+        let last_emitted_partial = self.cancel_live_partial_emission().await;
         Self::status_changed(&emitter, "inferring")
             .await
             .map_err(|error| Self::map_signal_error(&error))?;
         let (payload_json, status, partial_text) = self.stop_recording_payload(scene_id).await?;
-        if let Some(partial_text) = partial_text {
+        if let Some(partial_text) = partial_text
+            && last_emitted_partial.as_deref() != Some(partial_text.as_str())
+        {
             Self::recognition_partial(&emitter, &partial_text)
                 .await
                 .map_err(|error| Self::map_signal_error(&error))?;
@@ -343,7 +428,7 @@ impl VinputDbusService {
 
 #[cfg(test)]
 mod tests {
-    use super::VinputDbusService;
+    use super::{LivePartialEmissionState, VinputDbusService};
     use crate::RuntimeState;
     use vinput_asr::MockAsrBackend;
     use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinputConfig};
@@ -705,5 +790,21 @@ mod tests {
         assert!(!state.6);
         assert_eq!(state.0, "sherpa-onnx");
         assert!(!state.4.is_empty());
+    }
+
+    #[test]
+    fn live_partial_generations_cancel_stale_pollers_and_return_last_emission() {
+        let mut state = LivePartialEmissionState::default();
+        let first = state.begin(Some("first".to_owned()));
+        assert!(state.is_current(first));
+        assert_eq!(state.last_emitted.as_deref(), Some("first"));
+
+        assert_eq!(state.cancel().as_deref(), Some("first"));
+        assert!(!state.is_current(first));
+        assert!(state.last_emitted.is_none());
+
+        let second = state.begin(None);
+        assert!(state.is_current(second));
+        assert_ne!(first, second);
     }
 }

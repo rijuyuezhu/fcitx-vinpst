@@ -40,7 +40,7 @@ StopRecording
   -> reset Idle
 ```
 
-This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend covers buffered offline SenseVoice and Qwen3 ASR plus online transducer and Zipformer2 CTC metadata/runtime layouts. SenseVoice, Qwen3 ASR, and Zipformer2 CTC are proven with real registry-model WAV samples; transducer metadata and asset mapping are contract-tested. The daemon routes recorder callbacks to chunked ASR sessions in legacy-compatible 800-frame batches, applies input gain before delivery, polls native hypotheses after each push, propagates callback failures, and flushes the final short batch without replaying the complete stop buffer. Live D-Bus `RecognitionPartial` emission during recording, VAD trimming, complete endpoint semantics, warmup/reload state, and the remaining model families still belong to later phases.
+This is a contract seam, not full legacy runtime parity. The feature-gated `sherpa-onnx` backend covers buffered offline SenseVoice and Qwen3 ASR plus online transducer and Zipformer2 CTC metadata/runtime layouts. SenseVoice, Qwen3 ASR, and Zipformer2 CTC are proven with real registry-model WAV samples; transducer metadata and asset mapping are contract-tested. The daemon routes recorder callbacks to chunked ASR sessions in legacy-compatible 800-frame batches, applies input gain before delivery, polls native hypotheses after each push, and emits deduplicated `RecognitionPartial` D-Bus signals during recording through a generation-scoped 40 ms poller. Stop cancels the poller and suppresses a duplicate final partial. VAD trimming, complete endpoint semantics, warmup/reload state, real desktop proof, and the remaining model families still belong to later phases.
 
 ## Command ASR provider contracts
 
@@ -110,11 +110,11 @@ Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendS
 These gaps remain after the behavior-preserving ASR split:
 
 - Native `sherpa-onnx` is feature-gated and supports offline SenseVoice/Qwen3 ASR plus online transducer/Zipformer2 CTC layouts. SenseVoice, Qwen3 ASR, and Zipformer2 CTC have real WAV smokes; transducer construction remains metadata/feature-build tested. Moonshine, Dolphin, Paraformer, runtime VAD trimming, warmup, full reload state, and decode timeout enforcement are not implemented yet.
-- Runtime streaming delivers recorder callbacks to native online sessions in 800-frame batches and retains callback-polled partial/final events until stop. Live D-Bus partial emission during an active recording is not implemented yet.
+- Runtime streaming delivers recorder callbacks to native online sessions in 800-frame batches. Callback-polled partials are emitted through D-Bus while recording; generation cancellation isolates recordings, and final/completed events remain available for stop processing. This path is session-bus tested but not yet proven in a real Fcitx desktop session.
 - Command ASR is runtime-wired for configured command providers; remote ASR provider kinds remain contract-pinned but unavailable.
 
 ## Mock audio push observation
 
-`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests. The log records each `push_audio` or `push_pcm` call, including sample length and optional `PcmSpec` metadata. Runtime tests use it to prove 800/800/tail chunk delivery, input metadata preservation, and no stop-time replay. Native Zipformer2 CTC now proves the recognizer/runtime path separately; neither seam proves a real desktop recording session or live D-Bus partial delivery.
+`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests. The log records each `push_audio` or `push_pcm` call, including sample length and optional `PcmSpec` metadata. Runtime tests use it to prove 800/800/tail chunk delivery, input metadata preservation, and no stop-time replay. A real session-bus integration test additionally proves that a partial signal arrives before `StopRecording` and is not repeated at stop. Native Zipformer2 CTC proves the recognizer/runtime path separately; real desktop Fcitx/PipeWire behavior remains unproven.
 
 `MockAsrAudioPush` is serde/schema-ready so future diagnostics can expose recorded mock audio pushes without exposing the shared `MockAsrAudioLog` container itself.

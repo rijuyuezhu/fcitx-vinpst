@@ -1,12 +1,18 @@
 //! Integration tests for the legacy D-Bus ABI exposed by `vinput-daemon`.
 #![cfg(feature = "dbus-integration")]
 
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
 use futures_util::StreamExt;
 use tokio::time::{sleep, timeout};
 use vinput_asr::{AsrBackendFactory, MockAsrBackend};
-use vinput_audio::{CapturedAudio, MockAudioSource, PcmBuffer};
+use vinput_audio::{
+    AudioChunkCallback, AudioError, AudioRecorder, CaptureTarget, CapturedAudio, MockAudioSource,
+    PcmBuffer,
+};
 use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 use vinput_daemon::{RuntimeState, VinputDbusService};
 use vinput_protocol::{RecognitionPayload, TextAdapterState, dbus};
@@ -98,6 +104,77 @@ fn configured_streaming_command_runtime() -> anyhow::Result<RuntimeState> {
         "dbus-streaming-command-e2e",
     ));
     RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
+}
+
+#[derive(Clone, Default)]
+struct ManualRecorderHandle {
+    callback: Arc<StdMutex<Option<AudioChunkCallback>>>,
+}
+
+impl ManualRecorderHandle {
+    fn emit(&self, pcm: &PcmBuffer) {
+        let mut callback = self.callback.lock().expect("callback lock poisoned");
+        callback
+            .as_mut()
+            .expect("recording callback should be installed")(pcm);
+    }
+}
+
+struct ManualAudioRecorder {
+    handle: ManualRecorderHandle,
+    recording: bool,
+    captured: CapturedAudio,
+}
+
+impl ManualAudioRecorder {
+    fn new(captured: CapturedAudio) -> (Self, ManualRecorderHandle) {
+        let handle = ManualRecorderHandle::default();
+        (
+            Self {
+                handle: handle.clone(),
+                recording: false,
+                captured,
+            },
+            handle,
+        )
+    }
+}
+
+impl AudioRecorder for ManualAudioRecorder {
+    fn begin_recording(&mut self, _target: CaptureTarget) -> Result<(), AudioError> {
+        self.recording = true;
+        Ok(())
+    }
+
+    fn set_chunk_callback(&mut self, callback: Option<AudioChunkCallback>) {
+        *self.handle.callback.lock().expect("callback lock poisoned") = callback;
+    }
+
+    fn stop_and_get_buffer(&mut self) -> Result<CapturedAudio, AudioError> {
+        self.recording = false;
+        Ok(self.captured.clone())
+    }
+
+    fn cancel_recording(&mut self) -> Result<(), AudioError> {
+        self.recording = false;
+        Ok(())
+    }
+
+    fn is_recording(&self) -> bool {
+        self.recording
+    }
+}
+
+fn live_partial_runtime() -> anyhow::Result<(RuntimeState, ManualRecorderHandle)> {
+    let config = VinputConfig::bundled_default()?;
+    let backend = MockAsrBackend::streaming("live bus partial", "live bus final");
+    let captured = CapturedAudio::named(
+        PcmBuffer::at_default_rate(vec![1_000; 800]),
+        "manual-live-partial",
+    );
+    let (recorder, handle) = ManualAudioRecorder::new(captured);
+    let runtime = RuntimeState::with_audio_recorder(config, Box::new(backend), Box::new(recorder))?;
+    Ok((runtime, handle))
 }
 
 fn configured_command_text_runtime() -> anyhow::Result<RuntimeState> {
@@ -608,6 +685,39 @@ fn unique_adapter_runtime_dir(name: &str) -> std::path::PathBuf {
             .expect("system clock should be after unix epoch")
             .as_nanos()
     ))
+}
+
+#[tokio::test]
+async fn chunked_runtime_emits_partial_before_stop_without_duplicate() -> anyhow::Result<()> {
+    let (runtime, recorder) = live_partial_runtime()?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut partial_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_PARTIAL)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    recorder.emit(&PcmBuffer::at_default_rate(vec![1_000; 800]));
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "live bus partial"
+    );
+
+    let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
+    let payload = RecognitionPayload::from_json_str(&payload_json)?;
+    assert_eq!(payload.commit_text, "live bus final");
+    expect_no_string_signal(&mut partial_signals).await?;
+
+    Ok(())
 }
 
 #[tokio::test]

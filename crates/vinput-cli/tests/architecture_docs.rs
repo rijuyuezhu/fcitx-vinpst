@@ -221,7 +221,9 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "Esta prenda es amplia. Recomiendo elegir una talla menor al habitual.",
         "The daemon routes recorder callbacks to chunked ASR sessions",
         "legacy-compatible 800-frame batches",
-        "Live D-Bus `RecognitionPartial` emission during recording",
+        "emits deduplicated `RecognitionPartial` D-Bus signals during recording",
+        "generation-scoped 40 ms poller",
+        "Stop cancels the poller and suppresses a duplicate final partial",
         "transducer construction remains metadata/feature-build tested",
         "VAD trimming",
         "warmup/reload state",
@@ -231,8 +233,8 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "Set `VINPUT_USER_RUNTIME_STATUS=0` to skip that validation",
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
         "800/800/tail chunk delivery",
-        "Native Zipformer2 CTC now proves the recognizer/runtime path separately",
-        "live D-Bus partial delivery",
+        "real session-bus integration test additionally proves that a partial signal arrives before `StopRecording`",
+        "real desktop Fcitx/PipeWire behavior remains unproven",
         "`MockAsrAudioPush` is serde/schema-ready",
     ] {
         assert!(
@@ -451,8 +453,8 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
     for required in [
         "Completed: usable CLI/daemon alpha",
         "P0: real desktop native alpha",
-        "Implemented through the native recognizer boundary",
-        "live `RecognitionPartial` signals",
+        "Implemented through D-Bus",
+        "deduplicated live `RecognitionPartial` signals",
         "Port Moonshine, Dolphin, Paraformer",
     ] {
         assert!(

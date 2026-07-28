@@ -85,6 +85,24 @@ impl ActiveRecognitionSession {
         Ok(std::mem::take(&mut state.events))
     }
 
+    /// Removes new streaming partial hypotheses while retaining final/completed events for stop.
+    pub(super) fn take_streaming_partial_texts(&self) -> Result<Vec<String>, AsrError> {
+        let Some(state) = &self.streaming_state else {
+            return Ok(Vec::new());
+        };
+        let mut state = lock_streaming_state(state)?;
+        let mut retained = Vec::with_capacity(state.events.len());
+        let mut partials = Vec::new();
+        for event in std::mem::take(&mut state.events) {
+            match event {
+                RecognitionEvent::PartialText { text } => partials.push(text),
+                event => retained.push(event),
+            }
+        }
+        state.events = retained;
+        Ok(partials)
+    }
+
     /// Drains events not already collected by a streaming callback.
     pub(super) fn poll_events(&self) -> Result<Vec<RecognitionEvent>, AsrError> {
         self.lock_session()?.poll_events()
@@ -336,5 +354,45 @@ mod tests {
             AsrError::Backend(message)
                 if message == "streaming PCM metadata changed from 16000 Hz/1 channels to 48000 Hz/2 channels"
         ));
+    }
+
+    #[test]
+    fn live_partial_drain_retains_final_and_completed_events_for_stop() {
+        let pushes = Arc::new(Mutex::new(Vec::new()));
+        let (session, _callback) = ActiveRecognitionSession::new(
+            Box::new(CapturingSession { pushes }),
+            AudioDeliveryMode::Chunked,
+            1.0,
+        );
+        let state = session
+            .streaming_state
+            .as_ref()
+            .expect("chunked session should have streaming state");
+        lock_streaming_state(state).unwrap().events.extend([
+            RecognitionEvent::PartialText {
+                text: "first".to_owned(),
+            },
+            RecognitionEvent::FinalText {
+                text: "final".to_owned(),
+            },
+            RecognitionEvent::Completed,
+            RecognitionEvent::PartialText {
+                text: "second".to_owned(),
+            },
+        ]);
+
+        assert_eq!(
+            session.take_streaming_partial_texts().unwrap(),
+            ["first", "second"]
+        );
+        assert_eq!(
+            session.finish_streaming_delivery().unwrap(),
+            [
+                RecognitionEvent::FinalText {
+                    text: "final".to_owned(),
+                },
+                RecognitionEvent::Completed,
+            ]
+        );
     }
 }
