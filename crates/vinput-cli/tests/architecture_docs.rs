@@ -470,7 +470,9 @@ fn target_architecture_pins_frontend_packaging_boundary() {
         "3000/5000 ms timeouts",
         "notifications-addon dispatch",
         "stderr fallback",
-        "Fcitx D-Bus monitor subscribes to `DaemonNotification(ssss)`",
+        "Fcitx D-Bus monitor subscribes to `StatusChanged(s)`, `RecognitionPartial(s)`, and `DaemonNotification(ssss)`",
+        "partial text overrides localized status fallback",
+        "final commit remains driven by the synchronous stop reply",
         "background ASR reload failures through this path",
         "broader notification categories",
         "persistent Fcitx `KeyList` options",
@@ -662,6 +664,25 @@ fn dbus_architecture_pins_async_daemon_notification_forwarding() {
         assert!(
             dbus_doc.contains(required),
             "D-Bus docs should pin daemon notification rule: {required}"
+        );
+    }
+}
+
+#[test]
+fn asr_architecture_pins_frontend_live_partial_preedit() {
+    let asr_doc = std::fs::read_to_string(architecture_dir().join("asr-contract.md"))
+        .expect("read asr contract doc");
+    for required in [
+        "Fcitx D-Bus monitor",
+        "`StatusChanged(s)`",
+        "`RecognitionPartial(s)`",
+        "partial text takes precedence",
+        "synchronous `StopRecording` reply",
+        "real desktop preedit rendering remains unproven",
+    ] {
+        assert!(
+            asr_doc.contains(required),
+            "ASR docs should pin frontend live partial behavior: {required}"
         );
     }
 }

@@ -97,3 +97,15 @@ msgstr "保存前端配置失败。"
 
 msgid "Unknown error."
 msgstr "未知错误。"
+
+msgid "... Recording ..."
+msgstr "... 正在录音 ..."
+
+msgid "... Commanding ..."
+msgstr "... 正在命令 ..."
+
+msgid "... Recognizing ..."
+msgstr "... 正在识别 ..."
+
+msgid "... Postprocessing ..."
+msgstr "... 正在后处理 ..."

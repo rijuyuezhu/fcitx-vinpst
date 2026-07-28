@@ -58,7 +58,7 @@ Then read, in order:
 - Selected-text primary-selection fallback: implemented in the retained addon; live multi-application proof remains.
 - Daemon chunked delivery: implemented with 800-frame batching, callback event polling, error propagation, and no final-buffer replay.
 - Native online ASR: transducer and Zipformer2 CTC metadata/runtime mappings are implemented; Zipformer2 CTC passes a real registry-model WAV smoke.
-- Live partial signals: generation-scoped D-Bus emission is implemented and session-bus tested before stop, with stop-time deduplication.
+- Live partial signals: generation-scoped D-Bus emission is implemented and session-bus tested before stop, with stop-time deduplication. The retained addon now consumes `StatusChanged` and `RecognitionPartial` through the Fcitx bus and maps partial-first status to active-context preedit; real desktop rendering remains unproven.
 - Offline VAD: the tracked Silero model, strict legacy-compatible config, native trimming, user install, no-speech fallback, and real SenseVoice/Qwen3 WAV regressions are implemented.
 - Online endpoint/warmup: legacy endpoint defaults and metadata overrides are forwarded, and every native online recognizer runs the legacy-compatible 200 ms silence warmup.
 - Timeout semantics: command helpers enforce configured deadlines; native synchronous sherpa decode is explicitly classified as unsupported/diagnostic-only in `vinput doctor` with an isolation hint.

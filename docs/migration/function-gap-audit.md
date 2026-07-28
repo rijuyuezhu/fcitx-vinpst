@@ -61,7 +61,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 ## Highest-risk gaps
 
 1. Live desktop validation has not proven the complete native path: Fcitx trigger, PipeWire capture, native inference, postprocess, and commit in a real application.
-2. Native online decoding and live D-Bus partial emission are implemented and session-bus tested, but the complete Fcitx/PipeWire/partial-preedit path remains unproven on a real desktop.
+2. Native online decoding, live D-Bus partial emission, and retained-addon `StatusChanged`/`RecognitionPartial` preedit forwarding are deterministically tested, but the complete Fcitx/PipeWire/partial-preedit path remains unproven on a real desktop.
 3. Prepare-before-swap warm reload, config-file re-read, busy-time deferral, physical `reload_in_progress`, generation coalescing, and non-blocking backend preparation are implemented and session-bus tested.
 4. SenseVoice, Qwen3 ASR, Moonshine v1, transducer, and Zipformer2 CTC mappings are implemented; Dolphin, Paraformer, and other registry-compatible families still need runtime support. Moonshine Tiny int8 is live-registry installed and real-WAV proven.
 5. Native shared-library resolution is improved for local smoke but still needs a robust activation, desktop-install, and distribution story.

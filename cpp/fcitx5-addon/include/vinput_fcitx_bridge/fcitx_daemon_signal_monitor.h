@@ -24,14 +24,18 @@ struct DaemonNotificationPayload {
 FrontendNotificationKind
 ClassifyDaemonNotification(const DaemonNotificationPayload &payload);
 std::string RenderDaemonNotification(const DaemonNotificationPayload &payload);
+std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
+                                       std::string_view partial_text);
+
+struct DaemonSignalCallbacks {
+  std::function<void(std::string_view status)> status_changed;
+  std::function<void(std::string_view partial_text)> recognition_partial;
+  std::function<void(const DaemonNotificationPayload &payload)> notification;
+};
 
 class FcitxDaemonSignalMonitor final {
 public:
-  using NotificationCallback =
-      std::function<void(const DaemonNotificationPayload &payload)>;
-
-  FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
-                           NotificationCallback notification_callback);
+  FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus, DaemonSignalCallbacks callbacks);
   ~FcitxDaemonSignalMonitor() = default;
 
   FcitxDaemonSignalMonitor(const FcitxDaemonSignalMonitor &) = delete;
@@ -42,7 +46,9 @@ public:
   bool active() const;
 
 private:
-  NotificationCallback notification_callback_;
+  DaemonSignalCallbacks callbacks_;
+  std::unique_ptr<fcitx::dbus::Slot> status_slot_;
+  std::unique_ptr<fcitx::dbus::Slot> partial_slot_;
   std::unique_ptr<fcitx::dbus::Slot> notification_slot_;
 };
 

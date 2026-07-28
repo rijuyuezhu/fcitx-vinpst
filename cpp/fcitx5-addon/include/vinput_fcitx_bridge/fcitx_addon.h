@@ -76,7 +76,11 @@ private:
   void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
   void SetupDaemonSignalMonitor();
+  void HandleDaemonStatus(std::string_view status);
+  void HandleRecognitionPartial(std::string_view partial_text);
   void HandleDaemonNotification(const DaemonNotificationPayload &payload);
+  void UpdateLivePreedit();
+  void ResetLiveSignalState();
   void Notify(FrontendNotificationKind kind, std::string_view message);
   void HandleTriggerModeAction(fcitx::InputContext *ic, TriggerModeAction action);
   void ScheduleTriggerStart(fcitx::InputContext *ic);
@@ -108,6 +112,8 @@ private:
   fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::unique_ptr<FcitxDaemonSignalMonitor> daemon_signal_monitor_;
+  std::string live_daemon_status_;
+  std::string live_partial_text_;
   std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
       event_handlers_;
 };

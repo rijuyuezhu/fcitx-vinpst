@@ -19,6 +19,10 @@ int main() {
   assert(FrontendPageText(2, 4) == "（2/4页）");
   assert(FrontendText("Voice Input") == "语音输入");
   assert(FrontendText("Unknown error.") == "未知错误。");
+  assert(FrontendText("... Recording ...") == "... 正在录音 ...");
+  assert(FrontendText("... Commanding ...") == "... 正在命令 ...");
+  assert(FrontendText("... Recognizing ...") == "... 正在识别 ...");
+  assert(FrontendText("... Postprocessing ...") == "... 正在后处理 ...");
   assert(FrontendValueText("Switched scene to '%s'.", "工作") ==
          "已切换场景到“工作”。");
   assert(FrontendValueText("ASR switch requested for '%s'.", "月光") ==

@@ -369,7 +369,7 @@ fn cpp_frontend_notifications_keep_legacy_presenter_contract() {
         );
     }
     for required in [
-        "Notify(FrontendNotificationKind::Error, outcome.text)",
+        "Notify(FrontendNotificationKind::Error, display_outcome.text)",
         r#"FrontendValueText("Switched scene to '%s'.", scene.label)"#,
         r#"FrontendValueText("ASR switch requested for '%s'.", display_title)"#,
         "Notify(FrontendNotificationKind::Info, message)",
@@ -401,6 +401,8 @@ fn cpp_frontend_forwards_daemon_notification_signals() {
         "struct DaemonNotificationPayload",
         "ClassifyDaemonNotification",
         "RenderDaemonNotification",
+        "ComposeDaemonStatusPreedit",
+        "struct DaemonSignalCallbacks",
         "class FcitxDaemonSignalMonitor",
     ] {
         assert!(
@@ -409,10 +411,13 @@ fn cpp_frontend_forwards_daemon_notification_signals() {
         );
     }
     for required in [
+        "dbus::kSignalStatusChanged",
+        "dbus::kSignalRecognitionPartial",
         "dbus::kSignalDaemonNotification",
+        "AddStringSignalMatch",
         "fcitx::dbus::MatchRule",
         "std::tuple<std::string, std::string, std::string, std::string>",
-        "notification_callback_(payload)",
+        "callbacks_.notification(payload)",
     ] {
         assert!(
             source.contains(required),
@@ -421,6 +426,11 @@ fn cpp_frontend_forwards_daemon_notification_signals() {
     }
     for required in [
         "SetupDaemonSignalMonitor",
+        "HandleDaemonStatus",
+        "HandleRecognitionPartial",
+        "UpdateLivePreedit",
+        "ComposeDaemonStatusPreedit",
+        "live_partial_text_",
         "HandleDaemonNotification",
         "bridge_.Reset()",
         "trigger_mode_controller_.RecordingStopped()",
