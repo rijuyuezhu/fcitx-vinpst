@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{SherpaOnnxModelPathError, SherpaOnnxModelPaths};
 
+#[cfg(any(feature = "sherpa-onnx-backend", test))]
+const ONLINE_WARMUP_DURATION_MS: u64 = 200;
+
 /// Supported native online model layout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -253,12 +256,7 @@ fn parse_recognizer_metadata(
         decoding_method: optional_string(metadata, "/recognizer/decoding_method")
             .unwrap_or_else(|| "greedy_search".to_owned()),
         max_active_paths: positive_i32(metadata, "/recognizer/max_active_paths", 4, metadata_path)?,
-        enable_endpoint: boolish(
-            metadata,
-            "/recognizer/enable_endpoint",
-            false,
-            metadata_path,
-        )?,
+        enable_endpoint: boolish(metadata, "/recognizer/enable_endpoint", true, metadata_path)?,
         rule1_min_trailing_silence: finite_f32(
             metadata,
             "/recognizer/rule1_min_trailing_silence",
@@ -475,6 +473,7 @@ impl SherpaOnnxOnlineRuntime {
                 "failed to create sherpa-onnx online recognizer for provider `{provider_id}`"
             ))
         })?;
+        warmup_online_recognizer(&recognizer, plan.sample_rate)?;
         Ok(Self {
             recognizer: std::sync::Arc::new(recognizer),
         })
@@ -491,6 +490,44 @@ impl SherpaOnnxOnlineRuntime {
             cancelled: false,
         })
     }
+}
+
+#[cfg(any(feature = "sherpa-onnx-backend", test))]
+fn online_warmup_sample_count(sample_rate: i32) -> Result<usize, crate::AsrError> {
+    let sample_rate = u64::try_from(sample_rate).map_err(|_| {
+        crate::AsrError::Backend(format!(
+            "sherpa-onnx online warmup requires a positive sample rate, got {sample_rate}"
+        ))
+    })?;
+    let count = sample_rate
+        .checked_mul(ONLINE_WARMUP_DURATION_MS)
+        .ok_or_else(|| crate::AsrError::Backend("sherpa-onnx warmup size overflow".to_owned()))?
+        / 1_000;
+    usize::try_from(count.max(1)).map_err(|_| {
+        crate::AsrError::Backend("sherpa-onnx warmup size does not fit usize".to_owned())
+    })
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+fn warmup_online_recognizer(
+    recognizer: &sherpa_onnx::OnlineRecognizer,
+    sample_rate: i32,
+) -> Result<(), crate::AsrError> {
+    let stream = recognizer.create_stream();
+    let silence = vec![0.0; online_warmup_sample_count(sample_rate)?];
+    stream.accept_waveform(sample_rate, &silence);
+    while recognizer.is_ready(&stream) {
+        recognizer.decode(&stream);
+    }
+    stream.input_finished();
+    while recognizer.is_ready(&stream) {
+        recognizer.decode(&stream);
+    }
+    let _ = recognizer.get_result(&stream);
+    eprintln!(
+        "vinput: sherpa-onnx online recognizer warmup completed duration_ms={ONLINE_WARMUP_DURATION_MS}"
+    );
+    Ok(())
 }
 
 #[cfg(feature = "sherpa-onnx-backend")]
@@ -725,6 +762,13 @@ mod tests {
         assert!(plan.debug);
         assert_eq!(plan.sample_rate, 16_000);
         assert_eq!(plan.ctc_max_active, 3_000);
+        assert!(!plan.enable_endpoint);
+        #[cfg(feature = "sherpa-onnx-backend")]
+        {
+            let config = online_recognizer_config(&plan);
+            assert!(!config.enable_endpoint);
+            assert!((config.rule1_min_trailing_silence - 2.4).abs() < f32::EPSILON);
+        }
     }
 
     #[test]
@@ -774,5 +818,23 @@ mod tests {
         ));
         assert_eq!(plan.hotwords_file, Some(hotwords));
         assert!((plan.hotwords_score - 2.0).abs() < f32::EPSILON);
+        assert!(plan.enable_endpoint);
+        assert!((plan.rule1_min_trailing_silence - 2.4).abs() < f32::EPSILON);
+        assert!((plan.rule2_min_trailing_silence - 1.2).abs() < f32::EPSILON);
+        assert!((plan.rule3_min_utterance_length - 20.0).abs() < f32::EPSILON);
+        #[cfg(feature = "sherpa-onnx-backend")]
+        {
+            let config = online_recognizer_config(&plan);
+            assert!(config.enable_endpoint);
+            assert!((config.rule1_min_trailing_silence - 2.4).abs() < f32::EPSILON);
+            assert!((config.rule2_min_trailing_silence - 1.2).abs() < f32::EPSILON);
+            assert!((config.rule3_min_utterance_length - 20.0).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn online_warmup_matches_legacy_silence_duration() {
+        assert_eq!(online_warmup_sample_count(16_000).unwrap(), 3_200);
+        assert!(online_warmup_sample_count(-1).is_err());
     }
 }

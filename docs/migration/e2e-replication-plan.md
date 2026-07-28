@@ -51,7 +51,7 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 1. Implemented and WAV-proven for SenseVoice and Qwen3 ASR: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
 2. Implemented for online transducer and Zipformer2 CTC; Zipformer2 CTC is WAV-proven. Add Moonshine, Dolphin, and Paraformer layouts in registry-priority order.
 3. Implemented through D-Bus: deliver recorder callbacks in 800-frame batches, decode online hypotheses, emit deduplicated live `RecognitionPartial` signals, and retain final/completed events for stop.
-4. Offline Silero VAD is implemented and real-WAV tested; add complete endpoint behavior, warmup, decode timeout, and warm reload semantics where legacy exposes them.
+4. Offline Silero VAD, legacy endpoint rule forwarding, and 200 ms online recognizer warmup are implemented and real-WAV tested; add decode timeout and warm reload semantics where legacy exposes them.
 5. Implemented deterministically: OpenAI-compatible text provider behavior uses local mock-server tests; add one real desktop provider validation.
 6. Continue preserving legacy status strings, method names, signal names, and recognition payload shape.
 
@@ -82,6 +82,6 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 ## Suggested next slices
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Add native endpoint, timeout, warmup, and warm reload behavior on top of the implemented offline VAD path.
+2. Add native decode timeout and warm reload behavior on top of the implemented VAD, endpoint-config, and warmup paths.
 3. Port Moonshine, Dolphin, Paraformer, and other remaining live-registry model families.
 4. Add scene/ASR menus, persistent frontend config, packaging, and further feature-driven CLI module extraction.

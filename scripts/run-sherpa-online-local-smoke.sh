@@ -12,6 +12,8 @@ timeout_ms="${VINPUT_SHERPA_TIMEOUT_MS:-}"
 out_dir="${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-online-local-smoke}"
 config_path="${out_dir}/sherpa-online-local.json"
 family_path="${out_dir}/model-family.txt"
+runtime_status_stderr="${out_dir}/runtime-status.stderr"
+once_stderr="${out_dir}/once.stderr"
 
 if [[ -z "${model_dir}" ]]; then
   echo "VINPUT_SHERPA_MODEL is required and must point at a local online model directory" >&2
@@ -112,7 +114,18 @@ fi
 family="$(<"${family_path}")"
 echo "== native sherpa online model family: ${family} =="
 echo "== native sherpa online runtime status =="
-target/debug/vinput-daemon --configured-backends --config "${config_path}" runtime-status
+target/debug/vinput-daemon --configured-backends --config "${config_path}" runtime-status \
+  2>"${runtime_status_stderr}"
+cat "${runtime_status_stderr}" >&2
 
 echo "== native sherpa online once result =="
-target/debug/vinput-daemon --configured-backends --config "${config_path}" --once --wav "${wav_path}"
+target/debug/vinput-daemon --configured-backends --config "${config_path}" --once --wav "${wav_path}" \
+  2>"${once_stderr}"
+cat "${once_stderr}" >&2
+
+grep -Fq \
+  'vinput: sherpa-onnx online recognizer warmup completed duration_ms=200' \
+  "${runtime_status_stderr}"
+grep -Fq \
+  'vinput: sherpa-onnx online recognizer warmup completed duration_ms=200' \
+  "${once_stderr}"
