@@ -18,7 +18,7 @@ use daemon_control::{
     reload_asr_backend_via_dbus,
 };
 use recording_control::handle_recording_command;
-use vinput_asr::AsrBackendFactory;
+use vinput_asr::{AsrBackendFactory, SherpaOnnxVadProbe};
 use vinput_audio::CaptureTarget;
 use vinput_config::{
     AsrProviderConfig, AsrProviderKind, RegistryConfig, SceneDefinition, VinputConfig,
@@ -6713,6 +6713,7 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
     };
     config.validate().context("validate config for doctor")?;
     let asr_state = AsrBackendFactory::state_for_config(&config.asr);
+    let vad = SherpaOnnxVadProbe::inspect(&config.asr.vad);
     let audio = audio_devices_json(&config)?;
     let activation_service = match user_activation_service_path() {
         Ok(path) => user_activation_service_json(&path),
@@ -6730,18 +6731,42 @@ fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
         "config_path": config_path.map(|path| path.to_string_lossy().into_owned()),
         "config": config_summary_json(&config),
         "asr": asr_state,
+        "vad": doctor_vad_json(&vad),
         "audio": audio,
         "activation_service": activation_service,
         "fcitx_addon": user_fcitx_addon_json(),
         "daemon_owner_probe": daemon_owner_probe_plan_json(),
-        "next_steps": doctor_next_steps(&config),
+        "next_steps": doctor_next_steps(&config, &vad),
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
 }
 
-fn doctor_next_steps(config: &VinputConfig) -> Vec<String> {
-    vec![
+fn doctor_vad_json(probe: &SherpaOnnxVadProbe) -> serde_json::Value {
+    let status = if !probe.enabled {
+        "disabled"
+    } else if probe.available {
+        "ready"
+    } else {
+        "missing"
+    };
+    serde_json::json!({
+        "status": status,
+        "enabled": probe.enabled,
+        "available": probe.available,
+        "model": probe.model,
+        "requested_model": probe.requested_model,
+        "source": probe.source,
+        "scope": "offline-sherpa-only",
+        "threshold": probe.threshold,
+        "min_speech_duration": probe.min_speech_duration,
+        "min_silence_duration": probe.min_silence_duration,
+        "speech_pad_ms": probe.speech_pad_ms,
+    })
+}
+
+fn doctor_next_steps(config: &VinputConfig, vad: &SherpaOnnxVadProbe) -> Vec<String> {
+    let mut next_steps = vec![
         "run vinput provider list to inspect configured ASR providers".to_owned(),
         format!(
             "run vinput provider use {} --dry-run --json to preview provider selection",
@@ -6753,7 +6778,14 @@ fn doctor_next_steps(config: &VinputConfig) -> Vec<String> {
             .to_owned(),
         "run vinput daemon status --dry-run --json to inspect daemon D-Bus owner/procfs probes"
             .to_owned(),
-    ]
+    ];
+    if vad.enabled && !vad.available {
+        next_steps.push(
+            "install silero_vad.onnx under $XDG_DATA_HOME/fcitx-vinput/vad or set VINPUT_SHERPA_VAD_MODEL"
+                .to_owned(),
+        );
+    }
+    next_steps
 }
 
 fn user_fcitx_addon_json() -> serde_json::Value {

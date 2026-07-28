@@ -312,7 +312,8 @@ Acceptance:
 - Implemented: `asr.vad` loads the explicit, XDG-installed, system-installed, or development Silero model and trims buffered offline audio with strict legacy-compatible parameters.
 - Implemented: missing/unloadable VAD assets degrade to untrimmed recognition; no-speech output preserves the original recording; a 500 ms cold-start guard protects the first syllable.
 - Decode timeout fields are enforced or explicitly reported as unsupported per backend.
-- Remaining: add dedicated `doctor` VAD availability diagnostics and decode timeout behavior.
+- Implemented: `vinput doctor` reports VAD enablement, ready/missing status, resolved/requested model, source, offline-only scope, strict parameters, and a missing-model repair hint.
+- Remaining: add decode timeout behavior.
 
 ### P1.4 text/LLM CLI parity
 

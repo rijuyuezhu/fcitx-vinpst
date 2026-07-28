@@ -16,6 +16,76 @@ const VAD_BUFFER_SIZE_SECONDS: f32 = 30.0;
 #[cfg(feature = "sherpa-onnx-backend")]
 const COLD_START_GUARD_MS: u32 = 500;
 
+/// Filesystem source selected for the Silero VAD model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SherpaOnnxVadModelSource {
+    /// Explicit `VINPUT_SHERPA_VAD_MODEL` override.
+    ExplicitEnv,
+    /// User XDG data directory.
+    UserData,
+    /// System XDG data directory.
+    SystemData,
+    /// Repository asset used by development builds.
+    DevelopmentAsset,
+}
+
+/// Non-mutating diagnostic view of offline Silero VAD availability.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SherpaOnnxVadProbe {
+    /// Whether VAD is enabled in config.
+    pub enabled: bool,
+    /// Whether a regular Silero model file was resolved.
+    pub available: bool,
+    /// Resolved regular model file, when available.
+    pub model: Option<PathBuf>,
+    /// Requested explicit model path, including a missing override.
+    pub requested_model: Option<PathBuf>,
+    /// Source used or requested for the model.
+    pub source: Option<SherpaOnnxVadModelSource>,
+    /// Speech probability threshold.
+    pub threshold: f32,
+    /// Minimum accepted speech duration in seconds.
+    pub min_speech_duration: f32,
+    /// Minimum silence duration used to close a segment, in seconds.
+    pub min_silence_duration: f32,
+    /// Padding added before and after each detected segment.
+    pub speech_pad_ms: u32,
+}
+
+impl SherpaOnnxVadProbe {
+    /// Inspects VAD config and model resolution without loading ONNX runtime state.
+    #[must_use]
+    pub fn inspect(config: &VadConfig) -> Self {
+        let resolved = config.enabled.then(resolve_silero_model).flatten();
+        let explicit = config
+            .enabled
+            .then(|| env::var_os("VINPUT_SHERPA_VAD_MODEL"))
+            .flatten()
+            .map(PathBuf::from);
+        Self {
+            enabled: config.enabled,
+            available: resolved.is_some(),
+            model: resolved.as_ref().map(|resolved| resolved.path.clone()),
+            requested_model: explicit.clone(),
+            source: resolved
+                .as_ref()
+                .map(|resolved| resolved.source)
+                .or_else(|| explicit.map(|_| SherpaOnnxVadModelSource::ExplicitEnv)),
+            threshold: config.threshold,
+            min_speech_duration: config.min_speech_duration,
+            min_silence_duration: config.min_silence_duration,
+            speech_pad_ms: config.speech_pad_ms,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedSileroModel {
+    path: PathBuf,
+    source: SherpaOnnxVadModelSource,
+}
+
 /// Resolved native Silero VAD configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SherpaOnnxVadPlan {
@@ -38,7 +108,7 @@ impl SherpaOnnxVadPlan {
         if !config.enabled {
             return None;
         }
-        let model = resolve_silero_model()?;
+        let model = resolve_silero_model()?.path;
         Some(Self {
             model,
             threshold: config.threshold,
@@ -49,9 +119,12 @@ impl SherpaOnnxVadPlan {
     }
 }
 
-fn resolve_silero_model() -> Option<PathBuf> {
+fn resolve_silero_model() -> Option<ResolvedSileroModel> {
     if let Some(explicit) = env::var_os("VINPUT_SHERPA_VAD_MODEL") {
-        return regular_file(PathBuf::from(explicit));
+        return regular_file(
+            PathBuf::from(explicit),
+            SherpaOnnxVadModelSource::ExplicitEnv,
+        );
     }
 
     if let Some(data_home) = env::var_os("XDG_DATA_HOME") {
@@ -59,6 +132,7 @@ fn resolve_silero_model() -> Option<PathBuf> {
             PathBuf::from(data_home)
                 .join("fcitx-vinput/vad")
                 .join(SILERO_VAD_FILE_NAME),
+            SherpaOnnxVadModelSource::UserData,
         ) {
             return Some(path);
         }
@@ -67,6 +141,7 @@ fn resolve_silero_model() -> Option<PathBuf> {
             PathBuf::from(home)
                 .join(".local/share/fcitx-vinput/vad")
                 .join(SILERO_VAD_FILE_NAME),
+            SherpaOnnxVadModelSource::UserData,
         )
     {
         return Some(path);
@@ -75,9 +150,10 @@ fn resolve_silero_model() -> Option<PathBuf> {
     let data_dirs =
         env::var_os("XDG_DATA_DIRS").unwrap_or_else(|| "/usr/local/share:/usr/share".into());
     for data_dir in env::split_paths(&data_dirs) {
-        if let Some(path) =
-            regular_file(data_dir.join("fcitx-vinput/vad").join(SILERO_VAD_FILE_NAME))
-        {
+        if let Some(path) = regular_file(
+            data_dir.join("fcitx-vinput/vad").join(SILERO_VAD_FILE_NAME),
+            SherpaOnnxVadModelSource::SystemData,
+        ) {
             return Some(path);
         }
     }
@@ -86,11 +162,13 @@ fn resolve_silero_model() -> Option<PathBuf> {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../data/vad")
             .join(SILERO_VAD_FILE_NAME),
+        SherpaOnnxVadModelSource::DevelopmentAsset,
     )
 }
 
-fn regular_file(path: PathBuf) -> Option<PathBuf> {
-    path.is_file().then_some(path)
+fn regular_file(path: PathBuf, source: SherpaOnnxVadModelSource) -> Option<ResolvedSileroModel> {
+    path.is_file()
+        .then_some(ResolvedSileroModel { path, source })
 }
 
 #[cfg(feature = "sherpa-onnx-backend")]

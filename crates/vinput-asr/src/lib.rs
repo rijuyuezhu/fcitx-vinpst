@@ -31,7 +31,7 @@ pub use sherpa::{
     SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan, SherpaOnnxSpec,
 };
 pub use sherpa_online::{SherpaOnnxOnlineModelLayout, SherpaOnnxOnlineRuntimePlan};
-pub use sherpa_vad::SherpaOnnxVadPlan;
+pub use sherpa_vad::{SherpaOnnxVadModelSource, SherpaOnnxVadPlan, SherpaOnnxVadProbe};
 pub use traits::{
     AsrBackend, AudioDeliveryMode, BackendCapabilities, BackendDescriptor, RecognitionContext,
     RecognitionEvent, RecognitionSession,

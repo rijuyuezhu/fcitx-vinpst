@@ -6,6 +6,37 @@ use std::fs;
 
 use common::{assert_json_success, vinput_command, write_temp_json};
 
+fn assert_daemon_owner_probe(value: &serde_json::Value) {
+    assert_eq!(
+        value["daemon_owner_probe"]["target_name"],
+        vinput_protocol::dbus::SERVICE_BUS_NAME
+    );
+    let owner_methods = value["daemon_owner_probe"]["methods"]
+        .as_array()
+        .expect("doctor daemon owner probe methods");
+    assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
+    assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
+    let process_fields = value["daemon_owner_probe"]["process_fields"]
+        .as_array()
+        .expect("doctor daemon owner probe fields");
+    for field in ["unix_process_id", "exe", "cmdline"] {
+        assert!(
+            process_fields.contains(&serde_json::json!(field)),
+            "missing doctor daemon owner probe process field {field}"
+        );
+    }
+}
+
+fn doctor_next_steps_text(value: &serde_json::Value) -> String {
+    value["next_steps"]
+        .as_array()
+        .expect("doctor next steps")
+        .iter()
+        .map(|step| step.as_str().expect("doctor next step string"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[test]
 fn audio_devices_reports_default_capture_target_and_backend() {
     let output = vinput_command()
@@ -127,6 +158,10 @@ fn doctor_reports_combined_local_diagnostics() {
 
     let output = vinput_command()
         .env("XDG_DATA_HOME", &data_home)
+        .env(
+            "VINPUT_SHERPA_VAD_MODEL",
+            data_home.join("missing-silero-vad.onnx"),
+        )
         .env("VINPUT_USER_FCITX_LIB_DIR", &addon_lib_dir)
         .arg("doctor")
         .output()
@@ -136,6 +171,16 @@ fn doctor_reports_combined_local_diagnostics() {
     assert_eq!(value["ok"], true);
     assert_eq!(value["config"]["ok"], true);
     assert_eq!(value["asr"]["target_provider_id"], "sherpa-onnx");
+    assert_eq!(value["vad"]["status"], "missing");
+    assert_eq!(value["vad"]["enabled"], true);
+    assert_eq!(value["vad"]["available"], false);
+    assert_eq!(value["vad"]["source"], "explicit_env");
+    assert_eq!(value["vad"]["scope"], "offline-sherpa-only");
+    assert!(
+        value["vad"]["threshold"]
+            .as_f64()
+            .is_some_and(|threshold| (threshold - 0.45).abs() < 1e-6)
+    );
     assert_eq!(value["audio"]["ok"], true);
     assert_eq!(value["audio"]["capture_target"]["kind"], "default");
     assert_eq!(
@@ -165,24 +210,7 @@ fn doctor_reports_combined_local_diagnostics() {
             .as_ref()
     );
     assert_eq!(value["fcitx_addon"]["user_module_exists"], false);
-    assert_eq!(
-        value["daemon_owner_probe"]["target_name"],
-        vinput_protocol::dbus::SERVICE_BUS_NAME
-    );
-    let owner_methods = value["daemon_owner_probe"]["methods"]
-        .as_array()
-        .expect("doctor daemon owner probe methods");
-    assert!(owner_methods.contains(&serde_json::json!("GetNameOwner")));
-    assert!(owner_methods.contains(&serde_json::json!("GetConnectionUnixProcessID")));
-    let process_fields = value["daemon_owner_probe"]["process_fields"]
-        .as_array()
-        .expect("doctor daemon owner probe fields");
-    for field in ["unix_process_id", "exe", "cmdline"] {
-        assert!(
-            process_fields.contains(&serde_json::json!(field)),
-            "missing doctor daemon owner probe process field {field}"
-        );
-    }
+    assert_daemon_owner_probe(&value);
     assert_eq!(
         value["fcitx_addon"]["user_addon_metadata_path"],
         data_home
@@ -193,21 +221,57 @@ fn doctor_reports_combined_local_diagnostics() {
             .as_ref()
     );
     assert_eq!(value["fcitx_addon"]["user_addon_metadata_exists"], false);
-    let next_steps = value["next_steps"].as_array().expect("doctor next steps");
-    let next_steps_text = next_steps
-        .iter()
-        .map(|step| step.as_str().expect("doctor next step string"))
-        .collect::<Vec<_>>()
-        .join(
-            "
-",
-        );
+    let next_steps_text = doctor_next_steps_text(&value);
     assert!(next_steps_text.contains("vinput provider list"));
     assert!(next_steps_text.contains("vinput provider use sherpa-onnx"));
     assert!(next_steps_text.contains("vinput hotword get"));
     assert!(next_steps_text.contains("vinput device list"));
     assert!(next_steps_text.contains("vinput device use <target>"));
     assert!(next_steps_text.contains("daemon D-Bus owner/procfs probes"));
+    assert!(next_steps_text.contains("VINPUT_SHERPA_VAD_MODEL"));
+}
+
+#[test]
+fn doctor_reports_explicit_vad_model_readiness() {
+    let data_home = std::env::temp_dir().join(format!(
+        "vinput-doctor-vad-home-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&data_home).expect("create doctor VAD fixture dir");
+    let model = data_home.join("silero_vad.onnx");
+    fs::write(&model, b"diagnostic fixture").expect("write doctor VAD fixture");
+
+    let output = vinput_command()
+        .env("XDG_DATA_HOME", &data_home)
+        .env("VINPUT_SHERPA_VAD_MODEL", &model)
+        .arg("doctor")
+        .output()
+        .expect("run vinput doctor with VAD model");
+    fs::remove_dir_all(&data_home).expect("remove doctor VAD fixture dir");
+
+    let value = assert_json_success(output, "doctor VAD readiness");
+    assert_eq!(value["vad"]["status"], "ready");
+    assert_eq!(value["vad"]["available"], true);
+    assert_eq!(value["vad"]["source"], "explicit_env");
+    assert_eq!(value["vad"]["model"], model.to_string_lossy().as_ref());
+    assert_eq!(
+        value["vad"]["requested_model"],
+        model.to_string_lossy().as_ref()
+    );
+    assert!(
+        value["next_steps"]
+            .as_array()
+            .expect("doctor next steps")
+            .iter()
+            .all(|step| !step
+                .as_str()
+                .unwrap_or_default()
+                .contains("VINPUT_SHERPA_VAD_MODEL"))
+    );
 }
 
 #[test]

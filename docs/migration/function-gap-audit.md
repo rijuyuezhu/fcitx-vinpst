@@ -82,6 +82,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 9. Primary-selection clipboard fallback for command mode in applications without usable surrounding text.
 10. Delivery-mode-aware recorder callbacks that stream 800-frame PCM batches, preserve metadata, propagate callback errors, and avoid stop-time replay.
 11. Generation-scoped live `RecognitionPartial` emission with deduplication, stop-time cancellation, and a real session-bus partial-before-stop regression test.
+12. VAD-aware `vinput doctor` output that reports model source/readiness and actionable repair guidance without making optional trimming fatal.
 
 ## Current priority
 
