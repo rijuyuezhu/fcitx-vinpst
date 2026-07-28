@@ -92,7 +92,7 @@ private:
   std::string active_scene_id_{kDefaultNormalSceneId};
   fcitx::InputContext *scene_menu_ic_ = nullptr;
   bool scene_menu_visible_ = false;
-  AsrTargetMenuStateSnapshot asr_menu_state_;
+  AsrDisplayMenuStateSnapshot asr_menu_state_;
   MenuFilterState asr_menu_filter_;
   std::vector<std::size_t> asr_menu_indices_;
   fcitx::InputContext *asr_menu_ic_ = nullptr;

@@ -49,6 +49,16 @@ type AsrTargetMenuStateTuple = (
     Vec<(String, String, String, String)>,
 );
 
+type AsrDisplayMenuStateTuple = (
+    String,
+    String,
+    String,
+    String,
+    bool,
+    String,
+    Vec<(String, String, String, String, String)>,
+);
+
 const RAW_PAYLOAD_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/recognition/raw.json"
@@ -526,6 +536,7 @@ async fn scene_selection_persists_through_session_bus() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> anyhow::Result<()> {
     let temp = tempfile::tempdir()?;
@@ -535,7 +546,14 @@ async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> an
     std::fs::create_dir_all(&model_dir)?;
     std::fs::write(
         model_dir.join("vinput-model.json"),
-        r#"{"backend":"sherpa-offline","family":"moonshine"}"#,
+        r#"{
+          "backend":"sherpa-offline",
+          "family":"moonshine",
+          "display":{
+            "registry_id":"model.test.installed-one",
+            "fallback_title":"Installed Model Title"
+          }
+        }"#,
     )?;
     let mut config = VinputConfig::bundled_default()?;
     config.asr.providers.push(AsrProviderConfig {
@@ -594,6 +612,16 @@ async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> an
             .iter()
             .any(|item| { item.0 == "mock" && item.2 == "installed-one" && item.3 == model_value })
     );
+
+    let display_state: AsrDisplayMenuStateTuple = proxy
+        .call(dbus::method::GET_ASR_DISPLAY_MENU_STATE, &())
+        .await?;
+    assert!(display_state.6.iter().any(|item| {
+        item.0 == "mock"
+            && item.2 == "model.test.installed-one"
+            && item.3 == "Installed Model Title"
+            && item.4 == model_value
+    }));
     let target_persisted: bool = proxy
         .call(
             dbus::method::SET_ACTIVE_ASR_TARGET,
@@ -698,6 +726,12 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         dbus::method::SET_ACTIVE_ASR_TARGET,
         "ss",
         "b",
+    )?;
+    assert_method_signature(
+        interface_xml,
+        dbus::method::GET_ASR_DISPLAY_MENU_STATE,
+        "",
+        "ssssbsa(sssss)",
     )?;
     assert_method_signature(interface_xml, dbus::method::RELOAD_ASR_BACKEND, "", "")?;
     assert_method_signature(interface_xml, dbus::method::START_ADAPTER, "s", "")?;

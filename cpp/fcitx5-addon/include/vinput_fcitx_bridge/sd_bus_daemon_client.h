@@ -64,6 +64,24 @@ struct AsrTargetMenuStateSnapshot {
   std::vector<AsrTargetMenuItem> targets;
 };
 
+struct AsrDisplayMenuItem {
+  std::string provider_id;
+  std::string kind;
+  std::string item_id;
+  std::string display_title;
+  std::string model_value;
+};
+
+struct AsrDisplayMenuStateSnapshot {
+  std::string target_provider_id;
+  std::string target_model_id;
+  std::string effective_provider_id;
+  std::string effective_model_id;
+  bool reload_in_progress = false;
+  std::string last_error;
+  std::vector<AsrDisplayMenuItem> targets;
+};
+
 class SdBusDaemonClient final : public DaemonClient {
 public:
   static std::unique_ptr<SdBusDaemonClient> ConnectSession(std::string *error);
@@ -88,6 +106,7 @@ public:
   bool SetActiveAsrProvider(std::string_view provider_id, bool *persisted,
                             std::string *error);
   bool GetAsrTargetMenuState(AsrTargetMenuStateSnapshot *state, std::string *error);
+  bool GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state, std::string *error);
   bool SetActiveAsrTarget(std::string_view provider_id, std::string_view model_value,
                           bool *persisted, std::string *error);
   bool GetTextAdapterState(std::string *state_json, std::string *error);

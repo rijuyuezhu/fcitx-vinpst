@@ -11,6 +11,7 @@
 #include <thread>
 
 using vinput_fcitx_bridge::AsrBackendStateSnapshot;
+using vinput_fcitx_bridge::AsrDisplayMenuStateSnapshot;
 using vinput_fcitx_bridge::AsrMenuStateSnapshot;
 using vinput_fcitx_bridge::AsrTargetMenuStateSnapshot;
 using vinput_fcitx_bridge::BridgeOutcome;
@@ -299,6 +300,52 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
   return false;
 }
 
+bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
+  AsrDisplayMenuStateSnapshot state;
+  if (!client->GetAsrDisplayMenuState(&state, error)) {
+    return false;
+  }
+  if (state.target_provider_id.empty() || state.effective_provider_id.empty() ||
+      state.targets.empty()) {
+    if (error != nullptr) {
+      *error = "ASR display menu state did not expose target, effective, and rows";
+    }
+    return false;
+  }
+
+  const auto expected_provider =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_PROVIDER");
+  const auto expected_model =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_MODEL");
+  const auto expected_id =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_ID");
+  const auto expected_title =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_TITLE");
+  if (expected_provider.empty() && expected_model.empty() && expected_id.empty() &&
+      expected_title.empty()) {
+    return true;
+  }
+  if (expected_provider.empty() || expected_model.empty() || expected_id.empty() ||
+      expected_title.empty()) {
+    if (error != nullptr) {
+      *error = "ASR display expectation requires provider, model, id, and title";
+    }
+    return false;
+  }
+
+  for (const auto &target : state.targets) {
+    if (target.provider_id == expected_provider &&
+        target.model_value == expected_model && target.item_id == expected_id &&
+        target.display_title == expected_title) {
+      return true;
+    }
+  }
+  if (error != nullptr) {
+    *error = "ASR display menu state missing expected localized row";
+  }
+  return false;
+}
+
 bool ExpectAdapterLifecycle(SdBusDaemonClient *client, std::string_view adapter_id,
                             std::string *error) {
   std::string state_json;
@@ -419,6 +466,10 @@ int main() {
   }
   if (!ExpectAsrTargetMenuLifecycle(client.get(), &error)) {
     std::cerr << "ASR target menu lifecycle check failed: " << error << '\n';
+    return 1;
+  }
+  if (!ExpectAsrDisplayMenuState(client.get(), &error)) {
+    std::cerr << "ASR display menu state check failed: " << error << '\n';
     return 1;
   }
   const auto lifecycle_adapter =

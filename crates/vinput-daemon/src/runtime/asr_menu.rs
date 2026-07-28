@@ -1,6 +1,6 @@
 //! ASR provider/model menu state and selection helpers.
 
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use vinput_config::{AsrProviderKind, VinputConfig};
 use vinput_registry::InstalledModelInfo;
@@ -26,6 +26,17 @@ pub(crate) type AsrTargetMenuStateTuple = (
     bool,
     String,
     Vec<(String, String, String, String)>,
+);
+
+/// Provider/model display state with stable ids, localized titles, and concrete values.
+pub(crate) type AsrDisplayMenuStateTuple = (
+    String,
+    String,
+    String,
+    String,
+    bool,
+    String,
+    Vec<(String, String, String, String, String)>,
 );
 
 impl RuntimeState {
@@ -67,6 +78,24 @@ impl RuntimeState {
             state.reload_in_progress,
             state.last_error,
             target_menu_items(&self.config, installed_models),
+        )
+    }
+
+    /// Returns localized provider/model rows plus target/effective reload state.
+    pub(crate) fn asr_display_menu_state(
+        &self,
+        installed_models: &[InstalledModelInfo],
+        locale_candidates: &[String],
+    ) -> AsrDisplayMenuStateTuple {
+        let state = self.asr_backend_state();
+        (
+            state.target_provider_id,
+            state.target_model_id,
+            state.effective_provider_id,
+            state.effective_model_id,
+            state.reload_in_progress,
+            state.last_error,
+            display_menu_items(&self.config, installed_models, locale_candidates),
         )
     }
 }
@@ -141,6 +170,80 @@ fn target_menu_items(
         }
     }
     items
+}
+
+fn display_menu_items(
+    config: &VinputConfig,
+    installed_models: &[InstalledModelInfo],
+    locale_candidates: &[String],
+) -> Vec<(String, String, String, String, String)> {
+    let mut items = Vec::new();
+    for provider in &config.asr.providers {
+        let kind = provider_kind_label(&provider.kind).to_owned();
+        let configured_model = provider.model.clone().unwrap_or_default();
+        if provider.kind == AsrProviderKind::Local && !installed_models.is_empty() {
+            for model in installed_models {
+                let item_id = model.stable_model_id().to_owned();
+                let display_title = model
+                    .display_title(locale_candidates)
+                    .unwrap_or(&item_id)
+                    .to_owned();
+                items.push((
+                    provider.id.clone(),
+                    kind.clone(),
+                    item_id,
+                    display_title,
+                    model.config_model_value(),
+                ));
+            }
+            if !configured_model.is_empty()
+                && !installed_models
+                    .iter()
+                    .any(|model| model.model_dir == Path::new(&configured_model))
+            {
+                let item_id = configured_model_label(&configured_model);
+                items.push((
+                    provider.id.clone(),
+                    kind,
+                    item_id.clone(),
+                    item_id,
+                    configured_model,
+                ));
+            }
+        } else {
+            let item_id = if configured_model.is_empty() {
+                provider.id.clone()
+            } else {
+                configured_model_label(&configured_model)
+            };
+            items.push((
+                provider.id.clone(),
+                kind,
+                item_id.clone(),
+                item_id,
+                configured_model,
+            ));
+        }
+    }
+    items
+}
+
+/// Returns ordered locale preferences from the daemon process environment.
+pub(crate) fn locale_candidates_from_environment() -> Vec<String> {
+    let mut candidates = Vec::new();
+    let mut seen = HashSet::new();
+    for name in ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"] {
+        let Some(value) = std::env::var_os(name) else {
+            continue;
+        };
+        for locale in value.to_string_lossy().split(':') {
+            let locale = locale.trim();
+            if !locale.is_empty() && seen.insert(locale.to_owned()) {
+                candidates.push(locale.to_owned());
+            }
+        }
+    }
+    candidates
 }
 
 fn configured_model_label(model: &str) -> String {
@@ -249,6 +352,46 @@ mod tests {
         );
         assert!(state.6.iter().any(|item| {
             item.0 == "remote" && item.2 == "remote-model" && item.3 == "remote-model"
+        }));
+    }
+
+    #[test]
+    fn display_menu_uses_installed_registry_ids_and_localized_titles() {
+        let temp = tempfile::tempdir().unwrap();
+        let model = temp.path().join("managed-name");
+        fs::create_dir_all(&model).unwrap();
+        fs::write(
+            model.join("vinput-model.json"),
+            r#"{
+              "backend":"sherpa-offline",
+              "family":"moonshine",
+              "display":{
+                "registry_id":"model.sherpa-onnx.moonshine-v1",
+                "localized_titles":{"zh_CN":"月光语音模型"}
+              }
+            }"#,
+        )
+        .unwrap();
+        let installed = scan_installed_models(temp.path()).unwrap();
+        let config = VinputConfig::bundled_default().unwrap();
+        let runtime =
+            RuntimeState::with_asr_backend(config, Box::new(MockAsrBackend::buffered("final")))
+                .unwrap();
+
+        let state = runtime.asr_display_menu_state(&installed, &["zh_CN.UTF-8".to_owned()]);
+        assert_eq!(state.0, "sherpa-onnx");
+        assert_eq!(state.2, "mock");
+        assert!(state.6.iter().any(|item| {
+            item.0 == "sherpa-onnx"
+                && item.1 == "local"
+                && item.2 == "model.sherpa-onnx.moonshine-v1"
+                && item.3 == "月光语音模型"
+                && item.4 == model.to_string_lossy()
+        }));
+
+        let fallback = runtime.asr_display_menu_state(&installed, &["en_US".to_owned()]);
+        assert!(fallback.6.iter().any(|item| {
+            item.2 == "model.sherpa-onnx.moonshine-v1" && item.3 == "model.sherpa-onnx.moonshine-v1"
         }));
     }
 

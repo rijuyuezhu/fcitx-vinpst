@@ -96,8 +96,8 @@ bool IsHandledMenuKey(const fcitx::Key &key, bool trigger_key,
                               settings.page_next_keys);
 }
 
-bool IsEffectiveAsrTarget(const AsrTargetMenuItem &target,
-                          const AsrTargetMenuStateSnapshot &state) {
+bool IsEffectiveAsrTarget(const AsrDisplayMenuItem &target,
+                          const AsrDisplayMenuStateSnapshot &state) {
   if (target.provider_id != state.effective_provider_id) {
     return false;
   }
@@ -122,9 +122,12 @@ std::string TranslatedProviderKind(std::string_view kind) {
   return std::string(kind);
 }
 
-std::string AsrTargetLabel(const AsrTargetMenuItem &target,
-                           const AsrTargetMenuStateSnapshot &state) {
-  std::string label = target.item_id.empty() ? target.provider_id : target.item_id;
+std::string AsrTargetLabel(const AsrDisplayMenuItem &target,
+                           const AsrDisplayMenuStateSnapshot &state) {
+  std::string label =
+      target.display_title.empty()
+          ? (target.item_id.empty() ? target.provider_id : target.item_id)
+          : target.display_title;
   label += " [" + TranslatedProviderKind(target.kind) + "]";
   if (state.reload_in_progress && target.provider_id == state.target_provider_id &&
       target.model_value == state.target_model_id) {
@@ -133,16 +136,30 @@ std::string AsrTargetLabel(const AsrTargetMenuItem &target,
   return label;
 }
 
-std::string EffectiveAsrLabel(const AsrTargetMenuStateSnapshot &state) {
-  std::string label = state.effective_model_id.empty() ? state.effective_provider_id
-                                                       : state.effective_model_id;
+std::string AsrDisplayTitleFor(std::string_view provider_id,
+                               std::string_view model_value,
+                               const AsrDisplayMenuStateSnapshot &state) {
+  for (const auto &target : state.targets) {
+    if (target.provider_id == provider_id && target.model_value == model_value) {
+      return target.display_title.empty() ? target.item_id : target.display_title;
+    }
+  }
+  return std::string(model_value);
+}
+
+std::string EffectiveAsrLabel(const AsrDisplayMenuStateSnapshot &state) {
+  std::string label = state.effective_model_id.empty()
+                          ? state.effective_provider_id
+                          : AsrDisplayTitleFor(state.effective_provider_id,
+                                               state.effective_model_id, state);
   if (label.empty()) {
     label = FrontendText("unavailable");
   }
   if (state.reload_in_progress && !state.target_provider_id.empty()) {
     label += " | " + FrontendText("Loading: ") + state.target_provider_id;
     if (!state.target_model_id.empty()) {
-      label += "/" + state.target_model_id;
+      label += "/" + AsrDisplayTitleFor(state.target_provider_id, state.target_model_id,
+                                        state);
     }
   }
   if (!state.last_error.empty()) {
@@ -830,7 +847,8 @@ void FcitxVinputAddon::RebuildAsrMenu() {
     }
     const auto label = AsrTargetLabel(target, asr_menu_state_);
     const auto search_text = label + " " + target.provider_id + " " + target.kind +
-                             " " + target.item_id + " " + target.model_value;
+                             " " + target.item_id + " " + target.display_title + " " +
+                             target.model_value;
     if (!asr_menu_filter_.Matches(search_text)) {
       continue;
     }
@@ -854,7 +872,7 @@ void FcitxVinputAddon::RebuildAsrMenu() {
 
 bool FcitxVinputAddon::RefreshAsrMenuState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
-  return client != nullptr && client->GetAsrTargetMenuState(&asr_menu_state_, error);
+  return client != nullptr && client->GetAsrDisplayMenuState(&asr_menu_state_, error);
 }
 
 void FcitxVinputAddon::HideAsrMenu() {

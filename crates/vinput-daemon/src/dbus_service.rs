@@ -10,7 +10,8 @@ use zbus::{Connection, DBusError, object_server::SignalEmitter};
 use crate::{
     RuntimeError, RuntimeState,
     runtime::{
-        AsrReloadWorkerStep, persist_config_atomically, select_asr_provider, select_asr_target,
+        AsrReloadWorkerStep, locale_candidates_from_environment, persist_config_atomically,
+        select_asr_provider, select_asr_target,
     },
 };
 
@@ -553,6 +554,53 @@ impl VinputDbusService {
             .lock()
             .await
             .asr_target_menu_state(&installed_models))
+    }
+
+    /// Return target/effective ASR state and localized provider/model rows.
+    #[zbus(
+        name = "GetAsrDisplayMenuState",
+        out_args(
+            "target_provider_id",
+            "target_model_id",
+            "effective_provider_id",
+            "effective_model_id",
+            "reload_in_progress",
+            "last_error",
+            "targets"
+        )
+    )]
+    async fn get_asr_display_menu_state(
+        &self,
+    ) -> Result<
+        (
+            String,
+            String,
+            String,
+            String,
+            bool,
+            String,
+            Vec<(String, String, String, String, String)>,
+        ),
+        VinputDbusError,
+    > {
+        let model_root = self.runtime.lock().await.model_root();
+        let installed_models = tokio::task::spawn_blocking(move || {
+            model_root.map_or_else(
+                || Ok(Vec::new()),
+                |root| scan_installed_models(&root).map_err(RuntimeError::InstalledModels),
+            )
+        })
+        .await
+        .map_err(|error| {
+            Self::operation_failed(format!("installed model scan task failed: {error}"))
+        })?
+        .map_err(|error| Self::map_runtime_error(&error))?;
+        let locale_candidates = locale_candidates_from_environment();
+        Ok(self
+            .runtime
+            .lock()
+            .await
+            .asr_display_menu_state(&installed_models, &locale_candidates))
     }
 
     /// Select, persist, and queue reload for a configured ASR provider/model target.

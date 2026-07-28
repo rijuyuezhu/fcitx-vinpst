@@ -65,7 +65,8 @@ Then read, in order:
 - Reload semantics: the legacy D-Bus method re-reads explicit daemon config files and queues one non-blocking worker; startup/readiness/reload paths share prepare-before-swap, physical progress is observable, stale generations are discarded, and failure preserves the previous effective backend.
 - Frontend menus: a minimal Right-Shift scene menu and installed-model-aware F8 ASR menu are implemented with typed D-Bus state and atomic explicit-config persistence. ASR provider/model selection queues background reload and is proven through the C++ client; real desktop menu proof is still missing.
 - Frontend config: normal, command, scene-menu, ASR-menu, previous-page, and next-page keys are persistent legacy-named Fcitx KeyLists with immediate reload; both menus consume the configured paging lists, including keypad defaults. TriggerMode implements Tap/Hold/Both with legacy debounce/hold/release-tail timing, temporary trigger overrides remain, and unknown legacy fields are preserved. Both menus implement legacy slash filtering, multi-term matching, UTF-8/Ctrl editing, and two-stage Escape. Static menu/config/result labels use a compiled and installed zh_CN gettext catalog with English fallback.
-- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, remaining sherpa families, dynamic registry-backed model title localization, packaging, and remote services.
+- Model titles: registry installs persist full ids and the selected locale title; the additive display-menu D-Bus row is C++/session-bus tested, and old installs fall back to stable ids.
+- Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, remaining sherpa families, packaging, and remote services.
 
 ## First recommended implementation slices
 
@@ -73,7 +74,7 @@ Pick one focused M4 or native-runtime slice:
 
 1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining families in registry-priority order; Moonshine v1 is already live-registry installed and WAV-proven.
-3. Prove localized searchable scene/ASR menus, persistent trigger/paging keys, and Tap/Hold/Both timing live, then add dynamic registry-backed model titles.
+3. Prove localized searchable scene/ASR menus, persisted registry titles, persistent trigger/paging keys, and Tap/Hold/Both timing live.
 4. Advance packaging and remote-service breadth only where they unblock the native desktop path.
 
 Do not start broad GUI polish or distro packaging before real desktop native alpha is proven. Keep refactors feature-driven and scoped to the next migration slice.

@@ -328,7 +328,7 @@ Acceptance:
 
 ## P2 plan: frontend and release polish
 
-- Implemented and deterministic-test proven: minimal scene menu with Right Shift default and installed-model-aware ASR menu with F8 default; both use typed D-Bus state, keyboard/paging/digit/mouse selection, and atomic explicit-config persistence. The daemon scans flat Rust and legacy engine/model layouts outside the runtime mutex; provider/model selection queues background reload and is proven through C++/sd-bus with subsequent recognition. Six legacy-named Fcitx KeyLists plus TriggerMode are persistent/configurable with immediate reload and temporary trigger overrides; both menus use configurable previous/next-page lists with main and keypad defaults. Tap/Hold/Both, 80 ms debounce, the 300 ms hold threshold, and 500 ms release tail are deterministic-test proven, while unknown legacy fields are preserved. Both menus also implement legacy slash filtering, multi-term matching, UTF-8/Ctrl editing, and two-stage Escape. Static menu/config/result labels use a real compiled and installed zh_CN gettext catalog with English fallback. Remaining: real desktop UI proof and dynamic registry-backed model title localization.
+- Implemented and deterministic-test proven: minimal scene menu with Right Shift default and installed-model-aware ASR menu with F8 default; both use typed D-Bus state, keyboard/paging/digit/mouse selection, and atomic explicit-config persistence. The daemon scans flat Rust and legacy engine/model layouts outside the runtime mutex; provider/model selection queues background reload and is proven through C++/sd-bus with subsequent recognition. Six legacy-named Fcitx KeyLists plus TriggerMode are persistent/configurable with immediate reload and temporary trigger overrides; both menus use configurable previous/next-page lists with main and keypad defaults. Tap/Hold/Both, 80 ms debounce, the 300 ms hold threshold, and 500 ms release tail are deterministic-test proven, while unknown legacy fields are preserved. Both menus also implement legacy slash filtering, multi-term matching, UTF-8/Ctrl editing, and two-stage Escape. Static menu/config/result labels use a real compiled and installed zh_CN gettext catalog with English fallback. Registry installs persist full ids and the selected locale title; the additive display-menu D-Bus row is proven through C++/sd-bus, with stable-id fallback for old installs. Remaining: real desktop UI proof.
 - Live validation of the implemented primary-selection clipboard fallback across applications where Fcitx surrounding text is unavailable.
 - User-facing install guide based on `vinput init`, `model install/use`, `doctor`, and `daemon start`.
 - Distro packaging after P0 live desktop native path is proven.
@@ -340,7 +340,7 @@ Pick one focused slice at a time:
 
 1. Prove real desktop SenseVoice normal dictation from Fcitx trigger through PipeWire capture to application commit.
 2. Port Dolphin, Paraformer, and other remaining metadata/runtime layouts in registry-priority order.
-3. Prove localized searchable scene/ASR menus, persistent trigger/paging keys, and Tap/Hold/Both timing in a real Fcitx session, then add dynamic registry-backed model titles.
+3. Prove localized searchable scene/ASR menus, persisted registry titles, persistent trigger/paging keys, and Tap/Hold/Both timing in a real Fcitx session.
 4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.
 
 ## Stop conditions

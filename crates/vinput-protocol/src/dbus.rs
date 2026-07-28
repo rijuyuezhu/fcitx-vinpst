@@ -46,6 +46,8 @@ pub mod method {
     pub const GET_ASR_TARGET_MENU_STATE: &str = "GetAsrTargetMenuState";
     /// Select, persist, and queue reload for an ASR provider/model target.
     pub const SET_ACTIVE_ASR_TARGET: &str = "SetActiveAsrTarget";
+    /// Return target/effective ASR state plus localized provider/model rows.
+    pub const GET_ASR_DISPLAY_MENU_STATE: &str = "GetAsrDisplayMenuState";
     /// Reload the selected ASR backend.
     pub const RELOAD_ASR_BACKEND: &str = "ReloadAsrBackend";
     /// Start a configured LLM adapter process.
@@ -104,6 +106,7 @@ pub const CONFIG_EXTENSION_METHODS: &[&str] = &[
     method::SET_ACTIVE_ASR_PROVIDER,
     method::GET_ASR_TARGET_MENU_STATE,
     method::SET_ACTIVE_ASR_TARGET,
+    method::GET_ASR_DISPLAY_MENU_STATE,
 ];
 
 /// Method names exported on [`SERVICE_INTERFACE`] in protocol order.
@@ -121,6 +124,7 @@ pub const SERVICE_METHODS: &[&str] = &[
     method::SET_ACTIVE_ASR_PROVIDER,
     method::GET_ASR_TARGET_MENU_STATE,
     method::SET_ACTIVE_ASR_TARGET,
+    method::GET_ASR_DISPLAY_MENU_STATE,
     method::RELOAD_ASR_BACKEND,
     method::START_ADAPTER,
     method::STOP_ADAPTER,
@@ -154,6 +158,7 @@ mod tests {
         assert_eq!(method::SET_ACTIVE_ASR_PROVIDER, "SetActiveAsrProvider");
         assert_eq!(method::GET_ASR_TARGET_MENU_STATE, "GetAsrTargetMenuState");
         assert_eq!(method::SET_ACTIVE_ASR_TARGET, "SetActiveAsrTarget");
+        assert_eq!(method::GET_ASR_DISPLAY_MENU_STATE, "GetAsrDisplayMenuState");
         assert_eq!(method::NOTIFY, "Notify");
         assert_eq!(
             error::OPERATION_FAILED,
@@ -206,6 +211,7 @@ mod tests {
         assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_SCENE_STATE));
         assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_ASR_MENU_STATE));
         assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_ASR_TARGET_MENU_STATE));
+        assert!(CONFIG_EXTENSION_METHODS.contains(&method::GET_ASR_DISPLAY_MENU_STATE));
     }
 
     #[test]

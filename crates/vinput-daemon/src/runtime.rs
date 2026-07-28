@@ -11,7 +11,9 @@ mod reload;
 mod scene;
 
 use active_session::ActiveRecognitionSession;
-pub(crate) use asr_menu::{select_asr_provider, select_asr_target};
+pub(crate) use asr_menu::{
+    locale_candidates_from_environment, select_asr_provider, select_asr_target,
+};
 pub(crate) use config_io::persist_config_atomically;
 pub use errors::RuntimeError;
 pub(crate) use reload::AsrReloadWorkerStep;
