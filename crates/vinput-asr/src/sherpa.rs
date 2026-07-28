@@ -48,7 +48,7 @@ pub struct SherpaOnnxModelPaths {
 }
 
 /// Supported local `sherpa-onnx` offline model layout.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SherpaOnnxOfflineModelLayout {
     /// `SenseVoice` model directory with a model file and tokens file.
@@ -62,10 +62,34 @@ pub enum SherpaOnnxOfflineModelLayout {
         /// Whether sherpa-onnx inverse text normalization is enabled.
         use_itn: bool,
     },
+    /// Qwen3 ASR model directory with encoder, decoder, frontend, and tokenizer assets.
+    Qwen3Asr {
+        /// Convolution frontend ONNX model.
+        conv_frontend: PathBuf,
+        /// Encoder ONNX model.
+        encoder: PathBuf,
+        /// Decoder ONNX model.
+        decoder: PathBuf,
+        /// Tokenizer file or directory.
+        tokenizer: PathBuf,
+        /// Maximum total decoder sequence length.
+        max_total_len: i32,
+        /// Maximum number of generated tokens.
+        max_new_tokens: i32,
+        /// Sampling temperature.
+        temperature: f32,
+        /// Nucleus sampling probability.
+        top_p: f32,
+        /// Sampling seed.
+        seed: i32,
+        /// Optional Qwen3-specific hotwords file.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hotwords: Option<PathBuf>,
+    },
 }
 
 /// Resolved local inputs and inferred runtime layout for offline recognition.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SherpaOnnxOfflineRuntimePlan {
     /// Validated model and hotwords paths.
     pub paths: SherpaOnnxModelPaths,
@@ -151,6 +175,24 @@ pub enum SherpaOnnxModelPathError {
     )]
     UnsupportedOfflineLayout {
         /// Resolved model path.
+        path: String,
+    },
+    /// Metadata declares a valid sherpa family that this runtime does not support yet.
+    #[error("sherpa-onnx offline model family `{family}` is not supported for `{path}`")]
+    UnsupportedOfflineFamily {
+        /// Resolved model path.
+        path: String,
+        /// Declared model family.
+        family: String,
+    },
+    /// A family-specific model asset is absent from the extracted model directory.
+    #[error("sherpa-onnx {family} model asset `{asset}` is missing at `{path}`")]
+    MissingModelAsset {
+        /// Declared model family.
+        family: String,
+        /// Family-specific asset field.
+        asset: String,
+        /// Resolved asset path.
         path: String,
     },
     /// Model directory contains a model but is missing the required tokens file.
@@ -319,9 +361,18 @@ fn infer_offline_layout_from_metadata(
         })
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    if family == Some("qwen3_asr") {
+        return infer_qwen3_asr_layout_from_metadata(model_dir, &metadata, metadata_path).map(Some);
+    }
     if family != Some("sense_voice") {
-        return Err(SherpaOnnxModelPathError::UnsupportedOfflineLayout {
-            path: display_path(model_dir),
+        return Err(match family {
+            Some(family) => SherpaOnnxModelPathError::UnsupportedOfflineFamily {
+                path: display_path(model_dir),
+                family: family.to_owned(),
+            },
+            None => SherpaOnnxModelPathError::UnsupportedOfflineLayout {
+                path: display_path(model_dir),
+            },
         });
     }
     let sense_voice = metadata.pointer("/model/sense_voice");
@@ -376,6 +427,141 @@ fn infer_offline_layout_from_metadata(
         source: "metadata".to_owned(),
         metadata_path: Some(metadata_path),
     }))
+}
+
+fn infer_qwen3_asr_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let qwen3 = metadata
+        .pointer("/model/qwen3_asr")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&metadata_path),
+            message: "missing object `/model/qwen3_asr`".to_owned(),
+        })?;
+    let conv_frontend = required_qwen3_asset(model_dir, qwen3, "conv_frontend", false)?;
+    let encoder = required_qwen3_asset(model_dir, qwen3, "encoder", false)?;
+    let decoder = required_qwen3_asset(model_dir, qwen3, "decoder", false)?;
+    let tokenizer = required_qwen3_asset(model_dir, qwen3, "tokenizer", true)?;
+    let hotwords = optional_qwen3_asset(model_dir, qwen3, "hotwords")?;
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::Qwen3Asr {
+            conv_frontend,
+            encoder,
+            decoder,
+            tokenizer,
+            max_total_len: qwen3_i32(qwen3, "max_total_len", 512, &metadata_path)?,
+            max_new_tokens: qwen3_i32(qwen3, "max_new_tokens", 128, &metadata_path)?,
+            temperature: qwen3_f32(qwen3, "temperature", 1e-6, &metadata_path)?,
+            top_p: qwen3_f32(qwen3, "top_p", 0.8, &metadata_path)?,
+            seed: qwen3_i32(qwen3, "seed", 42, &metadata_path)?,
+            hotwords,
+        },
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
+fn required_qwen3_asset(
+    model_dir: &Path,
+    config: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    allow_directory: bool,
+) -> Result<PathBuf, SherpaOnnxModelPathError> {
+    let value = config
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&model_dir.join("vinput-model.json")),
+            message: format!("missing string `/model/qwen3_asr/{field}`"),
+        })?;
+    let path = resolve_against(model_dir, value);
+    let valid = if allow_directory {
+        path.exists()
+    } else {
+        path.is_file()
+    };
+    if !valid {
+        return Err(SherpaOnnxModelPathError::MissingModelAsset {
+            family: "qwen3_asr".to_owned(),
+            asset: field.to_owned(),
+            path: display_path(&path),
+        });
+    }
+    Ok(path)
+}
+
+fn optional_qwen3_asset(
+    model_dir: &Path,
+    config: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+) -> Result<Option<PathBuf>, SherpaOnnxModelPathError> {
+    let Some(value) = config
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let path = resolve_against(model_dir, value);
+    if !path.is_file() {
+        return Err(SherpaOnnxModelPathError::MissingModelAsset {
+            family: "qwen3_asr".to_owned(),
+            asset: field.to_owned(),
+            path: display_path(&path),
+        });
+    }
+    Ok(Some(path))
+}
+
+fn qwen3_i32(
+    config: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    default: i32,
+    metadata_path: &Path,
+) -> Result<i32, SherpaOnnxModelPathError> {
+    let Some(value) = config.get(field) else {
+        return Ok(default);
+    };
+    let value = value
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("`/model/qwen3_asr/{field}` must be a 32-bit integer"),
+        })?;
+    Ok(value)
+}
+
+fn qwen3_f32(
+    config: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    default: f32,
+    metadata_path: &Path,
+) -> Result<f32, SherpaOnnxModelPathError> {
+    let Some(value) = config.get(field) else {
+        return Ok(default);
+    };
+    let value = value
+        .as_f64()
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("`/model/qwen3_asr/{field}` must be numeric"),
+        })?;
+    if !value.is_finite() || value < f64::from(f32::MIN) || value > f64::from(f32::MAX) {
+        return Err(SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("`/model/qwen3_asr/{field}` is outside the f32 range"),
+        });
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let value = value as f32;
+    Ok(value)
 }
 
 fn infer_sense_voice_layout_from_files(
@@ -501,6 +687,31 @@ fn offline_recognizer_config(
                 use_itn: *use_itn,
             };
             config.model_config.tokens = Some(display_path(tokens));
+        }
+        SherpaOnnxOfflineModelLayout::Qwen3Asr {
+            conv_frontend,
+            encoder,
+            decoder,
+            tokenizer,
+            max_total_len,
+            max_new_tokens,
+            temperature,
+            top_p,
+            seed,
+            hotwords,
+        } => {
+            config.model_config.qwen3_asr = sherpa_onnx::OfflineQwen3ASRModelConfig {
+                conv_frontend: Some(display_path(conv_frontend)),
+                encoder: Some(display_path(encoder)),
+                decoder: Some(display_path(decoder)),
+                tokenizer: Some(display_path(tokenizer)),
+                max_total_len: *max_total_len,
+                max_new_tokens: *max_new_tokens,
+                temperature: *temperature,
+                top_p: *top_p,
+                seed: *seed,
+                hotwords: hotwords.as_deref().map(display_path),
+            };
         }
     }
     if let Some(hotwords_file) = &plan.paths.hotwords_file {

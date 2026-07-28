@@ -2089,6 +2089,113 @@ fn sherpa_onnx_offline_runtime_plan_uses_vinput_model_metadata() {
 }
 
 #[test]
+fn sherpa_onnx_offline_runtime_plan_uses_qwen3_asr_metadata() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+    let model_dir = root.join("qwen3-asr");
+    std::fs::create_dir_all(model_dir.join("tokenizer")).unwrap();
+    for file_name in [
+        "conv_frontend.onnx",
+        "encoder.int8.onnx",
+        "decoder.int8.onnx",
+    ] {
+        std::fs::write(model_dir.join(file_name), b"onnx").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        r#"{
+            "backend": "sherpa-offline",
+            "family": "qwen3_asr",
+            "runtime": "offline",
+            "model": {
+                "qwen3_asr": {
+                    "conv_frontend": "conv_frontend.onnx",
+                    "encoder": "encoder.int8.onnx",
+                    "decoder": "decoder.int8.onnx",
+                    "tokenizer": "tokenizer",
+                    "max_total_len": 4096,
+                    "max_new_tokens": 1024,
+                    "temperature": 1.0,
+                    "top_p": 0.9,
+                    "seed": 0
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+    let provider = AsrProviderConfig {
+        id: "sherpa-onnx".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("qwen3-asr".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    let plan = spec.resolve_offline_runtime_plan(root).unwrap();
+
+    assert_eq!(plan.layout_source, "metadata");
+    assert_eq!(
+        plan.metadata_path,
+        Some(model_dir.join("vinput-model.json"))
+    );
+    assert_eq!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::Qwen3Asr {
+            conv_frontend: model_dir.join("conv_frontend.onnx"),
+            encoder: model_dir.join("encoder.int8.onnx"),
+            decoder: model_dir.join("decoder.int8.onnx"),
+            tokenizer: model_dir.join("tokenizer"),
+            max_total_len: 4096,
+            max_new_tokens: 1024,
+            temperature: 1.0,
+            top_p: 0.9,
+            seed: 0,
+            hotwords: None,
+        }
+    );
+}
+
+#[test]
+fn sherpa_onnx_offline_runtime_plan_reports_unsupported_metadata_family() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let root = temp_dir.path();
+    let model_dir = root.join("moonshine");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    std::fs::write(
+        model_dir.join("vinput-model.json"),
+        r#"{"backend":"sherpa-offline","family":"moonshine","runtime":"offline"}"#,
+    )
+    .unwrap();
+    let provider = AsrProviderConfig {
+        id: "sherpa-onnx".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("moonshine".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    let error = spec.resolve_offline_runtime_plan(root).unwrap_err();
+
+    assert_eq!(
+        error,
+        SherpaOnnxModelPathError::UnsupportedOfflineFamily {
+            path: model_dir.display().to_string(),
+            family: "moonshine".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn sherpa_onnx_offline_runtime_plan_uses_model_type_metadata_fallback() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path();

@@ -1,6 +1,6 @@
 use super::{
     ArchiveEntryKind, ArchiveFormat, ArchiveSafetyError, ArchiveStagingError,
-    ArchiveStagingPathError, AssetChecksumStatus, ChecksumPolicy, InstallPlan,
+    ArchiveStagingPathError, AssetChecksumStatus, ChecksumPolicy, InstallPlan, LiveModelFamily,
     LiveModelInstallError, LiveModelInstallRequest, LiveModelRegistry, LiveRegistryI18n,
     PlannedAsset, PlannedInstallAsset, RegistryAssetSource, RegistryAssetStagingError,
     RegistryCacheError, RegistryCachedFetchError, RegistryEntryKind, RegistryError,
@@ -145,6 +145,10 @@ fn parses_live_models_json_sensevoice_metadata() {
     assert_eq!(model.language.as_deref(), Some("zh"));
     assert_eq!(model.backend(), Some("sherpa-offline"));
     assert_eq!(model.model_family(), Some("sense_voice"));
+    assert_eq!(
+        model.classified_model_family(),
+        Some(LiveModelFamily::SenseVoice)
+    );
     assert!(!model.supports_hotwords());
 
     let metadata = model.vinput_model.as_ref().unwrap();
@@ -160,6 +164,27 @@ fn parses_live_models_json_sensevoice_metadata() {
             .and_then(serde_json::Value::as_bool),
         Some(true)
     );
+}
+
+#[test]
+fn classifies_live_registry_model_families_and_preserves_unknown_values() {
+    for (raw, expected) in [
+        ("dolphin", LiveModelFamily::Dolphin),
+        ("sense_voice", LiveModelFamily::SenseVoice),
+        ("paraformer", LiveModelFamily::Paraformer),
+        ("transducer", LiveModelFamily::Transducer),
+        ("qwen3_asr", LiveModelFamily::Qwen3Asr),
+        ("zipformer2_ctc", LiveModelFamily::Zipformer2Ctc),
+        ("moonshine", LiveModelFamily::Moonshine),
+    ] {
+        let family = LiveModelFamily::classify(raw);
+        assert_eq!(family, expected);
+        assert_eq!(family.as_str(), raw);
+    }
+
+    let other = LiveModelFamily::classify("future_family");
+    assert_eq!(other, LiveModelFamily::Other("future_family".to_owned()));
+    assert_eq!(other.as_str(), "future_family");
 }
 
 #[test]

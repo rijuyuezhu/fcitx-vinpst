@@ -25,10 +25,10 @@ use vinput_config::{
 };
 use vinput_protocol::{RecognitionPayload, ServiceStatus, TextAdapterState, dbus};
 use vinput_registry::{
-    ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelInstallRequest,
-    LiveModelInstallResult, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata,
-    PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, install_live_model,
+    ArchiveFormat, AssetEntry, AssetPlanSummary, LiveModelEntry, LiveModelFamily,
+    LiveModelInstallRequest, LiveModelInstallResult, LiveModelRegistry, LiveRegistryI18n,
+    LiveVinputModelMetadata, PlannedAsset, RegistryIndex, RegistryTextSource,
+    ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
 };
 use vinput_text::{
     OpenAiCompatibleTextAdapter, ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,
@@ -8731,12 +8731,24 @@ struct ModelSupport {
 }
 
 fn live_model_support(model: &LiveModelEntry) -> ModelSupport {
-    match (model.backend(), model.model_family(), model_runtime(model)) {
-        (Some("sherpa-offline"), Some("sense_voice"), Some("offline")) => ModelSupport {
+    match (
+        model.backend(),
+        model.classified_model_family(),
+        model_runtime(model),
+    ) {
+        (
+            Some("sherpa-offline"),
+            Some(LiveModelFamily::SenseVoice | LiveModelFamily::Qwen3Asr),
+            Some("offline"),
+        ) => ModelSupport {
             supported: true,
             reason: "supported",
         },
-        (Some("sherpa-offline"), Some("sense_voice"), _) => ModelSupport {
+        (
+            Some("sherpa-offline"),
+            Some(LiveModelFamily::SenseVoice | LiveModelFamily::Qwen3Asr),
+            _,
+        ) => ModelSupport {
             supported: false,
             reason: "unsupported-runtime",
         },

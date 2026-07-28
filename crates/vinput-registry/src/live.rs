@@ -13,6 +13,60 @@ use serde_json::Value;
 
 use crate::RegistryError;
 
+/// Normalized sherpa-onnx model family declared by live registry metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LiveModelFamily {
+    /// Dolphin offline model family.
+    Dolphin,
+    /// `SenseVoice` offline model family.
+    SenseVoice,
+    /// Paraformer offline model family.
+    Paraformer,
+    /// Transducer model family used by offline and streaming models.
+    Transducer,
+    /// Qwen3 ASR offline model family.
+    Qwen3Asr,
+    /// Zipformer2 CTC streaming model family.
+    Zipformer2Ctc,
+    /// Moonshine offline model family.
+    Moonshine,
+    /// Forward-compatible family not known by this build.
+    Other(String),
+}
+
+impl LiveModelFamily {
+    /// Classifies one non-empty registry family string without rejecting future values.
+    #[must_use]
+    pub fn classify(value: &str) -> Self {
+        match value.trim() {
+            "dolphin" => Self::Dolphin,
+            "sense_voice" => Self::SenseVoice,
+            "paraformer" => Self::Paraformer,
+            "transducer" => Self::Transducer,
+            "qwen3_asr" => Self::Qwen3Asr,
+            "zipformer2_ctc" => Self::Zipformer2Ctc,
+            "moonshine" => Self::Moonshine,
+            other => Self::Other(other.to_owned()),
+        }
+    }
+
+    /// Returns the canonical registry family string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Dolphin => "dolphin",
+            Self::SenseVoice => "sense_voice",
+            Self::Paraformer => "paraformer",
+            Self::Transducer => "transducer",
+            Self::Qwen3Asr => "qwen3_asr",
+            Self::Zipformer2Ctc => "zipformer2_ctc",
+            Self::Moonshine => "moonshine",
+            Self::Other(value) => value,
+        }
+    }
+}
+
 /// Parsed `registry/models.json` document from the live registry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LiveModelRegistry {
@@ -136,6 +190,14 @@ impl LiveModelEntry {
             .and_then(LiveVinputModelMetadata::model_family)
     }
 
+    /// Classifies the model family while preserving unknown future values.
+    #[must_use]
+    pub fn classified_model_family(&self) -> Option<LiveModelFamily> {
+        self.vinput_model
+            .as_ref()
+            .and_then(LiveVinputModelMetadata::classified_model_family)
+    }
+
     /// Returns the backend declared by typed `vinput_model` metadata.
     #[must_use]
     pub fn backend(&self) -> Option<&str> {
@@ -224,6 +286,12 @@ impl LiveVinputModelMetadata {
     pub fn model_family(&self) -> Option<&str> {
         non_empty_string(self.family.as_deref())
             .or_else(|| non_empty_string(self.model_type.as_deref()))
+    }
+
+    /// Classifies the preferred model family without rejecting future registry values.
+    #[must_use]
+    pub fn classified_model_family(&self) -> Option<LiveModelFamily> {
+        self.model_family().map(LiveModelFamily::classify)
     }
 
     /// Serializes the metadata back to JSON for `vinput-model.json` materialization.

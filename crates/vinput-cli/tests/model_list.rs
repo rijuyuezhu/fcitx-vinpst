@@ -62,6 +62,52 @@ fn model_list_json_accepts_live_sensevoice_fixture() {
 }
 
 #[test]
+fn model_list_json_reports_qwen3_asr_as_supported() {
+    let registry_path = write_temp_json(
+        "live-model-qwen3-support",
+        &serde_json::json!({
+            "version": 2,
+            "items": [
+                {
+                    "id": "model.sherpa-onnx.qwen3-asr-0.6b-int8",
+                    "short_id": "onnx-qwen3-0.6b-int8-off",
+                    "urls": ["https://example.invalid/qwen3.tar.bz2"],
+                    "vinput_model": {
+                        "backend": "sherpa-offline",
+                        "family": "qwen3_asr",
+                        "runtime": "offline",
+                        "model": {
+                            "qwen3_asr": {
+                                "conv_frontend": "conv_frontend.onnx",
+                                "encoder": "encoder.int8.onnx",
+                                "decoder": "decoder.int8.onnx",
+                                "tokenizer": "tokenizer"
+                            }
+                        }
+                    }
+                }
+            ]
+        })
+        .to_string(),
+    );
+
+    let output = vinput_command()
+        .args(["model", "list", "--registry"])
+        .arg(&registry_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput model list qwen3 --json");
+
+    let value = assert_json_success(output, "model list qwen3 json");
+    assert_eq!(value["models"][0]["family"], "qwen3_asr");
+    assert_eq!(value["models"][0]["runtime"], "offline");
+    assert_eq!(value["models"][0]["supported"], true);
+    assert_eq!(value["models"][0]["support"], "supported");
+
+    std::fs::remove_file(registry_path).ok();
+}
+
+#[test]
 fn model_list_text_prints_source_columns_and_support_marker() {
     let output = vinput_command()
         .args(["model", "list", "--registry"])

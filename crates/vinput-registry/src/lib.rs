@@ -42,7 +42,9 @@ pub use fetch::{
 pub use install::{
     LiveModelInstallError, LiveModelInstallRequest, LiveModelInstallResult, install_live_model,
 };
-pub use live::{LiveModelEntry, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata};
+pub use live::{
+    LiveModelEntry, LiveModelFamily, LiveModelRegistry, LiveRegistryI18n, LiveVinputModelMetadata,
+};
 pub use materialize::{
     MaterializedRegistryTree, RegistryMaterializeError, materialize_staged_tree,
 };
