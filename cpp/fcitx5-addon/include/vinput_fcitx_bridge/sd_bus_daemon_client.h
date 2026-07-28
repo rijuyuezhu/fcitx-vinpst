@@ -97,6 +97,7 @@ public:
                              std::string *error) override;
   bool StopRecording(std::string_view scene_id, std::string *payload_json,
                      std::string *error) override;
+  bool GetStatus(std::string *status, std::string *error);
 
   // Rust-only diagnostic extensions; not used by the frontend bridge hot path.
   bool GetAsrBackendState(AsrBackendStateSnapshot *state, std::string *error);

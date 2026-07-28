@@ -688,6 +688,26 @@ fn asr_architecture_pins_frontend_live_partial_preedit() {
 }
 
 #[test]
+fn dbus_architecture_pins_frontend_cross_client_status_recovery() {
+    let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
+        .expect("read dbus service doc");
+    for required in [
+        "Before issuing a local start, the addon queries `GetStatus`",
+        "explicit `idle` permits the normal start path",
+        "an externally started `recording` reached by the normal trigger is adopted and stopped",
+        "`inferring` or `postprocessing`",
+        "status-only preedit",
+        "idle/error status or owner loss",
+        "cross-client session-bus smoke",
+    ] {
+        assert!(
+            dbus_doc.contains(required),
+            "D-Bus docs should pin cross-client status recovery: {required}"
+        );
+    }
+}
+
+#[test]
 fn dbus_architecture_pins_frontend_daemon_owner_loss_recovery() {
     let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
         .expect("read dbus service doc");

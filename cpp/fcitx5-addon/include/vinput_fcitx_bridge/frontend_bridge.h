@@ -37,6 +37,7 @@ public:
   BridgeOutcome StartCommand(DaemonClient *client, std::string_view selected_text,
                              std::string_view scene_id);
   BridgeOutcome Stop(DaemonClient *client, std::string_view scene_id);
+  void AdoptRecording(bool command_mode, std::string_view scene_id);
   void Reset();
 
   bool recording() const {

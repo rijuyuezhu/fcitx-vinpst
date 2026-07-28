@@ -147,25 +147,6 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
 int main() {
   FcitxVinputAddon addon(nullptr);
 
-  const auto normal_start =
-      addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StartNormal);
-  if (!ExpectApplied(normal_start, AppliedOutcome::Preedit, "normal start") ||
-      !ExpectLastOutcome(BridgeOutcome::Kind::Preedit, "... Recording ...", false,
-                         "normal start") ||
-      !addon.bridge().recording() || addon.bridge().command_mode()) {
-    std::cerr << "addon normal trigger did not enter recording mode\n";
-    return 1;
-  }
-
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal, true, false,
-                            "duplicate normal start") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand, true, false,
-                            "command start while normal recording") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand, true, false,
-                            "command stop while normal recording")) {
-    return 1;
-  }
-
   std::string error;
   auto client = ConnectWithRetry(&error);
   if (client == nullptr) {
@@ -173,26 +154,40 @@ int main() {
     return 1;
   }
 
+  if (!client->StartRecording(&error)) {
+    std::cerr << "external normal start failed: " << error << '\n';
+    return 1;
+  }
+  std::string external_status;
+  if (!client->GetStatus(&external_status, &error) || external_status != "recording") {
+    std::cerr << "external normal status check failed: " << error << '\n';
+    return 1;
+  }
   if (!ExpectRuntimeStatus(client.get(), "\"status\":\"recording\"", &error) ||
       !ExpectRuntimeStatus(client.get(), "\"selected_text_present\":false", &error)) {
-    std::cerr << "runtime status normal check failed: " << error << '\n';
+    std::cerr << "runtime status external normal check failed: " << error << '\n';
     return 1;
   }
 
   const auto expected_normal_text =
       ExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
-  const auto normal_stop =
-      addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopNormal);
-  if (!ExpectApplied(normal_stop, AppliedOutcome::Commit, "normal stop") ||
+  const auto recovered_stop =
+      addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StartNormal);
+  if (!ExpectApplied(recovered_stop, AppliedOutcome::Commit,
+                     "cross-client normal takeover") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_normal_text, false,
-                         "normal stop") ||
+                         "cross-client normal takeover") ||
       addon.bridge().recording() || addon.bridge().command_mode()) {
-    std::cerr << "addon normal trigger did not commit and reset\n";
+    std::cerr << "addon did not stop externally started normal recording\n";
     return 1;
   }
-
+  if (!client->GetStatus(&external_status, &error) || external_status != "idle") {
+    std::cerr << "external normal takeover did not return daemon to idle: " << error
+              << '\n';
+    return 1;
+  }
   if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error)) {
-    std::cerr << "runtime status after normal stop failed: " << error << '\n';
+    std::cerr << "runtime status after normal takeover failed: " << error << '\n';
     return 1;
   }
 

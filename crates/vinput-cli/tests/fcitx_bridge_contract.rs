@@ -382,6 +382,58 @@ fn cpp_frontend_notifications_keep_legacy_presenter_contract() {
 }
 
 #[test]
+fn cpp_frontend_recovers_cross_client_daemon_status() {
+    let bridge_header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/frontend_bridge.h",
+    ))
+    .expect("read frontend bridge header");
+    let client_header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/sd_bus_daemon_client.h",
+    ))
+    .expect("read sd-bus client header");
+    let client_source = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/src/sd_bus_daemon_client.cpp",
+    ))
+    .expect("read sd-bus client source");
+    let addon_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
+            .expect("read addon source");
+    let addon_smoke = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/tests/fcitx_addon_dbus_smoke.cpp",
+    ))
+    .expect("read addon D-Bus smoke");
+
+    assert!(bridge_header.contains("AdoptRecording"));
+    assert!(client_header.contains("GetStatus(std::string *status"));
+    assert!(client_source.contains("CallStringReply(dbus::kMethodGetStatus"));
+    for required in [
+        "ReconcileDaemonStatusBeforeStart",
+        "client->GetStatus(&status, &error)",
+        "bridge_.AdoptRecording(false, active_scene_id_)",
+        "PresentRemoteDaemonStatus",
+        "remote_status_ic_",
+        "status == dbus::kStatusInferring",
+        "status == dbus::kStatusPostprocessing",
+    ] {
+        assert!(
+            addon_source.contains(required),
+            "addon status recovery should pin {required}"
+        );
+    }
+    for required in [
+        "external normal start failed",
+        "cross-client normal takeover",
+        r#"external_status != "recording""#,
+        r#"external_status != "idle""#,
+    ] {
+        assert!(
+            addon_smoke.contains(required),
+            "addon D-Bus smoke should pin {required}"
+        );
+    }
+}
+
+#[test]
 fn cpp_frontend_forwards_daemon_notification_signals() {
     let header = std::fs::read_to_string(workspace_file(
         "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_daemon_signal_monitor.h",

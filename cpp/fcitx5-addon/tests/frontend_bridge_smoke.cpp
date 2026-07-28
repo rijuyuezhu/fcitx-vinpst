@@ -366,5 +366,40 @@ int main() {
     assert(!bridge.command_mode());
   }
 
+  {
+    FakeDaemonClient client;
+    client.next_payload_json =
+        R"({"commit_text":"adopted result","candidates":[{"text":"adopted result","source":"raw"}]})";
+    FrontendBridge bridge;
+
+    bridge.AdoptRecording(false, "adopted-scene");
+    assert(bridge.recording());
+    assert(!bridge.command_mode());
+    assert(client.start_recording_calls == 0);
+    const auto stop = bridge.Stop(&client, "fallback-scene");
+    assert(stop.kind == BridgeOutcome::Kind::Commit);
+    assert(stop.text == "adopted result");
+    assert(!stop.command_mode);
+    assert(client.stop_calls == 1);
+    assert(client.last_scene_id == "adopted-scene");
+    assert(!bridge.recording());
+  }
+
+  {
+    FakeDaemonClient client;
+    FrontendBridge bridge;
+
+    bridge.AdoptRecording(true, "adopted-command-scene");
+    assert(bridge.recording());
+    assert(bridge.command_mode());
+    assert(client.start_command_calls == 0);
+    const auto stop = bridge.Stop(&client, "fallback-command-scene");
+    assert(stop.kind == BridgeOutcome::Kind::Commit);
+    assert(stop.command_mode);
+    assert(client.last_scene_id == "adopted-command-scene");
+    assert(!bridge.recording());
+    assert(!bridge.command_mode());
+  }
+
   return 0;
 }

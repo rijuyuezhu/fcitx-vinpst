@@ -147,6 +147,13 @@ BridgeOutcome FrontendBridge::Stop(DaemonClient *client, std::string_view scene_
   return Commit(std::move(commit_text), std::move(plan.payload), was_command_mode);
 }
 
+void FrontendBridge::AdoptRecording(bool command_mode, std::string_view scene_id) {
+  recording_ = true;
+  command_mode_ = command_mode;
+  selected_text_.clear();
+  active_scene_id_ = std::string(scene_id);
+}
+
 void FrontendBridge::Reset() {
   recording_ = false;
   command_mode_ = false;

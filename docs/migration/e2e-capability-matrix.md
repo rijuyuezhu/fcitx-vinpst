@@ -117,7 +117,7 @@ Rust CLI weaknesses for a user:
 | Capability | Legacy daemon | Rust daemon | Status |
 | --- | --- | --- | --- |
 | D-Bus bus/interface/path | `org.fcitx.Vinput`, `/org/fcitx/Vinput`, `org.fcitx.Vinput.Service`. | Same. | Aligned. |
-| Core methods | `StartRecording`, `StartCommandRecording`, `StopRecording`, `GetStatus`, `GetAsrBackendState`, `ReloadAsrBackend`, `StartAdapter`, `StopAdapter`. | Same core methods. | Mostly aligned. |
+| Core methods | `StartRecording`, `StartCommandRecording`, `StopRecording`, `GetStatus`, `GetAsrBackendState`, `ReloadAsrBackend`, `StartAdapter`, `StopAdapter`. | Same core methods. The retained addon queries `GetStatus` before local starts, adopts/stops an externally started normal recording, and renders external busy states as tracked preedit rather than issuing a conflicting Start. | Mostly aligned; cross-client recovery is session-bus tested but not live-desktop proven. |
 | Diagnostic extensions | Limited. | Adds `GetTextAdapterState`, `GetRuntimeStatus`. | Rust improved. |
 | Signals | Recognition result/partial, status changed, daemon notification. | Same names preserved. | Mostly aligned. |
 | Status strings | `idle`, `recording`, `inferring`, `postprocessing`, `error`. | Same strings. | Aligned. |

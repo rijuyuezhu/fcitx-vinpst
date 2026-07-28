@@ -336,17 +336,20 @@ void FcitxVinputAddon::SetupDaemonSignalMonitor() {
 
 void FcitxVinputAddon::HandleDaemonAvailability(bool available) {
   daemon_client_.reset();
-  if (available || !bridge_.recording()) {
+  if (available || (!bridge_.recording() && !remote_status_ic_.isValid())) {
     return;
   }
 
-  auto *active_ic = active_trigger_ic_.get();
+  auto *active_ic =
+      bridge_.recording() ? active_trigger_ic_.get() : remote_status_ic_.get();
   HideSceneMenu();
   HideAsrMenu();
   CancelTriggerStart();
   CancelTriggerStop();
   bridge_.Reset();
   trigger_mode_controller_.RecordingStopped();
+  remote_status_ic_.unwatch();
+  remote_status_command_mode_ = false;
   ResetLiveSignalState();
   const BridgeOutcome error{
       .kind = BridgeOutcome::Kind::Error,
@@ -364,6 +367,16 @@ void FcitxVinputAddon::HandleDaemonStatus(std::string_view status) {
   }
   live_daemon_status_ = std::string(status);
   if (!bridge_.recording()) {
+    if (!remote_status_ic_.isValid()) {
+      return;
+    }
+    if (status == dbus::kStatusIdle || status == dbus::kStatusError) {
+      ClearRemoteDaemonStatus();
+      ResetLiveSignalState();
+      return;
+    }
+    PresentRemoteDaemonStatus(remote_status_ic_.get(), status,
+                              remote_status_command_mode_);
     return;
   }
   if (status == dbus::kStatusIdle || status == dbus::kStatusError) {
@@ -432,13 +445,16 @@ void FcitxVinputAddon::HandleDaemonNotification(
   const auto kind = ClassifyDaemonNotification(payload);
   const auto message = RenderDaemonNotification(payload);
   if (kind == FrontendNotificationKind::Error) {
-    auto *active_ic = active_trigger_ic_.get();
+    auto *active_ic =
+        bridge_.recording() ? active_trigger_ic_.get() : remote_status_ic_.get();
     HideSceneMenu();
     HideAsrMenu();
     CancelTriggerStart();
     CancelTriggerStop();
     bridge_.Reset();
     trigger_mode_controller_.RecordingStopped();
+    remote_status_ic_.unwatch();
+    remote_status_command_mode_ = false;
     ResetLiveSignalState();
     daemon_client_.reset();
     if (active_ic != nullptr) {
@@ -494,6 +510,7 @@ AppliedOutcome FcitxVinputAddon::ApplyDaemonUnavailable(fcitx::InputContext *ic,
 
 AppliedOutcome FcitxVinputAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
                                                     const BridgeOutcome &outcome) {
+  ClearRemoteDaemonStatus();
   auto display_outcome = outcome;
   if (outcome.kind == BridgeOutcome::Kind::Preedit ||
       outcome.kind == BridgeOutcome::Kind::Error) {
@@ -511,6 +528,77 @@ AppliedOutcome FcitxVinputAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
     ResetLiveSignalState();
   }
   return ApplyBridgeOutcomeToInputContext(display_outcome, ic);
+}
+
+std::optional<AppliedOutcome>
+FcitxVinputAddon::ReconcileDaemonStatusBeforeStart(fcitx::InputContext *ic,
+                                                   TriggerKind kind) {
+  if (bridge_.recording()) {
+    return std::nullopt;
+  }
+
+  std::string error;
+  auto *client = EnsureDaemonClient(&error);
+  std::string status;
+  if (client == nullptr || !client->GetStatus(&status, &error) || status.empty() ||
+      status == dbus::kStatusIdle) {
+    return std::nullopt;
+  }
+
+  const bool command_mode = kind == TriggerKind::Command;
+  if (status == dbus::kStatusRecording && !command_mode) {
+    ClearRemoteDaemonStatus();
+    bridge_.AdoptRecording(false, active_scene_id_);
+    return TriggerNormal(ic, active_scene_id_);
+  }
+  if (status == dbus::kStatusRecording || status == dbus::kStatusInferring ||
+      status == dbus::kStatusPostprocessing) {
+    return PresentRemoteDaemonStatus(ic, status, command_mode);
+  }
+  if (status == dbus::kStatusError) {
+    ClearRemoteDaemonStatus();
+    ResetLiveSignalState();
+    return AppliedOutcome::None;
+  }
+  return std::nullopt;
+}
+
+AppliedOutcome FcitxVinputAddon::PresentRemoteDaemonStatus(fcitx::InputContext *ic,
+                                                           std::string_view status,
+                                                           bool command_mode) {
+  const auto preedit = ComposeDaemonStatusPreedit(status, command_mode, {});
+  if (preedit.empty()) {
+    return AppliedOutcome::None;
+  }
+  live_daemon_status_ = std::string(status);
+  live_partial_text_.clear();
+  remote_status_command_mode_ = command_mode;
+  if (ic != nullptr) {
+    remote_status_ic_ = ic->watch();
+  }
+  const BridgeOutcome outcome{
+      .kind = BridgeOutcome::Kind::Preedit,
+      .text = preedit,
+      .payload = {},
+      .command_mode = command_mode,
+  };
+  return ApplyBridgeOutcomeToInputContext(outcome, ic);
+}
+
+void FcitxVinputAddon::ClearRemoteDaemonStatus() {
+  auto *ic = remote_status_ic_.get();
+  remote_status_ic_.unwatch();
+  remote_status_command_mode_ = false;
+  if (ic == nullptr) {
+    return;
+  }
+  const BridgeOutcome clear{
+      .kind = BridgeOutcome::Kind::Clear,
+      .text = {},
+      .payload = {},
+      .command_mode = false,
+  };
+  ApplyBridgeOutcomeToInputContext(clear, ic);
 }
 
 AppliedOutcome FcitxVinputAddon::TriggerNormal(fcitx::InputContext *ic,
@@ -556,6 +644,9 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
     if (!bridge_.recording()) {
       std::string error;
       RefreshSceneState(&error);
+      if (auto recovered = ReconcileDaemonStatusBeforeStart(ic, TriggerKind::Normal)) {
+        return *recovered;
+      }
       return TriggerNormal(ic, active_scene_id_);
     }
     return AppliedOutcome::None;
@@ -566,6 +657,9 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
     return AppliedOutcome::None;
   case FcitxTriggerAction::StartCommand:
     if (!bridge_.recording()) {
+      if (auto recovered = ReconcileDaemonStatusBeforeStart(ic, TriggerKind::Command)) {
+        return *recovered;
+      }
       return TriggerCommand(ic, selected_text);
     }
     return AppliedOutcome::None;

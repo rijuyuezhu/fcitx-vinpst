@@ -505,6 +505,10 @@ bool SdBusDaemonClient::StopRecording(std::string_view scene_id,
                                    error);
 }
 
+bool SdBusDaemonClient::GetStatus(std::string *status, std::string *error) {
+  return CallStringReply(dbus::kMethodGetStatus, status, error);
+}
+
 bool SdBusDaemonClient::GetAsrBackendState(AsrBackendStateSnapshot *state,
                                            std::string *error) {
   sd_bus_message *message = nullptr;

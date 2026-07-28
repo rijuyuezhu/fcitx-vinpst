@@ -48,6 +48,24 @@ bool Contains(std::string_view haystack, std::string_view needle) {
   return haystack.find(needle) != std::string_view::npos;
 }
 
+bool ExpectDaemonStatus(SdBusDaemonClient *client, std::string_view expected,
+                        std::string *error) {
+  std::string status;
+  if (!client->GetStatus(&status, error)) {
+    return false;
+  }
+  if (status == expected) {
+    return true;
+  }
+  if (error != nullptr) {
+    *error = "daemon status mismatch: expected ";
+    *error += expected;
+    *error += ", got ";
+    *error += status;
+  }
+  return false;
+}
+
 bool ExpectRuntimeStatus(SdBusDaemonClient *client, std::string_view expected,
                          std::string *error) {
   std::string status_json;
@@ -448,6 +466,10 @@ int main() {
 
   const auto record_delay = RecordDelay();
 
+  if (!ExpectDaemonStatus(client.get(), "idle", &error)) {
+    std::cerr << "daemon status idle check failed: " << error << '\n';
+    return 1;
+  }
   if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error)) {
     std::cerr << "runtime status idle check failed: " << error << '\n';
     return 1;
@@ -492,6 +514,10 @@ int main() {
   }
 
   WaitForRecording(record_delay);
+  if (!ExpectDaemonStatus(client.get(), "recording", &error)) {
+    std::cerr << "daemon status normal recording check failed: " << error << '\n';
+    return 1;
+  }
 
   const auto expected_normal_text =
       ExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
@@ -506,6 +532,10 @@ int main() {
   if (normal_bridge.recording() || normal_bridge.command_mode() ||
       normal_stop.command_mode) {
     std::cerr << "normal stop did not reset bridge state\n";
+    return 1;
+  }
+  if (!ExpectDaemonStatus(client.get(), "idle", &error)) {
+    std::cerr << "daemon status after normal stop failed: " << error << '\n';
     return 1;
   }
 

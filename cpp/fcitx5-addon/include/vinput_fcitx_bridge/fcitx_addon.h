@@ -12,6 +12,7 @@
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -61,6 +62,11 @@ private:
   AppliedOutcome ApplyDaemonUnavailable(fcitx::InputContext *ic, std::string error);
   AppliedOutcome ApplyBridgeOutcome(fcitx::InputContext *ic,
                                     const BridgeOutcome &outcome);
+  std::optional<AppliedOutcome>
+  ReconcileDaemonStatusBeforeStart(fcitx::InputContext *ic, TriggerKind kind);
+  AppliedOutcome PresentRemoteDaemonStatus(fcitx::InputContext *ic,
+                                           std::string_view status, bool command_mode);
+  void ClearRemoteDaemonStatus();
   void HandleKeyEvent(fcitx::Event &event);
   void ShowSceneMenu(fcitx::InputContext *ic);
   void RebuildSceneMenu();
@@ -111,6 +117,8 @@ private:
   std::unique_ptr<fcitx::EventSourceTime> pending_trigger_stop_event_;
   fcitx::TrackableObjectReference<fcitx::InputContext> pending_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
+  fcitx::TrackableObjectReference<fcitx::InputContext> remote_status_ic_;
+  bool remote_status_command_mode_ = false;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::unique_ptr<FcitxDaemonSignalMonitor> daemon_signal_monitor_;
   std::string live_daemon_status_;
