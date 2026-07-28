@@ -70,7 +70,9 @@ That test starts the Rust service, builds a `zbus::Proxy`, calls legacy methods 
 The Rust service pins these legacy-visible behaviors with unit and D-Bus integration tests:
 
 - operation failures use the legacy error name `org.fcitx.Vinput.Error.OperationFailed`;
-- `ReloadAsrBackend` returns success while recording/inferring, marks reload pending, and applies it when the runtime returns to idle;
+- `GetAsrBackendState` combines the configured target provider/model with the descriptor of the backend that is actually effective in the runtime; it must not report a merely constructible configured backend as already active;
+- `ReloadAsrBackend` rebuilds the configured backend through the prepare-before-swap path, rather than refreshing metadata only;
+- `ReloadAsrBackend` returns success while recording/inferring, marks the configured reload pending, and applies it when the runtime returns to idle;
 - failed deferred reloads keep the previously working backend and surface the deferred error in diagnostics;
 - status strings and core legacy method/signal names remain centralized in `vinput-protocol`.
 

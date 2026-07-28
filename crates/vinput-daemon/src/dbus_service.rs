@@ -344,7 +344,7 @@ impl VinputDbusService {
         Vec<String>,
     ) {
         let runtime = self.runtime.lock().await;
-        asr_backend_state_tuple(runtime.configured_asr_state_for_runtime())
+        asr_backend_state_tuple(runtime.asr_backend_state())
     }
 
     /// Return text adapter diagnostic state JSON.
@@ -369,7 +369,7 @@ impl VinputDbusService {
     async fn reload_asr_backend(&self) -> Result<(), VinputDbusError> {
         let mut runtime = self.runtime.lock().await;
         runtime
-            .reload_asr_backend()
+            .reload_configured_asr_backend()
             .map_err(|error| Self::map_runtime_error(&error))?;
         Ok(())
     }
@@ -482,6 +482,38 @@ mod tests {
                 .unwrap();
         assert_eq!(payload.commit_text, "mock recognition result");
         assert!(!service.get_asr_backend_state().await.5);
+    }
+
+    #[tokio::test]
+    async fn dbus_facade_reload_rebuilds_configured_backend() {
+        let mut config = VinputConfig::bundled_default().unwrap();
+        config.asr.active_provider = "mock".to_owned();
+        config.asr.providers.push(AsrProviderConfig {
+            id: "mock".to_owned(),
+            kind: AsrProviderKind::Local,
+            timeout_ms: None,
+            model: None,
+            hotwords_file: None,
+            command: None,
+            args: Vec::new(),
+            env: std::collections::HashMap::new(),
+            endpoint: None,
+        });
+        let runtime = RuntimeState::with_asr_backend(
+            config,
+            Box::new(MockAsrBackend::buffered("injected final")),
+        )
+        .unwrap();
+        let service = VinputDbusService::new(runtime);
+
+        assert_eq!(service.get_asr_backend_state().await.3, "mock-buffered");
+        service.reload_asr_backend().await.unwrap();
+        let state = service.get_asr_backend_state().await;
+        assert_eq!(state.0, "mock");
+        assert_eq!(state.2, "mock");
+        assert_eq!(state.3, "mock-streaming");
+        assert!(!state.5);
+        assert!(state.4.is_empty());
     }
 
     #[tokio::test]
@@ -672,7 +704,9 @@ mod tests {
         let state = service.get_asr_backend_state().await;
         assert_eq!(state.0, "remote");
         assert_eq!(state.1, "cloud");
-        assert!(!state.6);
+        assert_eq!(state.2, "mock");
+        assert_eq!(state.3, "mock-streaming");
+        assert!(state.6);
         assert_eq!(state.7, ["https://asr.example.test"]);
     }
 
@@ -697,8 +731,8 @@ mod tests {
         assert!(state.6);
         assert_eq!(state.0, "cmd");
         assert_eq!(state.1, "cmd-model");
-        assert_eq!(state.2, "cmd");
-        assert_eq!(state.3, "cmd-model");
+        assert_eq!(state.2, "mock");
+        assert_eq!(state.3, "mock-streaming");
     }
 
     #[tokio::test]
@@ -787,9 +821,11 @@ mod tests {
     async fn dbus_facade_returns_asr_state_tuple() {
         let service = service();
         let state = service.get_asr_backend_state().await;
-        assert!(!state.6);
+        assert!(state.6);
         assert_eq!(state.0, "sherpa-onnx");
-        assert!(!state.4.is_empty());
+        assert_eq!(state.2, "mock");
+        assert_eq!(state.3, "mock-streaming");
+        assert!(state.4.is_empty());
     }
 
     #[test]

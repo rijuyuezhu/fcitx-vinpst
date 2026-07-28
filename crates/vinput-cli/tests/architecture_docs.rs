@@ -94,6 +94,14 @@ fn dbus_architecture_labels_diagnostic_extension_and_postprocessing_gap() {
         dbus_doc.contains("A real legacy `postprocessing` runtime phase is still not wired"),
         "D-Bus docs must keep the current postprocessing runtime gap explicit"
     );
+    assert!(
+        dbus_doc.contains("descriptor of the backend that is actually effective in the runtime"),
+        "D-Bus docs must distinguish configured ASR targets from the effective backend"
+    );
+    assert!(
+        dbus_doc.contains("rebuilds the configured backend through the prepare-before-swap path"),
+        "D-Bus docs must pin configured backend reload behavior"
+    );
 }
 
 #[test]

@@ -122,7 +122,7 @@ Rust CLI weaknesses for a user:
 | Signals | Recognition result/partial, status changed, daemon notification. | Same names preserved. | Mostly aligned. |
 | Status strings | `idle`, `recording`, `inferring`, `postprocessing`, `error`. | Same strings. | Aligned. |
 | Runtime state machine | Async/poll worker model with capture/infer/postprocess stages. | Deterministic runtime state with D-Bus facade, file input, reload deferral. | Partial; live async behavior still needs proof. |
-| ASR reload | Legacy reload worker prepares a warmup session and swaps later. | Rust startup/readiness/immediate/deferred paths use one prepare-before-swap boundary; failed preparation preserves the old backend and busy reloads remain deferred. | Mostly implemented; idle preparation is still synchronous rather than a background worker. |
+| ASR reload | Legacy reload worker prepares a warmup session and swaps later. | Rust startup/readiness/immediate/deferred paths use one prepare-before-swap boundary; the D-Bus method rebuilds the configured backend, state reports the actual effective descriptor, failed preparation preserves the old backend, and busy reloads remain deferred. | Mostly implemented; idle preparation is still synchronous rather than a background worker. |
 | Audio capture | PipeWire capture with target object support, gain/normalization. | Feature-gated PipeWire recorder and diagnostics. | Partial; needs desktop proof. |
 | File input | Not a first-class user path. | `--wav` and `--pcm16le` are first-class for smoke/debug. | Rust improved. |
 | Command batch ASR | Implemented. | Implemented. | Mostly aligned. |
@@ -264,7 +264,7 @@ Use the Rust D-Bus ABI instead of telling users to call low-level tools.
 
 Acceptance:
 
-- `vinput daemon reload-asr` calls the legacy `ReloadAsrBackend` D-Bus method; `--dry-run` prints the planned service/object/interface/method without contacting the daemon.
+- `vinput daemon reload-asr` calls the legacy `ReloadAsrBackend` D-Bus method, which rebuilds and swaps the configured backend after successful preparation; `--dry-run` prints the planned service/object/interface/method without contacting the daemon.
 - `vinput daemon status` calls `GetStatus`, `GetAsrBackendState`, and `GetRuntimeStatus`; dry-run reports the planned D-Bus owner probe, and live JSON/text output includes bus owner unique name/PID plus procfs executable/cmdline when available. Text output now includes ASR target/effective models, reload error, remote endpoints, runtime status, uptime, active session, and text-adapter count. Activation status is still tracked separately.
 - `vinput daemon start` triggers D-Bus activation or starts the user service/profile strategy used by install scripts; dry-run also reports the D-Bus owner and procfs probe used to diagnose stale bus owners. `activation-service --user-status/--remove-user` report follow-up next steps for activation and owner/procfs diagnostics.
 - `vinput daemon stop/restart` executes `systemctl --user stop/restart fcitx-vinput.service`, reports argv/stdout/stderr/exit status, tool/env override metadata, activation-service fallback steps, plus owner-probe next diagnostics, and keeps dry-run CI-safe.

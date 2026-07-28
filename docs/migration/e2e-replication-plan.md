@@ -51,7 +51,7 @@ The M3 management surface is implemented and covered by deterministic tests. Rem
 1. Implemented and WAV-proven for SenseVoice, Qwen3 ASR, and Moonshine v1: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
 2. Implemented for online transducer and Zipformer2 CTC; Zipformer2 CTC is WAV-proven. Add Dolphin and Paraformer layouts when live-registry entries or compatible fixtures are available.
 3. Implemented through D-Bus: deliver recorder callbacks in 800-frame batches, decode online hypotheses, emit deduplicated live `RecognitionPartial` signals, and retain final/completed events for stop.
-4. Offline Silero VAD, endpoint forwarding, recognizer warmup, timeout diagnostics, and prepare-before-swap reload are implemented. Remaining reload parity is a non-blocking worker that exposes physical preparation progress.
+4. Offline Silero VAD, endpoint forwarding, recognizer warmup, timeout diagnostics, and prepare-before-swap reload are implemented. The legacy D-Bus method rebuilds the configured backend and reports its actual effective descriptor. Remaining reload parity is a non-blocking worker that exposes physical preparation progress.
 5. Implemented deterministically: OpenAI-compatible text provider behavior uses local mock-server tests; add one real desktop provider validation.
 6. Continue preserving legacy status strings, method names, signal names, and recognition payload shape.
 

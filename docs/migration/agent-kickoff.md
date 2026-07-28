@@ -62,7 +62,7 @@ Then read, in order:
 - Offline VAD: the tracked Silero model, strict legacy-compatible config, native trimming, user install, no-speech fallback, and real SenseVoice/Qwen3 WAV regressions are implemented.
 - Online endpoint/warmup: legacy endpoint defaults and metadata overrides are forwarded, and every native online recognizer runs the legacy-compatible 200 ms silence warmup.
 - Timeout semantics: command helpers enforce configured deadlines; native synchronous sherpa decode is explicitly classified as unsupported/diagnostic-only in `vinput doctor` with an isolation hint.
-- Reload semantics: startup/readiness/immediate/deferred configured paths prepare and cancel a warmup session before swap; failure preserves the previous effective backend. Idle preparation is still synchronous rather than a background worker.
+- Reload semantics: startup/readiness/immediate/deferred configured paths prepare and cancel a warmup session before swap; the legacy D-Bus method now rebuilds the configured backend, diagnostics report the actual effective descriptor, and failure preserves the previous effective backend. Idle preparation is still synchronous rather than a background worker.
 - Biggest blockers: real Fcitx -> PipeWire -> native ASR -> partial/preedit -> commit proof, non-blocking reload work, remaining sherpa families, frontend menus/configuration, packaging, and remote services.
 
 ## First recommended implementation slices

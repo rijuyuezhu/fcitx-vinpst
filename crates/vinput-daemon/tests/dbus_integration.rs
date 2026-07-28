@@ -374,6 +374,76 @@ async fn dbus_get_runtime_status_returns_json_snapshot() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn dbus_reload_rebuilds_the_configured_backend() -> anyhow::Result<()> {
+    let mut config = VinputConfig::bundled_default()?;
+    config.asr.active_provider = "mock".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: None,
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    let runtime = RuntimeState::with_asr_backend(
+        config,
+        Box::new(MockAsrBackend::buffered("injected final")),
+    )?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+
+    let before: (
+        String,
+        String,
+        String,
+        String,
+        String,
+        bool,
+        bool,
+        Vec<String>,
+    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    assert_eq!(before.3, "mock-buffered");
+
+    proxy
+        .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
+        .await?;
+    let after: (
+        String,
+        String,
+        String,
+        String,
+        String,
+        bool,
+        bool,
+        Vec<String>,
+    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    assert_eq!(after.0, "mock");
+    assert_eq!(after.2, "mock");
+    assert_eq!(after.3, "mock-streaming");
+    assert!(after.4.is_empty());
+    assert!(!after.5);
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
+    let payload = RecognitionPayload::from_json_str(&payload_json)?;
+    assert_eq!(payload.commit_text, "mock recognition result");
+
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
@@ -547,9 +617,17 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         bool,
         Vec<String>,
     ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
-    assert!(!state.6);
+    assert!(state.6);
     assert_eq!(state.0, "sherpa-onnx");
-    assert!(!state.4.is_empty());
+    assert_eq!(state.2, "mock");
+    assert_eq!(state.3, "mock-streaming");
+    assert!(
+        state
+            .4
+            .contains("Failed to apply deferred ASR backend reload"),
+        "unexpected deferred reload error: {}",
+        state.4
+    );
 
     let text_adapter_state_json: String = proxy
         .call(dbus::method::GET_TEXT_ADAPTER_STATE, &())
@@ -560,9 +638,25 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     assert!(text_adapter_state.adapters.is_empty());
     assert!(text_adapter_state.single_adapter_id.is_none());
 
-    proxy
-        .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
-        .await?;
+    let idle_reload: zbus::Result<()> = proxy.call(dbus::method::RELOAD_ASR_BACKEND, &()).await;
+    let idle_reload_error = idle_reload.expect_err("unavailable configured backend should fail");
+    assert_legacy_operation_failed(
+        &idle_reload_error,
+        "sherpa-onnx runtime for provider `sherpa-onnx` is not enabled",
+    );
+    let state: (
+        String,
+        String,
+        String,
+        String,
+        String,
+        bool,
+        bool,
+        Vec<String>,
+    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    assert_eq!(state.2, "mock");
+    assert_eq!(state.3, "mock-streaming");
+    assert!(state.6);
     let adapter_start: zbus::Result<()> = proxy
         .call(dbus::method::START_ADAPTER, &"mock-adapter")
         .await;
