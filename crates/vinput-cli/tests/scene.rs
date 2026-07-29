@@ -431,6 +431,31 @@ fn scene_mutations_reject_invalid_inputs() {
 }
 
 #[test]
+fn scene_remove_rejects_builtin_scene_without_mutating_config() {
+    let path = write_temp_json(
+        "vinput-scene-remove-builtin",
+        include_str!("../../../data/default-config.json"),
+    );
+    let before = fs::read_to_string(&path).expect("read original scene config");
+
+    let output = vinput_command()
+        .args(["scene", "remove", "__command__", "--config"])
+        .arg(&path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput scene remove builtin id");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("refusing to remove built-in scene `__command__`"));
+    assert_eq!(
+        fs::read_to_string(&path).expect("read unchanged scene config"),
+        before
+    );
+    fs::remove_file(&path).expect("remove temporary scene config");
+}
+
+#[test]
 fn scene_use_dry_run_json_validates_existing_scene_without_writing() {
     let path = write_scene_fixture("vinput-scene-use-dry-run");
     let before = fs::read_to_string(&path).expect("read original scene config");

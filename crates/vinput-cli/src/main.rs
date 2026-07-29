@@ -5301,6 +5301,12 @@ fn print_scene_remove(request: SceneRemoveRequest<'_>) -> anyhow::Result<()> {
 
 fn run_scene_remove(request: &SceneRemoveRequest<'_>) -> anyhow::Result<SceneRemoveOutcome> {
     let id = normalize_scene_id(request.id)?;
+    if matches!(
+        id.as_str(),
+        vinput_config::RAW_SCENE_ID | vinput_config::COMMAND_SCENE_ID
+    ) {
+        anyhow::bail!("refusing to remove built-in scene `{id}`");
+    }
     let default_path = default_config_path()?;
     let mut loaded = load_config_json(request.config_path)?;
     let contents =
