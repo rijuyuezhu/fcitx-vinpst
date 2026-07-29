@@ -38,7 +38,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Frontend menus/configuration | Implemented and deterministically tested; live UI proof missing |
 | Adapter resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, installed short-id start/stop/status resolution, short-id removal, guarded managed-script cleanup, and config backup |
 | ASR provider resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, guarded removal, and command-provider script editing |
-| Remote text service | Protocol/config core, browser assets, standalone HTTP/WebSocket runtime, real local-socket tests, and daemon subcommand implemented; automatic normal-daemon reload/shutdown integration and live cross-device proof missing |
+| Remote text service | Protocol/config core, browser assets, standalone and normal-daemon HTTP/WebSocket ownership, provider-selection/config-reload reconciliation, bind-failure cleanup, `SIGTERM` shutdown, real local-socket tests, and private-session process smoke implemented; redacted endpoint diagnostics and live cross-device proof missing |
 | Distro packaging and upgrades | Missing |
 | Legacy Qt GUI | Deferred |
 
@@ -65,7 +65,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 1. **Live desktop chain:** deterministic evidence stops before a real Fcitx process, live microphone, and real application rendering.
 2. **Command-mode application behavior:** surrounding-text and primary-selection fallback need proof across applications and toolkits.
 3. **Release boundary:** there is no distro packaging, upgrade policy, or external-user installation path yet.
-4. **Remote parity:** settings, authentication, ownership, debounce, Realtime-compatible event semantics, and a standalone HTTP/WebSocket server are deterministic; normal D-Bus daemon ownership/reload and live cross-device proof remain.
+4. **Remote parity:** settings, authentication, ownership, debounce, Realtime-compatible event semantics, HTTP/WebSocket serving, D-Bus daemon reconciliation, and shutdown are deterministic; redacted endpoint diagnostics and live cross-device proof remain.
 5. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.
 
 ## Rust improvements beyond legacy

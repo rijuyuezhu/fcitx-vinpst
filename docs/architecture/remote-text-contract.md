@@ -5,7 +5,7 @@ The legacy remote text service combines two clients around one shared text buffe
 - a browser/input client on `/ws` that authenticates, reports `text_update`, and requests `finalize`;
 - a loopback-only OpenAI Realtime-compatible output client on `/v1/realtime` that receives committed transcription events.
 
-The Rust rewrite keeps protocol behavior separate from the network runtime. `vinput-daemon::remote` implements both the deterministic settings/protocol core and a structured Axum-based `RemoteTextServer`. The standalone daemon command `vinput-daemon remote-text-server` binds the configured port and serves the browser/input and Realtime-compatible endpoints. Automatic synchronization with the normal D-Bus daemon lifecycle remains separate work.
+The Rust rewrite keeps protocol behavior separate from the network runtime. `vinput-daemon::remote` implements the deterministic settings/protocol core, a structured Axum-based `RemoteTextServer`, and a `RemoteTextLifecycle` manager owned by the normal D-Bus daemon. The standalone `vinput-daemon remote-text-server` command remains available for isolated diagnostics.
 
 ## Activation and settings
 
@@ -55,12 +55,22 @@ Generated event and item ids are opaque. Tests use deterministic ids; the networ
 
 Real local-socket tests cover HTTP assets, authorization failure, single-input ownership, session updates, debounce delivery, the committed/delta/completed event sequence, output disconnect notification, and the standalone command health endpoint.
 
-## Pending daemon lifecycle boundary
+## Daemon-owned lifecycle
 
-Remote text parity remains **partial** because the standalone server is not yet owned by the normal D-Bus daemon. The next independent slice must:
+`VinputDbusService` owns one `RemoteTextLifecycle` beside the ASR runtime. The normal `vinput-daemon --dbus` path reconciles it before requesting the D-Bus name, then keeps it aligned with the target config used by:
 
-- start or stop the server when the active provider changes;
-- restart it when port, debounce, or API-key settings change;
-- synchronize shutdown with the daemon and D-Bus activation path;
-- expose useful LAN endpoint diagnostics without leaking credentials;
-- prove the browser flow from another real device on the desktop user's network.
+- `SetActiveAsrProvider`;
+- `SetActiveAsrTarget`;
+- `ReloadAsrBackend`.
+
+An unchanged disabled or unchanged active configuration is a no-op. Changing port, debounce, API key, or provider stops the old listener before starting the desired one. Switching to a non-remote provider stops the service. A replacement bind failure returns an explicit D-Bus error and does not retain the stale listener or credentials. `SIGINT` and `SIGTERM` trigger graceful listener shutdown before process exit.
+
+Deterministic evidence covers lifecycle start, no-op reconciliation, settings-driven restart, provider-selection enable/disable, bind-failure cleanup, and config-file reload. `scripts/run-remote-text-daemon-lifecycle-smoke.sh` additionally launches the normal daemon inside a private `dbus-run-session`, proves both `/health` and `GetStatus`, sends `SIGTERM`, and verifies that the listener is released.
+
+## Remaining proof and diagnostics
+
+Remote text parity remains **partial** only at the user-facing evidence boundary:
+
+- expose useful redacted LAN endpoint diagnostics without leaking credentials;
+- prove the browser flow from another real device on the desktop user's network;
+- refine external-user setup and troubleshooting documentation from that real-session evidence.

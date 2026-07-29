@@ -14,12 +14,19 @@ use tokio_tungstenite::{
     },
 };
 use vinput_config::VinputConfig;
-use vinput_daemon::remote::{RemoteTextServer, remote_text_settings};
+use vinput_daemon::remote::{RemoteTextLifecycle, RemoteTextServer, remote_text_settings};
 
 type ClientSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-fn remote_settings(debounce_ms: u64) -> vinput_daemon::remote::RemoteTextServiceSettings {
-    let config = VinputConfig::from_json_str(
+fn remote_config(port: Option<u16>, debounce_ms: u64) -> VinputConfig {
+    let mut env = json!({
+        "VINPUT_ASR_API_KEY":"fixture-key",
+        "VINPUT_ASR_DEBOUNCE_MS":debounce_ms.to_string()
+    });
+    if let Some(port) = port {
+        env["VINPUT_ASR_PORT"] = port.to_string().into();
+    }
+    VinputConfig::from_json_str(
         &serde_json::to_string(&json!({
             "version":1,
             "asr":{
@@ -29,10 +36,7 @@ fn remote_settings(debounce_ms: u64) -> vinput_daemon::remote::RemoteTextService
                     "type":"command",
                     "command":"python3",
                     "args":["remote.py"],
-                    "env":{
-                        "VINPUT_ASR_API_KEY":"fixture-key",
-                        "VINPUT_ASR_DEBOUNCE_MS":debounce_ms.to_string()
-                    }
+                    "env":env
                 }]
             },
             "scenes":{
@@ -42,10 +46,34 @@ fn remote_settings(debounce_ms: u64) -> vinput_daemon::remote::RemoteTextService
         }))
         .expect("serialize remote server config"),
     )
-    .expect("parse remote server config");
+    .expect("parse remote server config")
+}
+
+fn remote_settings(debounce_ms: u64) -> vinput_daemon::remote::RemoteTextServiceSettings {
+    let config = remote_config(None, debounce_ms);
     remote_text_settings(&config)
         .expect("derive remote server settings")
         .expect("remote server should be enabled")
+}
+
+fn reserve_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("reserve loopback port")
+        .local_addr()
+        .expect("read reserved loopback address")
+        .port()
+}
+
+async fn health_is_ready(port: u16) -> bool {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(150))
+        .build()
+        .expect("build lifecycle health client");
+    client
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .send()
+        .await
+        .is_ok_and(|response| response.status().is_success())
 }
 
 async fn start_server(debounce_ms: u64) -> RemoteTextServer {
@@ -252,4 +280,55 @@ async fn websocket_runtime_emits_session_and_debounced_transcription_events() {
     );
     input.close(None).await.expect("close input websocket");
     server.shutdown().await.expect("shutdown remote server");
+}
+
+#[tokio::test]
+async fn lifecycle_starts_preserves_restarts_and_stops_from_config() {
+    let first_port = reserve_port();
+    let mut second_port = reserve_port();
+    while second_port == first_port {
+        second_port = reserve_port();
+    }
+    let mut lifecycle = RemoteTextLifecycle::new("127.0.0.1".parse().unwrap());
+
+    let first = remote_config(Some(first_port), 25);
+    assert!(lifecycle.reconcile_config(&first).await.unwrap());
+    assert_eq!(lifecycle.status().local_addr.unwrap().port(), first_port);
+    assert!(health_is_ready(first_port).await);
+    assert!(!lifecycle.reconcile_config(&first).await.unwrap());
+
+    let second = remote_config(Some(second_port), 50);
+    assert!(lifecycle.reconcile_config(&second).await.unwrap());
+    assert_eq!(lifecycle.status().local_addr.unwrap().port(), second_port);
+    assert!(!health_is_ready(first_port).await);
+    assert!(health_is_ready(second_port).await);
+
+    let disabled = VinputConfig::bundled_default().expect("parse bundled config");
+    assert!(lifecycle.reconcile_config(&disabled).await.unwrap());
+    assert!(!lifecycle.status().running);
+    assert!(!health_is_ready(second_port).await);
+    assert!(!lifecycle.stop().await.unwrap());
+}
+
+#[tokio::test]
+async fn lifecycle_bind_failure_does_not_keep_stale_service() {
+    let first_port = reserve_port();
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").expect("occupy loopback port");
+    let occupied_port = occupied.local_addr().unwrap().port();
+    let mut lifecycle = RemoteTextLifecycle::new("127.0.0.1".parse().unwrap());
+
+    lifecycle
+        .reconcile_config(&remote_config(Some(first_port), 25))
+        .await
+        .expect("start first lifecycle server");
+    assert!(health_is_ready(first_port).await);
+
+    let error = lifecycle
+        .reconcile_config(&remote_config(Some(occupied_port), 25))
+        .await
+        .expect_err("occupied port should reject restart");
+    assert!(error.to_string().contains("bind remote text service"));
+    assert!(!lifecycle.status().running);
+    assert!(!health_is_ready(first_port).await);
+    drop(occupied);
 }

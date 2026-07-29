@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -323,6 +323,9 @@ ime-e2e-smoke:
 # Run command ASR WAV helper smoke.
 command-asr-wav-helper-smoke:
     scripts/run-command-asr-wav-helper-smoke.sh
+
+remote-text-daemon-lifecycle-smoke:
+    scripts/run-remote-text-daemon-lifecycle-smoke.sh
 
 # Prove that the initial daemon-status call reports a newly D-Bus-activated user daemon owner.
 user-ime-activation-owner-smoke:

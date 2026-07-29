@@ -58,12 +58,16 @@ fn remote_text_architecture_pins_protocol_runtime_boundary() {
         .expect("read remote text architecture note");
     assert!(note.contains("RemoteTextProtocol"));
     assert!(note.contains("RemoteTextServer"));
+    assert!(note.contains("RemoteTextLifecycle"));
     assert!(note.contains("provider.vinput.remote.streaming"));
     assert!(note.contains("VINPUT_ASR_API_KEY"));
     assert!(note.contains("OpenAI Realtime-compatible"));
     assert!(note.contains("remote-text-server"));
     assert!(note.contains("GET /health"));
-    assert!(note.contains("Pending daemon lifecycle boundary"));
+    assert!(note.contains("ReloadAsrBackend"));
+    assert!(note.contains("SIGTERM"));
+    assert!(note.contains("run-remote-text-daemon-lifecycle-smoke.sh"));
+    assert!(note.contains("Remaining proof and diagnostics"));
     assert!(note.contains("partial"));
 }
 

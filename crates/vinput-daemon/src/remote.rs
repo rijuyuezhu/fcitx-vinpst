@@ -2,7 +2,10 @@
 
 mod server;
 
-pub use server::{RemoteTextServer, RemoteTextServerError};
+pub use server::{
+    RemoteTextLifecycle, RemoteTextLifecycleError, RemoteTextLifecycleStatus, RemoteTextServer,
+    RemoteTextServerError,
+};
 
 use std::{fmt, net::IpAddr};
 

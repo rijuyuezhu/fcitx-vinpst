@@ -76,7 +76,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Text postprocess | deterministic | command and OpenAI-compatible paths; live provider proof missing |
 | Adapter supervision | deterministic | process/PID lifecycle and D-Bus control |
 | Notifications and recovery | deterministic | local notifications, daemon reload failure, owner loss, cross-client status reconciliation |
-| Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, standalone Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, daemon subcommand, and real local-socket tests | Normal daemon config/reload/shutdown ownership, endpoint diagnostics, live cross-device proof |
+| Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, local-socket tests, and private-session process smoke | Redacted endpoint diagnostics, live cross-device proof |
 
 ## Registry/resource comparison
 

@@ -25,8 +25,9 @@ use tokio::{
 
 use super::{
     RemoteDebounceAction, RemoteProtocolEffects, RemoteTextProtocol, RemoteTextProtocolError,
-    RemoteTextServiceSettings,
+    RemoteTextServiceSettings, RemoteTextSettingsError, remote_text_settings,
 };
+use vinput_config::VinputConfig;
 
 const MAX_WEBSOCKET_MESSAGE_BYTES: usize = 2 * 1024 * 1024;
 
@@ -212,6 +213,99 @@ impl Drop for RemoteTextServer {
         if let Some(task) = self.task.take() {
             task.abort();
         }
+    }
+}
+
+/// Errors returned while deriving or reconciling daemon-owned remote service state.
+#[derive(Debug, Error)]
+pub enum RemoteTextLifecycleError {
+    /// Active-provider environment is invalid.
+    #[error("resolve remote text service settings: {0}")]
+    Settings(#[from] RemoteTextSettingsError),
+    /// Starting, stopping, or joining the network runtime failed.
+    #[error(transparent)]
+    Server(#[from] RemoteTextServerError),
+}
+
+/// Redacted daemon-owned remote service state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteTextLifecycleStatus {
+    /// Whether the service currently owns a listener.
+    pub running: bool,
+    /// Actual listener address when running.
+    pub local_addr: Option<SocketAddr>,
+}
+
+struct ActiveRemoteTextServer {
+    settings: RemoteTextServiceSettings,
+    server: RemoteTextServer,
+}
+
+/// Owns one remote server and reconciles it against validated daemon config.
+pub struct RemoteTextLifecycle {
+    bind_ip: IpAddr,
+    active: Option<ActiveRemoteTextServer>,
+}
+
+impl RemoteTextLifecycle {
+    /// Creates an inactive lifecycle manager for the supplied bind address.
+    #[must_use]
+    pub const fn new(bind_ip: IpAddr) -> Self {
+        Self {
+            bind_ip,
+            active: None,
+        }
+    }
+
+    /// Starts, restarts, preserves, or stops the service to match `config`.
+    ///
+    /// Returns whether the owned network runtime changed.
+    pub async fn reconcile_config(
+        &mut self,
+        config: &VinputConfig,
+    ) -> Result<bool, RemoteTextLifecycleError> {
+        let desired = remote_text_settings(config)?;
+        match (self.active.as_ref(), desired.as_ref()) {
+            (None, None) => return Ok(false),
+            (Some(active), Some(desired)) if active.settings == *desired => return Ok(false),
+            _ => {}
+        }
+
+        self.stop().await?;
+        let Some(settings) = desired else {
+            return Ok(true);
+        };
+        let bind_addr = SocketAddr::new(self.bind_ip, settings.port);
+        let server = RemoteTextServer::bind(settings.clone(), bind_addr).await?;
+        self.active = Some(ActiveRemoteTextServer { settings, server });
+        Ok(true)
+    }
+
+    /// Stops the active server, if any.
+    pub async fn stop(&mut self) -> Result<bool, RemoteTextLifecycleError> {
+        let Some(active) = self.active.take() else {
+            return Ok(false);
+        };
+        active.server.shutdown().await?;
+        Ok(true)
+    }
+
+    /// Returns redacted listener state without credentials or provider environment.
+    #[must_use]
+    pub fn status(&self) -> RemoteTextLifecycleStatus {
+        RemoteTextLifecycleStatus {
+            running: self.active.is_some(),
+            local_addr: self
+                .active
+                .as_ref()
+                .map(|active| active.server.local_addr()),
+        }
+    }
+}
+
+impl Default for RemoteTextLifecycle {
+    fn default() -> Self {
+        Self::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
     }
 }
 

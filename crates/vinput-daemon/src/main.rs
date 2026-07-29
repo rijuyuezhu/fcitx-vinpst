@@ -161,7 +161,12 @@ async fn main() -> anyhow::Result<()> {
         println!("{}", payload.to_json_string()?);
     } else if args.dbus {
         trace_startup("enter dbus branch");
-        let _connection = VinputDbusService::new(runtime)
+        let service = VinputDbusService::new(runtime);
+        service
+            .start_remote_text_service()
+            .await
+            .context("start daemon-owned remote text service")?;
+        let _connection = service
             .serve_on_session_bus()
             .await
             .context("serve vinput D-Bus service")?;
@@ -171,8 +176,12 @@ async fn main() -> anyhow::Result<()> {
             interface = vinput_protocol::dbus::SERVICE_INTERFACE,
             "mock daemon D-Bus service is running"
         );
-        trace_startup("dbus service owned; waiting forever");
-        wait_forever().await;
+        trace_startup("dbus service owned; waiting for shutdown signal");
+        wait_for_shutdown_signal().await?;
+        service
+            .shutdown_remote_text_service()
+            .await
+            .context("shutdown daemon-owned remote text service")?;
     } else {
         info!(
             status = %runtime.status(),
@@ -258,6 +267,21 @@ fn trace_startup(message: &str) {
 
 async fn wait_forever() {
     std::future::pending::<()>().await;
+}
+
+#[cfg(unix)]
+async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .context("install SIGTERM handler")?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => result.context("wait for Ctrl-C"),
+        _ = terminate.recv() => Ok(()),
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
+    tokio::signal::ctrl_c().await.context("wait for Ctrl-C")
 }
 
 fn runtime_status_summary(

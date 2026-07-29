@@ -103,6 +103,11 @@ impl RuntimeState {
         self.config_path.clone()
     }
 
+    /// Captures the validated in-memory config without performing file I/O.
+    pub(crate) fn config_snapshot(&self) -> VinputConfig {
+        self.config.clone()
+    }
+
     pub(crate) fn asr_reload_config_source(&self) -> AsrReloadConfigSource {
         self.config_path.as_ref().map_or_else(
             || AsrReloadConfigSource::Snapshot(Box::new(self.config.clone())),

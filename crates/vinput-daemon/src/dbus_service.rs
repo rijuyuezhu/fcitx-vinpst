@@ -1,7 +1,11 @@
 //! `zbus` service facade for the legacy daemon D-Bus ABI.
 #![allow(missing_docs)]
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{sync::Mutex, time::MissedTickBehavior};
 use vinput_protocol::{AsrBackendState, ServiceStatus, dbus};
 use vinput_registry::scan_installed_models;
@@ -9,6 +13,7 @@ use zbus::{Connection, DBusError, object_server::SignalEmitter};
 
 use crate::{
     RuntimeError, RuntimeState,
+    remote::{RemoteTextLifecycle, RemoteTextLifecycleError, RemoteTextLifecycleStatus},
     runtime::{
         AsrReloadWorkerStep, locale_candidates_from_environment, persist_config_atomically,
         select_asr_provider, select_asr_target,
@@ -97,6 +102,7 @@ fn sanitize_dbus_error_message(message: &str) -> String {
 #[derive(Clone)]
 pub struct VinputDbusService {
     runtime: Arc<Mutex<RuntimeState>>,
+    remote_text: Arc<Mutex<RemoteTextLifecycle>>,
     live_partials: Arc<Mutex<LivePartialEmissionState>>,
     signal_emitter: Arc<Mutex<Option<SignalEmitter<'static>>>>,
 }
@@ -105,23 +111,46 @@ impl VinputDbusService {
     /// Creates a service facade over an existing runtime.
     #[must_use]
     pub fn new(runtime: RuntimeState) -> Self {
+        Self::new_with_remote_bind(runtime, IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+    }
+
+    /// Creates a service facade with an explicit remote-text bind address.
+    #[must_use]
+    pub fn new_with_remote_bind(runtime: RuntimeState, bind_ip: IpAddr) -> Self {
         Self {
             runtime: Arc::new(Mutex::new(runtime)),
+            remote_text: Arc::new(Mutex::new(RemoteTextLifecycle::new(bind_ip))),
             live_partials: Arc::new(Mutex::new(LivePartialEmissionState::default())),
             signal_emitter: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Registers the service object and requests the legacy bus name.
-    pub async fn serve_on_session_bus(self) -> zbus::Result<Connection> {
+    pub async fn serve_on_session_bus(&self) -> zbus::Result<Connection> {
         let connection = Connection::session().await?;
         self.bind_signal_connection(&connection).await?;
         connection
             .object_server()
-            .at(dbus::SERVICE_OBJECT_PATH, self)
+            .at(dbus::SERVICE_OBJECT_PATH, self.clone())
             .await?;
         connection.request_name(dbus::SERVICE_BUS_NAME).await?;
         Ok(connection)
+    }
+
+    /// Reconciles the daemon-owned remote service with the current runtime config.
+    pub async fn start_remote_text_service(&self) -> Result<bool, RemoteTextLifecycleError> {
+        let config = self.runtime.lock().await.config_snapshot();
+        self.reconcile_remote_text_config(&config).await
+    }
+
+    /// Stops the daemon-owned remote service during process shutdown.
+    pub async fn shutdown_remote_text_service(&self) -> Result<bool, RemoteTextLifecycleError> {
+        self.remote_text.lock().await.stop().await
+    }
+
+    /// Returns redacted remote service listener state.
+    pub async fn remote_text_status(&self) -> RemoteTextLifecycleStatus {
+        self.remote_text.lock().await.status()
     }
 
     /// Binds background signal emission to the connection hosting this service.
@@ -222,7 +251,15 @@ impl VinputDbusService {
         }
     }
 
-    async fn queue_asr_reload_config(&self, config: vinput_config::VinputConfig) {
+    async fn reconcile_remote_text_config(
+        &self,
+        config: &vinput_config::VinputConfig,
+    ) -> Result<bool, RemoteTextLifecycleError> {
+        self.remote_text.lock().await.reconcile_config(config).await
+    }
+
+    async fn queue_asr_reload_config(&self, config: vinput_config::VinputConfig) -> DbusResult<()> {
+        let remote_config = config.clone();
         let should_spawn_worker = self
             .runtime
             .lock()
@@ -234,6 +271,12 @@ impl VinputDbusService {
                 service.run_asr_reload_worker().await;
             });
         }
+        self.reconcile_remote_text_config(&remote_config)
+            .await
+            .map_err(|error| {
+                Self::operation_failed(format!("failed to reconcile remote text service: {error}"))
+            })?;
+        Ok(())
     }
 
     async fn start_recording_state(&self) -> DbusResult<(String, Option<String>)> {
@@ -537,7 +580,7 @@ impl VinputDbusService {
         .await
         .map_err(|error| Self::operation_failed(format!("ASR selection task failed: {error}")))?
         .map_err(|error: RuntimeError| Self::map_runtime_error(&error))?;
-        self.queue_asr_reload_config(config).await;
+        self.queue_asr_reload_config(config).await?;
         Ok(persisted)
     }
 
@@ -692,7 +735,7 @@ impl VinputDbusService {
             Self::operation_failed(format!("ASR target selection task failed: {error}"))
         })?
         .map_err(|error: RuntimeError| Self::map_runtime_error(&error))?;
-        self.queue_asr_reload_config(config).await;
+        self.queue_asr_reload_config(config).await?;
         Ok(persisted)
     }
 
@@ -704,7 +747,7 @@ impl VinputDbusService {
             .await
             .map_err(|error| Self::operation_failed(format!("ASR reload task failed: {error}")))?
             .map_err(|error| Self::map_runtime_error(&error))?;
-        self.queue_asr_reload_config(config).await;
+        self.queue_asr_reload_config(config).await?;
         Ok(())
     }
 
@@ -799,6 +842,53 @@ mod tests {
         ))
     }
 
+    fn reserve_remote_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .expect("reserve remote lifecycle port")
+            .local_addr()
+            .expect("read reserved remote lifecycle address")
+            .port()
+    }
+
+    fn remote_lifecycle_config(port: u16) -> VinputConfig {
+        VinputConfig::from_json_str(
+            &serde_json::to_string(&serde_json::json!({
+                "version":1,
+                "asr":{
+                    "active_provider":"provider.vinput.remote.streaming",
+                    "providers":[{
+                        "id":"provider.vinput.remote.streaming",
+                        "type":"command",
+                        "command":"python3",
+                        "args":["remote.py"],
+                        "env":{
+                            "VINPUT_ASR_API_KEY":"fixture-key",
+                            "VINPUT_ASR_PORT":port.to_string(),
+                            "VINPUT_ASR_DEBOUNCE_MS":"25"
+                        }
+                    }]
+                },
+                "scenes":{
+                    "active_scene":"raw",
+                    "definitions":[{"id":"raw","label":"Raw","candidate_count":0}]
+                }
+            }))
+            .expect("serialize remote lifecycle config"),
+        )
+        .expect("parse remote lifecycle config")
+    }
+
+    async fn remote_health_is_ready(port: u16) -> bool {
+        reqwest::Client::builder()
+            .timeout(Duration::from_millis(150))
+            .build()
+            .expect("build remote lifecycle health client")
+            .get(format!("http://127.0.0.1:{port}/health"))
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success())
+    }
+
     #[tokio::test]
     async fn dbus_facade_exercises_normal_mock_flow() {
         let service = service();
@@ -812,6 +902,160 @@ mod tests {
                 .unwrap();
         assert_eq!(payload.commit_text, "mock recognition result");
         assert_eq!(service.get_status().await, "idle");
+    }
+
+    #[tokio::test]
+    async fn dbus_facade_reconciles_remote_service_on_config_reload() {
+        let first_port = reserve_remote_port();
+        let mut second_port = reserve_remote_port();
+        while second_port == first_port {
+            second_port = reserve_remote_port();
+        }
+        let root = unique_adapter_runtime_dir("remote-reload");
+        std::fs::create_dir_all(&root).expect("create remote reload test directory");
+        let config_path = root.join("config.json");
+        let first_config = remote_lifecycle_config(first_port);
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&first_config).expect("serialize first remote config"),
+        )
+        .expect("write first remote config");
+        let mut runtime = RuntimeState::new(first_config).expect("create remote runtime");
+        runtime.set_config_path(Some(config_path.clone()));
+        let service = VinputDbusService::new_with_remote_bind(
+            runtime,
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        );
+
+        assert!(service.start_remote_text_service().await.unwrap());
+        assert!(remote_health_is_ready(first_port).await);
+        assert_eq!(
+            service
+                .remote_text_status()
+                .await
+                .local_addr
+                .unwrap()
+                .port(),
+            first_port
+        );
+
+        let second_config = remote_lifecycle_config(second_port);
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&second_config).expect("serialize second remote config"),
+        )
+        .expect("write second remote config");
+        service.reload_asr_backend().await.unwrap();
+        assert!(!remote_health_is_ready(first_port).await);
+        assert!(remote_health_is_ready(second_port).await);
+        assert_eq!(
+            service
+                .remote_text_status()
+                .await
+                .local_addr
+                .unwrap()
+                .port(),
+            second_port
+        );
+
+        let disabled = VinputConfig::bundled_default().expect("parse bundled config");
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&disabled).expect("serialize disabled remote config"),
+        )
+        .expect("write disabled remote config");
+        service.reload_asr_backend().await.unwrap();
+        assert!(!service.remote_text_status().await.running);
+        assert!(!remote_health_is_ready(second_port).await);
+        assert!(!service.shutdown_remote_text_service().await.unwrap());
+        std::fs::remove_dir_all(root).expect("remove remote reload test directory");
+    }
+
+    #[tokio::test]
+    async fn dbus_facade_remote_bind_failure_drops_stale_listener() {
+        let first_port = reserve_remote_port();
+        let occupied =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("occupy remote reload port");
+        let occupied_port = occupied.local_addr().unwrap().port();
+        let root = unique_adapter_runtime_dir("remote-bind-failure");
+        std::fs::create_dir_all(&root).expect("create remote bind failure directory");
+        let config_path = root.join("config.json");
+        let first_config = remote_lifecycle_config(first_port);
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&first_config).expect("serialize first remote config"),
+        )
+        .expect("write first remote config");
+        let mut runtime = RuntimeState::new(first_config).expect("create remote runtime");
+        runtime.set_config_path(Some(config_path.clone()));
+        let service = VinputDbusService::new_with_remote_bind(
+            runtime,
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        );
+
+        service.start_remote_text_service().await.unwrap();
+        assert!(remote_health_is_ready(first_port).await);
+        let blocked_config = remote_lifecycle_config(occupied_port);
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&blocked_config).expect("serialize blocked remote config"),
+        )
+        .expect("write blocked remote config");
+        let error = service
+            .reload_asr_backend()
+            .await
+            .expect_err("occupied port should reject remote reload");
+        assert!(error.to_string().contains("bind remote text service"));
+        assert!(!service.remote_text_status().await.running);
+        assert!(!remote_health_is_ready(first_port).await);
+
+        drop(occupied);
+        std::fs::remove_dir_all(root).expect("remove remote bind failure directory");
+    }
+
+    #[tokio::test]
+    async fn dbus_facade_provider_selection_starts_and_stops_remote_service() {
+        let port = reserve_remote_port();
+        let root = unique_adapter_runtime_dir("remote-provider-selection");
+        std::fs::create_dir_all(&root).expect("create remote selection directory");
+        let config_path = root.join("config.json");
+        let mut config = remote_lifecycle_config(port);
+        config.asr.providers.push(
+            serde_json::from_value(serde_json::json!({
+                "id":"mock",
+                "type":"local",
+                "model":"fixture-model"
+            }))
+            .expect("parse mock provider"),
+        );
+        "mock".clone_into(&mut config.asr.active_provider);
+        std::fs::write(
+            &config_path,
+            serde_json::to_string_pretty(&config).expect("serialize selection config"),
+        )
+        .expect("write selection config");
+        let mut runtime = RuntimeState::new(config).expect("create selection runtime");
+        runtime.set_config_path(Some(config_path.clone()));
+        let service = VinputDbusService::new_with_remote_bind(
+            runtime,
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        );
+
+        assert!(!service.start_remote_text_service().await.unwrap());
+        assert!(!service.remote_text_status().await.running);
+        assert!(
+            service
+                .set_active_asr_provider("provider.vinput.remote.streaming")
+                .await
+                .unwrap()
+        );
+        assert!(service.remote_text_status().await.running);
+        assert!(remote_health_is_ready(port).await);
+
+        assert!(service.set_active_asr_provider("mock").await.unwrap());
+        assert!(!service.remote_text_status().await.running);
+        assert!(!remote_health_is_ready(port).await);
+        std::fs::remove_dir_all(root).expect("remove remote selection directory");
     }
 
     #[tokio::test]
