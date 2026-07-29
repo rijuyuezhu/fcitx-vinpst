@@ -1,16 +1,15 @@
 //! Feature-gated `PipeWire` backend scaffolding.
 //!
 //! Device enumeration is live when a user `PipeWire` session is available.
-//! The recorder owns a live worker thread that creates the `PipeWire` stream,
-//! captures pinned `S16LE` PCM chunks, and returns the accumulated buffer when
-//! stopped.
+//! The recorder owns a live worker thread that keeps an inactive connected
+//! stream across normal recordings, toggles it with `set_active`, captures
+//! pinned `S16LE` PCM chunks, and returns the accumulated buffer when stopped.
 
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
     sync::{Arc, Mutex, mpsc},
     thread,
-    time::Duration,
 };
 
 use crate::{
@@ -22,7 +21,7 @@ const MEDIA_CLASS_AUDIO_SOURCE: &str = "Audio/Source";
 const PW_KEY_MEDIA_CLASS: &str = "media.class";
 const PW_KEY_NODE_NAME: &str = "node.name";
 const PW_KEY_NODE_DESCRIPTION: &str = "node.description";
-const RECORDING_WORKER_ITERATE_MS: u64 = 50;
+const CAPTURE_REUSE_ENV: &str = "VINPUT_CAPTURE_REUSE";
 
 /// `PipeWire` stream sample format requested by the future live recorder.
 pub const RECORDING_FORMAT: &str = "S16LE";
@@ -131,23 +130,29 @@ impl AudioDeviceEnumerator for PipeWireDeviceEnumerator {
     }
 }
 
-/// Feature-gated `PipeWire` recorder skeleton.
+/// Feature-gated reusable `PipeWire` recorder.
 pub struct PipeWireAudioRecorder {
     stream_config: PipeWireStreamConfig,
     chunk_callback: Arc<Mutex<Option<AudioChunkCallback>>>,
     worker: Option<PipeWireRecordingWorker>,
+    recording: bool,
+    last_start_reused: bool,
 }
 
 struct PipeWireRecordingWorker {
-    stream_config: PipeWireStreamConfig,
-    stop_tx: mpsc::Sender<WorkerCommand>,
-    join: thread::JoinHandle<Result<CapturedAudio, AudioError>>,
+    command_tx: pipewire::channel::Sender<WorkerCommand>,
+    join: thread::JoinHandle<Result<(), AudioError>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorkerCommand {
-    Stop,
-    Cancel,
+    Begin {
+        config: PipeWireStreamConfig,
+        response: mpsc::SyncSender<Result<bool, AudioError>>,
+    },
+    Finish {
+        response: mpsc::SyncSender<Result<CapturedAudio, AudioError>>,
+    },
+    Shutdown,
 }
 
 impl PipeWireAudioRecorder {
@@ -158,6 +163,8 @@ impl PipeWireAudioRecorder {
             stream_config: PipeWireStreamConfig::for_target(CaptureTarget::default()),
             chunk_callback: Arc::new(Mutex::new(None)),
             worker: None,
+            recording: false,
+            last_start_reused: false,
         }
     }
 
@@ -183,46 +190,46 @@ impl Default for PipeWireAudioRecorder {
 impl Drop for PipeWireAudioRecorder {
     fn drop(&mut self) {
         if let Some(worker) = self.worker.take() {
-            let _ = stop_recording_worker(worker, WorkerCommand::Cancel);
+            let _ = shutdown_recording_worker(worker, &self.stream_config);
         }
     }
 }
 
 impl AudioRecorder for PipeWireAudioRecorder {
     fn begin_recording(&mut self, target: CaptureTarget) -> Result<(), AudioError> {
-        if self.worker.is_some() {
+        if self.recording {
             return Err(AudioError::RecorderAlreadyRecording);
         }
+        self.last_start_reused = false;
         self.stream_config = PipeWireStreamConfig::for_target(target);
-        let config = self.stream_config.clone();
-        let callback = Arc::clone(&self.chunk_callback);
-        let (stop_tx, stop_rx) = mpsc::channel();
-        let (setup_tx, setup_rx) = mpsc::channel();
-        let worker_config = config.clone();
-        let join =
-            thread::spawn(move || run_recording_worker(&config, &callback, &stop_rx, &setup_tx));
-
-        match setup_rx.recv() {
-            Ok(Ok(())) => {
-                self.worker = Some(PipeWireRecordingWorker {
-                    stream_config: worker_config,
-                    stop_tx,
-                    join,
-                });
-                Ok(())
-            }
-            Ok(Err(error)) => {
-                let _ = join.join();
-                Err(error)
-            }
-            Err(error) => {
-                let _ = join.join();
-                Err(pipewire_recording_error(
-                    &worker_config,
-                    format!("PipeWire recorder worker exited before setup: {error}"),
-                ))
-            }
+        if !capture_stream_reuse_enabled()
+            && let Some(worker) = self.worker.take()
+        {
+            shutdown_recording_worker(worker, &self.stream_config)?;
         }
+        if self.worker.is_none() {
+            self.worker = Some(spawn_recording_worker(Arc::clone(&self.chunk_callback))?);
+        }
+        let worker = self.worker.as_mut().ok_or_else(|| {
+            pipewire_recording_error(&self.stream_config, "PipeWire worker is unavailable")
+        })?;
+        let (response_tx, response_rx) = mpsc::sync_channel(1);
+        send_worker_command(
+            worker,
+            WorkerCommand::Begin {
+                config: self.stream_config.clone(),
+                response: response_tx,
+            },
+            &self.stream_config,
+        )?;
+        self.last_start_reused = response_rx.recv().map_err(|error| {
+            pipewire_recording_error(
+                &self.stream_config,
+                format!("PipeWire worker dropped begin response: {error}"),
+            )
+        })??;
+        self.recording = true;
+        Ok(())
     }
 
     fn set_chunk_callback(&mut self, callback: Option<AudioChunkCallback>) {
@@ -232,19 +239,47 @@ impl AudioRecorder for PipeWireAudioRecorder {
     }
 
     fn stop_and_get_buffer(&mut self) -> Result<CapturedAudio, AudioError> {
-        let worker = self.worker.take().ok_or(AudioError::RecorderNotRecording)?;
-        stop_recording_worker(worker, WorkerCommand::Stop)
+        if !self.recording {
+            return Err(AudioError::RecorderNotRecording);
+        }
+        let captured = finish_recording_worker(
+            self.worker
+                .as_mut()
+                .ok_or(AudioError::RecorderNotRecording)?,
+            &self.stream_config,
+        );
+        self.recording = false;
+        let captured = captured?;
+        if !capture_stream_reuse_enabled()
+            && let Some(worker) = self.worker.take()
+        {
+            shutdown_recording_worker(worker, &self.stream_config)?;
+        }
+        Ok(captured)
     }
 
     fn cancel_recording(&mut self) -> Result<(), AudioError> {
-        if let Some(worker) = self.worker.take() {
-            let _captured = stop_recording_worker(worker, WorkerCommand::Cancel)?;
+        let mut finish_error = None;
+        if self.recording {
+            let result = finish_recording_worker(
+                self.worker
+                    .as_mut()
+                    .ok_or(AudioError::RecorderNotRecording)?,
+                &self.stream_config,
+            );
+            self.recording = false;
+            if let Err(error) = result {
+                finish_error = Some(error);
+            }
         }
-        Ok(())
+        if let Some(worker) = self.worker.take() {
+            shutdown_recording_worker(worker, &self.stream_config)?;
+        }
+        finish_error.map_or(Ok(()), Err)
     }
 
     fn is_recording(&self) -> bool {
-        self.worker.is_some()
+        self.recording
     }
 }
 
@@ -288,53 +323,248 @@ pub fn enumerate_audio_sources() -> Result<Vec<AudioDeviceInfo>, AudioError> {
     Ok(result)
 }
 
-fn stop_recording_worker(
-    worker: PipeWireRecordingWorker,
+struct PersistentPipeWireStream {
+    _listener: pipewire::stream::StreamListener<()>,
+    stream: pipewire::stream::StreamRc,
+    config: PipeWireStreamConfig,
+    samples: Rc<RefCell<Vec<i16>>>,
+    accepting: Rc<Cell<bool>>,
+}
+
+#[derive(Default)]
+struct PipeWireWorkerState {
+    stream: Option<PersistentPipeWireStream>,
+    recording: bool,
+}
+
+fn capture_stream_reuse_enabled() -> bool {
+    capture_stream_reuse_enabled_from(std::env::var(CAPTURE_REUSE_ENV).ok().as_deref())
+}
+
+fn capture_stream_reuse_enabled_from(value: Option<&str>) -> bool {
+    let Some(first) = value.and_then(|value| value.as_bytes().first()).copied() else {
+        return true;
+    };
+    !matches!(first, b'0' | b'f' | b'F' | b'n' | b'N')
+}
+
+fn can_reuse_stream(
+    existing: Option<&PipeWireStreamConfig>,
+    requested: &PipeWireStreamConfig,
+) -> bool {
+    existing.is_some_and(|existing| existing == requested)
+}
+
+fn spawn_recording_worker(
+    callback: Arc<Mutex<Option<AudioChunkCallback>>>,
+) -> Result<PipeWireRecordingWorker, AudioError> {
+    let config = PipeWireStreamConfig::for_target(CaptureTarget::default());
+    let (command_tx, command_rx) = pipewire::channel::channel();
+    let (setup_tx, setup_rx) = mpsc::sync_channel(1);
+    let join = thread::spawn(move || run_recording_worker(&callback, command_rx, &setup_tx));
+    setup_rx.recv().map_err(|error| {
+        pipewire_recording_error(
+            &config,
+            format!("PipeWire recorder worker exited before setup: {error}"),
+        )
+    })??;
+    Ok(PipeWireRecordingWorker { command_tx, join })
+}
+
+fn send_worker_command(
+    worker: &mut PipeWireRecordingWorker,
     command: WorkerCommand,
+    config: &PipeWireStreamConfig,
+) -> Result<(), AudioError> {
+    worker.command_tx.send(command).map_err(|_| {
+        pipewire_recording_error(config, "PipeWire recorder worker command channel is closed")
+    })
+}
+
+fn finish_recording_worker(
+    worker: &mut PipeWireRecordingWorker,
+    config: &PipeWireStreamConfig,
 ) -> Result<CapturedAudio, AudioError> {
-    let _ = worker.stop_tx.send(command);
+    let (response_tx, response_rx) = mpsc::sync_channel(1);
+    send_worker_command(
+        worker,
+        WorkerCommand::Finish {
+            response: response_tx,
+        },
+        config,
+    )?;
+    response_rx.recv().map_err(|error| {
+        pipewire_recording_error(
+            config,
+            format!("PipeWire worker dropped finish response: {error}"),
+        )
+    })?
+}
+
+fn shutdown_recording_worker(
+    worker: PipeWireRecordingWorker,
+    config: &PipeWireStreamConfig,
+) -> Result<(), AudioError> {
+    let _ = worker.command_tx.send(WorkerCommand::Shutdown);
     match worker.join.join() {
         Ok(result) => result,
         Err(_) => Err(pipewire_recording_error(
-            &worker.stream_config,
+            config,
             "PipeWire recorder worker panicked",
         )),
     }
 }
 
 fn run_recording_worker(
-    config: &PipeWireStreamConfig,
     callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
-    stop_rx: &mpsc::Receiver<WorkerCommand>,
-    setup_tx: &mpsc::Sender<Result<(), AudioError>>,
-) -> Result<CapturedAudio, AudioError> {
-    match run_recording_worker_inner(config, callback, stop_rx, setup_tx) {
-        Ok(captured) => Ok(captured),
+    command_rx: pipewire::channel::Receiver<WorkerCommand>,
+    setup_tx: &mpsc::SyncSender<Result<(), AudioError>>,
+) -> Result<(), AudioError> {
+    let result = run_recording_worker_inner(callback, command_rx, setup_tx);
+    if let Err(error) = &result {
+        let _ = setup_tx.send(Err(AudioError::RecordingBackendUnavailable(
+            error.to_string(),
+        )));
+    }
+    result
+}
+
+fn run_recording_worker_inner(
+    callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
+    command_rx: pipewire::channel::Receiver<WorkerCommand>,
+    setup_tx: &mpsc::SyncSender<Result<(), AudioError>>,
+) -> Result<(), AudioError> {
+    let default_config = PipeWireStreamConfig::for_target(CaptureTarget::default());
+    probe_client_linkage();
+    let mainloop = pipewire::main_loop::MainLoopRc::new(None)
+        .map_err(|error| pipewire_recording_error(&default_config, error))?;
+    let context = pipewire::context::ContextRc::new(&mainloop, None)
+        .map_err(|error| pipewire_recording_error(&default_config, error))?;
+    let core = context
+        .connect_rc(None)
+        .map_err(|error| pipewire_recording_error(&default_config, error))?;
+    let state = Rc::new(RefCell::new(PipeWireWorkerState::default()));
+    let state_for_commands = Rc::clone(&state);
+    let core_for_commands = core.clone();
+    let callback_for_commands = Arc::clone(callback);
+    let mainloop_for_commands = mainloop.clone();
+    let _commands = command_rx.attach(mainloop.loop_(), move |command| match command {
+        WorkerCommand::Begin { config, response } => {
+            let result = begin_worker_recording(
+                &mut state_for_commands.borrow_mut(),
+                &core_for_commands,
+                &callback_for_commands,
+                config,
+            );
+            let _ = response.send(result);
+        }
+        WorkerCommand::Finish { response } => {
+            let result = finish_worker_recording(&mut state_for_commands.borrow_mut());
+            let _ = response.send(result);
+        }
+        WorkerCommand::Shutdown => {
+            shutdown_worker_state(&mut state_for_commands.borrow_mut());
+            mainloop_for_commands.quit();
+        }
+    });
+    let _ = setup_tx.send(Ok(()));
+    mainloop.run();
+    shutdown_worker_state(&mut state.borrow_mut());
+    Ok(())
+}
+
+fn begin_worker_recording(
+    state: &mut PipeWireWorkerState,
+    core: &pipewire::core::CoreRc,
+    callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
+    config: PipeWireStreamConfig,
+) -> Result<bool, AudioError> {
+    if state.recording {
+        return Err(AudioError::RecorderAlreadyRecording);
+    }
+    let reusable = can_reuse_stream(state.stream.as_ref().map(|stream| &stream.config), &config);
+    if !reusable {
+        state.stream = Some(create_persistent_stream(core, callback, config.clone())?);
+    }
+    match activate_worker_stream(state) {
+        Ok(()) => {
+            state.recording = true;
+            Ok(reusable)
+        }
+        Err(_error) if reusable => {
+            state.stream = Some(create_persistent_stream(core, callback, config)?);
+            activate_worker_stream(state)?;
+            state.recording = true;
+            Ok(false)
+        }
         Err(error) => {
-            let _ = setup_tx.send(Err(AudioError::RecordingBackendUnavailable(
-                error.to_string(),
-            )));
+            state.stream = None;
             Err(error)
         }
     }
 }
 
-fn run_recording_worker_inner(
-    config: &PipeWireStreamConfig,
-    callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
-    stop_rx: &mpsc::Receiver<WorkerCommand>,
-    setup_tx: &mpsc::Sender<Result<(), AudioError>>,
-) -> Result<CapturedAudio, AudioError> {
-    use pipewire::{properties::properties, spa};
+fn activate_worker_stream(state: &mut PipeWireWorkerState) -> Result<(), AudioError> {
+    let stream = state.stream.as_mut().ok_or_else(|| {
+        pipewire_recording_error(
+            &PipeWireStreamConfig::for_target(CaptureTarget::default()),
+            "PipeWire stream is unavailable",
+        )
+    })?;
+    stream.samples.borrow_mut().clear();
+    stream.accepting.set(true);
+    if let Err(error) = stream.stream.set_active(true) {
+        stream.accepting.set(false);
+        return Err(pipewire_recording_error(
+            &stream.config,
+            format!("activate PipeWire stream: {error}"),
+        ));
+    }
+    Ok(())
+}
 
-    probe_client_linkage();
-    let mainloop = pipewire::main_loop::MainLoopRc::new(None)
-        .map_err(|error| pipewire_recording_error(config, error))?;
-    let context = pipewire::context::ContextRc::new(&mainloop, None)
-        .map_err(|error| pipewire_recording_error(config, error))?;
-    let core = context
-        .connect_rc(None)
-        .map_err(|error| pipewire_recording_error(config, error))?;
+fn finish_worker_recording(state: &mut PipeWireWorkerState) -> Result<CapturedAudio, AudioError> {
+    if !state.recording {
+        return Err(AudioError::RecorderNotRecording);
+    }
+    let stream = state
+        .stream
+        .as_mut()
+        .ok_or(AudioError::RecorderNotRecording)?;
+    stream.accepting.set(false);
+    if let Err(error) = stream.stream.set_active(false) {
+        let config = stream.config.clone();
+        state.recording = false;
+        state.stream = None;
+        return Err(pipewire_recording_error(
+            &config,
+            format!("deactivate PipeWire stream: {error}"),
+        ));
+    }
+    state.recording = false;
+    let samples = std::mem::take(&mut *stream.samples.borrow_mut());
+    let pcm = PcmBuffer::with_spec(stream.config.pcm_spec, samples)?;
+    let captured = CapturedAudio::named(pcm, pipewire_capture_source_name(&stream.config));
+    Ok(captured)
+}
+
+fn shutdown_worker_state(state: &mut PipeWireWorkerState) {
+    if let Some(stream) = state.stream.as_mut() {
+        stream.accepting.set(false);
+        if state.recording {
+            let _ = stream.stream.set_active(false);
+        }
+    }
+    state.recording = false;
+    state.stream = None;
+}
+
+fn create_persistent_stream(
+    core: &pipewire::core::CoreRc,
+    callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
+    config: PipeWireStreamConfig,
+) -> Result<PersistentPipeWireStream, AudioError> {
+    use pipewire::{properties::properties, spa};
 
     let mut props = properties! {
         *pipewire::keys::MEDIA_TYPE => "Audio",
@@ -344,30 +574,30 @@ fn run_recording_worker_inner(
     if let Some(target) = config.target.target_object() {
         props.insert("target.object", target.to_owned());
     }
-
-    let stream = pipewire::stream::StreamBox::new(&core, "vinput-capture", props)
-        .map_err(|error| pipewire_recording_error(config, error))?;
+    let stream = pipewire::stream::StreamRc::new(core.clone(), "vinput-capture", props)
+        .map_err(|error| pipewire_recording_error(&config, error))?;
     let samples = Rc::new(RefCell::new(Vec::new()));
+    let accepting = Rc::new(Cell::new(false));
     let samples_for_process = Rc::clone(&samples);
+    let accepting_for_process = Rc::clone(&accepting);
     let callback_for_process = Arc::clone(callback);
     let pcm_spec = config.pcm_spec;
-
-    let _listener = stream
+    let listener = stream
         .add_local_listener_with_user_data(())
         .process(move |stream, ()| {
             capture_stream_buffer(
                 stream,
                 pcm_spec,
                 &samples_for_process,
+                &accepting_for_process,
                 &callback_for_process,
             );
         })
         .register()
-        .map_err(|error| pipewire_recording_error(config, error))?;
-
-    let param_values = pipewire_recording_param_values(config)?;
+        .map_err(|error| pipewire_recording_error(&config, error))?;
+    let param_values = pipewire_recording_param_values(&config)?;
     let params = [spa::pod::Pod::from_bytes(&param_values).ok_or_else(|| {
-        pipewire_recording_error(config, "serialize PipeWire recording stream format")
+        pipewire_recording_error(&config, "serialize PipeWire recording stream format")
     })?];
     let mut param_refs = [params[0]];
     stream
@@ -375,38 +605,26 @@ fn run_recording_worker_inner(
             spa::utils::Direction::Input,
             None,
             pipewire::stream::StreamFlags::AUTOCONNECT
+                | pipewire::stream::StreamFlags::INACTIVE
                 | pipewire::stream::StreamFlags::MAP_BUFFERS
                 | pipewire::stream::StreamFlags::RT_PROCESS,
             &mut param_refs,
         )
-        .map_err(|error| pipewire_recording_error(config, error))?;
-
-    let _ = setup_tx.send(Ok(()));
-    let command =
-        loop {
-            match stop_rx.try_recv() {
-                Ok(command) => break command,
-                Err(mpsc::TryRecvError::Empty) => {
-                    mainloop.loop_().iterate(pipewire::loop_::Timeout::Finite(
-                        Duration::from_millis(RECORDING_WORKER_ITERATE_MS),
-                    ));
-                }
-                Err(mpsc::TryRecvError::Disconnected) => break WorkerCommand::Cancel,
-            }
-        };
-
-    let _ = stream.disconnect();
-    let pcm = PcmBuffer::with_spec(config.pcm_spec, samples.borrow().clone())?;
-    let captured = CapturedAudio::named(pcm, pipewire_capture_source_name(config));
-    match command {
-        WorkerCommand::Stop | WorkerCommand::Cancel => Ok(captured),
-    }
+        .map_err(|error| pipewire_recording_error(&config, error))?;
+    Ok(PersistentPipeWireStream {
+        _listener: listener,
+        stream,
+        config,
+        samples,
+        accepting,
+    })
 }
 
 fn capture_stream_buffer(
     stream: &pipewire::stream::Stream,
     pcm_spec: PcmSpec,
     samples: &Rc<RefCell<Vec<i16>>>,
+    accepting: &Rc<Cell<bool>>,
     callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
 ) {
     let Some(mut buffer) = stream.dequeue_buffer() else {
@@ -432,6 +650,9 @@ fn capture_stream_buffer(
         .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<_>>();
     if chunk_samples.is_empty() {
+        return;
+    }
+    if !accepting.get() {
         return;
     }
     samples.borrow_mut().extend_from_slice(&chunk_samples);
@@ -580,6 +801,36 @@ mod tests {
     }
 
     #[test]
+    fn pipewire_capture_reuse_is_enabled_by_default_and_has_legacy_opt_outs() {
+        assert_eq!(super::CAPTURE_REUSE_ENV, "VINPUT_CAPTURE_REUSE");
+        for value in [None, Some(""), Some("1"), Some("true"), Some("yes")] {
+            assert!(super::capture_stream_reuse_enabled_from(value));
+        }
+        for value in [
+            Some("0"),
+            Some("false"),
+            Some("False"),
+            Some("no"),
+            Some("No"),
+        ] {
+            assert!(!super::capture_stream_reuse_enabled_from(value));
+        }
+    }
+
+    #[test]
+    fn pipewire_stream_reuse_requires_identical_target_and_pcm_plan() {
+        let default = super::PipeWireStreamConfig::for_target(super::CaptureTarget::Default);
+        let same = default.clone();
+        let other = super::PipeWireStreamConfig::for_target(super::CaptureTarget::Object(
+            "alsa_input.usb-mic".to_owned(),
+        ));
+
+        assert!(!super::can_reuse_stream(None, &default));
+        assert!(super::can_reuse_stream(Some(&default), &same));
+        assert!(!super::can_reuse_stream(Some(&default), &other));
+    }
+
+    #[test]
     fn pipewire_recording_pcm_policy_matches_asr_default() {
         assert_eq!(super::RECORDING_FORMAT, "S16LE");
         assert_eq!(
@@ -697,9 +948,10 @@ mod tests {
             })),
         );
 
-        for _ in 0..2 {
+        for index in 0..2 {
             super::AudioRecorder::begin_recording(&mut recorder, super::CaptureTarget::Default)
                 .unwrap();
+            assert_eq!(recorder.last_start_reused, index > 0);
             std::thread::sleep(std::time::Duration::from_millis(100));
             let captured = super::AudioRecorder::stop_and_get_buffer(&mut recorder).unwrap();
             assert_eq!(captured.pcm.spec(), super::recording_pcm_spec());
