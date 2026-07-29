@@ -138,6 +138,8 @@ VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_STATUS=1 VINPUT_USER_RUNTIME_
 
 Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `sherpa-onnx`, `has_effective_backend: true`, an empty `last_error`, and an activation-service `Exec` pointing at `vinput-daemon-with-vinput-env.sh`. If model or library loading fails, keep the exact `last_error`; do not mark native ASR ready.
 
+For deterministic activation debugging without a microphone, set `VINPUT_USER_NATIVE_WAV=/path/to/known.wav`; this opt-in test hook adds `--wav` to the generated service only. Prefer `just user-ime-sherpa-native-activation-smoke` or the pinned `just sherpa-online-transducer-user-activation-smoke`, both of which use a temporary HOME and do not mutate the real profile.
+
 ## PipeWire live checks
 
 Run only when live capture is expected to work:
@@ -164,7 +166,7 @@ A feature is not live-done until these are true in one real desktop session:
 
 ## Native sherpa desktop note
 
-A temporary-HOME install has proven that `sherpa-native-live` can materialize a typed online transducer config, copy the validated native runtime bundle, generate wrapper-based D-Bus activation, and construct the recognizer through `runtime-status`. The remaining desktop-specific checks are:
+A temporary-HOME install has proven that `sherpa-native-live` can materialize a typed online transducer config, copy the validated native runtime bundle, generate wrapper-based D-Bus activation, and construct the recognizer through `runtime-status`. `just sherpa-online-transducer-user-activation-smoke` now goes further: the first `daemon status` call auto-activates the installed daemon, reports that owner immediately, and a D-Bus `StartRecording`/`StopRecording` round trip returns the exact expected transcript from the installed runtime. The remaining desktop-specific checks are:
 
 1. install into the explicitly approved real user profile;
 2. restart Fcitx through the generated environment wrapper;

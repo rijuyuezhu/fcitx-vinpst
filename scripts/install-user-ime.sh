@@ -534,6 +534,15 @@ case "${profile}" in
       exit 2
     fi
     write_sherpa_native_config "${config_path}" "${sherpa_model_dir}" "${VINPUT_USER_SHERPA_HOTWORDS_FILE:-}" "${VINPUT_USER_SHERPA_TIMEOUT_MS:-}"
+    native_wav_path="${VINPUT_USER_NATIVE_WAV:-}"
+    if [[ -n "${native_wav_path}" ]]; then
+      if [[ ! -f "${native_wav_path}" ]]; then
+        echo "VINPUT_USER_NATIVE_WAV must be an existing WAV file: ${native_wav_path}" >&2
+        exit 2
+      fi
+      native_wav_path="$(realpath "${native_wav_path}")"
+      daemon_args+=(--daemon-arg=--wav --daemon-arg "${native_wav_path}")
+    fi
     ;;
   *)
     echo "unsupported VINPUT_USER_PROFILE: ${profile}" >&2

@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -324,6 +324,10 @@ ime-e2e-smoke:
 command-asr-wav-helper-smoke:
     scripts/run-command-asr-wav-helper-smoke.sh
 
+# Prove that the initial daemon-status call reports a newly D-Bus-activated user daemon owner.
+user-ime-activation-owner-smoke:
+    scripts/run-user-ime-activation-owner-smoke.sh
+
 # Run user-profile IME install smoke for a real command-ASR WAV helper profile.
 user-ime-real-command-asr-wav-smoke:
     scripts/run-user-ime-real-command-asr-wav-smoke.sh
@@ -331,6 +335,14 @@ user-ime-real-command-asr-wav-smoke:
 # Run user-profile IME install smoke for a generic typed native sherpa profile.
 user-ime-sherpa-native-smoke:
     scripts/run-user-ime-sherpa-native-smoke.sh
+
+# Prove a temporary native user install through D-Bus auto-activation and exact WAV recognition.
+user-ime-sherpa-native-activation-smoke:
+    scripts/run-user-ime-sherpa-native-activation-smoke.sh
+
+# Run the proven online transducer through the temporary user activation path.
+sherpa-online-transducer-user-activation-smoke:
+    VINPUT_SHERPA_MODEL=target/models/onnx-zf-en-20m-stream VINPUT_SHERPA_WAV=target/models/onnx-zf-en-20m-stream/test_wavs/0.wav VINPUT_SHERPA_EXPECT_TEXT='THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLEL' scripts/run-user-ime-sherpa-native-activation-smoke.sh
 
 # Run user-profile IME install smoke for the native sherpa SenseVoice profile.
 user-ime-sherpa-sense-voice-smoke:

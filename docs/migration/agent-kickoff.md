@@ -54,7 +54,7 @@ Then read, in order:
 - CLI/daemon alpha: usable and broadly covered by deterministic tests.
 - Real desktop readiness: **prototype usable / early alpha**; the full native desktop chain is not yet proven.
 - Native SenseVoice file-input path: proven with a registry-downloaded model and bundled WAV.
-- Native desktop install: `sherpa-native-live` accepts supported typed offline/online models, copies the validated `libsherpa-onnx`/`libonnxruntime` bundle, uses wrapper-based D-Bus activation, and passes real temporary-HOME online-transducer readiness. The old `sherpa-sense-voice-live` alias remains tested. Real Fcitx commit proof remains.
+- Native desktop install: `sherpa-native-live` accepts supported typed offline/online models, copies the validated `libsherpa-onnx`/`libonnxruntime` bundle, uses wrapper-based D-Bus activation, and passes a real temporary-HOME online-transducer activation round trip. The first `daemon status` call reports the installed owner and `StartRecording`/`StopRecording` returns the exact pinned transcript. The old `sherpa-sense-voice-live` alias remains tested. Real Fcitx commit proof remains.
 - Native offline transducer: the registry Zipformer multi-Chinese int8 model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍那么我想说的是大家如果对我的研究感兴趣` through `just sherpa-offline-transducer-local-smoke`.
 - Native Dolphin: the registry multilingual int8 model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍哈那么我想说的是呢大家如果对我的研究感兴趣呢。` through `just sherpa-dolphin-local-smoke`.
 - Native Paraformer: the registry small model is SHA-256 verified and recognizes bundled `test_wavs/0.wav` as `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯` through `just sherpa-paraformer-local-smoke`.

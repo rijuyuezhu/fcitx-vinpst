@@ -124,6 +124,8 @@ mkdir -p "${model_dir}"
 printf 'onnx\n' >"${model_dir}/model.int8.onnx"
 printf '<blank> 0\n' >"${model_dir}/tokens.txt"
 printf 'hello 1.0\n' >"${model_dir}/hotwords.txt"
+native_wav_path="${out_dir}/native-validation.wav"
+printf 'RIFFstub WAV fixture\n' >"${native_wav_path}"
 if [[ "${typed_metadata}" == "1" ]]; then
   printf 'encoder\n' >"${model_dir}/encoder.onnx"
   printf 'decoder\n' >"${model_dir}/decoder.onnx"
@@ -161,6 +163,7 @@ VINPUT_USER_AUDIO_BACKEND=mock \
 VINPUT_USER_SHERPA_MODEL="${model_dir}" \
 VINPUT_USER_SHERPA_HOTWORDS_FILE=hotwords.txt \
 VINPUT_USER_SHERPA_TIMEOUT_MS=7000 \
+VINPUT_USER_NATIVE_WAV="${native_wav_path}" \
 scripts/install-user-ime.sh >"${out_dir}/install.log" 2>&1
 
 config_path="${home_dir}/.local/share/fcitx-vinput/${config_name}"
@@ -256,6 +259,11 @@ fi
 if ! grep -Fq -- "--config ${config_path}" "${calls_log}"; then
   cat "${calls_log}" >&2
   echo "activation call did not point at generated sherpa config" >&2
+  exit 1
+fi
+if ! grep -Fq -- "--daemon-arg=--wav --daemon-arg ${native_wav_path}" "${calls_log}"; then
+  cat "${calls_log}" >&2
+  echo "activation call did not preserve the deterministic native WAV" >&2
   exit 1
 fi
 if ! grep -Fq -- "LD_LIBRARY_PATH=${runtime_lib_dir}" "${calls_log}" ||

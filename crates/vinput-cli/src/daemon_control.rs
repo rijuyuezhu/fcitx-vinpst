@@ -490,10 +490,13 @@ pub(crate) fn daemon_owner_probe_plan_json() -> serde_json::Value {
 fn daemon_status_via_dbus() -> anyhow::Result<serde_json::Value> {
     let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
     let proxy = daemon_service_proxy(&connection)?;
-    let owner = daemon_owner_diagnostics(&connection);
     let status: String = proxy
         .call(dbus::method::GET_STATUS, &())
         .context("call GetStatus on daemon D-Bus service")?;
+    // Creating a proxy does not necessarily activate a D-Bus service. Collect owner
+    // diagnostics immediately after the first successful method call so an
+    // activation-backed daemon is visible on the initial `daemon status` query.
+    let owner = daemon_owner_diagnostics(&connection);
     let asr: DaemonAsrBackendStateTuple = proxy
         .call(dbus::method::GET_ASR_BACKEND_STATE, &())
         .context("call GetAsrBackendState on daemon D-Bus service")?;

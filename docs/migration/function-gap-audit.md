@@ -25,7 +25,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 | --- | --- |
 | Deterministic command-demo product spine | Usable for development and CI |
 | Current registry native ASR families | Proven with offline/online WAV smokes |
-| Generic native user install | Temporary-HOME runtime bundle and online recognizer readiness proven |
+| Generic native user install | Temporary-HOME D-Bus auto-activation, installed owner, runtime bundle, and exact online recognition proven |
 | Real desktop trial | Prototype usable / early alpha |
 | Legacy CLI experience | Mostly implemented; `init`, UX polish, and some resource install paths remain |
 | Legacy daemon runtime coverage | Partial |
@@ -64,7 +64,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 2. Native online decoding, live D-Bus partial emission, and retained-addon `StatusChanged`/`RecognitionPartial` preedit forwarding are deterministically tested, but the complete Fcitx/PipeWire/partial-preedit path remains unproven on a real desktop.
 3. Prepare-before-swap warm reload, config-file re-read, busy-time deferral, physical `reload_in_progress`, generation coalescing, and non-blocking backend preparation are implemented and session-bus tested.
 4. Offline/online transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, Moonshine v1, and Zipformer2 CTC mappings are implemented; current cached-registry families are covered, while broader legacy-compatible families still need runtime support. Online Zipformer English 20M, offline Zipformer multi-Chinese int8, Dolphin multilingual int8, Paraformer Small, and Moonshine Tiny int8 are registry-installed and real-WAV proven.
-5. Native shared-library activation and user installation are deterministic through the copied runtime bundle and daemon wrapper; distro packaging and upgrade/version-selection policy still need work.
+5. Native shared-library activation and user installation are deterministic through the copied runtime bundle and daemon wrapper; the first status query reports the newly activated installed owner, and the installed online recognizer completes an exact D-Bus WAV round trip. Distro packaging and upgrade/version-selection policy still need work.
 6. Fcitx UX parity is incomplete: the searchable scene menu, installed-model-aware ASR menu, six persistent KeyLists, Tap/Hold/Both state machine, static zh_CN gettext labels, local error/switch notifications, daemon-signal forwarding, owner-loss recovery, and trigger-time cross-client `GetStatus` reconciliation are deterministically tested but not live-desktop proven. Daemon emission currently covers background ASR reload failures only; broader notification categories and real desktop validation remain partial.
 7. Remote ASR/text services, full provider/adapter registry installation, distro packaging, and the legacy GUI remain incomplete.
 8. `vinput-cli/src/main.rs` remains large even after daemon and recording control were extracted; further feature-driven module splits are needed.

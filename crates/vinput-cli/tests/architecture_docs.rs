@@ -681,8 +681,6 @@ fn native_user_install_pins_runtime_bundle_activation() {
         "scripts/run-user-ime-sherpa-sense-voice-smoke.sh",
     ))
     .expect("read shared sherpa user smoke");
-    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
-
     for required in [
         "sherpa-native-live",
         "sherpa-sense-voice-live",
@@ -695,6 +693,7 @@ fn native_user_install_pins_runtime_bundle_activation() {
         "LD_LIBRARY_PATH",
         "installed daemon is missing or not executable",
         "with_native_runtime \"${daemon_path}\"",
+        "VINPUT_USER_NATIVE_WAV",
         "runtime-status",
     ] {
         assert!(
@@ -736,6 +735,7 @@ fn native_user_install_pins_runtime_bundle_activation() {
             "vinput-daemon-with-vinput-env.sh",
             "libsherpa-onnx",
             "libonnxruntime",
+            "user-ime-sherpa-native-activation-smoke",
         ] {
             assert!(
                 document.contains(required),
@@ -743,8 +743,62 @@ fn native_user_install_pins_runtime_bundle_activation() {
             );
         }
     }
+}
 
+#[test]
+fn native_user_activation_pins_owner_and_recognition_roundtrip() {
+    let activation_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-user-ime-sherpa-native-activation-smoke.sh",
+    ))
+    .expect("read native activation smoke");
+    let owner_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-user-ime-activation-owner-smoke.sh",
+    ))
+    .expect("read activation owner smoke");
+    let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
+        .expect("read D-Bus architecture doc");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "VINPUT_SHERPA_EXPECT_TEXT",
+        "target/debug/vinput daemon status --json",
+        "owner[\"process\"][\"exe\"]",
+        "target/debug/vinput recording start --json",
+        "target/debug/vinput recording stop --json",
+        "unexpected native activation recognition",
+    ] {
+        assert!(
+            activation_smoke.contains(required),
+            "native activation smoke should pin {required}"
+        );
+    }
+
+    for required in [
+        "target/debug/vinput daemon status --json",
+        "owner[\"ok\"] is True",
+        "effective_provider_id",
+    ] {
+        assert!(
+            owner_smoke.contains(required),
+            "activation owner smoke should pin {required}"
+        );
+    }
+
+    for required in [
+        "after the first successful service method call",
+        "owner: null",
+        "user-ime-activation-owner-smoke",
+    ] {
+        assert!(
+            dbus_doc.contains(required),
+            "D-Bus architecture should pin activation owner ordering: {required}"
+        );
+    }
+
+    assert!(justfile.contains("user-ime-activation-owner-smoke:"));
     assert!(justfile.contains("user-ime-sherpa-native-smoke:"));
+    assert!(justfile.contains("user-ime-sherpa-native-activation-smoke:"));
+    assert!(justfile.contains("sherpa-online-transducer-user-activation-smoke:"));
     assert!(justfile.contains("user-ime-sherpa-native-smoke"));
 }
 
