@@ -26,7 +26,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
 | M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
-| M5 Resource parity | active | adapter install complete; provider and update/remove lifecycle pending |
+| M5 Resource parity | active | provider/adapter install complete; update/remove/i18n lifecycle pending |
 | M6 Release readiness | pending | packaging, upgrades, install docs, external-user regression |
 
 ## Completed: usable CLI/daemon alpha
@@ -34,6 +34,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 The following are implemented and covered by deterministic tests:
 
 - model registry list/info/install/use/remove;
+- current ASR provider registry list/install with batch/streaming validation, short ids, mirror fallback, managed overwrite protection, executable scripts, timeout/env preservation, and config backups;
 - current adapter registry list/install with short ids, mirror fallback, managed overwrite protection, executable scripts, and config backups;
 - config initialization and mutation;
 - provider, hotword, device, scene, LLM, and adapter management;
@@ -61,7 +62,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 ## P1: parity after live alpha
 
 - Port other remaining native model layouts only when registry or user demand is concrete.
-- Port current ASR provider registry installation, then complete adapter/provider update/remove flows.
+- Complete provider/adapter update/remove and registry i18n flows.
 - Validate one real OpenAI-compatible or command text provider in desktop command mode.
 - Broaden daemon-originated notification categories from observed needs.
 - Reduce oversized modules only along feature boundaries.

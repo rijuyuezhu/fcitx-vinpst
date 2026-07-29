@@ -61,10 +61,11 @@ pub use plan::{
 };
 pub use schema::{AdapterEntry, AssetEntry, ModelEntry, RegistryIndex, RegistryIndexSummary};
 pub use script::{
-    LiveScriptEntry, LiveScriptEnvSpec, LiveScriptInstallError, LiveScriptInstallResult,
-    LiveScriptKind, LiveScriptRegistry, LiveScriptRegistryError, LlmAdapterMaterialization,
+    AsrProviderMaterialization, AsrProviderMaterializationError, LiveScriptEntry,
+    LiveScriptEnvSpec, LiveScriptInstallError, LiveScriptInstallResult, LiveScriptKind,
+    LiveScriptRegistry, LiveScriptRegistryError, LlmAdapterMaterialization,
     LlmAdapterMaterializationError, install_live_script, managed_script_relative_path,
-    materialize_llm_adapter,
+    materialize_asr_provider, materialize_llm_adapter,
 };
 pub use staging::{
     ArchiveStagingPathError, ArchiveStagingPaths, plan_archive_staging_paths,

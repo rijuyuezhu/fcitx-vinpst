@@ -140,6 +140,8 @@ impl AssetPlanSummary {
 pub enum RegistryEntryKind {
     /// ASR model entry.
     Model,
+    /// External ASR provider entry.
+    Provider,
     /// Text adapter entry.
     Adapter,
 }
@@ -149,7 +151,7 @@ pub enum RegistryEntryKind {
 pub struct PlannedAsset {
     /// Owning entry kind.
     pub entry_kind: RegistryEntryKind,
-    /// Owning model or adapter id.
+    /// Owning model, provider, or adapter id.
     pub entry_id: String,
     /// Registry-relative asset path.
     pub path: String,

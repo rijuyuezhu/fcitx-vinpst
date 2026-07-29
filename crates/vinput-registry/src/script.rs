@@ -9,7 +9,7 @@ use std::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use vinput_config::LlmAdapterConfig;
+use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig};
 
 use crate::{
     AssetChecksumStatus, ChecksumPolicy, PlannedInstallAsset, RegistryAssetSource,
@@ -20,6 +20,8 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LiveScriptKind {
+    /// External command ASR provider.
+    AsrProvider,
     /// External command text adapter.
     LlmAdapter,
 }
@@ -27,12 +29,14 @@ pub enum LiveScriptKind {
 impl LiveScriptKind {
     const fn id_prefix(self) -> &'static str {
         match self {
+            Self::AsrProvider => "provider",
             Self::LlmAdapter => "adapter",
         }
     }
 
     const fn registry_entry_kind(self) -> RegistryEntryKind {
         match self {
+            Self::AsrProvider => RegistryEntryKind::Provider,
             Self::LlmAdapter => RegistryEntryKind::Adapter,
         }
     }
@@ -151,6 +155,15 @@ pub struct LlmAdapterMaterialization {
     pub replacing_managed: bool,
 }
 
+/// Planned command ASR provider configuration and overwrite classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsrProviderMaterialization {
+    /// Provider entry to write into configuration.
+    pub provider: AsrProviderConfig,
+    /// Whether an existing managed provider is being updated.
+    pub replacing_managed: bool,
+}
+
 /// Script registry validation errors.
 #[derive(Debug, Error)]
 pub enum LiveScriptRegistryError {
@@ -215,6 +228,17 @@ pub enum LlmAdapterMaterializationError {
     /// An existing user-defined adapter must not be overwritten.
     #[error("refusing to overwrite user-defined text adapter `{0}`")]
     UserDefinedAdapter(String),
+}
+
+/// ASR provider materialization errors.
+#[derive(Debug, Error)]
+pub enum AsrProviderMaterializationError {
+    /// Registry metadata is invalid for a provider.
+    #[error(transparent)]
+    Registry(#[from] LiveScriptRegistryError),
+    /// An existing user-defined provider must not be overwritten.
+    #[error("refusing to overwrite user-defined ASR provider `{0}`")]
+    UserDefinedProvider(String),
 }
 
 /// Returns the legacy-compatible managed relative path for a registry id.
@@ -306,6 +330,54 @@ pub fn materialize_llm_adapter(
     })
 }
 
+/// Builds a command ASR provider while preserving existing environment values
+/// and refusing to replace non-command or non-managed providers.
+pub fn materialize_asr_provider(
+    entry: &LiveScriptEntry,
+    script_path: impl AsRef<Path>,
+    existing: Option<&AsrProviderConfig>,
+) -> Result<AsrProviderMaterialization, AsrProviderMaterializationError> {
+    validate_script_entry(entry, LiveScriptKind::AsrProvider)?;
+    let script_path = script_path.as_ref().to_string_lossy().into_owned();
+    let mut provider = match existing {
+        Some(existing) => {
+            if existing.kind != AsrProviderKind::Command
+                || existing.args.as_slice() != [script_path.as_str()]
+            {
+                return Err(AsrProviderMaterializationError::UserDefinedProvider(
+                    entry.id.clone(),
+                ));
+            }
+            existing.clone()
+        }
+        None => AsrProviderConfig {
+            id: entry.id.clone(),
+            kind: AsrProviderKind::Command,
+            timeout_ms: Some(60_000),
+            model: None,
+            hotwords_file: None,
+            command: Some(entry.command.clone()),
+            args: vec![script_path.clone()],
+            env: HashMap::new(),
+            endpoint: None,
+        },
+    };
+    provider.id.clone_from(&entry.id);
+    provider.kind = AsrProviderKind::Command;
+    provider.command = Some(entry.command.clone());
+    provider.args = vec![script_path];
+    if provider.timeout_ms.unwrap_or(0) == 0 {
+        provider.timeout_ms = Some(60_000);
+    }
+    for env in &entry.envs {
+        provider.env.entry(env.name.clone()).or_default();
+    }
+    Ok(AsrProviderMaterialization {
+        provider,
+        replacing_managed: existing.is_some(),
+    })
+}
+
 fn validate_script_entry(
     entry: &LiveScriptEntry,
     kind: LiveScriptKind,
@@ -323,6 +395,12 @@ fn validate_script_entry(
         .is_some_and(|value| value.trim().is_empty())
     {
         return invalid_entry(entry, "short_id cannot be empty");
+    }
+    if kind == LiveScriptKind::AsrProvider && entry.stream != entry.id.ends_with(".streaming") {
+        return invalid_entry(
+            entry,
+            "stream must match the provider id `.streaming` suffix",
+        );
     }
     let mut env_names = HashSet::new();
     for env in &entry.envs {

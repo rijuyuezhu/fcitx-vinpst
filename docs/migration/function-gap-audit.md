@@ -7,9 +7,8 @@ This document is the current Rust-versus-legacy status baseline. It records impl
 ## Review baseline
 
 - Rust branch: `feat/accelerate-port-refactor`
-- Implementation reviewed through: `181b9b5 fix(frontend): deliver native partial preedit`
-- Legacy reference: `/workspace/fcitx5-vinput` at `6cdcac8`
-- Worktree was clean before this documentation refresh.
+- Implementation baseline: current branch, including provider/adapter registry installation.
+- Legacy reference: `/workspace/fcitx5-vinput` at `6cdcac8`.
 
 ## Executive conclusion
 
@@ -18,7 +17,7 @@ The Rust rewrite is a **usable CLI/daemon alpha** with a strong deterministic pr
 The project has crossed the main implementation threshold for local native ASR and retained-frontend integration:
 
 - Current registry native ASR families are mapped and real-WAV tested, including offline and online paths.
-- The current upstream adapter registry is parsed directly; short ids, mirror-backed script install, executable publication, environment placeholders, config backups, and guarded managed updates are deterministic-test proven.
+- The current upstream provider and adapter registries are parsed directly; short ids, batch/streaming protocol validation, mirror-backed script install, executable publication, environment placeholders, config backups, timeout/env preservation, and guarded managed updates are deterministic-test proven.
 - Generic native user install copies the validated runtime bundle, supports D-Bus activation, and completes exact native recognition round trips in a temporary HOME.
 - The retained addon deterministically applies partial preedit, final commit, command candidate selection, selected-text deletion, and replacement through concrete Fcitx test frontends.
 - CLI, config, registry, daemon, recording, diagnostics, and frontend configuration surfaces are broadly implemented.
@@ -37,7 +36,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Real desktop command dictation | Not live-proven across applications |
 | Frontend menus/configuration | Implemented and deterministically tested; live UI proof missing |
 | Adapter resource installation | Implemented for current script registry; update/remove/i18n polish remains |
-| ASR provider resource installation | Partial |
+| ASR provider resource installation | Implemented for current script registry; update/remove/i18n polish remains |
 | Remote text service | Missing |
 | Distro packaging and upgrades | Missing |
 | Legacy Qt GUI | Deferred |
@@ -53,7 +52,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Audio | Typed PCM, processing, mock/file sources, optional PipeWire recorder and diagnostics | Real PipeWire capture proof |
 | Offline VAD | Silero model, legacy-compatible settings, fallback, cold-start guard, install, and diagnostics | Real microphone validation |
 | Text processing | Command adapters, OpenAI-compatible transport, prompts, context cache, scenes, candidates | One real desktop provider flow |
-| Registry | Live model lifecycle plus current adapter registry list/install, guarded config materialization, and script publication | ASR provider installation and resource update/remove polish |
+| Registry | Live model lifecycle plus current provider/adapter registry list/install, guarded config materialization, and executable script publication | Resource update/remove/i18n polish |
 | CLI | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, recording, and doctor | UX polish and continued feature-driven module extraction |
 | Fcitx frontend | Persistent keys, Tap/Hold/Both, menus, filtering, i18n, notifications, owner recovery, partial preedit, outcome application | Real desktop rendering and multi-application proof |
 | User install | Temporary-HOME profiles, activation services, environment wrapper, native runtime bundle | Packaging, upgrade, and version-selection policy |
@@ -66,7 +65,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 2. **Command-mode application behavior:** surrounding-text and primary-selection fallback need proof across applications and toolkits.
 3. **Release boundary:** there is no distro packaging, upgrade policy, or external-user installation path yet.
 4. **Remote parity:** legacy remote ASR/text services are not implemented.
-5. **Resource breadth:** model installation and adapter script installation are available; ASR provider installation and full update/remove lifecycle remain.
+5. **Resource lifecycle:** model, provider, and adapter installation are available; provider/adapter update/remove and i18n polish remain.
 6. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.
 
 ## Rust improvements beyond legacy

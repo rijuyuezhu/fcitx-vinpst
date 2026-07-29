@@ -30,7 +30,8 @@ use vinput_registry::{
     LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, PlannedAsset, RegistryIndex,
     RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
     install_live_script, load_installed_model_info as load_registry_installed_model_info,
-    managed_script_relative_path, materialize_llm_adapter, scan_installed_models,
+    managed_script_relative_path, materialize_asr_provider, materialize_llm_adapter,
+    scan_installed_models,
 };
 use vinput_text::{
     OpenAiCompatibleTextAdapter, ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,
@@ -895,13 +896,45 @@ enum SceneCommand {
 /// ASR provider management commands.
 #[derive(Debug, Subcommand)]
 enum ProviderCommand {
-    /// List configured ASR providers.
+    /// List configured or available ASR providers.
     #[command(alias = "ls")]
     List {
+        /// List providers from the live script registry instead of configured providers.
+        #[arg(short = 'a', long)]
+        available: bool,
+        /// Optional local registry/providers.json file. Omitted to fetch configured mirrors.
+        #[arg(long)]
+        registry: Option<PathBuf>,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
         /// Print machine-readable JSON instead of text table output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install or update an ASR provider from the live script registry.
+    Install {
+        /// Full provider id or registry `short_id`.
+        id: String,
+        /// Optional local registry/providers.json file. Omitted to fetch configured mirrors.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Managed provider script root. Defaults to $XDG_DATA_HOME/fcitx-vinput/providers.
+        #[arg(long)]
+        provider_root: Option<PathBuf>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Resolve and validate the installation without downloading or writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
         #[arg(long)]
         json: bool,
     },
@@ -1502,6 +1535,7 @@ fn force_json_output(command: &mut Command) {
         },
         Command::Provider { command } => match command {
             ProviderCommand::List { json, .. }
+            | ProviderCommand::Install { json, .. }
             | ProviderCommand::Add { json, .. }
             | ProviderCommand::Use { json, .. }
             | ProviderCommand::Edit { json, .. }
@@ -5374,7 +5408,37 @@ fn hotword_supported(kind: &AsrProviderKind) -> bool {
 #[allow(clippy::too_many_lines)]
 fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
     match command {
-        ProviderCommand::List { config, json } => print_provider_list(config.as_ref(), json),
+        ProviderCommand::List {
+            available,
+            registry,
+            config,
+            json,
+        } => {
+            if available {
+                print_available_provider_list(registry.as_deref(), config.as_ref(), json)
+            } else {
+                print_provider_list(config.as_ref(), json)
+            }
+        }
+        ProviderCommand::Install {
+            id,
+            registry,
+            provider_root,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_provider_install(ProviderInstallRequest {
+            selector: &id,
+            registry_path: registry.as_deref(),
+            provider_root: provider_root.as_deref(),
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
         ProviderCommand::Use {
             id,
             config,
@@ -5520,6 +5584,39 @@ struct ProviderAddOutcome {
 
 #[derive(Clone, Copy)]
 #[allow(clippy::struct_excessive_bools)]
+struct ProviderInstallRequest<'a> {
+    selector: &'a str,
+    registry_path: Option<&'a Path>,
+    provider_root: Option<&'a Path>,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+struct ProviderInstallOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    registry_source: serde_json::Value,
+    provider_id: String,
+    short_id: Option<String>,
+    streaming: bool,
+    script_path: PathBuf,
+    required_env: Vec<String>,
+    optional_env: Vec<String>,
+    replacing_managed: bool,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_script: bool,
+    wrote_config: bool,
+}
+
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
 struct ProviderEditRequest<'a> {
     id: &'a str,
     kind: Option<&'a str>,
@@ -5613,6 +5710,338 @@ struct ProviderListContext {
     config_path: Option<PathBuf>,
     source: &'static str,
     config: VinputConfig,
+}
+
+fn print_available_provider_list(
+    registry_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+    json_output: bool,
+) -> anyhow::Result<()> {
+    let context = load_provider_list_context(config_path)?;
+    let loaded = load_live_provider_registry(registry_path, &context.config.registry)?;
+    let configured_ids = context
+        .config
+        .asr
+        .providers
+        .iter()
+        .map(|provider| provider.id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let providers = loaded
+        .registry
+        .items
+        .iter()
+        .map(|provider| available_live_provider_json(provider, &configured_ids))
+        .collect::<Vec<_>>();
+    let output = serde_json::json!({
+        "ok": true,
+        "registry_source": loaded.source_json,
+        "config_path": context.config_path.as_ref(),
+        "config_source": context.source,
+        "provider_count": providers.len(),
+        "providers": providers,
+        "next_steps": [
+            "run vinput provider install <id-or-short-id> --dry-run --json to preview installation",
+            "run vinput provider install <id-or-short-id> --in-place to install and configure it",
+            "run vinput provider use <machine-id> to select the installed provider"
+        ],
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_available_provider_list_text(&loaded, &context, &configured_ids);
+    }
+    Ok(())
+}
+
+fn available_live_provider_json(
+    provider: &vinput_registry::LiveScriptEntry,
+    configured_ids: &std::collections::BTreeSet<&str>,
+) -> serde_json::Value {
+    let envs = provider
+        .envs
+        .iter()
+        .map(|env| {
+            serde_json::json!({
+                "name": env.name,
+                "required": env.required,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "id": provider.short_id.as_deref().unwrap_or(&provider.id),
+        "machine_id": provider.id,
+        "protocol": if provider.stream { "streaming" } else { "batch" },
+        "command": provider.command,
+        "readme_url": provider.readme_url,
+        "envs": envs,
+        "status": if configured_ids.contains(provider.id.as_str()) {
+            "installed"
+        } else {
+            "available"
+        },
+    })
+}
+
+fn print_available_provider_list_text(
+    loaded: &LoadedLiveScriptRegistry,
+    context: &ProviderListContext,
+    configured_ids: &std::collections::BTreeSet<&str>,
+) {
+    println!("registry_source: {}", loaded.source_json);
+    println!("config_source: {}", context.source);
+    if let Some(path) = &context.config_path {
+        println!("config_path: {}", path.display());
+    }
+    println!("provider_count: {}", loaded.registry.items.len());
+    println!("id\tmachine_id\tstatus\tprotocol\tcommand\tenvs\treadme");
+    for provider in &loaded.registry.items {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            provider.short_id.as_deref().unwrap_or(&provider.id),
+            provider.id,
+            if configured_ids.contains(provider.id.as_str()) {
+                "installed"
+            } else {
+                "available"
+            },
+            if provider.stream {
+                "streaming"
+            } else {
+                "batch"
+            },
+            provider.command,
+            provider.envs.len(),
+            provider.readme_url.as_deref().unwrap_or("-"),
+        );
+    }
+}
+
+fn print_provider_install(request: ProviderInstallRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_provider_install(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&provider_install_outcome_json(&outcome))?
+        );
+    } else {
+        print_provider_install_text(&outcome);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+fn run_provider_install(
+    request: &ProviderInstallRequest<'_>,
+) -> anyhow::Result<ProviderInstallOutcome> {
+    let selector = normalize_provider_id(request.selector)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for provider install")?;
+    let config =
+        VinputConfig::from_json_str(&contents).context("parse config for provider install")?;
+    config
+        .validate()
+        .context("validate config for provider install")?;
+    let loaded_registry = load_live_provider_registry(request.registry_path, &config.registry)?;
+    let entry = loaded_registry
+        .registry
+        .entry_by_id_or_short_id(&selector, LiveScriptKind::AsrProvider)
+        .with_context(|| format!("ASR provider `{selector}` not found in live registry"))?
+        .clone();
+    let provider_root = request
+        .provider_root
+        .map(Path::to_path_buf)
+        .map_or_else(default_provider_root, Ok)?;
+    let script_path = provider_root.join(managed_script_relative_path(
+        LiveScriptKind::AsrProvider,
+        &entry.id,
+    )?);
+    let existing = config
+        .asr
+        .providers
+        .iter()
+        .find(|provider| provider.id == entry.id);
+    let materialized = materialize_asr_provider(&entry, &script_path, existing)?;
+    let provider_value = serde_json::to_value(&materialized.provider)
+        .context("serialize installed ASR provider config")?;
+    let providers = loaded
+        .document
+        .pointer_mut("/asr/providers")
+        .and_then(serde_json::Value::as_array_mut)
+        .with_context(|| "config pointer `/asr/providers` not found or not an array")?;
+    if let Some(index) = config
+        .asr
+        .providers
+        .iter()
+        .position(|provider| provider.id == entry.id)
+    {
+        providers[index] = provider_value;
+    } else {
+        providers.push(provider_value);
+    }
+    validate_config_json_value(&loaded.document, "validate installed provider config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+    let mut wrote_script = false;
+    let mut wrote_config = false;
+    if !request.dry_run {
+        let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
+        let installed =
+            install_live_script(&source, LiveScriptKind::AsrProvider, &entry, &provider_root)?;
+        if installed.script_path != script_path {
+            anyhow::bail!(
+                "installed provider script path `{}` did not match planned path `{}`",
+                installed.script_path.display(),
+                script_path.display()
+            );
+        }
+        wrote_script = true;
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+    let required_env = entry
+        .envs
+        .iter()
+        .filter(|env| env.required)
+        .map(|env| env.name.clone())
+        .collect();
+    let optional_env = entry
+        .envs
+        .iter()
+        .filter(|env| !env.required)
+        .map(|env| env.name.clone())
+        .collect();
+    Ok(ProviderInstallOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        registry_source: loaded_registry.source_json,
+        provider_id: entry.id,
+        short_id: entry.short_id,
+        streaming: entry.stream,
+        script_path,
+        required_env,
+        optional_env,
+        replacing_managed: materialized.replacing_managed,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_script,
+        wrote_config,
+    })
+}
+
+fn provider_install_outcome_json(outcome: &ProviderInstallOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "registry_source": outcome.registry_source,
+        "provider_id": outcome.provider_id,
+        "short_id": outcome.short_id,
+        "protocol": if outcome.streaming { "streaming" } else { "batch" },
+        "script_path": outcome.script_path,
+        "required_env": outcome.required_env,
+        "optional_env": outcome.optional_env,
+        "replacing_managed": outcome.replacing_managed,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_download_script": !outcome.dry_run,
+        "will_write_config": !outcome.dry_run,
+        "wrote_script": outcome.wrote_script,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "set required provider environment values in config before selecting it",
+            "run vinput provider use <machine-id> to select the installed provider",
+            "run vinput asr-state to inspect runtime readiness"
+        ],
+    })
+}
+
+fn print_provider_install_text(outcome: &ProviderInstallOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("provider_id: {}", outcome.provider_id);
+    if let Some(short_id) = &outcome.short_id {
+        println!("short_id: {short_id}");
+    }
+    println!(
+        "protocol: {}",
+        if outcome.streaming {
+            "streaming"
+        } else {
+            "batch"
+        }
+    );
+    println!("script_path: {}", outcome.script_path.display());
+    println!("replacing_managed: {}", outcome.replacing_managed);
+    println!("required_env: {}", outcome.required_env.join(","));
+    println!("optional_env: {}", outcome.optional_env.join(","));
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_download_script: {}", !outcome.dry_run);
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_script: {}", outcome.wrote_script);
+    println!("wrote_config: {}", outcome.wrote_config);
+}
+
+fn load_live_provider_registry(
+    registry_path: Option<&Path>,
+    registry_config: &RegistryConfig,
+) -> anyhow::Result<LoadedLiveScriptRegistry> {
+    let registry_urls = live_registry_urls(registry_config, "registry/providers.json");
+    if let Some(path) = registry_path {
+        let input = fs::read_to_string(path)
+            .with_context(|| format!("read live provider registry `{}`", path.display()))?;
+        let registry = LiveScriptRegistry::from_json_str(&input, LiveScriptKind::AsrProvider)
+            .with_context(|| format!("validate live provider registry `{}`", path.display()))?;
+        return Ok(LoadedLiveScriptRegistry {
+            registry,
+            source_json: serde_json::json!({
+                "kind": "file",
+                "path": path,
+                "mirror_count": registry_config.base_urls.len(),
+                "registry_urls": registry_urls,
+            }),
+        });
+    }
+    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
+        .context("fetch live provider registry from configured mirrors")?;
+    let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::AsrProvider)
+        .with_context(|| {
+            format!(
+                "validate live provider registry fetched from `{}`",
+                fetched.url
+            )
+        })?;
+    Ok(LoadedLiveScriptRegistry {
+        registry,
+        source_json: serde_json::json!({
+            "kind": "http",
+            "url": fetched.url,
+            "mirror_count": registry_config.base_urls.len(),
+            "registry_urls": registry_urls,
+        }),
+    })
 }
 
 fn print_provider_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
@@ -7359,6 +7788,9 @@ fn default_model_root() -> anyhow::Result<PathBuf> {
     Ok(user_data_home()?.join("fcitx-vinput").join("models"))
 }
 
+fn default_provider_root() -> anyhow::Result<PathBuf> {
+    Ok(user_data_home()?.join("fcitx-vinput").join("providers"))
+}
 fn default_adapter_root() -> anyhow::Result<PathBuf> {
     Ok(user_data_home()?.join("fcitx-vinput").join("adapters"))
 }

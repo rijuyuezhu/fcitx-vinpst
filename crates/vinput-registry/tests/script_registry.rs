@@ -6,11 +6,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use vinput_config::LlmAdapterConfig;
+use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig};
 use vinput_registry::{
-    AssetChecksumStatus, LiveScriptKind, LiveScriptRegistry, LlmAdapterMaterializationError,
-    RegistryAssetSource, install_live_script, managed_script_relative_path,
-    materialize_llm_adapter,
+    AsrProviderMaterializationError, AssetChecksumStatus, LiveScriptKind, LiveScriptRegistry,
+    LlmAdapterMaterializationError, RegistryAssetSource, install_live_script,
+    managed_script_relative_path, materialize_asr_provider, materialize_llm_adapter,
 };
 
 const ADAPTER_REGISTRY: &str = r#"
@@ -26,6 +26,26 @@ const ADAPTER_REGISTRY: &str = r#"
       "envs": [
         {"name": "MTRAN_URL", "required": false},
         {"name": "MTRAN_TOKEN", "required": true}
+      ]
+    }
+  ]
+}
+"#;
+
+const PROVIDER_REGISTRY: &str = r#"
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "provider.openai-compatible.streaming",
+      "short_id": "oai-stream",
+      "stream": true,
+      "command": "python3",
+      "script_urls": ["memory://entry.py"],
+      "readme_url": "https://example.test/provider/README.md",
+      "envs": [
+        {"name": "VINPUT_ASR_API_KEY", "required": true},
+        {"name": "VINPUT_ASR_MODEL", "required": false}
       ]
     }
   ]
@@ -179,5 +199,115 @@ fn refuses_to_replace_user_defined_adapter() {
     assert!(matches!(
         error,
         LlmAdapterMaterializationError::UserDefinedAdapter(_)
+    ));
+}
+
+#[test]
+fn parses_current_provider_registry_and_maps_multi_segment_id() {
+    let registry =
+        LiveScriptRegistry::from_json_str(PROVIDER_REGISTRY, LiveScriptKind::AsrProvider)
+            .expect("parse provider registry");
+    let entry = registry
+        .entry_by_id_or_short_id("oai-stream", LiveScriptKind::AsrProvider)
+        .expect("resolve provider short id");
+
+    assert!(entry.stream);
+    assert_eq!(entry.id, "provider.openai-compatible.streaming");
+    assert_eq!(
+        managed_script_relative_path(LiveScriptKind::AsrProvider, &entry.id)
+            .expect("managed provider path"),
+        PathBuf::from("openai-compatible/streaming")
+    );
+}
+
+#[test]
+fn rejects_provider_stream_flag_that_disagrees_with_id() {
+    let input = PROVIDER_REGISTRY.replace("\"stream\": true", "\"stream\": false");
+    let error = LiveScriptRegistry::from_json_str(&input, LiveScriptKind::AsrProvider)
+        .expect_err("stream mismatch should fail");
+    assert!(error.to_string().contains("`.streaming` suffix"));
+}
+
+#[test]
+fn materializes_new_command_provider_with_legacy_timeout_and_envs() {
+    let registry =
+        LiveScriptRegistry::from_json_str(PROVIDER_REGISTRY, LiveScriptKind::AsrProvider)
+            .expect("parse provider registry");
+    let script_path = Path::new("/tmp/vinput/providers/openai-compatible/streaming");
+
+    let outcome = materialize_asr_provider(&registry.items[0], script_path, None)
+        .expect("materialize provider");
+
+    assert!(!outcome.replacing_managed);
+    assert_eq!(outcome.provider.kind, AsrProviderKind::Command);
+    assert_eq!(outcome.provider.timeout_ms, Some(60_000));
+    assert_eq!(outcome.provider.command.as_deref(), Some("python3"));
+    assert_eq!(
+        outcome.provider.args,
+        vec![script_path.to_string_lossy().into_owned()]
+    );
+    assert_eq!(outcome.provider.env["VINPUT_ASR_API_KEY"], "");
+    assert_eq!(outcome.provider.env["VINPUT_ASR_MODEL"], "");
+}
+
+#[test]
+fn updates_managed_provider_without_losing_env_or_timeout() {
+    let registry =
+        LiveScriptRegistry::from_json_str(PROVIDER_REGISTRY, LiveScriptKind::AsrProvider)
+            .expect("parse provider registry");
+    let script_path = Path::new("/tmp/vinput/providers/openai-compatible/streaming");
+    let existing = AsrProviderConfig {
+        id: "provider.openai-compatible.streaming".to_owned(),
+        kind: AsrProviderKind::Command,
+        timeout_ms: Some(12_345),
+        model: Some("preserve-model".to_owned()),
+        hotwords_file: None,
+        command: Some("old-python".to_owned()),
+        args: vec![script_path.to_string_lossy().into_owned()],
+        env: HashMap::from([
+            ("VINPUT_ASR_API_KEY".to_owned(), "preserve-me".to_owned()),
+            ("CUSTOM".to_owned(), "also-preserve".to_owned()),
+        ]),
+        endpoint: None,
+    };
+
+    let outcome = materialize_asr_provider(&registry.items[0], script_path, Some(&existing))
+        .expect("update managed provider");
+
+    assert!(outcome.replacing_managed);
+    assert_eq!(outcome.provider.timeout_ms, Some(12_345));
+    assert_eq!(outcome.provider.model.as_deref(), Some("preserve-model"));
+    assert_eq!(outcome.provider.env["VINPUT_ASR_API_KEY"], "preserve-me");
+    assert_eq!(outcome.provider.env["VINPUT_ASR_MODEL"], "");
+    assert_eq!(outcome.provider.env["CUSTOM"], "also-preserve");
+}
+
+#[test]
+fn refuses_to_replace_non_managed_provider() {
+    let registry =
+        LiveScriptRegistry::from_json_str(PROVIDER_REGISTRY, LiveScriptKind::AsrProvider)
+            .expect("parse provider registry");
+    let existing = AsrProviderConfig {
+        id: "provider.openai-compatible.streaming".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("custom".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: HashMap::new(),
+        endpoint: None,
+    };
+
+    let error = materialize_asr_provider(
+        &registry.items[0],
+        "/tmp/vinput/providers/openai-compatible/streaming",
+        Some(&existing),
+    )
+    .expect_err("local provider should not be overwritten");
+
+    assert!(matches!(
+        error,
+        AsrProviderMaterializationError::UserDefinedProvider(_)
     ));
 }

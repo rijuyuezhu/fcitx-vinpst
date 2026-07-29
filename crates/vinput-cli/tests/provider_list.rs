@@ -866,6 +866,377 @@ fn provider_remove_rejects_empty_missing_active_and_missing_write_target() {
     fs::remove_file(&path).expect("remove temporary provider config");
 }
 
+#[test]
+fn provider_list_available_json_reports_live_registry_and_install_status() {
+    let config_path = write_live_provider_config_fixture("vinput-provider-available-config-json");
+    let registry_path = write_live_provider_registry_fixture(
+        "vinput-provider-available-registry-json",
+        "https://provider.example.test/entry.py",
+    );
+
+    let output = vinput_command()
+        .args(["provider", "list", "--available", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput provider list --available --json");
+    fs::remove_file(&config_path).expect("remove temporary config");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+
+    let value = assert_json_success(output, "provider list available json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["registry_source"]["kind"], "file");
+    assert_eq!(value["provider_count"], 2);
+    let providers = value["providers"].as_array().unwrap();
+    assert_eq!(providers[0]["id"], "oai-stream");
+    assert_eq!(
+        providers[0]["machine_id"],
+        "provider.openai-compatible.streaming"
+    );
+    assert_eq!(providers[0]["protocol"], "streaming");
+    assert_eq!(providers[0]["status"], "installed");
+    assert_eq!(providers[0]["envs"].as_array().unwrap().len(), 2);
+    assert_eq!(providers[1]["id"], "doubao-batch");
+    assert_eq!(providers[1]["protocol"], "batch");
+    assert_eq!(providers[1]["status"], "available");
+}
+
+#[test]
+fn provider_list_available_text_prints_live_registry_table() {
+    let config_path = write_live_provider_config_fixture("vinput-provider-available-config-text");
+    let registry_path = write_live_provider_registry_fixture(
+        "vinput-provider-available-registry-text",
+        "https://provider.example.test/entry.py",
+    );
+
+    let output = vinput_command()
+        .args(["provider", "ls", "-a", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .output()
+        .expect("run vinput provider ls --available text");
+    fs::remove_file(&config_path).expect("remove temporary config");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+
+    let stdout = assert_stdout_success(output, "provider list available text");
+    assert!(stdout.contains("registry_source:"));
+    assert!(stdout.contains("config_source: file"));
+    assert!(stdout.contains("provider_count: 2"));
+    assert!(stdout.contains("id\tmachine_id\tstatus\tprotocol\tcommand\tenvs\treadme"));
+    assert!(stdout.contains(
+        "oai-stream\tprovider.openai-compatible.streaming\tinstalled\tstreaming\tpython3\t2"
+    ));
+    assert!(stdout.contains("doubao-batch\tprovider.doubao.batch\tavailable\tbatch\tpython3\t1"));
+}
+
+#[test]
+fn provider_list_available_rejects_adapter_registry() {
+    let registry_path = write_temp_json(
+        "vinput-provider-wrong-registry-kind",
+        r#"{"version":1,"items":[{"id":"adapter.test.proxy","command":"python3","script_urls":["https://example.test/entry.py"]}]}"#,
+    );
+    let output = vinput_command()
+        .args(["provider", "list", "--available", "--registry"])
+        .arg(&registry_path)
+        .arg("--json")
+        .output()
+        .expect("run vinput provider list with adapter registry");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("does not belong to `provider` registry"));
+}
+
+#[test]
+fn provider_install_dry_run_resolves_short_id_without_writing() {
+    let root = unique_temp_dir("vinput-provider-install-dry-run");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, empty_live_provider_config_fixture_json()).expect("write config");
+    let registry_path = root.join("providers.json");
+    fs::write(
+        &registry_path,
+        live_provider_registry_fixture_json("https://provider.example.test/entry.py"),
+    )
+    .expect("write provider registry");
+    let provider_root = root.join("managed-providers");
+    let before = fs::read_to_string(&config_path).expect("read original config");
+
+    let output = vinput_command()
+        .args(["provider", "install", "oai-stream", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--provider-root")
+        .arg(&provider_root)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run provider install dry-run");
+
+    let value = assert_json_success(output, "provider install dry-run");
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["provider_id"], "provider.openai-compatible.streaming");
+    assert_eq!(value["short_id"], "oai-stream");
+    assert_eq!(value["protocol"], "streaming");
+    assert_eq!(value["replacing_managed"], false);
+    assert_eq!(value["wrote_script"], false);
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        value["required_env"],
+        serde_json::json!(["VINPUT_ASR_API_KEY"])
+    );
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read unchanged config"),
+        before
+    );
+    assert!(!provider_root.join("openai-compatible/streaming").exists());
+    fs::remove_dir_all(root).expect("remove provider dry-run root");
+}
+
+#[test]
+fn provider_install_downloads_script_and_updates_config_in_place() {
+    let root = unique_temp_dir("vinput-provider-install-live");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, empty_live_provider_config_fixture_json()).expect("write config");
+    let provider_root = root.join("managed-providers");
+    let script = b"#!/usr/bin/env python3\nprint('provider installed')\n".to_vec();
+    let (script_url, server) = serve_single_binary_response(script.clone());
+    let registry_path = root.join("providers.json");
+    fs::write(
+        &registry_path,
+        live_provider_registry_fixture_json(&script_url),
+    )
+    .expect("write provider registry");
+
+    let output = vinput_command()
+        .args(["provider", "install", "oai-stream", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--provider-root")
+        .arg(&provider_root)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run provider install");
+    let requested_path = server.join().expect("join provider HTTP server");
+    assert_eq!(requested_path, "/entry.py");
+
+    let value = assert_json_success(output, "provider install json");
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["protocol"], "streaming");
+    assert_eq!(value["wrote_script"], true);
+    assert_eq!(value["wrote_config"], true);
+    let script_path = provider_root.join("openai-compatible/streaming");
+    assert_eq!(
+        fs::read(&script_path).expect("read installed script"),
+        script
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = fs::metadata(&script_path)
+            .expect("installed script metadata")
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o111, 0);
+    }
+    let document = read_json(&config_path);
+    let provider = document["asr"]["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|provider| provider["id"] == "provider.openai-compatible.streaming")
+        .expect("installed provider config");
+    assert_eq!(provider["type"], "command");
+    assert_eq!(provider["command"], "python3");
+    assert_eq!(provider["args"], serde_json::json!([script_path]));
+    assert_eq!(provider["timeout_ms"], 60000);
+    assert_eq!(provider["env"]["VINPUT_ASR_API_KEY"], "");
+    assert_eq!(provider["env"]["VINPUT_ASR_MODEL"], "");
+    assert!(config_path.with_extension("json.bak").exists());
+    fs::remove_dir_all(root).expect("remove provider install root");
+}
+
+#[test]
+fn provider_install_refuses_user_defined_provider_before_download() {
+    let root = unique_temp_dir("vinput-provider-install-refuse-custom");
+    let config_path = root.join("config.json");
+    fs::write(
+        &config_path,
+        user_defined_live_provider_config_fixture_json(),
+    )
+    .expect("write config");
+    let registry_path = root.join("providers.json");
+    fs::write(
+        &registry_path,
+        live_provider_registry_fixture_json("http://127.0.0.1:9/should-not-fetch.py"),
+    )
+    .expect("write provider registry");
+
+    let output = vinput_command()
+        .args(["provider", "install", "oai-stream", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--provider-root")
+        .arg(root.join("managed-providers"))
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run provider install against custom provider");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("refusing to overwrite user-defined ASR provider"));
+    fs::remove_dir_all(root).expect("remove custom provider root");
+}
+
+fn write_live_provider_config_fixture(prefix: &str) -> std::path::PathBuf {
+    write_temp_json(prefix, live_provider_config_fixture_json())
+}
+
+fn write_live_provider_registry_fixture(prefix: &str, script_url: &str) -> std::path::PathBuf {
+    let input = live_provider_registry_fixture_json(script_url);
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "{prefix}-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+    fs::write(&path, input).expect("write live provider registry fixture");
+    path
+}
+
+fn live_provider_registry_fixture_json(script_url: &str) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "version": 1,
+        "items": [
+            {
+                "id": "provider.openai-compatible.streaming",
+                "short_id": "oai-stream",
+                "stream": true,
+                "command": "python3",
+                "script_urls": [script_url],
+                "readme_url": "https://example.test/openai/README.md",
+                "envs": [
+                    {"name": "VINPUT_ASR_API_KEY", "required": true},
+                    {"name": "VINPUT_ASR_MODEL", "required": false}
+                ]
+            },
+            {
+                "id": "provider.doubao.batch",
+                "short_id": "doubao-batch",
+                "stream": false,
+                "command": "python3",
+                "script_urls": ["https://example.test/doubao.py"],
+                "readme_url": "https://example.test/doubao/README.md",
+                "envs": [
+                    {"name": "VINPUT_ASR_APP_ID", "required": true}
+                ]
+            }
+        ]
+    }))
+    .expect("serialize live provider registry fixture")
+}
+
+fn live_provider_config_fixture_json() -> &'static str {
+    r#"
+    {
+      "version": 1,
+      "asr": {
+        "active_provider": "base",
+        "providers": [
+          {"id":"base","type":"local","model":"base"},
+          {
+            "id":"provider.openai-compatible.streaming",
+            "type":"command",
+            "command":"python3",
+            "args":["/tmp/managed-providers/openai-compatible/streaming"],
+            "env":{"VINPUT_ASR_API_KEY":"preserve-me"},
+            "timeout_ms":12000
+          }
+        ]
+      },
+      "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+      }
+    }
+    "#
+}
+
+fn empty_live_provider_config_fixture_json() -> &'static str {
+    r#"
+    {
+      "version": 1,
+      "asr": {
+        "active_provider": "base",
+        "providers": [{"id":"base","type":"local","model":"base"}]
+      },
+      "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+      }
+    }
+    "#
+}
+
+fn user_defined_live_provider_config_fixture_json() -> &'static str {
+    r#"
+    {
+      "version": 1,
+      "asr": {
+        "active_provider": "base",
+        "providers": [
+          {"id":"base","type":"local","model":"base"},
+          {"id":"provider.openai-compatible.streaming","type":"local","model":"custom"}
+        ]
+      },
+      "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+      }
+    }
+    "#
+}
+
+fn serve_single_binary_response(bytes: Vec<u8>) -> (String, std::thread::JoinHandle<String>) {
+    use std::io::{Read as _, Write as _};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
+    let url = format!("http://{}/entry.py", listener.local_addr().unwrap());
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept test HTTP request");
+        let mut request = [0_u8; 4096];
+        let size = stream.read(&mut request).expect("read HTTP request");
+        let first_line = String::from_utf8_lossy(&request[..size])
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        let path = first_line
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("/")
+            .to_owned();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            bytes.len()
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("write HTTP headers");
+        stream.write_all(&bytes).expect("write HTTP body");
+        path
+    });
+    (url, handle)
+}
+
 fn write_provider_fixture(prefix: &str) -> std::path::PathBuf {
     write_temp_json(prefix, provider_fixture_json())
 }

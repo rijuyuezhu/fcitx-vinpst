@@ -328,6 +328,7 @@ fn provider_help_lists_list_and_use_options() {
         .expect("run vinput provider --help");
     let root_stdout = assert_stdout_success(root_output, "provider help output");
     assert!(root_stdout.contains("list"));
+    assert!(root_stdout.contains("install"));
     assert!(root_stdout.contains("use"));
     assert!(root_stdout.contains("add"));
     assert!(root_stdout.contains("edit"));
@@ -338,8 +339,24 @@ fn provider_help_lists_list_and_use_options() {
         .output()
         .expect("run vinput provider list --help");
     let list_stdout = assert_stdout_success(list_output, "provider list help output");
+    assert!(list_stdout.contains("--available"));
+    assert!(list_stdout.contains("--registry"));
     assert!(list_stdout.contains("--config"));
     assert!(list_stdout.contains("--json"));
+
+    let install_output = vinput_command()
+        .args(["provider", "install", "--help"])
+        .output()
+        .expect("run vinput provider install --help");
+    let install_stdout = assert_stdout_success(install_output, "provider install help output");
+    assert!(install_stdout.contains("<ID>"));
+    assert!(install_stdout.contains("--registry"));
+    assert!(install_stdout.contains("--provider-root"));
+    assert!(install_stdout.contains("--config"));
+    assert!(install_stdout.contains("--output"));
+    assert!(install_stdout.contains("--in-place"));
+    assert!(install_stdout.contains("--dry-run"));
+    assert!(install_stdout.contains("--json"));
 
     let add_output = vinput_command()
         .args(["provider", "add", "--help"])
