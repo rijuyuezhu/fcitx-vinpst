@@ -108,7 +108,7 @@ The local smoke prepends `target/debug` to `LD_LIBRARY_PATH` by default so the c
 
 ## Diagnostics
 
-Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable.
+Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable. An empty active provider is the explicit legacy-compatible unselected state and reports `no active ASR provider is configured`; runtime construction fails rather than selecting a fallback implicitly.
 
 ## Known compatibility gaps
 

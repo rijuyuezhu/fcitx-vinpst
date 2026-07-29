@@ -18,6 +18,7 @@ The project has crossed the main implementation threshold for local native ASR a
 
 - Current registry native ASR families are mapped and real-WAV tested, including offline and online paths.
 - The current upstream provider and adapter registries are parsed directly; short ids, batch/streaming protocol validation, mirror-backed script install, executable publication, environment placeholders, config backups, timeout/env preservation, and guarded managed updates are deterministic-test proven.
+- Provider removal now matches the legacy safety contract: local providers cannot be removed, active non-local removal clears the active selection, exact empty selection is valid, and ASR diagnostics report an explicit unselected state.
 - Generic native user install copies the validated runtime bundle, supports D-Bus activation, and completes exact native recognition round trips in a temporary HOME.
 - The retained addon deterministically applies partial preedit, final commit, command candidate selection, selected-text deletion, and replacement through concrete Fcitx test frontends.
 - CLI, config, registry, daemon, recording, diagnostics, and frontend configuration surfaces are broadly implemented.
@@ -53,7 +54,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Offline VAD | Silero model, legacy-compatible settings, fallback, cold-start guard, install, and diagnostics | Real microphone validation |
 | Text processing | Command adapters, OpenAI-compatible transport, prompts, context cache, scenes, candidates | One real desktop provider flow |
 | Registry | Live model lifecycle plus current provider/adapter registry list/install, guarded config materialization, and executable script publication | Resource update/remove/i18n polish |
-| CLI | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, recording, and doctor | UX polish and continued feature-driven module extraction |
+| CLI | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, recording, and doctor; provider removal preserves local entries and supports active-clear semantics | UX polish and continued feature-driven module extraction |
 | Fcitx frontend | Persistent keys, Tap/Hold/Both, menus, filtering, i18n, notifications, owner recovery, partial preedit, outcome application | Real desktop rendering and multi-application proof |
 | User install | Temporary-HOME profiles, activation services, environment wrapper, native runtime bundle | Packaging, upgrade, and version-selection policy |
 | Diagnostics | Doctor, runtime status, ASR state, audio devices, owner/PID/procfs, live probe | Live error-message refinement |
@@ -65,7 +66,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 2. **Command-mode application behavior:** surrounding-text and primary-selection fallback need proof across applications and toolkits.
 3. **Release boundary:** there is no distro packaging, upgrade policy, or external-user installation path yet.
 4. **Remote parity:** legacy remote ASR/text services are not implemented.
-5. **Resource lifecycle:** model, provider, and adapter installation are available; provider/adapter update/remove and i18n polish remain.
+5. **Resource lifecycle:** model, provider, and adapter installation are available and provider removal matches legacy; adapter selector/remove and registry i18n polish remain.
 6. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.
 
 ## Rust improvements beyond legacy

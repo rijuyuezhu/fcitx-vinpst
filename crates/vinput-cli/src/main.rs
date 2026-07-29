@@ -1067,10 +1067,13 @@ enum ProviderCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Remove an inactive ASR provider from config.
+    /// Remove a non-local ASR provider from config.
     Remove {
-        /// Existing inactive ASR provider id to remove.
+        /// Existing provider id or registry `short_id` to remove.
         id: String,
+        /// Optional local registry/providers.json file used for short-id resolution.
+        #[arg(long)]
+        registry: Option<PathBuf>,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -5532,6 +5535,7 @@ fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
         }),
         ProviderCommand::Remove {
             id,
+            registry,
             config,
             output,
             in_place,
@@ -5539,6 +5543,7 @@ fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
             json,
         } => print_provider_remove(ProviderRemoveRequest {
             id: &id,
+            registry_path: registry.as_deref(),
             config_path: config.as_ref(),
             output_path: output.as_deref(),
             in_place,
@@ -5660,6 +5665,7 @@ struct ProviderEditOutcome {
 #[allow(clippy::struct_excessive_bools)]
 struct ProviderRemoveRequest<'a> {
     id: &'a str,
+    registry_path: Option<&'a Path>,
     config_path: Option<&'a PathBuf>,
     output_path: Option<&'a Path>,
     in_place: bool,
@@ -6586,29 +6592,62 @@ fn print_provider_remove(request: ProviderRemoveRequest<'_>) -> anyhow::Result<(
 fn run_provider_remove(
     request: &ProviderRemoveRequest<'_>,
 ) -> anyhow::Result<ProviderRemoveOutcome> {
-    let id = normalize_provider_id(request.id)?;
+    let selector = normalize_provider_id(request.id)?;
     let default_path = default_config_path()?;
     let mut loaded = load_config_json(request.config_path)?;
     let contents =
         serde_json::to_string(&loaded.document).context("serialize config for provider remove")?;
     let config =
         VinputConfig::from_json_str(&contents).context("parse config for provider remove")?;
-    let provider_index = config
+    config
+        .validate()
+        .context("validate config for provider remove")?;
+
+    let provider_index = if let Some(index) = config
         .asr
         .providers
         .iter()
-        .position(|provider| provider.id == id)
-        .with_context(|| format!("ASR provider `{id}` not found"))?;
-    let provider = &config.asr.providers[provider_index];
-    if provider.id == config.asr.active_provider {
+        .position(|provider| provider.id == selector)
+    {
+        index
+    } else if let Some(registry_path) = request.registry_path {
+        let registry = load_live_provider_registry(Some(registry_path), &config.registry)?;
+        let entry = registry
+            .registry
+            .entry_by_id_or_short_id(&selector, LiveScriptKind::AsrProvider)
+            .with_context(|| format!("ASR provider selector `{selector}` not found"))?;
+        config
+            .asr
+            .providers
+            .iter()
+            .position(|provider| provider.id == entry.id)
+            .with_context(|| {
+                format!(
+                    "ASR provider `{}` resolved from `{selector}` is not installed",
+                    entry.id
+                )
+            })?
+    } else {
         anyhow::bail!(
-            "refusing to remove active ASR provider `{}`; run vinput provider use <id> first",
-            provider.id
+            "ASR provider `{selector}` not found; pass --registry <providers.json> to resolve a short id"
         );
+    };
+
+    let provider = config.asr.providers[provider_index].clone();
+    if provider.kind == AsrProviderKind::Local {
+        anyhow::bail!("local ASR provider `{}` cannot be removed", provider.id);
     }
     let removed_provider_type = asr_provider_kind_label(&provider.kind);
     let before_provider_count = config.asr.providers.len();
+    let removed_active_provider = provider.id == config.asr.active_provider;
 
+    if removed_active_provider {
+        *loaded
+            .document
+            .pointer_mut("/asr/active_provider")
+            .with_context(|| "config pointer `/asr/active_provider` not found")? =
+            serde_json::Value::String(String::new());
+    }
     let providers = loaded
         .document
         .pointer_mut("/asr/providers")
@@ -6634,9 +6673,13 @@ fn run_provider_remove(
     Ok(ProviderRemoveOutcome {
         config_path: loaded.path.take(),
         source: loaded.source,
-        removed_provider_id: id,
+        removed_provider_id: provider.id,
         removed_provider_type,
-        active_provider: config.asr.active_provider,
+        active_provider: if removed_active_provider {
+            String::new()
+        } else {
+            config.asr.active_provider
+        },
         before_provider_count,
         after_provider_count: before_provider_count - 1,
         output_path: write_target.output_path(),

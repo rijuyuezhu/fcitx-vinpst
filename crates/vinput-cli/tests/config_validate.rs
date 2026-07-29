@@ -568,7 +568,7 @@ fn config_validate_fails_for_empty_capture_device() {
 }
 
 #[test]
-fn config_validate_fails_for_empty_active_provider() {
+fn config_validate_fails_for_whitespace_active_provider() {
     let path = write_temp_config(
         r#"{"version":1,"asr":{"active_provider":"   ","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
     );
@@ -1156,6 +1156,39 @@ fn asr_state_accepts_committed_default_fixture() {
             .unwrap_or_default()
             .contains("sherpa-onnx runtime")
     );
+}
+
+#[test]
+fn asr_state_reports_unselected_provider() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "",
+            "providers": [{"id":"local","type":"local","model":"fixture-model"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinput_command()
+        .arg("asr-state")
+        .arg("--config")
+        .arg(&path)
+        .output()
+        .expect("run vinput asr-state with no active provider");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "unselected ASR state");
+    assert_eq!(value["target_provider_id"], "");
+    assert_eq!(value["effective_provider_id"], "");
+    assert_eq!(value["has_effective_backend"], false);
+    assert_eq!(value["last_error"], "no active ASR provider is configured");
 }
 
 #[test]

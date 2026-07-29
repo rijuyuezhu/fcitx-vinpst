@@ -26,6 +26,9 @@ impl AsrBackendFactory {
 
     /// Builds the active backend from ASR config.
     pub fn build_active(config: &AsrConfig) -> Result<Box<dyn AsrBackend>, AsrError> {
+        if config.active_provider.is_empty() {
+            return Err(AsrError::NoActiveProvider);
+        }
         let provider = active_provider(config)
             .ok_or_else(|| AsrError::UnknownProvider(config.active_provider.clone()))?;
         Self::build_provider_with_vad(provider, Some(&config.vad))

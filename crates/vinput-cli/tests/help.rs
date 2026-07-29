@@ -321,6 +321,7 @@ fn scene_help_lists_list_and_use_options() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn provider_help_lists_list_and_use_options() {
     let root_output = vinput_command()
         .args(["provider", "--help"])
@@ -423,6 +424,7 @@ fn provider_help_lists_list_and_use_options() {
         .expect("run vinput provider remove --help");
     let remove_stdout = assert_stdout_success(remove_output, "provider remove help output");
     assert!(remove_stdout.contains("<ID>"));
+    assert!(remove_stdout.contains("--registry"));
     assert!(remove_stdout.contains("--config"));
     assert!(remove_stdout.contains("--output"));
     assert!(remove_stdout.contains("--in-place"));

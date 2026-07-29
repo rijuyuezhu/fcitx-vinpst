@@ -161,7 +161,7 @@ fn legacy_scene_bounds_are_strict_not_clamped() {
 }
 
 #[test]
-fn legacy_missing_active_scene_and_provider_are_strictly_rejected() {
+fn legacy_unknown_active_scene_and_provider_are_strictly_rejected() {
     let mut scene = bundled();
     scene.scenes.active_scene = "missing".to_owned();
     assert!(matches!(
@@ -175,6 +175,13 @@ fn legacy_missing_active_scene_and_provider_are_strictly_rejected() {
         provider.validate().unwrap_err(),
         ConfigError::UnknownActiveAsrProvider(id) if id == "missing"
     ));
+}
+
+#[test]
+fn legacy_empty_active_provider_is_valid_unselected_state() {
+    let mut config = bundled();
+    config.asr.active_provider.clear();
+    config.validate().unwrap();
 }
 
 #[test]

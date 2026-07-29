@@ -338,6 +338,25 @@ fn backend_factory_reports_unknown_active_provider() {
 }
 
 #[test]
+fn backend_factory_reports_unselected_active_provider() {
+    let config = AsrConfig {
+        active_provider: String::new(),
+        providers: Vec::new(),
+        ..AsrConfig::default()
+    };
+
+    let Err(error) = AsrBackendFactory::build_active(&config) else {
+        panic!("unselected provider should fail");
+    };
+    assert!(matches!(error, AsrError::NoActiveProvider));
+
+    let state = AsrBackendFactory::state_for_config(&config);
+    assert_eq!(state.target_provider_id, "");
+    assert!(!state.has_effective_backend);
+    assert_eq!(state.last_error, "no active ASR provider is configured");
+}
+
+#[test]
 fn command_asr_spec_parses_provider_fields() {
     let provider = AsrProviderConfig {
         id: "cmd".to_owned(),

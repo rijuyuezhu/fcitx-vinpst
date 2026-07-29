@@ -242,11 +242,14 @@ fn validate_asr(asr: &AsrConfig) -> Result<(), ConfigError> {
         validate_asr_provider(provider, &mut provider_ids)?;
     }
 
-    if asr.active_provider.trim().is_empty() {
+    if !asr.active_provider.is_empty() && asr.active_provider.trim().is_empty() {
         return Err(ConfigError::InvalidActiveAsrProviderId);
     }
 
-    if !asr.providers.is_empty() && !provider_ids.contains(asr.active_provider.as_str()) {
+    if !asr.active_provider.is_empty()
+        && !asr.providers.is_empty()
+        && !provider_ids.contains(asr.active_provider.as_str())
+    {
         return Err(ConfigError::UnknownActiveAsrProvider(
             asr.active_provider.clone(),
         ));
@@ -1410,7 +1413,14 @@ mod tests {
     }
 
     #[test]
-    fn validation_rejects_empty_active_provider() {
+    fn validation_accepts_empty_active_provider_as_unselected() {
+        let mut config = VinputConfig::bundled_default().unwrap();
+        config.asr.active_provider.clear();
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn validation_rejects_whitespace_active_provider() {
         let mut config = VinputConfig::bundled_default().unwrap();
         config.asr.active_provider = "  ".to_owned();
         let error = config.validate().unwrap_err();

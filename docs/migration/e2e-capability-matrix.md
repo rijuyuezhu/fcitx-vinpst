@@ -24,7 +24,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | --- | --- | --- | --- |
 | First-run initialization | implemented | `vinput init`, managed directories, config validation, dry-run/JSON tests | Install guide polish |
 | Discover and install a model | implemented | live registry list/info/install, SHA-256, safe extraction, atomic materialization | Update/packaging polish |
-| Discover and install an ASR provider | implemented | current `registry/providers.json`, short ids, batch/streaming validation, mirror download, executable publication, legacy timeout/env preservation, config backup, guarded managed update | i18n and update/remove polish |
+| Discover, install, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, batch/streaming validation, mirror download, executable publication, legacy timeout/env preservation, config backup, guarded managed update; local removal guard and active-clear semantics | registry i18n polish |
 | Discover and install an adapter | implemented | current `registry/adapters.json`, short ids, mirror download, executable publication, config backup, guarded managed update | i18n and update/remove polish |
 | Select and reload a model | deterministic | config persistence, background prepare-before-swap, C++/D-Bus selection smokes | Real desktop reload proof |
 | Normal native dictation | deterministic | native WAV -> D-Bus -> addon partial preedit -> concrete `InputContext` commit | Live PipeWire and real application |
@@ -106,7 +106,7 @@ Current adapter script installation is implemented:
 - update only adapters already bound to the expected managed script and refuse user-defined replacements;
 - keep dry-run free of script and config writes.
 
-Current provider registry installation is implemented with full/short id lookup, batch/streaming validation, legacy-compatible managed paths, mirror-backed executable publication, 60000 ms default timeout, environment placeholders, existing timeout/env preservation, config backup, and user-defined provider protection. Full adapter/provider update/remove and i18n UX remain partial.
+Current provider registry installation is implemented with full/short id lookup, batch/streaming validation, legacy-compatible managed paths, mirror-backed executable publication, 60000 ms default timeout, environment placeholders, existing timeout/env preservation, config backup, and user-defined provider protection. Provider removal also matches legacy: local providers are protected, active non-local removal clears the active selection, and registry short ids can be resolved from an explicit catalog. Adapter selector/remove and registry i18n UX remain partial.
 
 ## Native runtime coverage
 
@@ -158,7 +158,7 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 - upgrade, rollback, and uninstall policy;
 - runtime-library version selection;
 - remote text service parity;
-- full adapter/provider update/remove and registry i18n lifecycle;
+- adapter selector/remove and registry i18n lifecycle;
 - external-user documentation;
 - optional GUI strategy.
 

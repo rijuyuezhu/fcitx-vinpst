@@ -14,6 +14,9 @@ pub enum AsrError {
     /// The requested ASR provider is not present in config.
     #[error("ASR provider `{0}` is not configured")]
     UnknownProvider(String),
+    /// No ASR provider is currently selected.
+    #[error("no active ASR provider is configured")]
+    NoActiveProvider,
     /// Configured provider kind is recognized but not implemented yet.
     #[error("ASR provider `{provider_id}` of kind `{kind}` is not implemented yet")]
     UnsupportedProviderKind {

@@ -37,13 +37,14 @@ Then prove command-mode selected-text replacement across real applications.
 - Current registry native ASR families have typed runtime mappings and real-WAV evidence.
 - Current `registry/adapters.json` listing and adapter install are implemented with short ids, mirror fallback, executable scripts, environment placeholders, config backups, and guarded managed updates.
 - Current `registry/providers.json` listing and provider install are implemented with short ids, batch/streaming validation, mirror fallback, executable scripts, legacy timeout/env preservation, config backups, and guarded managed updates.
+- Provider removal protects local entries, permits active non-local removal, clears the active selection, and reports an explicit no-provider ASR diagnostic without choosing a fallback.
 - `sherpa-native-live` validates and copies `libsherpa-onnx` and `libonnxruntime`, then activates through `vinput-daemon-with-vinput-env.sh`.
 - `user-ime-sherpa-native-activation-smoke` proves temporary-HOME activation and exact recognition.
 - Native online partials reach concrete Fcitx preedit before stop.
 - Final normal commit and command candidate replacement reach concrete test `InputContext` implementations.
 - Persistent keys, Tap/Hold/Both, scene/ASR menus, filtering, i18n, notifications, and daemon recovery are implemented.
 - Real Fcitx, live PipeWire, and real application behavior remain unproven.
-- Adapter/provider update/remove/i18n polish, remote services, packaging, upgrades, and optional GUI work remain later milestones.
+- Adapter selector/remove and registry i18n polish, remote services, packaging, upgrades, and optional GUI work remain later milestones.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.
 

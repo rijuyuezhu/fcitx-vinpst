@@ -731,6 +731,40 @@ fn provider_remove_dry_run_json_validates_inactive_provider_without_writing() {
 }
 
 #[test]
+fn provider_remove_resolves_installed_short_id_from_registry() {
+    let config_path = write_live_provider_config_fixture("vinput-provider-remove-short-id");
+    let registry_path = write_live_provider_registry_fixture(
+        "vinput-provider-remove-short-id-registry",
+        "https://provider.example.test/entry.py",
+    );
+    let before = fs::read_to_string(&config_path).expect("read original provider config");
+
+    let output = vinput_command()
+        .args(["provider", "remove", "oai-stream", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run vinput provider remove short id");
+
+    let value = assert_json_success(output, "provider remove short id json");
+    assert_eq!(
+        value["removed_provider_id"],
+        "provider.openai-compatible.streaming"
+    );
+    assert_eq!(value["removed_provider_type"], "command");
+    assert_eq!(value["active_provider"], "base");
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read unchanged provider config"),
+        before
+    );
+    fs::remove_file(config_path).expect("remove temporary provider config");
+    fs::remove_file(registry_path).expect("remove temporary provider registry");
+}
+
+#[test]
 fn provider_remove_text_dry_run_outputs_expected_fields() {
     let path = write_provider_fixture("vinput-provider-remove-text-dry-run");
 
@@ -763,7 +797,7 @@ fn provider_remove_output_writes_valid_config_without_overwriting_input() {
     let before = fs::read_to_string(&config_path).expect("read original provider config");
 
     let output = vinput_command()
-        .args(["provider", "remove", "local", "--config"])
+        .args(["provider", "remove", "cmd", "--config"])
         .arg(&config_path)
         .arg("--output")
         .arg(&output_path)
@@ -774,17 +808,18 @@ fn provider_remove_output_writes_valid_config_without_overwriting_input() {
     let value = assert_json_success(output, "provider remove output json");
     assert_eq!(value["wrote_config"], true);
     assert_eq!(value["in_place"], false);
+    assert_eq!(value["removed_provider_id"], "cmd");
+    assert_eq!(value["active_provider"], "");
     assert_eq!(value["output_path"], output_path.to_string_lossy().as_ref());
     assert_eq!(
         fs::read_to_string(&config_path).expect("read preserved input config"),
         before
     );
-    let providers = read_json(&output_path)["asr"]["providers"]
-        .as_array()
-        .unwrap()
-        .clone();
+    let output_json = read_json(&output_path);
+    assert_eq!(output_json["asr"]["active_provider"], "");
+    let providers = output_json["asr"]["providers"].as_array().unwrap().clone();
     assert_eq!(providers.len(), 2);
-    assert!(providers.iter().all(|provider| provider["id"] != "local"));
+    assert!(providers.iter().all(|provider| provider["id"] != "cmd"));
     fs::remove_dir_all(root).expect("remove provider remove output fixture dir");
 }
 
@@ -821,7 +856,7 @@ fn provider_remove_in_place_writes_backup() {
 }
 
 #[test]
-fn provider_remove_rejects_empty_missing_active_and_missing_write_target() {
+fn provider_remove_rejects_empty_missing_local_and_missing_write_target() {
     let path = write_provider_fixture("vinput-provider-remove-errors");
 
     let empty = vinput_command()
@@ -843,19 +878,20 @@ fn provider_remove_rejects_empty_missing_active_and_missing_write_target() {
     assert!(!missing.status.success());
     let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("ASR provider `missing` not found"));
+    assert!(stderr.contains("pass --registry"));
 
-    let active = vinput_command()
-        .args(["provider", "remove", "cmd", "--config"])
+    let local = vinput_command()
+        .args(["provider", "remove", "local", "--config"])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinput provider remove active id");
-    assert!(!active.status.success());
-    let stderr = String::from_utf8(active.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("refusing to remove active ASR provider `cmd`"));
+        .expect("run vinput provider remove local id");
+    assert!(!local.status.success());
+    let stderr = String::from_utf8(local.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("local ASR provider `local` cannot be removed"));
 
     let missing_target = vinput_command()
-        .args(["provider", "remove", "local", "--config"])
+        .args(["provider", "remove", "remote", "--config"])
         .arg(&path)
         .output()
         .expect("run vinput provider remove without write target");
