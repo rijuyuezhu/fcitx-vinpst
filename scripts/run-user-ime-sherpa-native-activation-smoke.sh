@@ -8,6 +8,7 @@ model_dir="${VINPUT_SHERPA_MODEL:-}"
 wav_path="${VINPUT_SHERPA_WAV:-}"
 expected_text="${VINPUT_SHERPA_EXPECT_TEXT:-}"
 runtime_lib_dir="${VINPUT_SHERPA_RUNTIME_LIB_DIR:-${repo_root}/target/debug}"
+frontend_bin="${VINPUT_NATIVE_ACTIVATION_FRONTEND_BIN:-}"
 out_dir="${VINPUT_USER_NATIVE_ACTIVATION_SMOKE_DIR:-target/tmp/user-ime-sherpa-native-activation-smoke}"
 if [[ "${out_dir}" = /* ]]; then
   out_dir_abs="${out_dir}"
@@ -56,6 +57,13 @@ fi
 model_dir="$(realpath "${model_dir}")"
 wav_path="$(realpath "${wav_path}")"
 runtime_lib_dir="$(realpath "${runtime_lib_dir}")"
+if [[ -n "${frontend_bin}" ]]; then
+  if [[ ! -x "${frontend_bin}" ]]; then
+    echo "VINPUT_NATIVE_ACTIVATION_FRONTEND_BIN must be executable: ${frontend_bin}" >&2
+    exit 2
+  fi
+  frontend_bin="$(realpath "${frontend_bin}")"
+fi
 if [[ ! -f "${model_dir}/vinput-model.json" ]]; then
   echo "native activation smoke requires typed metadata: ${model_dir}/vinput-model.json" >&2
   exit 2
@@ -113,7 +121,13 @@ VINPUT_ACTIVATION_EXPECTED_WAV="${wav_path}" \
 VINPUT_ACTIVATION_STATUS_OUTPUT="${status_output}" \
 VINPUT_ACTIVATION_START_OUTPUT="${start_output}" \
 VINPUT_ACTIVATION_STOP_OUTPUT="${stop_output}" \
+VINPUT_ACTIVATION_FRONTEND_BIN="${frontend_bin}" \
   timeout 120s dbus-run-session -- bash -euo pipefail <<'INNER'
+if [[ -n "${VINPUT_ACTIVATION_FRONTEND_BIN}" ]]; then
+  VINPUT_NATIVE_FRONTEND_EXPECTED_TEXT="${VINPUT_ACTIVATION_EXPECTED_TEXT}" \
+    "${VINPUT_ACTIVATION_FRONTEND_BIN}"
+fi
+
 target/debug/vinput daemon status --json >"${VINPUT_ACTIVATION_STATUS_OUTPUT}"
 python3 - \
   "${VINPUT_ACTIVATION_STATUS_OUTPUT}" \
@@ -141,11 +155,12 @@ assert asr["last_error"] == "", asr
 print(f"activated native daemon: {expected_daemon}")
 PY
 
-target/debug/vinput recording start --json >"${VINPUT_ACTIVATION_START_OUTPUT}"
-target/debug/vinput recording stop --json >"${VINPUT_ACTIVATION_STOP_OUTPUT}"
-python3 - \
-  "${VINPUT_ACTIVATION_STOP_OUTPUT}" \
-  "${VINPUT_ACTIVATION_EXPECTED_TEXT}" <<'PY'
+if [[ -z "${VINPUT_ACTIVATION_FRONTEND_BIN}" ]]; then
+  target/debug/vinput recording start --json >"${VINPUT_ACTIVATION_START_OUTPUT}"
+  target/debug/vinput recording stop --json >"${VINPUT_ACTIVATION_STOP_OUTPUT}"
+  python3 - \
+    "${VINPUT_ACTIVATION_STOP_OUTPUT}" \
+    "${VINPUT_ACTIVATION_EXPECTED_TEXT}" <<'PY'
 import json
 import pathlib
 import sys
@@ -158,6 +173,7 @@ if actual != expected:
     raise SystemExit(f"unexpected native activation recognition: {actual!r}")
 print(f"native activation recognition: {actual}")
 PY
+fi
 INNER
 
 cleanup_install
