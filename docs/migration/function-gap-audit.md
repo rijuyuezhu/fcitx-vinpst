@@ -18,6 +18,7 @@ The Rust rewrite is a **usable CLI/daemon alpha** with a strong deterministic pr
 The project has crossed the main implementation threshold for local native ASR and retained-frontend integration:
 
 - Current registry native ASR families are mapped and real-WAV tested, including offline and online paths.
+- The current upstream adapter registry is parsed directly; short ids, mirror-backed script install, executable publication, environment placeholders, config backups, and guarded managed updates are deterministic-test proven.
 - Generic native user install copies the validated runtime bundle, supports D-Bus activation, and completes exact native recognition round trips in a temporary HOME.
 - The retained addon deterministically applies partial preedit, final commit, command candidate selection, selected-text deletion, and replacement through concrete Fcitx test frontends.
 - CLI, config, registry, daemon, recording, diagnostics, and frontend configuration surfaces are broadly implemented.
@@ -35,7 +36,8 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Real desktop normal dictation | Not live-proven |
 | Real desktop command dictation | Not live-proven across applications |
 | Frontend menus/configuration | Implemented and deterministically tested; live UI proof missing |
-| Provider/adapter resource installation | Partial |
+| Adapter resource installation | Implemented for current script registry; update/remove/i18n polish remains |
+| ASR provider resource installation | Partial |
 | Remote text service | Missing |
 | Distro packaging and upgrades | Missing |
 | Legacy Qt GUI | Deferred |
@@ -51,7 +53,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Audio | Typed PCM, processing, mock/file sources, optional PipeWire recorder and diagnostics | Real PipeWire capture proof |
 | Offline VAD | Silero model, legacy-compatible settings, fallback, cold-start guard, install, and diagnostics | Real microphone validation |
 | Text processing | Command adapters, OpenAI-compatible transport, prompts, context cache, scenes, candidates | One real desktop provider flow |
-| Registry | Live model list/info/install/use/remove, i18n, checksum, safe extraction, atomic materialization | Provider/adapter install breadth |
+| Registry | Live model lifecycle plus current adapter registry list/install, guarded config materialization, and script publication | ASR provider installation and resource update/remove polish |
 | CLI | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, recording, and doctor | UX polish and continued feature-driven module extraction |
 | Fcitx frontend | Persistent keys, Tap/Hold/Both, menus, filtering, i18n, notifications, owner recovery, partial preedit, outcome application | Real desktop rendering and multi-application proof |
 | User install | Temporary-HOME profiles, activation services, environment wrapper, native runtime bundle | Packaging, upgrade, and version-selection policy |
@@ -64,7 +66,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 2. **Command-mode application behavior:** surrounding-text and primary-selection fallback need proof across applications and toolkits.
 3. **Release boundary:** there is no distro packaging, upgrade policy, or external-user installation path yet.
 4. **Remote parity:** legacy remote ASR/text services are not implemented.
-5. **Resource breadth:** model installation is mature; provider and adapter installation are not equivalent yet.
+5. **Resource breadth:** model installation and adapter script installation are available; ASR provider installation and full update/remove lifecycle remain.
 6. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.
 
 ## Rust improvements beyond legacy

@@ -24,6 +24,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | --- | --- | --- | --- |
 | First-run initialization | implemented | `vinput init`, managed directories, config validation, dry-run/JSON tests | Install guide polish |
 | Discover and install a model | implemented | live registry list/info/install, SHA-256, safe extraction, atomic materialization | Provider/adapter resources |
+| Discover and install an adapter | implemented | current `registry/adapters.json`, short ids, mirror download, executable publication, config backup, guarded managed update | i18n and update/remove polish |
 | Select and reload a model | deterministic | config persistence, background prepare-before-swap, C++/D-Bus selection smokes | Real desktop reload proof |
 | Normal native dictation | deterministic | native WAV -> D-Bus -> addon partial preedit -> concrete `InputContext` commit | Live PipeWire and real application |
 | Command native dictation | deterministic | selected text, ASR fallback candidate, candidate selection, deletion, replacement commit | Multi-application proof and real adapter flow |
@@ -48,13 +49,13 @@ hotword get/set/clear/edit
 device list/use
 scene list/add/edit/use/remove
 llm list/add/edit/remove/test
-adapter list/add/edit/install-plan/start/stop/status/remove
+adapter list/add/edit/install/install-plan/start/stop/status/remove
 daemon start/status/reload-asr/stop/restart/log
 recording start/stop/toggle/status
 doctor, asr-state, audio-devices, activation-service
 ```
 
-Current CLI gaps are not command-group gaps. They are provider/adapter live installation breadth, output polish, non-systemd behavior, and further feature-driven extraction from the large CLI composition file.
+Current CLI gaps are not command-group gaps. They are ASR provider installation, adapter/provider update/remove polish, output polish, non-systemd behavior, and further feature-driven extraction from the large CLI composition file.
 
 ## Daemon capability comparison
 
@@ -94,7 +95,17 @@ Model workflow is implemented:
 
 ### Providers and adapters
 
-Typed registry parsing and install planning exist, but complete download/materialize/configure/remove UX is partial. This is the main resource parity gap.
+Current adapter script installation is implemented:
+
+- parse the upstream `registry/adapters.json` shape and resolve full or short ids;
+- derive the same managed relative paths as legacy;
+- try ordered script mirrors and publish an executable file;
+- add blank values for declared environment keys while preserving existing values;
+- write config through output/in-place/backup policy;
+- update only adapters already bound to the expected managed script and refuse user-defined replacements;
+- keep dry-run free of script and config writes.
+
+ASR provider registry installation and full adapter/provider update/remove UX remain partial.
 
 ## Native runtime coverage
 
@@ -146,7 +157,7 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 - upgrade, rollback, and uninstall policy;
 - runtime-library version selection;
 - remote text service parity;
-- full provider/adapter resource installation;
+- ASR provider installation and full adapter/provider update/remove lifecycle;
 - external-user documentation;
 - optional GUI strategy.
 

@@ -26,7 +26,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
 | M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
-| M5 Resource parity | pending | provider/adapter install lifecycle comparable to models |
+| M5 Resource parity | active | adapter install complete; provider and update/remove lifecycle pending |
 | M6 Release readiness | pending | packaging, upgrades, install docs, external-user regression |
 
 ## Completed: usable CLI/daemon alpha
@@ -34,6 +34,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 The following are implemented and covered by deterministic tests:
 
 - model registry list/info/install/use/remove;
+- current adapter registry list/install with short ids, mirror fallback, managed overwrite protection, executable scripts, and config backups;
 - config initialization and mutation;
 - provider, hotword, device, scene, LLM, and adapter management;
 - daemon and recording control;
@@ -60,7 +61,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 ## P1: parity after live alpha
 
 - Port other remaining native model layouts only when registry or user demand is concrete.
-- Complete provider and adapter fetch/install/update/remove flows.
+- Port current ASR provider registry installation, then complete adapter/provider update/remove flows.
 - Validate one real OpenAI-compatible or command text provider in desktop command mode.
 - Broaden daemon-originated notification categories from observed needs.
 - Reduce oversized modules only along feature boundaries.

@@ -1349,9 +1349,12 @@ fn adapter_install_plan_rejects_unknown_adapter() {
 }
 
 #[test]
-fn adapter_list_available_json_reports_registry_adapters_and_configured_marker() {
-    let config_path = write_llm_fixture("vinput-adapter-available-config-json");
-    let registry_path = write_registry_fixture("vinput-adapter-available-registry-json");
+fn adapter_list_available_json_reports_live_registry_and_install_status() {
+    let config_path = write_live_adapter_config_fixture("vinput-adapter-available-config-json");
+    let registry_path = write_live_adapter_registry_fixture(
+        "vinput-adapter-available-registry-json",
+        "https://adapter.example.test/entry.py",
+    );
 
     let output = vinput_command()
         .args(["adapter", "list", "--available", "--registry"])
@@ -1366,29 +1369,30 @@ fn adapter_list_available_json_reports_registry_adapters_and_configured_marker()
 
     let value = assert_json_success(output, "adapter list available json");
     assert_eq!(value["ok"], true);
+    assert_eq!(value["registry_source"]["kind"], "file");
     assert_eq!(
-        value["registry_path"],
+        value["registry_source"]["path"],
         registry_path.to_string_lossy().as_ref()
     );
     assert_eq!(value["config_source"], "file");
     assert_eq!(value["adapter_count"], 2);
     let adapters = value["adapters"].as_array().unwrap();
-    assert_eq!(adapters[0]["id"], "command-adapter");
-    assert_eq!(adapters[0]["label"], "Command Adapter");
-    assert_eq!(adapters[0]["kind"], "command");
-    assert_eq!(adapters[0]["configured"], true);
-    assert_eq!(adapters[0]["asset_count"], 1);
-    assert_eq!(adapters[0]["known_size_bytes"], 1234);
-    assert_eq!(adapters[0]["unknown_size_count"], 0);
-    assert_eq!(adapters[1]["id"], "registry-only");
-    assert_eq!(adapters[1]["configured"], false);
-    assert_eq!(adapters[1]["unknown_size_count"], 1);
+    assert_eq!(adapters[0]["id"], "mtran-proxy");
+    assert_eq!(adapters[0]["machine_id"], "adapter.mtranserver.proxy");
+    assert_eq!(adapters[0]["command"], "python3");
+    assert_eq!(adapters[0]["status"], "installed");
+    assert_eq!(adapters[0]["envs"].as_array().unwrap().len(), 2);
+    assert_eq!(adapters[1]["id"], "other");
+    assert_eq!(adapters[1]["status"], "available");
 }
 
 #[test]
-fn adapter_list_available_text_prints_registry_table() {
-    let config_path = write_llm_fixture("vinput-adapter-available-config-text");
-    let registry_path = write_registry_fixture("vinput-adapter-available-registry-text");
+fn adapter_list_available_text_prints_live_registry_table() {
+    let config_path = write_live_adapter_config_fixture("vinput-adapter-available-config-text");
+    let registry_path = write_live_adapter_registry_fixture(
+        "vinput-adapter-available-registry-text",
+        "https://adapter.example.test/entry.py",
+    );
 
     let output = vinput_command()
         .args(["adapter", "ls", "-a", "--registry"])
@@ -1401,23 +1405,163 @@ fn adapter_list_available_text_prints_registry_table() {
     fs::remove_file(&registry_path).expect("remove temporary registry");
 
     let stdout = assert_stdout_success(output, "adapter list available text");
-    assert!(stdout.contains("registry_path:"));
+    assert!(stdout.contains("registry_source:"));
     assert!(stdout.contains("config_source: file"));
     assert!(stdout.contains("adapter_count: 2"));
-    assert!(stdout.contains("id	kind	configured	assets	known_size_bytes	unknown_size_count	label"));
-    assert!(stdout.contains("command-adapter	command	yes	1	1234	0	Command Adapter"));
-    assert!(stdout.contains("registry-only	command	no	1	0	1	Registry Only"));
+    assert!(stdout.contains("id\tmachine_id\tstatus\tcommand\tenvs\treadme"));
+    assert!(stdout.contains("mtran-proxy\tadapter.mtranserver.proxy\tinstalled\tpython3\t2"));
+    assert!(stdout.contains("other\tadapter.other.proxy\tavailable\tpython3\t0"));
 }
 
 #[test]
-fn adapter_list_available_requires_registry_path() {
+fn adapter_list_available_rejects_wrong_registry_kind() {
+    let registry_path = write_temp_json(
+        "vinput-adapter-wrong-registry-kind",
+        r#"{"version":1,"items":[{"id":"provider.test.batch","command":"python3","script_urls":["https://example.test/entry.py"]}]}"#,
+    );
     let output = vinput_command()
-        .args(["adapter", "list", "--available", "--json"])
+        .args(["adapter", "list", "--available", "--registry"])
+        .arg(&registry_path)
+        .arg("--json")
         .output()
-        .expect("run vinput adapter list --available without registry");
+        .expect("run vinput adapter list with provider registry");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("adapter list --available requires --registry <path>"));
+    assert!(stderr.contains("does not belong to `adapter` registry"));
+}
+
+#[test]
+fn adapter_install_dry_run_resolves_short_id_without_writing() {
+    let root = unique_temp_dir("vinput-adapter-install-dry-run");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, empty_adapter_config_fixture_json()).expect("write config");
+    let registry_path = root.join("adapters.json");
+    fs::write(
+        &registry_path,
+        live_adapter_registry_fixture_json("https://adapter.example.test/entry.py"),
+    )
+    .expect("write adapter registry");
+    let adapter_root = root.join("managed-adapters");
+    let before = fs::read_to_string(&config_path).expect("read original config");
+
+    let output = vinput_command()
+        .args(["adapter", "install", "mtran-proxy", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--adapter-root")
+        .arg(&adapter_root)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run adapter install dry-run");
+
+    let value = assert_json_success(output, "adapter install dry-run");
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["adapter_id"], "adapter.mtranserver.proxy");
+    assert_eq!(value["short_id"], "mtran-proxy");
+    assert_eq!(value["replacing_managed"], false);
+    assert_eq!(value["wrote_script"], false);
+    assert_eq!(value["wrote_config"], false);
+    assert_eq!(value["required_env"], serde_json::json!(["MTRAN_TOKEN"]));
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read unchanged config"),
+        before
+    );
+    assert!(!adapter_root.join("mtranserver/proxy").exists());
+    fs::remove_dir_all(root).expect("remove adapter dry-run root");
+}
+
+#[test]
+fn adapter_install_downloads_script_and_updates_config_in_place() {
+    let root = unique_temp_dir("vinput-adapter-install-live");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, empty_adapter_config_fixture_json()).expect("write config");
+    let adapter_root = root.join("managed-adapters");
+    let script = b"#!/usr/bin/env python3\nprint('adapter installed')\n".to_vec();
+    let (script_url, server) = serve_single_binary_response(script.clone());
+    let registry_path = root.join("adapters.json");
+    fs::write(
+        &registry_path,
+        live_adapter_registry_fixture_json(&script_url),
+    )
+    .expect("write adapter registry");
+
+    let output = vinput_command()
+        .args(["adapter", "install", "mtran-proxy", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--adapter-root")
+        .arg(&adapter_root)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run adapter install");
+    let requested_path = server.join().expect("join adapter HTTP server");
+    assert_eq!(requested_path, "/entry.py");
+
+    let value = assert_json_success(output, "adapter install json");
+    assert_eq!(value["dry_run"], false);
+    assert_eq!(value["replacing_managed"], false);
+    assert_eq!(value["wrote_script"], true);
+    assert_eq!(value["wrote_config"], true);
+    let script_path = adapter_root.join("mtranserver/proxy");
+    assert_eq!(
+        fs::read(&script_path).expect("read installed script"),
+        script
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = fs::metadata(&script_path)
+            .expect("installed script metadata")
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o111, 0);
+    }
+    let document = read_json(&config_path);
+    let adapter = document["llm"]["adapters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|adapter| adapter["id"] == "adapter.mtranserver.proxy")
+        .expect("installed adapter config");
+    assert_eq!(adapter["command"], "python3");
+    assert_eq!(adapter["args"], serde_json::json!([script_path]));
+    assert_eq!(adapter["env"]["MTRAN_URL"], "");
+    assert_eq!(adapter["env"]["MTRAN_TOKEN"], "");
+    assert!(config_path.with_extension("json.bak").exists());
+    fs::remove_dir_all(root).expect("remove adapter install root");
+}
+
+#[test]
+fn adapter_install_refuses_user_defined_adapter_before_download() {
+    let root = unique_temp_dir("vinput-adapter-install-refuse-custom");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, user_defined_adapter_config_fixture_json()).expect("write config");
+    let registry_path = root.join("adapters.json");
+    fs::write(
+        &registry_path,
+        live_adapter_registry_fixture_json("http://127.0.0.1:9/should-not-fetch.py"),
+    )
+    .expect("write adapter registry");
+
+    let output = vinput_command()
+        .args(["adapter", "install", "mtran-proxy", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--adapter-root")
+        .arg(root.join("managed-adapters"))
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run adapter install against custom adapter");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("refusing to overwrite user-defined text adapter"));
+    fs::remove_dir_all(root).expect("remove custom adapter root");
 }
 
 #[test]
@@ -1479,6 +1623,155 @@ fn adapter_list_text_prints_table_without_secret_values() {
     assert!(stdout.contains("command-adapter	yes	2	1	yes	0"));
     assert!(stdout.contains("simple-adapter	yes	0	0	no	0"));
     assert!(!stdout.contains("secret-token"));
+}
+
+fn write_live_adapter_config_fixture(prefix: &str) -> std::path::PathBuf {
+    write_temp_json(prefix, live_adapter_config_fixture_json())
+}
+
+fn write_live_adapter_registry_fixture(prefix: &str, script_url: &str) -> std::path::PathBuf {
+    let input = live_adapter_registry_fixture_json(script_url);
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "{prefix}-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+    fs::write(&path, input).expect("write live adapter registry fixture");
+    path
+}
+
+fn live_adapter_registry_fixture_json(script_url: &str) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "version": 1,
+        "items": [
+            {
+                "id": "adapter.mtranserver.proxy",
+                "short_id": "mtran-proxy",
+                "command": "python3",
+                "script_urls": [script_url],
+                "readme_url": "https://example.test/mtran/README.md",
+                "envs": [
+                    {"name": "MTRAN_URL", "required": false},
+                    {"name": "MTRAN_TOKEN", "required": true}
+                ]
+            },
+            {
+                "id": "adapter.other.proxy",
+                "short_id": "other",
+                "command": "python3",
+                "script_urls": ["https://example.test/other.py"],
+                "readme_url": "https://example.test/other/README.md",
+                "envs": []
+            }
+        ]
+    }))
+    .expect("serialize live adapter registry fixture")
+}
+
+fn live_adapter_config_fixture_json() -> &'static str {
+    r#"
+    {
+      "version": 1,
+      "asr": {
+        "active_provider": "p",
+        "providers": [{"id":"p","type":"local"}]
+      },
+      "llm": {
+        "providers": [],
+        "adapters": [
+          {
+            "id":"adapter.mtranserver.proxy",
+            "command":"python3",
+            "args":["MANAGED_SCRIPT_PATH_REPLACED_BY_TEST"],
+            "env":{"MTRAN_TOKEN":"preserve-me"}
+          }
+        ]
+      },
+      "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+      }
+    }
+    "#
+}
+
+fn empty_adapter_config_fixture_json() -> &'static str {
+    r#"
+    {
+      "version": 1,
+      "asr": {
+        "active_provider": "p",
+        "providers": [{"id":"p","type":"local"}]
+      },
+      "llm": {"providers": [], "adapters": []},
+      "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+      }
+    }
+    "#
+}
+
+fn user_defined_adapter_config_fixture_json() -> &'static str {
+    r#"
+    {
+      "version": 1,
+      "asr": {
+        "active_provider": "p",
+        "providers": [{"id":"p","type":"local"}]
+      },
+      "llm": {
+        "providers": [],
+        "adapters": [
+          {
+            "id":"adapter.mtranserver.proxy",
+            "command":"custom-adapter",
+            "args":["--serve"]
+          }
+        ]
+      },
+      "scenes": {
+        "active_scene": "raw",
+        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+      }
+    }
+    "#
+}
+
+fn serve_single_binary_response(bytes: Vec<u8>) -> (String, std::thread::JoinHandle<String>) {
+    use std::io::{Read as _, Write as _};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test HTTP server");
+    let url = format!("http://{}/entry.py", listener.local_addr().unwrap());
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept test HTTP request");
+        let mut request = [0_u8; 4096];
+        let size = stream.read(&mut request).expect("read HTTP request");
+        let first_line = String::from_utf8_lossy(&request[..size])
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        let path = first_line
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("/")
+            .to_owned();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            bytes.len()
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("write HTTP headers");
+        stream.write_all(&bytes).expect("write HTTP body");
+        path
+    });
+    (url, handle)
 }
 
 fn write_llm_fixture(prefix: &str) -> std::path::PathBuf {

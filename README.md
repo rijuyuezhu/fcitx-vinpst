@@ -13,7 +13,7 @@ The Rust workspace is split by responsibility:
 - `crates/vinput-audio`: PCM types, audio transforms, recorder traits, and optional PipeWire capture.
 - `crates/vinput-asr`: ASR traits plus mock, command, and optional native `sherpa-onnx` backends.
 - `crates/vinput-text`: scene prompts, command adapters, context cache, and OpenAI-compatible transport.
-- `crates/vinput-registry`: live registry metadata, checksums, safe extraction, and model installation.
+- `crates/vinput-registry`: live model/script registry metadata, checksums, safe extraction, and managed installation.
 - `crates/vinput-daemon`: runtime orchestration and the legacy-compatible D-Bus service.
 - `crates/vinput-cli`: the `vinput` management and diagnostics CLI.
 
@@ -26,6 +26,7 @@ Implemented and deterministically validated:
 - legacy-compatible D-Bus methods, signals, status strings, and recognition JSON;
 - `vinput init`, config mutation, model/provider/hotword/device/scene/LLM/adapter management, daemon control, recording control, and `vinput doctor`;
 - live model registry fetch, SHA-256 verification, safe archive extraction, install/use/remove, and installed-model discovery;
+- live adapter registry listing and `vinput adapter install`, including short ids, mirror fallback, executable script publication, config backup, environment placeholders, and guarded managed updates;
 - native offline and online registry-model ASR families currently used by the project;
 - `sherpa-native-live` user installation with a copied `libsherpa-onnx` and `libonnxruntime` bundle;
 - wrapper-based activation through `vinput-daemon-with-vinput-env.sh`;
@@ -36,11 +37,20 @@ Still requiring live proof or implementation:
 
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
-- provider/adapter registry installation breadth;
+- ASR provider registry installation and adapter i18n/update/remove polish;
 - remote text service parity, distro packaging, upgrades, and release hardening;
 - the legacy Qt GUI, which is intentionally deferred.
 
 See [`docs/migration/function-gap-audit.md`](docs/migration/function-gap-audit.md) for status and [`docs/migration/e2e-replication-plan.md`](docs/migration/e2e-replication-plan.md) for priorities.
+
+Install a registry adapter without editing JSON manually:
+
+```sh
+vinput adapter list --available
+vinput adapter install <id-or-short-id> --in-place
+```
+
+Use `--registry /path/to/registry/adapters.json`, `--adapter-root`, and `--dry-run --json` for deterministic local validation.
 
 ## Build and check
 

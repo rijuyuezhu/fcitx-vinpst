@@ -35,13 +35,14 @@ Then prove command-mode selected-text replacement across real applications.
 
 - CLI and daemon management are broadly implemented and deterministically tested.
 - Current registry native ASR families have typed runtime mappings and real-WAV evidence.
+- Current `registry/adapters.json` listing and adapter install are implemented with short ids, mirror fallback, executable scripts, environment placeholders, config backups, and guarded managed updates.
 - `sherpa-native-live` validates and copies `libsherpa-onnx` and `libonnxruntime`, then activates through `vinput-daemon-with-vinput-env.sh`.
 - `user-ime-sherpa-native-activation-smoke` proves temporary-HOME activation and exact recognition.
 - Native online partials reach concrete Fcitx preedit before stop.
 - Final normal commit and command candidate replacement reach concrete test `InputContext` implementations.
 - Persistent keys, Tap/Hold/Both, scene/ASR menus, filtering, i18n, notifications, and daemon recovery are implemented.
 - Real Fcitx, live PipeWire, and real application behavior remain unproven.
-- Provider/adapter installation breadth, remote services, packaging, upgrades, and optional GUI work remain later milestones.
+- ASR provider installation, adapter/provider update/remove polish, remote services, packaging, upgrades, and optional GUI work remain later milestones.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.
 

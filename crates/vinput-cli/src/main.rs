@@ -27,9 +27,10 @@ use vinput_protocol::{RecognitionPayload, ServiceStatus, TextAdapterState, dbus}
 use vinput_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, InstalledModelInfo, LiveModelEntry,
     LiveModelFamily, LiveModelInstallRequest, LiveModelInstallResult, LiveModelRegistry,
-    LiveRegistryI18n, PlannedAsset, RegistryIndex, RegistryTextSource, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, install_live_model,
-    load_installed_model_info as load_registry_installed_model_info, scan_installed_models,
+    LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, PlannedAsset, RegistryIndex,
+    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
+    install_live_script, load_installed_model_info as load_registry_installed_model_info,
+    managed_script_relative_path, materialize_llm_adapter, scan_installed_models,
 };
 use vinput_text::{
     OpenAiCompatibleTextAdapter, ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,
@@ -593,6 +594,32 @@ enum AdapterCommand {
         #[arg(long)]
         in_place: bool,
         /// Preview the config patch without writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install or update a command text adapter from the live script registry.
+    Install {
+        /// Full adapter id or registry `short_id`.
+        id: String,
+        /// Optional local registry/adapters.json file. Omitted to fetch configured mirrors.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Managed adapter script root. Defaults to $XDG_DATA_HOME/fcitx-vinput/adapters.
+        #[arg(long)]
+        adapter_root: Option<PathBuf>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Write the updated config to this path when not using --dry-run.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Update the input/user config in place and write a <config>.bak backup when it exists.
+        #[arg(long)]
+        in_place: bool,
+        /// Resolve and validate the installation without downloading or writing.
         #[arg(long)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
@@ -1458,6 +1485,7 @@ fn force_json_output(command: &mut Command) {
         Command::Adapter { command } => match command {
             AdapterCommand::List { json, .. }
             | AdapterCommand::Add { json, .. }
+            | AdapterCommand::Install { json, .. }
             | AdapterCommand::InstallPlan { json, .. }
             | AdapterCommand::Edit { json, .. }
             | AdapterCommand::Start { json, .. }
@@ -2312,6 +2340,38 @@ struct AdapterAddOutcome {
     wrote_config: bool,
 }
 
+#[derive(Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct AdapterInstallRequest<'a> {
+    selector: &'a str,
+    registry_path: Option<&'a Path>,
+    adapter_root: Option<&'a Path>,
+    config_path: Option<&'a PathBuf>,
+    output_path: Option<&'a Path>,
+    in_place: bool,
+    dry_run: bool,
+    json_output: bool,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+struct AdapterInstallOutcome {
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    registry_source: serde_json::Value,
+    adapter_id: String,
+    short_id: Option<String>,
+    script_path: PathBuf,
+    required_env: Vec<String>,
+    optional_env: Vec<String>,
+    replacing_managed: bool,
+    output_path: Option<PathBuf>,
+    backup_path: Option<PathBuf>,
+    in_place: bool,
+    dry_run: bool,
+    wrote_script: bool,
+    wrote_config: bool,
+}
+
 struct AdapterRemoveOutcome {
     config_path: Option<PathBuf>,
     source: &'static str,
@@ -2412,6 +2472,7 @@ fn handle_llm_command(command: LlmCommand) -> anyhow::Result<()> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
     match command {
         AdapterCommand::List {
@@ -2437,6 +2498,25 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
             args: &args,
             env: &env,
             working_dir: working_dir.as_deref(),
+            config_path: config.as_ref(),
+            output_path: output.as_deref(),
+            in_place,
+            dry_run,
+            json_output: json,
+        }),
+        AdapterCommand::Install {
+            id,
+            registry,
+            adapter_root,
+            config,
+            output,
+            in_place,
+            dry_run,
+            json,
+        } => print_adapter_install(AdapterInstallRequest {
+            selector: &id,
+            registry_path: registry.as_deref(),
+            adapter_root: adapter_root.as_deref(),
             config_path: config.as_ref(),
             output_path: output.as_deref(),
             in_place,
@@ -3231,6 +3311,219 @@ fn print_llm_list_text(context: &LlmListContext) {
     }
 }
 
+struct LoadedLiveScriptRegistry {
+    registry: LiveScriptRegistry,
+    source_json: serde_json::Value,
+}
+
+fn print_adapter_install(request: AdapterInstallRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_adapter_install(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&adapter_install_outcome_json(&outcome))?
+        );
+    } else {
+        print_adapter_install_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_adapter_install(
+    request: &AdapterInstallRequest<'_>,
+) -> anyhow::Result<AdapterInstallOutcome> {
+    let selector = normalize_adapter_id(request.selector)?;
+    let default_path = default_config_path()?;
+    let mut loaded = load_config_json(request.config_path)?;
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for adapter install")?;
+    let config =
+        VinputConfig::from_json_str(&contents).context("parse config for adapter install")?;
+    config
+        .validate()
+        .context("validate config for adapter install")?;
+    let loaded_registry = load_live_adapter_registry(request.registry_path, &config.registry)?;
+    let entry = loaded_registry
+        .registry
+        .entry_by_id_or_short_id(&selector, LiveScriptKind::LlmAdapter)
+        .with_context(|| format!("text adapter `{selector}` not found in live registry"))?
+        .clone();
+    let adapter_root = request
+        .adapter_root
+        .map(Path::to_path_buf)
+        .map_or_else(default_adapter_root, Ok)?;
+    let script_path = adapter_root.join(managed_script_relative_path(
+        LiveScriptKind::LlmAdapter,
+        &entry.id,
+    )?);
+    let existing = config
+        .llm
+        .adapters
+        .iter()
+        .find(|adapter| adapter.id == entry.id);
+    let materialized = materialize_llm_adapter(&entry, &script_path, existing)?;
+    let adapter_value = serde_json::to_value(&materialized.adapter)
+        .context("serialize installed adapter config")?;
+    if existing.is_some() {
+        let index = explicit_adapter_index(&loaded.document, &entry.id)?;
+        llm_adapters_array_mut(&mut loaded.document)?[index] = adapter_value;
+    } else {
+        llm_adapters_array_mut(&mut loaded.document)?.push(adapter_value);
+    }
+    validate_config_json_value(&loaded.document, "validate installed adapter config")?;
+
+    let write_target = config_set_write_target(
+        request.output_path,
+        request.in_place,
+        request.dry_run,
+        loaded.path.as_ref(),
+        &default_path,
+    )?;
+    let mut wrote_script = false;
+    let mut wrote_config = false;
+    if !request.dry_run {
+        let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
+        let installed =
+            install_live_script(&source, LiveScriptKind::LlmAdapter, &entry, &adapter_root)?;
+        if installed.script_path != script_path {
+            anyhow::bail!(
+                "installed adapter script path `{}` did not match planned path `{}`",
+                installed.script_path.display(),
+                script_path.display()
+            );
+        }
+        wrote_script = true;
+        write_config_set_document(&loaded.document, &write_target)?;
+        wrote_config = true;
+    }
+    let required_env = entry
+        .envs
+        .iter()
+        .filter(|env| env.required)
+        .map(|env| env.name.clone())
+        .collect();
+    let optional_env = entry
+        .envs
+        .iter()
+        .filter(|env| !env.required)
+        .map(|env| env.name.clone())
+        .collect();
+    Ok(AdapterInstallOutcome {
+        config_path: loaded.path.take(),
+        source: loaded.source,
+        registry_source: loaded_registry.source_json,
+        adapter_id: entry.id,
+        short_id: entry.short_id,
+        script_path,
+        required_env,
+        optional_env,
+        replacing_managed: materialized.replacing_managed,
+        output_path: write_target.output_path(),
+        backup_path: write_target.backup_path(),
+        in_place: write_target.in_place(),
+        dry_run: request.dry_run,
+        wrote_script,
+        wrote_config,
+    })
+}
+
+fn adapter_install_outcome_json(outcome: &AdapterInstallOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "config_path": outcome.config_path.as_ref(),
+        "source": outcome.source,
+        "registry_source": outcome.registry_source,
+        "adapter_id": outcome.adapter_id,
+        "short_id": outcome.short_id,
+        "script_path": outcome.script_path,
+        "required_env": outcome.required_env,
+        "optional_env": outcome.optional_env,
+        "replacing_managed": outcome.replacing_managed,
+        "output_path": outcome.output_path,
+        "backup_path": outcome.backup_path,
+        "in_place": outcome.in_place,
+        "will_download_script": !outcome.dry_run,
+        "will_write_config": !outcome.dry_run,
+        "wrote_script": outcome.wrote_script,
+        "wrote_config": outcome.wrote_config,
+        "next_steps": [
+            "set required adapter environment values in config before starting it",
+            "run vinput adapter list to verify the installed adapter",
+            "run vinput adapter start <id> and vinput adapter status <id>"
+        ],
+    })
+}
+
+fn print_adapter_install_text(outcome: &AdapterInstallOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("adapter_id: {}", outcome.adapter_id);
+    if let Some(short_id) = &outcome.short_id {
+        println!("short_id: {short_id}");
+    }
+    println!("script_path: {}", outcome.script_path.display());
+    println!("replacing_managed: {}", outcome.replacing_managed);
+    println!("required_env: {}", outcome.required_env.join(","));
+    println!("optional_env: {}", outcome.optional_env.join(","));
+    println!("in_place: {}", outcome.in_place);
+    if let Some(output_path) = &outcome.output_path {
+        println!("output_path: {}", output_path.display());
+    }
+    if let Some(backup_path) = &outcome.backup_path {
+        println!("backup_path: {}", backup_path.display());
+    }
+    println!("will_download_script: {}", !outcome.dry_run);
+    println!("will_write_config: {}", !outcome.dry_run);
+    println!("wrote_script: {}", outcome.wrote_script);
+    println!("wrote_config: {}", outcome.wrote_config);
+}
+
+fn load_live_adapter_registry(
+    registry_path: Option<&Path>,
+    registry_config: &RegistryConfig,
+) -> anyhow::Result<LoadedLiveScriptRegistry> {
+    let registry_urls = live_registry_urls(registry_config, "registry/adapters.json");
+    if let Some(path) = registry_path {
+        let input = fs::read_to_string(path)
+            .with_context(|| format!("read live adapter registry `{}`", path.display()))?;
+        let registry = LiveScriptRegistry::from_json_str(&input, LiveScriptKind::LlmAdapter)
+            .with_context(|| format!("validate live adapter registry `{}`", path.display()))?;
+        return Ok(LoadedLiveScriptRegistry {
+            registry,
+            source_json: serde_json::json!({
+                "kind": "file",
+                "path": path,
+                "mirror_count": registry_config.base_urls.len(),
+                "registry_urls": registry_urls,
+            }),
+        });
+    }
+    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
+        .context("fetch live adapter registry from configured mirrors")?;
+    let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::LlmAdapter)
+        .with_context(|| {
+            format!(
+                "validate live adapter registry fetched from `{}`",
+                fetched.url
+            )
+        })?;
+    Ok(LoadedLiveScriptRegistry {
+        registry,
+        source_json: serde_json::json!({
+            "kind": "http",
+            "url": fetched.url,
+            "mirror_count": registry_config.base_urls.len(),
+            "registry_urls": registry_urls,
+        }),
+    })
+}
+
 fn print_adapter_install_plan(
     id: &str,
     registry_path: &Path,
@@ -3998,13 +4291,8 @@ fn print_available_adapter_list(
     config_path: Option<&PathBuf>,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    let registry_path =
-        registry_path.with_context(|| "adapter list --available requires --registry <path>")?;
-    let input = fs::read_to_string(registry_path)
-        .with_context(|| format!("read registry index `{}`", registry_path.display()))?;
-    let index = RegistryIndex::from_json_str(&input)
-        .with_context(|| format!("validate registry index `{}`", registry_path.display()))?;
     let context = load_adapter_list_context(config_path)?;
+    let loaded = load_live_adapter_registry(registry_path, &context.config.registry)?;
     let configured_ids = context
         .config
         .llm
@@ -4012,91 +4300,87 @@ fn print_available_adapter_list(
         .iter()
         .map(|adapter| adapter.id.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    let adapters = index
-        .adapters
+    let adapters = loaded
+        .registry
+        .items
         .iter()
-        .map(|adapter| available_adapter_json(adapter, &configured_ids))
+        .map(|adapter| available_live_adapter_json(adapter, &configured_ids))
         .collect::<Vec<_>>();
     let output = serde_json::json!({
         "ok": true,
-        "registry_path": registry_path,
+        "registry_source": loaded.source_json,
         "config_path": context.config_path.as_ref(),
         "config_source": context.source,
         "adapter_count": adapters.len(),
         "adapters": adapters,
         "next_steps": [
-            "run vinput registry plan <path> --adapter <id> to inspect assets",
-            "run vinput adapter add <id> --command <path> --dry-run --json to preview config",
+            "run vinput adapter install <id-or-short-id> --dry-run --json to preview installation",
+            "run vinput adapter install <id-or-short-id> --in-place to install and configure it",
             "run vinput doctor to inspect full local diagnostics"
         ],
     });
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        print_available_adapter_list_text(registry_path, &context, &index, &configured_ids);
+        print_available_adapter_list_text(&loaded, &context, &configured_ids);
     }
     Ok(())
 }
 
-fn available_adapter_json(
-    adapter: &vinput_registry::AdapterEntry,
+fn available_live_adapter_json(
+    adapter: &vinput_registry::LiveScriptEntry,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) -> serde_json::Value {
-    let known_size_bytes = adapter
-        .assets
+    let envs = adapter
+        .envs
         .iter()
-        .filter_map(|asset| asset.size_bytes)
-        .sum::<u64>();
-    let unknown_size_count = adapter
-        .assets
-        .iter()
-        .filter(|asset| asset.size_bytes.is_none())
-        .count();
+        .map(|env| {
+            serde_json::json!({
+                "name": env.name,
+                "required": env.required,
+            })
+        })
+        .collect::<Vec<_>>();
     serde_json::json!({
-        "id": adapter.id,
-        "label": adapter.label,
-        "kind": adapter.kind,
-        "configured": configured_ids.contains(adapter.id.as_str()),
-        "asset_count": adapter.assets.len(),
-        "known_size_bytes": known_size_bytes,
-        "unknown_size_count": unknown_size_count,
-        "assets": adapter.assets,
+        "id": adapter.short_id.as_deref().unwrap_or(&adapter.id),
+        "machine_id": adapter.id,
+        "command": adapter.command,
+        "stream": adapter.stream,
+        "readme_url": adapter.readme_url,
+        "envs": envs,
+        "status": if configured_ids.contains(adapter.id.as_str()) {
+            "installed"
+        } else {
+            "available"
+        },
     })
 }
 
 fn print_available_adapter_list_text(
-    registry_path: &Path,
+    loaded: &LoadedLiveScriptRegistry,
     context: &AdapterListContext,
-    index: &RegistryIndex,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) {
-    println!("registry_path: {}", registry_path.display());
+    println!("registry_source: {}", loaded.source_json);
     println!("config_source: {}", context.source);
     if let Some(path) = &context.config_path {
         println!("config_path: {}", path.display());
     }
-    println!("adapter_count: {}", index.adapters.len());
-    println!("id	kind	configured	assets	known_size_bytes	unknown_size_count	label");
-    for adapter in &index.adapters {
-        let known_size_bytes = adapter
-            .assets
-            .iter()
-            .filter_map(|asset| asset.size_bytes)
-            .sum::<u64>();
-        let unknown_size_count = adapter
-            .assets
-            .iter()
-            .filter(|asset| asset.size_bytes.is_none())
-            .count();
+    println!("adapter_count: {}", loaded.registry.items.len());
+    println!("id\tmachine_id\tstatus\tcommand\tenvs\treadme");
+    for adapter in &loaded.registry.items {
         println!(
-            "{}	{}	{}	{}	{}	{}	{}",
+            "{}\t{}\t{}\t{}\t{}\t{}",
+            adapter.short_id.as_deref().unwrap_or(&adapter.id),
             adapter.id,
-            adapter.kind,
-            bool_label(configured_ids.contains(adapter.id.as_str())),
-            adapter.assets.len(),
-            known_size_bytes,
-            unknown_size_count,
-            adapter.label,
+            if configured_ids.contains(adapter.id.as_str()) {
+                "installed"
+            } else {
+                "available"
+            },
+            adapter.command,
+            adapter.envs.len(),
+            adapter.readme_url.as_deref().unwrap_or("-"),
         );
     }
 }
@@ -7073,6 +7357,10 @@ fn user_cache_home() -> anyhow::Result<PathBuf> {
 
 fn default_model_root() -> anyhow::Result<PathBuf> {
     Ok(user_data_home()?.join("fcitx-vinput").join("models"))
+}
+
+fn default_adapter_root() -> anyhow::Result<PathBuf> {
+    Ok(user_data_home()?.join("fcitx-vinput").join("adapters"))
 }
 
 fn default_cache_root() -> anyhow::Result<PathBuf> {

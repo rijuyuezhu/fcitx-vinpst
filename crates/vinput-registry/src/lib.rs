@@ -17,6 +17,7 @@ mod live;
 mod materialize;
 mod plan;
 mod schema;
+mod script;
 mod staging;
 
 pub use archive::{
@@ -59,6 +60,12 @@ pub use plan::{
     PlannedInstallAsset, RegistryEntryKind,
 };
 pub use schema::{AdapterEntry, AssetEntry, ModelEntry, RegistryIndex, RegistryIndexSummary};
+pub use script::{
+    LiveScriptEntry, LiveScriptEnvSpec, LiveScriptInstallError, LiveScriptInstallResult,
+    LiveScriptKind, LiveScriptRegistry, LiveScriptRegistryError, LlmAdapterMaterialization,
+    LlmAdapterMaterializationError, install_live_script, managed_script_relative_path,
+    materialize_llm_adapter,
+};
 pub use staging::{
     ArchiveStagingPathError, ArchiveStagingPaths, plan_archive_staging_paths,
     plan_archive_staging_paths_for_plan,
