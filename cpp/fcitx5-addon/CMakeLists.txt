@@ -455,6 +455,8 @@ if(BUILD_TESTING AND VINPUT_FCITX_BRIDGE_ENABLE_TESTS)
     vinput_fcitx_bridge_native_dbus_smoke
     PRIVATE
       vinput_fcitx_bridge::sdbus
+      vinput_fcitx_bridge::fcitx
+      Fcitx5::Core
   )
   vinput_bridge_apply_warnings(vinput_fcitx_bridge_native_dbus_smoke)
 endif()

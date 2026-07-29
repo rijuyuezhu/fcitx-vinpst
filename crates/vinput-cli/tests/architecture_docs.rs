@@ -804,6 +804,10 @@ fn native_user_activation_pins_owner_and_recognition_roundtrip() {
         "bridge.StartNormal(client.get(), \"raw\")",
         "BridgeOutcome::Kind::Commit",
         "CandidateSource::Raw",
+        "ApplyBridgeOutcomeToSink(start, sink)",
+        "ApplyBridgeOutcomeToSink(stop, sink)",
+        "clear-candidates",
+        "clear-preedit",
         "native frontend commit",
     ] {
         assert!(
