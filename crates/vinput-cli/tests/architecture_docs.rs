@@ -759,6 +759,10 @@ fn native_user_activation_pins_owner_and_recognition_roundtrip() {
         "cpp/fcitx5-addon/tests/native_frontend_bridge_dbus_smoke.cpp",
     ))
     .expect("read native frontend bridge smoke");
+    let addon_smoke = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/tests/native_fcitx_addon_dbus_smoke.cpp",
+    ))
+    .expect("read native Fcitx addon smoke");
     let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
         .expect("read D-Bus architecture doc");
     let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
@@ -816,11 +820,25 @@ fn native_user_activation_pins_owner_and_recognition_roundtrip() {
         );
     }
 
+    for required in [
+        "FcitxVinputAddon addon(nullptr)",
+        "FcitxTriggerAction::StartNormal",
+        "FcitxTriggerAction::StopNormal",
+        "ApplyBridgeOutcomeToInputContext",
+        "native addon commit",
+    ] {
+        assert!(
+            addon_smoke.contains(required),
+            "native addon smoke should pin {required}"
+        );
+    }
+
     assert!(justfile.contains("user-ime-activation-owner-smoke:"));
     assert!(justfile.contains("user-ime-sherpa-native-smoke:"));
     assert!(justfile.contains("user-ime-sherpa-native-activation-smoke:"));
     assert!(justfile.contains("sherpa-online-transducer-user-activation-smoke:"));
     assert!(justfile.contains("sherpa-online-transducer-user-frontend-smoke:"));
+    assert!(justfile.contains("sherpa-online-transducer-user-addon-smoke:"));
     assert!(justfile.contains("user-ime-sherpa-native-smoke"));
 }
 

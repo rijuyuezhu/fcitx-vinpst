@@ -25,7 +25,7 @@ It is now a **usable CLI/daemon alpha**, not beta and not a complete legacy repl
 | --- | --- |
 | Deterministic command-demo product spine | Usable for development and CI |
 | Current registry native ASR families | Proven with offline/online WAV smokes |
-| Generic native user install | Temporary-HOME D-Bus auto-activation, runtime bundle, exact online recognition, C++ FrontendBridge Commit, and outcome-sink application proven |
+| Generic native user install | D-Bus activation, runtime bundle, exact native Commit, FrontendBridge, outcome sink, and FcitxVinputAddon trigger path proven |
 | Real desktop trial | Prototype usable / early alpha |
 | Legacy CLI experience | Mostly implemented; `init`, UX polish, and some resource install paths remain |
 | Legacy daemon runtime coverage | Partial |

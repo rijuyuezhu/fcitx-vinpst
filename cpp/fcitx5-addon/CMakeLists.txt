@@ -377,6 +377,36 @@ if(Fcitx5Core_FOUND)
   )
   vinput_bridge_apply_warnings(vinput_fcitx_addon_dbus_smoke)
 
+  add_executable(
+    vinput_fcitx_native_addon_dbus_smoke
+    tests/native_fcitx_addon_dbus_smoke.cpp
+    src/fcitx_addon.cpp
+    src/fcitx_i18n.cpp
+    src/fcitx_config.cpp
+    src/fcitx_daemon_signal_monitor.cpp
+    src/fcitx_key_trigger.cpp
+    src/fcitx_menu_filter.cpp
+    src/fcitx_notifications.cpp
+    src/fcitx_trigger_mode.cpp
+    src/fcitx_selection.cpp
+  )
+  target_compile_definitions(
+    vinput_fcitx_native_addon_dbus_smoke
+    PRIVATE
+      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_BUILD_LOCALEDIR}"
+      VINPUT_FCITX_INSTALL_LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
+  )
+  add_dependencies(vinput_fcitx_native_addon_dbus_smoke vinput_fcitx_translations)
+  target_link_libraries(
+    vinput_fcitx_native_addon_dbus_smoke
+    PRIVATE
+      vinput_fcitx_bridge::sdbus
+      Fcitx5::Core
+      Fcitx5::Module::DBus
+      Fcitx5::Module::Notifications
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_native_addon_dbus_smoke)
+
   vinput_bridge_install_dir(
     VINPUT_FCITX_MODULE_INSTALL_DIR
     "${FCITX_INSTALL_LIBDIR}/fcitx5"
