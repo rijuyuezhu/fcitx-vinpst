@@ -209,13 +209,13 @@ smoke:
     cargo run -q -p vinput-cli -- llm add scratch --base-url https://llm.example.test/v1 --dry-run --json
     cargo run -q -p vinput-cli -- adapter list --json
     cargo run -q -p vinput-cli -- adapter add scratch --command true --dry-run --json
-    cargo run -q -p vinput-cli -- adapter start scratch --dry-run --json
-    cargo run -q -p vinput-cli -- adapter stop scratch --dry-run --json
-    cargo run -q -p vinput-cli -- adapter status scratch --dry-run --json
+    cargo run -q -p vinput-cli -- adapter start lifecycle-adapter --config data/e2e-adapter-lifecycle-config.json --dry-run --json
+    cargo run -q -p vinput-cli -- adapter stop lifecycle-adapter --config data/e2e-adapter-lifecycle-config.json --dry-run --json
+    cargo run -q -p vinput-cli -- adapter status lifecycle-adapter --config data/e2e-adapter-lifecycle-config.json --dry-run --json
     cargo run -q -p vinput-cli -- hotword get --json
     cargo run -q -p vinput-cli -- hotword set /tmp/hotwords.txt --dry-run --json
     cargo run -q -p vinput-cli -- hotword clear --dry-run --json
-    cargo run -q -p vinput-cli -- hotword edit --dry-run --editor true --json
+    ! cargo run -q -p vinput-cli -- hotword edit --dry-run --editor true --json
     cargo run -q -p vinput-cli -- registry
     cargo run -q -p vinput-cli -- registry validate data/sample-registry-index.json
     cargo run -q -p vinput-cli -- registry plan data/sample-registry-index.json --summary-only
