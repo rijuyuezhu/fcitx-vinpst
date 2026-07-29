@@ -117,6 +117,15 @@ int main() {
   }
 
   {
+    const auto plan = MakeCommitPlan(
+        R"({"commit_text":"selected text","candidates":[{"text":"selected text","source":"raw"},{"text":"asr command","source":"asr"}]})",
+        true);
+    assert(plan.payload.commit_text == "selected text");
+    assert(plan.payload.candidates.size() == 2);
+    assert(plan.show_candidate_menu);
+  }
+
+  {
     const auto payload = ParseRecognitionPayload(
         R"({"commit_text":"fallback","candidates":[{"text":"fallback","source":"future"}]})");
     assert(payload.candidates.size() == 1);

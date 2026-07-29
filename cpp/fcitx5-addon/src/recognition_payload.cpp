@@ -476,7 +476,10 @@ RecognitionPayload ParseRecognitionPayload(std::string_view json) {
   return JsonCursor(json).parsePayload();
 }
 
-bool ShouldShowCandidateMenu(const RecognitionPayload &payload) {
+bool ShouldShowCandidateMenu(const RecognitionPayload &payload, bool command_mode) {
+  if (command_mode && payload.candidates.size() > 1) {
+    return true;
+  }
   int llm_count = 0;
   for (const auto &candidate : payload.candidates) {
     if (candidate.source == CandidateSource::Llm) {
@@ -486,9 +489,9 @@ bool ShouldShowCandidateMenu(const RecognitionPayload &payload) {
   return llm_count > 1;
 }
 
-CommitPlan MakeCommitPlan(std::string_view json) {
+CommitPlan MakeCommitPlan(std::string_view json, bool command_mode) {
   auto payload = ParseRecognitionPayload(json);
-  return CommitPlan{payload, ShouldShowCandidateMenu(payload)};
+  return CommitPlan{payload, ShouldShowCandidateMenu(payload, command_mode)};
 }
 
 } // namespace vinput_fcitx_bridge

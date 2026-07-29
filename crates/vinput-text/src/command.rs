@@ -6,10 +6,13 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use vinput_config::{LlmAdapterConfig, RAW_SCENE_ID, SceneDefinition};
+use vinput_config::{COMMAND_SCENE_ID, LlmAdapterConfig, RAW_SCENE_ID, SceneDefinition};
 use vinput_protocol::RecognitionPayload;
 
-use crate::{TextAdapter, TextError, TextProcessor, TextRequest, scene_needs_postprocessing};
+use crate::{
+    TextAdapter, TextError, TextProcessor, TextRequest, command_mode_payload,
+    scene_needs_postprocessing,
+};
 
 /// JSON request passed to command-backed text adapter helpers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -487,6 +490,13 @@ impl<R: CommandTextRunner> TextProcessor for CommandTextProcessor<R> {
         }
         let [adapter] = self.adapters.as_slice() else {
             if self.adapters.is_empty() {
+                if request.scene.id == COMMAND_SCENE_ID {
+                    return Ok(command_mode_payload(
+                        request.selected_text.unwrap_or_default(),
+                        request.raw_text,
+                        std::iter::empty(),
+                    ));
+                }
                 return Err(TextError::AdapterRequired(request.scene.id.clone()));
             }
             return Err(TextError::AmbiguousAdapter(request.scene.id.clone()));

@@ -356,6 +356,12 @@ sherpa-online-transducer-user-addon-smoke:
     cmake --build target/cpp/fcitx5-addon --target vinput_fcitx_native_addon_dbus_smoke --parallel
     VINPUT_NATIVE_ACTIVATION_FRONTEND_BIN=target/cpp/fcitx5-addon/vinput_fcitx_native_addon_dbus_smoke VINPUT_SHERPA_MODEL=target/models/onnx-zf-en-20m-stream VINPUT_SHERPA_WAV=target/models/onnx-zf-en-20m-stream/test_wavs/0.wav VINPUT_SHERPA_EXPECT_TEXT='THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLEL' scripts/run-user-ime-sherpa-native-activation-smoke.sh
 
+# Prove selected-text command mode without a configured text adapter.
+sherpa-online-transducer-user-command-addon-smoke:
+    cmake -S cpp/fcitx5-addon -B target/cpp/fcitx5-addon -DCMAKE_BUILD_TYPE=Debug -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON
+    cmake --build target/cpp/fcitx5-addon --target vinput_fcitx_native_addon_dbus_smoke --parallel
+    VINPUT_NATIVE_ADDON_SELECTED_TEXT='replace this text' VINPUT_NATIVE_ACTIVATION_FRONTEND_BIN=target/cpp/fcitx5-addon/vinput_fcitx_native_addon_dbus_smoke VINPUT_SHERPA_MODEL=target/models/onnx-zf-en-20m-stream VINPUT_SHERPA_WAV=target/models/onnx-zf-en-20m-stream/test_wavs/0.wav VINPUT_SHERPA_EXPECT_TEXT='THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BRAFFLEL' scripts/run-user-ime-sherpa-native-activation-smoke.sh
+
 # Run user-profile IME install smoke for the native sherpa SenseVoice profile.
 user-ime-sherpa-sense-voice-smoke:
     scripts/run-user-ime-sherpa-sense-voice-smoke.sh

@@ -27,7 +27,8 @@ struct CommitPlan {
 std::string_view ToWireString(CandidateSource source);
 CandidateSource CandidateSourceFromWire(std::string_view source);
 RecognitionPayload ParseRecognitionPayload(std::string_view json);
-bool ShouldShowCandidateMenu(const RecognitionPayload &payload);
-CommitPlan MakeCommitPlan(std::string_view json);
+bool ShouldShowCandidateMenu(const RecognitionPayload &payload,
+                             bool command_mode = false);
+CommitPlan MakeCommitPlan(std::string_view json, bool command_mode = false);
 
 } // namespace vinput_fcitx_bridge

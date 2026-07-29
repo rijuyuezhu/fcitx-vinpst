@@ -18,7 +18,7 @@ use super::{
 use vinput_config::{
     COMMAND_SCENE_ID, LlmAdapterConfig, LlmProviderConfig, RAW_SCENE_ID, SceneDefinition,
 };
-use vinput_protocol::RecognitionPayload;
+use vinput_protocol::{CandidateSource, RecognitionPayload};
 
 #[derive(Debug, Clone, Copy)]
 struct EchoCommandRunner;
@@ -1944,6 +1944,25 @@ fn command_text_processor_keeps_raw_scene_without_adapters() {
         .unwrap();
 
     assert_eq!(payload.commit_text, "raw text");
+}
+
+#[test]
+fn command_text_processor_falls_back_without_adapters() {
+    let command = scene(COMMAND_SCENE_ID, 0);
+    let payload = CommandTextProcessor::from_configs(&[])
+        .finish(&TextRequest {
+            raw_text: "replace it",
+            scene: &command,
+            selected_text: Some("selected source"),
+        })
+        .unwrap();
+
+    assert_eq!(payload.commit_text, "selected source");
+    assert_eq!(payload.candidates.len(), 2);
+    assert_eq!(payload.candidates[0].text, "selected source");
+    assert_eq!(payload.candidates[0].source, CandidateSource::Raw);
+    assert_eq!(payload.candidates[1].text, "replace it");
+    assert_eq!(payload.candidates[1].source, CandidateSource::Asr);
 }
 
 #[test]

@@ -843,6 +843,61 @@ fn native_user_activation_pins_owner_and_recognition_roundtrip() {
 }
 
 #[test]
+fn native_command_fallback_pins_selected_text_candidates() {
+    let command_source =
+        std::fs::read_to_string(workspace_file("crates/vinput-text/src/command.rs"))
+            .expect("read command text processor");
+    let payload_source = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/src/recognition_payload.cpp",
+    ))
+    .expect("read recognition payload source");
+    let bridge_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/frontend_bridge.cpp"))
+            .expect("read frontend bridge source");
+    let addon_smoke = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/tests/native_fcitx_addon_dbus_smoke.cpp",
+    ))
+    .expect("read native addon smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "request.scene.id == COMMAND_SCENE_ID",
+        "command_mode_payload(",
+        "request.selected_text.unwrap_or_default()",
+        "std::iter::empty()",
+    ] {
+        assert!(
+            command_source.contains(required),
+            "command fallback should pin {required}"
+        );
+    }
+    for required in [
+        "command_mode && payload.candidates.size() > 1",
+        "ShouldShowCandidateMenu(payload, command_mode)",
+    ] {
+        assert!(
+            payload_source.contains(required),
+            "command candidate policy should pin {required}"
+        );
+    }
+    assert!(bridge_source.contains("MakeCommitPlan(payload_json, was_command_mode)"));
+    for required in [
+        "VINPUT_NATIVE_ADDON_SELECTED_TEXT",
+        "FcitxTriggerAction::StartCommand",
+        "FcitxTriggerAction::StopCommand",
+        "AppliedOutcome::CandidateMenu",
+        "CandidateSource::Asr",
+        "native addon command menu",
+    ] {
+        assert!(
+            addon_smoke.contains(required),
+            "native command addon smoke should pin {required}"
+        );
+    }
+    assert!(justfile.contains("sherpa-online-transducer-user-command-addon-smoke:"));
+}
+
+#[test]
 fn dbus_architecture_pins_async_daemon_notification_forwarding() {
     let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
         .expect("read dbus service doc");

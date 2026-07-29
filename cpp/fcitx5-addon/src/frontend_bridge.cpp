@@ -135,7 +135,7 @@ BridgeOutcome FrontendBridge::Stop(DaemonClient *client, std::string_view scene_
     return Error(FallbackError(error));
   }
 
-  auto plan = MakeCommitPlan(payload_json);
+  auto plan = MakeCommitPlan(payload_json, was_command_mode);
   Reset();
   if (plan.payload.commit_text.empty()) {
     return Clear(was_command_mode);
