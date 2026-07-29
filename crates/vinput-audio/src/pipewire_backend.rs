@@ -8,7 +8,11 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-    sync::{Arc, Mutex, mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -26,6 +30,7 @@ const CAPTURE_REUSE_ENV: &str = "VINPUT_CAPTURE_REUSE";
 const CAPTURE_IDLE_DESTROY_ENV: &str = "VINPUT_CAPTURE_IDLE_DESTROY_MS";
 const DEFAULT_CAPTURE_IDLE_DESTROY_MS: u64 = 15_000;
 const MAX_CAPTURE_IDLE_DESTROY_MS: u64 = 600_000;
+const UNKNOWN_TIMING_MS: u64 = u64::MAX;
 
 /// `PipeWire` stream sample format requested by the future live recorder.
 pub const RECORDING_FORMAT: &str = "S16LE";
@@ -66,6 +71,23 @@ impl PipeWireStreamConfig {
             pcm_spec: recording_pcm_spec(),
         }
     }
+}
+
+/// Timing recorded for the most recent successful `PipeWire` capture start.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PipeWireStartTiming {
+    /// Time since the previous stream deactivation or destruction.
+    pub idle_gap_ms: Option<u64>,
+    /// Time spent creating and connecting a fresh stream.
+    pub create_stream_ms: u64,
+    /// Time spent activating the selected stream.
+    pub set_active_ms: u64,
+    /// Whether the successful start reused the existing connected stream.
+    pub stream_reused: bool,
+    /// Whether the successful start created a new stream.
+    pub created_new_stream: bool,
+    /// Total wall-clock time spent in `begin_recording`.
+    pub start_total_ms: u64,
 }
 
 /// Enables live `PipeWire` source enumeration tests when set in the environment.
@@ -140,7 +162,8 @@ pub struct PipeWireAudioRecorder {
     chunk_callback: Arc<Mutex<Option<AudioChunkCallback>>>,
     worker: Option<PipeWireRecordingWorker>,
     recording: bool,
-    last_start_reused: bool,
+    last_start_timing: PipeWireStartTiming,
+    first_buffer_latency_ms: Arc<AtomicU64>,
 }
 
 struct PipeWireRecordingWorker {
@@ -153,7 +176,7 @@ struct PipeWireRecordingWorker {
 enum WorkerCommand {
     Begin {
         config: PipeWireStreamConfig,
-        response: mpsc::SyncSender<Result<bool, AudioError>>,
+        response: mpsc::SyncSender<Result<PipeWireStartTiming, AudioError>>,
     },
     Finish {
         response: mpsc::SyncSender<Result<(CapturedAudio, u64), AudioError>>,
@@ -178,7 +201,8 @@ impl PipeWireAudioRecorder {
             chunk_callback: Arc::new(Mutex::new(None)),
             worker: None,
             recording: false,
-            last_start_reused: false,
+            last_start_timing: PipeWireStartTiming::default(),
+            first_buffer_latency_ms: Arc::new(AtomicU64::new(UNKNOWN_TIMING_MS)),
         }
     }
 
@@ -192,6 +216,19 @@ impl PipeWireAudioRecorder {
     #[must_use]
     pub fn stream_config(&self) -> &PipeWireStreamConfig {
         &self.stream_config
+    }
+
+    /// Returns timing for the most recent successful capture start.
+    #[must_use]
+    pub const fn last_start_timing(&self) -> PipeWireStartTiming {
+        self.last_start_timing
+    }
+
+    /// Returns latency from capture arming to the first non-empty `PipeWire` buffer.
+    #[must_use]
+    pub fn first_buffer_latency_ms(&self) -> Option<u64> {
+        let value = self.first_buffer_latency_ms.load(Ordering::Relaxed);
+        (value != UNKNOWN_TIMING_MS).then_some(value)
     }
 }
 
@@ -214,7 +251,10 @@ impl AudioRecorder for PipeWireAudioRecorder {
         if self.recording {
             return Err(AudioError::RecorderAlreadyRecording);
         }
-        self.last_start_reused = false;
+        let start_at = Instant::now();
+        self.last_start_timing = PipeWireStartTiming::default();
+        self.first_buffer_latency_ms
+            .store(UNKNOWN_TIMING_MS, Ordering::Relaxed);
         self.stream_config = PipeWireStreamConfig::for_target(target);
         if !capture_stream_reuse_enabled()
             && let Some(worker) = self.worker.take()
@@ -222,7 +262,10 @@ impl AudioRecorder for PipeWireAudioRecorder {
             shutdown_recording_worker(worker, &self.stream_config)?;
         }
         if self.worker.is_none() {
-            self.worker = Some(spawn_recording_worker(Arc::clone(&self.chunk_callback))?);
+            self.worker = Some(spawn_recording_worker(
+                Arc::clone(&self.chunk_callback),
+                Arc::clone(&self.first_buffer_latency_ms),
+            )?);
         }
         let worker = self.worker.as_mut().ok_or_else(|| {
             pipewire_recording_error(&self.stream_config, "PipeWire worker is unavailable")
@@ -236,12 +279,24 @@ impl AudioRecorder for PipeWireAudioRecorder {
             },
             &self.stream_config,
         )?;
-        self.last_start_reused = response_rx.recv().map_err(|error| {
+        let mut timing = response_rx.recv().map_err(|error| {
             pipewire_recording_error(
                 &self.stream_config,
                 format!("PipeWire worker dropped begin response: {error}"),
             )
         })??;
+        timing.start_total_ms = duration_millis(start_at.elapsed());
+        self.last_start_timing = timing;
+        tracing::debug!(
+            target = %pipewire_capture_source_name(&self.stream_config),
+            idle_gap_ms = ?timing.idle_gap_ms,
+            create_stream_ms = timing.create_stream_ms,
+            set_active_ms = timing.set_active_ms,
+            stream_reused = timing.stream_reused,
+            created_new_stream = timing.created_new_stream,
+            start_total_ms = timing.start_total_ms,
+            "PipeWire capture started"
+        );
         self.recording = true;
         Ok(())
     }
@@ -355,6 +410,7 @@ struct PersistentPipeWireStream {
     config: PipeWireStreamConfig,
     samples: Rc<RefCell<Vec<i16>>>,
     accepting: Rc<Cell<bool>>,
+    recording_armed_at: Rc<Cell<Option<Instant>>>,
 }
 
 #[derive(Default)]
@@ -362,6 +418,7 @@ struct PipeWireWorkerState {
     stream: Option<PersistentPipeWireStream>,
     recording: bool,
     idle_generation: u64,
+    last_stream_inactive_at: Option<Instant>,
 }
 
 fn capture_stream_reuse_enabled() -> bool {
@@ -373,6 +430,29 @@ fn capture_stream_reuse_enabled_from(value: Option<&str>) -> bool {
         return true;
     };
     !matches!(first, b'0' | b'f' | b'F' | b'n' | b'N')
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis())
+        .unwrap_or(u64::MAX)
+        .min(UNKNOWN_TIMING_MS - 1)
+}
+
+fn record_first_buffer_latency(
+    recording_armed_at: Option<Instant>,
+    first_buffer_latency_ms: &AtomicU64,
+) -> Option<u64> {
+    let armed_at = recording_armed_at?;
+    let latency_ms = duration_millis(armed_at.elapsed());
+    first_buffer_latency_ms
+        .compare_exchange(
+            UNKNOWN_TIMING_MS,
+            latency_ms,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        )
+        .ok()
+        .map(|_| latency_ms)
 }
 
 fn capture_idle_destroy_duration() -> Duration {
@@ -426,6 +506,7 @@ fn should_expire_idle_stream(state: &PipeWireWorkerState, generation: u64) -> bo
 
 fn spawn_recording_worker(
     callback: Arc<Mutex<Option<AudioChunkCallback>>>,
+    first_buffer_latency_ms: Arc<AtomicU64>,
 ) -> Result<PipeWireRecordingWorker, AudioError> {
     let config = PipeWireStreamConfig::for_target(CaptureTarget::default());
     let (command_tx, command_rx) = pipewire::channel::channel();
@@ -434,7 +515,9 @@ fn spawn_recording_worker(
     let idle_timer_join =
         thread::spawn(move || run_idle_destroy_timer(&idle_timer_rx, &idle_worker_tx));
     let (setup_tx, setup_rx) = mpsc::sync_channel(1);
-    let join = thread::spawn(move || run_recording_worker(&callback, command_rx, &setup_tx));
+    let join = thread::spawn(move || {
+        run_recording_worker(&callback, &first_buffer_latency_ms, command_rx, &setup_tx)
+    });
     setup_rx.recv().map_err(|error| {
         pipewire_recording_error(
             &config,
@@ -554,10 +637,12 @@ fn run_idle_destroy_timer(
 
 fn run_recording_worker(
     callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
+    first_buffer_latency_ms: &Arc<AtomicU64>,
     command_rx: pipewire::channel::Receiver<WorkerCommand>,
     setup_tx: &mpsc::SyncSender<Result<(), AudioError>>,
 ) -> Result<(), AudioError> {
-    let result = run_recording_worker_inner(callback, command_rx, setup_tx);
+    let result =
+        run_recording_worker_inner(callback, first_buffer_latency_ms, command_rx, setup_tx);
     if let Err(error) = &result {
         let _ = setup_tx.send(Err(AudioError::RecordingBackendUnavailable(
             error.to_string(),
@@ -568,6 +653,7 @@ fn run_recording_worker(
 
 fn run_recording_worker_inner(
     callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
+    first_buffer_latency_ms: &Arc<AtomicU64>,
     command_rx: pipewire::channel::Receiver<WorkerCommand>,
     setup_tx: &mpsc::SyncSender<Result<(), AudioError>>,
 ) -> Result<(), AudioError> {
@@ -584,6 +670,7 @@ fn run_recording_worker_inner(
     let state_for_commands = Rc::clone(&state);
     let core_for_commands = core.clone();
     let callback_for_commands = Arc::clone(callback);
+    let first_buffer_for_commands = Arc::clone(first_buffer_latency_ms);
     let mainloop_for_commands = mainloop.clone();
     let _commands = command_rx.attach(mainloop.loop_(), move |command| match command {
         WorkerCommand::Begin { config, response } => {
@@ -591,6 +678,7 @@ fn run_recording_worker_inner(
                 &mut state_for_commands.borrow_mut(),
                 &core_for_commands,
                 &callback_for_commands,
+                &first_buffer_for_commands,
                 config,
             );
             let _ = response.send(result);
@@ -602,6 +690,7 @@ fn run_recording_worker_inner(
         WorkerCommand::ExpireIdle { generation } => {
             let mut state = state_for_commands.borrow_mut();
             if should_expire_idle_stream(&state, generation) {
+                state.last_stream_inactive_at = Some(Instant::now());
                 state.stream = None;
             }
         }
@@ -620,26 +709,56 @@ fn begin_worker_recording(
     state: &mut PipeWireWorkerState,
     core: &pipewire::core::CoreRc,
     callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
+    first_buffer_latency_ms: &Arc<AtomicU64>,
     config: PipeWireStreamConfig,
-) -> Result<bool, AudioError> {
+) -> Result<PipeWireStartTiming, AudioError> {
     if state.recording {
         return Err(AudioError::RecorderAlreadyRecording);
     }
+    let begin_at = Instant::now();
+    let mut timing = PipeWireStartTiming {
+        idle_gap_ms: state
+            .last_stream_inactive_at
+            .map(|inactive_at| duration_millis(begin_at.saturating_duration_since(inactive_at))),
+        ..PipeWireStartTiming::default()
+    };
     state.idle_generation = state.idle_generation.wrapping_add(1);
     let reusable = can_reuse_stream(state.stream.as_ref().map(|stream| &stream.config), &config);
     if !reusable {
-        state.stream = Some(create_persistent_stream(core, callback, config.clone())?);
+        let create_at = Instant::now();
+        state.stream = Some(create_persistent_stream(
+            core,
+            callback,
+            first_buffer_latency_ms,
+            config.clone(),
+        )?);
+        timing.create_stream_ms = duration_millis(create_at.elapsed());
     }
+    let activate_at = Instant::now();
     match activate_worker_stream(state) {
         Ok(()) => {
+            timing.set_active_ms = duration_millis(activate_at.elapsed());
+            timing.stream_reused = reusable;
+            timing.created_new_stream = !reusable;
             state.recording = true;
-            Ok(reusable)
+            Ok(timing)
         }
         Err(_error) if reusable => {
-            state.stream = Some(create_persistent_stream(core, callback, config)?);
+            let create_at = Instant::now();
+            state.stream = Some(create_persistent_stream(
+                core,
+                callback,
+                first_buffer_latency_ms,
+                config,
+            )?);
+            timing.create_stream_ms = duration_millis(create_at.elapsed());
+            let activate_at = Instant::now();
             activate_worker_stream(state)?;
+            timing.set_active_ms = duration_millis(activate_at.elapsed());
+            timing.stream_reused = false;
+            timing.created_new_stream = true;
             state.recording = true;
-            Ok(false)
+            Ok(timing)
         }
         Err(error) => {
             state.stream = None;
@@ -656,9 +775,11 @@ fn activate_worker_stream(state: &mut PipeWireWorkerState) -> Result<(), AudioEr
         )
     })?;
     stream.samples.borrow_mut().clear();
+    stream.recording_armed_at.set(Some(Instant::now()));
     stream.accepting.set(true);
     if let Err(error) = stream.stream.set_active(true) {
         stream.accepting.set(false);
+        stream.recording_armed_at.set(None);
         return Err(pipewire_recording_error(
             &stream.config,
             format!("activate PipeWire stream: {error}"),
@@ -680,6 +801,7 @@ fn finish_worker_recording(
     stream.accepting.set(false);
     if let Err(error) = stream.stream.set_active(false) {
         let config = stream.config.clone();
+        stream.recording_armed_at.set(None);
         state.recording = false;
         state.stream = None;
         return Err(pipewire_recording_error(
@@ -687,7 +809,9 @@ fn finish_worker_recording(
             format!("deactivate PipeWire stream: {error}"),
         ));
     }
+    stream.recording_armed_at.set(None);
     state.recording = false;
+    state.last_stream_inactive_at = Some(Instant::now());
     state.idle_generation = state.idle_generation.wrapping_add(1);
     let idle_generation = state.idle_generation;
     let samples = std::mem::take(&mut *stream.samples.borrow_mut());
@@ -699,6 +823,7 @@ fn finish_worker_recording(
 fn shutdown_worker_state(state: &mut PipeWireWorkerState) {
     if let Some(stream) = state.stream.as_mut() {
         stream.accepting.set(false);
+        stream.recording_armed_at.set(None);
         if state.recording {
             let _ = stream.stream.set_active(false);
         }
@@ -711,6 +836,7 @@ fn shutdown_worker_state(state: &mut PipeWireWorkerState) {
 fn create_persistent_stream(
     core: &pipewire::core::CoreRc,
     callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
+    first_buffer_latency_ms: &Arc<AtomicU64>,
     config: PipeWireStreamConfig,
 ) -> Result<PersistentPipeWireStream, AudioError> {
     use pipewire::{properties::properties, spa};
@@ -727,8 +853,11 @@ fn create_persistent_stream(
         .map_err(|error| pipewire_recording_error(&config, error))?;
     let samples = Rc::new(RefCell::new(Vec::new()));
     let accepting = Rc::new(Cell::new(false));
+    let recording_armed_at = Rc::new(Cell::new(None));
     let samples_for_process = Rc::clone(&samples);
     let accepting_for_process = Rc::clone(&accepting);
+    let armed_at_for_process = Rc::clone(&recording_armed_at);
+    let first_buffer_for_process = Arc::clone(first_buffer_latency_ms);
     let callback_for_process = Arc::clone(callback);
     let pcm_spec = config.pcm_spec;
     let listener = stream
@@ -739,6 +868,8 @@ fn create_persistent_stream(
                 pcm_spec,
                 &samples_for_process,
                 &accepting_for_process,
+                &armed_at_for_process,
+                &first_buffer_for_process,
                 &callback_for_process,
             );
         })
@@ -766,6 +897,7 @@ fn create_persistent_stream(
         config,
         samples,
         accepting,
+        recording_armed_at,
     })
 }
 
@@ -774,6 +906,8 @@ fn capture_stream_buffer(
     pcm_spec: PcmSpec,
     samples: &Rc<RefCell<Vec<i16>>>,
     accepting: &Rc<Cell<bool>>,
+    recording_armed_at: &Rc<Cell<Option<Instant>>>,
+    first_buffer_latency_ms: &Arc<AtomicU64>,
     callback: &Arc<Mutex<Option<AudioChunkCallback>>>,
 ) {
     let Some(mut buffer) = stream.dequeue_buffer() else {
@@ -803,6 +937,15 @@ fn capture_stream_buffer(
     }
     if !accepting.get() {
         return;
+    }
+    if let Some(latency_ms) =
+        record_first_buffer_latency(recording_armed_at.get(), first_buffer_latency_ms)
+    {
+        tracing::debug!(
+            first_buffer_ms = latency_ms,
+            samples = chunk_samples.len(),
+            "PipeWire capture received first buffer"
+        );
     }
     samples.borrow_mut().extend_from_slice(&chunk_samples);
     if let Ok(mut callback) = callback.lock()
@@ -1001,6 +1144,41 @@ mod tests {
     }
 
     #[test]
+    fn pipewire_start_timing_defaults_and_first_buffer_probe_are_stable() {
+        assert_eq!(
+            super::duration_millis(std::time::Duration::from_millis(1_234)),
+            1_234
+        );
+        let recorder = super::PipeWireAudioRecorder::new();
+        assert_eq!(
+            recorder.last_start_timing(),
+            super::PipeWireStartTiming::default()
+        );
+        assert_eq!(recorder.first_buffer_latency_ms(), None);
+        recorder
+            .first_buffer_latency_ms
+            .store(42, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(recorder.first_buffer_latency_ms(), Some(42));
+    }
+
+    #[test]
+    fn pipewire_first_buffer_latency_is_recorded_only_once() {
+        let latency = std::sync::atomic::AtomicU64::new(super::UNKNOWN_TIMING_MS);
+        let armed_at = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_millis(5))
+            .expect("five milliseconds should be representable");
+
+        let first = super::record_first_buffer_latency(Some(armed_at), &latency);
+        let recorded = latency.load(std::sync::atomic::Ordering::Relaxed);
+        let second = super::record_first_buffer_latency(Some(armed_at), &latency);
+
+        assert!(first.is_some());
+        assert_eq!(first, Some(recorded));
+        assert_eq!(second, None);
+        assert_eq!(latency.load(std::sync::atomic::Ordering::Relaxed), recorded);
+    }
+
+    #[test]
     fn pipewire_stream_reuse_requires_identical_target_and_pcm_plan() {
         let default = super::PipeWireStreamConfig::for_target(super::CaptureTarget::Default);
         let same = default.clone();
@@ -1134,10 +1312,13 @@ mod tests {
         for index in 0..2 {
             super::AudioRecorder::begin_recording(&mut recorder, super::CaptureTarget::Default)
                 .unwrap();
-            assert_eq!(recorder.last_start_reused, index > 0);
+            let timing = recorder.last_start_timing();
+            assert_eq!(timing.stream_reused, index > 0);
+            assert_eq!(timing.created_new_stream, index == 0);
             std::thread::sleep(std::time::Duration::from_millis(100));
             let captured = super::AudioRecorder::stop_and_get_buffer(&mut recorder).unwrap();
             assert_eq!(captured.pcm.spec(), super::recording_pcm_spec());
+            assert!(recorder.first_buffer_latency_ms().is_some());
         }
 
         assert!(*callback_count.lock().unwrap() >= 2);

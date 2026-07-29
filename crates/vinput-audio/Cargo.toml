@@ -11,7 +11,7 @@ workspace = true
 
 [features]
 default = []
-pipewire-backend = ["dep:pipewire"]
+pipewire-backend = ["dep:pipewire", "dep:tracing"]
 
 [dependencies]
 schemars.workspace = true
@@ -19,3 +19,4 @@ serde.workspace = true
 thiserror.workspace = true
 serde_json.workspace = true
 pipewire = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }

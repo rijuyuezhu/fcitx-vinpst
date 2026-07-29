@@ -1,11 +1,17 @@
 //! Recording lifecycle, ASR event draining, and stop-time text finishing.
 
+use std::time::{Duration, Instant};
+
 use vinput_asr::{AudioDeliveryMode, RecognitionContext, RecognitionEvent, events_to_payload};
 use vinput_audio::{AudioProcessingOptions, PcmBuffer};
 use vinput_protocol::{RecognitionPayload, ServiceStatus};
 use vinput_text::TextRequest;
 
 use super::{MOCK_SILENCE_THRESHOLD, RuntimeError, RuntimeState, StopRecordingReport};
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
 
 impl RuntimeState {
     /// Starts normal recording.
@@ -157,6 +163,7 @@ impl RuntimeState {
         scene_id: String,
         selected_text: Option<String>,
     ) -> Result<(), RuntimeError> {
+        let start_at = Instant::now();
         self.ensure_idle()?;
         let capture_target = self.capture_target_for_runtime()?;
         let context = self.recognition_context(&scene_id, selected_text.as_deref());
@@ -164,18 +171,37 @@ impl RuntimeState {
         let (capture_gate, startup_callback) = super::CaptureStartGate::new();
         self.audio_recorder
             .set_chunk_callback(Some(startup_callback));
+        let capture_at = Instant::now();
         if let Err(error) = self.audio_recorder.begin_recording(capture_target) {
+            tracing::debug!(
+                scene_id = %scene_id,
+                capture_open_ms = duration_millis(capture_at.elapsed()),
+                start_total_ms = duration_millis(start_at.elapsed()),
+                error = %error,
+                "recording capture startup failed"
+            );
             self.audio_recorder.set_chunk_callback(None);
             return Err(RuntimeError::Audio(error));
         }
+        let capture_open_ms = duration_millis(capture_at.elapsed());
+        let session_at = Instant::now();
         let session = match self.asr_backend.create_session(context) {
             Ok(session) => session,
             Err(error) => {
+                tracing::debug!(
+                    scene_id = %scene_id,
+                    capture_open_ms,
+                    session_create_ms = duration_millis(session_at.elapsed()),
+                    start_total_ms = duration_millis(start_at.elapsed()),
+                    error = %error,
+                    "recording ASR session startup failed"
+                );
                 let _ = self.audio_recorder.cancel_recording();
                 self.audio_recorder.set_chunk_callback(None);
                 return Err(RuntimeError::Asr(error));
             }
         };
+        let session_create_ms = duration_millis(session_at.elapsed());
         let (session, chunk_callback) = super::ActiveRecognitionSession::new(
             session,
             delivery_mode,
@@ -187,6 +213,14 @@ impl RuntimeState {
             self.audio_recorder.set_chunk_callback(None);
             return Err(RuntimeError::Asr(error));
         }
+        tracing::debug!(
+            scene_id = %scene_id,
+            delivery_mode = ?delivery_mode,
+            capture_open_ms,
+            session_create_ms,
+            start_total_ms = duration_millis(start_at.elapsed()),
+            "recording startup completed"
+        );
         self.status = ServiceStatus::Recording;
         self.current_scene = Some(scene_id);
         self.selected_text = selected_text;
