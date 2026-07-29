@@ -424,6 +424,13 @@ async fn dbus_get_runtime_status_returns_json_snapshot() -> anyhow::Result<()> {
     assert_eq!(status["dbus"]["interface"], dbus::SERVICE_INTERFACE);
     assert_eq!(status["asr"]["effective_provider_id"], "mock");
     assert_eq!(status["asr"]["target_provider_id"], "sherpa-onnx");
+    assert_eq!(status["asr"]["remote_endpoints"], serde_json::json!([]));
+    assert_eq!(status["remote_text"]["running"], false);
+    assert_eq!(
+        status["remote_text"]["listen_addr"],
+        serde_json::Value::Null
+    );
+    assert_eq!(status["remote_text"]["endpoints"], serde_json::json!([]));
     assert_eq!(status["text_adapters"]["adapter_count"], 0);
     assert!(status["uptime_ms"].as_u64().is_some());
 

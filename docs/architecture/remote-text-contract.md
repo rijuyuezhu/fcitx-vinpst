@@ -23,11 +23,11 @@ Other active providers disable this service without error. Invalid explicit sett
 
 The browser/input protocol begins with `{ "type": "auth", "api_key": "..." }`. Successful authentication emits `auth_ok` and then `init` with the current output connection state. Only one input client and one output client may own the protocol at a time.
 
-The Realtime-compatible endpoint is restricted to loopback peers and requires the configured API key as a bearer token. API-key comparison does not exit early on equal-length byte mismatches. The future HTTP layer must apply this authorization before upgrading `/v1/realtime`.
+The Realtime-compatible endpoint is restricted to loopback peers and requires the configured API key as a bearer token. API-key comparison does not exit early on equal-length byte mismatches. The HTTP layer applies this authorization before upgrading `/v1/realtime`.
 
 ## Protocol transitions
 
-The deterministic `RemoteTextProtocol` consumes parsed JSON and returns typed effects for the future runtime:
+The deterministic `RemoteTextProtocol` consumes parsed JSON and returns typed effects for the network runtime:
 
 - input `text_update` replaces the current text and requests debounce scheduling;
 - input `finalize` cancels debounce and emits a final result when text and an output client exist;
@@ -67,10 +67,22 @@ An unchanged disabled or unchanged active configuration is a no-op. Changing por
 
 Deterministic evidence covers lifecycle start, no-op reconciliation, settings-driven restart, provider-selection enable/disable, bind-failure cleanup, and config-file reload. `scripts/run-remote-text-daemon-lifecycle-smoke.sh` additionally launches the normal daemon inside a private `dbus-run-session`, proves both `/health` and `GetStatus`, sends `SIGTERM`, and verifies that the listener is released.
 
-## Remaining proof and diagnostics
+## Runtime endpoint diagnostics
+
+The legacy `GetAsrBackendState.remote_endpoints` field describes the running browser listener, not a provider's configured upstream endpoint. The Rust daemon follows that contract:
+
+- endpoints are returned only while `RemoteTextLifecycle` owns a listener;
+- an all-interface listener enumerates operational, non-loopback IPv4 interfaces;
+- URLs use `http://<address>:<port>`, then sort and deduplicate exactly as the legacy service does;
+- interface-enumeration failure is best-effort and returns an empty list without stopping the listener;
+- `GetRuntimeStatus` adds a redacted `remote_text` object with `running`, `listen_addr`, and the same endpoint list;
+- API keys and provider environment values are never serialized.
+
+The private-session lifecycle smoke queries `vinput daemon status --json`, checks that `asr_backend.remote_endpoints` and `runtime_status.remote_text.endpoints` agree, validates the listener address, and rejects any API-key leak.
+
+## Remaining live proof
 
 Remote text parity remains **partial** only at the user-facing evidence boundary:
 
-- expose useful redacted LAN endpoint diagnostics without leaking credentials;
 - prove the browser flow from another real device on the desktop user's network;
 - refine external-user setup and troubleshooting documentation from that real-session evidence.

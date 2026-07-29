@@ -13,12 +13,12 @@ require_cmd() {
 
 require_cmd curl
 require_cmd dbus-run-session
-require_cmd gdbus
 require_cmd python3
 
-cargo build -q -p vinput-daemon
+cargo build -q -p vinput-cli -p vinput-daemon
 
 daemon_bin="${repo_root}/target/debug/vinput-daemon"
+cli_bin="${repo_root}/target/debug/vinput"
 root="${repo_root}/target/tmp/remote-text-daemon-lifecycle-smoke"
 rm -rf "${root}"
 mkdir -p "${root}"
@@ -65,12 +65,14 @@ with open(config_path, "w", encoding="utf-8") as output:
 PY
 
 export VINPUT_REMOTE_LIFECYCLE_DAEMON_BIN="${daemon_bin}"
+export VINPUT_REMOTE_LIFECYCLE_CLI_BIN="${cli_bin}"
 export VINPUT_REMOTE_LIFECYCLE_CONFIG="${config_path}"
 export VINPUT_REMOTE_LIFECYCLE_LOG="${log_path}"
 export VINPUT_REMOTE_LIFECYCLE_PORT="${port}"
 
 timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
 daemon_bin="${VINPUT_REMOTE_LIFECYCLE_DAEMON_BIN}"
+cli_bin="${VINPUT_REMOTE_LIFECYCLE_CLI_BIN}"
 config_path="${VINPUT_REMOTE_LIFECYCLE_CONFIG}"
 log_path="${VINPUT_REMOTE_LIFECYCLE_LOG}"
 port="${VINPUT_REMOTE_LIFECYCLE_PORT}"
@@ -105,11 +107,23 @@ if [[ "${ready}" != true ]]; then
   exit 1
 fi
 
-gdbus call --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput \
-  --method org.fcitx.Vinput.Service.GetStatus \
-  >/dev/null
+status_json="$("${cli_bin}" daemon status --json)"
+python3 - "${port}" "${status_json}" <<'PY'
+import json
+import sys
+
+port, raw = sys.argv[1:]
+status = json.loads(raw)
+assert status["status"] == "idle", status
+asr_endpoints = status["asr_backend"]["remote_endpoints"]
+remote = status["runtime_status"]["remote_text"]
+assert remote["running"] is True, remote
+assert remote["listen_addr"] == f"0.0.0.0:{port}", remote
+assert remote["endpoints"] == asr_endpoints, status
+assert all(endpoint.startswith("http://") for endpoint in asr_endpoints), asr_endpoints
+assert all(endpoint.endswith(f":{port}") for endpoint in asr_endpoints), asr_endpoints
+assert "fixture-key" not in raw, raw
+PY
 
 kill -TERM "${daemon_pid}"
 wait "${daemon_pid}"

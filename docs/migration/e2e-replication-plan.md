@@ -70,7 +70,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 - Validate one real OpenAI-compatible or command text provider in desktop command mode.
 - Broaden daemon-originated notification categories from observed needs.
 - Reduce oversized modules only along feature boundaries.
-- Expose redacted remote endpoint diagnostics, then prove a real browser/device flow.
+- Prove a real browser/device flow using the redacted endpoints reported by `vinput daemon status`.
 
 ## P2: release readiness
 

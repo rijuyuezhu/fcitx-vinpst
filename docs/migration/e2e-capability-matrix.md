@@ -76,7 +76,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Text postprocess | deterministic | command and OpenAI-compatible paths; live provider proof missing |
 | Adapter supervision | deterministic | process/PID lifecycle and D-Bus control |
 | Notifications and recovery | deterministic | local notifications, daemon reload failure, owner loss, cross-client status reconciliation |
-| Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, local-socket tests, and private-session process smoke | Redacted endpoint diagnostics, live cross-device proof |
+| Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, local-socket tests, and private-session process smoke | Live cross-device browser proof |
 
 ## Registry/resource comparison
 
@@ -157,7 +157,7 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 - distro packaging and repository integration;
 - upgrade, rollback, and uninstall policy;
 - runtime-library version selection;
-- remote text normal-daemon lifecycle/reload integration, endpoint diagnostics, and live cross-device proof;
+- remote text live cross-device browser proof;
 - external-user documentation;
 - optional GUI strategy.
 

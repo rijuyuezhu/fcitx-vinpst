@@ -67,7 +67,10 @@ fn remote_text_architecture_pins_protocol_runtime_boundary() {
     assert!(note.contains("ReloadAsrBackend"));
     assert!(note.contains("SIGTERM"));
     assert!(note.contains("run-remote-text-daemon-lifecycle-smoke.sh"));
-    assert!(note.contains("Remaining proof and diagnostics"));
+    assert!(note.contains("GetAsrBackendState.remote_endpoints"));
+    assert!(note.contains("non-loopback IPv4"));
+    assert!(note.contains("GetRuntimeStatus"));
+    assert!(note.contains("Remaining live proof"));
     assert!(note.contains("partial"));
 }
 

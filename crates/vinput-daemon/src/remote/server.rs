@@ -15,6 +15,7 @@ use axum::{
     routing::get,
 };
 use futures_util::{SinkExt as _, StreamExt as _};
+use if_addrs::get_if_addrs;
 use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::{
@@ -301,6 +302,53 @@ impl RemoteTextLifecycle {
                 .map(|active| active.server.local_addr()),
         }
     }
+
+    /// Lists browser endpoints reachable through active non-loopback IPv4 interfaces.
+    ///
+    /// Interface enumeration is best-effort, matching the legacy daemon: an
+    /// unavailable interface list produces no endpoints and does not affect the
+    /// running listener.
+    #[must_use]
+    pub fn endpoints(&self) -> Vec<String> {
+        let Some(active) = self.active.as_ref() else {
+            return Vec::new();
+        };
+        let port = active.server.local_addr().port();
+        match self.bind_ip {
+            IpAddr::V4(ip) if ip.is_unspecified() => get_if_addrs().map_or_else(
+                |_| Vec::new(),
+                |interfaces| {
+                    lan_http_endpoints(
+                        port,
+                        interfaces.into_iter().filter_map(|interface| {
+                            let IpAddr::V4(ip) = interface.ip() else {
+                                return None;
+                            };
+                            Some((ip, interface.is_oper_up(), interface.is_loopback()))
+                        }),
+                    )
+                },
+            ),
+            IpAddr::V4(ip) if !ip.is_loopback() => {
+                vec![format!("http://{ip}:{port}")]
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+fn lan_http_endpoints(
+    port: u16,
+    interfaces: impl IntoIterator<Item = (Ipv4Addr, bool, bool)>,
+) -> Vec<String> {
+    let mut endpoints = interfaces
+        .into_iter()
+        .filter(|(_, is_up, is_loopback)| *is_up && !*is_loopback)
+        .map(|(ip, _, _)| format!("http://{ip}:{port}"))
+        .collect::<Vec<_>>();
+    endpoints.sort_unstable();
+    endpoints.dedup();
+    endpoints
 }
 
 impl Default for RemoteTextLifecycle {
@@ -664,4 +712,30 @@ fn send_json_values_to_sender(sender: &mpsc::UnboundedSender<Message>, values: V
 
 fn send_json(sender: &mpsc::UnboundedSender<Message>, value: &Value) {
     let _ = sender.send(Message::Text(value.to_string().into()));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use super::lan_http_endpoints;
+
+    #[test]
+    fn lan_endpoints_match_legacy_ipv4_filtering_and_ordering() {
+        let endpoints = lan_http_endpoints(
+            8080,
+            [
+                (Ipv4Addr::new(192, 168, 1, 8), true, false),
+                (Ipv4Addr::LOCALHOST, true, true),
+                (Ipv4Addr::new(10, 0, 0, 4), false, false),
+                (Ipv4Addr::new(192, 168, 1, 8), true, false),
+                (Ipv4Addr::new(10, 0, 0, 9), true, false),
+            ],
+        );
+
+        assert_eq!(
+            endpoints,
+            ["http://10.0.0.9:8080", "http://192.168.1.8:8080"]
+        );
+    }
 }

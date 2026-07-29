@@ -92,7 +92,7 @@ just remote-text-daemon-lifecycle-smoke
 just ime-e2e-smoke
 ```
 
-`just ime-e2e-smoke` includes fake outcome sink coverage. `just addon-dbus-adapter-lifecycle-smoke` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus. `just remote-text-daemon-lifecycle-smoke` launches the normal daemon in a private session, proves its HTTP health endpoint and D-Bus owner, sends `SIGTERM`, and verifies listener release.
+`just ime-e2e-smoke` includes fake outcome sink coverage. `just addon-dbus-adapter-lifecycle-smoke` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus. `just remote-text-daemon-lifecycle-smoke` launches the normal daemon in a private session, proves its HTTP health endpoint, D-Bus owner, and redacted endpoint diagnostics, sends `SIGTERM`, and verifies listener release.
 
 ### User installation
 

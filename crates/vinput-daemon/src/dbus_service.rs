@@ -494,8 +494,9 @@ impl VinputDbusService {
         bool,
         Vec<String>,
     ) {
-        let runtime = self.runtime.lock().await;
-        asr_backend_state_tuple(runtime.asr_backend_state())
+        let mut state = self.runtime.lock().await.asr_backend_state();
+        state.remote_endpoints = self.remote_text.lock().await.endpoints();
+        asr_backend_state_tuple(state)
     }
 
     /// Return text adapter diagnostic state JSON.
@@ -510,9 +511,21 @@ impl VinputDbusService {
     /// Return sanitized runtime status JSON.
     #[zbus(name = "GetRuntimeStatus")]
     async fn get_runtime_status(&self) -> Result<String, VinputDbusError> {
-        let mut runtime = self.runtime.lock().await;
-        runtime.refresh_text_adapters();
-        serde_json::to_string(&runtime.runtime_status_json()).map_err(Self::map_json_error)
+        let mut status = {
+            let mut runtime = self.runtime.lock().await;
+            runtime.refresh_text_adapters();
+            runtime.runtime_status_json()
+        };
+        let remote = self.remote_text.lock().await;
+        let remote_status = remote.status();
+        let endpoints = remote.endpoints();
+        status["asr"]["remote_endpoints"] = serde_json::json!(endpoints);
+        status["remote_text"] = serde_json::json!({
+            "running": remote_status.running,
+            "listen_addr": remote_status.local_addr.map(|address| address.to_string()),
+            "endpoints": endpoints,
+        });
+        serde_json::to_string(&status).map_err(Self::map_json_error)
     }
 
     /// Return active scene and configured scene id/label pairs.
@@ -1281,7 +1294,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dbus_facade_preserves_remote_asr_endpoint() {
+    async fn dbus_facade_uses_running_remote_service_endpoints() {
         let mut config = VinputConfig::bundled_default().unwrap();
         config.asr.active_provider = "remote".to_owned();
         config.asr.providers.push(AsrProviderConfig {
@@ -1303,7 +1316,7 @@ mod tests {
         assert_eq!(state.2, "mock");
         assert_eq!(state.3, "mock-streaming");
         assert!(state.6);
-        assert_eq!(state.7, ["https://asr.example.test"]);
+        assert!(state.7.is_empty());
     }
 
     #[tokio::test]

@@ -38,7 +38,7 @@ Still requiring live proof or implementation:
 
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
-- remote text redacted endpoint diagnostics and live cross-device proof;
+- remote text live cross-device browser proof;
 - distro packaging, upgrades, and release hardening;
 - the legacy Qt GUI, which is intentionally deferred.
 

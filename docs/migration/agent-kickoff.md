@@ -44,7 +44,7 @@ Then prove command-mode selected-text replacement across real applications.
 - Native online partials reach concrete Fcitx preedit before stop.
 - Final normal commit and command candidate replacement reach concrete test `InputContext` implementations.
 - Persistent keys, Tap/Hold/Both, scene/ASR menus, filtering, i18n, notifications, and daemon recovery are implemented.
-- Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, and `SIGTERM` shutdown are deterministic; redacted endpoint diagnostics and live cross-device proof remain.
+- Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, `SIGTERM` shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
 - Real Fcitx, live PipeWire, and real application behavior remain unproven.
 - Remote services, packaging, upgrades, and optional GUI work remain later milestones.
 

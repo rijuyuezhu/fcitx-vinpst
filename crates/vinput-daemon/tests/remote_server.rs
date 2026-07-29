@@ -294,6 +294,7 @@ async fn lifecycle_starts_preserves_restarts_and_stops_from_config() {
     let first = remote_config(Some(first_port), 25);
     assert!(lifecycle.reconcile_config(&first).await.unwrap());
     assert_eq!(lifecycle.status().local_addr.unwrap().port(), first_port);
+    assert!(lifecycle.endpoints().is_empty());
     assert!(health_is_ready(first_port).await);
     assert!(!lifecycle.reconcile_config(&first).await.unwrap());
 
