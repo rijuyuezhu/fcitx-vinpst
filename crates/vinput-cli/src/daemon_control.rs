@@ -71,7 +71,7 @@ fn daemon_user_service_command(
     action: &str,
     log_lines: Option<u16>,
 ) -> anyhow::Result<UserServiceCommand> {
-    const SERVICE_NAME: &str = "fcitx-vinput.service";
+    const SERVICE_NAME: &str = "vinput-daemon.service";
     if log_lines == Some(0) {
         anyhow::bail!("daemon log --lines must be greater than 0");
     }

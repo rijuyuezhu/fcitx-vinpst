@@ -492,19 +492,19 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
     for (command, expected, tool, env_override) in [
         (
             "stop",
-            "systemctl --user stop fcitx-vinput.service",
+            "systemctl --user stop vinput-daemon.service",
             "systemctl",
             "VINPUT_DAEMON_SYSTEMCTL",
         ),
         (
             "restart",
-            "systemctl --user restart fcitx-vinput.service",
+            "systemctl --user restart vinput-daemon.service",
             "systemctl",
             "VINPUT_DAEMON_SYSTEMCTL",
         ),
         (
             "log",
-            "journalctl --user -u fcitx-vinput.service",
+            "journalctl --user -u vinput-daemon.service",
             "journalctl",
             "VINPUT_DAEMON_JOURNALCTL",
         ),
@@ -555,7 +555,7 @@ fn daemon_log_lines_dry_run_adds_journalctl_limit() {
     assert_eq!(value["action"], "log");
     assert_eq!(
         value["command"],
-        "journalctl --user -u fcitx-vinput.service -n 42"
+        "journalctl --user -u vinput-daemon.service -n 42"
     );
     assert_eq!(
         value["command_argv"],
@@ -563,7 +563,7 @@ fn daemon_log_lines_dry_run_adds_journalctl_limit() {
             "journalctl",
             "--user",
             "-u",
-            "fcitx-vinput.service",
+            "vinput-daemon.service",
             "-n",
             "42"
         ])
@@ -579,7 +579,7 @@ fn daemon_log_lines_text_dry_run_prints_limit() {
 
     let stdout = assert_stdout_success(output, "daemon log lines dry-run text");
     assert!(stdout.contains("action: log"));
-    assert!(stdout.contains("journalctl --user -u fcitx-vinput.service -n 7"));
+    assert!(stdout.contains("journalctl --user -u vinput-daemon.service -n 7"));
 }
 
 #[test]
@@ -596,7 +596,7 @@ fn daemon_log_lines_real_command_reports_limited_argv() {
     assert_eq!(value["action"], "log");
     assert_eq!(value["will_mutate_user_service"], false);
     assert_eq!(value["command_argv"][0], "/bin/echo");
-    assert_eq!(value["stdout"], "--user -u fcitx-vinput.service -n 3\n");
+    assert_eq!(value["stdout"], "--user -u vinput-daemon.service -n 3\n");
 }
 
 #[test]
@@ -611,7 +611,7 @@ fn global_json_flag_forces_daemon_log_lines_json() {
     assert_eq!(value["action"], "log");
     assert_eq!(
         value["command"],
-        "journalctl --user -u fcitx-vinput.service -n 9"
+        "journalctl --user -u vinput-daemon.service -n 9"
     );
 }
 
@@ -712,9 +712,9 @@ fn daemon_user_service_missing_tool_text_prints_fallback_step() {
 #[test]
 fn daemon_user_service_real_commands_report_external_output_json() {
     for (command, expected_stdout, will_mutate) in [
-        ("stop", "--user stop fcitx-vinput.service\n", true),
-        ("restart", "--user restart fcitx-vinput.service\n", true),
-        ("log", "--user -u fcitx-vinput.service\n", false),
+        ("stop", "--user stop vinput-daemon.service\n", true),
+        ("restart", "--user restart vinput-daemon.service\n", true),
+        ("log", "--user -u vinput-daemon.service\n", false),
     ] {
         let output = vinput_command()
             .env("VINPUT_DAEMON_SYSTEMCTL", "/bin/echo")
@@ -768,7 +768,7 @@ fn daemon_user_service_real_text_prints_tool_program() {
     assert!(stdout.contains("tool_program: /bin/echo"));
     assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_SYSTEMCTL"));
     assert!(stdout.contains("tool_overridden: true"));
-    assert!(stdout.contains("stdout: --user stop fcitx-vinput.service"));
+    assert!(stdout.contains("stdout: --user stop vinput-daemon.service"));
     assert!(stdout.contains("next_step: run vinput daemon status to verify daemon availability"));
 }
 
@@ -787,7 +787,7 @@ fn daemon_log_real_text_prints_tool_program() {
     assert!(stdout.contains("tool_program: /bin/echo"));
     assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_JOURNALCTL"));
     assert!(stdout.contains("tool_overridden: true"));
-    assert!(stdout.contains("stdout: --user -u fcitx-vinput.service"));
+    assert!(stdout.contains("stdout: --user -u vinput-daemon.service"));
     assert!(stdout.contains("next_step: adjust --lines"));
 }
 
@@ -816,7 +816,7 @@ fn daemon_stop_text_dry_run_prints_user_service_plan() {
     assert!(stdout.contains("tool_env_override: VINPUT_DAEMON_SYSTEMCTL"));
     assert!(stdout.contains("tool_overridden: false"));
     assert!(stdout.contains("fallback_step: run vinput activation-service --user-status"));
-    assert!(stdout.contains("systemctl --user stop fcitx-vinput.service"));
+    assert!(stdout.contains("systemctl --user stop vinput-daemon.service"));
     assert!(
         stdout
             .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
