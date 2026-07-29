@@ -976,6 +976,25 @@ fn dbus_architecture_pins_async_daemon_notification_forwarding() {
 }
 
 #[test]
+fn dbus_architecture_pins_recording_transaction_order() {
+    let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
+        .expect("read dbus service doc");
+    for required in [
+        "share one asynchronous recording transaction lock",
+        "held from the runtime state transition",
+        "`StatusChanged`, `RecognitionPartial`, and `RecognitionResult`",
+        "cannot interleave an old stop result",
+        "no legacy deferred audio-stop worker",
+        "upstream stop/start race hardening",
+    ] {
+        assert!(
+            dbus_doc.contains(required),
+            "D-Bus docs should pin recording transaction ordering: {required}"
+        );
+    }
+}
+
+#[test]
 fn asr_architecture_pins_frontend_live_partial_preedit() {
     let asr_doc = std::fs::read_to_string(architecture_dir().join("asr-contract.md"))
         .expect("read asr contract doc");

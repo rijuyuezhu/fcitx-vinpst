@@ -103,6 +103,7 @@ fn sanitize_dbus_error_message(message: &str) -> String {
 pub struct VinputDbusService {
     runtime: Arc<Mutex<RuntimeState>>,
     remote_text: Arc<Mutex<RemoteTextLifecycle>>,
+    recording_operation: Arc<Mutex<()>>,
     live_partials: Arc<Mutex<LivePartialEmissionState>>,
     signal_emitter: Arc<Mutex<Option<SignalEmitter<'static>>>>,
 }
@@ -120,6 +121,7 @@ impl VinputDbusService {
         Self {
             runtime: Arc::new(Mutex::new(runtime)),
             remote_text: Arc::new(Mutex::new(RemoteTextLifecycle::new(bind_ip))),
+            recording_operation: Arc::new(Mutex::new(())),
             live_partials: Arc::new(Mutex::new(LivePartialEmissionState::default())),
             signal_emitter: Arc::new(Mutex::new(None)),
         }
@@ -343,6 +345,10 @@ impl VinputDbusService {
         self.live_partials.lock().await.cancel()
     }
 
+    async fn lock_recording_operation(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        Arc::clone(&self.recording_operation).lock_owned().await
+    }
+
     fn spawn_live_partial_emitter(&self, emitter: SignalEmitter<'static>, generation: u64) {
         let runtime = Arc::clone(&self.runtime);
         let live_partials = Arc::clone(&self.live_partials);
@@ -397,6 +403,7 @@ impl VinputDbusService {
         &self,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<(), VinputDbusError> {
+        let _operation = self.lock_recording_operation().await;
         let (status, partial_text) = self.start_recording_state().await?;
         Self::status_changed(&emitter, &status)
             .await
@@ -418,6 +425,7 @@ impl VinputDbusService {
         selected_text: &str,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<(), VinputDbusError> {
+        let _operation = self.lock_recording_operation().await;
         let (status, partial_text) = self.start_command_recording_state(selected_text).await?;
         Self::status_changed(&emitter, &status)
             .await
@@ -439,6 +447,7 @@ impl VinputDbusService {
         scene_id: &str,
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<String, VinputDbusError> {
+        let _operation = self.lock_recording_operation().await;
         self.ensure_recording_for_stop().await?;
         let last_emitted_partial = self.cancel_live_partial_emission().await;
         Self::status_changed(&emitter, "inferring")
@@ -1516,5 +1525,26 @@ mod tests {
         let second = state.begin(None);
         assert!(state.is_current(second));
         assert_ne!(first, second);
+    }
+
+    #[tokio::test]
+    async fn recording_operations_wait_for_the_prior_transaction() {
+        let service = service();
+        let first = service.lock_recording_operation().await;
+        let waiting_service = service.clone();
+        let mut waiter = tokio::spawn(async move {
+            let _second = waiting_service.lock_recording_operation().await;
+        });
+
+        assert!(
+            timeout(Duration::from_millis(20), &mut waiter)
+                .await
+                .is_err()
+        );
+        drop(first);
+        timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("recording transaction should resume after the prior operation")
+            .expect("recording transaction task should finish");
     }
 }
