@@ -15,6 +15,7 @@ Integration tests consume the same committed fixture directly, so changes to con
 
 The committed baseline intentionally fixes these compatibility fields:
 
+- output ducking disabled by default, with a `duck_output_volume` multiplier of `0.25` when enabled;
 - ASR provider `sherpa-onnx` as the active local provider placeholder.
 - active scene `__raw__`, with `__command__` kept as the command-mode prompt fixture.
 - empty `llm.providers` and `llm.adapters`, so text-adapter diagnostics report no configured adapters.
@@ -23,13 +24,14 @@ Runtime availability is not implied by the fixture; local `sherpa-onnx` requires
 
 ## Legacy compatibility policy
 
-The legacy C++ project accepted or repaired some malformed user config shapes more loosely. The Rust contract is intentionally explicit: parsing may normalize missing builtin scenes and blank/missing `active_scene` to `__raw__`, but validation does not silently deduplicate, drop, or clamp invalid user-provided entries.
+The legacy C++ project accepted or repaired some malformed user config shapes more loosely. The Rust contract is intentionally explicit: parsing may normalize missing builtin scenes and blank/missing `active_scene` to `__raw__`. The one numeric compatibility repair retained here is `global.duck_output_volume`, which clamps finite parsed values to `0.0..=1.0` like legacy. Validation still rejects programmatically constructed non-finite values and does not silently deduplicate or drop invalid entries.
 
 Pinned decisions, covered by `crates/vinput-config/tests/legacy_compat.rs`:
 
 - duplicate or blank registry mirrors are rejected, not deduplicated or dropped.
 - duplicate or blank LLM provider, LLM adapter, and ASR provider ids are rejected.
 - command ASR providers must configure a non-empty `command`.
+- `global.duck_output_while_recording` defaults to `false`; `global.duck_output_volume` defaults to `0.25`, finite parsed values are clamped to `0.0..=1.0`, and non-finite runtime values are rejected.
 - VAD threshold and duration values are strictly range-checked instead of silently clamped: threshold `0.05..=0.95`, minimum speech `0.05..=2.0` seconds, minimum silence `0.05..=5.0` seconds, and speech padding at most `2000` ms.
 - scene `candidate_count`, `timeout_ms`, and `context_lines` limits are strict and are not clamped/defaulted after invalid values are provided.
 - missing active scene references are rejected. Unknown non-empty active ASR provider references are rejected when an explicit provider list is present; minimal diagnostics configs that omit providers retain the historical placeholder behavior. The exact empty string is a valid legacy-compatible "no provider selected" state, while whitespace-only ids remain invalid.

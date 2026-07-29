@@ -81,7 +81,9 @@ impl RuntimeState {
                 .active_session
                 .take()
                 .ok_or(RuntimeError::MissingAsrSession)?;
-            let captured = match self.stop_recording_buffer() {
+            let captured_result = self.stop_recording_buffer();
+            self.output_ducker.restore();
+            let captured = match captured_result {
                 Ok(pcm) => pcm,
                 Err(error) => {
                     let _ = session.cancel();
@@ -225,6 +227,10 @@ impl RuntimeState {
         self.current_scene = Some(scene_id);
         self.selected_text = selected_text;
         self.active_session = Some(session);
+        if self.config.global.duck_output_while_recording {
+            self.output_ducker
+                .duck(self.config.global.duck_output_volume);
+        }
         Ok(())
     }
 
@@ -301,6 +307,7 @@ impl RuntimeState {
     }
 
     fn reset_to_idle(&mut self) {
+        self.output_ducker.restore();
         self.status = ServiceStatus::Idle;
         self.current_scene = None;
         self.selected_text = None;

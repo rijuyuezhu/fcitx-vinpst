@@ -6,6 +6,7 @@ mod asr_menu;
 mod config_io;
 mod diagnostics;
 mod errors;
+mod output_ducker;
 mod recording;
 mod reload;
 mod scene;
@@ -16,6 +17,7 @@ pub(crate) use asr_menu::{
 };
 pub(crate) use config_io::persist_config_atomically;
 pub use errors::RuntimeError;
+use output_ducker::OutputDucker;
 pub(crate) use reload::AsrReloadWorkerStep;
 use reload::PendingAsrReload;
 
@@ -51,6 +53,7 @@ pub struct RuntimeState {
     partial_text: Option<String>,
     asr_backend: Box<dyn AsrBackend>,
     audio_recorder: Box<dyn AudioRecorder>,
+    output_ducker: OutputDucker,
     text_processor: Box<dyn TextProcessor>,
     active_session: Option<ActiveRecognitionSession>,
     pending_asr_reload: Option<PendingAsrReload>,
@@ -67,6 +70,7 @@ pub struct RuntimeState {
 
 impl Drop for RuntimeState {
     fn drop(&mut self) {
+        self.output_ducker.restore();
         self.audio_recorder.set_chunk_callback(None);
         if let Some(session) = self.active_session.take() {
             let _ = session.cancel();
@@ -209,6 +213,7 @@ impl RuntimeState {
             partial_text: None,
             asr_backend,
             audio_recorder,
+            output_ducker: OutputDucker::default(),
             text_processor,
             active_session: None,
             pending_asr_reload: None,

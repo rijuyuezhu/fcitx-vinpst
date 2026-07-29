@@ -70,6 +70,9 @@ impl VinputConfig {
         if self.version == 0 {
             self.version = 1;
         }
+        if self.global.duck_output_volume.is_finite() {
+            self.global.duck_output_volume = self.global.duck_output_volume.clamp(0.0, 1.0);
+        }
         if self.scenes.active_scene.is_empty() {
             RAW_SCENE_ID.clone_into(&mut self.scenes.active_scene);
         }
@@ -157,6 +160,11 @@ fn validate_global(global: &GlobalConfig) -> Result<(), ConfigError> {
     }
     if global.capture_device.trim().is_empty() {
         return Err(ConfigError::InvalidCaptureDevice);
+    }
+    if !global.duck_output_volume.is_finite() || !(0.0..=1.0).contains(&global.duck_output_volume) {
+        return Err(ConfigError::InvalidDuckOutputVolume(
+            global.duck_output_volume,
+        ));
     }
     Ok(())
 }
@@ -458,7 +466,7 @@ pub struct RegistryConfig {
 }
 
 /// Global daemon/UI defaults.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct GlobalConfig {
     /// Default recognition language.
     #[serde(default = "default_language")]
@@ -466,6 +474,12 @@ pub struct GlobalConfig {
     /// `PipeWire` target capture device.
     #[serde(default = "default_capture_device")]
     pub capture_device: String,
+    /// Whether the default output sink should be ducked while recording.
+    #[serde(default)]
+    pub duck_output_while_recording: bool,
+    /// Output-volume multiplier used while recording.
+    #[serde(default = "default_duck_output_volume")]
+    pub duck_output_volume: f32,
 }
 
 impl Default for GlobalConfig {
@@ -473,6 +487,8 @@ impl Default for GlobalConfig {
         Self {
             default_language: default_language(),
             capture_device: default_capture_device(),
+            duck_output_while_recording: false,
+            duck_output_volume: default_duck_output_volume(),
         }
     }
 }
@@ -724,6 +740,9 @@ pub enum ConfigError {
     /// Capture device is empty.
     #[error("invalid empty capture device")]
     InvalidCaptureDevice,
+    /// Output ducking volume is outside the supported range.
+    #[error("invalid duck_output_volume {0}; expected a finite value in 0.0..=1.0")]
+    InvalidDuckOutputVolume(f32),
     /// Active scene is not listed in scene definitions.
     #[error("active scene `{0}` is not defined")]
     UnknownActiveScene(String),
@@ -868,6 +887,10 @@ fn default_language() -> String {
 
 fn default_capture_device() -> String {
     "default".to_owned()
+}
+
+const fn default_duck_output_volume() -> f32 {
+    0.25
 }
 
 fn default_asr_provider() -> String {
@@ -1170,6 +1193,8 @@ mod tests {
         config.validate().unwrap();
         assert_eq!(config.version, 1);
         assert_eq!(config.global.default_language, "zh");
+        assert!(!config.global.duck_output_while_recording);
+        assert!((config.global.duck_output_volume - 0.25).abs() < f32::EPSILON);
         assert_eq!(config.asr.active_provider, "sherpa-onnx");
         assert_eq!(config.asr.providers[0].kind, AsrProviderKind::Local);
         assert_eq!(config.scenes.active_scene, RAW_SCENE_ID);
@@ -1410,6 +1435,33 @@ mod tests {
         config.global.default_language = "  ".to_owned();
         let error = config.validate().unwrap_err();
         assert!(matches!(error, super::ConfigError::InvalidDefaultLanguage));
+    }
+
+    #[test]
+    fn output_ducking_defaults_and_normalization_match_legacy() {
+        let defaults = super::GlobalConfig::default();
+        assert!(!defaults.duck_output_while_recording);
+        assert!((defaults.duck_output_volume - 0.25).abs() < f32::EPSILON);
+
+        let low =
+            VinputConfig::from_json_str(r#"{"version":1,"global":{"duck_output_volume":-0.5}}"#)
+                .unwrap();
+        assert!(low.global.duck_output_volume.abs() < f32::EPSILON);
+
+        let high =
+            VinputConfig::from_json_str(r#"{"version":1,"global":{"duck_output_volume":1.5}}"#)
+                .unwrap();
+        assert!((high.global.duck_output_volume - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn validation_rejects_non_finite_duck_output_volume() {
+        let mut config = VinputConfig::bundled_default().unwrap();
+        config.global.duck_output_volume = f32::NAN;
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::InvalidDuckOutputVolume(value)) if value.is_nan()
+        ));
     }
 
     #[test]

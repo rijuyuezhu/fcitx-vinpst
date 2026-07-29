@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use super::{AsrReloadWorkerStep, RuntimeError, RuntimeState};
+use super::{
+    AsrReloadWorkerStep, RuntimeError, RuntimeState,
+    output_ducker::{OutputDucker, OutputVolumeControl},
+};
 use vinput_asr::{
     AsrBackend, AsrBackendFactory, AsrError, BackendDescriptor, MockAsrAudioLog, MockAsrAudioPush,
     MockAsrBackend, RecognitionContext, RecognitionEvent, RecognitionSession,
@@ -549,6 +552,50 @@ impl AudioRecorder for BeginFailureRecorder {
     fn is_recording(&self) -> bool {
         false
     }
+}
+
+#[derive(Default)]
+struct TrackingVolumeState {
+    current: f64,
+    writes: Vec<f64>,
+}
+
+struct TrackingVolumeControl {
+    state: Arc<Mutex<TrackingVolumeState>>,
+}
+
+impl OutputVolumeControl for TrackingVolumeControl {
+    fn read_default_sink_volume(&mut self) -> Option<f64> {
+        Some(
+            self.state
+                .lock()
+                .expect("tracking volume lock poisoned")
+                .current,
+        )
+    }
+
+    fn set_default_sink_volume(&mut self, volume: f64) -> bool {
+        self.state
+            .lock()
+            .expect("tracking volume lock poisoned")
+            .writes
+            .push(volume);
+        true
+    }
+}
+
+fn install_tracking_output_ducker(
+    runtime: &mut RuntimeState,
+    current: f64,
+) -> Arc<Mutex<TrackingVolumeState>> {
+    let state = Arc::new(Mutex::new(TrackingVolumeState {
+        current,
+        writes: Vec::new(),
+    }));
+    runtime.output_ducker = OutputDucker::with_control(Box::new(TrackingVolumeControl {
+        state: Arc::clone(&state),
+    }));
+    state
 }
 
 #[test]
@@ -1431,6 +1478,70 @@ fn recorder_stop_failure_cancels_and_returns_to_idle() {
         *events.lock().expect("events lock poisoned"),
         vec!["begin", "stop-error", "cancel"]
     );
+}
+
+#[test]
+fn output_ducking_restores_after_normal_stop() {
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.global.duck_output_while_recording = true;
+    config.global.duck_output_volume = 0.25;
+    let mut runtime = RuntimeState::new(config).unwrap();
+    let volume = install_tracking_output_ducker(&mut runtime, 0.8);
+
+    runtime.start_recording().unwrap();
+    runtime.stop_recording_report(None).unwrap();
+
+    let volume = volume.lock().expect("tracking volume lock poisoned");
+    assert_eq!(volume.writes.len(), 2);
+    assert!((volume.writes[0] - 0.2).abs() < f64::EPSILON);
+    assert!((volume.writes[1] - 0.8).abs() < f64::EPSILON);
+}
+
+#[test]
+fn output_ducking_restores_after_stop_failure() {
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.global.duck_output_while_recording = true;
+    config.global.duck_output_volume = 0.5;
+    let backend = MockAsrBackend::streaming("partial", "final");
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let recorder = StopFailureRecorder::new(events);
+    let mut runtime =
+        RuntimeState::with_audio_recorder(config, Box::new(backend), Box::new(recorder)).unwrap();
+    let volume = install_tracking_output_ducker(&mut runtime, 0.6);
+
+    runtime.start_recording().unwrap();
+    assert!(runtime.stop_recording_report(None).is_err());
+
+    let volume = volume.lock().expect("tracking volume lock poisoned");
+    assert_eq!(volume.writes.len(), 2);
+    assert!((volume.writes[0] - 0.3).abs() < f64::EPSILON);
+    assert!((volume.writes[1] - 0.6).abs() < f64::EPSILON);
+}
+
+#[test]
+fn output_ducking_restores_when_recording_runtime_is_dropped() {
+    let volume = {
+        let mut config = VinputConfig::bundled_default().unwrap();
+        config.global.duck_output_while_recording = true;
+        config.global.duck_output_volume = 0.25;
+        let mut runtime = RuntimeState::new(config).unwrap();
+        let volume = install_tracking_output_ducker(&mut runtime, 1.0);
+        runtime.start_recording().unwrap();
+        assert_eq!(
+            volume
+                .lock()
+                .expect("tracking volume lock poisoned")
+                .writes
+                .len(),
+            1
+        );
+        volume
+    };
+
+    let volume = volume.lock().expect("tracking volume lock poisoned");
+    assert_eq!(volume.writes.len(), 2);
+    assert!((volume.writes[0] - 0.25).abs() < f64::EPSILON);
+    assert!((volume.writes[1] - 1.0).abs() < f64::EPSILON);
 }
 
 #[test]
