@@ -1119,6 +1119,60 @@ fn provider_list_available_json_reports_live_registry_and_install_status() {
 }
 
 #[test]
+fn provider_list_available_applies_automatic_local_i18n_override() {
+    let config_path = write_live_provider_config_fixture("vinput-provider-local-i18n-config");
+    let registry_path = write_live_provider_registry_fixture(
+        "vinput-provider-local-i18n-registry",
+        "https://provider.example.test/entry.py",
+    );
+    let preferred_i18n_path = write_temp_json(
+        "vinput-provider-local-i18n-preferred",
+        r#"{
+          "provider.openai-compatible.streaming.title":"Preferred title",
+          "provider.openai-compatible.streaming.description":"Preferred description"
+        }"#,
+    );
+    let config_home = tempfile::tempdir().expect("create XDG config home");
+    let local_i18n_dir = config_home.path().join("vinput");
+    fs::create_dir_all(&local_i18n_dir).expect("create local i18n directory");
+    fs::write(
+        local_i18n_dir.join("i18n.local.json"),
+        r#"{
+          "provider.openai-compatible.streaming.title":"Local override title"
+        }"#,
+    )
+    .expect("write local i18n override");
+
+    let output = vinput_command()
+        .env("XDG_CONFIG_HOME", config_home.path())
+        .args(["provider", "list", "--available", "--registry"])
+        .arg(&registry_path)
+        .arg("--i18n")
+        .arg(&preferred_i18n_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .expect("run provider list with automatic local i18n override");
+    fs::remove_file(&config_path).expect("remove temporary config");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_file(&preferred_i18n_path).expect("remove preferred i18n");
+
+    let value = assert_json_success(output, "provider list local i18n override");
+    let providers = value["providers"].as_array().unwrap();
+    assert_eq!(
+        providers[0]["machine_id"],
+        "provider.openai-compatible.streaming"
+    );
+    assert_eq!(providers[0]["title"], "Local override title");
+    assert_eq!(providers[0]["description"], "Preferred description");
+    assert_eq!(value["i18n"]["kind"], "file");
+    assert_eq!(value["i18n"]["priority"][0], "local");
+    assert_eq!(value["i18n"]["layers"]["local"]["loaded"], true);
+    assert_eq!(value["i18n"]["layers"]["preferred"]["loaded"], true);
+}
+
+#[test]
 fn provider_list_available_text_prints_live_registry_table() {
     let config_path = write_live_provider_config_fixture("vinput-provider-available-config-text");
     let registry_path = write_live_provider_registry_fixture(

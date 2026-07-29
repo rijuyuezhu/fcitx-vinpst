@@ -361,7 +361,7 @@ impl LiveVinputModelMetadata {
 }
 
 /// Flat i18n map loaded from live registry `i18n/*.json` files.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct LiveRegistryI18n {
     /// Raw translation entries keyed by strings such as `<model-id>.title`.
     #[serde(flatten)]
@@ -373,6 +373,25 @@ impl LiveRegistryI18n {
     pub fn from_json_str(input: &str) -> Result<Self, RegistryError> {
         let entries = serde_json::from_str(input)?;
         Ok(Self { entries })
+    }
+
+    /// Merges translation layers from lowest to highest priority.
+    ///
+    /// Later layers replace earlier values for the same key. This matches the
+    /// legacy registry order of `en_US`, preferred locale, then local overrides.
+    #[must_use]
+    pub fn merge_layers(layers: impl IntoIterator<Item = Self>) -> Self {
+        let mut merged = Self::default();
+        for layer in layers {
+            merged.entries.extend(layer.entries);
+        }
+        merged
+    }
+
+    /// Returns whether this translation map contains no entries.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     /// Gets a raw translation value by key.

@@ -505,6 +505,16 @@ fn registry_architecture_mentions_root_planning() {
     assert!(registry_doc.contains("locale-keyed titles"));
     assert!(registry_doc.contains("`InstalledModelInfo::stable_model_id`"));
     assert!(registry_doc.contains("`display_title`"));
+    assert!(registry_doc.contains("registry `en_US`, the requested registry locale"));
+    assert!(registry_doc.contains("`$XDG_CONFIG_HOME/vinput/i18n.local.json`"));
+    assert!(registry_doc.contains("local overrides replace both"));
+    assert!(
+        registry_doc
+            .contains("Missing preferred localization still keeps available `en_US` entries")
+    );
+    assert!(registry_doc.contains("malformed automatic local override is diagnostic-only"));
+    assert!(registry_doc.contains("an explicitly requested `--i18n` file still fails"));
+    assert!(registry_doc.contains("`local > preferred > fallback` priority"));
 }
 
 #[test]

@@ -2322,6 +2322,7 @@ dependencies = [
  "anyhow",
  "clap",
  "serde_json",
+ "tempfile",
  "vinput-asr",
  "vinput-audio",
  "vinput-config",

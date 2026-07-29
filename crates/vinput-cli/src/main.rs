@@ -1,6 +1,7 @@
 //! `vinput` command-line prototype.
 
 mod daemon_control;
+mod live_i18n;
 mod recording_control;
 
 use std::{
@@ -17,6 +18,7 @@ use daemon_control::{
     daemon_owner_probe_plan_json, daemon_service_proxy, handle_daemon_command,
     reload_asr_backend_via_dbus,
 };
+use live_i18n::{LoadedLiveI18n, load_live_i18n};
 use recording_control::handle_recording_command;
 use vinput_asr::{AsrBackendFactory, AsrTimeoutProbe, SherpaOnnxVadProbe};
 use vinput_audio::CaptureTarget;
@@ -8614,12 +8616,6 @@ struct LoadedLiveModelRegistry {
     remote_base_url: Option<String>,
 }
 
-struct LoadedLiveI18n {
-    i18n: Option<LiveRegistryI18n>,
-    source_json: serde_json::Value,
-    source_label: String,
-}
-
 struct FetchedText {
     url: String,
     text: String,
@@ -9567,92 +9563,6 @@ fn load_live_model_registry(
         source_label,
         remote_base_url,
     })
-}
-
-fn load_live_i18n(
-    i18n_path: Option<&Path>,
-    remote_base_url: Option<&str>,
-    locale: &str,
-) -> anyhow::Result<LoadedLiveI18n> {
-    if let Some(path) = i18n_path {
-        let input = fs::read_to_string(path)
-            .with_context(|| format!("read live registry i18n `{}`", path.display()))?;
-        let i18n = LiveRegistryI18n::from_json_str(&input)
-            .with_context(|| format!("parse live registry i18n `{}`", path.display()))?;
-        return Ok(LoadedLiveI18n {
-            i18n: Some(i18n),
-            source_json: serde_json::json!({
-                "kind": "file",
-                "path": path,
-                "loaded": true,
-                "error": null,
-            }),
-            source_label: format!("file:{}", path.display()),
-        });
-    }
-
-    let Some(remote_base_url) = remote_base_url else {
-        return Ok(LoadedLiveI18n {
-            i18n: None,
-            source_json: serde_json::json!({
-                "kind": "none",
-                "loaded": false,
-                "error": null,
-            }),
-            source_label: "none".to_owned(),
-        });
-    };
-    if locale.trim().is_empty() {
-        return Ok(LoadedLiveI18n {
-            i18n: None,
-            source_json: serde_json::json!({
-                "kind": "none",
-                "loaded": false,
-                "error": "empty locale",
-            }),
-            source_label: "none".to_owned(),
-        });
-    }
-
-    let url = join_url(remote_base_url, &format!("i18n/{}.json", locale.trim()));
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(10));
-    match source.fetch_registry_text(&url) {
-        Ok(input) => match LiveRegistryI18n::from_json_str(&input) {
-            Ok(i18n) => Ok(LoadedLiveI18n {
-                i18n: Some(i18n),
-                source_json: serde_json::json!({
-                    "kind": "http",
-                    "url": url,
-                    "locale": locale.trim(),
-                    "loaded": true,
-                    "error": null,
-                }),
-                source_label: format!("url:{url}"),
-            }),
-            Err(error) => Ok(LoadedLiveI18n {
-                i18n: None,
-                source_json: serde_json::json!({
-                    "kind": "http",
-                    "url": url,
-                    "locale": locale.trim(),
-                    "loaded": false,
-                    "error": error.to_string(),
-                }),
-                source_label: format!("url:{url} (i18n parse failed)"),
-            }),
-        },
-        Err(error) => Ok(LoadedLiveI18n {
-            i18n: None,
-            source_json: serde_json::json!({
-                "kind": "http",
-                "url": url,
-                "locale": locale.trim(),
-                "loaded": false,
-                "error": error,
-            }),
-            source_label: format!("url:{url} (i18n unavailable)"),
-        }),
-    }
 }
 
 fn fetch_text_from_mirrors(

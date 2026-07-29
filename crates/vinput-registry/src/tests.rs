@@ -217,6 +217,40 @@ fn resolves_live_model_i18n_title_and_description() {
 }
 
 #[test]
+fn live_i18n_layers_apply_fallback_locale_and_local_priority() {
+    let fallback = LiveRegistryI18n::from_json_str(
+        r#"{
+          "shared": "fallback",
+          "fallback-only": "fallback only"
+        }"#,
+    )
+    .unwrap();
+    let preferred = LiveRegistryI18n::from_json_str(
+        r#"{
+          "shared": "preferred",
+          "preferred-only": "preferred only"
+        }"#,
+    )
+    .unwrap();
+    let local = LiveRegistryI18n::from_json_str(
+        r#"{
+          "shared": "local",
+          "local-only": "local only"
+        }"#,
+    )
+    .unwrap();
+
+    let merged = LiveRegistryI18n::merge_layers([fallback, preferred, local]);
+
+    assert_eq!(merged.get("shared"), Some("local"));
+    assert_eq!(merged.get("fallback-only"), Some("fallback only"));
+    assert_eq!(merged.get("preferred-only"), Some("preferred only"));
+    assert_eq!(merged.get("local-only"), Some("local only"));
+    assert!(!merged.is_empty());
+    assert!(LiveRegistryI18n::default().is_empty());
+}
+
+#[test]
 fn live_model_title_falls_back_to_short_id_then_id() {
     let registry = LiveModelRegistry::from_json_str(
         r#"{
