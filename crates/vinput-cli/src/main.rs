@@ -730,8 +730,14 @@ enum AdapterCommand {
     /// Remove a configured text adapter.
     #[command(alias = "rm")]
     Remove {
-        /// Existing adapter id to remove.
+        /// Existing adapter id or registry `short_id` to remove.
         id: String,
+        /// Optional local registry/adapters.json file used to resolve a short id.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Managed adapter script root. Defaults to $XDG_DATA_HOME/fcitx-vinput/adapters.
+        #[arg(long)]
+        adapter_root: Option<PathBuf>,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -2369,6 +2375,8 @@ struct AdapterEditOutcome {
 #[allow(clippy::struct_excessive_bools)]
 struct AdapterRemoveRequest<'a> {
     id: &'a str,
+    registry_path: Option<&'a Path>,
+    adapter_root: Option<&'a Path>,
     config_path: Option<&'a PathBuf>,
     output_path: Option<&'a Path>,
     in_place: bool,
@@ -2421,10 +2429,16 @@ struct AdapterInstallOutcome {
     wrote_config: bool,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct AdapterRemoveOutcome {
     config_path: Option<PathBuf>,
     source: &'static str,
+    registry_source: Option<serde_json::Value>,
     removed_adapter_id: String,
+    managed_script: bool,
+    script_path: Option<PathBuf>,
+    script_existed: bool,
+    removed_script: bool,
     before_adapter_count: usize,
     after_adapter_count: usize,
     output_path: Option<PathBuf>,
@@ -2636,6 +2650,8 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
         }),
         AdapterCommand::Remove {
             id,
+            registry,
+            adapter_root,
             config,
             output,
             in_place,
@@ -2643,6 +2659,8 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
             json,
         } => print_adapter_remove(AdapterRemoveRequest {
             id: &id,
+            registry_path: registry.as_deref(),
+            adapter_root: adapter_root.as_deref(),
             config_path: config.as_ref(),
             output_path: output.as_deref(),
             in_place,
@@ -4119,7 +4137,7 @@ fn print_adapter_remove(request: AdapterRemoveRequest<'_>) -> anyhow::Result<()>
 }
 
 fn run_adapter_remove(request: &AdapterRemoveRequest<'_>) -> anyhow::Result<AdapterRemoveOutcome> {
-    let id = normalize_adapter_id(request.id)?;
+    let selector = normalize_adapter_id(request.id)?;
     let default_path = default_config_path()?;
     let mut loaded = load_config_json(request.config_path)?;
     let contents =
@@ -4129,11 +4147,50 @@ fn run_adapter_remove(request: &AdapterRemoveRequest<'_>) -> anyhow::Result<Adap
     config
         .validate()
         .context("validate config for adapter remove")?;
-    if !config.llm.adapters.iter().any(|adapter| adapter.id == id) {
-        anyhow::bail!("text adapter `{id}` not found");
-    }
+
+    let (adapter_index, registry_source) = if let Some(index) = config
+        .llm
+        .adapters
+        .iter()
+        .position(|adapter| adapter.id == selector)
+    {
+        (index, None)
+    } else if let Some(registry_path) = request.registry_path {
+        let registry = load_live_adapter_registry(Some(registry_path), &config.registry)?;
+        let entry = registry
+            .registry
+            .entry_by_id_or_short_id(&selector, LiveScriptKind::LlmAdapter)
+            .with_context(|| format!("text adapter selector `{selector}` not found"))?;
+        let index = config
+            .llm
+            .adapters
+            .iter()
+            .position(|adapter| adapter.id == entry.id)
+            .with_context(|| {
+                format!(
+                    "text adapter `{}` resolved from `{selector}` is not installed",
+                    entry.id
+                )
+            })?;
+        (index, Some(registry.source_json))
+    } else {
+        anyhow::bail!(
+            "text adapter `{selector}` not found; pass --registry <adapters.json> to resolve a short id"
+        );
+    };
+
+    let adapter = config.llm.adapters[adapter_index].clone();
+    let adapter_root = request
+        .adapter_root
+        .map(Path::to_path_buf)
+        .map_or_else(default_adapter_root, Ok)?;
+    let script_path = managed_adapter_script_path(&adapter, &adapter_root);
+    let script_existed = script_path
+        .as_deref()
+        .map(managed_script_exists)
+        .transpose()?
+        .unwrap_or(false);
     let before_adapter_count = config.llm.adapters.len();
-    let adapter_index = explicit_adapter_index(&loaded.document, &id)?;
     llm_adapters_array_mut(&mut loaded.document)?.remove(adapter_index);
     validate_config_json_value(&loaded.document, "validate updated adapter config")?;
 
@@ -4145,14 +4202,29 @@ fn run_adapter_remove(request: &AdapterRemoveRequest<'_>) -> anyhow::Result<Adap
         &default_path,
     )?;
     let mut wrote_config = false;
+    let mut removed_script = false;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        if write_target.in_place()
+            && script_existed
+            && let Some(script_path) = &script_path
+        {
+            fs::remove_file(script_path).with_context(|| {
+                format!("remove managed adapter script `{}`", script_path.display())
+            })?;
+            removed_script = true;
+        }
     }
     Ok(AdapterRemoveOutcome {
         config_path: loaded.path.take(),
         source: loaded.source,
-        removed_adapter_id: id,
+        registry_source,
+        removed_adapter_id: adapter.id,
+        managed_script: script_path.is_some(),
+        script_path,
+        script_existed,
+        removed_script,
         before_adapter_count,
         after_adapter_count: before_adapter_count - 1,
         output_path: write_target.output_path(),
@@ -4161,6 +4233,36 @@ fn run_adapter_remove(request: &AdapterRemoveRequest<'_>) -> anyhow::Result<Adap
         dry_run: request.dry_run,
         wrote_config,
     })
+}
+
+fn managed_adapter_script_path(
+    adapter: &vinput_config::LlmAdapterConfig,
+    adapter_root: &Path,
+) -> Option<PathBuf> {
+    let Ok(relative_path) = managed_script_relative_path(LiveScriptKind::LlmAdapter, &adapter.id)
+    else {
+        return None;
+    };
+    let script_path = adapter_root.join(relative_path);
+    let script_path_text = script_path.to_string_lossy();
+    (adapter.args.as_slice() == [script_path_text.as_ref()]).then_some(script_path)
+}
+
+fn managed_script_exists(script_path: &Path) -> anyhow::Result<bool> {
+    match fs::symlink_metadata(script_path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_dir() {
+                anyhow::bail!(
+                    "refusing to remove managed adapter script `{}` because it is a directory",
+                    script_path.display()
+                );
+            }
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error)
+            .with_context(|| format!("inspect managed adapter script `{}`", script_path.display())),
+    }
 }
 
 fn adapter_add_json_object(
@@ -4274,7 +4376,13 @@ fn adapter_remove_outcome_json(outcome: &AdapterRemoveOutcome) -> serde_json::Va
         "dry_run": outcome.dry_run,
         "config_path": outcome.config_path.as_ref(),
         "source": outcome.source,
+        "registry_source": outcome.registry_source,
         "removed_adapter_id": outcome.removed_adapter_id,
+        "managed_script": outcome.managed_script,
+        "script_path": outcome.script_path,
+        "script_existed": outcome.script_existed,
+        "will_remove_script": !outcome.dry_run && outcome.in_place && outcome.script_existed,
+        "removed_script": outcome.removed_script,
         "before_adapter_count": outcome.before_adapter_count,
         "after_adapter_count": outcome.after_adapter_count,
         "output_path": outcome.output_path,
@@ -4317,6 +4425,16 @@ fn print_adapter_remove_text(outcome: &AdapterRemoveOutcome) {
         println!("config_path: {}", config_path.display());
     }
     println!("removed_adapter_id: {}", outcome.removed_adapter_id);
+    println!("managed_script: {}", outcome.managed_script);
+    if let Some(script_path) = &outcome.script_path {
+        println!("script_path: {}", script_path.display());
+    }
+    println!("script_existed: {}", outcome.script_existed);
+    println!(
+        "will_remove_script: {}",
+        !outcome.dry_run && outcome.in_place && outcome.script_existed
+    );
+    println!("removed_script: {}", outcome.removed_script);
     println!("before_adapter_count: {}", outcome.before_adapter_count);
     println!("after_adapter_count: {}", outcome.after_adapter_count);
     println!("in_place: {}", outcome.in_place);

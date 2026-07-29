@@ -223,6 +223,20 @@ fn llm_and_adapter_help_list_options() {
     assert!(adapter_list_stdout.contains("--config"));
     assert!(adapter_list_stdout.contains("--json"));
 
+    let adapter_remove_output = vinput_command()
+        .args(["adapter", "remove", "--help"])
+        .output()
+        .expect("run vinput adapter remove --help");
+    let adapter_remove_stdout =
+        assert_stdout_success(adapter_remove_output, "adapter remove help output");
+    assert!(adapter_remove_stdout.contains("--registry"));
+    assert!(adapter_remove_stdout.contains("--adapter-root"));
+    assert!(adapter_remove_stdout.contains("--config"));
+    assert!(adapter_remove_stdout.contains("--output"));
+    assert!(adapter_remove_stdout.contains("--in-place"));
+    assert!(adapter_remove_stdout.contains("--dry-run"));
+    assert!(adapter_remove_stdout.contains("--json"));
+
     let adapter_status_output = vinput_command()
         .args(["adapter", "status", "--help"])
         .output()

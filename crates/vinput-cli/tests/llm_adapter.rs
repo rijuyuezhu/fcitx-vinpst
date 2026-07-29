@@ -742,6 +742,189 @@ fn adapter_remove_in_place_writes_backup() {
 }
 
 #[test]
+fn adapter_remove_resolves_short_id_and_deletes_managed_script_in_place() {
+    let root = unique_temp_dir("vinput-adapter-remove-managed");
+    let config_path = root.join("config.json");
+    let registry_path = root.join("adapters.json");
+    let adapter_root = root.join("managed-adapters");
+    let script_path = adapter_root.join("mtranserver/proxy");
+    fs::create_dir_all(script_path.parent().unwrap()).expect("create managed adapter directory");
+    fs::write(&script_path, "#!/usr/bin/env python3\n").expect("write managed adapter script");
+    fs::write(
+        &config_path,
+        managed_adapter_config_fixture_json(&script_path),
+    )
+    .expect("write managed adapter config");
+    fs::write(
+        &registry_path,
+        live_adapter_registry_fixture_json("https://adapter.example.test/entry.py"),
+    )
+    .expect("write adapter registry");
+    let before = fs::read_to_string(&config_path).expect("read managed adapter config");
+
+    let output = vinput_command()
+        .args(["adapter", "remove", "mtran-proxy", "--registry"])
+        .arg(&registry_path)
+        .arg("--adapter-root")
+        .arg(&adapter_root)
+        .arg("--config")
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run managed adapter remove");
+
+    let value = assert_json_success(output, "managed adapter remove json");
+    assert_eq!(value["registry_source"]["kind"], "file");
+    assert_eq!(value["removed_adapter_id"], "adapter.mtranserver.proxy");
+    assert_eq!(value["managed_script"], true);
+    assert_eq!(value["script_path"], script_path.to_string_lossy().as_ref());
+    assert_eq!(value["script_existed"], true);
+    assert_eq!(value["will_remove_script"], true);
+    assert_eq!(value["removed_script"], true);
+    assert_eq!(value["wrote_config"], true);
+    assert!(!script_path.exists());
+    assert_eq!(
+        fs::read_to_string(config_path.with_extension("json.bak"))
+            .expect("read managed adapter backup"),
+        before
+    );
+    assert!(
+        read_json(&config_path)["llm"]["adapters"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    fs::remove_dir_all(root).expect("remove managed adapter removal fixture");
+}
+
+#[test]
+fn adapter_remove_output_preserves_managed_script_and_input_config() {
+    let root = unique_temp_dir("vinput-adapter-remove-output");
+    let config_path = root.join("config.json");
+    let output_path = root.join("updated.json");
+    let adapter_root = root.join("managed-adapters");
+    let script_path = adapter_root.join("mtranserver/proxy");
+    fs::create_dir_all(script_path.parent().unwrap()).expect("create managed adapter directory");
+    fs::write(&script_path, "#!/usr/bin/env python3\n").expect("write managed adapter script");
+    fs::write(
+        &config_path,
+        managed_adapter_config_fixture_json(&script_path),
+    )
+    .expect("write managed adapter config");
+    let before = fs::read_to_string(&config_path).expect("read managed adapter config");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "remove",
+            "adapter.mtranserver.proxy",
+            "--adapter-root",
+        ])
+        .arg(&adapter_root)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--output")
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run managed adapter remove to output");
+
+    let value = assert_json_success(output, "managed adapter output remove json");
+    assert_eq!(value["managed_script"], true);
+    assert_eq!(value["script_existed"], true);
+    assert_eq!(value["will_remove_script"], false);
+    assert_eq!(value["removed_script"], false);
+    assert!(script_path.exists());
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read preserved input config"),
+        before
+    );
+    assert!(
+        read_json(&output_path)["llm"]["adapters"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    fs::remove_dir_all(root).expect("remove adapter output removal fixture");
+}
+
+#[test]
+fn adapter_remove_never_deletes_user_defined_script() {
+    let root = unique_temp_dir("vinput-adapter-remove-custom");
+    let config_path = root.join("config.json");
+    let adapter_root = root.join("managed-adapters");
+    let custom_script = root.join("custom-adapter.py");
+    fs::write(&custom_script, "print('custom')\n").expect("write custom adapter script");
+    fs::write(
+        &config_path,
+        managed_adapter_config_fixture_json(&custom_script),
+    )
+    .expect("write custom adapter config");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "remove",
+            "adapter.mtranserver.proxy",
+            "--adapter-root",
+        ])
+        .arg(&adapter_root)
+        .arg("--config")
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run custom adapter remove");
+
+    let value = assert_json_success(output, "custom adapter remove json");
+    assert_eq!(value["managed_script"], false);
+    assert_eq!(value["script_path"], serde_json::Value::Null);
+    assert_eq!(value["script_existed"], false);
+    assert_eq!(value["removed_script"], false);
+    assert!(custom_script.exists());
+    fs::remove_dir_all(root).expect("remove custom adapter removal fixture");
+}
+
+#[test]
+fn adapter_remove_rejects_managed_script_directory_before_writing() {
+    let root = unique_temp_dir("vinput-adapter-remove-directory");
+    let config_path = root.join("config.json");
+    let adapter_root = root.join("managed-adapters");
+    let script_path = adapter_root.join("mtranserver/proxy");
+    fs::create_dir_all(&script_path).expect("create directory at managed script path");
+    fs::write(
+        &config_path,
+        managed_adapter_config_fixture_json(&script_path),
+    )
+    .expect("write managed adapter config");
+    let before = fs::read_to_string(&config_path).expect("read managed adapter config");
+
+    let output = vinput_command()
+        .args([
+            "adapter",
+            "remove",
+            "adapter.mtranserver.proxy",
+            "--adapter-root",
+        ])
+        .arg(&adapter_root)
+        .arg("--config")
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run adapter remove with directory target");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("because it is a directory"));
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read unchanged adapter config"),
+        before
+    );
+    assert!(!config_path.with_extension("json.bak").exists());
+    assert!(script_path.is_dir());
+    fs::remove_dir_all(root).expect("remove directory adapter removal fixture");
+}
+
+#[test]
 fn adapter_mutations_reject_invalid_inputs() {
     let path = write_llm_fixture("vinput-adapter-mutation-errors");
 
@@ -1699,6 +1882,30 @@ fn live_adapter_registry_fixture_json(script_url: &str) -> String {
         ]
     }))
     .expect("serialize live adapter registry fixture")
+}
+
+fn managed_adapter_config_fixture_json(script_path: &std::path::Path) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "version": 1,
+        "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+        },
+        "llm": {
+            "providers": [],
+            "adapters": [{
+                "id": "adapter.mtranserver.proxy",
+                "command": "python3",
+                "args": [script_path],
+                "env": {"MTRAN_TOKEN":"preserve-me"}
+            }]
+        },
+        "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        }
+    }))
+    .expect("serialize managed adapter config fixture")
 }
 
 fn live_adapter_config_fixture_json() -> &'static str {
