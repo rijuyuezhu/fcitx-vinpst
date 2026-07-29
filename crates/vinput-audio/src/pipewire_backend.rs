@@ -10,6 +10,7 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex, mpsc},
     thread,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -22,6 +23,9 @@ const PW_KEY_MEDIA_CLASS: &str = "media.class";
 const PW_KEY_NODE_NAME: &str = "node.name";
 const PW_KEY_NODE_DESCRIPTION: &str = "node.description";
 const CAPTURE_REUSE_ENV: &str = "VINPUT_CAPTURE_REUSE";
+const CAPTURE_IDLE_DESTROY_ENV: &str = "VINPUT_CAPTURE_IDLE_DESTROY_MS";
+const DEFAULT_CAPTURE_IDLE_DESTROY_MS: u64 = 15_000;
+const MAX_CAPTURE_IDLE_DESTROY_MS: u64 = 600_000;
 
 /// `PipeWire` stream sample format requested by the future live recorder.
 pub const RECORDING_FORMAT: &str = "S16LE";
@@ -141,7 +145,9 @@ pub struct PipeWireAudioRecorder {
 
 struct PipeWireRecordingWorker {
     command_tx: pipewire::channel::Sender<WorkerCommand>,
+    idle_timer_tx: mpsc::Sender<IdleTimerCommand>,
     join: thread::JoinHandle<Result<(), AudioError>>,
+    idle_timer_join: thread::JoinHandle<()>,
 }
 
 enum WorkerCommand {
@@ -150,8 +156,16 @@ enum WorkerCommand {
         response: mpsc::SyncSender<Result<bool, AudioError>>,
     },
     Finish {
-        response: mpsc::SyncSender<Result<CapturedAudio, AudioError>>,
+        response: mpsc::SyncSender<Result<(CapturedAudio, u64), AudioError>>,
     },
+    ExpireIdle {
+        generation: u64,
+    },
+    Shutdown,
+}
+
+enum IdleTimerCommand {
+    Schedule { delay: Duration, generation: u64 },
     Shutdown,
 }
 
@@ -249,10 +263,21 @@ impl AudioRecorder for PipeWireAudioRecorder {
             &self.stream_config,
         );
         self.recording = false;
-        let captured = captured?;
-        if !capture_stream_reuse_enabled()
-            && let Some(worker) = self.worker.take()
-        {
+        let (captured, generation) = captured?;
+        if capture_stream_reuse_enabled() {
+            let schedule_failed = schedule_idle_stream_destroy(
+                self.worker
+                    .as_mut()
+                    .ok_or(AudioError::RecorderNotRecording)?,
+                generation,
+                capture_idle_destroy_duration(),
+                &self.stream_config,
+            )
+            .is_err();
+            if schedule_failed && let Some(worker) = self.worker.take() {
+                let _ = shutdown_recording_worker(worker, &self.stream_config);
+            }
+        } else if let Some(worker) = self.worker.take() {
             shutdown_recording_worker(worker, &self.stream_config)?;
         }
         Ok(captured)
@@ -266,7 +291,8 @@ impl AudioRecorder for PipeWireAudioRecorder {
                     .as_mut()
                     .ok_or(AudioError::RecorderNotRecording)?,
                 &self.stream_config,
-            );
+            )
+            .map(|(captured, _generation)| captured);
             self.recording = false;
             if let Err(error) = result {
                 finish_error = Some(error);
@@ -335,6 +361,7 @@ struct PersistentPipeWireStream {
 struct PipeWireWorkerState {
     stream: Option<PersistentPipeWireStream>,
     recording: bool,
+    idle_generation: u64,
 }
 
 fn capture_stream_reuse_enabled() -> bool {
@@ -348,6 +375,44 @@ fn capture_stream_reuse_enabled_from(value: Option<&str>) -> bool {
     !matches!(first, b'0' | b'f' | b'F' | b'n' | b'N')
 }
 
+fn capture_idle_destroy_duration() -> Duration {
+    Duration::from_millis(capture_idle_destroy_ms_from(
+        std::env::var(CAPTURE_IDLE_DESTROY_ENV).ok().as_deref(),
+    ))
+}
+
+fn capture_idle_destroy_ms_from(value: Option<&str>) -> u64 {
+    let Some(value) = value else {
+        return DEFAULT_CAPTURE_IDLE_DESTROY_MS;
+    };
+    let value = value.trim_start();
+    if value.is_empty() {
+        return DEFAULT_CAPTURE_IDLE_DESTROY_MS;
+    }
+    let (negative, digits) = match value.as_bytes()[0] {
+        b'+' => (false, &value[1..]),
+        b'-' => (true, &value[1..]),
+        _ => (false, value),
+    };
+    let digit_count = digits
+        .as_bytes()
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    if digit_count == 0 {
+        return DEFAULT_CAPTURE_IDLE_DESTROY_MS;
+    }
+    let parsed = digits[..digit_count].bytes().fold(0_u64, |value, digit| {
+        value
+            .saturating_mul(10)
+            .saturating_add(u64::from(digit - b'0'))
+    });
+    if negative && parsed != 0 {
+        return DEFAULT_CAPTURE_IDLE_DESTROY_MS;
+    }
+    parsed.min(MAX_CAPTURE_IDLE_DESTROY_MS)
+}
+
 fn can_reuse_stream(
     existing: Option<&PipeWireStreamConfig>,
     requested: &PipeWireStreamConfig,
@@ -355,11 +420,19 @@ fn can_reuse_stream(
     existing.is_some_and(|existing| existing == requested)
 }
 
+fn should_expire_idle_stream(state: &PipeWireWorkerState, generation: u64) -> bool {
+    !state.recording && state.idle_generation == generation
+}
+
 fn spawn_recording_worker(
     callback: Arc<Mutex<Option<AudioChunkCallback>>>,
 ) -> Result<PipeWireRecordingWorker, AudioError> {
     let config = PipeWireStreamConfig::for_target(CaptureTarget::default());
     let (command_tx, command_rx) = pipewire::channel::channel();
+    let idle_worker_tx = command_tx.clone();
+    let (idle_timer_tx, idle_timer_rx) = mpsc::channel();
+    let idle_timer_join =
+        thread::spawn(move || run_idle_destroy_timer(&idle_timer_rx, &idle_worker_tx));
     let (setup_tx, setup_rx) = mpsc::sync_channel(1);
     let join = thread::spawn(move || run_recording_worker(&callback, command_rx, &setup_tx));
     setup_rx.recv().map_err(|error| {
@@ -368,7 +441,12 @@ fn spawn_recording_worker(
             format!("PipeWire recorder worker exited before setup: {error}"),
         )
     })??;
-    Ok(PipeWireRecordingWorker { command_tx, join })
+    Ok(PipeWireRecordingWorker {
+        command_tx,
+        idle_timer_tx,
+        join,
+        idle_timer_join,
+    })
 }
 
 fn send_worker_command(
@@ -384,7 +462,7 @@ fn send_worker_command(
 fn finish_recording_worker(
     worker: &mut PipeWireRecordingWorker,
     config: &PipeWireStreamConfig,
-) -> Result<CapturedAudio, AudioError> {
+) -> Result<(CapturedAudio, u64), AudioError> {
     let (response_tx, response_rx) = mpsc::sync_channel(1);
     send_worker_command(
         worker,
@@ -401,10 +479,37 @@ fn finish_recording_worker(
     })?
 }
 
+fn schedule_idle_stream_destroy(
+    worker: &mut PipeWireRecordingWorker,
+    generation: u64,
+    delay: Duration,
+    config: &PipeWireStreamConfig,
+) -> Result<(), AudioError> {
+    if delay.is_zero() {
+        return worker
+            .command_tx
+            .send(WorkerCommand::ExpireIdle { generation })
+            .map_err(|_| {
+                pipewire_recording_error(
+                    config,
+                    "PipeWire recorder worker command channel is closed",
+                )
+            });
+    }
+    worker
+        .idle_timer_tx
+        .send(IdleTimerCommand::Schedule { delay, generation })
+        .map_err(|_| {
+            pipewire_recording_error(config, "PipeWire idle timer command channel is closed")
+        })
+}
+
 fn shutdown_recording_worker(
     worker: PipeWireRecordingWorker,
     config: &PipeWireStreamConfig,
 ) -> Result<(), AudioError> {
+    let _ = worker.idle_timer_tx.send(IdleTimerCommand::Shutdown);
+    let _ = worker.idle_timer_join.join();
     let _ = worker.command_tx.send(WorkerCommand::Shutdown);
     match worker.join.join() {
         Ok(result) => result,
@@ -412,6 +517,38 @@ fn shutdown_recording_worker(
             config,
             "PipeWire recorder worker panicked",
         )),
+    }
+}
+
+fn run_idle_destroy_timer(
+    command_rx: &mpsc::Receiver<IdleTimerCommand>,
+    worker_tx: &pipewire::channel::Sender<WorkerCommand>,
+) {
+    let mut pending: Option<(Instant, u64)> = None;
+    loop {
+        let command = match pending {
+            Some((deadline, generation)) => {
+                match command_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    Ok(command) => command,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        let _ = worker_tx.send(WorkerCommand::ExpireIdle { generation });
+                        pending = None;
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            }
+            None => match command_rx.recv() {
+                Ok(command) => command,
+                Err(_) => return,
+            },
+        };
+        match command {
+            IdleTimerCommand::Schedule { delay, generation } => {
+                pending = Some((Instant::now() + delay, generation));
+            }
+            IdleTimerCommand::Shutdown => return,
+        }
     }
 }
 
@@ -462,6 +599,12 @@ fn run_recording_worker_inner(
             let result = finish_worker_recording(&mut state_for_commands.borrow_mut());
             let _ = response.send(result);
         }
+        WorkerCommand::ExpireIdle { generation } => {
+            let mut state = state_for_commands.borrow_mut();
+            if should_expire_idle_stream(&state, generation) {
+                state.stream = None;
+            }
+        }
         WorkerCommand::Shutdown => {
             shutdown_worker_state(&mut state_for_commands.borrow_mut());
             mainloop_for_commands.quit();
@@ -482,6 +625,7 @@ fn begin_worker_recording(
     if state.recording {
         return Err(AudioError::RecorderAlreadyRecording);
     }
+    state.idle_generation = state.idle_generation.wrapping_add(1);
     let reusable = can_reuse_stream(state.stream.as_ref().map(|stream| &stream.config), &config);
     if !reusable {
         state.stream = Some(create_persistent_stream(core, callback, config.clone())?);
@@ -523,7 +667,9 @@ fn activate_worker_stream(state: &mut PipeWireWorkerState) -> Result<(), AudioEr
     Ok(())
 }
 
-fn finish_worker_recording(state: &mut PipeWireWorkerState) -> Result<CapturedAudio, AudioError> {
+fn finish_worker_recording(
+    state: &mut PipeWireWorkerState,
+) -> Result<(CapturedAudio, u64), AudioError> {
     if !state.recording {
         return Err(AudioError::RecorderNotRecording);
     }
@@ -542,10 +688,12 @@ fn finish_worker_recording(state: &mut PipeWireWorkerState) -> Result<CapturedAu
         ));
     }
     state.recording = false;
+    state.idle_generation = state.idle_generation.wrapping_add(1);
+    let idle_generation = state.idle_generation;
     let samples = std::mem::take(&mut *stream.samples.borrow_mut());
     let pcm = PcmBuffer::with_spec(stream.config.pcm_spec, samples)?;
     let captured = CapturedAudio::named(pcm, pipewire_capture_source_name(&stream.config));
-    Ok(captured)
+    Ok((captured, idle_generation))
 }
 
 fn shutdown_worker_state(state: &mut PipeWireWorkerState) {
@@ -556,6 +704,7 @@ fn shutdown_worker_state(state: &mut PipeWireWorkerState) {
         }
     }
     state.recording = false;
+    state.idle_generation = state.idle_generation.wrapping_add(1);
     state.stream = None;
 }
 
@@ -815,6 +964,40 @@ mod tests {
         ] {
             assert!(!super::capture_stream_reuse_enabled_from(value));
         }
+    }
+
+    #[test]
+    fn pipewire_idle_destroy_delay_matches_upstream_parsing_and_bounds() {
+        assert_eq!(
+            super::CAPTURE_IDLE_DESTROY_ENV,
+            "VINPUT_CAPTURE_IDLE_DESTROY_MS"
+        );
+        for value in [None, Some(""), Some("invalid"), Some("-1")] {
+            assert_eq!(
+                super::capture_idle_destroy_ms_from(value),
+                super::DEFAULT_CAPTURE_IDLE_DESTROY_MS
+            );
+        }
+        assert_eq!(super::capture_idle_destroy_ms_from(Some("0")), 0);
+        assert_eq!(super::capture_idle_destroy_ms_from(Some("-0")), 0);
+        assert_eq!(super::capture_idle_destroy_ms_from(Some(" 2500ms")), 2_500);
+        assert_eq!(
+            super::capture_idle_destroy_ms_from(Some("999999")),
+            super::MAX_CAPTURE_IDLE_DESTROY_MS
+        );
+    }
+
+    #[test]
+    fn pipewire_idle_expiration_is_generation_guarded() {
+        let mut state = super::PipeWireWorkerState {
+            idle_generation: 7,
+            ..Default::default()
+        };
+
+        assert!(super::should_expire_idle_stream(&state, 7));
+        assert!(!super::should_expire_idle_stream(&state, 6));
+        state.recording = true;
+        assert!(!super::should_expire_idle_stream(&state, 7));
     }
 
     #[test]

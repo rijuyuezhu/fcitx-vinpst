@@ -50,7 +50,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Runtime lifecycle | Normal/command flow, capture-first startup with early-chunk gating, chunk callbacks, partial polling, reload deferral, non-blocking prepare-before-swap, adapter supervision | Live microphone and application behavior |
 | Native ASR | Offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, Moonshine v1, online transducer, and Zipformer2 CTC mapped and WAV-proven | Other legacy families only when concrete demand exists |
 | Command ASR | Batch and streaming command protocols, partials, cancellation, and timeout enforcement | Live external-provider recovery testing |
-| Audio | Typed PCM, processing, mock/file sources, capture-before-session ordering, reusable inactive PipeWire streams with target-change rebuild and opt-out, optional recorder diagnostics | Idle-grace teardown/race hardening and real capture proof |
+| Audio | Typed PCM, processing, mock/file sources, capture-before-session ordering, reusable inactive PipeWire streams, bounded generation-safe idle teardown, target-change rebuild and opt-out, optional recorder diagnostics | Stop/start race hardening and real capture proof |
 | Offline VAD | Silero model, legacy-compatible settings, fallback, cold-start guard, install, and diagnostics | Real microphone validation |
 | Text processing | Command adapters, OpenAI-compatible transport, prompts, context cache, scenes, candidates | One real desktop provider flow |
 | Registry | Live model lifecycle plus current provider/adapter registry list/install/update-by-reinstall, localized display metadata, guarded config materialization, executable script publication, and managed adapter removal | No current script-registry lifecycle gap |
