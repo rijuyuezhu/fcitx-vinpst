@@ -70,7 +70,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 - Validate one real OpenAI-compatible or command text provider in desktop command mode.
 - Broaden daemon-originated notification categories from observed needs.
 - Reduce oversized modules only along feature boundaries.
-- Attach the deterministic remote text protocol core to a structured HTTP/WebSocket runtime, then synchronize it with daemon config/reload/shutdown.
+- Synchronize the standalone remote text server with normal daemon config/reload/shutdown, expose redacted endpoint diagnostics, then prove a real browser/device flow.
 
 ## P2: release readiness
 

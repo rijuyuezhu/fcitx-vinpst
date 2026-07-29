@@ -1,5 +1,9 @@
 //! Deterministic protocol and configuration core for legacy remote text input.
 
+mod server;
+
+pub use server::{RemoteTextServer, RemoteTextServerError};
+
 use std::{fmt, net::IpAddr};
 
 use serde_json::{Value, json};

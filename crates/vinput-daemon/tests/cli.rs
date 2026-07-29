@@ -4,8 +4,17 @@ use std::{
     ffi::OsStr,
     fs,
     path::PathBuf,
-    process::{Command, Output},
+    process::{Child, Command, Output},
 };
+
+struct ChildGuard(Child);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
 
 struct TempConfig {
     path: PathBuf,
@@ -1368,6 +1377,70 @@ fn text_adapters_reports_multiple_adapter_ids() {
 }
 
 #[test]
+fn remote_text_server_command_serves_health() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("reserve remote test port");
+    let port = listener
+        .local_addr()
+        .expect("read reserved remote test address")
+        .port();
+    drop(listener);
+    let config = TempConfig::write(
+        "remote-text-server",
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "version":1,
+            "asr":{
+                "active_provider":"provider.vinput.remote.streaming",
+                "providers":[{
+                    "id":"provider.vinput.remote.streaming",
+                    "type":"command",
+                    "command":"python3",
+                    "args":["remote.py"],
+                    "env":{
+                        "VINPUT_ASR_API_KEY":"fixture-key",
+                        "VINPUT_ASR_PORT":port.to_string(),
+                        "VINPUT_ASR_DEBOUNCE_MS":"25"
+                    }
+                }]
+            },
+            "scenes":{
+                "active_scene":"raw",
+                "definitions":[{"id":"raw","label":"Raw","candidate_count":0}]
+            }
+        }))
+        .expect("serialize remote text server config"),
+    );
+    let child = daemon_command()
+        .arg("--config")
+        .arg(&config.path)
+        .args(["remote-text-server", "--bind", "127.0.0.1"])
+        .spawn()
+        .expect("spawn remote text server command");
+    let mut child = ChildGuard(child);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_millis(150))
+        .build()
+        .expect("build remote health client");
+    let health_url = format!("http://127.0.0.1:{port}/health");
+    let health = (0..50).find_map(|_| {
+        if let Some(status) = child.0.try_wait().expect("poll remote server child") {
+            panic!("remote text server exited before health check: {status}");
+        }
+        match client.get(&health_url).send() {
+            Ok(response) if response.status().is_success() => Some(
+                response
+                    .json::<serde_json::Value>()
+                    .expect("parse remote health response"),
+            ),
+            _ => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                None
+            }
+        }
+    });
+    assert_eq!(health, Some(serde_json::json!({"ok":true})));
+}
+
+#[test]
 fn help_lists_diagnostics_commands() {
     let output = run_daemon(&["--help"], "run vinput-daemon --help");
 
@@ -1387,5 +1460,13 @@ fn help_lists_diagnostics_commands() {
     assert!(stdout.contains("text-adapters"));
     assert!(stdout.contains("audio-devices"));
     assert!(stdout.contains("runtime-status"));
+    assert!(stdout.contains("remote-text-server"));
     assert!(stdout.contains("configured command text adapter diagnostics"));
+
+    let remote_help = run_daemon(
+        &["remote-text-server", "--help"],
+        "run vinput-daemon remote-text-server --help",
+    );
+    let remote_stdout = assert_success_stdout(remote_help, "remote text server help output");
+    assert!(remote_stdout.contains("--bind"));
 }

@@ -5,7 +5,7 @@ The legacy remote text service combines two clients around one shared text buffe
 - a browser/input client on `/ws` that authenticates, reports `text_update`, and requests `finalize`;
 - a loopback-only OpenAI Realtime-compatible output client on `/v1/realtime` that receives committed transcription events.
 
-The Rust rewrite keeps protocol behavior separate from the network runtime. `vinput-daemon::remote` currently implements the deterministic settings and protocol core. It does not yet bind a TCP socket, serve browser assets, upgrade WebSocket requests, enumerate LAN endpoints, or synchronize service lifetime with daemon reload.
+The Rust rewrite keeps protocol behavior separate from the network runtime. `vinput-daemon::remote` implements both the deterministic settings/protocol core and a structured Axum-based `RemoteTextServer`. The standalone daemon command `vinput-daemon remote-text-server` binds the configured port and serves the browser/input and Realtime-compatible endpoints. Automatic synchronization with the normal D-Bus daemon lifecycle remains separate work.
 
 ## Activation and settings
 
@@ -39,16 +39,28 @@ The deterministic `RemoteTextProtocol` consumes parsed JSON and returns typed ef
 
 Generated event and item ids are opaque. Tests use deterministic ids; the network runtime may replace them with process-unique ids without changing message shape.
 
-## Pending runtime boundary
+## HTTP/WebSocket runtime
 
-The next independent slice should add a structured Rust HTTP/WebSocket runtime, not copy the legacy raw-socket implementation. It must provide:
+`RemoteTextServer` provides a real async network boundary without copying the legacy raw-socket implementation:
 
-- `GET /health`;
-- browser HTML and favicon responses;
-- WebSocket upgrades for `/ws` and `/v1/realtime`;
-- frame size and connection limits;
-- one input and one output task around the shared protocol state;
-- debounce timer scheduling and cancellation;
-- daemon config synchronization, shutdown, and endpoint diagnostics.
+- `GET /health` returns `{ "ok": true }`;
+- `/` serves a small browser editor and `/favicon.svg` serves its icon;
+- `/ws` upgrades the authenticated browser/input connection;
+- `/v1/realtime` upgrades the loopback-only Bearer-authenticated output connection;
+- WebSocket messages are limited to 2 MiB;
+- one input and one output writer task are retained around shared protocol state;
+- generation tokens cancel stale debounce timers;
+- graceful shutdown stops the listener and connection tasks;
+- the standalone `remote-text-server` daemon command derives its port and credentials from the active remote provider.
 
-Until that runtime is wired, remote text service parity is **partial**: settings, authentication policy, and message/state semantics are deterministic, while no externally reachable service exists.
+Real local-socket tests cover HTTP assets, authorization failure, single-input ownership, session updates, debounce delivery, the committed/delta/completed event sequence, output disconnect notification, and the standalone command health endpoint.
+
+## Pending daemon lifecycle boundary
+
+Remote text parity remains **partial** because the standalone server is not yet owned by the normal D-Bus daemon. The next independent slice must:
+
+- start or stop the server when the active provider changes;
+- restart it when port, debounce, or API-key settings change;
+- synchronize shutdown with the daemon and D-Bus activation path;
+- expose useful LAN endpoint diagnostics without leaking credentials;
+- prove the browser flow from another real device on the desktop user's network.

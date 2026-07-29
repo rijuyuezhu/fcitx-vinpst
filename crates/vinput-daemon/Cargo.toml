@@ -17,7 +17,9 @@ sherpa-onnx-backend = ["vinput-asr/sherpa-onnx-backend"]
 
 [dependencies]
 anyhow.workspace = true
+axum.workspace = true
 clap.workspace = true
+futures-util.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -32,6 +34,7 @@ vinput-text = { path = "../vinput-text" }
 zbus.workspace = true
 
 [dev-dependencies]
-futures-util.workspace = true
 insta.workspace = true
+reqwest.workspace = true
 tempfile.workspace = true
+tokio-tungstenite.workspace = true

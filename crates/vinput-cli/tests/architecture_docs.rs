@@ -57,10 +57,13 @@ fn remote_text_architecture_pins_protocol_runtime_boundary() {
     let note = std::fs::read_to_string(architecture_dir().join("remote-text-contract.md"))
         .expect("read remote text architecture note");
     assert!(note.contains("RemoteTextProtocol"));
+    assert!(note.contains("RemoteTextServer"));
     assert!(note.contains("provider.vinput.remote.streaming"));
     assert!(note.contains("VINPUT_ASR_API_KEY"));
     assert!(note.contains("OpenAI Realtime-compatible"));
-    assert!(note.contains("HTTP/WebSocket runtime"));
+    assert!(note.contains("remote-text-server"));
+    assert!(note.contains("GET /health"));
+    assert!(note.contains("Pending daemon lifecycle boundary"));
     assert!(note.contains("partial"));
 }
 

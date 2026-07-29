@@ -1,6 +1,9 @@
 //! vinput daemon entrypoint.
 
-use std::path::{Path, PathBuf};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -10,7 +13,10 @@ use vinput_audio::{
     AudioRecorder, CaptureTarget, CapturedAudio, MockAudioSource, PcmBuffer, PcmSpec,
 };
 use vinput_config::VinputConfig;
-use vinput_daemon::{RuntimeState, VinputDbusService};
+use vinput_daemon::{
+    RuntimeState, VinputDbusService,
+    remote::{RemoteTextServer, remote_text_settings},
+};
 
 /// Rust daemon prototype for fcitx-vinput.
 #[derive(Debug, Parser)]
@@ -102,6 +108,12 @@ enum Command {
     AudioDevices,
     /// Build the selected runtime and print runtime status diagnostics as JSON.
     RuntimeStatus,
+    /// Run only the legacy-compatible remote text HTTP/WebSocket service.
+    RemoteTextServer {
+        /// Listen address. The port is read from the active remote provider settings.
+        #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
+        bind: IpAddr,
+    },
 }
 
 #[tokio::main]
@@ -125,41 +137,7 @@ async fn main() -> anyhow::Result<()> {
     }
     config.validate().context("validate daemon config")?;
     if let Some(command) = &args.command {
-        match command {
-            Command::PrintConfig => {
-                println!("{}", serde_json::to_string_pretty(&config.summary())?);
-            }
-            Command::AsrState => {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&RuntimeState::configured_asr_state(&config))?
-                );
-            }
-            Command::TextAdapters => {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&RuntimeState::configured_text_adapter_state(
-                        &config
-                    ))?
-                );
-            }
-            Command::AudioDevices => {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&audio_devices_summary(&config)?)?
-                );
-            }
-            Command::RuntimeStatus => {
-                let runtime =
-                    build_runtime(&args, config.clone()).context("initialize runtime status")?;
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&runtime_status_summary(
-                        &runtime, &config, &args
-                    )?)?
-                );
-            }
-        }
+        handle_utility_command(command, &args, &config).await?;
         return Ok(());
     }
 
@@ -205,6 +183,71 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn handle_utility_command(
+    command: &Command,
+    args: &Args,
+    config: &VinputConfig,
+) -> anyhow::Result<()> {
+    match command {
+        Command::PrintConfig => {
+            println!("{}", serde_json::to_string_pretty(&config.summary())?);
+        }
+        Command::AsrState => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&RuntimeState::configured_asr_state(config))?
+            );
+        }
+        Command::TextAdapters => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&RuntimeState::configured_text_adapter_state(config))?
+            );
+        }
+        Command::AudioDevices => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&audio_devices_summary(config)?)?
+            );
+        }
+        Command::RuntimeStatus => {
+            let runtime =
+                build_runtime(args, config.clone()).context("initialize runtime status")?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&runtime_status_summary(&runtime, config, args)?)?
+            );
+        }
+        Command::RemoteTextServer { bind } => {
+            run_remote_text_server(config, *bind).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn run_remote_text_server(config: &VinputConfig, bind: IpAddr) -> anyhow::Result<()> {
+    let settings = remote_text_settings(config)
+        .context("resolve remote text service settings")?
+        .context(
+            "remote text service requires active provider `provider.vinput.remote.streaming`",
+        )?;
+    let port = settings.port;
+    let server = RemoteTextServer::bind(settings, SocketAddr::new(bind, port))
+        .await
+        .context("start remote text service")?;
+    info!(
+        address = %server.local_addr(),
+        "remote text HTTP/WebSocket service is running"
+    );
+    tokio::signal::ctrl_c()
+        .await
+        .context("wait for remote text service shutdown signal")?;
+    server
+        .shutdown()
+        .await
+        .context("shutdown remote text service")
 }
 
 fn trace_startup(message: &str) {

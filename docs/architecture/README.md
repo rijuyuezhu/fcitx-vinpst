@@ -12,7 +12,7 @@ This directory contains tracked architecture and compatibility contracts for the
    - [`asr-contract.md`](asr-contract.md): ASR backend/session seams, command ASR behavior, and diagnostics.
    - [`audio-contract.md`](audio-contract.md): PCM layout, WAV/raw byte policy, recorder lifecycle, and PipeWire scaffold.
    - [`text-contract.md`](text-contract.md): text post-processing, prompt/context cache, command adapters, and OpenAI-compatible seams.
-   - [`remote-text-contract.md`](remote-text-contract.md): remote input settings, authentication, protocol state, and the pending HTTP/WebSocket runtime boundary.
+   - [`remote-text-contract.md`](remote-text-contract.md): remote input settings, authentication, protocol state, the standalone HTTP/WebSocket runtime, and the pending daemon-lifecycle boundary.
 3. [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), for current parity baseline.
 4. [`../migration/e2e-capability-matrix.md`](../migration/e2e-capability-matrix.md), for detailed native runtime/frontend/user-flow parity gaps.
 5. [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md), for active migration direction.

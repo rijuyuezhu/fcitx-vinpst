@@ -38,7 +38,8 @@ Still requiring live proof or implementation:
 
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
-- remote text HTTP/WebSocket runtime parity, distro packaging, upgrades, and release hardening;
+- remote text integration with the normal daemon reload/shutdown lifecycle plus live cross-device proof;
+- distro packaging, upgrades, and release hardening;
 - the legacy Qt GUI, which is intentionally deferred.
 
 See [`docs/migration/function-gap-audit.md`](docs/migration/function-gap-audit.md) for status and [`docs/migration/e2e-replication-plan.md`](docs/migration/e2e-replication-plan.md) for priorities.
@@ -60,6 +61,19 @@ vinput provider install <id-or-short-id> --in-place
 vinput provider edit-script <id-or-short-id> --registry registry/providers.json
 vinput provider remove <machine-id> --in-place
 ```
+
+Run the standalone remote browser-input service when the active provider is
+`provider.vinput.remote.streaming` and its environment contains
+`VINPUT_ASR_API_KEY`:
+
+```sh
+vinput-daemon --config ~/.config/fcitx-vinput/config.json remote-text-server
+```
+
+This command exposes `/`, `/health`, `/ws`, and the loopback-only
+`/v1/realtime` compatibility endpoint. It is intentionally separate from the
+normal D-Bus daemon until remote service reload/shutdown synchronization is
+implemented.
 
 Use `--registry /path/to/registry/providers.json`, `--provider-root`, and `--dry-run --json` for deterministic local validation. Select the installed machine id with `vinput provider use <machine-id>`. Removal keeps local providers, allows an active command/remote provider to be removed, and clears the active selection instead of choosing a fallback; pass `--registry` to resolve a registry short id during removal.
 
