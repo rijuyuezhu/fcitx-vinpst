@@ -47,7 +47,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Area | Rust state | Remaining gap |
 | --- | --- | --- |
 | D-Bus compatibility | Legacy names, methods, signals, status strings, and payloads preserved; diagnostic extensions added | Real-session compatibility hardening |
-| Runtime lifecycle | Normal/command flow, capture-first startup with early-chunk gating, chunk callbacks, partial polling, reload deferral, non-blocking prepare-before-swap, adapter supervision | Live microphone and application behavior |
+| Runtime lifecycle | Normal/command flow, capture-first startup with early-chunk gating, chunk callbacks, partial polling, two-stage inferring/postprocessing stop, reload deferral, non-blocking prepare-before-swap, adapter supervision | Live microphone and application behavior |
 | Native ASR | Offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, Moonshine v1, online transducer, and Zipformer2 CTC mapped and WAV-proven | Other legacy families only when concrete demand exists |
 | Command ASR | Batch and streaming command protocols, partials, cancellation, and timeout enforcement | Live external-provider recovery testing |
 | Audio | Typed PCM, processing, mock/file sources, capture-before-session ordering, reusable inactive PipeWire streams, bounded generation-safe idle teardown, target-change rebuild and opt-out, serialized D-Bus recording transactions, structured cold-start/first-buffer diagnostics, and best-effort `wpctl` output ducking with restore-on-all-paths | Real capture and output-ducking proof |

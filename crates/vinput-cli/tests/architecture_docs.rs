@@ -99,7 +99,7 @@ fn target_architecture_lists_all_workspace_crates() {
 }
 
 #[test]
-fn dbus_architecture_labels_diagnostic_extension_and_postprocessing_gap() {
+fn dbus_architecture_labels_extensions_and_postprocessing_contract() {
     let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
         .expect("read dbus service doc");
 
@@ -113,8 +113,20 @@ fn dbus_architecture_labels_diagnostic_extension_and_postprocessing_gap() {
         "D-Bus docs must keep the legacy-vs-extension boundary explicit"
     );
     assert!(
-        dbus_doc.contains("A real legacy `postprocessing` runtime phase is still not wired"),
-        "D-Bus docs must keep the current postprocessing runtime gap explicit"
+        dbus_doc.contains("`StopRecording` has a real two-stage runtime boundary"),
+        "D-Bus docs must pin the two-stage stop boundary"
+    );
+    assert!(
+        dbus_doc.contains("`recording -> inferring -> postprocessing -> idle`"),
+        "D-Bus docs must pin the legacy status order"
+    );
+    assert!(
+        dbus_doc.contains("before calling the scene text processor"),
+        "D-Bus docs must place the postprocessing signal before text finishing"
+    );
+    assert!(
+        dbus_doc.contains("returns the runtime to `idle`"),
+        "D-Bus docs must pin stop failure recovery"
     );
     assert!(
         dbus_doc.contains("descriptor of the backend that is actually effective in the runtime"),

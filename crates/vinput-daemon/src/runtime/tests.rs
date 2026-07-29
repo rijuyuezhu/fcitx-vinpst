@@ -14,7 +14,7 @@ use vinput_audio::{
 };
 use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 use vinput_protocol::{RecognitionPayload, ServiceStatus};
-use vinput_text::{AdapterRuntimePaths, TextFinisher};
+use vinput_text::{AdapterRuntimePaths, TextError, TextFinisher, TextProcessor, TextRequest};
 
 const RAW_PAYLOAD_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -28,6 +28,23 @@ const SENTINEL_PAYLOAD_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/recognition/sentinel.json"
 ));
+
+struct RecordingTextProcessor {
+    calls: Arc<Mutex<Vec<String>>>,
+}
+
+impl TextProcessor for RecordingTextProcessor {
+    fn finish(&self, request: &TextRequest<'_>) -> Result<RecognitionPayload, TextError> {
+        self.calls
+            .lock()
+            .expect("text processor call log poisoned")
+            .push(request.raw_text.to_owned());
+        Ok(RecognitionPayload::raw(format!(
+            "processed: {}",
+            request.raw_text
+        )))
+    }
+}
 
 fn fixture_json(input: &str) -> &str {
     input.trim_end()
@@ -644,6 +661,42 @@ fn normal_recording_mock_roundtrip_returns_to_idle() {
     let report = runtime.stop_recording_report(None).unwrap();
     assert_eq!(report.partial_text.as_deref(), Some("mock partial"));
     assert_eq!(report.payload.commit_text, "mock recognition result");
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
+fn stop_exposes_postprocessing_before_text_finishing() {
+    let config = VinputConfig::bundled_default().unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let processor = RecordingTextProcessor {
+        calls: Arc::clone(&calls),
+    };
+    let mut runtime = RuntimeState::with_components(
+        config,
+        Box::new(MockAsrBackend::buffered("custom final")),
+        Box::new(super::default_mock_audio_source()),
+        Box::new(processor),
+    )
+    .unwrap();
+
+    runtime.start_recording().unwrap();
+    let pending = runtime.begin_stop_recording(None).unwrap();
+
+    assert_eq!(runtime.status(), ServiceStatus::Postprocessing);
+    assert!(
+        calls
+            .lock()
+            .expect("text processor call log poisoned")
+            .is_empty()
+    );
+
+    let report = runtime.finish_stop_recording(pending).unwrap();
+
+    assert_eq!(report.payload.commit_text, "processed: custom final");
+    assert_eq!(
+        *calls.lock().expect("text processor call log poisoned"),
+        vec!["custom final"]
+    );
     assert_eq!(runtime.status(), ServiceStatus::Idle);
 }
 

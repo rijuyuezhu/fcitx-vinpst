@@ -93,6 +93,15 @@ pub struct StopRecordingReport {
     pub partial_text: Option<String>,
 }
 
+/// ASR result waiting for scene text processing after capture has stopped.
+pub(crate) struct PendingStopRecording {
+    session: ActiveRecognitionSession,
+    raw_payload: RecognitionPayload,
+    scene: vinput_config::SceneDefinition,
+    selected_text: Option<String>,
+    partial_text: Option<String>,
+}
+
 impl RuntimeState {
     /// Builds an idle runtime from validated config and a deterministic mock ASR backend.
     pub fn new(config: VinputConfig) -> Result<Self, RuntimeError> {

@@ -15,8 +15,8 @@ use crate::{
     RuntimeError, RuntimeState,
     remote::{RemoteTextLifecycle, RemoteTextLifecycleError, RemoteTextLifecycleStatus},
     runtime::{
-        AsrReloadWorkerStep, locale_candidates_from_environment, persist_config_atomically,
-        select_asr_provider, select_asr_target,
+        AsrReloadWorkerStep, PendingStopRecording, locale_candidates_from_environment,
+        persist_config_atomically, select_asr_provider, select_asr_target,
     },
 };
 
@@ -317,14 +317,24 @@ impl VinputDbusService {
         }
     }
 
-    async fn stop_recording_payload(
+    async fn begin_stop_recording_payload(
         &self,
         scene_id: &str,
-    ) -> DbusResult<(String, String, Option<String>)> {
+    ) -> DbusResult<PendingStopRecording> {
         let scene = (!scene_id.is_empty()).then_some(scene_id);
         let mut runtime = self.runtime.lock().await;
+        runtime
+            .begin_stop_recording(scene)
+            .map_err(|error| Self::map_runtime_error(&error))
+    }
+
+    async fn finish_stop_recording_payload(
+        &self,
+        pending: PendingStopRecording,
+    ) -> DbusResult<(String, String, Option<String>)> {
+        let mut runtime = self.runtime.lock().await;
         let report = runtime
-            .stop_recording_report(scene)
+            .finish_stop_recording(pending)
             .map_err(|error| Self::map_runtime_error(&error))?;
         let payload_json = report
             .payload
@@ -335,6 +345,21 @@ impl VinputDbusService {
             runtime.status().to_string(),
             report.partial_text,
         ))
+    }
+
+    async fn abort_stop_recording_payload(&self, pending: PendingStopRecording) -> String {
+        let mut runtime = self.runtime.lock().await;
+        runtime.abort_stop_recording(&pending);
+        runtime.status().to_string()
+    }
+
+    #[cfg(test)]
+    async fn stop_recording_payload(
+        &self,
+        scene_id: &str,
+    ) -> DbusResult<(String, String, Option<String>)> {
+        let pending = self.begin_stop_recording_payload(scene_id).await?;
+        self.finish_stop_recording_payload(pending).await
     }
 
     async fn begin_live_partial_emission(&self, last_emitted: Option<String>) -> u64 {
@@ -453,20 +478,44 @@ impl VinputDbusService {
         Self::status_changed(&emitter, "inferring")
             .await
             .map_err(|error| Self::map_signal_error(&error))?;
-        let (payload_json, status, partial_text) = self.stop_recording_payload(scene_id).await?;
-        if let Some(partial_text) = partial_text
-            && last_emitted_partial.as_deref() != Some(partial_text.as_str())
-        {
-            Self::recognition_partial(&emitter, &partial_text)
-                .await
-                .map_err(|error| Self::map_signal_error(&error))?;
+        let pending = match self.begin_stop_recording_payload(scene_id).await {
+            Ok(pending) => pending,
+            Err(error) => {
+                let _ = Self::status_changed(&emitter, "idle").await;
+                return Err(error);
+            }
+        };
+        if let Err(error) = Self::status_changed(&emitter, "postprocessing").await {
+            let status = self.abort_stop_recording_payload(pending).await;
+            let _ = Self::status_changed(&emitter, &status).await;
+            return Err(Self::map_signal_error(&error));
         }
-        Self::recognition_result(&emitter, &payload_json)
+        let (payload_json, status, partial_text) =
+            match self.finish_stop_recording_payload(pending).await {
+                Ok(result) => result,
+                Err(error) => {
+                    let _ = Self::status_changed(&emitter, "idle").await;
+                    return Err(error);
+                }
+            };
+        let result_emission = async {
+            if let Some(partial_text) = partial_text
+                && last_emitted_partial.as_deref() != Some(partial_text.as_str())
+            {
+                Self::recognition_partial(&emitter, &partial_text)
+                    .await
+                    .map_err(|error| Self::map_signal_error(&error))?;
+            }
+            Self::recognition_result(&emitter, &payload_json)
+                .await
+                .map_err(|error| Self::map_signal_error(&error))
+        }
+        .await;
+        let status_emission = Self::status_changed(&emitter, &status)
             .await
-            .map_err(|error| Self::map_signal_error(&error))?;
-        Self::status_changed(&emitter, &status)
-            .await
-            .map_err(|error| Self::map_signal_error(&error))?;
+            .map_err(|error| Self::map_signal_error(&error));
+        result_emission?;
+        status_emission?;
         Ok(payload_json)
     }
 

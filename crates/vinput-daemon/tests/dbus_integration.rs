@@ -864,6 +864,10 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     assert_eq!(payload.candidates.len(), 1);
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
     assert_eq!(
+        next_string_signal(&mut status_signals).await?,
+        "postprocessing"
+    );
+    assert_eq!(
         next_string_signal(&mut partial_signals).await?,
         "mock partial"
     );
@@ -890,6 +894,10 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         "mock command result for: selected text"
     );
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
+    assert_eq!(
+        next_string_signal(&mut status_signals).await?,
+        "postprocessing"
+    );
     assert_eq!(
         next_string_signal(&mut partial_signals).await?,
         "mock partial"
@@ -998,6 +1006,10 @@ async fn early_final_roundtrips_through_session_bus() -> anyhow::Result<()> {
     assert_eq!(payload.commit_text, "early final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
     assert_eq!(
+        next_string_signal(&mut status_signals).await?,
+        "postprocessing"
+    );
+    assert_eq!(
         next_string_signal(&mut partial_signals).await?,
         "early partial"
     );
@@ -1035,6 +1047,10 @@ async fn configured_command_backend_roundtrips_through_session_bus() -> anyhow::
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text.trim(), "8");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
+    assert_eq!(
+        next_string_signal(&mut status_signals).await?,
+        "postprocessing"
+    );
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload.commit_text.trim(), "8");
@@ -1117,6 +1133,10 @@ async fn configured_streaming_command_backend_emits_stop_partial_signal() -> any
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "bus streaming final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
+    assert_eq!(
+        next_string_signal(&mut status_signals).await?,
+        "postprocessing"
+    );
     assert_eq!(
         next_string_signal(&mut partial_signals).await?,
         "bus partial"
@@ -1278,6 +1298,10 @@ async fn configured_text_adapter_roundtrips_through_session_bus() -> anyhow::Res
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "bus adapter final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
+    assert_eq!(
+        next_string_signal(&mut status_signals).await?,
+        "postprocessing"
+    );
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload.commit_text, "bus adapter final");
