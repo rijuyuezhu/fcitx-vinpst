@@ -456,7 +456,8 @@ fn cpp_frontend_forwards_daemon_notification_signals() {
         "ComposeDaemonStatusPreedit",
         "struct DaemonSignalCallbacks",
         "service_availability_changed",
-        "fcitx::dbus::ServiceWatcher",
+        "service_owner_",
+        "owner_change_slot_",
         "class FcitxDaemonSignalMonitor",
     ] {
         assert!(
@@ -465,8 +466,10 @@ fn cpp_frontend_forwards_daemon_notification_signals() {
         );
     }
     for required in [
-        "service_watcher_->watchService",
-        "callback(!new_owner.empty())",
+        "NameOwnerChanged",
+        "serviceOwner",
+        "UpdateServiceOwner",
+        "message.sender() == service_owner_",
         "dbus::kSignalStatusChanged",
         "dbus::kSignalRecognitionPartial",
         "dbus::kSignalDaemonNotification",

@@ -13,17 +13,28 @@ namespace vinput_fcitx_bridge {
 namespace {
 
 constexpr std::string_view kUnknownErrorCode = "unknown";
+constexpr std::string_view kDbusService = "org.freedesktop.DBus";
+constexpr std::string_view kDbusPath = "/org/freedesktop/DBus";
+constexpr std::string_view kDbusInterface = "org.freedesktop.DBus";
+constexpr std::string_view kNameOwnerChanged = "NameOwnerChanged";
 
 std::unique_ptr<fcitx::dbus::Slot>
 AddStringSignalMatch(fcitx::dbus::Bus *bus, std::string_view signal,
+                     const std::function<bool(const fcitx::dbus::Message &)> &accept,
                      const std::function<void(std::string_view)> &callback) {
   if (!callback) {
     return nullptr;
   }
-  const fcitx::dbus::MatchRule rule{
-      std::string(dbus::kServiceBusName), std::string(dbus::kServiceObjectPath),
-      std::string(dbus::kServiceInterface), std::string(signal)};
-  return bus->addMatch(rule, [callback](fcitx::dbus::Message &message) {
+  const fcitx::dbus::MatchRule rule{fcitx::dbus::MessageType::Signal,
+                                    {},
+                                    {},
+                                    std::string(dbus::kServiceObjectPath),
+                                    std::string(dbus::kServiceInterface),
+                                    std::string(signal)};
+  return bus->addMatch(rule, [accept, callback](fcitx::dbus::Message &message) {
+    if (!accept(message)) {
+      return true;
+    }
     std::string value;
     message >> value;
     if (message) {
@@ -88,28 +99,44 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
     return;
   }
 
-  if (callbacks_.service_availability_changed) {
-    service_watcher_ = std::make_unique<fcitx::dbus::ServiceWatcher>(*bus);
-    service_watcher_entry_ = service_watcher_->watchService(
-        std::string(dbus::kServiceBusName),
-        [callback = callbacks_.service_availability_changed](
-            const std::string &, const std::string &, const std::string &new_owner) {
-          callback(!new_owner.empty());
-        });
-  }
-  status_slot_ =
-      AddStringSignalMatch(bus, dbus::kSignalStatusChanged, callbacks_.status_changed);
-  partial_slot_ = AddStringSignalMatch(bus, dbus::kSignalRecognitionPartial,
+  const fcitx::dbus::MatchRule owner_change_rule{fcitx::dbus::MessageType::Signal,
+                                                 std::string(kDbusService),
+                                                 {},
+                                                 std::string(kDbusPath),
+                                                 std::string(kDbusInterface),
+                                                 std::string(kNameOwnerChanged),
+                                                 {std::string(dbus::kServiceBusName)}};
+  owner_change_slot_ =
+      bus->addMatch(owner_change_rule, [this](fcitx::dbus::Message &message) {
+        std::tuple<std::string, std::string, std::string> owners;
+        message >> owners;
+        if (message && std::get<0>(owners) == dbus::kServiceBusName) {
+          UpdateServiceOwner(std::get<2>(owners));
+        }
+        return true;
+      });
+  const auto accept = [this](const fcitx::dbus::Message &message) {
+    return AcceptSignal(message);
+  };
+  status_slot_ = AddStringSignalMatch(bus, dbus::kSignalStatusChanged, accept,
+                                      callbacks_.status_changed);
+  partial_slot_ = AddStringSignalMatch(bus, dbus::kSignalRecognitionPartial, accept,
                                        callbacks_.recognition_partial);
   if (!callbacks_.notification) {
     return;
   }
   const fcitx::dbus::MatchRule notification_rule{
-      std::string(dbus::kServiceBusName), std::string(dbus::kServiceObjectPath),
+      fcitx::dbus::MessageType::Signal,
+      {},
+      {},
+      std::string(dbus::kServiceObjectPath),
       std::string(dbus::kServiceInterface),
       std::string(dbus::kSignalDaemonNotification)};
   notification_slot_ =
       bus->addMatch(notification_rule, [this](fcitx::dbus::Message &message) {
+        if (!AcceptSignal(message)) {
+          return true;
+        }
         std::tuple<std::string, std::string, std::string, std::string> wire_payload;
         message >> wire_payload;
         if (!message) {
@@ -127,10 +154,25 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
         }
         return true;
       });
+  UpdateServiceOwner(bus->serviceOwner(std::string(dbus::kServiceBusName), 100'000));
+}
+
+bool FcitxDaemonSignalMonitor::AcceptSignal(const fcitx::dbus::Message &message) const {
+  return !service_owner_.empty() && message.sender() == service_owner_;
+}
+
+void FcitxDaemonSignalMonitor::UpdateServiceOwner(std::string_view owner) {
+  if (service_owner_ == owner) {
+    return;
+  }
+  service_owner_ = owner;
+  if (callbacks_.service_availability_changed) {
+    callbacks_.service_availability_changed(!service_owner_.empty());
+  }
 }
 
 bool FcitxDaemonSignalMonitor::active() const {
-  return service_watcher_entry_ != nullptr && status_slot_ != nullptr &&
+  return owner_change_slot_ != nullptr && status_slot_ != nullptr &&
          partial_slot_ != nullptr && notification_slot_ != nullptr;
 }
 

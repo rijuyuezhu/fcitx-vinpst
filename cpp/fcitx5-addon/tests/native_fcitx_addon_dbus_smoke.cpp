@@ -1,11 +1,14 @@
 #include "vinput_fcitx_bridge/fcitx_addon.h"
 
+#include <fcitx-utils/dbus/bus.h>
+#include <fcitx-utils/event.h>
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputcontextmanager.h>
 #include <fcitx/inputpanel.h>
 #include <fcitx/text.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -63,6 +66,8 @@ std::string OptionalEnvironment(const char *name) {
 } // namespace
 
 int main() {
+  using fcitx::dbus::Bus;
+  using fcitx::dbus::BusType;
   using vinput_fcitx_bridge::AppliedOutcome;
   using vinput_fcitx_bridge::FcitxTriggerAction;
   using vinput_fcitx_bridge::FcitxVinputAddon;
@@ -78,20 +83,64 @@ int main() {
     input_context.surroundingText().setText(selected_text, selected_text.size(), 0);
   }
 
-  FcitxVinputAddon addon(nullptr);
-  const auto start = addon.ApplyTriggerAction(
-      &input_context,
-      command_mode ? FcitxTriggerAction::StartCommand : FcitxTriggerAction::StartNormal,
-      selected_text);
-  if (start != AppliedOutcome::Preedit || !addon.bridge().recording() ||
-      addon.bridge().command_mode() != command_mode ||
-      input_context.inputPanel().preedit().empty()) {
-    std::cerr << "native addon start did not enter recording preedit: applied="
-              << static_cast<int>(start) << " recording=" << addon.bridge().recording()
-              << " command=" << addon.bridge().command_mode()
-              << " preedit=" << input_context.inputPanel().preedit().toString() << '\n';
+  fcitx::EventLoop signal_loop;
+  Bus signal_bus(BusType::Session);
+  if (!signal_bus.isOpen()) {
+    std::cerr << "native addon signal bus is unavailable\n";
     return 1;
   }
+  signal_bus.attachEventLoop(&signal_loop);
+
+  auto input_context_watch = input_context.watch();
+  if (!input_context_watch.isValid() || input_context_watch.get() != &input_context) {
+    std::cerr << "native addon test InputContext watch is invalid\n";
+    return 1;
+  }
+
+  FcitxVinputAddon addon(nullptr, &signal_bus);
+  AppliedOutcome start = AppliedOutcome::None;
+  bool start_attempted = false;
+  bool partial_seen = false;
+  std::string partial_text;
+  std::unique_ptr<fcitx::EventSourceTime> partial_check;
+  auto delayed_start = signal_loop.addTimeEvent(
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50'000, 0,
+      [&](fcitx::EventSourceTime *, std::uint64_t) {
+        start = addon.ApplyTriggerAction(&input_context,
+                                         command_mode ? FcitxTriggerAction::StartCommand
+                                                      : FcitxTriggerAction::StartNormal,
+                                         selected_text);
+        start_attempted = true;
+        partial_check = signal_loop.addTimeEvent(
+            CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 500'000, 0,
+            [&](fcitx::EventSourceTime *, std::uint64_t) {
+              const auto current = input_context.inputPanel().preedit().toString();
+              partial_seen = !current.empty() && current != "... Recording ..." &&
+                             current != "... Commanding ..." &&
+                             current != "... Recognizing ..." &&
+                             current != "... Postprocessing ...";
+              partial_text = current;
+              signal_loop.exit();
+              return false;
+            });
+        partial_check->setOneShot();
+        return false;
+      });
+  delayed_start->setOneShot();
+  const bool loop_result = signal_loop.exec();
+  if (!loop_result || !start_attempted || start != AppliedOutcome::Preedit ||
+      !addon.bridge().recording() || addon.bridge().command_mode() != command_mode ||
+      !partial_seen) {
+    std::cerr << "native addon did not render a live partial preedit: loop="
+              << loop_result << " start-attempted=" << start_attempted
+              << " start=" << static_cast<int>(start)
+              << " recording=" << addon.bridge().recording()
+              << " command=" << addon.bridge().command_mode()
+              << " partial=" << partial_seen << " preedit=" << partial_text << '\n';
+    return 1;
+  }
+  delayed_start.reset();
+  partial_check.reset();
 
   const auto stop = addon.ApplyTriggerAction(
       &input_context,
@@ -143,6 +192,6 @@ int main() {
 
   std::cout << (command_mode ? "native addon command replacement: "
                              : "native addon InputContext commit: ")
-            << expected_text << '\n';
+            << expected_text << " (partial: " << partial_text << ")\n";
   return 0;
 }

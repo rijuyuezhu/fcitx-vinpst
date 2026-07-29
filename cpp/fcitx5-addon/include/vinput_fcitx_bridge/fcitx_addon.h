@@ -29,6 +29,7 @@ namespace vinput_fcitx_bridge {
 class FcitxVinputAddon final : public fcitx::AddonInstance {
 public:
   explicit FcitxVinputAddon(fcitx::Instance *instance);
+  FcitxVinputAddon(fcitx::Instance *instance, fcitx::dbus::Bus *signal_bus);
   ~FcitxVinputAddon() override = default;
 
   FcitxVinputAddon(const FcitxVinputAddon &) = delete;
@@ -82,6 +83,7 @@ private:
   void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
   void SetupDaemonSignalMonitor();
+  void SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus);
   void HandleDaemonAvailability(bool available);
   void HandleDaemonStatus(std::string_view status);
   void HandleRecognitionPartial(std::string_view partial_text);

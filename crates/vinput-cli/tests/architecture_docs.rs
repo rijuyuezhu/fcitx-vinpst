@@ -296,8 +296,8 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "set `VINPUT_USER_RUNTIME_STATUS=0` only for file-placement debugging",
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
         "800/800/tail chunk delivery",
-        "real session-bus integration test additionally proves that a partial signal arrives before `StopRecording`",
-        "real desktop Fcitx/PipeWire behavior remains unproven",
+        "real session-bus integration test proves that a partial signal arrives before `StopRecording`",
+        "real desktop PipeWire behavior remains unproven",
         "`MockAsrAudioPush` is serde/schema-ready",
     ] {
         assert!(
@@ -821,7 +821,7 @@ fn native_user_activation_pins_owner_and_recognition_roundtrip() {
     }
 
     for required in [
-        "FcitxVinputAddon addon(nullptr)",
+        "FcitxVinputAddon addon(nullptr, &signal_bus)",
         "FcitxTriggerAction::StartNormal",
         "FcitxTriggerAction::StopNormal",
         "TestInputContext input_context(manager)",
@@ -934,6 +934,75 @@ fn native_input_context_sink_pins_real_fcitx_calls() {
 }
 
 #[test]
+fn native_partial_preedit_pins_activation_safe_streaming() {
+    let audio_source = std::fs::read_to_string(workspace_file("crates/vinput-audio/src/lib.rs"))
+        .expect("read audio source recorder");
+    let monitor_source = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/src/fcitx_daemon_signal_monitor.cpp",
+    ))
+    .expect("read daemon signal monitor");
+    let monitor_smoke = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/tests/fcitx_daemon_signal_monitor_smoke.cpp",
+    ))
+    .expect("read daemon signal monitor smoke");
+    let addon_smoke = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/tests/native_fcitx_addon_dbus_smoke.cpp",
+    ))
+    .expect("read native addon smoke");
+    let asr_doc = std::fs::read_to_string(architecture_dir().join("asr-contract.md"))
+        .expect("read ASR contract doc");
+
+    for required in [
+        "pending_capture",
+        "self.chunk_callback.is_some()",
+        "self.deliver_capture(&captured)",
+        "self.pending_capture.take()",
+    ] {
+        assert!(
+            audio_source.contains(required),
+            "source-backed streaming should pin {required}"
+        );
+    }
+    for required in [
+        "NameOwnerChanged",
+        "serviceOwner",
+        "message.sender() == service_owner_",
+        "fcitx::dbus::MessageType::Signal",
+    ] {
+        assert!(
+            monitor_source.contains(required),
+            "activation-safe monitor should pin {required}"
+        );
+    }
+    assert!(
+        monitor_smoke.find("FcitxDaemonSignalMonitor monitor")
+            < monitor_smoke.find("sender.requestName"),
+        "monitor smoke should subscribe before daemon activation"
+    );
+    for required in [
+        "FcitxVinputAddon addon(nullptr, &signal_bus)",
+        "inputPanel().preedit().toString()",
+        "partial_check",
+        "(partial: ",
+    ] {
+        assert!(
+            addon_smoke.contains(required),
+            "native addon partial smoke should pin {required}"
+        );
+    }
+    for required in [
+        "sender-independent signal matches before daemon activation",
+        "real `RecognitionPartial` value",
+        "real desktop application frontend and live PipeWire capture remain",
+    ] {
+        assert!(
+            asr_doc.contains(required),
+            "ASR docs should pin native partial evidence: {required}"
+        );
+    }
+}
+
+#[test]
 fn dbus_architecture_pins_async_daemon_notification_forwarding() {
     let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
         .expect("read dbus service doc");
@@ -962,7 +1031,7 @@ fn asr_architecture_pins_frontend_live_partial_preedit() {
         "`RecognitionPartial(s)`",
         "partial text takes precedence",
         "synchronous `StopRecording` reply",
-        "real desktop preedit rendering remains unproven",
+        "rendering inside a real desktop application remains unproven",
     ] {
         assert!(
             asr_doc.contains(required),

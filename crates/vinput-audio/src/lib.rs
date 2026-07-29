@@ -695,6 +695,7 @@ pub struct SourceAudioRecorder {
     target: CaptureTarget,
     chunk_callback: Option<AudioChunkCallback>,
     chunk_frames: Option<usize>,
+    pending_capture: Option<CapturedAudio>,
 }
 
 impl SourceAudioRecorder {
@@ -707,6 +708,7 @@ impl SourceAudioRecorder {
             target: CaptureTarget::default(),
             chunk_callback: None,
             chunk_frames: None,
+            pending_capture: None,
         }
     }
 
@@ -728,6 +730,20 @@ impl SourceAudioRecorder {
     pub const fn target(&self) -> &CaptureTarget {
         &self.target
     }
+
+    fn deliver_capture(&mut self, captured: &CapturedAudio) -> Result<(), AudioError> {
+        let Some(callback) = &mut self.chunk_callback else {
+            return Ok(());
+        };
+        if let Some(chunk_frames) = self.chunk_frames {
+            for chunk in captured.pcm.chunks_by_frames(chunk_frames)? {
+                callback(&chunk);
+            }
+        } else {
+            callback(&captured.pcm);
+        }
+        Ok(())
+    }
 }
 
 impl AudioRecorder for SourceAudioRecorder {
@@ -737,6 +753,20 @@ impl AudioRecorder for SourceAudioRecorder {
         }
         self.target = target;
         self.recording = true;
+        if self.chunk_callback.is_some() {
+            let captured = match self.source.read_buffer() {
+                Ok(captured) => captured,
+                Err(error) => {
+                    self.recording = false;
+                    return Err(error);
+                }
+            };
+            if let Err(error) = self.deliver_capture(&captured) {
+                self.recording = false;
+                return Err(error);
+            }
+            self.pending_capture = Some(captured);
+        }
         Ok(())
     }
 
@@ -749,21 +779,17 @@ impl AudioRecorder for SourceAudioRecorder {
             return Err(AudioError::RecorderNotRecording);
         }
         self.recording = false;
-        let captured = self.source.read_buffer()?;
-        if let Some(callback) = &mut self.chunk_callback {
-            if let Some(chunk_frames) = self.chunk_frames {
-                for chunk in captured.pcm.chunks_by_frames(chunk_frames)? {
-                    callback(&chunk);
-                }
-            } else {
-                callback(&captured.pcm);
-            }
+        if let Some(captured) = self.pending_capture.take() {
+            return Ok(captured);
         }
+        let captured = self.source.read_buffer()?;
+        self.deliver_capture(&captured)?;
         Ok(captured)
     }
 
     fn cancel_recording(&mut self) -> Result<(), AudioError> {
         self.recording = false;
+        self.pending_capture = None;
         Ok(())
     }
 
@@ -1546,6 +1572,10 @@ mod tests {
         })));
 
         recorder.begin_recording(CaptureTarget::Default).unwrap();
+        assert_eq!(
+            *chunks.lock().unwrap(),
+            vec![vec![10, 11, 20, 21], vec![30, 31]]
+        );
         recorder.stop_and_get_buffer().unwrap();
 
         assert_eq!(

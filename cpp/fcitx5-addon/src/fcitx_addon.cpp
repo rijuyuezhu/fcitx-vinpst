@@ -250,6 +250,10 @@ void RequestSurroundingText(fcitx::Event &event) {
 } // namespace
 
 FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
+    : FcitxVinputAddon(instance, nullptr) {}
+
+FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance,
+                                   fcitx::dbus::Bus *signal_bus)
     : instance_(instance), frontend_settings_(LoadFrontendSettings()),
       trigger_policy_(FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
           frontend_settings_.normal_triggers, frontend_settings_.command_triggers,
@@ -275,6 +279,10 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
     event_handlers_.emplace_back(instance_->watchEvent(
         fcitx::EventType::InputContextCreated, fcitx::EventWatcherPhase::PreInputMethod,
         RequestSurroundingText));
+  }
+  if (signal_bus != nullptr) {
+    SetupDaemonSignalMonitor(signal_bus);
+  } else if (instance_ != nullptr) {
     SetupDaemonSignalMonitor();
   }
 }
@@ -313,6 +321,10 @@ void FcitxVinputAddon::SetupDaemonSignalMonitor() {
     return;
   }
   auto *bus = dbus_addon->call<fcitx::IDBusModule::bus>();
+  SetupDaemonSignalMonitor(bus);
+}
+
+void FcitxVinputAddon::SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus) {
   daemon_signal_monitor_ = std::make_unique<FcitxDaemonSignalMonitor>(
       bus, DaemonSignalCallbacks{
                .service_availability_changed =
@@ -637,6 +649,12 @@ AppliedOutcome FcitxVinputAddon::TriggerCommand(fcitx::InputContext *ic,
 AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
                                                     FcitxTriggerAction action,
                                                     std::string_view selected_text) {
+  const auto remember_started_input_context = [this, ic](AppliedOutcome outcome) {
+    if (bridge_.recording() && ic != nullptr) {
+      active_trigger_ic_ = ic->watch();
+    }
+    return outcome;
+  };
   switch (action) {
   case FcitxTriggerAction::None:
     return AppliedOutcome::None;
@@ -645,9 +663,9 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
       std::string error;
       RefreshSceneState(&error);
       if (auto recovered = ReconcileDaemonStatusBeforeStart(ic, TriggerKind::Normal)) {
-        return *recovered;
+        return remember_started_input_context(*recovered);
       }
-      return TriggerNormal(ic, active_scene_id_);
+      return remember_started_input_context(TriggerNormal(ic, active_scene_id_));
     }
     return AppliedOutcome::None;
   case FcitxTriggerAction::StopNormal:
@@ -658,9 +676,9 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
   case FcitxTriggerAction::StartCommand:
     if (!bridge_.recording()) {
       if (auto recovered = ReconcileDaemonStatusBeforeStart(ic, TriggerKind::Command)) {
-        return *recovered;
+        return remember_started_input_context(*recovered);
       }
-      return TriggerCommand(ic, selected_text);
+      return remember_started_input_context(TriggerCommand(ic, selected_text));
     }
     return AppliedOutcome::None;
   case FcitxTriggerAction::StopCommand:

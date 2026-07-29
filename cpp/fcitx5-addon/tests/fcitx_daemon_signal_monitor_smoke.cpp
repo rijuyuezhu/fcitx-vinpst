@@ -57,9 +57,6 @@ int main() {
   assert(receiver.isOpen());
   assert(sender.isOpen());
   receiver.attachEventLoop(&loop);
-  assert(sender.requestName(
-      std::string(dbus::kServiceBusName),
-      {RequestNameFlag::AllowReplacement, RequestNameFlag::ReplaceExisting}));
 
   const std::string object_path(dbus::kServiceObjectPath);
   const std::string interface(dbus::kServiceInterface);
@@ -74,33 +71,32 @@ int main() {
     }
   };
   FcitxDaemonSignalMonitor monitor(
-      &receiver,
-      DaemonSignalCallbacks{
-          .service_availability_changed =
-              [&](bool available) {
-                service_availability.push_back(available);
-                if (available && service_availability.size() == 1) {
-                  assert(sender.releaseName(std::string(dbus::kServiceBusName)));
-                }
-                finish_when_complete();
-              },
-          .status_changed =
-              [&](std::string_view status) {
-                statuses.emplace_back(status);
-                finish_when_complete();
-              },
-          .recognition_partial =
-              [&](std::string_view partial_text) {
-                partials.emplace_back(partial_text);
-                finish_when_complete();
-              },
-          .notification =
-              [&](const DaemonNotificationPayload &payload) {
-                notifications.push_back(payload);
-                finish_when_complete();
-              },
-      });
+      &receiver, DaemonSignalCallbacks{
+                     .service_availability_changed =
+                         [&](bool available) {
+                           service_availability.push_back(available);
+                           finish_when_complete();
+                         },
+                     .status_changed =
+                         [&](std::string_view status) {
+                           statuses.emplace_back(status);
+                           finish_when_complete();
+                         },
+                     .recognition_partial =
+                         [&](std::string_view partial_text) {
+                           partials.emplace_back(partial_text);
+                           finish_when_complete();
+                         },
+                     .notification =
+                         [&](const DaemonNotificationPayload &payload) {
+                           notifications.push_back(payload);
+                           finish_when_complete();
+                         },
+                 });
   assert(monitor.active());
+  assert(sender.requestName(
+      std::string(dbus::kServiceBusName),
+      {RequestNameFlag::AllowReplacement, RequestNameFlag::ReplaceExisting}));
 
   bool timed_out = false;
   auto timeout =
@@ -133,6 +129,14 @@ int main() {
   error_signal << error.code << error.subject << error.detail << error.raw_message;
   assert(error_signal.send());
   sender.flush();
+  auto release_name =
+      loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50'000, 0,
+                        [&sender](fcitx::EventSourceTime *, std::uint64_t) {
+                          assert(sender.releaseName(
+                              std::string(vinput_fcitx_bridge::dbus::kServiceBusName)));
+                          return false;
+                        });
+  release_name->setOneShot();
 
   assert(loop.exec());
   assert(!timed_out);

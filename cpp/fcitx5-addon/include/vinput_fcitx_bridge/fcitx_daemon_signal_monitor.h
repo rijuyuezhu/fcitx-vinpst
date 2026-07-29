@@ -3,7 +3,6 @@
 #include "vinput_fcitx_bridge/fcitx_notifications.h"
 
 #include <fcitx-utils/dbus/bus.h>
-#include <fcitx-utils/dbus/servicewatcher.h>
 
 #include <functional>
 #include <memory>
@@ -48,9 +47,12 @@ public:
   bool active() const;
 
 private:
+  bool AcceptSignal(const fcitx::dbus::Message &message) const;
+  void UpdateServiceOwner(std::string_view owner);
+
   DaemonSignalCallbacks callbacks_;
-  std::unique_ptr<fcitx::dbus::ServiceWatcher> service_watcher_;
-  std::unique_ptr<fcitx::dbus::ServiceWatcherEntry> service_watcher_entry_;
+  std::string service_owner_;
+  std::unique_ptr<fcitx::dbus::Slot> owner_change_slot_;
   std::unique_ptr<fcitx::dbus::Slot> status_slot_;
   std::unique_ptr<fcitx::dbus::Slot> partial_slot_;
   std::unique_ptr<fcitx::dbus::Slot> notification_slot_;
