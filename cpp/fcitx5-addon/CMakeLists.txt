@@ -347,6 +347,22 @@ if(Fcitx5Core_FOUND)
   )
 
   add_executable(
+    vinput_fcitx_bridge_input_context_outcome_smoke
+    tests/fcitx_input_context_outcome_smoke.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_bridge_input_context_outcome_smoke
+    PRIVATE
+      vinput_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_bridge_input_context_outcome_smoke)
+  add_test(
+    NAME vinput_fcitx_bridge_input_context_outcome_smoke
+    COMMAND vinput_fcitx_bridge_input_context_outcome_smoke
+  )
+
+  add_executable(
     vinput_fcitx_addon_dbus_smoke
     tests/fcitx_addon_dbus_smoke.cpp
     src/fcitx_addon.cpp
@@ -381,14 +397,6 @@ if(Fcitx5Core_FOUND)
     vinput_fcitx_native_addon_dbus_smoke
     tests/native_fcitx_addon_dbus_smoke.cpp
     src/fcitx_addon.cpp
-    src/fcitx_i18n.cpp
-    src/fcitx_config.cpp
-    src/fcitx_daemon_signal_monitor.cpp
-    src/fcitx_key_trigger.cpp
-    src/fcitx_menu_filter.cpp
-    src/fcitx_notifications.cpp
-    src/fcitx_trigger_mode.cpp
-    src/fcitx_selection.cpp
   )
   target_compile_definitions(
     vinput_fcitx_native_addon_dbus_smoke
@@ -401,6 +409,7 @@ if(Fcitx5Core_FOUND)
     vinput_fcitx_native_addon_dbus_smoke
     PRIVATE
       vinput_fcitx_bridge::sdbus
+      vinput_fcitx_bridge::fcitx
       Fcitx5::Core
       Fcitx5::Module::DBus
       Fcitx5::Module::Notifications

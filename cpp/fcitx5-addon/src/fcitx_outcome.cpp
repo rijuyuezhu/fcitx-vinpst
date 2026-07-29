@@ -23,7 +23,9 @@ public:
   void SetPreedit(std::string_view text) override {
     ClearCandidateMenu();
     fcitx::Text preedit;
-    preedit.append(std::string(text));
+    if (!text.empty()) {
+      preedit.append(std::string(text));
+    }
     input_context_->inputPanel().setPreedit(preedit);
     input_context_->updatePreedit();
     input_context_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);

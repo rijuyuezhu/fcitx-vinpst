@@ -824,8 +824,9 @@ fn native_user_activation_pins_owner_and_recognition_roundtrip() {
         "FcitxVinputAddon addon(nullptr)",
         "FcitxTriggerAction::StartNormal",
         "FcitxTriggerAction::StopNormal",
-        "ApplyBridgeOutcomeToInputContext",
-        "native addon commit",
+        "TestInputContext input_context(manager)",
+        "commitStringImpl",
+        "native addon InputContext commit",
     ] {
         assert!(
             addon_smoke.contains(required),
@@ -886,8 +887,9 @@ fn native_command_fallback_pins_selected_text_candidates() {
         "FcitxTriggerAction::StartCommand",
         "FcitxTriggerAction::StopCommand",
         "AppliedOutcome::CandidateMenu",
-        "CandidateSource::Asr",
-        "native addon command menu",
+        "candidate_list->candidate(1).select(&input_context)",
+        "input_context.deleted",
+        "native addon command replacement",
     ] {
         assert!(
             addon_smoke.contains(required),
@@ -895,6 +897,40 @@ fn native_command_fallback_pins_selected_text_candidates() {
         );
     }
     assert!(justfile.contains("sherpa-online-transducer-user-command-addon-smoke:"));
+}
+
+#[test]
+fn native_input_context_sink_pins_real_fcitx_calls() {
+    let outcome_source =
+        std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_outcome.cpp"))
+            .expect("read Fcitx outcome sink");
+    let input_context_smoke = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/tests/fcitx_input_context_outcome_smoke.cpp",
+    ))
+    .expect("read InputContext outcome smoke");
+
+    for required in [
+        "if (!text.empty())",
+        "input_context_->deleteSurroundingText",
+        "input_context_->commitString",
+    ] {
+        assert!(
+            outcome_source.contains(required),
+            "production InputContext sink should pin {required}"
+        );
+    }
+    for required in [
+        "ApplyBridgeOutcomeToInputContext",
+        "deleteSurroundingTextImpl",
+        "commitStringImpl",
+        "candidate_list->candidate(1).select(&input_context)",
+        "inputPanel().preedit().empty()",
+    ] {
+        assert!(
+            input_context_smoke.contains(required),
+            "InputContext outcome smoke should pin {required}"
+        );
+    }
 }
 
 #[test]
