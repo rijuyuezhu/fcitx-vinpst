@@ -1,0 +1,11 @@
+[Unit]
+Description=Vinput Voice Input Daemon
+After=pipewire.service
+
+[Service]
+Type=dbus
+BusName=org.fcitx.Vinput
+ExecStart=@VINPUT_DAEMON_EXECUTABLE@@VINPUT_DAEMON_ARGS_SUFFIX@
+
+[Install]
+WantedBy=default.target

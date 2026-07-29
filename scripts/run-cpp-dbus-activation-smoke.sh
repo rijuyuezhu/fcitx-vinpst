@@ -14,6 +14,7 @@ service_file="${repo_root}/${stage_dir}/share/dbus-1/services/org.fcitx.Vinput.s
 cargo build -q -p vinput-daemon
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
+  -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
   -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
   -DVINPUT_DAEMON_EXECUTABLE="${daemon_path}" \
   -DVINPUT_DAEMON_ARGS=--dbus
@@ -24,6 +25,7 @@ rm -rf "${stage_dir}"
 cmake --install "${build_dir}" --prefix "${stage_dir}"
 
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
+! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_path} --dbus" "${service_file}"
 
 XDG_DATA_DIRS="${repo_root}/${stage_dir}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \

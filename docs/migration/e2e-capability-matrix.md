@@ -30,12 +30,12 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Normal native dictation | deterministic | native WAV -> D-Bus -> addon partial preedit -> concrete `InputContext` commit | Live PipeWire and real application |
 | Command native dictation | deterministic | selected text, ASR fallback candidate, candidate selection, deletion, replacement commit | Multi-application proof and real adapter flow |
 | Scene and ASR menus | deterministic | typed D-Bus state, persistent keys, filtering, paging, i18n, localized model titles | Real desktop UI proof |
-| Daemon lifecycle | implemented | activation, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
+| Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
 | Diagnose and recover | implemented | `doctor`, runtime status, owner/PID/procfs, activation and live probe | Message refinement from live failures |
 | Provider-backed text processing | deterministic | command adapters and local OpenAI-compatible mock server | One real desktop provider flow |
-| User installation | deterministic | temporary-HOME addon, activation, runtime bundle, exact recognition | Real profile and packaging |
+| User installation | deterministic | temporary-HOME addon, direct activation, staged systemd user unit plus D-Bus hint, runtime bundle, exact recognition | Real profile and packaging |
 
 ## CLI command surface comparison
 

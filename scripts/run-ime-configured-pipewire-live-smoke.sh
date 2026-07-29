@@ -22,6 +22,7 @@ install -Dm644 data/e2e-configured-pipewire-live.json "${config_path}"
 
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
+  -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
   -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
   -DVINPUT_DAEMON_EXECUTABLE="${daemon_path}" \
   -DVINPUT_DAEMON_ARGS="--dbus --configured-backends --config ${config_path} --audio-backend pipewire"
@@ -35,6 +36,7 @@ test -f "${config_path}"
 test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinput.so"
 test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
+! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_path} --dbus --configured-backends --config ${config_path} --audio-backend pipewire" "${service_file}"
 
 echo "PipeWire audio diagnostics from staged configured daemon:"
@@ -46,5 +48,7 @@ VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="${expected_text}" \
 VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="${expected_text}" \
 VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="live-command-asr" \
 VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="live-text-adapter" \
+VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="live-postprocess" \
+VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
     bash "${smoke_bin}" "${addon_smoke_bin}"

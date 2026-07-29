@@ -2,6 +2,7 @@
 #include "vinput_fcitx_bridge/scene_defaults.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -151,9 +152,20 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   if (!client->GetSceneState(&state, error)) {
     return false;
   }
-  if (state.active_scene_id != kDefaultNormalSceneId || state.scenes.size() < 2) {
+  auto expected_active_scene =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE");
+  if (expected_active_scene.empty()) {
+    expected_active_scene = kDefaultNormalSceneId;
+  }
+  const bool exposes_expected_scene =
+      std::ranges::any_of(state.scenes, [&expected_active_scene](const auto &scene) {
+        return scene.id == expected_active_scene;
+      });
+  if (state.active_scene_id != expected_active_scene || state.scenes.size() < 2 ||
+      !exposes_expected_scene) {
     if (error != nullptr) {
-      *error = "scene state did not expose bundled active scene and menu items";
+      *error = "scene state did not expose expected active scene and menu items: ";
+      *error += expected_active_scene;
     }
     return false;
   }
@@ -176,7 +188,7 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
     }
     return false;
   }
-  return client->SetActiveScene(kDefaultNormalSceneId, &persisted, error);
+  return client->SetActiveScene(expected_active_scene, &persisted, error);
 }
 
 bool ExpectAsrMenuLifecycle(SdBusDaemonClient *client, std::string *error) {

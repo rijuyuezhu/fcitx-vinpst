@@ -17,6 +17,8 @@ option(VINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE
        "Fail configure if Fcitx5Core is unavailable" OFF)
 option(VINPUT_FCITX_BRIDGE_INSTALL_DBUS_SERVICE
        "Install the DBus activation service for the Rust daemon" ON)
+option(VINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE
+       "Install the systemd user service for the Rust daemon" ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -79,6 +81,19 @@ set(VINPUT_DAEMON_ARGS
 set(VINPUT_DAEMON_ARGS_SUFFIX "")
 if(NOT "${VINPUT_DAEMON_ARGS}" STREQUAL "")
   set(VINPUT_DAEMON_ARGS_SUFFIX " ${VINPUT_DAEMON_ARGS}")
+endif()
+set(VINPUT_DBUS_SYSTEMD_SERVICE_LINE "")
+if(VINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE)
+  pkg_get_variable(VINPUT_SYSTEMD_USER_UNIT_DIR systemd systemduserunitdir)
+  if("${VINPUT_SYSTEMD_USER_UNIT_DIR}" STREQUAL "")
+    set(VINPUT_SYSTEMD_USER_UNIT_DIR "${CMAKE_INSTALL_LIBDIR}/systemd/user")
+  endif()
+  set(VINPUT_DBUS_SYSTEMD_SERVICE_LINE "SystemdService=vinput-daemon.service")
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../data/vinput-daemon.service.in"
+    vinput-daemon.service
+    @ONLY
+  )
 endif()
 configure_file(vinput-addon.conf.in vinput-addon.conf @ONLY)
 configure_file(
@@ -436,6 +451,17 @@ if(Fcitx5Core_FOUND)
     install(
       FILES "${CMAKE_CURRENT_BINARY_DIR}/org.fcitx.Vinput.service"
       DESTINATION "${CMAKE_INSTALL_DATADIR}/dbus-1/services"
+    )
+  endif()
+  if(VINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE)
+    vinput_bridge_install_dir(
+      VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
+      "${VINPUT_SYSTEMD_USER_UNIT_DIR}"
+      "${CMAKE_INSTALL_LIBDIR}/systemd/user"
+    )
+    install(
+      FILES "${CMAKE_CURRENT_BINARY_DIR}/vinput-daemon.service"
+      DESTINATION "${VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR}"
     )
   endif()
 else()

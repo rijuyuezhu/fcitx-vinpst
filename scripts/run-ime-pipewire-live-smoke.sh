@@ -19,6 +19,7 @@ install -Dm755 target/debug/vinput-daemon "${daemon_path}"
 
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
+  -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
   -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
   -DVINPUT_DAEMON_EXECUTABLE="${daemon_path}" \
   -DVINPUT_DAEMON_ARGS="--dbus --audio-backend pipewire"
@@ -31,6 +32,7 @@ test -x "${daemon_path}"
 test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinput.so"
 test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
+! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_path} --dbus --audio-backend pipewire" "${service_file}"
 
 echo "PipeWire audio diagnostics from staged daemon:"

@@ -171,11 +171,16 @@ int main() {
 
   const auto expected_normal_text =
       ExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
+  const char *expected_takeover_env =
+      std::getenv("VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER");
+  const auto expected_takeover_text = expected_takeover_env == nullptr
+                                          ? expected_normal_text
+                                          : std::string(expected_takeover_env);
   const auto recovered_stop =
       addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StartNormal);
   if (!ExpectApplied(recovered_stop, AppliedOutcome::Commit,
                      "cross-client normal takeover") ||
-      !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_normal_text, false,
+      !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_takeover_text, false,
                          "cross-client normal takeover") ||
       addon.bridge().recording() || addon.bridge().command_mode()) {
     std::cerr << "addon did not stop externally started normal recording\n";

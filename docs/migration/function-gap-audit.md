@@ -39,7 +39,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Adapter resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, installed short-id start/stop/status resolution, short-id removal, guarded managed-script cleanup, and config backup |
 | ASR provider resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, guarded removal, and command-provider script editing |
 | Remote text service | Protocol/config core, browser assets, standalone and normal-daemon HTTP/WebSocket ownership, provider-selection/config-reload reconciliation, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, real local-socket tests, and private-session process smoke implemented; live cross-device browser proof missing |
-| Distro packaging and upgrades | Missing |
+| Distro packaging and upgrades | Partial: systemd user unit and D-Bus activation install shape are staged and tested; package recipes, upgrades, rollback, and repository integration remain |
 | Legacy Qt GUI | Deferred |
 
 ## Capability inventory
@@ -56,7 +56,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Registry | Live model lifecycle plus current provider/adapter registry list/install/update-by-reinstall, legacy locale detection/normalization, `en_US`/requested/local-override display metadata layering, guarded config materialization, executable script publication, and managed adapter removal | No current script-registry lifecycle gap |
 | CLI | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, recording, and doctor; provider removal preserves local entries and supports active-clear semantics; command-provider scripts can be opened through resolved installed selectors | UX polish and continued feature-driven module extraction |
 | Fcitx frontend | Persistent keys, Tap/Hold/Both, menus, filtering, i18n, notifications, owner recovery, partial preedit, outcome application | Real desktop rendering and multi-application proof |
-| User install | Temporary-HOME profiles, activation services, environment wrapper, native runtime bundle | Packaging, upgrade, and version-selection policy |
+| User install | Temporary-HOME profiles, direct per-user activation, staged systemd-backed system activation, environment wrapper, native runtime bundle | Packaging, upgrade, and version-selection policy |
 | Diagnostics | Doctor, runtime status, ASR state, audio devices, owner/PID/procfs, live probe | Live error-message refinement |
 | Tests | Workspace, session-bus, C++ addon, staged activation, temporary-HOME and native model smokes | Real desktop checks remain manual/opt-in |
 
@@ -64,7 +64,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 
 1. **Live desktop chain:** deterministic evidence stops before a real Fcitx process, live microphone, and real application rendering.
 2. **Command-mode application behavior:** surrounding-text and primary-selection fallback need proof across applications and toolkits.
-3. **Release boundary:** there is no distro packaging, upgrade policy, or external-user installation path yet.
+3. **Release boundary:** the systemd/D-Bus service install shape is pinned, but there is no distro package recipe, upgrade policy, or external-user installation path yet.
 4. **Remote parity:** settings, authentication, ownership, debounce, Realtime-compatible event semantics, HTTP/WebSocket serving, D-Bus daemon reconciliation, shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
 5. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.
 

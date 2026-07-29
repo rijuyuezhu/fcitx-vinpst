@@ -23,6 +23,7 @@ VINPUT_USER_PROFILE=command-demo \
 
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
+  -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
   -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON
 cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
@@ -35,6 +36,7 @@ test -f "${install_root}/share/fcitx-vinput/e2e-command-demo.wav"
 test -x "${env_wrapper}"
 test -f "${autostart_file}"
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
+! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${env_wrapper}" "${autostart_file}"
 grep -qx "X-fcitx-vinput-managed=true" "${autostart_file}"
 grep -q "FCITX_ADDON_DIRS=\"${install_root}/lib/fcitx5:" "${install_root}/share/fcitx-vinput/fcitx-vinput.env"
@@ -47,7 +49,10 @@ XDG_DATA_HOME="${install_root}/share" \
 XDG_DATA_DIRS="${install_root}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
 VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
+VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
 VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="demo-command-asr" \
 VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="demo-text-adapter" \
+VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
+VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
     bash "${bridge_smoke_bin}" "${addon_smoke_bin}"

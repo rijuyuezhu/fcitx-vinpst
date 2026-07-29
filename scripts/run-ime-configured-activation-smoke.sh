@@ -47,6 +47,7 @@ timeout 20s "${daemon_path}" --dbus --configured-backends --config "${config_pat
 
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
+  -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
   -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
   -DVINPUT_DAEMON_EXECUTABLE="${daemon_wrapper}" \
   -DVINPUT_DAEMON_ARGS=""
@@ -62,13 +63,17 @@ test -f "${wav_path}"
 test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinput.so"
 test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
+! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_wrapper}" "${service_file}"
 
 if XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
   VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
+  VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="demo-command-asr" \
   VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="demo-text-adapter" \
+  VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
+  VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 120s dbus-run-session -- bash -euo pipefail -c '
     "${1}" &
     daemon_pid="$!"
