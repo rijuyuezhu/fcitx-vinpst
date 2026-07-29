@@ -100,6 +100,7 @@ Useful focused integration recipes:
 
 ```sh
 just addon-dbus-smoke
+just capture-cold-start-smoke
 just addon-dbus-asr-menu-smoke
 just addon-dbus-activation-smoke
 just addon-dbus-configured-activation-smoke
