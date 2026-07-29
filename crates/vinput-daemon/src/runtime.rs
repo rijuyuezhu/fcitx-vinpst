@@ -10,7 +10,7 @@ mod recording;
 mod reload;
 mod scene;
 
-use active_session::ActiveRecognitionSession;
+use active_session::{ActiveRecognitionSession, CaptureStartGate};
 pub(crate) use asr_menu::{
     locale_candidates_from_environment, select_asr_provider, select_asr_target,
 };

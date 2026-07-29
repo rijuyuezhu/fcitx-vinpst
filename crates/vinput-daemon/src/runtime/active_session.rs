@@ -9,6 +9,56 @@ const STREAMING_CHUNK_FRAMES: usize = 800;
 
 type SharedSession = Arc<Mutex<Box<dyn RecognitionSession>>>;
 
+/// Buffers capture chunks until ASR session construction finishes.
+pub(super) struct CaptureStartGate {
+    state: Arc<Mutex<CaptureStartGateState>>,
+}
+
+#[derive(Default)]
+struct CaptureStartGateState {
+    armed: bool,
+    callback: Option<AudioChunkCallback>,
+    buffered: Vec<PcmBuffer>,
+}
+
+impl CaptureStartGate {
+    /// Creates a gate and the callback installed before capture begins.
+    pub(super) fn new() -> (Self, AudioChunkCallback) {
+        let state = Arc::new(Mutex::new(CaptureStartGateState::default()));
+        let callback_state = Arc::clone(&state);
+        let callback: AudioChunkCallback = Box::new(move |pcm| {
+            let Ok(mut state) = callback_state.lock() else {
+                return;
+            };
+            if state.armed {
+                if let Some(callback) = state.callback.as_mut() {
+                    callback(pcm);
+                }
+            } else {
+                state.buffered.push(pcm.clone());
+            }
+        });
+        (Self { state }, callback)
+    }
+
+    /// Installs the session callback and replays chunks captured during setup.
+    pub(super) fn arm(&self, callback: Option<AudioChunkCallback>) -> Result<(), AsrError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| AsrError::Backend("capture start gate lock was poisoned".to_owned()))?;
+        state.armed = true;
+        state.callback = callback;
+        let buffered = std::mem::take(&mut state.buffered);
+        if let Some(callback) = state.callback.as_mut() {
+            for pcm in &buffered {
+                callback(pcm);
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Active ASR session shared with an audio-recorder callback when chunked delivery is requested.
 pub(super) struct ActiveRecognitionSession {
     session: SharedSession,
@@ -296,6 +346,29 @@ mod tests {
         fn poll_events(&mut self) -> Result<Vec<RecognitionEvent>, AsrError> {
             Ok(Vec::new())
         }
+    }
+
+    #[test]
+    fn capture_start_gate_replays_early_chunks_in_order() {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let (gate, mut startup_callback) = CaptureStartGate::new();
+        startup_callback(&PcmBuffer::at_default_rate(vec![1, 2]));
+        startup_callback(&PcmBuffer::at_default_rate(vec![3, 4]));
+
+        let callback_received = Arc::clone(&received);
+        let callback: AudioChunkCallback = Box::new(move |pcm| {
+            callback_received
+                .lock()
+                .expect("capture gate output lock poisoned")
+                .extend_from_slice(pcm.samples());
+        });
+        gate.arm(Some(callback)).unwrap();
+        startup_callback(&PcmBuffer::at_default_rate(vec![5, 6]));
+
+        assert_eq!(
+            *received.lock().expect("capture gate output lock poisoned"),
+            [1, 2, 3, 4, 5, 6]
+        );
     }
 
     #[test]

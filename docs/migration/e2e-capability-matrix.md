@@ -65,9 +65,9 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Legacy bus/interface/path | implemented | `org.fcitx.Vinput`, `/org/fcitx/Vinput`, `org.fcitx.Vinput.Service` |
 | Core methods and signals | implemented | legacy methods, `RecognitionResult`, `RecognitionPartial`, `StatusChanged`, notification signal |
 | Diagnostic extensions | implemented | runtime, adapter, scene, and ASR menu state |
-| Runtime state machine | deterministic | normal/command lifecycle, chunk delivery, partials, final result, error cleanup |
+| Runtime state machine | deterministic | normal/command lifecycle, capture-before-session startup, early-chunk gating, chunk delivery, partials, final result, error cleanup |
 | ASR reload | deterministic | one non-blocking prepare-before-swap worker, config reread, generation coalescing, old-backend preservation |
-| Audio capture | partial | optional PipeWire recorder exists; live capture is not proven |
+| Audio capture | partial | capture-first ordering and failure rollback are deterministic; optional PipeWire recorder exists, but stream reuse/idle grace and live capture remain |
 | File input | implemented | WAV and PCM paths are first-class deterministic seams |
 | Command ASR | implemented | batch/streaming protocols, partials, timeouts, cancellation |
 | Native offline ASR | deterministic | supported registry families pass real WAV smokes |

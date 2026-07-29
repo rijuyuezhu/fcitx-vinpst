@@ -161,20 +161,31 @@ impl RuntimeState {
         let capture_target = self.capture_target_for_runtime()?;
         let context = self.recognition_context(&scene_id, selected_text.as_deref());
         let delivery_mode = self.asr_backend.describe().capabilities.delivery_mode;
-        let session = self
-            .asr_backend
-            .create_session(context)
-            .map_err(RuntimeError::Asr)?;
+        let (capture_gate, startup_callback) = super::CaptureStartGate::new();
+        self.audio_recorder
+            .set_chunk_callback(Some(startup_callback));
+        if let Err(error) = self.audio_recorder.begin_recording(capture_target) {
+            self.audio_recorder.set_chunk_callback(None);
+            return Err(RuntimeError::Audio(error));
+        }
+        let session = match self.asr_backend.create_session(context) {
+            Ok(session) => session,
+            Err(error) => {
+                let _ = self.audio_recorder.cancel_recording();
+                self.audio_recorder.set_chunk_callback(None);
+                return Err(RuntimeError::Asr(error));
+            }
+        };
         let (session, chunk_callback) = super::ActiveRecognitionSession::new(
             session,
             delivery_mode,
             self.config.asr.input_gain,
         );
-        self.audio_recorder.set_chunk_callback(chunk_callback);
-        if let Err(error) = self.audio_recorder.begin_recording(capture_target) {
-            self.audio_recorder.set_chunk_callback(None);
+        if let Err(error) = capture_gate.arm(chunk_callback) {
             let _ = session.cancel();
-            return Err(RuntimeError::Audio(error));
+            let _ = self.audio_recorder.cancel_recording();
+            self.audio_recorder.set_chunk_callback(None);
+            return Err(RuntimeError::Asr(error));
         }
         self.status = ServiceStatus::Recording;
         self.current_scene = Some(scene_id);
