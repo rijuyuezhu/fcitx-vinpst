@@ -1,175 +1,149 @@
-# Live desktop validation checklist
+# Live desktop validation
 
-Use this checklist only inside a real desktop session. Deterministic smokes are required, but they do not prove live Fcitx behavior.
+Use this checklist only in a real user desktop session. Deterministic smokes are prerequisites, not substitutes for live proof.
 
-## Preconditions
+## Safety boundary
+
+- The non-mutating probe is safe to run first.
+- Installation changes the real user profile only when explicitly requested.
+- Do not stop an existing D-Bus owner until its PID, executable, and command line are understood.
+- Keep exact failure output and do not mark a path live-proven after a partial success.
+
+## 1. Deterministic preflight
 
 ```sh
 cd /workspace/fcitx-vinput-rs
 git status --porcelain=v1 -b
-just user-ime-command-demo-smoke
-just user-ime-real-command-asr-wav-smoke
-just user-ime-sherpa-native-smoke
-just user-ime-sherpa-sense-voice-smoke
+just ci
+just user-ime-sherpa-native-activation-smoke
 just ime-fcitx-live-probe-smoke
 ```
 
-Confirm the session has Fcitx5 and a user bus:
+For the selected model, also run its matching local WAV smoke.
+
+## 2. Session preflight
 
 ```sh
 echo "$DBUS_SESSION_BUS_ADDRESS"
 fcitx5-remote --check
 fcitx5-remote -n
-```
-
-## Non-mutating probe
-
-```sh
 just ime-fcitx-live-probe
 ```
 
-Expected outcomes:
+The probe should distinguish missing addon files, missing activation, an old daemon path, a stale bus owner, missing Fcitx environment, and a session without running Fcitx5.
 
-- If no user install exists, the probe reports `addon-module-missing`, `addon-metadata-missing`, `daemon-missing`, and/or `activation-service-missing`.
-- If the current shell has no user D-Bus session, the probe exits early with `user-dbus-session-missing`.
-- If Fcitx5 is not running on the current session bus, the probe exits early with `fcitx5-not-running`.
-- If the activation service points to a different daemon path, the probe reports `activation-service-old-daemon`.
-- If `org.fcitx.Vinput` is already owned but does not expose the Rust diagnostic extension, the probe reports `runtime-status-unavailable` and `stale-bus-owner`, then prints the current owner PID/exe/cmdline when D-Bus can identify it. After confirming that process is safe to stop, rerun the probe with `VINPUT_LIVE_STOP_STALE_OWNER=1` to stop the stale owner before D-Bus activation.
-- If installed files exist but the running Fcitx5 process was not restarted with the generated environment, the probe reports `fcitx-env-not-restarted`.
-- A failed non-mutating probe is not a code failure by itself; it records readiness and the next corrective action.
+A failed readiness probe is not automatically a code failure. Follow the reported next action and rerun it.
 
-## Explicit user install and probe
+## 3. Native profile installation
 
-This mutates the real user profile. Run it only when that is intended.
+This step mutates the real profile:
 
 ```sh
-just ime-fcitx-live-command-demo-setup
+VINPUT_USER_PROFILE=sherpa-native-live \
+  VINPUT_USER_SHERPA_MODEL=/path/to/registry-installed-model \
+  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/lib \
+  scripts/install-user-ime.sh
 ```
 
-For a lower-level install/probe sequence, run:
+The installer must:
+
+- validate typed model metadata or the supported compatibility layout;
+- copy `libsherpa-onnx` and `libonnxruntime` into the user data tree;
+- generate `vinput-daemon-with-vinput-env.sh` with the matching library path;
+- point user D-Bus activation at that wrapper;
+- run `runtime-status` through the installed bundle;
+- install the retained addon, metadata, translations, VAD asset when applicable, and Fcitx environment wrapper.
+
+The `sherpa-sense-voice-live` name remains a compatibility alias. Use `VINPUT_USER_RUNTIME_STATUS=0` only for file-placement debugging. `VINPUT_USER_NATIVE_WAV` is a deterministic activation hook, not a live microphone configuration.
+
+Inspect the result before restarting Fcitx5:
 
 ```sh
-VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe
+VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
+just user-ime-status
 ```
 
-The install writes a generated Fcitx environment wrapper and a managed user autostart override. Restart through the wrapper for the current session so the running Fcitx5 process sees the user addon module directory and metadata location:
+Do not continue if `doctor` or `runtime-status` reports a model or native-library construction error.
+
+## 4. Restart Fcitx5 with the generated environment
+
+Prefer the installed wrapper:
 
 ```sh
 "$HOME/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh" -r
 ```
 
-If the desktop ignores XDG autostart or the wrapper is unavailable, source the environment manually before launching Fcitx5:
-
-```sh
-. "$HOME/.local/share/fcitx-vinput/fcitx-vinput.env"
-fcitx5 -r
-```
-
-Re-run:
+Then rerun:
 
 ```sh
 just ime-fcitx-live-probe
 ```
 
-## Manual behavior checks
+The probe must see the addon module, addon metadata, activation service, current Rust daemon diagnostics, and the restarted Fcitx environment.
 
-Open a text field in a normal application and check:
+## 5. Live normal dictation
 
-1. normal trigger press shows recording preedit;
-2. normal trigger release stops recording and commits deterministic command-demo output;
-3. command trigger without selected text shows a clear error preedit;
-4. command trigger with selected text starts command mode;
-5. command trigger release replaces selected text;
-6. result candidate menu can show alternatives when payload includes candidates;
-7. `just user-ime-status` reports addon metadata, addon module, daemon, activation service, environment file, Fcitx env wrapper, and managed autostart override paths.
+In a real application text field:
 
-## Real command-ASR WAV helper profile
+1. trigger normal recording;
+2. confirm recording preedit appears;
+3. speak while observing streaming partial preedit for an online model;
+4. stop recording;
+5. confirm one final commit reaches the application;
+6. repeat once to catch stale-session and second-run failures.
 
-Use this as an interim command-ASR path when testing an external recognizer that accepts a WAV file path. Native Rust `sherpa-onnx` is now available for the SenseVoice offline file-input smoke, but this profile is still useful for comparing command-provider behavior and for environments where native runtime libraries are not ready.
+Record failures separately for key handling, D-Bus activation, PipeWire setup, target selection, capture format, ASR, partial signal delivery, preedit rendering, final outcome, and application commit.
 
-```sh
-VINPUT_USER_PROFILE=real-command-asr-wav \
-  VINPUT_USER_COMMAND_ASR_WAV_COMMAND='whisper-cli -m /path/to/model.bin -f "$VINPUT_ASR_WAV"' \
-  scripts/install-user-ime.sh
-```
+## 6. Live command dictation
 
-The install copies `scripts/command-asr-wav-helper.py` to the user binary directory, writes `real-command-asr-wav.json`, enables configured backends, and defaults the activation service to `--audio-backend pipewire`. `VINPUT_USER_COMMAND_ASR_WAV_COMMAND` is executed by `sh -c`; it can use `VINPUT_ASR_WAV`, `VINPUT_ASR_SAMPLE_RATE_HZ`, `VINPUT_ASR_CHANNELS`, `VINPUT_ASR_PROVIDER_ID`, `VINPUT_ASR_MODEL_ID`, and `VINPUT_ASR_HOTWORDS_FILE`.
+In at least two application/toolkit combinations:
 
-Check the generated profile before restarting Fcitx5:
+1. select text and trigger command mode;
+2. confirm selected text is acquired from surrounding text or primary-selection clipboard fallback;
+3. speak a command;
+4. inspect candidate behavior when no text adapter is configured;
+5. select a replacement candidate;
+6. confirm deletion occurs before the replacement commit;
+7. repeat with a configured text provider or adapter when available;
+8. verify failure is safe when no selection can be acquired.
 
-```sh
-VINPUT_USER_PROFILE=real-command-asr-wav VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
-```
+## 7. Frontend behavior
 
-Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `real-command-asr-wav`, with `has_effective_backend: true` and an empty `last_error`. This proves a real command-ASR helper profile is configured; it does not prove native `sherpa-onnx` support.
+Verify in the real session:
 
+- scene and installed-model-aware ASR menus;
+- keyboard, paging, digit, mouse, slash-filter, UTF-8 edit, and Escape behavior;
+- persistent normal/command/menu/paging keys;
+- Tap, Hold, and Both trigger modes;
+- localized labels and installed-model titles;
+- local notifications and daemon-originated reload failure;
+- daemon owner loss during recording;
+- cross-client busy-state reconciliation;
+- model selection followed by background reload.
 
-## Generic native sherpa profile
-
-Use this when you have a registry-installed model supported by the native `sherpa-onnx` backend. This mutates the real user profile and expects a real PipeWire desktop session, so run it only with explicit user approval.
-
-Validate the model with its matching local smoke first, then install it:
-
-```sh
-VINPUT_USER_PROFILE=sherpa-native-live \
-  VINPUT_USER_SHERPA_MODEL=/path/to/registry-installed-model \
-  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/bundle \
-  scripts/install-user-ime.sh
-```
-
-Typed `vinput-model.json` may select an offline or online family. The legacy `sherpa-sense-voice-live` profile remains available for a metadata-free SenseVoice directory containing `model.int8.onnx` or `model.onnx` plus `tokens.txt`.
-
-Optional knobs:
-
-```sh
-VINPUT_USER_SHERPA_HOTWORDS_FILE=/path/to/hotwords.txt
-VINPUT_USER_SHERPA_TIMEOUT_MS=30000
-```
-
-The install builds with `pipewire-backend,sherpa-onnx-backend`, copies `libsherpa-onnx*.so*` and `libonnxruntime.so*` into `~/.local/share/fcitx-vinput/runtime/lib`, writes `fcitx-vinput.env`, creates `vinput-daemon-with-vinput-env.sh`, and points the user D-Bus activation service at the wrapper. Offline metadata enables the installed Silero VAD; online metadata disables it. `runtime-status` runs by default to force model construction through the same installed runtime bundle before Fcitx5 restart.
-
-Check it before restarting Fcitx5:
-
-```sh
-VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_STATUS=1 scripts/install-user-ime.sh
-# Lightweight status without native model construction:
-VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_STATUS=1 VINPUT_USER_RUNTIME_STATUS=0 scripts/install-user-ime.sh
-```
-
-Expected diagnostic shape: `doctor` reports `target_provider_id` and `effective_provider_id` as `sherpa-onnx`, `has_effective_backend: true`, an empty `last_error`, and an activation-service `Exec` pointing at `vinput-daemon-with-vinput-env.sh`. If model or library loading fails, keep the exact `last_error`; do not mark native ASR ready.
-
-For deterministic activation debugging without a microphone, set `VINPUT_USER_NATIVE_WAV=/path/to/known.wav`; this opt-in test hook adds `--wav` to the generated service only. Prefer `just user-ime-sherpa-native-activation-smoke` or the pinned `just sherpa-online-transducer-user-activation-smoke`, both of which use a temporary HOME and do not mutate the real profile.
-
-## PipeWire live checks
-
-Run only when live capture is expected to work:
+## 8. Live PipeWire diagnostics
 
 ```sh
 just pipewire-check
+VINPUT_TEST_PIPEWIRE_CONTEXT=1 VINPUT_TEST_PIPEWIRE_ENUMERATE=1 VINPUT_TEST_PIPEWIRE_RECORD=1 just pipewire-live
+just addon-dbus-pipewire-live
 just ime-configured-pipewire-live
 ```
 
-Record whether failures are from PipeWire session, capture target, stream setup, ASR, text processing, or frontend commit.
+These checks are intentionally outside `just ci`. Capture the selected target, S16LE/16 kHz/mono plan, and the precise setup or record failure.
 
-## Completion criteria for real desktop alpha
+## Completion criteria
 
-A feature is not live-done until these are true in one real desktop session:
+Real desktop native alpha requires one documented profile where:
 
-- addon is loaded by Fcitx5 after restart;
-- normal and command triggers reach the addon;
-- preedit is visible;
-- normal commit reaches an application;
-- command mode replaces selected text;
-- diagnostics explain missing install/session/backend states, stale bus ownership, old activation daemon paths, unavailable `GetRuntimeStatus`, missing Fcitx env wrapper/autostart integration, and Fcitx restart/env mismatches;
-- deterministic smokes and `just ime-fcitx-live-probe-smoke` still pass after the change.
+- Fcitx5 loads the addon after restart;
+- D-Bus activation starts the installed Rust daemon through `vinput-daemon-with-vinput-env.sh`;
+- live PipeWire capture reaches a supported native model;
+- streaming partials render as preedit when applicable;
+- final text commits once into a real application;
+- command mode replaces selected text safely;
+- scene/ASR menus and persistent trigger behavior work;
+- diagnostics explain install, owner, runtime, audio, and frontend failures;
+- `just ci` remains green afterward.
 
-
-## Native sherpa desktop note
-
-A temporary-HOME install has proven that `sherpa-native-live` can materialize a typed online transducer config, copy the validated native runtime bundle, generate wrapper-based D-Bus activation, and construct the recognizer through `runtime-status`. `just sherpa-online-transducer-user-activation-smoke` now goes further: the first `daemon status` call auto-activates the installed daemon, reports that owner immediately, and a D-Bus `StartRecording`/`StopRecording` round trip returns the exact expected transcript from the installed runtime. The remaining desktop-specific checks are:
-
-1. install into the explicitly approved real user profile;
-2. restart Fcitx through the generated environment wrapper;
-3. prove normal trigger -> PipeWire capture -> native ASR -> partial/preedit -> commit in a real application.
-
-The runtime-library activation boundary is now deterministic; it is not yet real-desktop proof.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. It does not prove a real desktop application frontend or live PipeWire capture.

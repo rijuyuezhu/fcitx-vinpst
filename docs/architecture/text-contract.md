@@ -40,7 +40,7 @@ Command mode preserves the legacy frontend-visible candidate order:
 2. recognized command text as an `asr` candidate;
 3. LLM/post-processing candidates as `llm` candidates when available.
 
-Commit text prefers the first LLM/post-processing candidate when one exists. Without LLM candidates, command mode falls back to the selected text when present, otherwise the ASR command text. The Rust daemon only receives the selected text string over D-Bus or CLI and returns the recognition payload; the retained C++ frontend owns selected-text replacement and cleanup for command-mode commit/candidate outcomes, while clipboard fallback remains future frontend work.
+Commit text prefers the first LLM/post-processing candidate when one exists. Without LLM candidates, command mode falls back to the selected text when present, otherwise the ASR command text. The Rust daemon only receives the selected text string over D-Bus or CLI and returns the recognition payload; the retained C++ frontend owns selected-text replacement and cleanup for command-mode commit/candidate outcomes. It first uses Fcitx surrounding text and falls back to the primary-selection clipboard path when surrounding text is unavailable; multi-application live validation remains pending.
 
 ## Command adapter process contract
 

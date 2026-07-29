@@ -141,7 +141,8 @@ fn text_architecture_pins_command_mode_payload_contract() {
         "Commit text prefers the first LLM/post-processing candidate",
         "falls back to the selected text when present",
         "retained C++ frontend owns selected-text replacement and cleanup",
-        "clipboard fallback remains future frontend work",
+        "falls back to the primary-selection clipboard path",
+        "multi-application live validation remains pending",
     ] {
         assert!(
             text_doc.contains(required),
@@ -312,12 +313,6 @@ fn development_doc_pins_optional_pipewire_recipes() {
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
         .expect("read development guide");
     let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
-    let offline_smoke =
-        std::fs::read_to_string(workspace_file("scripts/run-sherpa-offline-local-smoke.sh"))
-            .expect("read generic sherpa offline smoke");
-    let online_smoke =
-        std::fs::read_to_string(workspace_file("scripts/run-sherpa-online-local-smoke.sh"))
-            .expect("read generic sherpa online smoke");
 
     for required in [
         "just pipewire-check",
@@ -328,79 +323,31 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
         "VINPUT_TEST_PIPEWIRE_ENUMERATE=1",
         "VINPUT_TEST_PIPEWIRE_RECORD=1",
-        "just sherpa-offline-local-smoke",
-        "just sherpa-sense-voice-local-smoke",
-        "just sherpa-qwen3-local-smoke",
-        "just sherpa-online-local-smoke",
-        "just sherpa-online-transducer-local-smoke",
-        "just sherpa-zipformer2-ctc-local-smoke",
-        "just sherpa-moonshine-dbus-reload-smoke",
-        "validates typed registry metadata and one WAV recognition outside Fcitx5",
-        "live registry Qwen3 model has passed",
-        "live registry model has passed with bundled `test_wavs/0.wav`",
-        "对我做了介绍那么我想说的是呢大家如果对我的研究感兴趣呢",
         "intentionally excluded from `just ci`",
-        "C++ bridge plus Rust daemon D-Bus path",
-        "prints the daemon build's `audio-devices` JSON diagnostics",
-        "VINPUT_DBUS_SMOKE_RECORD_MS=100",
-        "without live daemon",
-        "CLI/daemon audio-device diagnostics",
-        "--record-ms 100",
-        "start/wait/stop smoke",
-        "staged D-Bus activation starts the PipeWire-enabled daemon",
-        "--dbus --audio-backend pipewire",
-        "Live desktop PipeWire validation",
-        "target/tmp/fcitx-ime-pipewire-live-smoke",
-        "prints the staged daemon's `audio-devices` JSON diagnostics",
-        "Recorder setup errors are expected to include the same target/format/sample-rate/channel plan",
+        "without requiring a live PipeWire daemon",
+        "just sherpa-offline-local-smoke",
+        "just sherpa-online-local-smoke",
+        "just sherpa-moonshine-dbus-reload-smoke",
     ] {
         assert!(
             development.contains(required),
-            "development guide should pin optional PipeWire recipe policy: {required}"
+            "development guide should document optional integration policy: {required}"
         );
     }
 
-    for required in [
-        "runtime=online",
-        "backend=sherpa-streaming",
-        "vinput-model.json",
-        "runtime-status",
-        "--once --wav",
-        "VINPUT_SHERPA_EXPECT_TEXT",
-        "once-output.json",
+    for recipe in [
+        "pipewire-check:",
+        "pipewire-live:",
+        "addon-dbus-pipewire-live:",
+        "ime-pipewire-live:",
+        "ime-configured-pipewire-live:",
+        "sherpa-offline-local-smoke:",
+        "sherpa-online-local-smoke:",
+        "sherpa-moonshine-dbus-reload-smoke:",
     ] {
-        assert!(
-            online_smoke.contains(required),
-            "generic sherpa online smoke should pin typed runtime behavior: {required}"
-        );
+        assert!(justfile.contains(recipe), "justfile should define {recipe}");
     }
 
-    assert!(justfile.contains("pipewire-check:"));
-    assert!(justfile.contains("pipewire-live:"));
-    assert!(justfile.contains("ime-pipewire-live:"));
-    assert!(justfile.contains("ime-configured-pipewire-live:"));
-    assert!(justfile.contains("sherpa-offline-local-smoke:"));
-    assert!(justfile.contains("sherpa-sense-voice-local-smoke:"));
-    assert!(justfile.contains("sherpa-offline-transducer-local-smoke:"));
-    assert!(justfile.contains("sherpa-dolphin-local-smoke:"));
-    assert!(justfile.contains("sherpa-paraformer-local-smoke:"));
-    assert!(justfile.contains("sherpa-qwen3-local-smoke:"));
-    assert!(justfile.contains("sherpa-online-local-smoke:"));
-    assert!(justfile.contains("sherpa-online-transducer-local-smoke:"));
-    assert!(justfile.contains("sherpa-zipformer2-ctc-local-smoke:"));
-    assert!(justfile.contains("sherpa-moonshine-dbus-reload-smoke:"));
-    for required in [
-        "VINPUT_SHERPA_EXPECT_FAMILY",
-        "vinput-model.json",
-        "metadata-free SenseVoice layout",
-        "runtime-status",
-        "--once --wav",
-    ] {
-        assert!(
-            offline_smoke.contains(required),
-            "generic sherpa smoke should pin native preflight/runtime behavior: {required}"
-        );
-    }
     let check_line = justfile
         .lines()
         .find(|line| line.starts_with("check:"))
@@ -465,54 +412,23 @@ fn target_architecture_pins_frontend_packaging_boundary() {
     for required in [
         "retained C++ Fcitx5 frontend bridge",
         "existing `vinput-protocol` D-Bus ABI",
-        "Fcitx API integration, menus, preedit/status presentation",
-        "selected-text collection",
-        "command-mode selected-text replacement",
-        "minimal scene menu",
-        "installed-model-aware ASR menu",
-        "Right Shift opens scene candidates and F8 opens ASR model candidates",
-        "`GetSceneState` and `SetActiveScene`",
-        "`GetAsrDisplayMenuState` and `SetActiveAsrTarget`",
-        "older target-menu method remains available",
-        "persists the full registry id plus the selected locale title",
+        "Fcitx API integration",
+        "persistent trigger and paging keys",
+        "Tap/Hold/Both timing",
+        "scene and installed-model-aware ASR menus",
+        "selected-text collection and command-mode replacement",
+        "Rust side owns runtime state, audio, ASR, text processing, registry operations",
+        "`GetSceneState`/`SetActiveScene`",
+        "`GetAsrDisplayMenuState`/`SetActiveAsrTarget`",
+        "older target-menu methods remain",
+        "full registry id",
         "fall back to stable ids without network access",
-        "notification presenter",
-        "3000/5000 ms timeouts",
-        "notifications-addon dispatch",
-        "stderr fallback",
-        "Fcitx D-Bus monitor subscribes to `StatusChanged(s)`, `RecognitionPartial(s)`, and `DaemonNotification(ssss)`",
-        "partial text overrides localized status fallback",
         "final commit remains driven by the synchronous stop reply",
-        "background ASR reload failures through this path",
-        "broader notification categories",
-        "persistent Fcitx `KeyList` options",
-        "`PagePrevKeys` and `PageNextKeys`",
-        "main-keyboard and keypad PageUp/PageDown",
-        "slash-activated filter model",
-        "multi-term AND matching",
-        "UTF-8 Backspace",
-        "Ctrl+W/Ctrl+U editing",
-        "two-stage Escape",
-        "digit-as-query behavior",
-        "`fcitx5-vinput` gettext domain",
-        "`fcitx::registerDomain` and `translateDomain`",
-        "installed catalog lives under the standard locale directory",
-        "legacy `conf/vinput.conf` schema",
-        "`reloadConfig`, `getConfig`, `setConfig`, and `save`",
-        "temporary single-key overrides",
-        "`TriggerMode=Tap|Hold|Both`",
-        "80 ms debounce",
-        "300 ms hold threshold",
-        "500 ms release-tail delay",
-        "preserving not-yet-ported legacy fields",
-        "frontend-side cleanup",
-        "Backend logic, ASR/text processing, registry operations, and runtime state must stay in Rust crates",
         "Do not replace the Fcitx5 addon with a Rust addon",
-        "Packaging/service install artifacts remain future work",
     ] {
         assert!(
             target.contains(required),
-            "target architecture should pin T6 frontend/packaging boundary: {required}"
+            "target architecture should pin frontend boundary: {required}"
         );
     }
 }
@@ -554,10 +470,11 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "e2e-capability-matrix.md",
         "detailed E2E capability comparison and the native runtime/frontend parity backlog",
         "what exactly is missing for real desktop and legacy parity?",
+        "Do not maintain parity percentages in multiple files",
     ] {
         assert!(
             docs_readme.contains(required),
-            "docs README should point at capability matrix: {required}"
+            "docs README should pin source-of-truth rules: {required}"
         );
     }
 
@@ -566,10 +483,11 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "Current registry native ASR families",
         "Generic native user install",
         "real desktop native-dictation alpha",
+        "does not assign a release percentage",
     ] {
         assert!(
             audit.contains(required),
-            "function gap audit should pin current parity and target: {required}"
+            "function gap audit should pin current evidence: {required}"
         );
     }
 
@@ -578,7 +496,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Port other remaining",
+        "Prove real desktop native dictation first",
     ] {
         assert!(
             plan.contains(required),

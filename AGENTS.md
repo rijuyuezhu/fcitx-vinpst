@@ -1,22 +1,23 @@
 # AGENT
 
-Before doing any work in this repository, read these files in order:
+Before working in this repository, read:
 
-1. `docs/README.md` — documentation map and required reading order.
-2. `docs/development.md` — project style, commit message style, and test commands.
-3. `docs/migration/function-gap-audit.md` — tracked Rust-vs-legacy parity baseline.
-4. `docs/migration/e2e-replication-plan.md` — active plan for real desktop alpha and full E2E replication.
-5. `docs/migration/live-desktop-validation.md` — live desktop validation checklist.
-6. `docs/migration/agent-kickoff.md` — copyable context for a fresh implementation agent.
-7. `docs/architecture/README.md` — tracked architecture contract index; then read the contract document for the area you will touch.
-8. `docs/legacy/README.md` and `docs/legacy/source-annotations.md` — legacy C++ source map when comparing behavior with `fcitx5-vinput`.
+1. `docs/README.md` — documentation map and source-of-truth rules.
+2. `docs/development.md` — workflow, validation tiers, and commit style.
+3. `docs/migration/function-gap-audit.md` — current Rust-versus-legacy status.
+4. `docs/migration/e2e-capability-matrix.md` — detailed capability and evidence matrix.
+5. `docs/migration/e2e-replication-plan.md` — active milestones and next work.
+6. `docs/migration/live-desktop-validation.md` — real-session validation procedure.
+7. `docs/architecture/README.md` — stable contract index; then read the contract for the touched subsystem.
+8. `docs/legacy/README.md` and `docs/legacy/source-annotations.md` — legacy source map when behavior comparison is needed.
 
-Rules for agents:
+Rules:
 
-- Communicate with the user in Chinese; keep code, comments, tests, and commit messages in English unless existing code requires otherwise.
-- Current priority: reach real desktop alpha, then real ASR alpha, then legacy feature parity.
-- Prefer product-spine implementation over generic cleanup.
+- Communicate with the user in Chinese; keep code, comments, tests, docs identifiers, and commit messages in English unless surrounding content requires otherwise.
+- Current priority: real desktop native alpha, then command-mode live proof, then packaging and remaining parity.
+- Prefer product-spine work over generic cleanup.
 - Preserve public wire formats and frontend expectations with focused tests.
 - Keep the retained Fcitx frontend thin. Backend logic belongs in Rust crates and `vinput-daemon`.
-- Never manually track files under `docs/plan/`; it is local scratch and must remain ignored.
-- Use test commands from `docs/development.md`. Prefer focused checks while iterating, and broader checks before handoff.
+- Distinguish `implemented`, `deterministic`, and `live-proven`; never count a smoke as desktop proof.
+- Never track files under ignored `docs/plan/`.
+- Use the validation tiers in `docs/development.md`; run focused checks while iterating and the full relevant gate before handoff.

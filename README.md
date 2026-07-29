@@ -1,185 +1,114 @@
 # fcitx-vinput-rs
 
-Rust-oriented rewrite workspace for [`fcitx5-vinput`](https://github.com/xifan2333/fcitx5-vinput).
+Rust-oriented rewrite of [`fcitx5-vinput`](https://github.com/xifan2333/fcitx5-vinput).
 
-The early refactor milestones have produced stable Rust protocol/config/audio/ASR/text/registry/daemon/CLI seams and a deterministic retained-addon product spine. The current milestone is real desktop alpha: prove user install, Fcitx addon load, trigger/preedit/commit, command replacement, and a first real recognition path in a live desktop session.
+The project is a usable CLI/daemon alpha with a retained C++ Fcitx5 frontend. The deterministic native path now covers user installation, D-Bus activation, streaming partial preedit, final commit, and command-mode replacement through a concrete test `fcitx::InputContext`. The active milestone is **real desktop native alpha**: prove the same path with a running Fcitx5 session, live PipeWire capture, and a real application.
 
-## Current layout
+## Architecture
 
-- `crates/vinput-protocol`: D-Bus names, status strings, ASR state, text adapter state, and recognition result JSON.
-- `crates/vinput-config`: typed config model for the legacy `data/default-config.json` plus validation.
-- `crates/vinput-audio`: pure PCM buffers, capture traits, and deterministic audio transforms.
-- `crates/vinput-asr`: ASR backend/session traits, recognition events, command backend seam, and deterministic mock backend.
-- `crates/vinput-text`: scene post-processing, prompt rendering, text adapter traits, and command adapter seam.
-- `crates/vinput-registry`: registry metadata parsing, validation, and dry-run asset/install planning.
-- `crates/vinput-daemon`: mock/configured daemon runtime, diagnostics, and `zbus` service facade for the legacy daemon ABI.
-- `crates/vinput-cli`: bootstrap CLI named `vinput` for protocol/config/registry/payload inspection.
-- `data/default-config.json`: copied from the original project as the compatibility baseline.
-- `AGENTS.md`: required short instruction file for coding agents.
-- `docs/README.md`: documentation map and required reading order.
-- `docs/development.md`: project style, commit message style, and `just` command guide.
-- `docs/migration/function-gap-audit.md`: tracked Rust-vs-legacy parity baseline.
-- `docs/migration/e2e-replication-plan.md`: active plan for real desktop alpha and full E2E replication.
-- `docs/migration/live-desktop-validation.md`: live Fcitx desktop validation checklist.
-- `docs/migration/agent-kickoff.md`: copyable context for a fresh implementation agent.
-- `docs/architecture/README.md`: tracked architecture contract index.
-- `docs/legacy/`: tracked original-source annotations.
+The Rust workspace is split by responsibility:
 
-Local planning notes under `docs/plan/` are intentionally ignored by the root `.gitignore`. Do not manually track them.
+- `crates/vinput-protocol`: stable D-Bus names, status strings, and recognition payloads.
+- `crates/vinput-config`: typed configuration, defaults, normalization, and validation.
+- `crates/vinput-audio`: PCM types, audio transforms, recorder traits, and optional PipeWire capture.
+- `crates/vinput-asr`: ASR traits plus mock, command, and optional native `sherpa-onnx` backends.
+- `crates/vinput-text`: scene prompts, command adapters, context cache, and OpenAI-compatible transport.
+- `crates/vinput-registry`: live registry metadata, checksums, safe extraction, and model installation.
+- `crates/vinput-daemon`: runtime orchestration and the legacy-compatible D-Bus service.
+- `crates/vinput-cli`: the `vinput` management and diagnostics CLI.
 
-## Tooling
+`cpp/fcitx5-addon` remains C++ deliberately. It owns only Fcitx API integration, key handling, menus, preedit/commit presentation, selected-text handling, notifications, and the D-Bus bridge. Backend behavior belongs in Rust.
 
-The repo pins shared project tooling in:
+## Current capability
 
-- `rust-toolchain.toml`: stable Rust with `rustfmt` and `clippy` components.
-- `rustfmt.toml`: formatting policy.
-- `clippy.toml` plus workspace lints in `Cargo.toml`: lint policy.
-- `.pre-commit-config.yaml`: local pre-commit hooks for format and lint checks.
-- `justfile`: common commands used locally and mirrored by CI.
+Implemented and deterministically validated:
 
-Install optional local hooks with:
+- legacy-compatible D-Bus methods, signals, status strings, and recognition JSON;
+- `vinput init`, config mutation, model/provider/hotword/device/scene/LLM/adapter management, daemon control, recording control, and `vinput doctor`;
+- live model registry fetch, SHA-256 verification, safe archive extraction, install/use/remove, and installed-model discovery;
+- native offline and online registry-model ASR families currently used by the project;
+- `sherpa-native-live` user installation with a copied `libsherpa-onnx` and `libonnxruntime` bundle;
+- wrapper-based activation through `vinput-daemon-with-vinput-env.sh`;
+- activation-safe `RecognitionPartial` delivery, concrete Fcitx preedit, final commit, and command candidate replacement in temporary-HOME smokes;
+- persistent frontend keys, Tap/Hold/Both trigger behavior, searchable scene/ASR menus, localization, notifications, and daemon-owner recovery.
+
+Still requiring live proof or implementation:
+
+- real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
+- command replacement and clipboard fallback across real applications;
+- provider/adapter registry installation breadth;
+- remote text service parity, distro packaging, upgrades, and release hardening;
+- the legacy Qt GUI, which is intentionally deferred.
+
+See [`docs/migration/function-gap-audit.md`](docs/migration/function-gap-audit.md) for status and [`docs/migration/e2e-replication-plan.md`](docs/migration/e2e-replication-plan.md) for priorities.
+
+## Build and check
+
+Use `just` as the project interface:
 
 ```sh
-pre-commit install
-```
-
-## Smoke checks
-
-```sh
+just fmt-check
+just test
+just dbus-test
+just addon-test
 just ci
 just smoke
 ```
 
-`just ci` mirrors the GitHub Actions checks, including C++ addon format/lint/test coverage and the D-Bus integration feature lint.
+`just ci` is the full deterministic project gate. Optional live PipeWire and real-desktop checks are intentionally excluded.
 
-Equivalent raw commands:
+Useful focused integration recipes:
 
 ```sh
-clang-format --dry-run --Werror {{addon-sources}}
-cargo fmt --all -- --check
-cmake -S cpp/fcitx5-addon -B target/cpp/fcitx5-addon -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON
-ln -sfn target/cpp/fcitx5-addon/compile_commands.json compile_commands.json
-clang-tidy -p target/cpp/fcitx5-addon {{addon-lint-sources}}
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --all-targets
-dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
-cargo clippy -p vinput-daemon --all-targets --features dbus-integration -- -D warnings
-cmake -S cpp/fcitx5-addon -B target/cpp/fcitx5-addon -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DVINPUT_FCITX_BRIDGE_ENABLE_FCITX_DEPS=OFF
-ln -sfn target/cpp/fcitx5-addon/compile_commands.json compile_commands.json
-cmake --build target/cpp/fcitx5-addon --parallel
-ctest --test-dir target/cpp/fcitx5-addon --output-on-failure
-scripts/run-cpp-dbus-smoke.sh
-scripts/run-cpp-dbus-asr-menu-smoke.sh
-scripts/run-command-asr-wav-helper-smoke.sh
-scripts/run-user-ime-activation-owner-smoke.sh
-scripts/run-user-ime-real-command-asr-wav-smoke.sh
-scripts/run-user-ime-sherpa-sense-voice-smoke.sh
-scripts/run-user-ime-sherpa-native-smoke.sh
-cargo run -q -p vinput-cli -- protocol
-cargo run -q -p vinput-cli -- init --dry-run --json
-cargo run -q -p vinput-cli -- config
-cargo run -q -p vinput-cli -- config validate data/default-config.json --summary-only
-cargo run -q -p vinput-cli -- config get /global/default_language --config data/default-config.json --json
-cargo run -q -p vinput-cli -- config get /global/missing --exists --config data/default-config.json --json
-cargo run -q -p vinput-cli -- config get /global/missing --default false --config data/default-config.json --json
-cargo run -q -p vinput-cli -- config get /global/missing --default false --default-string --config data/default-config.json --json
-cargo run -q -p vinput-cli -- config set /global/default_language en --config data/default-config.json --dry-run --json
-cargo run -q -p vinput-cli -- config set /global/capture_device true --string --config data/default-config.json --dry-run --json
-cargo run -q -p vinput-cli -- config edit --dry-run --editor true --json
-cargo run -q -p vinput-cli -- asr-state
-cargo run -q -p vinput-cli -- asr-state --config data/default-config.json
-cargo run -q -p vinput-cli -- audio-devices
-cargo run -q -p vinput-cli -- device list --json
-cargo run -q -p vinput-cli -- device use default --dry-run --json
-cargo run -q -p vinput-cli -- provider list --json
-cargo run -q -p vinput-cli -- provider use sherpa-onnx --dry-run --json
-cargo run -q -p vinput-cli -- provider edit sherpa-onnx --model sherpa-onnx --dry-run --json
-cargo run -q -p vinput-cli -- scene list --json
-cargo run -q -p vinput-cli -- scene use __raw__ --dry-run --json
-cargo run -q -p vinput-cli -- scene add scratch --label Scratch --dry-run --json
-cargo run -q -p vinput-cli -- scene edit __raw__ --label __label_raw__ --dry-run --json
-cargo run -q -p vinput-cli -- scene remove __command__ --dry-run --json
-cargo run -q -p vinput-cli -- llm list --json
-cargo run -q -p vinput-cli -- llm add scratch --base-url https://llm.example.test/v1 --dry-run --json
-cargo run -q -p vinput-cli -- adapter list --json
-cargo run -q -p vinput-cli -- adapter add scratch --command true --dry-run --json
-cargo run -q -p vinput-cli -- adapter start scratch --dry-run --json
-cargo run -q -p vinput-cli -- adapter stop scratch --dry-run --json
-cargo run -q -p vinput-cli -- adapter status scratch --dry-run --json
-cargo run -q -p vinput-cli -- hotword get --json
-cargo run -q -p vinput-cli -- hotword set /tmp/hotwords.txt --dry-run --json
-cargo run -q -p vinput-cli -- hotword clear --dry-run --json
-cargo run -q -p vinput-cli -- hotword edit --dry-run --editor true --json
-cargo run -q -p vinput-cli -- registry
-cargo run -q -p vinput-cli -- registry validate data/sample-registry-index.json
-cargo run -q -p vinput-cli -- registry plan data/sample-registry-index.json --summary-only
-cargo run -q -p vinput-cli -- model list --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --json
-cargo run -q -p vinput-cli -- model info onnx-sv-zh-int8-off --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --json
-cargo run -q -p vinput-cli -- daemon start --dry-run --json
-cargo run -q -p vinput-cli -- daemon status --dry-run --json
-cargo run -q -p vinput-cli -- daemon reload-asr --dry-run --json
-cargo run -q -p vinput-cli -- daemon stop --dry-run --json
-cargo run -q -p vinput-cli -- daemon restart --dry-run --json
-cargo run -q -p vinput-cli -- daemon log --lines 100 --dry-run --json
-cargo run -q -p vinput-cli -- model use onnx-sv-zh-int8-off --registry crates/vinput-registry/tests/fixtures/live-models-sensevoice.json --model-root /tmp/vinput-models --reload-daemon --dry-run --json
-cargo run -q -p vinput-cli -- model use onnx-sv-zh-int8-off --installed --model-root /tmp/vinput-models --dry-run --json
-cargo run -q -p vinput-cli -- model remove onnx-sv-zh-int8-off --installed --model-root /tmp/vinput-models --dry-run --json
-cargo run -q -p vinput-cli -- recording start --dry-run --json
-cargo run -q -p vinput-cli -- recording start --selected-text demo --dry-run --json
-cargo run -q -p vinput-cli -- recording stop --scene demo --dry-run --json
-cargo run -q -p vinput-cli -- recording toggle --dry-run --json
-cargo run -q -p vinput-cli -- recording status --dry-run --json
-cargo run -q -p vinput-cli -- mock-result '你好'
-cargo run -q -p vinput-daemon -- print-config
-cargo run -q -p vinput-daemon -- asr-state
-cargo run -q -p vinput-daemon -- text-adapters
-cargo run -q -p vinput-daemon -- audio-devices
-cargo run -q -p vinput-daemon -- --once
+just addon-dbus-smoke
+just addon-dbus-asr-menu-smoke
+just addon-dbus-activation-smoke
+just addon-dbus-configured-activation-smoke
+just addon-dbus-adapter-lifecycle-smoke
+just ime-e2e-smoke
 ```
 
-Use `cargo run -p vinput-cli -- asr-state --config path/to/config.json` to inspect ASR diagnostics for a custom config without starting daemon runtime backends. Use `cargo run -p vinput-cli -- audio-devices` or `cargo run -p vinput-daemon -- audio-devices` to inspect capture-device config and, when built with the optional PipeWire feature, live source enumeration.
+`just ime-e2e-smoke` includes fake outcome sink coverage. `just addon-dbus-adapter-lifecycle-smoke` covers configured text adapter start/duplicate-start/stop diagnostics over DBus.
 
-`data/default-config.json` and `data/sample-registry-index.json` are stable smoke fixtures for explicit config and registry CLI paths. See [`docs/architecture/config-contract.md`](docs/architecture/config-contract.md) and [`docs/architecture/registry-contract.md`](docs/architecture/registry-contract.md) for their fixture contracts.
-
-## Local E2E demo
-
-Run the deterministic file-input demo with:
+Run the committed deterministic demo with:
 
 ```sh
 just e2e-demo
 ```
 
-The recipe generates `target/tmp/vinput-demo.wav`, then runs `vinput-daemon --configured-backends --once --wav` with `data/e2e-command-demo-config.json`. This exercises the current product spine end to end: WAV input, command ASR, command text adapter, and final recognition JSON. The demo ASR reports the input byte count instead of performing real speech recognition, which keeps the path deterministic until the concrete ASR backend lands.
+It uses `data/e2e-command-demo-config.json` and a generated WAV to exercise audio input, command ASR, command text processing, and recognition JSON without requiring a desktop session.
 
-Stage the Rust daemon, Fcitx addon module, addon metadata, and D-Bus activation service together with:
+## Native user installation
 
-```sh
-just ime-install-smoke
-just ime-configured-install-smoke
-```
-
-`just ime-configured-install-smoke` additionally stages `data/e2e-command-demo-config.json` plus a deterministic demo WAV, and wires D-Bus activation to `vinput-daemon --dbus --configured-backends --config /usr/local/share/fcitx-vinput/e2e-command-demo-config.json --wav /usr/local/share/fcitx-vinput/e2e-command-demo.wav`.
-
-This staged install shape is the current local packaging spine for the input method: Fcitx loads `fcitx5-vinput.so`, the addon talks to `org.fcitx.Vinput`, and the D-Bus service activates `vinput-daemon --dbus` from the same install prefix. To activate configured command ASR/text backends from Fcitx, configure the addon CMake build with `-DVINPUT_DAEMON_ARGS="--dbus --configured-backends --config /path/to/config.json"`. For live desktop capture builds that enable the `pipewire-backend` Cargo feature, include `--audio-backend pipewire` in those activation args.
-
-For a real per-user desktop install, run `just ime-fcitx-live-command-demo-setup` for the guided deterministic command-demo setup, `just user-ime-command-demo` for the lower-level deterministic command-demo profile, or `just user-ime-pipewire-live` for configured command backends plus live PipeWire capture. For native ASR, use `VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_SHERPA_MODEL=/path/to/installed-model scripts/install-user-ime.sh`; the legacy `sherpa-sense-voice-live` name remains an alias for metadata-free SenseVoice directories. These recipes install the daemon, retained Fcitx addon module, addon metadata, per-user D-Bus activation service, generated Fcitx environment wrapper, and a managed user autostart override. Native sherpa profiles additionally copy the matching `libsherpa-onnx`/`libonnxruntime` bundle into the user data tree and activate the daemon through `vinput-daemon-with-vinput-env.sh`, so D-Bus activation uses the same runtime bundle that passed readiness validation. Before touching the real profile, `just user-ime-sherpa-native-activation-smoke` can exercise the generated user service in a temporary HOME, and `just sherpa-online-transducer-user-activation-smoke` pins the proven online fixture. Use `just user-ime-status` and `just user-ime-clear` to inspect or remove them. For the current session, restart Fcitx5 through the generated wrapper shown by the installer, for example `~/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh -r`; on next login the managed autostart override starts Fcitx5 with the same `FCITX_ADDON_DIRS` environment. The retained addon defaults to `Right Ctrl` for normal dictation, `F10` for command dictation, `Right Shift` for the scene menu, and `F8` for the installed-model-aware ASR menu. These four actions are exposed as persistent Fcitx `KeyList` options in `conf/vinput.conf` under the legacy-compatible names `TriggerKey`, `CommandKeys`, `SceneMenuKey`, and `AsrMenuKey`. Menu paging is also persistent through the legacy `PagePrevKeys` and `PageNextKeys` lists; their defaults include both main-keyboard and keypad PageUp/PageDown. In either scene or ASR menu, press `/` to enter the legacy filter mode. Search is ASCII case-insensitive and requires every whitespace-separated term to match; Backspace removes one UTF-8 character, Ctrl+W removes the last term, Ctrl+U or the first Escape clears the filter, and a second Escape closes the menu. Digits are query text while filtering and candidate shortcuts otherwise. Static addon labels, result-candidate source comments, paging text, loading/error state, provider kinds, and Fcitx configuration descriptions use the `fcitx5-vinput` gettext domain. The build compiles and installs a Simplified Chinese catalog at `share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo`; untranslated locales fall back to the English message ids. Registry installs also persist the full model id and the selected locale title in `vinput-model.json`; F8 displays that title through the Rust daemon, while older or unmanaged model directories fall back to their stable ids. Frontend errors, scene-switch success, and ASR-switch requests use the Fcitx notifications addon with the legacy icons and 3-second information / 5-second warning-error timeouts; when the addon is unavailable, the same localized title and message fall back to stderr. Error outcomes continue to remain visible in preedit as well. The retained addon also subscribes to `StatusChanged(s)`, `RecognitionPartial(s)`, and `DaemonNotification(ssss)` through the Fcitx D-Bus module, and uses Fcitx `ServiceWatcher` to track the daemon bus owner without a registration race. During an addon-owned recording, localized recording/commanding/recognizing status text is shown as fallback and non-empty partial text takes precedence in the active input context preedit; unexpected idle/error status clears the frontend session. Final recognition still comes only from the synchronous `StopRecording` reply, avoiding duplicate commits. Error-like notification payloads reset the frontend recording state before notification, while raw informational payloads do not interrupt recording. If the daemon owner disappears during an addon-owned recording or status-only recovery view, the frontend immediately invalidates its synchronous client, ends or clears the frontend state, and shows the localized daemon-unavailable error; ordinary startup absence stays silent. Before a local start, the addon also queries `GetStatus`: explicit `idle` continues through the normal start path, a normal trigger adopts and stops an externally started recording, and `recording`/`inferring`/`postprocessing` from another client is rendered as tracked status preedit instead of issuing a conflicting Start. The Rust daemon currently emits daemon notifications for current-generation background ASR reload failures; broader notification categories and real desktop signal/preedit presentation remain to be proven. `TriggerMode=Tap|Hold|Both` is persistent and defaults to the legacy `Both` behavior. `Tap` starts immediately and stops on the next press, `Hold` starts after 300 ms and stops after release, and `Both` treats a short press as toggle while a long press behaves like hold. The shared state machine also retains the legacy 80 ms press debounce and 500 ms release-tail delay. The addon metadata is configurable and `reloadConfig` applies changes without restarting the daemon. Set `VINPUT_FCITX_NORMAL_TRIGGER`, `VINPUT_FCITX_COMMAND_TRIGGER`, `VINPUT_FCITX_SCENE_MENU_TRIGGER`, or `VINPUT_FCITX_ASR_MENU_TRIGGER` before launching Fcitx5 for a temporary single-key override such as `F7` or `Control+space`. Invalid or empty overrides retain the persistent KeyList.
-
-Run `just addon-dbus-smoke` to verify both the C++ bridge client and retained `FcitxVinputAddon` trigger path against a manually started Rust daemon. Run `just addon-dbus-asr-menu-smoke` to verify typed provider/model rows, explicit `--model-root` discovery, config persistence, background target reload, and subsequent recognition through the C++ client. Run `just addon-dbus-activation-smoke` to verify that a staged D-Bus service file can activate the Rust daemon for those bridge/addon trigger smokes without manually starting `vinput-daemon` first. Run `just addon-dbus-configured-activation-smoke` to exercise the same activation path with `--configured-backends`, the command ASR demo config, and deterministic demo WAV input. Run `just addon-dbus-adapter-lifecycle-smoke` to verify configured text adapter start/duplicate-start/stop diagnostics over DBus. Run `just ime-configured-activation-smoke` to repeat the configured activation path from a staged install tree containing the daemon, addon, config, and demo WAV. Run `just ime-e2e-smoke` to combine that staged activation shape with fake outcome sink coverage for preedit, commit, command-mode selected-text deletion, candidate menus, and fallback commit behavior; this is deterministic and CI-friendly, but it is not a live desktop `fcitx::InputContext` mutation test.
-
-Run the mock D-Bus service inside an existing session bus with:
+Before changing the real user profile, use the temporary-HOME checks:
 
 ```sh
-cargo run -p vinput-daemon -- --dbus
+just user-ime-sherpa-native-smoke
+just user-ime-sherpa-native-activation-smoke
 ```
 
-The daemon accepts `--wav` or `--pcm16le` with `--dbus` for deterministic file-input service demos, accepts `--model-root <dir>` to override the installed-model directory exposed to the F8 menu, and accepts `--audio-backend mock|pipewire` for long-running D-Bus sessions. `mock` remains the default for deterministic CI and staged demos. `pipewire` is feature-gated behind `--features pipewire-backend` and selects the live PipeWire recorder worker for desktop capture.
+For an explicitly approved real profile:
 
-## Development route
+```sh
+VINPUT_USER_PROFILE=sherpa-native-live \
+  VINPUT_USER_SHERPA_MODEL=/path/to/installed-model \
+  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/lib \
+  scripts/install-user-ime.sh
+```
 
-The current route is real desktop alpha. Start with `AGENTS.md`, then read `docs/README.md`, `docs/development.md`, `docs/migration/function-gap-audit.md`, and `docs/migration/e2e-replication-plan.md`.
+The legacy `sherpa-sense-voice-live` profile remains as a compatibility alias. The installer validates and copies `libsherpa-onnx` and `libonnxruntime`, then activates the installed daemon through `vinput-daemon-with-vinput-env.sh` so readiness checks and D-Bus activation use the same native runtime.
 
-1. Keep `vinput-protocol` compatible with the legacy Fcitx5 addon contract.
-2. Keep the retained C++ Fcitx frontend thin; backend logic belongs in Rust crates and `vinput-daemon`.
-3. Keep deterministic checks such as `just ime-e2e-smoke` and `just user-ime-command-demo-smoke` green.
-4. Prioritize live desktop proof: addon load, trigger/preedit/commit, command replacement, PipeWire capture, and a first real recognition path.
-5. Defer broad GUI polish, full resource orchestration, and release packaging until real desktop alpha and real ASR alpha are proven.
+Live desktop validation is documented in [`docs/migration/live-desktop-validation.md`](docs/migration/live-desktop-validation.md).
+
+## Repository tooling
+
+- `rust-toolchain.toml`: stable Rust toolchain with `rustfmt` and Clippy.
+- `rustfmt.toml`: Rust formatting policy.
+- `clippy.toml` and workspace lints in `Cargo.toml`: lint policy.
+- `.clang-format` and `.clang-tidy`: retained addon policy.
+- `.pre-commit-config.yaml`: optional local hooks.
+- `justfile`: local and CI command interface.
+- `AGENTS.md`: required repository instructions.
+- `docs/README.md`: documentation map and source-of-truth rules.
+
+Local scratch belongs under ignored `docs/plan/`; it must not be treated as tracked project truth.

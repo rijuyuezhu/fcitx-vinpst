@@ -1,87 +1,88 @@
-# Complete E2E replication plan
+# E2E replication plan
 
-This is the active milestone plan for moving from the current usable CLI/daemon alpha and proven native SenseVoice file-input path to a real desktop replacement. Read this after [`function-gap-audit.md`](function-gap-audit.md) and use [`e2e-capability-matrix.md`](e2e-capability-matrix.md) for the detailed runtime/frontend backlog.
+This is the active execution plan. Status belongs in [`function-gap-audit.md`](function-gap-audit.md); subsystem detail belongs in [`e2e-capability-matrix.md`](e2e-capability-matrix.md).
 
 ## Product target
 
-Functional replication means user-visible compatibility, not line-by-line C++ replication:
+A compatible replacement must let a user:
 
-- a user can initialize config and managed directories without knowing the JSON schema;
-- a user can discover, install, select, and diagnose a registry model from CLI;
-- Fcitx5 loads the addon and routes trigger keys to the Rust daemon;
-- normal dictation captures audio, recognizes text, optionally postprocesses it, and commits into a real application;
-- command dictation uses selected text, transforms it, replaces the selected text, and fails safely when selection is unavailable;
-- daemon status, recording control, adapter control, and logs are available from user-facing CLI commands;
-- service contracts, config semantics, install paths, diagnostics, and logs remain understandable and compatible.
+- initialize configuration and managed directories from CLI;
+- discover, install, select, and diagnose a registry model;
+- load the retained addon in Fcitx5;
+- dictate normally with visible partial preedit and final application commit;
+- dictate commands over selected text and replace it safely;
+- configure keys, scenes, models, providers, adapters, and devices without manual JSON edits;
+- diagnose daemon, activation, native runtime, audio, and frontend failures;
+- install, upgrade, and remove the product predictably.
+
+Compatibility means preserving user-visible contracts, not mechanically translating C++ source.
 
 ## Milestones
 
-| Milestone | Name | Exit criteria |
+| Milestone | State | Exit criteria |
 | --- | --- | --- |
-| M0 | Repository health | CI green, clean worktree, audit and plan docs current. |
-| M1 | Deterministic product spine | `just ime-e2e-smoke` and user-profile smokes pass. |
-| M2 | Native file-input ASR proof | Native SenseVoice file-input smoke: `just sherpa-sense-voice-local-smoke` passes with a registry-downloaded model and real WAV. |
-| M3 | Usable CLI/daemon alpha | `vinput init`, model list/install/use/info, config mutation, `doctor`, daemon status, and recording start/stop work without manual JSON edits. |
-| M4 | Real desktop native alpha | User install, Fcitx restart, addon load, trigger, preedit, PipeWire capture, native ASR, commit, command replacement, and live diagnostics work in one real desktop session. |
-| M5 | Legacy UX parity slice | Minimal scene menu, ASR menu, frontend trigger config, selected-text fallback, and text-provider validation are available. |
-| M6 | Resource/install parity slice | Model/provider/adapter install can download, verify, materialize, update config, and run runtime validation. |
-| M7 | Release candidate | Packaging, install docs, live validation checklist, and regression tests are ready for external users. |
+| M0 Repository health | complete | clean deterministic checks and current docs |
+| M1 Deterministic product spine | complete | staged addon/daemon and outcome smokes |
+| M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
+| M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
+| M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
+| M5 Resource parity | pending | provider/adapter install lifecycle comparable to models |
+| M6 Release readiness | pending | packaging, upgrades, install docs, external-user regression |
 
 ## Completed: usable CLI/daemon alpha
 
-The M3 management surface is implemented and covered by deterministic tests. Remaining live-registry work is provider/adapter installation breadth rather than the core model workflow.
+The following are implemented and covered by deterministic tests:
 
-1. Implemented: live model registry parsing with i18n and `short_id` support.
-2. Implemented: `vinput model list/install/use/info/remove` around safe fetch/checksum/archive/staging/materialization primitives.
-3. Implemented: `vinput init` and `vinput config get/set/edit` for normal configuration workflows.
-4. Implemented: provider, hotword, device, scene, LLM, and adapter management commands.
-5. Implemented: daemon and recording D-Bus/lifecycle CLI commands.
-6. Implemented locally: native sherpa activation profiles and runtime-library diagnostics; distribution hardening remains under M4/M7.
+- model registry list/info/install/use/remove;
+- config initialization and mutation;
+- provider, hotword, device, scene, LLM, and adapter management;
+- daemon and recording control;
+- doctor/runtime/audio/owner diagnostics;
+- native offline/online ASR for current registry families;
+- generic native runtime bundle installation and D-Bus activation;
+- retained-addon menus, keys, filtering, i18n, notifications, owner recovery, partial preedit, commit, and command replacement.
+
+Implemented through D-Bus, the streaming path delivers recorder chunks, emits deduplicated live `RecognitionPartial` signals, renders partial-first preedit, and preserves final results for synchronous stop.
 
 ## P0: real desktop native alpha
 
-1. Keep deterministic smokes green before each live change.
-2. Install a native sherpa profile using a registry-installed model, not a hand-written config.
-3. Prove Fcitx discovers `fcitx5-vinput.so` from `FCITX_ADDON_DIRS` and metadata from `XDG_DATA_HOME`.
-4. Prove normal trigger, command trigger, preedit, commit, command replacement, candidate fallback, and error preedit in a real application.
-5. Stabilize PipeWire diagnostics and keep deterministic smokes separate from live checks.
+1. Run the deterministic gate before live work.
+2. Install `sherpa-native-live` with a registry-installed supported model.
+3. Restart Fcitx5 through the generated environment wrapper.
+4. Prove addon discovery and D-Bus activation in the real session.
+5. Prove normal trigger -> PipeWire -> native ASR -> partial/preedit -> application commit.
+6. Prove command trigger -> selected text -> candidate/postprocess -> replacement.
+7. Exercise scene/ASR menus, persistent keys, Tap/Hold/Both, localization, notifications, owner loss, and reload.
+8. Record exact failures and add deterministic regressions before fixing them.
 
-## P1: daemon runtime parity
+The validation procedure is [`live-desktop-validation.md`](live-desktop-validation.md).
 
-1. Implemented and WAV-proven for offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, and Moonshine v1: map registry/local `vinput_model` metadata into native sherpa config; unknown and unsupported family names remain explicit.
-2. Implemented and registry-WAV proven for online transducer and Zipformer2 CTC, including the 200 ms warmup; offline transducer is independently registry-WAV proven. Add other remaining layouts in registry-priority order.
-3. Implemented through D-Bus and the retained frontend: deliver recorder callbacks in 800-frame batches, decode online hypotheses, emit deduplicated live `RecognitionPartial` signals, consume `StatusChanged`/`RecognitionPartial` through the Fcitx bus, render partial-first preedit on the active input context, reconcile trigger-time `GetStatus` across clients, adopt/stop externally started normal recordings, and retain final/completed events for synchronous stop.
-4. Offline Silero VAD, endpoint forwarding, recognizer warmup, timeout diagnostics, and prepare-before-swap reload are implemented. The legacy D-Bus method re-reads explicit config files and queues a single non-blocking worker that exposes physical preparation progress, coalesces generations, and reports the actual effective descriptor.
-5. Implemented deterministically: OpenAI-compatible text provider behavior uses local mock-server tests; add one real desktop provider validation.
-6. Continue preserving legacy status strings, method names, signal names, and recognition payload shape.
+## P1: parity after live alpha
 
-## P1: legacy UX parity
-
-1. Implemented deterministically: the minimal scene menu uses Right Shift, typed D-Bus scene state, candidate navigation/selection, and atomic active-scene persistence. Prove it in a real Fcitx session.
-2. Implemented deterministically: the F8 ASR menu exposes target/effective/loading/error state, scans flat and legacy installed-model layouts, and persists provider/model selection before background reload. The normal, command, scene-menu, ASR-menu, previous-page, and next-page keys are persistent legacy-named Fcitx KeyLists; both menus consume the current paging lists, including keypad defaults. TriggerMode implements Tap/Hold/Both with the legacy timing constants; valid environment values remain temporary trigger overrides, and unknown legacy fields survive writes. Legacy slash filtering, multi-term matching, UTF-8/Ctrl editing, and two-stage Escape are implemented for both menus. Static menu/config/result labels use the installed `fcitx5-vinput` zh_CN gettext catalog with English fallback. Registry installs persist full ids and the selected locale title; `GetAsrDisplayMenuState` exposes display title, stable id, and concrete value without breaking the older target-menu method.
-3. Verify command-mode candidate selection replaces selected text in multiple real applications.
-4. Validate the implemented primary-selection clipboard fallback where surrounding text is unavailable.
-5. LLM/provider/adapter/scene CLI parity is implemented; validate live providers and improve user-facing errors.
+- Port other remaining native model layouts only when registry or user demand is concrete.
+- Complete provider and adapter fetch/install/update/remove flows.
+- Validate one real OpenAI-compatible or command text provider in desktop command mode.
+- Broaden daemon-originated notification categories from observed needs.
+- Reduce oversized modules only along feature boundaries.
+- Implement remote services if they remain part of the replacement target.
 
 ## P2: release readiness
 
-1. Add distro packaging only after usable CLI/daemon alpha and real desktop native alpha pass.
-2. Write a short install guide around user-level install first.
-3. Keep release packaging separate from migration correctness commits.
-4. Add upgrade/removal notes for daemon, addon, metadata, activation service, env file, and native runtime libraries.
+- package the CLI, daemon, addon, metadata, translations, VAD asset, activation service, and native runtime policy;
+- define upgrade, rollback, uninstall, and stale-owner migration behavior;
+- publish a short supported installation path;
+- run live validation on supported desktop/application combinations;
+- add external-user regression coverage.
 
 ## Work selection rules
 
-- Prefer tasks that move M4 or native runtime parity forward.
-- Do not count deterministic smoke tests as full parity unless they prove the relevant real behavior.
-- Avoid broad refactors unless they unblock a milestone.
-- Preserve legacy service names, method names, status strings, config semantics, and recognition payload shape.
-- Keep deterministic tests for every new live-facing path.
-- Keep commits small and scoped.
+- Prefer work that directly moves M4.
+- Keep mock, file-input, session-bus, and temporary-HOME checks green.
+- Do not call deterministic evidence live proof.
+- Keep real-profile mutation explicit and opt-in.
+- Preserve public wire and frontend contracts.
+- Keep commits focused and avoid broad cleanup.
 
-## Suggested next slices
+## Next recommended slice
 
-1. Prove real desktop SenseVoice dictation from Fcitx trigger through PipeWire capture to application commit.
-2. Port other remaining live-registry model families.
-3. Prove localized searchable scene/ASR menus, persisted registry titles, local and daemon-originated notifications, persistent trigger/paging keys, and Tap/Hold/Both timing live; then broaden daemon-notification emission beyond background ASR reload failures.
-4. Advance packaging, remote-service breadth, and further feature-driven CLI module extraction.
+Prove real desktop native dictation first. Port other remaining families, package formats, remote services, or GUI surfaces only after they unblock or follow from that evidence.
