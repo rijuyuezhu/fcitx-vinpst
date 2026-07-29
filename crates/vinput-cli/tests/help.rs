@@ -218,6 +218,8 @@ fn llm_and_adapter_help_list_options() {
         assert_stdout_success(adapter_list_output, "adapter list help output");
     assert!(adapter_list_stdout.contains("--available"));
     assert!(adapter_list_stdout.contains("--registry"));
+    assert!(adapter_list_stdout.contains("--i18n"));
+    assert!(adapter_list_stdout.contains("--locale"));
     assert!(adapter_list_stdout.contains("--config"));
     assert!(adapter_list_stdout.contains("--json"));
 
@@ -342,6 +344,8 @@ fn provider_help_lists_list_and_use_options() {
     let list_stdout = assert_stdout_success(list_output, "provider list help output");
     assert!(list_stdout.contains("--available"));
     assert!(list_stdout.contains("--registry"));
+    assert!(list_stdout.contains("--i18n"));
+    assert!(list_stdout.contains("--locale"));
     assert!(list_stdout.contains("--config"));
     assert!(list_stdout.contains("--json"));
 

@@ -46,6 +46,8 @@ The live adapter catalog is `registry/adapters.json` with `version` and `items`.
 
 The provider catalog is `registry/providers.json` with the same shared fields plus `stream`. Provider ids use the `provider` prefix and `stream` must agree with the `.streaming` suffix because command ASR protocol selection remains id-based for legacy compatibility. The same path rule maps `provider.openai-compatible.streaming` to `openai-compatible/streaming` and `provider.vinput.remote.streaming` to `vinput/remote.streaming`.
 
+Provider and adapter display text uses the same root-level flat `i18n/<locale>.json` map as model metadata. `<full-id>.title` resolves the display title and `<full-id>.description` resolves the optional description. Missing or blank titles fall back to `short_id`, then full id; missing descriptions remain absent. Localization never changes machine ids or selector behavior. CLI `--locale` chooses the mirror file, while `--i18n` injects a deterministic local map. Fetch/parse failure is reported in the i18n diagnostic object and falls back without failing the registry list.
+
 `install_live_script` stages mirror responses through the shared asset boundary, publishes only a complete file, and adds executable bits. `materialize_llm_adapter` writes one script argument, creates blank values for newly declared environment keys, preserves existing environment values and forward-compatible fields, and refuses to overwrite an adapter whose arguments do not already point at the expected managed script. `materialize_asr_provider` creates a command provider with the legacy 60000 ms timeout, preserves existing positive timeout/model/environment values, adds newly declared environment keys, and refuses to overwrite non-command or non-managed providers.
 
 ## CLI diagnostics
@@ -63,8 +65,10 @@ The live provider and adapter CLIs use the current upstream script registries:
 
 ```sh
 cargo run -q -p vinput-cli -- provider list --available --json
+cargo run -q -p vinput-cli -- provider list --available --locale zh_CN --json
 cargo run -q -p vinput-cli -- provider install <id-or-short-id> --dry-run --json
 cargo run -q -p vinput-cli -- adapter list --available --json
+cargo run -q -p vinput-cli -- adapter list --available --locale zh_CN --json
 cargo run -q -p vinput-cli -- adapter install <id-or-short-id> --dry-run --json
 ```
 

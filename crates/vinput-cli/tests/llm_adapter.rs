@@ -1355,10 +1355,21 @@ fn adapter_list_available_json_reports_live_registry_and_install_status() {
         "vinput-adapter-available-registry-json",
         "https://adapter.example.test/entry.py",
     );
+    let i18n_path = write_temp_json(
+        "vinput-adapter-available-i18n-json",
+        r#"{
+          "adapter.mtranserver.proxy.title":"MTranServer 代理",
+          "adapter.mtranserver.proxy.description":"本地翻译代理",
+          "adapter.other.proxy.title":"其他代理"
+        }"#,
+    );
 
     let output = vinput_command()
         .args(["adapter", "list", "--available", "--registry"])
         .arg(&registry_path)
+        .arg("--i18n")
+        .arg(&i18n_path)
+        .args(["--locale", "zh_CN"])
         .arg("--config")
         .arg(&config_path)
         .arg("--json")
@@ -1366,6 +1377,7 @@ fn adapter_list_available_json_reports_live_registry_and_install_status() {
         .expect("run vinput adapter list --available --json");
     fs::remove_file(&config_path).expect("remove temporary config");
     fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_file(&i18n_path).expect("remove temporary i18n");
 
     let value = assert_json_success(output, "adapter list available json");
     assert_eq!(value["ok"], true);
@@ -1374,15 +1386,21 @@ fn adapter_list_available_json_reports_live_registry_and_install_status() {
         value["registry_source"]["path"],
         registry_path.to_string_lossy().as_ref()
     );
+    assert_eq!(value["i18n"]["kind"], "file");
+    assert_eq!(value["i18n"]["loaded"], true);
     assert_eq!(value["config_source"], "file");
     assert_eq!(value["adapter_count"], 2);
     let adapters = value["adapters"].as_array().unwrap();
     assert_eq!(adapters[0]["id"], "mtran-proxy");
     assert_eq!(adapters[0]["machine_id"], "adapter.mtranserver.proxy");
+    assert_eq!(adapters[0]["title"], "MTranServer 代理");
+    assert_eq!(adapters[0]["description"], "本地翻译代理");
     assert_eq!(adapters[0]["command"], "python3");
     assert_eq!(adapters[0]["status"], "installed");
     assert_eq!(adapters[0]["envs"].as_array().unwrap().len(), 2);
     assert_eq!(adapters[1]["id"], "other");
+    assert_eq!(adapters[1]["title"], "其他代理");
+    assert_eq!(adapters[1]["description"], serde_json::Value::Null);
     assert_eq!(adapters[1]["status"], "available");
 }
 
@@ -1393,23 +1411,34 @@ fn adapter_list_available_text_prints_live_registry_table() {
         "vinput-adapter-available-registry-text",
         "https://adapter.example.test/entry.py",
     );
+    let i18n_path = write_temp_json(
+        "vinput-adapter-available-i18n-text",
+        r#"{
+          "adapter.mtranserver.proxy.title":"MTranServer 代理",
+          "adapter.mtranserver.proxy.description":"本地翻译代理"
+        }"#,
+    );
 
     let output = vinput_command()
         .args(["adapter", "ls", "-a", "--registry"])
         .arg(&registry_path)
+        .arg("--i18n")
+        .arg(&i18n_path)
         .arg("--config")
         .arg(&config_path)
         .output()
         .expect("run vinput adapter ls --available text");
     fs::remove_file(&config_path).expect("remove temporary config");
     fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_file(&i18n_path).expect("remove temporary i18n");
 
     let stdout = assert_stdout_success(output, "adapter list available text");
     assert!(stdout.contains("registry_source:"));
     assert!(stdout.contains("config_source: file"));
     assert!(stdout.contains("adapter_count: 2"));
-    assert!(stdout.contains("id\tmachine_id\tstatus\tcommand\tenvs\treadme"));
-    assert!(stdout.contains("mtran-proxy\tadapter.mtranserver.proxy\tinstalled\tpython3\t2"));
+    assert!(stdout.contains("title\tmachine_id\tstatus\tcommand\tenvs\treadme\tdescription"));
+    assert!(stdout.contains("MTranServer 代理\tadapter.mtranserver.proxy\tinstalled\tpython3\t2"));
+    assert!(stdout.contains("本地翻译代理"));
     assert!(stdout.contains("other\tadapter.other.proxy\tavailable\tpython3\t0"));
 }
 

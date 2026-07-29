@@ -909,10 +909,21 @@ fn provider_list_available_json_reports_live_registry_and_install_status() {
         "vinput-provider-available-registry-json",
         "https://provider.example.test/entry.py",
     );
+    let i18n_path = write_temp_json(
+        "vinput-provider-available-i18n-json",
+        r#"{
+          "provider.openai-compatible.streaming.title":"OpenAI 兼容流式",
+          "provider.openai-compatible.streaming.description":"OpenAI 兼容流式识别",
+          "provider.doubao.batch.title":"豆包批量"
+        }"#,
+    );
 
     let output = vinput_command()
         .args(["provider", "list", "--available", "--registry"])
         .arg(&registry_path)
+        .arg("--i18n")
+        .arg(&i18n_path)
+        .args(["--locale", "zh_CN"])
         .arg("--config")
         .arg(&config_path)
         .arg("--json")
@@ -920,10 +931,13 @@ fn provider_list_available_json_reports_live_registry_and_install_status() {
         .expect("run vinput provider list --available --json");
     fs::remove_file(&config_path).expect("remove temporary config");
     fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_file(&i18n_path).expect("remove temporary i18n");
 
     let value = assert_json_success(output, "provider list available json");
     assert_eq!(value["ok"], true);
     assert_eq!(value["registry_source"]["kind"], "file");
+    assert_eq!(value["i18n"]["kind"], "file");
+    assert_eq!(value["i18n"]["loaded"], true);
     assert_eq!(value["provider_count"], 2);
     let providers = value["providers"].as_array().unwrap();
     assert_eq!(providers[0]["id"], "oai-stream");
@@ -931,10 +945,14 @@ fn provider_list_available_json_reports_live_registry_and_install_status() {
         providers[0]["machine_id"],
         "provider.openai-compatible.streaming"
     );
+    assert_eq!(providers[0]["title"], "OpenAI 兼容流式");
+    assert_eq!(providers[0]["description"], "OpenAI 兼容流式识别");
     assert_eq!(providers[0]["protocol"], "streaming");
     assert_eq!(providers[0]["status"], "installed");
     assert_eq!(providers[0]["envs"].as_array().unwrap().len(), 2);
     assert_eq!(providers[1]["id"], "doubao-batch");
+    assert_eq!(providers[1]["title"], "豆包批量");
+    assert_eq!(providers[1]["description"], serde_json::Value::Null);
     assert_eq!(providers[1]["protocol"], "batch");
     assert_eq!(providers[1]["status"], "available");
 }
@@ -946,25 +964,38 @@ fn provider_list_available_text_prints_live_registry_table() {
         "vinput-provider-available-registry-text",
         "https://provider.example.test/entry.py",
     );
+    let i18n_path = write_temp_json(
+        "vinput-provider-available-i18n-text",
+        r#"{
+          "provider.openai-compatible.streaming.title":"OpenAI 兼容流式",
+          "provider.openai-compatible.streaming.description":"OpenAI 兼容流式识别"
+        }"#,
+    );
 
     let output = vinput_command()
         .args(["provider", "ls", "-a", "--registry"])
         .arg(&registry_path)
+        .arg("--i18n")
+        .arg(&i18n_path)
         .arg("--config")
         .arg(&config_path)
         .output()
         .expect("run vinput provider ls --available text");
     fs::remove_file(&config_path).expect("remove temporary config");
     fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_file(&i18n_path).expect("remove temporary i18n");
 
     let stdout = assert_stdout_success(output, "provider list available text");
     assert!(stdout.contains("registry_source:"));
     assert!(stdout.contains("config_source: file"));
     assert!(stdout.contains("provider_count: 2"));
-    assert!(stdout.contains("id\tmachine_id\tstatus\tprotocol\tcommand\tenvs\treadme"));
+    assert!(
+        stdout.contains("title\tmachine_id\tstatus\tprotocol\tcommand\tenvs\treadme\tdescription")
+    );
     assert!(stdout.contains(
-        "oai-stream\tprovider.openai-compatible.streaming\tinstalled\tstreaming\tpython3\t2"
+        "OpenAI 兼容流式\tprovider.openai-compatible.streaming\tinstalled\tstreaming\tpython3\t2"
     ));
+    assert!(stdout.contains("OpenAI 兼容流式识别"));
     assert!(stdout.contains("doubao-batch\tprovider.doubao.batch\tavailable\tbatch\tpython3\t1"));
 }
 

@@ -26,7 +26,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
 | M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
-| M5 Resource parity | active | provider install/remove and adapter install complete; adapter selector/remove and i18n pending |
+| M5 Resource parity | active | provider install/remove, adapter install, and registry i18n complete; adapter selector/remove pending |
 | M6 Release readiness | pending | packaging, upgrades, install docs, external-user regression |
 
 ## Completed: usable CLI/daemon alpha
@@ -37,6 +37,7 @@ The following are implemented and covered by deterministic tests:
 - current ASR provider registry list/install with batch/streaming validation, short ids, mirror fallback, managed overwrite protection, executable scripts, timeout/env preservation, and config backups;
 - legacy-compatible provider removal with local-provider protection, active-selection clearing, and explicit short-id resolution;
 - current adapter registry list/install with short ids, mirror fallback, managed overwrite protection, executable scripts, and config backups;
+- localized provider/adapter title and description loading from root-level registry i18n files with stable machine-id fallback;
 - config initialization and mutation;
 - provider, hotword, device, scene, LLM, and adapter management;
 - daemon and recording control;
@@ -63,7 +64,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 ## P1: parity after live alpha
 
 - Port other remaining native model layouts only when registry or user demand is concrete.
-- Complete adapter selector/remove and registry i18n flows.
+- Complete adapter selector/remove flows.
 - Validate one real OpenAI-compatible or command text provider in desktop command mode.
 - Broaden daemon-originated notification categories from observed needs.
 - Reduce oversized modules only along feature boundaries.

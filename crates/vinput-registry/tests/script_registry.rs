@@ -8,8 +8,8 @@ use std::{
 
 use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig};
 use vinput_registry::{
-    AsrProviderMaterializationError, AssetChecksumStatus, LiveScriptKind, LiveScriptRegistry,
-    LlmAdapterMaterializationError, RegistryAssetSource, install_live_script,
+    AsrProviderMaterializationError, AssetChecksumStatus, LiveRegistryI18n, LiveScriptKind,
+    LiveScriptRegistry, LlmAdapterMaterializationError, RegistryAssetSource, install_live_script,
     managed_script_relative_path, materialize_asr_provider, materialize_llm_adapter,
 };
 
@@ -82,6 +82,52 @@ fn parses_current_adapter_registry_and_resolves_short_id() {
     );
 }
 
+#[test]
+fn resolves_script_display_text_from_flat_i18n_map() {
+    let registry = LiveScriptRegistry::from_json_str(ADAPTER_REGISTRY, LiveScriptKind::LlmAdapter)
+        .expect("parse adapter registry");
+    let i18n = LiveRegistryI18n::from_json_str(
+        r#"{
+          "adapter.mtranserver.proxy.title":"MTranServer 代理",
+          "adapter.mtranserver.proxy.description":"本地代理描述"
+        }"#,
+    )
+    .expect("parse script i18n");
+
+    assert_eq!(
+        registry.items[0].resolved_title(Some(&i18n)),
+        "MTranServer 代理"
+    );
+    assert_eq!(
+        registry.items[0]
+            .resolved_description(Some(&i18n))
+            .as_deref(),
+        Some("本地代理描述")
+    );
+}
+
+#[test]
+fn script_display_falls_back_to_short_id_then_full_id() {
+    let registry = LiveScriptRegistry::from_json_str(ADAPTER_REGISTRY, LiveScriptKind::LlmAdapter)
+        .expect("parse adapter registry");
+    let empty = LiveRegistryI18n::from_json_str(
+        r#"{
+          "adapter.mtranserver.proxy.title":"   ",
+          "adapter.mtranserver.proxy.description":""
+        }"#,
+    )
+    .expect("parse empty script i18n");
+
+    assert_eq!(
+        registry.items[0].resolved_title(Some(&empty)),
+        "mtran-proxy"
+    );
+    assert_eq!(registry.items[0].resolved_description(Some(&empty)), None);
+
+    let mut entry = registry.items[0].clone();
+    entry.short_id = None;
+    assert_eq!(entry.resolved_title(None), "adapter.mtranserver.proxy");
+}
 #[test]
 fn rejects_provider_entries_in_adapter_registry() {
     let input = ADAPTER_REGISTRY.replace("adapter.mtranserver.proxy", "provider.mtranserver.proxy");

@@ -562,6 +562,12 @@ enum AdapterCommand {
         /// Optional local registry index JSON used by --available.
         #[arg(long)]
         registry: Option<PathBuf>,
+        /// Optional local registry i18n JSON used by --available.
+        #[arg(long)]
+        i18n: Option<PathBuf>,
+        /// Registry locale used by --available.
+        #[arg(long, default_value = "zh_CN")]
+        locale: String,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -905,6 +911,12 @@ enum ProviderCommand {
         /// Optional local registry/providers.json file. Omitted to fetch configured mirrors.
         #[arg(long)]
         registry: Option<PathBuf>,
+        /// Optional local registry i18n JSON used by --available.
+        #[arg(long)]
+        i18n: Option<PathBuf>,
+        /// Registry locale used by --available.
+        #[arg(long, default_value = "zh_CN")]
+        locale: String,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -2515,9 +2527,18 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
         AdapterCommand::List {
             available,
             registry,
+            i18n,
+            locale,
             config,
             json,
-        } => print_adapter_list(config.as_ref(), available, registry.as_deref(), json),
+        } => print_adapter_list(
+            config.as_ref(),
+            available,
+            registry.as_deref(),
+            i18n.as_deref(),
+            &locale,
+            json,
+        ),
         AdapterCommand::Add {
             id,
             command,
@@ -3351,6 +3372,7 @@ fn print_llm_list_text(context: &LlmListContext) {
 struct LoadedLiveScriptRegistry {
     registry: LiveScriptRegistry,
     source_json: serde_json::Value,
+    remote_base_url: Option<String>,
 }
 
 fn print_adapter_install(request: AdapterInstallRequest<'_>) -> anyhow::Result<()> {
@@ -3538,6 +3560,7 @@ fn load_live_adapter_registry(
                 "mirror_count": registry_config.base_urls.len(),
                 "registry_urls": registry_urls,
             }),
+            remote_base_url: None,
         });
     }
     let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
@@ -3550,6 +3573,10 @@ fn load_live_adapter_registry(
                 fetched.url
             )
         })?;
+    let remote_base_url = fetched
+        .url
+        .strip_suffix("/registry/adapters.json")
+        .map(str::to_owned);
     Ok(LoadedLiveScriptRegistry {
         registry,
         source_json: serde_json::json!({
@@ -3558,6 +3585,7 @@ fn load_live_adapter_registry(
             "mirror_count": registry_config.base_urls.len(),
             "registry_urls": registry_urls,
         }),
+        remote_base_url,
     })
 }
 
@@ -4306,10 +4334,18 @@ fn print_adapter_list(
     config_path: Option<&PathBuf>,
     available: bool,
     registry_path: Option<&Path>,
+    i18n_path: Option<&Path>,
+    locale: &str,
     json_output: bool,
 ) -> anyhow::Result<()> {
     if available {
-        return print_available_adapter_list(registry_path, config_path, json_output);
+        return print_available_adapter_list(
+            registry_path,
+            i18n_path,
+            config_path,
+            locale,
+            json_output,
+        );
     }
     let context = load_adapter_list_context(config_path)?;
     if json_output {
@@ -4325,11 +4361,14 @@ fn print_adapter_list(
 
 fn print_available_adapter_list(
     registry_path: Option<&Path>,
+    i18n_path: Option<&Path>,
     config_path: Option<&PathBuf>,
+    locale: &str,
     json_output: bool,
 ) -> anyhow::Result<()> {
     let context = load_adapter_list_context(config_path)?;
     let loaded = load_live_adapter_registry(registry_path, &context.config.registry)?;
+    let loaded_i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
     let configured_ids = context
         .config
         .llm
@@ -4341,11 +4380,14 @@ fn print_available_adapter_list(
         .registry
         .items
         .iter()
-        .map(|adapter| available_live_adapter_json(adapter, &configured_ids))
+        .map(|adapter| {
+            available_live_adapter_json(adapter, loaded_i18n.i18n.as_ref(), &configured_ids)
+        })
         .collect::<Vec<_>>();
     let output = serde_json::json!({
         "ok": true,
         "registry_source": loaded.source_json,
+        "i18n": loaded_i18n.source_json,
         "config_path": context.config_path.as_ref(),
         "config_source": context.source,
         "adapter_count": adapters.len(),
@@ -4359,13 +4401,14 @@ fn print_available_adapter_list(
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        print_available_adapter_list_text(&loaded, &context, &configured_ids);
+        print_available_adapter_list_text(&loaded, &loaded_i18n, &context, &configured_ids);
     }
     Ok(())
 }
 
 fn available_live_adapter_json(
     adapter: &vinput_registry::LiveScriptEntry,
+    i18n: Option<&LiveRegistryI18n>,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) -> serde_json::Value {
     let envs = adapter
@@ -4381,6 +4424,8 @@ fn available_live_adapter_json(
     serde_json::json!({
         "id": adapter.short_id.as_deref().unwrap_or(&adapter.id),
         "machine_id": adapter.id,
+        "title": adapter.resolved_title(i18n),
+        "description": adapter.resolved_description(i18n),
         "command": adapter.command,
         "stream": adapter.stream,
         "readme_url": adapter.readme_url,
@@ -4395,20 +4440,22 @@ fn available_live_adapter_json(
 
 fn print_available_adapter_list_text(
     loaded: &LoadedLiveScriptRegistry,
+    loaded_i18n: &LoadedLiveI18n,
     context: &AdapterListContext,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) {
     println!("registry_source: {}", loaded.source_json);
+    println!("i18n: {}", loaded_i18n.source_json);
     println!("config_source: {}", context.source);
     if let Some(path) = &context.config_path {
         println!("config_path: {}", path.display());
     }
     println!("adapter_count: {}", loaded.registry.items.len());
-    println!("id\tmachine_id\tstatus\tcommand\tenvs\treadme");
+    println!("title\tmachine_id\tstatus\tcommand\tenvs\treadme\tdescription");
     for adapter in &loaded.registry.items {
         println!(
-            "{}\t{}\t{}\t{}\t{}\t{}",
-            adapter.short_id.as_deref().unwrap_or(&adapter.id),
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            adapter.resolved_title(loaded_i18n.i18n.as_ref()),
             adapter.id,
             if configured_ids.contains(adapter.id.as_str()) {
                 "installed"
@@ -4418,6 +4465,10 @@ fn print_available_adapter_list_text(
             adapter.command,
             adapter.envs.len(),
             adapter.readme_url.as_deref().unwrap_or("-"),
+            adapter
+                .resolved_description(loaded_i18n.i18n.as_ref())
+                .as_deref()
+                .unwrap_or("-"),
         );
     }
 }
@@ -5414,11 +5465,19 @@ fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
         ProviderCommand::List {
             available,
             registry,
+            i18n,
+            locale,
             config,
             json,
         } => {
             if available {
-                print_available_provider_list(registry.as_deref(), config.as_ref(), json)
+                print_available_provider_list(
+                    registry.as_deref(),
+                    i18n.as_deref(),
+                    config.as_ref(),
+                    &locale,
+                    json,
+                )
             } else {
                 print_provider_list(config.as_ref(), json)
             }
@@ -5720,11 +5779,14 @@ struct ProviderListContext {
 
 fn print_available_provider_list(
     registry_path: Option<&Path>,
+    i18n_path: Option<&Path>,
     config_path: Option<&PathBuf>,
+    locale: &str,
     json_output: bool,
 ) -> anyhow::Result<()> {
     let context = load_provider_list_context(config_path)?;
     let loaded = load_live_provider_registry(registry_path, &context.config.registry)?;
+    let loaded_i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
     let configured_ids = context
         .config
         .asr
@@ -5736,11 +5798,14 @@ fn print_available_provider_list(
         .registry
         .items
         .iter()
-        .map(|provider| available_live_provider_json(provider, &configured_ids))
+        .map(|provider| {
+            available_live_provider_json(provider, loaded_i18n.i18n.as_ref(), &configured_ids)
+        })
         .collect::<Vec<_>>();
     let output = serde_json::json!({
         "ok": true,
         "registry_source": loaded.source_json,
+        "i18n": loaded_i18n.source_json,
         "config_path": context.config_path.as_ref(),
         "config_source": context.source,
         "provider_count": providers.len(),
@@ -5754,13 +5819,14 @@ fn print_available_provider_list(
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        print_available_provider_list_text(&loaded, &context, &configured_ids);
+        print_available_provider_list_text(&loaded, &loaded_i18n, &context, &configured_ids);
     }
     Ok(())
 }
 
 fn available_live_provider_json(
     provider: &vinput_registry::LiveScriptEntry,
+    i18n: Option<&LiveRegistryI18n>,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) -> serde_json::Value {
     let envs = provider
@@ -5776,6 +5842,8 @@ fn available_live_provider_json(
     serde_json::json!({
         "id": provider.short_id.as_deref().unwrap_or(&provider.id),
         "machine_id": provider.id,
+        "title": provider.resolved_title(i18n),
+        "description": provider.resolved_description(i18n),
         "protocol": if provider.stream { "streaming" } else { "batch" },
         "command": provider.command,
         "readme_url": provider.readme_url,
@@ -5790,20 +5858,22 @@ fn available_live_provider_json(
 
 fn print_available_provider_list_text(
     loaded: &LoadedLiveScriptRegistry,
+    loaded_i18n: &LoadedLiveI18n,
     context: &ProviderListContext,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) {
     println!("registry_source: {}", loaded.source_json);
+    println!("i18n: {}", loaded_i18n.source_json);
     println!("config_source: {}", context.source);
     if let Some(path) = &context.config_path {
         println!("config_path: {}", path.display());
     }
     println!("provider_count: {}", loaded.registry.items.len());
-    println!("id\tmachine_id\tstatus\tprotocol\tcommand\tenvs\treadme");
+    println!("title\tmachine_id\tstatus\tprotocol\tcommand\tenvs\treadme\tdescription");
     for provider in &loaded.registry.items {
         println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            provider.short_id.as_deref().unwrap_or(&provider.id),
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            provider.resolved_title(loaded_i18n.i18n.as_ref()),
             provider.id,
             if configured_ids.contains(provider.id.as_str()) {
                 "installed"
@@ -5818,6 +5888,10 @@ fn print_available_provider_list_text(
             provider.command,
             provider.envs.len(),
             provider.readme_url.as_deref().unwrap_or("-"),
+            provider
+                .resolved_description(loaded_i18n.i18n.as_ref())
+                .as_deref()
+                .unwrap_or("-"),
         );
     }
 }
@@ -6027,6 +6101,7 @@ fn load_live_provider_registry(
                 "mirror_count": registry_config.base_urls.len(),
                 "registry_urls": registry_urls,
             }),
+            remote_base_url: None,
         });
     }
     let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
@@ -6039,6 +6114,10 @@ fn load_live_provider_registry(
                 fetched.url
             )
         })?;
+    let remote_base_url = fetched
+        .url
+        .strip_suffix("/registry/providers.json")
+        .map(str::to_owned);
     Ok(LoadedLiveScriptRegistry {
         registry,
         source_json: serde_json::json!({
@@ -6047,6 +6126,7 @@ fn load_live_provider_registry(
             "mirror_count": registry_config.base_urls.len(),
             "registry_urls": registry_urls,
         }),
+        remote_base_url,
     })
 }
 

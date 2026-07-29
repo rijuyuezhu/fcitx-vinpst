@@ -38,7 +38,7 @@ Still requiring live proof or implementation:
 
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
-- provider/adapter i18n and update/remove polish;
+- provider/adapter update/remove polish;
 - remote text service parity, distro packaging, upgrades, and release hardening;
 - the legacy Qt GUI, which is intentionally deferred.
 
@@ -62,6 +62,8 @@ vinput provider remove <machine-id> --in-place
 ```
 
 Use `--registry /path/to/registry/providers.json`, `--provider-root`, and `--dry-run --json` for deterministic local validation. Select the installed machine id with `vinput provider use <machine-id>`. Removal keeps local providers, allows an active command/remote provider to be removed, and clears the active selection instead of choosing a fallback; pass `--registry` to resolve a registry short id during removal.
+
+Provider and adapter available lists load localized titles and descriptions from `i18n/<locale>.json` while preserving stable machine ids. Use `--locale zh_CN` for mirrors or `--i18n /path/to/i18n.json` with a local registry fixture.
 
 ## Build and check
 

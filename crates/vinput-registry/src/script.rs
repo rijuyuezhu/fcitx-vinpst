@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig};
 
+use crate::live::LiveRegistryI18n;
 use crate::{
     AssetChecksumStatus, ChecksumPolicy, PlannedInstallAsset, RegistryAssetSource,
     RegistryAssetStagingError, RegistryEntryKind, StagedRegistryAsset, stage_planned_asset,
@@ -73,6 +74,24 @@ pub struct LiveScriptEntry {
     /// Environment variables understood by the script.
     #[serde(default)]
     pub envs: Vec<LiveScriptEnvSpec>,
+}
+
+impl LiveScriptEntry {
+    /// Resolves the localized display title, then falls back to `short_id` or full id.
+    #[must_use]
+    pub fn resolved_title(&self, i18n: Option<&LiveRegistryI18n>) -> String {
+        i18n.and_then(|map| map.get(&format!("{}.title", self.id)))
+            .map(str::to_owned)
+            .or_else(|| non_empty(self.short_id.as_deref()).map(str::to_owned))
+            .unwrap_or_else(|| self.id.clone())
+    }
+
+    /// Resolves the localized display description.
+    #[must_use]
+    pub fn resolved_description(&self, i18n: Option<&LiveRegistryI18n>) -> Option<String> {
+        i18n.and_then(|map| map.get(&format!("{}.description", self.id)))
+            .map(str::to_owned)
+    }
 }
 
 /// Current upstream script registry document.
