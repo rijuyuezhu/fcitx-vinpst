@@ -14,6 +14,7 @@ mod sherpa_online;
 mod sherpa_vad;
 mod timeout;
 mod traits;
+mod unavailable;
 
 pub use command::{
     CommandAsrBackend, CommandAsrRequest, CommandAsrResponse, CommandAsrRunner, CommandAsrSpec,
@@ -39,6 +40,7 @@ pub use traits::{
     AsrBackend, AudioDeliveryMode, BackendCapabilities, BackendDescriptor, RecognitionContext,
     RecognitionEvent, RecognitionSession,
 };
+pub use unavailable::UnavailableAsrBackend;
 
 #[cfg(test)]
 mod tests;

@@ -124,6 +124,19 @@ impl RuntimeState {
     pub fn asr_backend_state(&self) -> AsrBackendState {
         let descriptor = self.asr_backend.describe();
         let configured = Self::configured_asr_state(&self.config);
+        if descriptor.provider_id.is_empty() {
+            let mut state = AsrBackendState::unavailable(
+                configured.target_provider_id,
+                configured.target_model_id,
+                self.asr_reload_last_error
+                    .clone()
+                    .unwrap_or(configured.last_error),
+            );
+            state.remote_endpoints = configured.remote_endpoints;
+            state.reload_in_progress =
+                self.pending_asr_reload.is_some() || self.asr_reload_preparing;
+            return state;
+        }
         let mut state = AsrBackendState::ready(descriptor.provider_id, descriptor.model_id);
         state.target_provider_id = configured.target_provider_id;
         state.target_model_id = configured.target_model_id;

@@ -66,7 +66,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Core methods and signals | implemented | legacy methods, `RecognitionResult`, `RecognitionPartial`, `StatusChanged`, notification signal |
 | Diagnostic extensions | implemented | runtime, adapter, scene, and ASR menu state |
 | Runtime state machine | deterministic | normal/command lifecycle, capture-before-session startup, early-chunk gating, chunk delivery, partials, explicit inferring/postprocessing phases, final result, error cleanup |
-| ASR reload | deterministic | one non-blocking prepare-before-swap worker, config reread, generation coalescing, old-backend preservation |
+| ASR reload | deterministic | unavailable-but-running configured startup, one non-blocking prepare-before-swap worker, config reread, generation coalescing, old-backend preservation |
 | Audio capture | partial | capture-first ordering, failure rollback, reusable inactive PipeWire streams, bounded idle-grace teardown, generation-safe expiry, target-change rebuild, legacy opt-out, D-Bus recording-transaction serialization, cold-start timing diagnostics, and `wpctl` output duck/restore lifecycle are deterministic; live capture and audible ducking remain |
 | File input | implemented | WAV and PCM paths are first-class deterministic seams |
 | Command ASR | implemented | batch/streaming protocols, partials, timeouts, cancellation |

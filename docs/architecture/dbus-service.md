@@ -85,6 +85,7 @@ The Rust service pins these legacy-visible behaviors with unit and D-Bus integra
 - one non-blocking reload worker performs backend construction and warmup outside the runtime mutex, while `reload_in_progress` covers both queued and physical preparation;
 - `ReloadAsrBackend` returns success while recording/inferring, keeps the request pending until idle, coalesces repeated requests by generation, and discards stale prepared generations;
 - failed background or deferred reloads keep the previously working backend and surface the error in diagnostics; current-generation background preparation failures also emit `DaemonNotification` with the same message;
+- configured daemon startup failures leave the service idle with no effective ASR backend, preserve the target/error in `GetAsrBackendState`, reject recording without mock output, and remain recoverable through `ReloadAsrBackend`;
 - `GetSceneState` returns the active scene plus typed id/label pairs without making the C++ frontend parse daemon config JSON;
 - `SetActiveScene` is idle-only, rejects unknown scenes with the legacy operation error, updates runtime state, and atomically persists the explicit or automatically discovered daemon config when one exists; its boolean reply distinguishes persistent and runtime-only selection;
 - `GetAsrMenuState` exposes configured target, actual effective provider/model, reload progress, the last reload error, and typed provider id/kind/model rows without making C++ parse config JSON;

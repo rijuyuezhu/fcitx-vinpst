@@ -26,7 +26,7 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-use vinput_asr::{AsrBackend, AsrBackendFactory, MockAsrBackend};
+use vinput_asr::{AsrBackend, AsrBackendFactory, MockAsrBackend, UnavailableAsrBackend};
 use vinput_audio::{
     AudioRecorder, AudioSource, CaptureTarget, CapturedAudio, MockAudioSource, PcmBuffer,
     SourceAudioRecorder,
@@ -127,6 +127,31 @@ impl RuntimeState {
         )
         .map_err(RuntimeError::Asr)?;
         Self::with_configured_text(config, backend, Box::new(default_mock_audio_source()))
+    }
+
+    /// Builds a configured runtime that remains available when ASR initialization fails.
+    pub fn with_configured_backends_or_unavailable(
+        config: VinputConfig,
+    ) -> Result<Self, RuntimeError> {
+        match AsrBackendFactory::build_active_prepared(
+            &config.asr,
+            Some(config.global.default_language.clone()),
+        ) {
+            Ok(backend) => {
+                Self::with_configured_text(config, backend, Box::new(default_mock_audio_source()))
+            }
+            Err(error) => {
+                let message = error.to_string();
+                let backend = Box::new(UnavailableAsrBackend::new(&message));
+                let mut runtime = Self::with_configured_text(
+                    config,
+                    backend,
+                    Box::new(default_mock_audio_source()),
+                )?;
+                runtime.asr_reload_last_error = Some(message);
+                Ok(runtime)
+            }
+        }
     }
 
     /// Builds an idle runtime from validated config and an injected ASR backend.

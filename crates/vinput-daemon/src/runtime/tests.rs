@@ -1388,6 +1388,50 @@ fn reload_configured_asr_backend_swaps_to_configured_provider() {
 }
 
 #[test]
+fn configured_runtime_starts_without_a_usable_asr_backend() {
+    let config = VinputConfig::bundled_default().unwrap();
+    let mut runtime = RuntimeState::with_configured_backends_or_unavailable(config).unwrap();
+
+    let state = runtime.asr_backend_state();
+    assert_eq!(state.target_provider_id, "sherpa-onnx");
+    assert!(state.target_model_id.is_empty());
+    assert!(!state.has_effective_backend);
+    assert!(!state.last_error.is_empty());
+
+    let error = runtime.start_recording().unwrap_err();
+    assert!(matches!(error, super::RuntimeError::Asr(_)));
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
+fn unavailable_configured_runtime_recovers_after_successful_reload() {
+    let config = VinputConfig::bundled_default().unwrap();
+    let mut runtime = RuntimeState::with_configured_backends_or_unavailable(config).unwrap();
+    runtime.config.asr.active_provider = "mock".to_owned();
+    runtime.config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("mock-model".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+
+    let state = runtime.reload_configured_asr_backend().unwrap();
+    assert_eq!(state.effective_provider_id, "mock");
+    assert_eq!(state.effective_model_id, "mock-streaming");
+    assert!(state.has_effective_backend);
+    assert!(state.last_error.is_empty());
+
+    runtime.start_recording().unwrap();
+    let payload = runtime.stop_recording(None).unwrap();
+    assert_eq!(payload.commit_text, "mock recognition result");
+}
+
+#[test]
 fn reload_configured_asr_backend_reports_build_errors_without_swapping() {
     let config = VinputConfig::bundled_default().unwrap();
     let mut runtime = RuntimeState::new(config).unwrap();

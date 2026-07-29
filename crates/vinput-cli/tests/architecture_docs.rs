@@ -351,6 +351,8 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "prepare-before-swap boundary",
         "candidate backend must create and cancel a normal warmup session",
         "preparation failure leaves the previous effective backend untouched",
+        "`just daemon-unavailable-asr-smoke`",
+        "unavailable backend that never fabricates text",
         "single non-blocking reload worker",
         "re-reads the daemon config file",
         "`reload_in_progress` remains true during physical preparation",

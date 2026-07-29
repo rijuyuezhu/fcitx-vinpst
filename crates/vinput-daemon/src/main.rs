@@ -425,7 +425,8 @@ fn build_runtime(args: &Args, config: VinputConfig) -> anyhow::Result<RuntimeSta
     }
 
     if args.configured_backends {
-        RuntimeState::with_configured_backends(config).context("build configured runtime")
+        RuntimeState::with_configured_backends_or_unavailable(config)
+            .context("build configured runtime")
     } else {
         RuntimeState::new(config).context("build mock runtime")
     }
