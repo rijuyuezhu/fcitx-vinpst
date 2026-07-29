@@ -702,6 +702,167 @@ fn provider_edit_rejects_invalid_missing_noop_conflicts_and_invalid_config() {
 }
 
 #[test]
+fn provider_edit_script_dry_run_resolves_short_id_without_launching_editor() {
+    let root = unique_temp_dir("vinput-provider-edit-script-dry-run");
+    let script_path = root.join("provider.py");
+    let config_path = root.join("config.json");
+    let registry_path = root.join("providers.json");
+    fs::write(&script_path, "print('provider')\n").expect("write provider script");
+    fs::write(&config_path, editable_provider_config_json(&script_path))
+        .expect("write editable provider config");
+    fs::write(
+        &registry_path,
+        live_provider_registry_fixture_json("https://provider.example.test/entry.py"),
+    )
+    .expect("write provider registry");
+    let before_config = fs::read_to_string(&config_path).expect("read provider config");
+    let before_script = fs::read_to_string(&script_path).expect("read provider script");
+
+    let output = vinput_command()
+        .args(["provider", "edit-script", "oai-stream", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .args(["--editor", "false", "--dry-run", "--json"])
+        .output()
+        .expect("run provider edit-script dry-run");
+
+    let value = assert_json_success(output, "provider edit-script dry-run json");
+    assert_eq!(value["selector"], "oai-stream");
+    assert_eq!(value["provider_id"], "provider.openai-compatible.streaming");
+    assert_eq!(value["registry_source"]["kind"], "file");
+    assert_eq!(value["script_path"], script_path.to_string_lossy().as_ref());
+    assert_eq!(value["editor"], "false");
+    assert_eq!(value["edited"], false);
+    assert_eq!(value["exit_status"], serde_json::Value::Null);
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read unchanged config"),
+        before_config
+    );
+    assert_eq!(
+        fs::read_to_string(&script_path).expect("read unchanged script"),
+        before_script
+    );
+    fs::remove_dir_all(root).expect("remove provider edit-script dry-run fixture");
+}
+
+#[test]
+fn provider_edit_script_runs_editor_without_mutating_config() {
+    let root = unique_temp_dir("vinput-provider-edit-script-run");
+    let script_path = root.join("provider.py");
+    let editor_path = root.join("editor.sh");
+    let config_path = root.join("config.json");
+    fs::write(&script_path, "print('provider')\n").expect("write provider script");
+    fs::write(
+        &editor_path,
+        "#!/bin/sh\nprintf '\n# edited by test\n' >> \"$1\"\n",
+    )
+    .expect("write provider editor");
+    fs::write(&config_path, editable_provider_config_json(&script_path))
+        .expect("write editable provider config");
+    let before_config = fs::read_to_string(&config_path).expect("read provider config");
+    let editor = format!("sh {}", editor_path.display());
+
+    let output = vinput_command()
+        .args([
+            "provider",
+            "edit-script",
+            "provider.openai-compatible.streaming",
+            "--config",
+        ])
+        .arg(&config_path)
+        .args(["--editor", &editor, "--json"])
+        .output()
+        .expect("run provider edit-script editor");
+
+    let value = assert_json_success(output, "provider edit-script editor json");
+    assert_eq!(value["edited"], true);
+    assert_eq!(value["exit_status"], 0);
+    assert_eq!(value["registry_source"], serde_json::Value::Null);
+    assert!(
+        fs::read_to_string(&script_path)
+            .expect("read edited provider script")
+            .contains("# edited by test")
+    );
+    assert_eq!(
+        fs::read_to_string(&config_path).expect("read unchanged provider config"),
+        before_config
+    );
+    fs::remove_dir_all(root).expect("remove provider edit-script run fixture");
+}
+
+#[test]
+fn provider_edit_script_rejects_invalid_targets_and_editor_failure() {
+    let provider_fixture = write_provider_fixture("vinput-provider-edit-script-errors");
+
+    let local = vinput_command()
+        .args(["provider", "edit-script", "local", "--config"])
+        .arg(&provider_fixture)
+        .args(["--editor", "true", "--dry-run"])
+        .output()
+        .expect("run provider edit-script local provider");
+    assert!(!local.status.success());
+    assert!(
+        String::from_utf8(local.stderr)
+            .expect("stderr should be utf8")
+            .contains("is not a command provider")
+    );
+
+    let missing_script = vinput_command()
+        .args(["provider", "edit-script", "cmd", "--config"])
+        .arg(&provider_fixture)
+        .args(["--editor", "true", "--dry-run"])
+        .output()
+        .expect("run provider edit-script missing script");
+    assert!(!missing_script.status.success());
+    assert!(
+        String::from_utf8(missing_script.stderr)
+            .expect("stderr should be utf8")
+            .contains("does not reference an existing editable script file")
+    );
+    fs::remove_file(provider_fixture).expect("remove provider error fixture");
+
+    let root = unique_temp_dir("vinput-provider-edit-script-editor-error");
+    let script_path = root.join("provider.py");
+    let config_path = root.join("config.json");
+    fs::write(&script_path, "print('provider')\n").expect("write provider script");
+    fs::write(&config_path, editable_provider_config_json(&script_path))
+        .expect("write editable provider config");
+
+    let short_without_registry = vinput_command()
+        .args(["provider", "edit-script", "oai-stream", "--config"])
+        .arg(&config_path)
+        .args(["--editor", "true", "--dry-run"])
+        .output()
+        .expect("run provider edit-script short id without registry");
+    assert!(!short_without_registry.status.success());
+    assert!(
+        String::from_utf8(short_without_registry.stderr)
+            .expect("stderr should be utf8")
+            .contains("pass --registry <providers.json> to resolve a short id")
+    );
+
+    let editor_failure = vinput_command()
+        .args([
+            "provider",
+            "edit-script",
+            "provider.openai-compatible.streaming",
+            "--config",
+        ])
+        .arg(&config_path)
+        .args(["--editor", "false"])
+        .output()
+        .expect("run provider edit-script failing editor");
+    assert!(!editor_failure.status.success());
+    assert!(
+        String::from_utf8(editor_failure.stderr)
+            .expect("stderr should be utf8")
+            .contains("provider editor `false` exited with status 1")
+    );
+    fs::remove_dir_all(root).expect("remove provider edit-script error fixture");
+}
+
+#[test]
 fn provider_remove_dry_run_json_validates_inactive_provider_without_writing() {
     let path = write_provider_fixture("vinput-provider-remove-dry-run");
     let before = fs::read_to_string(&path).expect("read original provider config");
@@ -1306,6 +1467,27 @@ fn serve_single_binary_response(bytes: Vec<u8>) -> (String, std::thread::JoinHan
 
 fn write_provider_fixture(prefix: &str) -> std::path::PathBuf {
     write_temp_json(prefix, provider_fixture_json())
+}
+
+fn editable_provider_config_json(script_path: &Path) -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "version": 1,
+        "asr": {
+            "active_provider": "provider.openai-compatible.streaming",
+            "providers": [{
+                "id": "provider.openai-compatible.streaming",
+                "type": "command",
+                "command": "python3",
+                "args": [script_path],
+                "timeout_ms": 60000
+            }]
+        },
+        "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        }
+    }))
+    .expect("serialize editable provider config")
 }
 
 fn provider_fixture_json() -> &'static str {

@@ -24,8 +24,8 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | --- | --- | --- | --- |
 | First-run initialization | implemented | `vinput init`, managed directories, config validation, dry-run/JSON tests | Install guide polish |
 | Discover and install a model | implemented | live registry list/info/install, SHA-256, safe extraction, atomic materialization | Update/packaging polish |
-| Discover, install, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, localized title/description, batch/streaming validation, mirror download, executable publication, legacy timeout/env preservation, config backup, guarded managed update; local removal guard and active-clear semantics | update polish |
-| Discover, install, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, config backup, guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | update polish |
+| Discover, install, update, edit, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, localized title/description, batch/streaming validation, mirror download, executable publication, update-by-reinstall with legacy timeout/env preservation, config backup, guarded managed update; local removal guard, active-clear semantics, and legacy-compatible referenced-script editor | None for current script registry |
+| Discover, install, update, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, update-by-reinstall with config backup and guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | None for current script registry |
 | Select and reload a model | deterministic | config persistence, background prepare-before-swap, C++/D-Bus selection smokes | Real desktop reload proof |
 | Normal native dictation | deterministic | native WAV -> D-Bus -> addon partial preedit -> concrete `InputContext` commit | Live PipeWire and real application |
 | Command native dictation | deterministic | selected text, ASR fallback candidate, candidate selection, deletion, replacement commit | Multi-application proof and real adapter flow |
@@ -45,7 +45,7 @@ The Rust CLI covers the major legacy management groups:
 init
 config validate/example/get/set/edit
 model list/info/install/add/use/remove/rm
-provider list/add/edit/use/remove
+provider list/add/edit/edit-script/use/remove
 hotword get/set/clear/edit
 device list/use
 scene list/add/edit/use/remove
@@ -56,7 +56,7 @@ recording start/stop/toggle/status
 doctor, asr-state, audio-devices, activation-service
 ```
 
-Current CLI gaps are not command-group gaps. They are provider/adapter update polish, output polish, non-systemd behavior, and further feature-driven extraction from the large CLI composition file.
+Current CLI gaps are not command-group gaps. They are output polish, non-systemd behavior, and further feature-driven extraction from the large CLI composition file.
 
 ## Daemon capability comparison
 
@@ -106,7 +106,7 @@ Current adapter script installation is implemented:
 - update only adapters already bound to the expected managed script and refuse user-defined replacements;
 - keep dry-run free of script and config writes.
 
-Current provider and adapter lists resolve localized titles/descriptions from the shared root-level registry i18n map while retaining stable machine ids and short selectors. Provider installation is implemented with full/short id lookup, batch/streaming validation, legacy-compatible managed paths, mirror-backed executable publication, 60000 ms default timeout, environment placeholders, existing timeout/env preservation, config backup, and user-defined provider protection. Provider removal also matches legacy: local providers are protected, active non-local removal clears the active selection, and registry short ids can be resolved from an explicit catalog. Adapter removal resolves explicit registry short ids, removes configuration through the normal backup policy, deletes a script only when its sole configured argument exactly matches the expected managed-root path, and preserves scripts for `--output` or user-defined adapters. Adapter start, stop, and filtered status resolve exact installed ids directly or explicit registry short ids, reject selectors that are not installed, and pass only the resolved machine id to D-Bus.
+Current provider and adapter lists resolve localized titles/descriptions from the shared root-level registry i18n map while retaining stable machine ids and short selectors. Reinstalling an existing managed entry is the registry update operation: provider timeout/model/environment values and adapter environment/forward-compatible fields are preserved while the executable is replaced through the guarded publication path. Provider removal also matches legacy: local providers are protected, active non-local removal clears the active selection, and registry short ids can be resolved from an explicit catalog. `provider edit-script` resolves an exact installed id or explicit registry short id, rejects non-command providers, locates the first existing regular file referenced by the command or its arguments, and launches the selected editor without mutating config. Adapter removal resolves explicit registry short ids, removes configuration through the normal backup policy, deletes a script only when its sole configured argument exactly matches the expected managed-root path, and preserves scripts for `--output` or user-defined adapters. Adapter start, stop, and filtered status resolve exact installed ids directly or explicit registry short ids, reject selectors that are not installed, and pass only the resolved machine id to D-Bus.
 
 ## Native runtime coverage
 
@@ -158,7 +158,6 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 - upgrade, rollback, and uninstall policy;
 - runtime-library version selection;
 - remote text service parity;
-- provider/adapter update lifecycle;
 - external-user documentation;
 - optional GUI strategy.
 

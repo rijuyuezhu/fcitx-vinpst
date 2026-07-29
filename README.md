@@ -26,7 +26,7 @@ Implemented and deterministically validated:
 - legacy-compatible D-Bus methods, signals, status strings, and recognition JSON;
 - `vinput init`, config mutation, model/provider/hotword/device/scene/LLM/adapter management, daemon control, recording control, and `vinput doctor`;
 - live model registry fetch, SHA-256 verification, safe archive extraction, install/use/remove, and installed-model discovery;
-- live ASR provider registry listing and `vinput provider install`, preserving batch/streaming protocol selection, managed paths, timeout/env values, config backup, and overwrite protection;
+- live ASR provider registry listing/install/update-by-reinstall, guarded removal, and legacy-compatible command-provider script editing, preserving batch/streaming protocol selection, managed paths, timeout/env values, config backup, and overwrite protection;
 - live adapter registry listing and `vinput adapter install`, including short ids, mirror fallback, executable script publication, config backup, environment placeholders, and guarded managed updates;
 - native offline and online registry-model ASR families currently used by the project;
 - `sherpa-native-live` user installation with a copied `libsherpa-onnx` and `libonnxruntime` bundle;
@@ -38,7 +38,6 @@ Still requiring live proof or implementation:
 
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
-- provider/adapter update polish;
 - remote text service parity, distro packaging, upgrades, and release hardening;
 - the legacy Qt GUI, which is intentionally deferred.
 
@@ -58,6 +57,7 @@ Install an external ASR provider from the current script registry:
 ```sh
 vinput provider list --available
 vinput provider install <id-or-short-id> --in-place
+vinput provider edit-script <id-or-short-id> --registry registry/providers.json
 vinput provider remove <machine-id> --in-place
 ```
 

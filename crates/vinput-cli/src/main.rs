@@ -1103,6 +1103,27 @@ enum ProviderCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Open the script referenced by an installed command ASR provider.
+    #[command(alias = "es")]
+    EditScript {
+        /// Existing provider id or registry `short_id` to edit.
+        id: String,
+        /// Optional local registry/providers.json file used for short-id resolution.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Editor command. Defaults to `$VINPUT_PROVIDER_EDITOR`, `$VISUAL`, `$EDITOR`, then `vi`.
+        #[arg(long)]
+        editor: Option<String>,
+        /// Resolve the provider, script, and editor without launching it.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove a non-local ASR provider from config.
     Remove {
         /// Existing provider id or registry `short_id` to remove.
@@ -1578,6 +1599,7 @@ fn force_json_output(command: &mut Command) {
             | ProviderCommand::Add { json, .. }
             | ProviderCommand::Use { json, .. }
             | ProviderCommand::Edit { json, .. }
+            | ProviderCommand::EditScript { json, .. }
             | ProviderCommand::Remove { json, .. } => *json = true,
         },
         Command::Model { command } => match command {
@@ -5859,6 +5881,21 @@ fn handle_provider_command(command: ProviderCommand) -> anyhow::Result<()> {
             dry_run,
             json_output: json,
         }),
+        ProviderCommand::EditScript {
+            id,
+            registry,
+            config,
+            editor,
+            dry_run,
+            json,
+        } => print_provider_edit_script(ProviderEditScriptRequest {
+            selector: &id,
+            registry_path: registry.as_deref(),
+            config_path: config.as_ref(),
+            editor: editor.as_deref(),
+            dry_run,
+            json_output: json,
+        }),
         ProviderCommand::Remove {
             id,
             registry,
@@ -5987,6 +6024,28 @@ struct ProviderEditOutcome {
     wrote_config: bool,
 }
 
+#[derive(Clone, Copy)]
+struct ProviderEditScriptRequest<'a> {
+    selector: &'a str,
+    registry_path: Option<&'a Path>,
+    config_path: Option<&'a PathBuf>,
+    editor: Option<&'a str>,
+    dry_run: bool,
+    json_output: bool,
+}
+
+struct ProviderEditScriptOutcome {
+    selector: String,
+    provider_id: String,
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    registry_source: Option<serde_json::Value>,
+    script_path: PathBuf,
+    editor_argv: Vec<String>,
+    dry_run: bool,
+    edited: bool,
+    exit_status: Option<i32>,
+}
 #[derive(Clone, Copy)]
 #[allow(clippy::struct_excessive_bools)]
 struct ProviderRemoveRequest<'a> {
@@ -6623,6 +6682,242 @@ fn print_provider_edit_text(outcome: &ProviderEditOutcome) {
     }
     println!("will_write_config: {}", !outcome.dry_run);
     println!("wrote_config: {}", outcome.wrote_config);
+}
+
+struct InstalledProviderResolution {
+    selector: String,
+    provider: AsrProviderConfig,
+    config_path: Option<PathBuf>,
+    source: &'static str,
+    registry_source: Option<serde_json::Value>,
+}
+
+fn print_provider_edit_script(request: ProviderEditScriptRequest<'_>) -> anyhow::Result<()> {
+    let json_output = request.json_output;
+    let outcome = run_provider_edit_script(&request)?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&provider_edit_script_outcome_json(&outcome))?
+        );
+    } else {
+        print_provider_edit_script_text(&outcome);
+    }
+    Ok(())
+}
+
+fn run_provider_edit_script(
+    request: &ProviderEditScriptRequest<'_>,
+) -> anyhow::Result<ProviderEditScriptOutcome> {
+    let resolution = resolve_installed_provider_selector(
+        request.selector,
+        request.registry_path,
+        request.config_path,
+    )?;
+    if resolution.provider.kind != AsrProviderKind::Command {
+        anyhow::bail!(
+            "ASR provider `{}` is not a command provider and has no editable script",
+            resolution.provider.id
+        );
+    }
+    let script_path =
+        resolve_editable_provider_script(&resolution.provider)?.with_context(|| {
+            format!(
+                "ASR provider `{}` does not reference an existing editable script file",
+                resolution.provider.id
+            )
+        })?;
+    let editor_argv = resolve_provider_editor(request.editor)?;
+    let mut edited = false;
+    let mut exit_status = None;
+    if !request.dry_run {
+        let status = run_provider_editor(&editor_argv, &script_path)?;
+        exit_status = status.code();
+        if !status.success() {
+            anyhow::bail!(
+                "provider editor `{}` exited with status {}",
+                editor_argv.join(" "),
+                exit_status.map_or_else(|| "signal".to_owned(), |code| code.to_string())
+            );
+        }
+        edited = true;
+    }
+    Ok(ProviderEditScriptOutcome {
+        selector: resolution.selector,
+        provider_id: resolution.provider.id,
+        config_path: resolution.config_path,
+        source: resolution.source,
+        registry_source: resolution.registry_source,
+        script_path,
+        editor_argv,
+        dry_run: request.dry_run,
+        edited,
+        exit_status,
+    })
+}
+
+fn resolve_installed_provider_selector(
+    selector: &str,
+    registry_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+) -> anyhow::Result<InstalledProviderResolution> {
+    let selector = normalize_provider_id(selector)?;
+    let context = load_provider_list_context(config_path)?;
+    let (provider, registry_source) = if let Some(provider) = context
+        .config
+        .asr
+        .providers
+        .iter()
+        .find(|provider| provider.id == selector)
+    {
+        (provider.clone(), None)
+    } else if let Some(registry_path) = registry_path {
+        let registry = load_live_provider_registry(Some(registry_path), &context.config.registry)?;
+        let entry = registry
+            .registry
+            .entry_by_id_or_short_id(&selector, LiveScriptKind::AsrProvider)
+            .with_context(|| format!("ASR provider selector `{selector}` not found"))?;
+        let provider = context
+            .config
+            .asr
+            .providers
+            .iter()
+            .find(|provider| provider.id == entry.id)
+            .with_context(|| {
+                format!(
+                    "ASR provider `{}` resolved from `{selector}` is not installed",
+                    entry.id
+                )
+            })?;
+        (provider.clone(), Some(registry.source_json))
+    } else {
+        anyhow::bail!(
+            "ASR provider `{selector}` not found; pass --registry <providers.json> to resolve a short id"
+        );
+    };
+    Ok(InstalledProviderResolution {
+        selector,
+        provider,
+        config_path: context.config_path,
+        source: context.source,
+        registry_source,
+    })
+}
+
+fn resolve_editable_provider_script(
+    provider: &AsrProviderConfig,
+) -> anyhow::Result<Option<PathBuf>> {
+    if let Some(command) = provider.command.as_deref()
+        && is_path_like_command(command)
+        && let Some(path) = resolve_existing_regular_file(command)?
+    {
+        return Ok(Some(path));
+    }
+    for argument in &provider.args {
+        if let Some(path) = resolve_existing_regular_file(argument)? {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+fn is_path_like_command(command: &str) -> bool {
+    command.contains('/') || command.starts_with('.') || command.starts_with('~')
+}
+
+fn resolve_existing_regular_file(candidate: &str) -> anyhow::Result<Option<PathBuf>> {
+    let candidate = candidate.trim();
+    if candidate.is_empty() {
+        return Ok(None);
+    }
+    let path = if candidate == "~" {
+        user_home()?
+    } else if let Some(relative) = candidate.strip_prefix("~/") {
+        user_home()?.join(relative)
+    } else if candidate.starts_with('~') {
+        return Ok(None);
+    } else {
+        PathBuf::from(candidate)
+    };
+    let path = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()
+            .context("resolve current directory for provider script")?
+            .join(path)
+    };
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_file() => Ok(Some(path)),
+        Ok(_) => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error)
+            .with_context(|| format!("inspect provider script candidate `{}`", path.display())),
+    }
+}
+
+fn resolve_provider_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
+    let editor = editor
+        .map(str::to_owned)
+        .or_else(|| std::env::var("VINPUT_PROVIDER_EDITOR").ok())
+        .or_else(|| std::env::var("VISUAL").ok())
+        .or_else(|| std::env::var("EDITOR").ok())
+        .unwrap_or_else(|| "vi".to_owned());
+    let argv = split_editor_argv(&editor);
+    if argv.is_empty() {
+        anyhow::bail!("provider editor command is empty");
+    }
+    Ok(argv)
+}
+
+fn run_provider_editor(
+    editor_argv: &[String],
+    path: &Path,
+) -> anyhow::Result<std::process::ExitStatus> {
+    let (program, args) = editor_argv
+        .split_first()
+        .with_context(|| "provider editor command is empty")?;
+    ProcessCommand::new(program)
+        .args(args)
+        .arg(path)
+        .status()
+        .with_context(|| format!("run provider editor `{}`", editor_argv.join(" ")))
+}
+
+fn provider_edit_script_outcome_json(outcome: &ProviderEditScriptOutcome) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": outcome.dry_run,
+        "selector": outcome.selector,
+        "provider_id": outcome.provider_id,
+        "config_path": outcome.config_path,
+        "source": outcome.source,
+        "registry_source": outcome.registry_source,
+        "script_path": outcome.script_path,
+        "editor": outcome.editor_argv.join(" "),
+        "editor_argv": outcome.editor_argv,
+        "edited": outcome.edited,
+        "exit_status": outcome.exit_status,
+        "next_steps": [
+            "run vinput provider list to verify the installed provider",
+            "run vinput asr-state to inspect provider runtime readiness"
+        ],
+    })
+}
+
+fn print_provider_edit_script_text(outcome: &ProviderEditScriptOutcome) {
+    println!("dry_run: {}", outcome.dry_run);
+    println!("selector: {}", outcome.selector);
+    println!("provider_id: {}", outcome.provider_id);
+    println!("source: {}", outcome.source);
+    if let Some(config_path) = &outcome.config_path {
+        println!("config_path: {}", config_path.display());
+    }
+    println!("script_path: {}", outcome.script_path.display());
+    println!("editor: {}", outcome.editor_argv.join(" "));
+    println!("edited: {}", outcome.edited);
+    if let Some(exit_status) = outcome.exit_status {
+        println!("exit_status: {exit_status}");
+    }
 }
 
 fn print_provider_add(request: ProviderAddRequest<'_>) -> anyhow::Result<()> {

@@ -364,6 +364,7 @@ fn provider_help_lists_list_and_use_options() {
     assert!(root_stdout.contains("use"));
     assert!(root_stdout.contains("add"));
     assert!(root_stdout.contains("edit"));
+    assert!(root_stdout.contains("edit-script"));
     assert!(root_stdout.contains("remove"));
 
     let list_output = vinput_command()
@@ -438,6 +439,19 @@ fn provider_help_lists_list_and_use_options() {
     assert!(edit_stdout.contains("--in-place"));
     assert!(edit_stdout.contains("--dry-run"));
     assert!(edit_stdout.contains("--json"));
+
+    let edit_script_output = vinput_command()
+        .args(["provider", "edit-script", "--help"])
+        .output()
+        .expect("run vinput provider edit-script --help");
+    let edit_script_stdout =
+        assert_stdout_success(edit_script_output, "provider edit-script help output");
+    assert!(edit_script_stdout.contains("<ID>"));
+    assert!(edit_script_stdout.contains("--registry"));
+    assert!(edit_script_stdout.contains("--config"));
+    assert!(edit_script_stdout.contains("--editor"));
+    assert!(edit_script_stdout.contains("--dry-run"));
+    assert!(edit_script_stdout.contains("--json"));
 
     let use_output = vinput_command()
         .args(["provider", "use", "--help"])

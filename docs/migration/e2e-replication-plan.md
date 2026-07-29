@@ -26,7 +26,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
 | M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
-| M5 Resource parity | active | provider/adapter install, remove, localized discovery, and adapter runtime selectors complete; update polish pending |
+| M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal, and adapter runtime selectors |
 | M6 Release readiness | pending | packaging, upgrades, install docs, external-user regression |
 
 ## Completed: usable CLI/daemon alpha
@@ -36,6 +36,7 @@ The following are implemented and covered by deterministic tests:
 - model registry list/info/install/use/remove;
 - current ASR provider registry list/install with batch/streaming validation, short ids, mirror fallback, managed overwrite protection, executable scripts, timeout/env preservation, and config backups;
 - legacy-compatible provider removal with local-provider protection, active-selection clearing, and explicit short-id resolution;
+- legacy-compatible command-provider script editing with installed-selector validation, command/argument file resolution, editor fallback, and dry-run diagnostics;
 - current adapter registry list/install with short ids, mirror fallback, managed overwrite protection, executable scripts, and config backups;
 - adapter short-id removal with config backup, `--output` preservation, and guarded in-place cleanup limited to the expected managed script path;
 - adapter start/stop/status selectors validate installed config entries and resolve explicit registry short ids before D-Bus calls;
@@ -66,7 +67,6 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 ## P1: parity after live alpha
 
 - Port other remaining native model layouts only when registry or user demand is concrete.
-- Complete provider/adapter update flows only when upstream registry semantics require behavior beyond reinstall.
 - Validate one real OpenAI-compatible or command text provider in desktop command mode.
 - Broaden daemon-originated notification categories from observed needs.
 - Reduce oversized modules only along feature boundaries.

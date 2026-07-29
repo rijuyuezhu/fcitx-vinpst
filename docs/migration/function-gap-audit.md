@@ -36,8 +36,8 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Real desktop normal dictation | Not live-proven |
 | Real desktop command dictation | Not live-proven across applications |
 | Frontend menus/configuration | Implemented and deterministically tested; live UI proof missing |
-| Adapter resource lifecycle | Implemented for current script registry with localized title/description display, installed short-id start/stop/status resolution, short-id removal, guarded managed-script cleanup, and config backup; update polish remains |
-| ASR provider resource installation | Implemented for current script registry with localized title/description display; update polish remains |
+| Adapter resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, installed short-id start/stop/status resolution, short-id removal, guarded managed-script cleanup, and config backup |
+| ASR provider resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, guarded removal, and command-provider script editing |
 | Remote text service | Missing |
 | Distro packaging and upgrades | Missing |
 | Legacy Qt GUI | Deferred |
@@ -53,8 +53,8 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Audio | Typed PCM, processing, mock/file sources, optional PipeWire recorder and diagnostics | Real PipeWire capture proof |
 | Offline VAD | Silero model, legacy-compatible settings, fallback, cold-start guard, install, and diagnostics | Real microphone validation |
 | Text processing | Command adapters, OpenAI-compatible transport, prompts, context cache, scenes, candidates | One real desktop provider flow |
-| Registry | Live model lifecycle plus current provider/adapter registry list/install, localized display metadata, guarded config materialization, executable script publication, and managed adapter removal | Resource update polish |
-| CLI | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, recording, and doctor; provider removal preserves local entries and supports active-clear semantics | UX polish and continued feature-driven module extraction |
+| Registry | Live model lifecycle plus current provider/adapter registry list/install/update-by-reinstall, localized display metadata, guarded config materialization, executable script publication, and managed adapter removal | No current script-registry lifecycle gap |
+| CLI | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, recording, and doctor; provider removal preserves local entries and supports active-clear semantics; command-provider scripts can be opened through resolved installed selectors | UX polish and continued feature-driven module extraction |
 | Fcitx frontend | Persistent keys, Tap/Hold/Both, menus, filtering, i18n, notifications, owner recovery, partial preedit, outcome application | Real desktop rendering and multi-application proof |
 | User install | Temporary-HOME profiles, activation services, environment wrapper, native runtime bundle | Packaging, upgrade, and version-selection policy |
 | Diagnostics | Doctor, runtime status, ASR state, audio devices, owner/PID/procfs, live probe | Live error-message refinement |
@@ -66,8 +66,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 2. **Command-mode application behavior:** surrounding-text and primary-selection fallback need proof across applications and toolkits.
 3. **Release boundary:** there is no distro packaging, upgrade policy, or external-user installation path yet.
 4. **Remote parity:** legacy remote ASR/text services are not implemented.
-5. **Resource lifecycle:** model, provider, and adapter installation plus script-registry i18n are available; provider removal matches legacy, adapter removal resolves short ids while deleting only verified in-place managed scripts, and adapter runtime commands validate installed full/short selectors before D-Bus. Provider/adapter update polish remains.
-6. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.
+5. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.
 
 ## Rust improvements beyond legacy
 
