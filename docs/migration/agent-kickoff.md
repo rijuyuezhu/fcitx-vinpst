@@ -44,6 +44,7 @@ Then prove command-mode selected-text replacement across real applications.
 - Native online partials reach concrete Fcitx preedit before stop.
 - Final normal commit and command candidate replacement reach concrete test `InputContext` implementations.
 - Persistent keys, Tap/Hold/Both, scene/ASR menus, filtering, i18n, notifications, and daemon recovery are implemented.
+- Remote text settings and protocol semantics are deterministic in `vinput-daemon::remote`; the externally reachable HTTP/WebSocket runtime is not implemented.
 - Real Fcitx, live PipeWire, and real application behavior remain unproven.
 - Remote services, packaging, upgrades, and optional GUI work remain later milestones.
 

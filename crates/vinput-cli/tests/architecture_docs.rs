@@ -53,6 +53,18 @@ fn architecture_index_links_existing_notes() {
 }
 
 #[test]
+fn remote_text_architecture_pins_protocol_runtime_boundary() {
+    let note = std::fs::read_to_string(architecture_dir().join("remote-text-contract.md"))
+        .expect("read remote text architecture note");
+    assert!(note.contains("RemoteTextProtocol"));
+    assert!(note.contains("provider.vinput.remote.streaming"));
+    assert!(note.contains("VINPUT_ASR_API_KEY"));
+    assert!(note.contains("OpenAI Realtime-compatible"));
+    assert!(note.contains("HTTP/WebSocket runtime"));
+    assert!(note.contains("partial"));
+}
+
+#[test]
 fn development_doc_lists_all_workspace_crates() {
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
         .expect("read development guide");

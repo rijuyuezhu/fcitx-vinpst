@@ -76,7 +76,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Text postprocess | deterministic | command and OpenAI-compatible paths; live provider proof missing |
 | Adapter supervision | deterministic | process/PID lifecycle and D-Bus control |
 | Notifications and recovery | deterministic | local notifications, daemon reload failure, owner loss, cross-client status reconciliation |
-| Remote text service | missing | legacy HTTP/WebSocket service is not ported |
+| Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, and OpenAI Realtime-compatible event shapes are deterministic | HTTP/WebSocket runtime, browser assets, endpoint enumeration, daemon synchronization |
 
 ## Registry/resource comparison
 
@@ -157,7 +157,7 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 - distro packaging and repository integration;
 - upgrade, rollback, and uninstall policy;
 - runtime-library version selection;
-- remote text service parity;
+- remote text HTTP/WebSocket runtime and daemon lifecycle integration;
 - external-user documentation;
 - optional GUI strategy.
 

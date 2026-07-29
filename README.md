@@ -38,7 +38,7 @@ Still requiring live proof or implementation:
 
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
-- remote text service parity, distro packaging, upgrades, and release hardening;
+- remote text HTTP/WebSocket runtime parity, distro packaging, upgrades, and release hardening;
 - the legacy Qt GUI, which is intentionally deferred.
 
 See [`docs/migration/function-gap-audit.md`](docs/migration/function-gap-audit.md) for status and [`docs/migration/e2e-replication-plan.md`](docs/migration/e2e-replication-plan.md) for priorities.

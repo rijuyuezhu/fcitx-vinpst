@@ -120,7 +120,7 @@ Do not replace the Fcitx5 addon with a Rust addon until mature Rust bindings and
 
 ## What not to port mechanically
 
-- Raw HTTP/WebSocket code in `daemon/remote`: replace with a Rust HTTP/WebSocket stack.
+- Raw HTTP/WebSocket code in `daemon/remote`: keep the implemented deterministic settings/protocol core, and attach it to a structured Rust HTTP/WebSocket stack rather than porting raw socket code.
 - Generic path/file/process/string utilities: prefer well-maintained Rust crates.
 - C++ daemon poll loop: replace with structured async tasks and explicit shutdown.
 - Ad-hoc JSON parsing: use typed serde models and golden fixtures.
