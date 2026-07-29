@@ -26,7 +26,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
 | M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
-| M5 Resource parity | active | provider install/remove, adapter install/remove, and registry i18n complete; adapter runtime selectors pending |
+| M5 Resource parity | active | provider/adapter install, remove, localized discovery, and adapter runtime selectors complete; update polish pending |
 | M6 Release readiness | pending | packaging, upgrades, install docs, external-user regression |
 
 ## Completed: usable CLI/daemon alpha
@@ -38,6 +38,7 @@ The following are implemented and covered by deterministic tests:
 - legacy-compatible provider removal with local-provider protection, active-selection clearing, and explicit short-id resolution;
 - current adapter registry list/install with short ids, mirror fallback, managed overwrite protection, executable scripts, and config backups;
 - adapter short-id removal with config backup, `--output` preservation, and guarded in-place cleanup limited to the expected managed script path;
+- adapter start/stop/status selectors validate installed config entries and resolve explicit registry short ids before D-Bus calls;
 - localized provider/adapter title and description loading from root-level registry i18n files with stable machine-id fallback;
 - config initialization and mutation;
 - provider, hotword, device, scene, LLM, and adapter management;
@@ -65,7 +66,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 ## P1: parity after live alpha
 
 - Port other remaining native model layouts only when registry or user demand is concrete.
-- Complete adapter start/stop/status short-id selector flows.
+- Complete provider/adapter update flows only when upstream registry semantics require behavior beyond reinstall.
 - Validate one real OpenAI-compatible or command text provider in desktop command mode.
 - Broaden daemon-originated notification categories from observed needs.
 - Reduce oversized modules only along feature boundaries.

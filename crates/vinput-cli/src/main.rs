@@ -696,8 +696,14 @@ enum AdapterCommand {
     },
     /// Start a configured text adapter through daemon D-Bus.
     Start {
-        /// Existing adapter id to start.
+        /// Existing adapter id or registry `short_id` to start.
         id: String,
+        /// Optional local registry/adapters.json file used to resolve a short id.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
         /// Print the D-Bus call plan without contacting the daemon.
         #[arg(long)]
         dry_run: bool,
@@ -707,8 +713,14 @@ enum AdapterCommand {
     },
     /// Stop a configured text adapter through daemon D-Bus.
     Stop {
-        /// Existing adapter id to stop.
+        /// Existing adapter id or registry `short_id` to stop.
         id: String,
+        /// Optional local registry/adapters.json file used to resolve a short id.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
         /// Print the D-Bus call plan without contacting the daemon.
         #[arg(long)]
         dry_run: bool,
@@ -718,8 +730,14 @@ enum AdapterCommand {
     },
     /// Inspect daemon text adapter runtime state.
     Status {
-        /// Optional adapter id to filter. Omitted to show all adapters.
+        /// Optional adapter id or registry `short_id` to filter. Omitted to show all adapters.
         id: Option<String>,
+        /// Optional local registry/adapters.json file used to resolve a short id.
+        #[arg(long)]
+        registry: Option<PathBuf>,
+        /// Optional config JSON file used when filtering by adapter. Omitted to read the user config, then the bundled default.
+        #[arg(long)]
+        config: Option<PathBuf>,
         /// Print the D-Bus call plan without contacting the daemon.
         #[arg(long)]
         dry_run: bool,
@@ -2610,15 +2628,49 @@ fn handle_adapter_command(command: AdapterCommand) -> anyhow::Result<()> {
             summary_only,
             json,
         ),
-        AdapterCommand::Start { id, dry_run, json } => {
-            print_adapter_lifecycle("start", &id, dbus::method::START_ADAPTER, dry_run, json)
-        }
-        AdapterCommand::Stop { id, dry_run, json } => {
-            print_adapter_lifecycle("stop", &id, dbus::method::STOP_ADAPTER, dry_run, json)
-        }
-        AdapterCommand::Status { id, dry_run, json } => {
-            print_adapter_status(id.as_deref(), dry_run, json)
-        }
+        AdapterCommand::Start {
+            id,
+            registry,
+            config,
+            dry_run,
+            json,
+        } => print_adapter_lifecycle(
+            "start",
+            &id,
+            dbus::method::START_ADAPTER,
+            registry.as_deref(),
+            config.as_ref(),
+            dry_run,
+            json,
+        ),
+        AdapterCommand::Stop {
+            id,
+            registry,
+            config,
+            dry_run,
+            json,
+        } => print_adapter_lifecycle(
+            "stop",
+            &id,
+            dbus::method::STOP_ADAPTER,
+            registry.as_deref(),
+            config.as_ref(),
+            dry_run,
+            json,
+        ),
+        AdapterCommand::Status {
+            id,
+            registry,
+            config,
+            dry_run,
+            json,
+        } => print_adapter_status(
+            id.as_deref(),
+            registry.as_deref(),
+            config.as_ref(),
+            dry_run,
+            json,
+        ),
         AdapterCommand::Edit {
             id,
             command,
@@ -3689,23 +3741,88 @@ fn print_adapter_install_plan_text(
     }
 }
 
+struct InstalledAdapterResolution {
+    selector: String,
+    adapter_id: String,
+    config_path: Option<PathBuf>,
+    config_source: &'static str,
+    registry_source: Option<serde_json::Value>,
+}
+
+fn resolve_installed_adapter_selector(
+    selector: &str,
+    registry_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
+) -> anyhow::Result<InstalledAdapterResolution> {
+    let selector = normalize_adapter_id(selector)?;
+    let context = load_adapter_list_context(config_path)?;
+    let (adapter_id, registry_source) = if context
+        .config
+        .llm
+        .adapters
+        .iter()
+        .any(|adapter| adapter.id == selector)
+    {
+        (selector.clone(), None)
+    } else if let Some(registry_path) = registry_path {
+        let registry = load_live_adapter_registry(Some(registry_path), &context.config.registry)?;
+        let entry = registry
+            .registry
+            .entry_by_id_or_short_id(&selector, LiveScriptKind::LlmAdapter)
+            .with_context(|| format!("text adapter selector `{selector}` not found"))?;
+        if !context
+            .config
+            .llm
+            .adapters
+            .iter()
+            .any(|adapter| adapter.id == entry.id)
+        {
+            anyhow::bail!(
+                "text adapter `{}` resolved from `{selector}` is not installed",
+                entry.id
+            );
+        }
+        (entry.id.clone(), Some(registry.source_json))
+    } else {
+        anyhow::bail!(
+            "text adapter `{selector}` not found; pass --registry <adapters.json> to resolve a short id"
+        );
+    };
+    Ok(InstalledAdapterResolution {
+        selector,
+        adapter_id,
+        config_path: context.config_path,
+        config_source: context.source,
+        registry_source,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn print_adapter_lifecycle(
     action: &str,
-    adapter_id: &str,
+    adapter_selector: &str,
     method: &str,
+    registry_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
     dry_run: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    let adapter_id = normalize_adapter_id(adapter_id)?;
+    let resolution =
+        resolve_installed_adapter_selector(adapter_selector, registry_path, config_path)?;
     if !dry_run {
-        call_adapter_lifecycle_via_dbus(method, &adapter_id)?;
+        call_adapter_lifecycle_via_dbus(method, &resolution.adapter_id)?;
     }
-    let output = adapter_lifecycle_output(action, &adapter_id, method, dry_run);
+    let output = adapter_lifecycle_output(action, &resolution, method, dry_run);
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         println!("dry_run: {dry_run}");
-        println!("adapter_id: {adapter_id}");
+        println!("selector: {}", resolution.selector);
+        println!("adapter_id: {}", resolution.adapter_id);
+        println!("config_source: {}", resolution.config_source);
+        if let Some(config_path) = &resolution.config_path {
+            println!("config_path: {}", config_path.display());
+        }
         println!("action: {action}");
         println!("will_call_dbus: {}", !dry_run);
         println!("called: {}", !dry_run);
@@ -3727,7 +3844,7 @@ fn print_adapter_lifecycle(
 
 fn adapter_lifecycle_output(
     action: &str,
-    adapter_id: &str,
+    resolution: &InstalledAdapterResolution,
     method: &str,
     dry_run: bool,
 ) -> serde_json::Value {
@@ -3735,7 +3852,11 @@ fn adapter_lifecycle_output(
         "ok": true,
         "dry_run": dry_run,
         "action": action,
-        "adapter_id": adapter_id,
+        "selector": resolution.selector,
+        "adapter_id": resolution.adapter_id,
+        "config_path": resolution.config_path,
+        "config_source": resolution.config_source,
+        "registry_source": resolution.registry_source,
         "will_call_dbus": !dry_run,
         "called": !dry_run,
         "dbus": {
@@ -3763,16 +3884,20 @@ fn call_adapter_lifecycle_via_dbus(method: &str, adapter_id: &str) -> anyhow::Re
 }
 
 fn print_adapter_status(
-    adapter_id: Option<&str>,
+    adapter_selector: Option<&str>,
+    registry_path: Option<&Path>,
+    config_path: Option<&PathBuf>,
     dry_run: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    let adapter_id = adapter_id.map(normalize_adapter_id).transpose()?;
+    let resolution = adapter_selector
+        .map(|selector| resolve_installed_adapter_selector(selector, registry_path, config_path))
+        .transpose()?;
     let output = if dry_run {
-        adapter_status_plan_json(adapter_id.as_deref())
+        adapter_status_plan_json(resolution.as_ref())
     } else {
         let state = call_text_adapter_state_via_dbus()?;
-        adapter_status_state_json(adapter_id.as_deref(), &state)?
+        adapter_status_state_json(resolution.as_ref(), &state)?
     };
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -3791,12 +3916,16 @@ fn call_text_adapter_state_via_dbus() -> anyhow::Result<TextAdapterState> {
     serde_json::from_str::<TextAdapterState>(&raw).context("parse GetTextAdapterState response")
 }
 
-fn adapter_status_plan_json(adapter_id: Option<&str>) -> serde_json::Value {
+fn adapter_status_plan_json(resolution: Option<&InstalledAdapterResolution>) -> serde_json::Value {
     serde_json::json!({
         "ok": true,
         "dry_run": true,
         "action": "status",
-        "adapter_id": adapter_id,
+        "selector": resolution.map(|resolution| resolution.selector.as_str()),
+        "adapter_id": resolution.map(|resolution| resolution.adapter_id.as_str()),
+        "config_path": resolution.and_then(|resolution| resolution.config_path.as_ref()),
+        "config_source": resolution.map(|resolution| resolution.config_source),
+        "registry_source": resolution.and_then(|resolution| resolution.registry_source.as_ref()),
         "will_call_dbus": false,
         "called": false,
         "dbus": {
@@ -3814,7 +3943,7 @@ fn adapter_status_plan_json(adapter_id: Option<&str>) -> serde_json::Value {
 }
 
 fn adapter_status_state_json(
-    adapter_id: Option<&str>,
+    resolution: Option<&InstalledAdapterResolution>,
     state: &TextAdapterState,
 ) -> anyhow::Result<serde_json::Value> {
     let state_json = serde_json::json!({
@@ -3822,17 +3951,26 @@ fn adapter_status_state_json(
         "adapter_ids": state.adapter_ids,
         "single_adapter_id": state.single_adapter_id,
     });
-    if let Some(adapter_id) = adapter_id {
+    if let Some(resolution) = resolution {
         let adapter = state
             .adapters
             .iter()
-            .find(|adapter| adapter.id == adapter_id)
-            .with_context(|| format!("text adapter `{adapter_id}` not found in daemon state"))?;
+            .find(|adapter| adapter.id == resolution.adapter_id)
+            .with_context(|| {
+                format!(
+                    "text adapter `{}` not found in daemon state",
+                    resolution.adapter_id
+                )
+            })?;
         return Ok(serde_json::json!({
             "ok": true,
             "dry_run": false,
             "action": "status",
-            "adapter_id": adapter_id,
+            "selector": resolution.selector,
+            "adapter_id": resolution.adapter_id,
+            "config_path": resolution.config_path,
+            "config_source": resolution.config_source,
+            "registry_source": resolution.registry_source,
             "state": state_json,
             "adapter": adapter,
         }));
@@ -3841,7 +3979,11 @@ fn adapter_status_state_json(
         "ok": true,
         "dry_run": false,
         "action": "status",
+        "selector": serde_json::Value::Null,
         "adapter_id": serde_json::Value::Null,
+        "config_path": serde_json::Value::Null,
+        "config_source": serde_json::Value::Null,
+        "registry_source": serde_json::Value::Null,
         "state": state_json,
         "adapters": state.adapters,
     }))
@@ -3850,10 +3992,17 @@ fn adapter_status_state_json(
 fn print_adapter_status_text(output: &serde_json::Value) {
     println!("dry_run: {}", output["dry_run"].as_bool().unwrap_or(false));
     println!("action: status");
+    println!("selector: {}", output["selector"].as_str().unwrap_or("-"));
     println!(
         "adapter_id: {}",
         output["adapter_id"].as_str().unwrap_or("-")
     );
+    if let Some(config_source) = output["config_source"].as_str() {
+        println!("config_source: {config_source}");
+    }
+    if let Some(config_path) = output["config_path"].as_str() {
+        println!("config_path: {config_path}");
+    }
     if output["dry_run"].as_bool().unwrap_or(false) {
         println!(
             "will_call_dbus: {}",

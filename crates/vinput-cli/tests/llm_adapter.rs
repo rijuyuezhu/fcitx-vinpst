@@ -1216,22 +1216,29 @@ fn adapter_edit_rejects_invalid_inputs() {
 
 #[test]
 fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
+    let path = write_llm_fixture("vinput-adapter-lifecycle-json");
     let start = vinput_command()
-        .args(["adapter", "start", "command-adapter", "--dry-run", "--json"])
+        .args(["adapter", "start", "command-adapter", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
         .output()
         .expect("run vinput adapter start dry-run json");
     let value = assert_json_success(start, "adapter start dry-run json");
     assert_eq!(value["ok"], true);
     assert_eq!(value["dry_run"], true);
     assert_eq!(value["action"], "start");
+    assert_eq!(value["selector"], "command-adapter");
     assert_eq!(value["adapter_id"], "command-adapter");
+    assert_eq!(value["config_source"], "file");
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["called"], false);
     assert_eq!(value["dbus"]["method"], "StartAdapter");
     assert_daemon_owner_probe_plan(&value);
 
     let stop = vinput_command()
-        .args(["adapter", "stop", "command-adapter", "--dry-run", "--json"])
+        .args(["adapter", "stop", "command-adapter", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
         .output()
         .expect("run vinput adapter stop dry-run json");
     let value = assert_json_success(stop, "adapter stop dry-run json");
@@ -1241,17 +1248,23 @@ fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
     assert_eq!(value["adapter_id"], "command-adapter");
     assert_eq!(value["dbus"]["method"], "StopAdapter");
     assert_daemon_owner_probe_plan(&value);
+    fs::remove_file(path).expect("remove adapter lifecycle fixture");
 }
 
 #[test]
 fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
+    let path = write_llm_fixture("vinput-adapter-lifecycle-text");
     let start = vinput_command()
-        .args(["adapter", "start", "command-adapter", "--dry-run"])
+        .args(["adapter", "start", "command-adapter", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
         .output()
         .expect("run vinput adapter start text dry-run");
     let stdout = assert_stdout_success(start, "adapter start text dry-run");
     assert!(stdout.contains("dry_run: true"));
+    assert!(stdout.contains("selector: command-adapter"));
     assert!(stdout.contains("adapter_id: command-adapter"));
+    assert!(stdout.contains("config_source: file"));
     assert!(stdout.contains("action: start"));
     assert!(stdout.contains("will_call_dbus: false"));
     assert!(stdout.contains("called: false"));
@@ -1263,7 +1276,9 @@ fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
     assert!(stdout.contains("next_step: run vinput daemon status --dry-run --json"));
 
     let stop = vinput_command()
-        .args(["adapter", "stop", "command-adapter", "--dry-run"])
+        .args(["adapter", "stop", "command-adapter", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
         .output()
         .expect("run vinput adapter stop text dry-run");
     let stdout = assert_stdout_success(stop, "adapter stop text dry-run");
@@ -1276,18 +1291,16 @@ fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
             .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
     );
     assert!(stdout.contains("next_step: run vinput daemon status --dry-run --json"));
+    fs::remove_file(path).expect("remove adapter lifecycle text fixture");
 }
 
 #[test]
 fn adapter_status_dry_run_json_reports_text_adapter_state_plan() {
+    let path = write_llm_fixture("vinput-adapter-status-json");
     let output = vinput_command()
-        .args([
-            "adapter",
-            "status",
-            "command-adapter",
-            "--dry-run",
-            "--json",
-        ])
+        .args(["adapter", "status", "command-adapter", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
         .output()
         .expect("run vinput adapter status dry-run json");
 
@@ -1295,11 +1308,14 @@ fn adapter_status_dry_run_json_reports_text_adapter_state_plan() {
     assert_eq!(value["ok"], true);
     assert_eq!(value["dry_run"], true);
     assert_eq!(value["action"], "status");
+    assert_eq!(value["selector"], "command-adapter");
     assert_eq!(value["adapter_id"], "command-adapter");
+    assert_eq!(value["config_source"], "file");
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["called"], false);
     assert_eq!(value["dbus"]["method"], "GetTextAdapterState");
     assert_daemon_owner_probe_plan(&value);
+    fs::remove_file(path).expect("remove adapter status fixture");
 }
 
 #[test]
@@ -1325,8 +1341,11 @@ fn adapter_status_dry_run_text_outputs_expected_fields() {
 
 #[test]
 fn global_json_flag_forces_adapter_status_json() {
+    let path = write_llm_fixture("vinput-adapter-status-global-json");
     let output = vinput_command()
-        .args(["-j", "adapter", "status", "command-adapter", "--dry-run"])
+        .args(["-j", "adapter", "status", "command-adapter", "--config"])
+        .arg(&path)
+        .arg("--dry-run")
         .output()
         .expect("run vinput -j adapter status dry-run");
 
@@ -1336,6 +1355,59 @@ fn global_json_flag_forces_adapter_status_json() {
     assert_eq!(value["adapter_id"], "command-adapter");
     assert_eq!(value["dbus"]["method"], "GetTextAdapterState");
     assert_daemon_owner_probe_plan(&value);
+    fs::remove_file(path).expect("remove global adapter status fixture");
+}
+
+#[test]
+fn adapter_runtime_commands_resolve_registry_short_id_before_dbus() {
+    let config_path = write_live_adapter_config_fixture("vinput-adapter-runtime-short-id");
+    let registry_path = write_live_adapter_registry_fixture(
+        "vinput-adapter-runtime-short-id-registry",
+        "https://adapter.example.test/entry.py",
+    );
+
+    for (action, method) in [
+        ("start", "StartAdapter"),
+        ("stop", "StopAdapter"),
+        ("status", "GetTextAdapterState"),
+    ] {
+        let output = vinput_command()
+            .args(["adapter", action, "mtran-proxy", "--registry"])
+            .arg(&registry_path)
+            .arg("--config")
+            .arg(&config_path)
+            .args(["--dry-run", "--json"])
+            .output()
+            .expect("run adapter runtime command with short id");
+
+        let value = assert_json_success(output, "adapter runtime short-id json");
+        assert_eq!(value["action"], action);
+        assert_eq!(value["selector"], "mtran-proxy");
+        assert_eq!(value["adapter_id"], "adapter.mtranserver.proxy");
+        assert_eq!(value["config_source"], "file");
+        assert_eq!(value["registry_source"]["kind"], "file");
+        assert_eq!(value["dbus"]["method"], method);
+        assert_eq!(value["will_call_dbus"], false);
+    }
+
+    fs::remove_file(config_path).expect("remove runtime selector config");
+    fs::remove_file(registry_path).expect("remove runtime selector registry");
+}
+
+#[test]
+fn adapter_runtime_short_id_requires_explicit_registry() {
+    let config_path = write_live_adapter_config_fixture("vinput-adapter-runtime-no-registry");
+    let output = vinput_command()
+        .args(["adapter", "start", "mtran-proxy", "--config"])
+        .arg(&config_path)
+        .arg("--dry-run")
+        .output()
+        .expect("run adapter start short id without registry");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+    assert!(stderr.contains("pass --registry <adapters.json> to resolve a short id"));
+    fs::remove_file(config_path).expect("remove runtime no-registry config");
 }
 
 #[test]

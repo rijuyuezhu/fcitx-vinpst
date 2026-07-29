@@ -45,7 +45,7 @@ Then prove command-mode selected-text replacement across real applications.
 - Final normal commit and command candidate replacement reach concrete test `InputContext` implementations.
 - Persistent keys, Tap/Hold/Both, scene/ASR menus, filtering, i18n, notifications, and daemon recovery are implemented.
 - Real Fcitx, live PipeWire, and real application behavior remain unproven.
-- Adapter runtime-selector and update polish, remote services, packaging, upgrades, and optional GUI work remain later milestones.
+- Provider/adapter update polish, remote services, packaging, upgrades, and optional GUI work remain later milestones.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.
 

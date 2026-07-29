@@ -237,6 +237,19 @@ fn llm_and_adapter_help_list_options() {
     assert!(adapter_remove_stdout.contains("--dry-run"));
     assert!(adapter_remove_stdout.contains("--json"));
 
+    for action in ["start", "stop"] {
+        let output = vinput_command()
+            .args(["adapter", action, "--help"])
+            .output()
+            .expect("run vinput adapter lifecycle --help");
+        let stdout = assert_stdout_success(output, "adapter lifecycle help output");
+        assert!(stdout.contains("<ID>"));
+        assert!(stdout.contains("--registry"));
+        assert!(stdout.contains("--config"));
+        assert!(stdout.contains("--dry-run"));
+        assert!(stdout.contains("--json"));
+    }
+
     let adapter_status_output = vinput_command()
         .args(["adapter", "status", "--help"])
         .output()
@@ -244,6 +257,8 @@ fn llm_and_adapter_help_list_options() {
     let adapter_status_stdout =
         assert_stdout_success(adapter_status_output, "adapter status help output");
     assert!(adapter_status_stdout.contains("[ID]"));
+    assert!(adapter_status_stdout.contains("--registry"));
+    assert!(adapter_status_stdout.contains("--config"));
     assert!(adapter_status_stdout.contains("--dry-run"));
     assert!(adapter_status_stdout.contains("--json"));
 }

@@ -36,7 +36,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Real desktop normal dictation | Not live-proven |
 | Real desktop command dictation | Not live-proven across applications |
 | Frontend menus/configuration | Implemented and deterministically tested; live UI proof missing |
-| Adapter resource lifecycle | Implemented for current script registry with localized title/description display, short-id removal, guarded managed-script cleanup, and config backup; runtime-selector/update polish remains |
+| Adapter resource lifecycle | Implemented for current script registry with localized title/description display, installed short-id start/stop/status resolution, short-id removal, guarded managed-script cleanup, and config backup; update polish remains |
 | ASR provider resource installation | Implemented for current script registry with localized title/description display; update polish remains |
 | Remote text service | Missing |
 | Distro packaging and upgrades | Missing |
@@ -66,7 +66,7 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 2. **Command-mode application behavior:** surrounding-text and primary-selection fallback need proof across applications and toolkits.
 3. **Release boundary:** there is no distro packaging, upgrade policy, or external-user installation path yet.
 4. **Remote parity:** legacy remote ASR/text services are not implemented.
-5. **Resource lifecycle:** model, provider, and adapter installation plus script-registry i18n are available; provider removal matches legacy and adapter removal resolves short ids while deleting only verified in-place managed scripts. Adapter runtime-selector and update polish remain.
+5. **Resource lifecycle:** model, provider, and adapter installation plus script-registry i18n are available; provider removal matches legacy, adapter removal resolves short ids while deleting only verified in-place managed scripts, and adapter runtime commands validate installed full/short selectors before D-Bus. Provider/adapter update polish remains.
 6. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.
 
 ## Rust improvements beyond legacy

@@ -38,7 +38,7 @@ Still requiring live proof or implementation:
 
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
-- provider/adapter update polish and adapter runtime-selector parity;
+- provider/adapter update polish;
 - remote text service parity, distro packaging, upgrades, and release hardening;
 - the legacy Qt GUI, which is intentionally deferred.
 
