@@ -515,6 +515,12 @@ fn registry_architecture_mentions_root_planning() {
     assert!(registry_doc.contains("malformed automatic local override is diagnostic-only"));
     assert!(registry_doc.contains("an explicitly requested `--i18n` file still fails"));
     assert!(registry_doc.contains("`local > preferred > fallback` priority"));
+    assert!(registry_doc.contains("`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, then `LANG`"));
+    assert!(registry_doc.contains("falling back to `en_US`"));
+    assert!(registry_doc.contains("`zh` expands to `zh_CN`"));
+    assert!(registry_doc.contains("`en` expands to `en_US`"));
+    assert!(registry_doc.contains("`C`/`POSIX` are skipped"));
+    assert!(registry_doc.contains("An explicit `--locale` remains authoritative"));
 }
 
 #[test]

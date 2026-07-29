@@ -217,6 +217,36 @@ fn resolves_live_model_i18n_title_and_description() {
 }
 
 #[test]
+fn registry_locale_normalization_and_selection_match_legacy() {
+    assert_eq!(
+        super::normalize_registry_locale("zh_CN.UTF-8@variant:en_US"),
+        Some("zh_CN".to_owned())
+    );
+    assert_eq!(
+        super::normalize_registry_locale("en-US"),
+        Some("en_US".to_owned())
+    );
+    assert_eq!(
+        super::normalize_registry_locale("zh"),
+        Some("zh_CN".to_owned())
+    );
+    assert_eq!(
+        super::normalize_registry_locale("en"),
+        Some("en_US".to_owned())
+    );
+    assert_eq!(super::normalize_registry_locale("C.UTF-8"), None);
+    assert_eq!(super::normalize_registry_locale("POSIX"), None);
+    assert_eq!(
+        super::select_preferred_registry_locale(["C.UTF-8", "fr-FR.UTF-8", "zh_CN"]),
+        "fr_FR"
+    );
+    assert_eq!(
+        super::select_preferred_registry_locale(["C", "POSIX", ""]),
+        "en_US"
+    );
+}
+
+#[test]
 fn live_i18n_layers_apply_fallback_locale_and_local_priority() {
     let fallback = LiveRegistryI18n::from_json_str(
         r#"{

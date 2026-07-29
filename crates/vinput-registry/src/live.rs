@@ -409,8 +409,15 @@ impl LiveRegistryI18n {
     }
 }
 
-fn normalize_locale_tag(input: &str) -> String {
-    input
+/// Normalizes a registry locale using the legacy locale rules.
+///
+/// Locale lists use their first entry, encodings/modifiers are removed,
+/// hyphens become underscores, `zh`/`en` expand to their registry locales,
+/// and `C`/`POSIX` do not select a localized catalog.
+#[must_use]
+pub fn normalize_registry_locale(input: &str) -> Option<String> {
+    let locale = input
+        .trim()
         .split(':')
         .next()
         .unwrap_or(input)
@@ -420,7 +427,40 @@ fn normalize_locale_tag(input: &str) -> String {
         .split('@')
         .next()
         .unwrap_or(input)
-        .replace('-', "_")
+        .replace('-', "_");
+    match locale.as_str() {
+        "" | "C" | "POSIX" => None,
+        "zh" => Some("zh_CN".to_owned()),
+        "en" => Some("en_US".to_owned()),
+        _ => Some(locale),
+    }
+}
+
+/// Selects the first usable locale from values in caller-defined priority.
+#[must_use]
+pub fn select_preferred_registry_locale<'a>(values: impl IntoIterator<Item = &'a str>) -> String {
+    values
+        .into_iter()
+        .find_map(normalize_registry_locale)
+        .unwrap_or_else(|| "en_US".to_owned())
+}
+
+/// Detects the preferred registry locale from the process environment.
+///
+/// The priority matches the legacy runtime: `LANGUAGE`, `LC_ALL`,
+/// `LC_MESSAGES`, `LANG`, then `en_US`.
+#[must_use]
+pub fn detect_preferred_registry_locale() -> String {
+    let values = ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    select_preferred_registry_locale(values.iter().map(String::as_str))
+}
+
+fn normalize_locale_tag(input: &str) -> String {
+    normalize_registry_locale(input).unwrap_or_default()
 }
 
 fn non_empty_string(input: Option<&str>) -> Option<&str> {

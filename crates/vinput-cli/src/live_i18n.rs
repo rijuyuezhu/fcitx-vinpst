@@ -8,7 +8,9 @@ use std::{
 
 use anyhow::Context;
 use serde_json::{Value, json};
-use vinput_registry::{LiveRegistryI18n, RegistryTextSource, ReqwestRegistryTextSource};
+use vinput_registry::{
+    LiveRegistryI18n, RegistryTextSource, ReqwestRegistryTextSource, normalize_registry_locale,
+};
 
 const FALLBACK_LOCALE: &str = "en_US";
 
@@ -49,27 +51,23 @@ fn load_live_i18n_with_source(
     locale: &str,
     local_override_path: Option<&Path>,
 ) -> anyhow::Result<LoadedLiveI18n> {
-    let preferred_locale = locale.trim();
+    let preferred_locale =
+        normalize_registry_locale(locale).unwrap_or_else(|| FALLBACK_LOCALE.to_owned());
     let (fallback, preferred) = if let Some(path) = i18n_path {
         (
             skipped_layer("fallback", "explicit i18n file supplied"),
             load_required_file_layer(path)?,
         )
     } else if let Some(remote_base_url) = remote_base_url {
-        if preferred_locale.is_empty() {
-            (
-                skipped_layer("fallback", "empty locale"),
-                skipped_layer("preferred", "empty locale"),
-            )
-        } else if preferred_locale == FALLBACK_LOCALE {
+        if preferred_locale == FALLBACK_LOCALE {
             (
                 skipped_layer("fallback", "preferred locale is en_US"),
-                fetch_remote_layer(source, remote_base_url, preferred_locale),
+                fetch_remote_layer(source, remote_base_url, &preferred_locale),
             )
         } else {
             (
                 fetch_remote_layer(source, remote_base_url, FALLBACK_LOCALE),
-                fetch_remote_layer(source, remote_base_url, preferred_locale),
+                fetch_remote_layer(source, remote_base_url, &preferred_locale),
             )
         }
     } else {
@@ -105,6 +103,7 @@ fn load_live_i18n_with_source(
     if let Some(object) = source_json.as_object_mut() {
         object.insert("loaded".to_owned(), json!(loaded));
         object.insert("entry_count".to_owned(), json!(entry_count));
+        object.insert("preferred_locale".to_owned(), json!(preferred_locale));
         object.insert(
             "priority".to_owned(),
             json!(["local", "preferred", "fallback"]),

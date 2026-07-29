@@ -50,7 +50,8 @@ pub use installed::{
 };
 pub use live::{
     InstalledModelDisplayMetadata, LiveModelEntry, LiveModelFamily, LiveModelRegistry,
-    LiveRegistryI18n, LiveVinputModelMetadata,
+    LiveRegistryI18n, LiveVinputModelMetadata, detect_preferred_registry_locale,
+    normalize_registry_locale, select_preferred_registry_locale,
 };
 pub use materialize::{
     MaterializedRegistryTree, RegistryMaterializeError, materialize_staged_tree,

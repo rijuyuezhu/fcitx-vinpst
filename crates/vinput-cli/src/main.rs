@@ -30,10 +30,10 @@ use vinput_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, InstalledModelInfo, LiveModelEntry,
     LiveModelFamily, LiveModelInstallRequest, LiveModelInstallResult, LiveModelRegistry,
     LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, PlannedAsset, RegistryIndex,
-    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
-    install_live_script, load_installed_model_info as load_registry_installed_model_info,
-    managed_script_relative_path, materialize_asr_provider, materialize_llm_adapter,
-    scan_installed_models,
+    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
+    detect_preferred_registry_locale, install_live_model, install_live_script,
+    load_installed_model_info as load_registry_installed_model_info, managed_script_relative_path,
+    materialize_asr_provider, materialize_llm_adapter, scan_installed_models,
 };
 use vinput_text::{
     OpenAiCompatibleTextAdapter, ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,
@@ -568,7 +568,7 @@ enum AdapterCommand {
         #[arg(long)]
         i18n: Option<PathBuf>,
         /// Registry locale used by --available.
-        #[arg(long, default_value = "zh_CN")]
+        #[arg(long, default_value_t = detect_preferred_registry_locale())]
         locale: String,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
@@ -941,7 +941,7 @@ enum ProviderCommand {
         #[arg(long)]
         i18n: Option<PathBuf>,
         /// Registry locale used by --available.
-        #[arg(long, default_value = "zh_CN")]
+        #[arg(long, default_value_t = detect_preferred_registry_locale())]
         locale: String,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
@@ -1176,7 +1176,7 @@ enum ModelCommand {
         #[arg(long)]
         config: Option<PathBuf>,
         /// Live registry i18n locale to fetch when reading remote mirrors.
-        #[arg(long, default_value = "zh_CN")]
+        #[arg(long, default_value_t = detect_preferred_registry_locale())]
         locale: String,
         /// Print machine-readable JSON instead of text table output.
         #[arg(long)]
@@ -1202,7 +1202,7 @@ enum ModelCommand {
         #[arg(long)]
         config: Option<PathBuf>,
         /// Live registry i18n locale to fetch when reading remote mirrors.
-        #[arg(long, default_value = "zh_CN")]
+        #[arg(long, default_value_t = detect_preferred_registry_locale())]
         locale: String,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
@@ -1223,7 +1223,7 @@ enum ModelCommand {
         #[arg(long)]
         config: Option<PathBuf>,
         /// Live registry i18n locale to fetch when reading remote mirrors.
-        #[arg(long, default_value = "zh_CN")]
+        #[arg(long, default_value_t = detect_preferred_registry_locale())]
         locale: String,
         /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
         #[arg(long)]
@@ -1255,7 +1255,7 @@ enum ModelCommand {
         #[arg(long)]
         config: Option<PathBuf>,
         /// Live registry i18n locale to fetch when reading remote mirrors.
-        #[arg(long, default_value = "zh_CN")]
+        #[arg(long, default_value_t = detect_preferred_registry_locale())]
         locale: String,
         /// ASR provider id to update. Defaults to the config active provider.
         #[arg(long)]
@@ -1297,7 +1297,7 @@ enum ModelCommand {
         #[arg(long)]
         config: Option<PathBuf>,
         /// Live registry i18n locale to fetch when reading remote mirrors.
-        #[arg(long, default_value = "zh_CN")]
+        #[arg(long, default_value_t = detect_preferred_registry_locale())]
         locale: String,
         /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinput/models.
         #[arg(long)]

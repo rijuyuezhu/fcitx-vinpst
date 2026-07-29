@@ -1173,6 +1173,58 @@ fn provider_list_available_applies_automatic_local_i18n_override() {
 }
 
 #[test]
+fn provider_list_available_detects_and_normalizes_default_locale() {
+    let config_path = write_live_provider_config_fixture("vinput-provider-detected-locale-config");
+    let registry_path = write_live_provider_registry_fixture(
+        "vinput-provider-detected-locale-registry",
+        "https://provider.example.test/entry.py",
+    );
+    let i18n_path = write_temp_json(
+        "vinput-provider-detected-locale-i18n",
+        r#"{"provider.openai-compatible.streaming.title":"Localized title"}"#,
+    );
+    let config_home = tempfile::tempdir().expect("create isolated XDG config home");
+
+    let detected = vinput_command()
+        .env("XDG_CONFIG_HOME", config_home.path())
+        .env("LANGUAGE", "en-US.UTF-8")
+        .env_remove("LC_ALL")
+        .env_remove("LC_MESSAGES")
+        .env_remove("LANG")
+        .args(["provider", "list", "--available", "--registry"])
+        .arg(&registry_path)
+        .arg("--i18n")
+        .arg(&i18n_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .expect("run provider list with detected locale");
+    let detected = assert_json_success(detected, "provider list detected locale");
+    assert_eq!(detected["i18n"]["preferred_locale"], "en_US");
+
+    let explicit = vinput_command()
+        .env("XDG_CONFIG_HOME", config_home.path())
+        .env("LANGUAGE", "en-US.UTF-8")
+        .args(["provider", "list", "--available", "--registry"])
+        .arg(&registry_path)
+        .arg("--i18n")
+        .arg(&i18n_path)
+        .args(["--locale", "zh"])
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .expect("run provider list with explicit locale");
+    let explicit = assert_json_success(explicit, "provider list explicit locale");
+    assert_eq!(explicit["i18n"]["preferred_locale"], "zh_CN");
+
+    fs::remove_file(&config_path).expect("remove temporary config");
+    fs::remove_file(&registry_path).expect("remove temporary registry");
+    fs::remove_file(&i18n_path).expect("remove temporary i18n");
+}
+
+#[test]
 fn provider_list_available_text_prints_live_registry_table() {
     let config_path = write_live_provider_config_fixture("vinput-provider-available-config-text");
     let registry_path = write_live_provider_registry_fixture(
