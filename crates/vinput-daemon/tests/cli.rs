@@ -118,7 +118,15 @@ fn live_demo_config_path() -> PathBuf {
 }
 
 fn daemon_command() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_vinput-daemon"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_vinput-daemon"));
+    command.env(
+        "XDG_CONFIG_HOME",
+        std::env::temp_dir().join(format!(
+            "vinput-daemon-test-empty-config-{}",
+            std::process::id()
+        )),
+    );
+    command
 }
 
 fn run_daemon(args: &[&str], context: &str) -> Output {
@@ -301,6 +309,46 @@ fn print_config_accepts_committed_default_fixture() {
     assert_eq!(value["active_scene"], "__raw__");
     assert_eq!(value["provider_count"], 1);
     assert_eq!(value["scene_count"], 2);
+}
+
+#[test]
+fn print_config_discovers_xdg_user_config_without_explicit_path() {
+    let config_home = tempfile::tempdir().expect("create temporary config home");
+    let config_dir = config_home.path().join("fcitx-vinput");
+    fs::create_dir_all(&config_dir).expect("create daemon config directory");
+    fs::copy(e2e_demo_config_path(), config_dir.join("config.json"))
+        .expect("copy daemon user config");
+
+    let output = daemon_command()
+        .env("XDG_CONFIG_HOME", config_home.path())
+        .arg("print-config")
+        .output()
+        .expect("run vinput-daemon with discovered user config");
+    let value = assert_json_success(output, "discovered user config");
+
+    assert_eq!(value["active_provider"], "demo-command-asr");
+    assert_eq!(value["active_scene"], "demo-postprocess");
+}
+
+#[test]
+fn explicit_config_overrides_discovered_xdg_user_config() {
+    let config_home = tempfile::tempdir().expect("create temporary config home");
+    let config_dir = config_home.path().join("fcitx-vinput");
+    fs::create_dir_all(&config_dir).expect("create daemon config directory");
+    fs::copy(e2e_demo_config_path(), config_dir.join("config.json"))
+        .expect("copy daemon user config");
+
+    let output = daemon_command()
+        .env("XDG_CONFIG_HOME", config_home.path())
+        .arg("--config")
+        .arg(default_config_path())
+        .arg("print-config")
+        .output()
+        .expect("run vinput-daemon with explicit config override");
+    let value = assert_json_success(output, "explicit config override");
+
+    assert_eq!(value["active_provider"], "sherpa-onnx");
+    assert_eq!(value["active_scene"], "__raw__");
 }
 
 #[test]

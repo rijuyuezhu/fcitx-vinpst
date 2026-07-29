@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke capture-cold-start-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -347,6 +347,9 @@ capture-cold-start-smoke:
 
 remote-text-daemon-lifecycle-smoke:
     scripts/run-remote-text-daemon-lifecycle-smoke.sh
+
+daemon-default-config-smoke:
+    scripts/run-daemon-default-config-smoke.sh
 
 # Prove that the initial daemon-status call reports a newly D-Bus-activated user daemon owner.
 user-ime-activation-owner-smoke:

@@ -125,7 +125,8 @@ async fn main() -> anyhow::Result<()> {
     trace_startup("before args parse");
     let args = Args::parse();
     trace_startup("parsed args");
-    let config = load_config(args.config.as_ref())?;
+    let loaded_config = load_config(args.config.as_ref())?;
+    let config = loaded_config.config;
     if args.pcm16le.is_some() && args.wav.is_some() {
         bail!("--pcm16le and --wav cannot be used together");
     }
@@ -142,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let mut runtime = build_runtime(&args, config).context("initialize runtime")?;
-    runtime.set_config_path(args.config.clone());
+    runtime.set_config_path(loaded_config.path);
     runtime.set_model_root(Some(resolve_model_root(args.model_root.as_ref())?));
 
     if args.once {
@@ -507,10 +508,45 @@ fn resolve_model_root(explicit: Option<&PathBuf>) -> anyhow::Result<PathBuf> {
         .join("models"))
 }
 
-fn load_config(path: Option<&PathBuf>) -> anyhow::Result<VinputConfig> {
-    match path {
-        Some(path) => VinputConfig::from_json_file(path)
-            .with_context(|| format!("load daemon config `{}`", path.display())),
-        None => VinputConfig::bundled_default().context("load bundled default config"),
+struct LoadedConfig {
+    config: VinputConfig,
+    path: Option<PathBuf>,
+}
+
+fn load_config(path: Option<&PathBuf>) -> anyhow::Result<LoadedConfig> {
+    if let Some(path) = path {
+        return Ok(LoadedConfig {
+            config: VinputConfig::from_json_file(path)
+                .with_context(|| format!("load daemon config `{}`", path.display()))?,
+            path: Some(path.clone()),
+        });
     }
+
+    let default_path = default_user_config_path()?;
+    if default_path.is_file() {
+        return Ok(LoadedConfig {
+            config: VinputConfig::from_json_file(&default_path).with_context(|| {
+                format!("load default daemon config `{}`", default_path.display())
+            })?,
+            path: Some(default_path),
+        });
+    }
+
+    Ok(LoadedConfig {
+        config: VinputConfig::bundled_default().context("load bundled default config")?,
+        path: None,
+    })
+}
+
+fn default_user_config_path() -> anyhow::Result<PathBuf> {
+    let config_home = match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => {
+            let home = std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .context("resolve default daemon config path: HOME is unset")?;
+            PathBuf::from(home).join(".config")
+        }
+    };
+    Ok(config_home.join("fcitx-vinput").join("config.json"))
 }

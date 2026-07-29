@@ -153,7 +153,7 @@ fn dbus_architecture_labels_extensions_and_postprocessing_contract() {
         "flat Rust and legacy engine/model install layouts",
         "actual effective provider/model",
         "same non-blocking prepare-before-swap worker",
-        "atomically persists the explicit daemon config",
+        "atomically persists the explicit or automatically discovered daemon config",
         "runtime-only selection",
     ] {
         assert!(
@@ -237,6 +237,8 @@ fn config_architecture_pins_summary_redaction_contract() {
         "speech padding at most `2000` ms",
         "online/streaming recognition does not use this trimmer",
         "`vinput-daemon --config data/default-config.json print-config`",
+        "`$XDG_CONFIG_HOME/fcitx-vinput/config.json`",
+        "`just daemon-default-config-smoke`",
     ] {
         assert!(
             config_doc.contains(required),

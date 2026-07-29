@@ -11,6 +11,8 @@ cargo run -q -p vinput-cli -- config validate data/default-config.json --summary
 cargo run -q -p vinput-cli -- asr-state --config data/default-config.json
 ```
 
+Daemon config resolution preserves the legacy user-path behavior. An explicit `--config` path has highest priority. Without it, the daemon reads `$XDG_CONFIG_HOME/fcitx-vinput/config.json`, falling back to `$HOME/.config/fcitx-vinput/config.json`; only a missing user file falls back to the bundled default. A discovered user file is retained as the runtime persistence path, so D-Bus scene/provider selection and config reload update the same file. `just daemon-default-config-smoke` starts the daemon on a private session bus without `--config`, switches the active scene, and verifies the discovered file is atomically updated.
+
 Integration tests consume the same committed fixture directly, so changes to config parsing or defaults must keep the CLI summary and ASR diagnostics contracts stable.
 
 The committed baseline intentionally fixes these compatibility fields:
