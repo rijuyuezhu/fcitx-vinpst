@@ -201,6 +201,10 @@ ime-fcitx-model-switch-live:
 ime-fcitx-menu-paging-live:
     scripts/run-ime-fcitx-menu-paging-live.sh
 
+# Explicit multi-page ASR menu paging without selecting or reloading a model.
+ime-fcitx-asr-menu-paging-live:
+    scripts/run-ime-fcitx-asr-menu-paging-live.sh
+
 # Compile toolkit probes without entering a real desktop flow.
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check

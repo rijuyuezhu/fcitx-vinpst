@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Exercise real Fcitx scene-menu PageDown/PageUp without selecting a scene."""
+"""Exercise real Fcitx scene or ASR menu paging without selecting an item."""
 
 import argparse
 import ast
 import importlib
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from typing import Any
@@ -18,11 +19,9 @@ FcitxG = importlib.import_module("gi.repository.FcitxG")
 Gdk = importlib.import_module("gi.repository.Gdk")
 GLib = importlib.import_module("gi.repository.GLib")
 
-DBUS_METHOD = (
-    "org.fcitx.Vinput",
-    "/org/fcitx/Vinput",
-    "org.fcitx.Vinput.Service.GetSceneState",
-)
+DBUS_SERVICE = "org.fcitx.Vinput"
+DBUS_PATH = "/org/fcitx/Vinput"
+DBUS_INTERFACE = "org.fcitx.Vinput.Service"
 PAGE_SIZE = 10
 
 
@@ -30,18 +29,18 @@ def emit(event: str, **fields: object) -> None:
     print(json.dumps({"event": event, **fields}, ensure_ascii=False), flush=True)
 
 
-def get_scene_state() -> tuple[str, list[tuple[str, str]]]:
+def call_service(method: str) -> str:
     result = subprocess.run(
         [
             "gdbus",
             "call",
             "--session",
             "--dest",
-            DBUS_METHOD[0],
+            DBUS_SERVICE,
             "--object-path",
-            DBUS_METHOD[1],
+            DBUS_PATH,
             "--method",
-            DBUS_METHOD[2],
+            f"{DBUS_INTERFACE}.{method}",
         ],
         check=False,
         capture_output=True,
@@ -49,13 +48,64 @@ def get_scene_state() -> tuple[str, list[tuple[str, str]]]:
         timeout=3,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "GetSceneState failed")
-    parsed = ast.literal_eval(result.stdout.strip())
-    if not isinstance(parsed, tuple) or len(parsed) != 2:
-        raise TypeError(f"unexpected GetSceneState reply: {parsed!r}")
-    active, rows = parsed
-    scenes = [(scene_id, label) for scene_id, label in rows]
-    return active, scenes
+        raise RuntimeError(result.stderr.strip() or f"{method} failed")
+    return result.stdout.strip()
+
+
+def parse_gdbus_literal(value: str) -> object:
+    normalized = re.sub(r"\btrue\b", "True", value)
+    normalized = re.sub(r"\bfalse\b", "False", normalized)
+    return ast.literal_eval(normalized)
+
+
+def get_menu_state(menu: str) -> dict[str, object]:
+    if menu == "scene":
+        parsed = parse_gdbus_literal(call_service("GetSceneState"))
+        if not isinstance(parsed, tuple) or len(parsed) != 2:
+            raise TypeError(f"unexpected GetSceneState reply: {parsed!r}")
+        active_scene, rows = parsed
+        return {
+            "active_scene": active_scene,
+            "rows": [(scene_id, label) for scene_id, label in rows],
+        }
+
+    parsed = parse_gdbus_literal(call_service("GetAsrDisplayMenuState"))
+    if not isinstance(parsed, tuple) or len(parsed) != 7:
+        raise TypeError(f"unexpected GetAsrDisplayMenuState reply: {parsed!r}")
+    (
+        target_provider,
+        target_model,
+        effective_provider,
+        effective_model,
+        reload_in_progress,
+        last_error,
+        rows,
+    ) = parsed
+    return {
+        "target_provider": target_provider,
+        "target_model": target_model,
+        "effective_provider": effective_provider,
+        "effective_model": effective_model,
+        "reload_in_progress": reload_in_progress,
+        "last_error": last_error,
+        "rows": [tuple(row) for row in rows],
+    }
+
+
+def protected_menu_state(menu: str, state: dict[str, object]) -> dict[str, object]:
+    if menu == "scene":
+        return {"active_scene": state["active_scene"]}
+    return {
+        key: state[key]
+        for key in (
+            "target_provider",
+            "target_model",
+            "effective_provider",
+            "effective_model",
+            "reload_in_progress",
+            "last_error",
+        )
+    }
 
 
 @dataclass
@@ -70,24 +120,24 @@ class PagingState:
     key_events: list[dict[str, Any]] = field(default_factory=list)
 
 
-class SceneMenuPagingProbe:
+class MenuPagingProbe:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.state = PagingState()
-        self.original_scene, scenes = get_scene_state()
-        labels = [
-            label for scene_id, label in scenes if scene_id != self.original_scene
-        ]
-        if len(labels) <= PAGE_SIZE:
+        self.before = get_menu_state(args.menu)
+        rows = self.before["rows"]
+        if not isinstance(rows, list) or len(rows) <= PAGE_SIZE:
+            count = len(rows) if isinstance(rows, list) else 0
             raise RuntimeError(
-                f"scene paging needs more than {PAGE_SIZE} candidates, found {len(labels)}"
+                f"{args.menu} paging needs more than {PAGE_SIZE} state rows, found {count}"
             )
-        self.first_page = labels[:PAGE_SIZE]
-        self.second_page = labels[PAGE_SIZE : PAGE_SIZE * 2]
+        self.protected_before = protected_menu_state(args.menu, self.before)
+        self.first_page: list[str] = []
+        self.second_page: list[str] = []
         self.stage = 0
         self.loop = GLib.MainLoop()
         self.client = FcitxG.Client.new()
-        self.client.set_program("fcitx-vinput-scene-menu-paging-live-probe")
+        self.client.set_program(f"fcitx-vinput-{args.menu}-menu-paging-live-probe")
         self.client.set_display(
             os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
         )
@@ -132,6 +182,7 @@ class SceneMenuPagingProbe:
         candidates = [item.candidate or "" for item in (candidate_list or [])]
         emit(
             "input-panel",
+            menu=self.args.menu,
             preedit=self.formatted_text(preedit),
             title=self.formatted_text(aux_up),
             status=self.formatted_text(aux_down),
@@ -142,13 +193,15 @@ class SceneMenuPagingProbe:
             stage=self.stage,
         )
         if self.stage == 0 and candidates:
-            if candidates == self.first_page and not has_prev and has_next:
+            self.first_page = list(candidates)
+            if len(candidates) == PAGE_SIZE and not has_prev and has_next:
                 self.state.first_page_seen = True
                 self.stage = 1
                 GLib.timeout_add(100, self.tap, "page-next", self.args.page_next_keyval)
             return
-        if self.stage == 1 and candidates == self.second_page:
-            if has_prev:
+        if self.stage == 1 and candidates and candidates != self.first_page:
+            self.second_page = list(candidates)
+            if has_prev and not has_next:
                 self.state.second_page_seen = True
                 self.stage = 2
                 GLib.timeout_add(100, self.tap, "page-prev", self.args.page_prev_keyval)
@@ -170,7 +223,10 @@ class SceneMenuPagingProbe:
         self.client.set_capability(capabilities)
         self.client.focus_in()
         emit(
-            "connected", valid=bool(self.client.is_valid()), active=self.original_scene
+            "connected",
+            valid=bool(self.client.is_valid()),
+            menu=self.args.menu,
+            protected_state=self.protected_before,
         )
         GLib.timeout_add(200, self.tap, "trigger", self.args.trigger_keyval)
 
@@ -180,7 +236,7 @@ class SceneMenuPagingProbe:
 
     def timeout(self) -> bool:
         self.state.timed_out = True
-        emit("timeout", stage=self.stage)
+        emit("timeout", menu=self.args.menu, stage=self.stage)
         self.loop.quit()
         return GLib.SOURCE_REMOVE
 
@@ -196,26 +252,29 @@ class SceneMenuPagingProbe:
     def validate(self) -> None:
         failures: list[str] = []
         if self.state.timed_out:
-            failures.append("scene menu paging timed out")
+            failures.append(f"{self.args.menu} menu paging timed out")
         if not self.state.connected:
             failures.append("Fcitx input context did not connect")
         if not self.state.first_page_seen:
-            failures.append("first scene page did not expose has_next")
+            failures.append(f"first {self.args.menu} page did not expose has_next")
         if not self.state.second_page_seen:
             failures.append(
-                "configured next-page key did not expose the second scene page"
+                "configured next-page key did not expose the second "
+                f"{self.args.menu} page"
             )
         if not self.state.first_page_restored:
             failures.append(
-                "configured previous-page key did not restore the first scene page"
+                "configured previous-page key did not restore the first "
+                f"{self.args.menu} page"
             )
         if not self.state.menu_closed:
-            failures.append("Escape did not close the paged scene menu")
-        active, _scenes = get_scene_state()
-        if active != self.original_scene:
-            failures.append("scene paging unexpectedly changed the active scene")
+            failures.append(f"Escape did not close the paged {self.args.menu} menu")
+        after = get_menu_state(self.args.menu)
+        protected_after = protected_menu_state(self.args.menu, after)
+        if protected_after != self.protected_before:
+            failures.append(f"{self.args.menu} paging changed protected menu state")
         if self.state.commits:
-            failures.append("scene paging unexpectedly committed text")
+            failures.append(f"{self.args.menu} paging unexpectedly committed text")
         key_events = {event["label"]: event for event in self.state.key_events}
         for label in ("trigger", "page-next", "page-prev", "escape"):
             event = key_events.get(label)
@@ -224,9 +283,12 @@ class SceneMenuPagingProbe:
 
         emit(
             "summary",
-            active_scene=self.original_scene,
+            menu=self.args.menu,
+            protected_state=self.protected_before,
             page_next_key=self.args.page_next_key,
             page_prev_key=self.args.page_prev_key,
+            first_page=self.first_page,
+            second_page=self.second_page,
             first_page_count=len(self.first_page),
             second_page_count=len(self.second_page),
             first_page_seen=self.state.first_page_seen,
@@ -243,6 +305,7 @@ class SceneMenuPagingProbe:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--menu", choices=("scene", "asr"), default="scene")
     parser.add_argument("--trigger-key", default="F7")
     parser.add_argument("--page-next-key", default="Page_Down")
     parser.add_argument("--page-prev-key", default="Page_Up")
@@ -259,7 +322,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     try:
-        SceneMenuPagingProbe(parse_args()).run()
+        MenuPagingProbe(parse_args()).run()
     except (GLib.Error, OSError, RuntimeError, TypeError, ValueError) as error:
         emit("fatal", error=str(error))
         return 1

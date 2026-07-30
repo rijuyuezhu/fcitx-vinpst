@@ -837,14 +837,18 @@ fn scene_menu_paging_live_gate_pins_state_and_restore() {
     let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
 
     for required in [
+        "--menu",
+        "GetSceneState",
+        "GetAsrDisplayMenuState",
+        "protected_menu_state",
         "page-next",
         "page-prev",
         "first_page_count",
         "second_page_count",
-        "configured next-page key did not expose the second scene page",
-        "configured previous-page key did not restore the first scene page",
-        "scene paging unexpectedly changed the active scene",
-        "scene paging unexpectedly committed text",
+        "configured next-page key did not expose the second ",
+        "configured previous-page key did not restore the first ",
+        "paging changed protected menu state",
+        "paging unexpectedly committed text",
     ] {
         assert!(
             probe.contains(required),
@@ -907,6 +911,73 @@ fn scene_menu_paging_live_gate_pins_state_and_restore() {
         .find(|line| line.starts_with("check:"))
         .expect("check recipe");
     assert!(!check_line.contains("ime-fcitx-menu-paging-live"));
+}
+
+#[test]
+fn asr_menu_paging_live_gate_pins_state_and_restore() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-paging-probe.py"))
+        .expect("read generic menu paging probe");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-asr-menu-paging-live.sh",
+    ))
+    .expect("read ASR menu paging runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "--menu",
+        "choices=(\"scene\", \"asr\")",
+        "GetAsrDisplayMenuState",
+        "target_provider",
+        "effective_provider",
+        "reload_in_progress",
+        "last_error",
+        "first_page_count",
+        "second_page_count",
+        "paging changed protected menu state",
+    ] {
+        assert!(
+            probe.contains(required),
+            "generic paging probe should pin ASR state: {required}"
+        );
+    }
+    for required in [
+        "--menu asr",
+        "--model-root",
+        "PageNextKeys",
+        "PagePrevKeys",
+        "cp -al",
+        "rm -f \"${target}/vinput-model.json\"",
+        "model.sherpa-onnx.live-paging-",
+        "temporary_model_count=14",
+        "service-before.service",
+        "config-before.json",
+        "verify_profile_unchanged",
+        "restart_fcitx",
+        "GetAsrDisplayMenuState",
+        "profile_unchanged",
+        "service_restored",
+        "fcitx_restored",
+        "backend_unchanged",
+        "target/tmp/ime-fcitx-asr-menu-paging-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "ASR paging runner should pin safe live evidence: {required}"
+        );
+    }
+    for forbidden in ["SetActiveAsrTarget", "--expected-model", "pw-play"] {
+        assert!(
+            !runner.contains(forbidden),
+            "ASR paging gate must not select, reload, or inject audio via {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-asr-menu-paging-live:"));
+    assert!(justfile.contains("run-ime-fcitx-asr-menu-paging-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-asr-menu-paging-live"));
 }
 
 #[test]
