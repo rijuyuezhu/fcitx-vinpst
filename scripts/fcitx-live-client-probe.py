@@ -68,9 +68,12 @@ def wav_duration_ms(path: Path) -> int:
 class LiveProbe:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.state = ProbeState(
-            buffer=args.selected_text if args.mode == "command" else ""
+        initial_buffer = (
+            args.selected_text
+            if args.mode == "command" and not args.primary_selection_fallback
+            else ""
         )
+        self.state = ProbeState(buffer=initial_buffer)
         self.loop = GLib.MainLoop()
         self.client = FcitxG.Client.new()
         self.client.set_program(f"fcitx-vinput-{args.mode}-live-probe")
@@ -361,6 +364,13 @@ class LiveProbe:
             valid=bool(self.client.is_valid()),
             mode=self.args.mode,
             buffer=self.state.buffer,
+            selection_source=(
+                "primary"
+                if self.args.primary_selection_fallback
+                else "surrounding"
+                if self.args.mode == "command"
+                else "none"
+            ),
         )
         GLib.timeout_add(self.args.start_delay_ms, self.start_recording)
         GLib.timeout_add(self.args.play_delay_ms, self.start_playback)
@@ -375,7 +385,7 @@ class LiveProbe:
         self.state.connected = True
         capabilities = (1 << 1) | (1 << 4) | (1 << 6) | (1 << 39)
         self.client.set_capability(capabilities)
-        if self.args.mode == "command":
+        if self.args.mode == "command" and not self.args.primary_selection_fallback:
             selected_bytes = len(self.args.selected_text.encode("utf-8"))
             self.client.set_surrounding_text(self.args.selected_text, selected_bytes, 0)
         self.maybe_schedule()
@@ -441,10 +451,21 @@ class LiveProbe:
         if self.args.mode == "command":
             if not self.state.candidates and not self.args.allow_direct_command_commit:
                 failures.append("command mode produced no candidate menu")
-            if not self.state.deletes:
-                failures.append("command mode did not delete selected text")
-            if self.state.buffer == self.args.selected_text:
-                failures.append("command mode did not replace selected text")
+            final_commit = self.state.commits[-1] if self.state.commits else ""
+            if self.args.primary_selection_fallback:
+                if self.state.deletes:
+                    failures.append(
+                        "primary-selection fallback unexpectedly deleted surrounding text"
+                    )
+                if self.args.selected_text not in final_commit:
+                    failures.append(
+                        "primary-selection fallback commit did not contain selected text"
+                    )
+            else:
+                if not self.state.deletes:
+                    failures.append("command mode did not delete selected text")
+                if self.state.buffer == self.args.selected_text:
+                    failures.append("command mode did not replace selected text")
         if self.args.focus_switch:
             if not self.state.focus_switched:
                 failures.append("focus did not switch to the secondary context")
@@ -459,6 +480,18 @@ class LiveProbe:
             "commit": self.state.commits[-1] if self.state.commits else "",
             "expected_commit_prefix": self.args.expected_commit_prefix,
             "allow_direct_command_commit": self.args.allow_direct_command_commit,
+            "primary_selection_fallback": self.args.primary_selection_fallback,
+            "selection_source": (
+                "primary"
+                if self.args.primary_selection_fallback
+                else "surrounding"
+                if self.args.mode == "command"
+                else "none"
+            ),
+            "selected_text": self.args.selected_text,
+            "surrounding_text_provided": (
+                self.args.mode == "command" and not self.args.primary_selection_fallback
+            ),
             "candidate_count": len(self.state.candidates),
             "delete_count": len(self.state.deletes),
             "focus_switch": self.args.focus_switch,
@@ -489,6 +522,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--selected-text", default="selected text")
     parser.add_argument("--expected-commit-prefix", default="")
     parser.add_argument("--allow-direct-command-commit", action="store_true")
+    parser.add_argument("--primary-selection-fallback", action="store_true")
     parser.add_argument("--playback-command", default="pw-play")
     parser.add_argument("--playback-target", default="")
     parser.add_argument("--start-delay-ms", type=int, default=300)
@@ -515,6 +549,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--expected-commit-prefix currently supports command mode only")
     if args.allow_direct_command_commit and args.mode != "command":
         parser.error("--allow-direct-command-commit supports command mode only")
+    if args.primary_selection_fallback and args.mode != "command":
+        parser.error("--primary-selection-fallback supports command mode only")
     if args.focus_switch and args.focus_switch_delay_ms >= (
         args.play_delay_ms + wav_duration_ms(args.wav) + args.playback_tail_ms
     ):

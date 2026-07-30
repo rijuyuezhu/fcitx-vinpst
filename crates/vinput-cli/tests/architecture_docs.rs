@@ -485,7 +485,7 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "--playback-target",
         "target/tmp/ime-fcitx-native-live",
         "org.fcitx.Vinput must be idle",
-        "trap restore_idle EXIT",
+        "trap cleanup EXIT",
         "call_service StopRecording",
         "--mode \"${mode}\"",
         "--focus-switch",
@@ -514,6 +514,60 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         .find(|line| line.starts_with("check:"))
         .expect("check recipe");
     assert!(!check_line.contains("ime-fcitx-native-command-adapter-live"));
+}
+
+#[test]
+fn primary_selection_live_gate_pins_owner_and_zero_delete() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-client-probe.py"))
+        .expect("read Fcitx live client probe");
+    let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-native-live.sh"))
+        .expect("read Fcitx native live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "--primary-selection-fallback",
+        "primary_selection_fallback",
+        "selection_source",
+        "surrounding_text_provided",
+        "primary-selection fallback unexpectedly deleted surrounding text",
+        "primary-selection fallback commit did not contain selected text",
+    ] {
+        assert!(
+            probe.contains(required),
+            "primary-selection probe should pin fallback evidence: {required}"
+        );
+    }
+    for required in [
+        "VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK",
+        "wl-copy --primary --foreground",
+        "wl-paste --primary --no-newline",
+        "primary-selection-before.txt",
+        "primary-selection-setup.json",
+        "primary_snapshot_ready",
+        "restore_primary_selection",
+        "--primary-selection-fallback",
+    ] {
+        assert!(
+            runner.contains(required),
+            "primary-selection runner should pin ownership and restore: {required}"
+        );
+    }
+    for required in [
+        "ime-fcitx-primary-selection-live:",
+        "primary fallback fixture",
+        "native-command-live-adapter",
+        "target/tmp/ime-fcitx-primary-selection-live",
+    ] {
+        assert!(
+            justfile.contains(required),
+            "justfile should pin primary-selection live recipe: {required}"
+        );
+    }
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-primary-selection-live"));
 }
 
 #[test]

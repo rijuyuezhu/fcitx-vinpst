@@ -173,6 +173,10 @@ ime-fcitx-reload-live:
 ime-fcitx-native-command-adapter-live:
     VINPUT_LIVE_NATIVE_MODES=command VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' scripts/run-ime-fcitx-native-live.sh
 
+# Explicit primary-selection fallback through an input context without surrounding text.
+ime-fcitx-primary-selection-live:
+    VINPUT_LIVE_NATIVE_MODES=command VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK=1 VINPUT_LIVE_SELECTED_TEXT='primary fallback fixture' VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-primary-selection-live scripts/run-ime-fcitx-virtual-source-live.sh
+
 # Explicit scene/ASR menu probe through a real Fcitx input context.
 ime-fcitx-menu-live:
     scripts/run-ime-fcitx-menu-live.sh

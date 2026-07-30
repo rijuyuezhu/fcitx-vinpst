@@ -9,12 +9,16 @@ selected_text="${VINPUT_LIVE_SELECTED_TEXT:-selected text}"
 modes="${VINPUT_LIVE_NATIVE_MODES:-normal,command}"
 focus_switch="${VINPUT_LIVE_NATIVE_FOCUS_SWITCH:-0}"
 owner_loss="${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}"
+primary_selection_fallback="${VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK:-0}"
 expected_text_adapter="${VINPUT_LIVE_EXPECTED_TEXT_ADAPTER:-}"
 expected_commit_prefix="${VINPUT_LIVE_EXPECTED_COMMIT_PREFIX:-}"
 playback_target="${VINPUT_LIVE_PLAYBACK_TARGET:-}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
 out_dir="${VINPUT_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
 probe="scripts/fcitx-live-client-probe.py"
+primary_owner_pid=""
+primary_before_present=0
+primary_snapshot_ready=0
 
 call_service() {
   gdbus call --session \
@@ -31,7 +35,53 @@ restore_idle() {
   fi
 }
 
-trap restore_idle EXIT
+restore_primary_selection() {
+  local restored_path
+  if [[ "${primary_selection_fallback}" == "0" || "${primary_snapshot_ready}" == "0" ]]; then
+    return 0
+  fi
+  if [[ -n "${primary_owner_pid}" ]]; then
+    kill -TERM "${primary_owner_pid}" 2>/dev/null || true
+    wait "${primary_owner_pid}" 2>/dev/null || true
+    primary_owner_pid=""
+  fi
+  if [[ "${primary_before_present}" == "1" ]]; then
+    wl-copy --primary --type 'text/plain;charset=utf-8' \
+      <"${out_dir}/primary-selection-before.txt" >/dev/null 2>&1
+    restored_path="${out_dir}/primary-selection-restored.txt"
+    for _ in $(seq 1 50); do
+      if timeout 1s wl-paste --primary --no-newline \
+        >"${restored_path}" 2>/dev/null &&
+        cmp -s "${out_dir}/primary-selection-before.txt" "${restored_path}"; then
+        return 0
+      fi
+      sleep 0.05
+    done
+    echo "failed to restore the previous Wayland primary selection" >&2
+    return 1
+  fi
+  wl-copy --primary --clear
+  for _ in $(seq 1 50); do
+    if ! timeout 1s wl-paste --primary --no-newline >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.05
+  done
+  echo "failed to clear the temporary Wayland primary selection" >&2
+  return 1
+}
+
+cleanup() {
+  local exit_code=$?
+  trap - EXIT
+  set +e
+  restore_idle
+  if ! restore_primary_selection; then
+    exit_code=1
+  fi
+  exit "${exit_code}"
+}
+trap cleanup EXIT
 
 if [[ -z "${wav_path}" ]]; then
   echo "set VINPUT_LIVE_NATIVE_WAV to a validated speech WAV" >&2
@@ -46,12 +96,20 @@ if [[ -f "${env_file}" ]]; then
   . "${env_file}"
 fi
 
-for command in python3 pw-play fcitx5-remote gdbus; do
+for command in python3 pw-play fcitx5-remote gdbus timeout; do
   if ! command -v "${command}" >/dev/null 2>&1; then
     echo "required live-probe command is missing: ${command}" >&2
     exit 2
   fi
 done
+if [[ "${primary_selection_fallback}" != "0" ]]; then
+  for command in wl-copy wl-paste; do
+    if ! command -v "${command}" >/dev/null 2>&1; then
+      echo "required primary-selection command is missing: ${command}" >&2
+      exit 2
+    fi
+  done
+fi
 python3 - <<'PY'
 import gi
 
@@ -90,6 +148,57 @@ fi
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
 
+if [[ "${primary_selection_fallback}" != "0" ]]; then
+  if [[ "${modes}" != "command" ]]; then
+    echo "VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK requires command-only mode" >&2
+    exit 2
+  fi
+  if timeout 2s wl-paste --primary --no-newline \
+    >"${out_dir}/primary-selection-before.txt" 2>/dev/null; then
+    primary_before_present=1
+  else
+    : >"${out_dir}/primary-selection-before.txt"
+  fi
+  primary_snapshot_ready=1
+  wl-copy --primary --foreground --type 'text/plain;charset=utf-8' \
+    < <(printf '%s' "${selected_text}") &
+  primary_owner_pid=$!
+  primary_ready=0
+  for _ in $(seq 1 100); do
+    if ! kill -0 "${primary_owner_pid}" 2>/dev/null; then
+      break
+    fi
+    if current_primary="$(timeout 1s wl-paste --primary --no-newline 2>/dev/null)" &&
+      [[ "${current_primary}" == "${selected_text}" ]]; then
+      primary_ready=1
+      break
+    fi
+    sleep 0.05
+  done
+  if [[ "${primary_ready}" != "1" ]]; then
+    echo "temporary Wayland primary selection did not become readable" >&2
+    exit 1
+  fi
+  sleep 0.2
+  python3 - "${selected_text}" "${primary_before_present}" \
+    >"${out_dir}/primary-selection-setup.json" <<'PY'
+import json
+import sys
+
+print(
+    json.dumps(
+        {
+            "event": "primary-selection-ready",
+            "text": sys.argv[1],
+            "previous_text_present": sys.argv[2] == "1",
+            "ok": True,
+        },
+        ensure_ascii=False,
+    )
+)
+PY
+fi
+
 IFS=',' read -r -a requested_modes <<<"${modes}"
 for mode in "${requested_modes[@]}"; do
   case "${mode}" in
@@ -116,6 +225,10 @@ for mode in "${requested_modes[@]}"; do
     echo "VINPUT_LIVE_EXPECTED_COMMIT_PREFIX supports command mode only" >&2
     exit 2
   fi
+  if [[ "${primary_selection_fallback}" != "0" && "${mode}" != "command" ]]; then
+    echo "VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK supports command mode only" >&2
+    exit 2
+  fi
   echo "Running real Fcitx ${mode} native live probe..."
   probe_args=(
     --mode "${mode}"
@@ -130,6 +243,9 @@ for mode in "${requested_modes[@]}"; do
   fi
   if [[ "${owner_loss}" != "0" ]]; then
     probe_args+=(--owner-loss)
+  fi
+  if [[ "${primary_selection_fallback}" != "0" ]]; then
+    probe_args+=(--primary-selection-fallback)
   fi
   if [[ -n "${expected_commit_prefix}" ]]; then
     probe_args+=(
