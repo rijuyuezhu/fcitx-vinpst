@@ -85,10 +85,13 @@ int main(int argc, char **argv) {
     initial_text = QStringLiteral("selected text");
   }
   const bool require_partial = EnvFlag("VINPUT_TOOLKIT_REQUIRE_PARTIAL", true);
+  const auto expected_commit_substring =
+      qEnvironmentVariable("VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING");
 
   bool partial_seen = false;
   bool commit_seen = false;
   bool replacement_seen = false;
+  bool selection_ready = mode == ProbeMode::Normal;
   bool timed_out = false;
   QByteArray partial_monitor_buffer;
 
@@ -114,10 +117,20 @@ int main(int argc, char **argv) {
     entry->selectAll();
   }
 
+  const auto emit_ready = [&] {
+    EmitJson({{"event", "ready"},
+              {"toolkit", "qt6"},
+              {"mode", mode_text},
+              {"manual_trigger", true}});
+  };
+  const auto expected_commit_ok = [&] {
+    return expected_commit_substring.isEmpty() ||
+           entry->text().contains(expected_commit_substring);
+  };
   const auto finish_when_successful = [&] {
     const bool partial_ok = !require_partial || partial_seen;
     const bool outcome_ok = mode == ProbeMode::Normal ? commit_seen : replacement_seen;
-    if (partial_ok && outcome_ok) {
+    if (partial_ok && selection_ready && expected_commit_ok() && outcome_ok) {
       QTimer::singleShot(0, &app, &QApplication::quit);
     }
   };
@@ -173,6 +186,22 @@ int main(int argc, char **argv) {
     finish_when_successful();
   });
 
+  QTimer selection_timer;
+  QObject::connect(&selection_timer, &QTimer::timeout, &app, [&] {
+    if (!entry->hasFocus()) {
+      return;
+    }
+    entry->selectAll();
+    if (entry->selectedText() != initial_text) {
+      return;
+    }
+    selection_ready = true;
+    selection_timer.stop();
+    EmitJson({{"event", "selection-ready"}, {"text", entry->selectedText()}});
+    emit_ready();
+    finish_when_successful();
+  });
+
   QTimer timeout;
   timeout.setSingleShot(true);
   QObject::connect(&timeout, &QTimer::timeout, &app, [&] {
@@ -184,12 +213,10 @@ int main(int argc, char **argv) {
   window.show();
   entry->setFocus(Qt::OtherFocusReason);
   if (mode == ProbeMode::Command) {
-    entry->selectAll();
+    selection_timer.start(100);
+  } else {
+    emit_ready();
   }
-  EmitJson({{"event", "ready"},
-            {"toolkit", "qt6"},
-            {"mode", mode_text},
-            {"manual_trigger", true}});
   timeout.start(TimeoutMilliseconds());
   app.exec();
 
@@ -201,13 +228,16 @@ int main(int argc, char **argv) {
 
   const bool partial_ok = !require_partial || partial_seen;
   const bool outcome_ok = mode == ProbeMode::Normal ? commit_seen : replacement_seen;
-  const bool ok = partial_ok && outcome_ok && !timed_out;
+  const bool ok =
+      partial_ok && selection_ready && expected_commit_ok() && outcome_ok && !timed_out;
   EmitJson({{"event", "summary"},
             {"toolkit", "qt6"},
             {"mode", mode_text},
             {"partial", partial_seen},
             {"commit", commit_seen},
             {"replacement", replacement_seen},
+            {"selection_ready", selection_ready},
+            {"expected_commit", expected_commit_ok()},
             {"timed_out", timed_out},
             {"ok", ok},
             {"text", entry->text()}});

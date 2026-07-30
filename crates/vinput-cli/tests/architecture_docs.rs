@@ -619,6 +619,10 @@ fn qt6_live_probe_requires_real_toolkit_key_events() {
         "RecognitionPartial",
         "gdbus",
         "daemon-partial",
+        "selection-ready",
+        "selectedText",
+        "VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING",
+        "selection_ready",
     ] {
         assert!(
             source.contains(required),
