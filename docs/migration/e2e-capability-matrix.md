@@ -16,7 +16,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 - Legacy reference is `/workspace/fcitx5-vinput`.
 - `cargo test --workspace --all-targets`, D-Bus integration, and retained-addon tests pass at the reviewed baseline.
 - Native registry models are validated by model-specific local WAV smokes.
-- `sherpa-native-live` installation is validated in temporary HOME environments with a copied `libsherpa-onnx` and `libonnxruntime` bundle, wrapper activation through `vinput-daemon-with-vinput-env.sh`, and `user-ime-sherpa-native-activation-smoke`.
+- `sherpa-native-live` installation is validated in temporary HOME environments with a copied `libsherpa-onnx` and `libonnxruntime` bundle, wrapper activation through `vinput-daemon-with-vinput-env.sh`, and `user-ime-sherpa-native-activation-smoke`. `sherpa-native-command-live` adds a checked local command adapter and has its own temporary-HOME install smoke.
 
 ## User journeys
 
@@ -34,7 +34,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
 | Diagnose and recover | implemented | `doctor`, runtime status, owner/PID/procfs, activation and live probe | Message refinement from live failures |
-| Provider-backed text processing | deterministic | command adapters and local OpenAI-compatible mock server | One real desktop provider flow |
+| Provider-backed text processing | deterministic; live collector implemented | command adapters, local OpenAI-compatible mock server, `sherpa-native-command-live`, and an adapter-identity plus `adapter-backed:` commit assertion | Run the native command-adapter gate, then one external provider flow |
 | User installation | deterministic | temporary-HOME activation/runtime recognition plus the checked Arch package, repository, signature, candidate-promotion, and explicit handoff gates; see [`../architecture/packaging-contract.md`](../architecture/packaging-contract.md) | Real profile, production repository/key operations, automatic package-manager handoff, incompatible-state rollback, and external-user regression |
 
 ## CLI command surface comparison
@@ -165,7 +165,7 @@ GTK3 and Qt6 text-field probes plus Fcitx focus-handoff and daemon-owner-loss pr
 
 1. Run and retain normal/command evidence from the GTK3 and Qt6 probes, including clipboard fallback where surrounding text is unavailable.
 2. Run the focus-handoff and owner-loss gates, then record live menu, notification, and reload behavior.
-3. Validate one real provider-backed command transformation rather than the raw-ASR fallback candidate.
+3. Run and retain the native command-adapter gate, then validate one external provider-backed command transformation.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.
 

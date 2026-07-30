@@ -61,7 +61,7 @@ Live in a real user session, `ime-fcitx-native-live` now proves F9 normal dictat
 4. Prove addon discovery and D-Bus activation in the real session.
 5. Run the checked GTK3 and Qt6 probes for normal and command paths, retain their JSONL evidence, and include clipboard fallback.
 6. Run the checked focus-handoff and owner-loss gates, then exercise scene/ASR menus, persistent keys, Tap/Hold/Both, localization, notifications, and reload.
-7. Prove one configured provider-backed command transformation.
+7. Run the checked `sherpa-native-command-live` adapter gate, then prove one external provider-backed command transformation.
 8. Record exact failures and add deterministic regressions before fixing them.
 
 The validation procedure is [`live-desktop-validation.md`](live-desktop-validation.md).
@@ -93,4 +93,4 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 
 ## Next recommended slice
 
-Execute the checked GTK3, Qt6, focus-handoff, and owner-loss probes on an installed native profile, then add live scene/ASR menu and provider-backed command evidence. Port other model families, package formats, remote services, or GUI surfaces only when they unblock or follow from that evidence.
+Execute the checked GTK3, Qt6, focus-handoff, owner-loss, menu, and native command-adapter probes on an installed profile, then add one external provider-backed command proof. Port other model families, package formats, remote services, or GUI surfaces only when they unblock or follow from that evidence.

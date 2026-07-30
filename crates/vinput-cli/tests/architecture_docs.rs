@@ -1391,7 +1391,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Execute the checked GTK3, Qt6, focus-handoff, and owner-loss probes",
+        "Execute the checked GTK3, Qt6, focus-handoff, owner-loss, menu, and native command-adapter probes",
     ] {
         assert!(
             plan.contains(required),

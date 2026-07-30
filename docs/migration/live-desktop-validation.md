@@ -116,6 +116,24 @@ VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
 
 It requires F10 handling, selected surrounding text, live partials, a candidate menu, selection of the transformed candidate, `delete-surrounding-text`, and a different replacement commit. Evidence is written under `target/tmp/ime-fcitx-native-live`.
 
+To prove a configured command adapter rather than the raw-ASR fallback candidate, install the native command profile with the same model/runtime inputs:
+
+```sh
+VINPUT_USER_PROFILE=sherpa-native-command-live \
+  VINPUT_USER_SHERPA_MODEL=/path/to/registry-installed-model \
+  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/lib \
+  scripts/install-user-ime.sh
+```
+
+After restarting Fcitx5 through the generated environment wrapper, run:
+
+```sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  just ime-fcitx-native-command-adapter-live
+```
+
+The gate requires `runtime-status` to contain `native-command-live-adapter` and the selected replacement commit to begin with `adapter-backed:`. This is repeatable proof of the configured command-adapter and frontend replacement path, not proof of a remote OpenAI-compatible provider.
+
 In at least two application/toolkit combinations:
 
 1. select text and trigger command mode;

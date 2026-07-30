@@ -29,7 +29,7 @@ Implemented and deterministically validated:
 - live ASR provider registry listing/install/update-by-reinstall, guarded removal, and legacy-compatible command-provider script editing, preserving batch/streaming protocol selection, managed paths, timeout/env values, config backup, and overwrite protection;
 - live adapter registry listing and `vinput adapter install`, including short ids, mirror fallback, executable script publication, config backup, environment placeholders, and guarded managed updates;
 - native offline and online registry-model ASR families currently used by the project;
-- `sherpa-native-live` user installation with a copied `libsherpa-onnx` and `libonnxruntime` bundle;
+- `sherpa-native-live` user installation with a copied `libsherpa-onnx` and `libonnxruntime` bundle, plus the checked `sherpa-native-command-live` variant with one configured command adapter;
 - a checked Arch Linux `x86_64` package and signed release-candidate pipeline; the exact artifact, trust, transaction, and handoff contracts live in [`docs/architecture/packaging-contract.md`](docs/architecture/packaging-contract.md);
 - wrapper-based activation through `vinput-daemon-with-vinput-env.sh`;
 - activation-safe `RecognitionPartial` delivery, concrete Fcitx preedit, final commit, and command candidate replacement in temporary-HOME smokes;
@@ -134,12 +134,21 @@ VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-native-live
 
 The gate plays the WAV through the current output device, captures it from the configured PipeWire source, and verifies normal partial/commit behavior plus command candidate deletion/replacement. It is intentionally excluded from `just ci`.
 
+After installing `sherpa-native-command-live`, reject raw-ASR fallback candidates and require the configured adapter result with:
+
+```sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-native-command-adapter-live
+```
+
+This checked profile uses a deterministic local command adapter whose output begins with `adapter-backed:`. It proves the command-adapter transport and frontend replacement path; it is not evidence for an external OpenAI-compatible service.
+
 ## Native user installation
 
 Before changing the real user profile, use the temporary-HOME checks:
 
 ```sh
 just user-ime-sherpa-native-smoke
+just user-ime-sherpa-native-command-smoke
 just user-ime-sherpa-native-activation-smoke
 ```
 
@@ -153,6 +162,8 @@ VINPUT_USER_PROFILE=sherpa-native-live \
 ```
 
 The legacy `sherpa-sense-voice-live` profile remains as a compatibility alias. The installer validates and copies `libsherpa-onnx` and `libonnxruntime`, then activates the installed daemon through `vinput-daemon-with-vinput-env.sh` so readiness checks and D-Bus activation use the same native runtime.
+
+Use `VINPUT_USER_PROFILE=sherpa-native-command-live` with the same model and runtime arguments to install the deterministic command-adapter variant. Its generated config includes `native-command-live-adapter` and the command scene required by `ime-fcitx-native-command-adapter-live`.
 
 Live desktop validation is documented in [`docs/migration/live-desktop-validation.md`](docs/migration/live-desktop-validation.md).
 
