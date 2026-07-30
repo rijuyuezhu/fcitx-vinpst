@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke arch-pkgbuild-check command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -49,10 +49,10 @@ addon-fcitx-build:
 
 addon-install-smoke: addon-fcitx-build
     rm -rf target/tmp/fcitx-addon-install-smoke
-    cmake --install target/cpp/fcitx5-addon-fcitx --prefix target/tmp/fcitx-addon-install-smoke
+    DESTDIR="$PWD/target/tmp/fcitx-addon-install-smoke" cmake --install target/cpp/fcitx5-addon-fcitx
     test -f target/tmp/fcitx-addon-install-smoke/usr/local/lib/fcitx5/fcitx5-vinput.so
     test -f target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
-    test -f target/tmp/fcitx-addon-install-smoke/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo
+    test -f target/tmp/fcitx-addon-install-smoke/usr/local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo
     grep -qx 'Library=fcitx5-vinput' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx 'Type=SharedLibrary' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx 'OnDemand=False' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
@@ -60,10 +60,10 @@ addon-install-smoke: addon-fcitx-build
     grep -qx '0=dbus' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     grep -qx '1=clipboard' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
     ! grep -qE '^(Name|Comment)\[' target/tmp/fcitx-addon-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
-    test -f target/tmp/fcitx-addon-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
-    grep -qx 'Name=org.fcitx.Vinput' target/tmp/fcitx-addon-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
-    grep -qx 'Exec=/usr/local/bin/vinput-daemon --dbus' target/tmp/fcitx-addon-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
-    grep -qx 'SystemdService=vinput-daemon.service' target/tmp/fcitx-addon-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
+    test -f target/tmp/fcitx-addon-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
+    grep -qx 'Name=org.fcitx.Vinput' target/tmp/fcitx-addon-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
+    grep -qx 'Exec=/usr/local/bin/vinput-daemon --dbus' target/tmp/fcitx-addon-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
+    grep -qx 'SystemdService=vinput-daemon.service' target/tmp/fcitx-addon-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
     test -f target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
     grep -qx 'Type=dbus' target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
     grep -qx 'BusName=org.fcitx.Vinput' target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
@@ -71,22 +71,22 @@ addon-install-smoke: addon-fcitx-build
     rm -rf target/cpp/fcitx5-addon-no-systemd target/tmp/fcitx-addon-no-systemd
     cmake -S cpp/fcitx5-addon -B target/cpp/fcitx5-addon-no-systemd -DCMAKE_BUILD_TYPE=Debug -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF
     cmake --build target/cpp/fcitx5-addon-no-systemd --target fcitx5_vinput_addon --parallel
-    cmake --install target/cpp/fcitx5-addon-no-systemd --prefix target/tmp/fcitx-addon-no-systemd
+    DESTDIR="$PWD/target/tmp/fcitx-addon-no-systemd" cmake --install target/cpp/fcitx5-addon-no-systemd
     ! test -e target/tmp/fcitx-addon-no-systemd/usr/lib/systemd/user/vinput-daemon.service
-    ! grep -q '^SystemdService=' target/tmp/fcitx-addon-no-systemd/share/dbus-1/services/org.fcitx.Vinput.service
+    ! grep -q '^SystemdService=' target/tmp/fcitx-addon-no-systemd/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
 
 # Stage the Rust daemon, Fcitx addon, metadata, DBus activation, and systemd user service together.
 ime-install-smoke: addon-fcitx-build
     cargo build -p vinput-daemon
     rm -rf target/tmp/fcitx-ime-install-smoke
     install -Dm755 target/debug/vinput-daemon target/tmp/fcitx-ime-install-smoke/usr/local/bin/vinput-daemon
-    cmake --install target/cpp/fcitx5-addon-fcitx --prefix target/tmp/fcitx-ime-install-smoke
+    DESTDIR="$PWD/target/tmp/fcitx-ime-install-smoke" cmake --install target/cpp/fcitx5-addon-fcitx
     test -x target/tmp/fcitx-ime-install-smoke/usr/local/bin/vinput-daemon
     test -f target/tmp/fcitx-ime-install-smoke/usr/local/lib/fcitx5/fcitx5-vinput.so
     test -f target/tmp/fcitx-ime-install-smoke/usr/local/share/fcitx5/addon/vinput.conf
-    test -f target/tmp/fcitx-ime-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
-    grep -qx 'Exec=/usr/local/bin/vinput-daemon --dbus' target/tmp/fcitx-ime-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
-    grep -qx 'SystemdService=vinput-daemon.service' target/tmp/fcitx-ime-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
+    test -f target/tmp/fcitx-ime-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
+    grep -qx 'Exec=/usr/local/bin/vinput-daemon --dbus' target/tmp/fcitx-ime-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
+    grep -qx 'SystemdService=vinput-daemon.service' target/tmp/fcitx-ime-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
     test -f target/tmp/fcitx-ime-install-smoke/usr/lib/systemd/user/vinput-daemon.service
     grep -qx 'ExecStart=/usr/local/bin/vinput-daemon --dbus' target/tmp/fcitx-ime-install-smoke/usr/lib/systemd/user/vinput-daemon.service
 
@@ -99,13 +99,13 @@ ime-configured-install-smoke:
     install -Dm755 target/debug/vinput-daemon target/tmp/fcitx-ime-configured-install-smoke/usr/local/bin/vinput-daemon
     install -Dm644 data/e2e-command-demo-config.json target/tmp/fcitx-ime-configured-install-smoke/usr/local/share/fcitx-vinput/e2e-command-demo-config.json
     python3 scripts/write-demo-wav.py target/tmp/fcitx-ime-configured-install-smoke/usr/local/share/fcitx-vinput/e2e-command-demo.wav
-    cmake --install target/cpp/fcitx5-addon-fcitx-configured --prefix target/tmp/fcitx-ime-configured-install-smoke
+    DESTDIR="$PWD/target/tmp/fcitx-ime-configured-install-smoke" cmake --install target/cpp/fcitx5-addon-fcitx-configured
     test -x target/tmp/fcitx-ime-configured-install-smoke/usr/local/bin/vinput-daemon
     test -f target/tmp/fcitx-ime-configured-install-smoke/usr/local/share/fcitx-vinput/e2e-command-demo-config.json
     test -f target/tmp/fcitx-ime-configured-install-smoke/usr/local/share/fcitx-vinput/e2e-command-demo.wav
     test -f target/tmp/fcitx-ime-configured-install-smoke/usr/local/lib/fcitx5/fcitx5-vinput.so
-    grep -qx 'Exec=/usr/local/bin/vinput-daemon --dbus --configured-backends --config /usr/local/share/fcitx-vinput/e2e-command-demo-config.json --wav /usr/local/share/fcitx-vinput/e2e-command-demo.wav' target/tmp/fcitx-ime-configured-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
-    grep -qx 'SystemdService=vinput-daemon.service' target/tmp/fcitx-ime-configured-install-smoke/share/dbus-1/services/org.fcitx.Vinput.service
+    grep -qx 'Exec=/usr/local/bin/vinput-daemon --dbus --configured-backends --config /usr/local/share/fcitx-vinput/e2e-command-demo-config.json --wav /usr/local/share/fcitx-vinput/e2e-command-demo.wav' target/tmp/fcitx-ime-configured-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
+    grep -qx 'SystemdService=vinput-daemon.service' target/tmp/fcitx-ime-configured-install-smoke/usr/local/share/dbus-1/services/org.fcitx.Vinput.service
     test -f target/tmp/fcitx-ime-configured-install-smoke/usr/lib/systemd/user/vinput-daemon.service
     grep -qx 'ExecStart=/usr/local/bin/vinput-daemon --dbus --configured-backends --config /usr/local/share/fcitx-vinput/e2e-command-demo-config.json --wav /usr/local/share/fcitx-vinput/e2e-command-demo.wav' target/tmp/fcitx-ime-configured-install-smoke/usr/lib/systemd/user/vinput-daemon.service
 
@@ -353,6 +353,14 @@ daemon-default-config-smoke:
 
 daemon-unavailable-asr-smoke:
     scripts/run-daemon-unavailable-asr-smoke.sh
+
+# Render the Arch package metadata without downloading or building release artifacts.
+arch-pkgbuild-check:
+    scripts/check-arch-pkgbuild.sh
+
+# Build and inspect the complete Arch package in a clean makepkg tree.
+arch-package-smoke:
+    scripts/run-arch-package-smoke.sh
 
 # Prove that the initial daemon-status call reports a newly D-Bus-activated user daemon owner.
 user-ime-activation-owner-smoke:

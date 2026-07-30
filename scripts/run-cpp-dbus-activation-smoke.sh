@@ -6,10 +6,11 @@ cd "${repo_root}"
 
 build_dir="target/cpp/fcitx5-addon-dbus-activation"
 stage_dir="target/tmp/vinput-cpp-dbus-activation-smoke"
+stage_abs="${repo_root}/${stage_dir}"
 daemon_path="${repo_root}/target/debug/vinput-daemon"
 smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
 addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
-service_file="${repo_root}/${stage_dir}/share/dbus-1/services/org.fcitx.Vinput.service"
+service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinput.service"
 
 cargo build -q -p vinput-daemon
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
@@ -22,12 +23,12 @@ cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
 rm -rf "${stage_dir}"
-cmake --install "${build_dir}" --prefix "${stage_dir}"
+DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_path} --dbus" "${service_file}"
 
-XDG_DATA_DIRS="${repo_root}/${stage_dir}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
+XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
   timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
     bash "${smoke_bin}" "${addon_smoke_bin}"

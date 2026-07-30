@@ -10,7 +10,7 @@ stage_abs="${repo_root}/${stage_dir}"
 daemon_path="${stage_abs}/usr/local/bin/vinput-daemon"
 smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
 addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
-service_file="${stage_abs}/share/dbus-1/services/org.fcitx.Vinput.service"
+service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinput.service"
 record_ms="${VINPUT_DBUS_SMOKE_RECORD_MS:-100}"
 
 rm -rf "${build_dir}" "${stage_dir}"
@@ -26,7 +26,7 @@ cmake -S cpp/fcitx5-addon -B "${build_dir}" \
 cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
-cmake --install "${build_dir}" --prefix "${stage_dir}"
+DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 test -x "${daemon_path}"
 test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinput.so"
@@ -38,7 +38,7 @@ grep -qx "Exec=${daemon_path} --dbus --audio-backend pipewire" "${service_file}"
 echo "PipeWire audio diagnostics from staged daemon:"
 "${daemon_path}" audio-devices
 
-XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
+XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 VINPUT_DBUS_SMOKE_RECORD_MS="${record_ms}" \
   timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \
     bash "${smoke_bin}" "${addon_smoke_bin}"

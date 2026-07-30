@@ -28,8 +28,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 function(vinput_bridge_install_dir output value fallback)
   if(NOT "${value}" STREQUAL "")
     if(IS_ABSOLUTE "${value}")
-      file(RELATIVE_PATH relative_value "/" "${value}")
-      set(${output} "${relative_value}" PARENT_SCOPE)
+      file(RELATIVE_PATH prefix_relative_value "${CMAKE_INSTALL_PREFIX}" "${value}")
+      if(NOT prefix_relative_value MATCHES "^\\.\\.($|/)")
+        set(${output} "${prefix_relative_value}" PARENT_SCOPE)
+      else()
+        file(RELATIVE_PATH root_relative_value "/" "${value}")
+        set(${output} "${root_relative_value}" PARENT_SCOPE)
+      endif()
     else()
       set(${output} "${value}" PARENT_SCOPE)
     endif()
@@ -108,6 +113,9 @@ if(Fcitx5Core_FOUND)
   find_package(Fcitx5ModuleDBus REQUIRED)
   find_package(Fcitx5ModuleNotifications REQUIRED)
   set(VINPUT_FCITX_BUILD_LOCALEDIR "${CMAKE_CURRENT_BINARY_DIR}/locale")
+  set(VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR
+      "${VINPUT_FCITX_BUILD_LOCALEDIR}"
+      CACHE STRING "Runtime build-tree locale fallback embedded in the addon")
   set(VINPUT_FCITX_ZH_CN_MO
       "${VINPUT_FCITX_BUILD_LOCALEDIR}/zh_CN/LC_MESSAGES/fcitx5-vinput.mo")
   add_custom_command(
@@ -151,7 +159,7 @@ if(Fcitx5Core_FOUND)
   target_compile_definitions(
     vinput_fcitx_bridge_fcitx
     PRIVATE
-      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_BUILD_LOCALEDIR}"
+      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR}"
       VINPUT_FCITX_INSTALL_LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
   )
   add_dependencies(vinput_fcitx_bridge_fcitx vinput_fcitx_translations)
@@ -393,7 +401,7 @@ if(Fcitx5Core_FOUND)
   target_compile_definitions(
     vinput_fcitx_addon_dbus_smoke
     PRIVATE
-      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_BUILD_LOCALEDIR}"
+      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR}"
       VINPUT_FCITX_INSTALL_LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
   )
   add_dependencies(vinput_fcitx_addon_dbus_smoke vinput_fcitx_translations)
@@ -416,7 +424,7 @@ if(Fcitx5Core_FOUND)
   target_compile_definitions(
     vinput_fcitx_native_addon_dbus_smoke
     PRIVATE
-      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_BUILD_LOCALEDIR}"
+      VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR}"
       VINPUT_FCITX_INSTALL_LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
   )
   add_dependencies(vinput_fcitx_native_addon_dbus_smoke vinput_fcitx_translations)
@@ -454,11 +462,13 @@ if(Fcitx5Core_FOUND)
     )
   endif()
   if(VINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE)
-    vinput_bridge_install_dir(
-      VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
-      "${VINPUT_SYSTEMD_USER_UNIT_DIR}"
-      "${CMAKE_INSTALL_LIBDIR}/systemd/user"
-    )
+    if(IS_ABSOLUTE "${VINPUT_SYSTEMD_USER_UNIT_DIR}")
+      set(VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
+          "${VINPUT_SYSTEMD_USER_UNIT_DIR}")
+    else()
+      set(VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
+          "${CMAKE_INSTALL_LIBDIR}/systemd/user")
+    endif()
     install(
       FILES "${CMAKE_CURRENT_BINARY_DIR}/vinput-daemon.service"
       DESTINATION "${VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR}"

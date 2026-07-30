@@ -11,7 +11,7 @@ daemon_path="${stage_abs}/usr/local/bin/vinput-daemon"
 config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-configured-pipewire-live.json"
 smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
 addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
-service_file="${stage_abs}/share/dbus-1/services/org.fcitx.Vinput.service"
+service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinput.service"
 record_ms="${VINPUT_DBUS_SMOKE_RECORD_MS:-100}"
 expected_text="live final: live pipewire command result"
 
@@ -29,7 +29,7 @@ cmake -S cpp/fcitx5-addon -B "${build_dir}" \
 cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
-cmake --install "${build_dir}" --prefix "${stage_dir}"
+DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 test -x "${daemon_path}"
 test -f "${config_path}"
@@ -42,7 +42,7 @@ grep -qx "Exec=${daemon_path} --dbus --configured-backends --config ${config_pat
 echo "PipeWire audio diagnostics from staged configured daemon:"
 "${daemon_path}" --config "${config_path}" audio-devices
 
-XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
+XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 VINPUT_DBUS_SMOKE_RECORD_MS="${record_ms}" \
 VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="${expected_text}" \
 VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="${expected_text}" \

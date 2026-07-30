@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use vinput_config::VadConfig;
 
 const SILERO_VAD_FILE_NAME: &str = "silero_vad.onnx";
+const DEVELOPMENT_VAD_DIR: Option<&str> = option_env!("VINPUT_SHERPA_VAD_DEVELOPMENT_DIR");
 #[cfg(feature = "sherpa-onnx-backend")]
 const SILERO_WINDOW_SIZE: usize = 512;
 #[cfg(feature = "sherpa-onnx-backend")]
@@ -158,10 +159,13 @@ fn resolve_silero_model() -> Option<ResolvedSileroModel> {
         }
     }
 
+    development_silero_model()
+}
+
+fn development_silero_model() -> Option<ResolvedSileroModel> {
+    let directory = DEVELOPMENT_VAD_DIR.filter(|directory| !directory.is_empty())?;
     regular_file(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../data/vad")
-            .join(SILERO_VAD_FILE_NAME),
+        PathBuf::from(directory).join(SILERO_VAD_FILE_NAME),
         SherpaOnnxVadModelSource::DevelopmentAsset,
     )
 }
@@ -310,8 +314,18 @@ fn collect_ranges(samples: &[f32], ranges: &[std::ops::Range<usize>]) -> Vec<f32
 
 #[cfg(test)]
 mod tests {
-    use super::{SherpaOnnxVadPlan, collect_ranges, padded_segment_ranges};
+    use super::{
+        SherpaOnnxVadModelSource, SherpaOnnxVadPlan, collect_ranges, development_silero_model,
+        padded_segment_ranges,
+    };
     use vinput_config::VadConfig;
+
+    #[test]
+    fn test_profile_resolves_the_development_vad_asset() {
+        let resolved = development_silero_model().expect("test profile development VAD asset");
+        assert_eq!(resolved.source, SherpaOnnxVadModelSource::DevelopmentAsset);
+        assert!(resolved.path.is_file());
+    }
 
     #[test]
     fn disabled_vad_has_no_runtime_plan() {

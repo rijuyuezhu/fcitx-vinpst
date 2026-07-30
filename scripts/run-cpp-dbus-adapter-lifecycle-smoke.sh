@@ -13,7 +13,7 @@ source_config_path="${repo_root}/data/e2e-adapter-lifecycle-config.json"
 config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-adapter-lifecycle-config.json"
 wav_path="${repo_root}/target/tmp/vinput-cpp-dbus-adapter-lifecycle-demo.wav"
 smoke_bin="${build_dir}/vinput_fcitx_bridge_dbus_smoke"
-service_file="${stage_dir}/share/dbus-1/services/org.fcitx.Vinput.service"
+service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinput.service"
 
 rm -rf "${build_dir}" "${stage_dir}"
 python3 scripts/write-demo-wav.py "${wav_path}"
@@ -29,13 +29,13 @@ cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DVINPUT_DAEMON_ARGS="--dbus --configured-backends --config ${config_path} --wav ${wav_path}"
 cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
-cmake --install "${build_dir}" --prefix "${stage_dir}"
+DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_path} --dbus --configured-backends --config ${config_path} --wav ${wav_path}" "${service_file}"
 
-XDG_DATA_DIRS="${repo_root}/${stage_dir}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
+XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="lifecycle heard" \
 VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="lifecycle heard" \
 VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="raw" \

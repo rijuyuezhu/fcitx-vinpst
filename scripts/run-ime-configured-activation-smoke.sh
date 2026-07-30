@@ -15,7 +15,7 @@ config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo-config.j
 wav_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo.wav"
 smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
 addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
-service_file="${stage_abs}/share/dbus-1/services/org.fcitx.Vinput.service"
+service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinput.service"
 
 rm -rf "${build_dir}" "${stage_dir}"
 CARGO_TARGET_DIR="${cargo_target_dir}" cargo build -q -p vinput-daemon --bin vinput-daemon
@@ -54,7 +54,7 @@ cmake -S cpp/fcitx5-addon -B "${build_dir}" \
 cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
 cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
-cmake --install "${build_dir}" --prefix "${stage_dir}"
+DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 test -x "${daemon_path}"
 test -x "${daemon_wrapper}"
@@ -66,7 +66,7 @@ grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_wrapper}" "${service_file}"
 
-if XDG_DATA_DIRS="${stage_abs}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
+if XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
   VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \

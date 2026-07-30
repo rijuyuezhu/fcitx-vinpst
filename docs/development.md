@@ -41,7 +41,7 @@ just check
 just ci
 ```
 
-`just ci` is the deterministic project gate. It includes Rust checks, D-Bus integration, retained-addon checks, staged integration, and temporary-HOME user-install smokes. Live desktop and microphone checks are excluded by design.
+`just ci` is the deterministic project gate. It includes Rust checks, D-Bus integration, retained-addon checks, staged integration, temporary-HOME user-install smokes, and lightweight Arch package metadata validation. Live desktop, microphone, and full package builds are excluded by design.
 
 ## Validation tiers
 
@@ -110,6 +110,17 @@ just user-ime-sherpa-sense-voice-smoke
 `scripts/install-user-ime.sh` normally uses `target/debug/vinput` and `target/debug/vinput-daemon`. Tests that provide stubs must use `VINPUT_USER_CLI_BINARY` and `VINPUT_USER_DAEMON_BINARY` under their own temporary tree. Never overwrite Cargo outputs: Cargo fingerprints do not detect external binary replacement reliably.
 
 The `sherpa-native-live` profile validates and copies `libsherpa-onnx` and `libonnxruntime`, creates `vinput-daemon-with-vinput-env.sh`, and runs `runtime-status` through the installed bundle. The `sherpa-sense-voice-live` name remains a compatibility alias. Set `VINPUT_USER_RUNTIME_STATUS=0` only for file-placement debugging.
+
+### Arch packaging
+
+The checked source of truth is `packaging/arch/PKGBUILD.in`; render release-specific source metadata with `scripts/render-arch-pkgbuild.py`.
+
+```sh
+just arch-pkgbuild-check
+just arch-package-smoke
+```
+
+`just arch-pkgbuild-check` is the lightweight deterministic metadata gate included in `just ci`. `just arch-package-smoke` is the explicit release gate: it downloads checksum-pinned sherpa/ONNX Runtime assets when absent, builds a clean package through `makepkg`, extracts it without touching the host profile, validates the full file set and private rpaths, and runs the packaged CLI/daemon. It is intentionally not part of routine CI because it performs a complete release rebuild and requires network access for a cold cache.
 
 ### Native ASR evidence
 

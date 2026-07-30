@@ -1,6 +1,6 @@
 # E2E capability matrix
 
-Reviewed: 2026-07-29
+Reviewed: 2026-07-30
 
 This matrix describes user-visible parity and the evidence level for each path. Status labels are:
 
@@ -12,7 +12,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 
 ## Evidence baseline
 
-- Rust implementation reviewed through `181b9b5`.
+- Rust implementation reviewed on the current branch through the checked Arch package slice.
 - Legacy reference is `/workspace/fcitx5-vinput`.
 - `cargo test --workspace --all-targets`, D-Bus integration, and retained-addon tests pass at the reviewed baseline.
 - Native registry models are validated by model-specific local WAV smokes.
@@ -35,7 +35,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
 | Diagnose and recover | implemented | `doctor`, runtime status, owner/PID/procfs, activation and live probe | Message refinement from live failures |
 | Provider-backed text processing | deterministic | command adapters and local OpenAI-compatible mock server | One real desktop provider flow |
-| User installation | deterministic | temporary-HOME addon, direct activation, staged systemd user unit plus D-Bus hint, runtime bundle, exact recognition | Real profile and packaging |
+| User installation | deterministic | temporary-HOME addon, direct activation, staged systemd user unit plus D-Bus hint, runtime bundle, exact recognition, and clean Arch `makepkg`/extracted-runtime validation | Real profile, published repository path, upgrades, and external-user regression |
 
 ## CLI command surface comparison
 
@@ -154,7 +154,7 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 
 ## Release and platform gaps
 
-- distro packaging and repository integration;
+- repository publication, package signing, and non-Arch package formats;
 - upgrade, rollback, and uninstall policy;
 - runtime-library version selection;
 - remote text live cross-device browser proof;
@@ -167,7 +167,7 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 2. Prove command replacement and clipboard fallback in at least two application/toolkit combinations.
 3. Record live menu, partial-preedit, notification, daemon-loss, and reload behavior.
 4. Convert live findings into focused fixes and deterministic regressions.
-5. Only then advance packaging, upgrade policy, remote services, and optional GUI work.
+5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.
 
 ## Stop conditions
 
