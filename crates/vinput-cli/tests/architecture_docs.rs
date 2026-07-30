@@ -660,6 +660,45 @@ fn scene_menu_selection_live_gate_pins_switch_and_restore() {
 }
 
 #[test]
+fn frontend_notification_live_gate_pins_real_fcitx_sender() {
+    let runner =
+        std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-notification-live.sh"))
+            .expect("read Fcitx notification live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "org.freedesktop.Notifications",
+        "member='Notify'",
+        "fcitx5-vinput",
+        "dialog-information",
+        "information notification timeout was not 3000 ms",
+        "notification body did not contain the selected scene label",
+        "GetConnectionUnixProcessID",
+        "sender_is_fcitx",
+        "scripts/run-ime-fcitx-menu-selection-live.sh",
+        "target/tmp/ime-fcitx-notification-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "notification live runner should pin real desktop evidence: {required}"
+        );
+    }
+    for forbidden in ["notify-send", "org.freedesktop.Notifications.Notify --"] {
+        assert!(
+            !runner.contains(forbidden),
+            "notification gate must observe the addon instead of injecting via {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-notification-live:"));
+    assert!(justfile.contains("run-ime-fcitx-notification-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-notification-live"));
+}
+
+#[test]
 fn scene_menu_paging_live_gate_pins_state_and_restore() {
     let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-paging-probe.py"))
         .expect("read scene-menu paging probe");

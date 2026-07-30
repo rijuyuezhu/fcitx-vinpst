@@ -185,6 +185,10 @@ ime-fcitx-menu-live:
 ime-fcitx-menu-selection-live:
     scripts/run-ime-fcitx-menu-selection-live.sh
 
+# Explicit desktop notification emitted by a real Fcitx scene selection.
+ime-fcitx-notification-live:
+    scripts/run-ime-fcitx-notification-live.sh
+
 # Explicit scene-menu paging with configured keys and exact profile restoration.
 ime-fcitx-menu-paging-live:
     scripts/run-ime-fcitx-menu-paging-live.sh
