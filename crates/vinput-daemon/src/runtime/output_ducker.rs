@@ -177,6 +177,8 @@ mod tests {
 
     use super::*;
 
+    const SUCCESS_FIXTURE_TIMEOUT: Duration = Duration::from_secs(30);
+
     #[derive(Default)]
     struct FakeState {
         current: Option<f64>,
@@ -293,7 +295,7 @@ mod tests {
         permissions.set_mode(0o755);
         std::fs::set_permissions(&command, permissions).expect("make fake wpctl executable");
 
-        let mut control = WpctlOutputVolumeControl::new(&command, WPCTL_TIMEOUT);
+        let mut control = WpctlOutputVolumeControl::new(&command, SUCCESS_FIXTURE_TIMEOUT);
         assert_eq!(control.read_default_sink_volume(), Some(0.8));
         assert!(control.set_default_sink_volume(0.2));
         assert_eq!(
