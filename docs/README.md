@@ -13,7 +13,7 @@ The tracked documentation is split by purpose. Read only the source needed for t
 7. [`architecture/README.md`](architecture/README.md): stable architecture and compatibility contracts.
 8. [`legacy/README.md`](legacy/README.md): source map for the original C++ project.
 
-[`migration/agent-kickoff.md`](migration/agent-kickoff.md) is a short handoff summary. [`migration/e2e-port-plan.md`](migration/e2e-port-plan.md) is a compatibility redirect for older references.
+[`live-toolkit-debugging.md`](live-toolkit-debugging.md) is the reusable real-application probe troubleshooting runbook. [`migration/agent-kickoff.md`](migration/agent-kickoff.md) is a short handoff summary. [`migration/e2e-port-plan.md`](migration/e2e-port-plan.md) is a compatibility redirect for older references.
 
 ## Sources of truth
 
@@ -21,6 +21,7 @@ The tracked documentation is split by purpose. Read only the source needed for t
 - `e2e-capability-matrix.md` answers **what exactly is missing for real desktop and legacy parity?**
 - `e2e-replication-plan.md` answers **what should be done next?**
 - `live-desktop-validation.md` answers **how is live behavior proven?**
+- `live-toolkit-debugging.md` answers **how are real application probe failures diagnosed?**
 - `architecture/*` defines stable contracts, not progress reports.
 - `development.md` defines how changes are made and checked.
 
