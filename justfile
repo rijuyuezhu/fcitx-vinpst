@@ -149,6 +149,10 @@ ime-pipewire-live:
 ime-configured-pipewire-live:
     scripts/run-ime-configured-pipewire-live-smoke.sh
 
+# Explicit real Fcitx input-context probe through live acoustic PipeWire and native ASR.
+ime-fcitx-native-live:
+    scripts/run-ime-fcitx-native-live.sh
+
 # Install per-user D-Bus activation service for local desktop testing. Writes under XDG_DATA_HOME or ~/.local/share.
 user-activation-service:
     scripts/install-user-activation-service.sh

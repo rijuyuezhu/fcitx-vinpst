@@ -27,8 +27,8 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Discover, install, update, edit, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, localized title/description, batch/streaming validation, mirror download, executable publication, update-by-reinstall with legacy timeout/env preservation, config backup, guarded managed update; local removal guard, active-clear semantics, and legacy-compatible referenced-script editor | None for current script registry |
 | Discover, install, update, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, update-by-reinstall with config backup and guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | None for current script registry |
 | Select and reload a model | deterministic | config persistence, background prepare-before-swap, C++/D-Bus selection smokes | Real desktop reload proof |
-| Normal native dictation | deterministic | native WAV -> D-Bus -> addon partial preedit -> concrete `InputContext` commit | Live PipeWire and real application |
-| Command native dictation | deterministic | selected text, ASR fallback candidate, candidate selection, deletion, replacement commit | Multi-application proof and real adapter flow |
+| Normal native dictation | live-proven | real Fcitx client, F9, acoustic PipeWire capture, streaming native partial input-panel updates, and one final commit through `ime-fcitx-native-live` | Repeat in representative GUI toolkits and applications |
+| Command native dictation | live-proven | real Fcitx client, F10, selected surrounding text, live partials, fallback candidate selection, deletion, and replacement commit | Multi-toolkit, clipboard fallback, and real adapter flow |
 | Scene and ASR menus | deterministic | typed D-Bus state, persistent keys, filtering, paging, i18n, localized model titles | Real desktop UI proof |
 | Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, default user-config discovery with persistent D-Bus updates, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
@@ -67,7 +67,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Diagnostic extensions | implemented | runtime, adapter, scene, and ASR menu state |
 | Runtime state machine | deterministic | normal/command lifecycle, capture-before-session startup, early-chunk gating, chunk delivery, partials, explicit inferring/postprocessing phases, final result, error cleanup |
 | ASR reload | deterministic | unavailable-but-running configured startup, one non-blocking prepare-before-swap worker, config reread, generation coalescing, old-backend preservation |
-| Audio capture | partial | capture-first ordering, failure rollback, reusable inactive PipeWire streams, bounded idle-grace teardown, generation-safe expiry, target-change rebuild, legacy opt-out, D-Bus recording-transaction serialization, cold-start timing diagnostics, and `wpctl` output duck/restore lifecycle are deterministic; live capture and audible ducking remain |
+| Audio capture | partial | deterministic lifecycle plus live acoustic capture from the configured PipeWire source through native recognition are proven; audible ducking and broader device combinations remain |
 | File input | implemented | WAV and PCM paths are first-class deterministic seams |
 | Command ASR | implemented | batch/streaming protocols, partials, timeouts, cancellation |
 | Native offline ASR | deterministic | supported registry families pass real WAV smokes |
@@ -137,7 +137,7 @@ The remaining streaming gap is live PipeWire behavior in a real application, not
 
 ## Frontend capability
 
-Implemented and deterministically tested:
+Implemented and deterministically tested, with normal/command outcome application additionally live-proven in a real Fcitx client input context:
 
 - normal, command, scene-menu, ASR-menu, previous-page, and next-page persistent KeyLists;
 - Tap/Hold/Both trigger mode with legacy timing;
@@ -150,7 +150,7 @@ Implemented and deterministically tested:
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-Remaining: real desktop rendering, focus transitions, candidate interaction, and cross-application selected-text behavior.
+Remaining: representative GUI-toolkit rendering, focus transitions, menu interaction, clipboard fallback, and cross-application selected-text behavior.
 
 ## Release and platform gaps
 
@@ -163,9 +163,9 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 
 ## Immediate next work
 
-1. Prove real desktop SenseVoice or another supported native model from Fcitx trigger through PipeWire capture to application commit.
-2. Prove command replacement and clipboard fallback in at least two application/toolkit combinations.
-3. Record live menu, partial-preedit, notification, daemon-loss, and reload behavior.
+1. Prove command replacement and clipboard fallback in at least two GUI application/toolkit combinations.
+2. Record live menu, notification, daemon-loss, focus-transition, and reload behavior.
+3. Validate one real provider-backed command transformation rather than the raw-ASR fallback candidate.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.
 

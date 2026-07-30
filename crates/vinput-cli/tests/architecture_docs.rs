@@ -257,7 +257,7 @@ fn audio_architecture_pins_pipewire_live_test_policy() {
         "VINPUT_TEST_PIPEWIRE_RECORD",
         "instead of running in default CI",
         "without requiring a live PipeWire daemon",
-        "live probes must only run when those environment variables are set explicitly",
+        "live probes must only run when requested explicitly",
         "`PipeWireAudioRecorder` exists behind `pipewire-backend` as the live recorder seam",
         "One long-lived PipeWire worker owns the loop, context, and connected stream",
         "normal stops use `set_active(false)`",
@@ -366,7 +366,7 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
         "800/800/tail chunk delivery",
         "real session-bus integration test proves that a partial signal arrives before `StopRecording`",
-        "real desktop PipeWire behavior remains unproven",
+        "`ime-fcitx-native-live` proves one real acoustic PipeWire/Fcitx application path",
         "`MockAsrAudioPush` is serde/schema-ready",
     ] {
         assert!(
@@ -388,6 +388,8 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just addon-dbus-pipewire-live",
         "just ime-pipewire-live",
         "just ime-configured-pipewire-live",
+        "just ime-fcitx-native-live",
+        "VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav",
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
         "VINPUT_TEST_PIPEWIRE_ENUMERATE=1",
         "VINPUT_TEST_PIPEWIRE_RECORD=1",
@@ -409,6 +411,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "addon-dbus-pipewire-live:",
         "ime-pipewire-live:",
         "ime-configured-pipewire-live:",
+        "ime-fcitx-native-live:",
         "sherpa-offline-local-smoke:",
         "sherpa-online-local-smoke:",
         "sherpa-moonshine-dbus-reload-smoke:",
@@ -422,6 +425,47 @@ fn development_doc_pins_optional_pipewire_recipes() {
         .expect("justfile should define check recipe");
     assert!(!check_line.contains("pipewire-live"));
     assert!(!check_line.contains("ime-pipewire-live"));
+    assert!(!check_line.contains("ime-fcitx-native-live"));
+}
+
+#[test]
+fn native_fcitx_live_gate_pins_real_client_outcomes() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-client-probe.py"))
+        .expect("read Fcitx live client probe");
+    let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-native-live.sh"))
+        .expect("read Fcitx native live runner");
+
+    for required in [
+        "FcitxG",
+        "update-client-side-ui",
+        "delete-surrounding-text",
+        "select_candidate",
+        "partial_count",
+        "candidate_count",
+        "delete_count",
+        "command mode did not replace selected text",
+    ] {
+        assert!(
+            probe.contains(required),
+            "live Fcitx client probe should pin outcome evidence: {required}"
+        );
+    }
+
+    for required in [
+        "VINPUT_LIVE_NATIVE_WAV",
+        "VINPUT_LIVE_NATIVE_MODES",
+        "target/tmp/ime-fcitx-native-live",
+        "org.fcitx.Vinput must be idle",
+        "trap restore_idle EXIT",
+        "call_service StopRecording",
+        "--mode \"${mode}\"",
+        "timeout 40s",
+    ] {
+        assert!(
+            runner.contains(required),
+            "live Fcitx runner should pin opt-in policy: {required}"
+        );
+    }
 }
 
 #[test]
@@ -1162,7 +1206,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Prove real desktop native dictation first",
+        "Broaden the proven live normal/command path",
     ] {
         assert!(
             plan.contains(required),
@@ -1175,7 +1219,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "Daemon capability comparison",
         "Registry/resource comparison",
         "P1.2 sherpa streaming backend",
-        "Prove real desktop SenseVoice",
+        "Prove command replacement and clipboard fallback",
         "Do not claim full parity until all of these pass",
         "vinput model install <id-or-short-id>",
     ] {
@@ -1611,7 +1655,7 @@ fn native_partial_preedit_pins_activation_safe_streaming() {
     for required in [
         "sender-independent signal matches before daemon activation",
         "real `RecognitionPartial` value",
-        "real desktop application frontend and live PipeWire capture remain",
+        "opt-in `ime-fcitx-native-live` gate crosses the real session boundary",
     ] {
         assert!(
             asr_doc.contains(required),
@@ -1667,8 +1711,8 @@ fn asr_architecture_pins_frontend_live_partial_preedit() {
         "`StatusChanged(s)`",
         "`RecognitionPartial(s)`",
         "partial text takes precedence",
-        "synchronous `StopRecording` reply",
-        "rendering inside a real desktop application remains unproven",
+        "final synchronous-stop commit",
+        "Representative GUI-toolkit rendering remains separate live work",
     ] {
         assert!(
             asr_doc.contains(required),

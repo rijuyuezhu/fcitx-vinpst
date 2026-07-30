@@ -2,7 +2,7 @@
 
 Rust-oriented rewrite of [`fcitx5-vinput`](https://github.com/xifan2333/fcitx5-vinput).
 
-The project is a usable CLI/daemon alpha with a retained C++ Fcitx5 frontend. The deterministic native path now covers user installation, D-Bus activation, streaming partial preedit, final commit, and command-mode replacement through a concrete test `fcitx::InputContext`. The active milestone is **real desktop native alpha**: prove the same path with a running Fcitx5 session, live PipeWire capture, and a real application.
+The project is a usable CLI/daemon alpha with a retained C++ Fcitx5 frontend. The native path is now live-proven in a real user session through Fcitx5, acoustic PipeWire capture, streaming ASR partials, input-panel preedit, final commit, and selected-text command replacement in a real Fcitx client application. The active milestone remains **real desktop native alpha** while menu behavior, failure recovery, and command replacement are broadened across GUI toolkits.
 
 ## Architecture
 
@@ -35,10 +35,17 @@ Implemented and deterministically validated:
 - activation-safe `RecognitionPartial` delivery, concrete Fcitx preedit, final commit, and command candidate replacement in temporary-HOME smokes;
 - persistent frontend keys, Tap/Hold/Both trigger behavior, searchable scene/ASR menus, localization, notifications, and daemon-owner recovery.
 
+Live-proven in a real user session:
+
+- installed native runtime activation through the current session bus;
+- F9 -> live acoustic PipeWire capture -> streaming native ASR -> partial input-panel updates -> one application commit;
+- F10 -> selected surrounding text -> live partials -> candidate selection -> deletion -> replacement commit;
+- repeatable opt-in evidence through `VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-native-live`.
+
 Still requiring live proof or implementation:
 
-- real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
-- command replacement and clipboard fallback across real applications;
+- command replacement and clipboard fallback across multiple GUI applications/toolkits;
+- real menu, focus-transition, notification, owner-loss, and reload behavior;
 - remote text live cross-device browser proof;
 - production publication and lifecycle policy beyond the checked Arch candidate, including automatic package-manager handoff, incompatible-state rollback, production key operations, external repository hosting, and live installed-desktop proof;
 - the legacy Qt GUI, which is intentionally deferred.
@@ -118,6 +125,14 @@ just e2e-demo
 ```
 
 It uses `data/e2e-command-demo-config.json` and a generated WAV to exercise audio input, command ASR, command text processing, and recognition JSON without requiring a desktop session.
+
+After installing a native live profile in a real desktop session, run the acoustic Fcitx client gate with a validated speech WAV:
+
+```sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-native-live
+```
+
+The gate plays the WAV through the current output device, captures it from the configured PipeWire source, and verifies normal partial/commit behavior plus command candidate deletion/replacement. It is intentionally excluded from `just ci`.
 
 ## Native user installation
 

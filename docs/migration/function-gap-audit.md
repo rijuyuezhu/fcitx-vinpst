@@ -20,10 +20,10 @@ The project has crossed the main implementation threshold for local native ASR a
 - The current upstream provider and adapter registries are parsed directly; short ids, batch/streaming protocol validation, mirror-backed script install, executable publication, environment placeholders, config backups, timeout/env preservation, and guarded managed updates are deterministic-test proven.
 - Provider removal now matches the legacy safety contract: local providers cannot be removed, active non-local removal clears the active selection, exact empty selection is valid, and ASR diagnostics report an explicit unselected state.
 - Generic native user install copies the validated runtime bundle, supports D-Bus activation, and completes exact native recognition round trips in a temporary HOME.
-- The retained addon deterministically applies partial preedit, final commit, command candidate selection, selected-text deletion, and replacement through concrete Fcitx test frontends.
+- The retained addon applies partial preedit, final commit, command candidate selection, selected-text deletion, and replacement through deterministic frontends and a live Fcitx client application.
 - CLI, config, registry, daemon, recording, diagnostics, and frontend configuration surfaces are broadly implemented.
 
-The active target is **real desktop native-dictation alpha**: prove Fcitx trigger -> live PipeWire capture -> native ASR -> partial/preedit -> commit in a real application, then prove command replacement across applications.
+The core **real desktop native-dictation alpha** path is live-proven through Fcitx trigger -> acoustic PipeWire capture -> native ASR -> partial/input-panel updates -> commit, including selected-text command replacement in one real Fcitx client application. The active target is now broad GUI-toolkit, menu, focus, failure-recovery, and reload proof.
 
 ## Readiness summary
 
@@ -33,8 +33,8 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | CLI and daemon management | Usable alpha; broad command coverage |
 | Current registry native ASR families | Real-WAV proven for supported offline/online layouts |
 | Generic native user install | Activation, runtime bundle, partial preedit, final commit, and command replacement deterministically proven |
-| Real desktop normal dictation | Not live-proven |
-| Real desktop command dictation | Not live-proven across applications |
+| Real desktop normal dictation | Live-proven through a real Fcitx client input context with acoustic PipeWire capture, streaming partials, and one final commit |
+| Real desktop command dictation | Live-proven in one real Fcitx client input context; multi-toolkit and clipboard-fallback proof remains |
 | Frontend menus/configuration | Implemented and deterministically tested; live UI proof missing |
 | Adapter resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, installed short-id start/stop/status resolution, short-id removal, guarded managed-script cleanup, and config backup |
 | ASR provider resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, guarded removal, and command-provider script editing |
@@ -47,23 +47,23 @@ The active target is **real desktop native-dictation alpha**: prove Fcitx trigge
 | Area | Rust state | Remaining gap |
 | --- | --- | --- |
 | D-Bus compatibility | Legacy names, methods, signals, status strings, and payloads preserved; diagnostic extensions added | Real-session compatibility hardening |
-| Runtime lifecycle | Normal/command flow, unavailable-but-running configured ASR startup, capture-first startup with early-chunk gating, chunk callbacks, partial polling, two-stage inferring/postprocessing stop, reload deferral, non-blocking prepare-before-swap, adapter supervision | Live microphone and application behavior |
+| Runtime lifecycle | Normal/command flow, capture-first startup, partial polling, inferring/postprocessing stop, reload deferral, adapter supervision, and one live Fcitx client path | Broad application, owner-loss, and reload behavior |
 | Native ASR | Offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, Moonshine v1, online transducer, and Zipformer2 CTC mapped and WAV-proven | Other legacy families only when concrete demand exists |
 | Command ASR | Batch and streaming command protocols, partials, cancellation, and timeout enforcement | Live external-provider recovery testing |
-| Audio | Typed PCM, processing, mock/file sources, capture-before-session ordering, reusable inactive PipeWire streams, bounded generation-safe idle teardown, target-change rebuild and opt-out, serialized D-Bus recording transactions, structured cold-start/first-buffer diagnostics, and best-effort `wpctl` output ducking with restore-on-all-paths | Real capture and output-ducking proof |
+| Audio | Typed PCM, processing, mock/file sources, reusable PipeWire streams, target-change rebuild, serialized recording transactions, diagnostics, output ducking lifecycle, and live acoustic capture through the configured source | Audible output-ducking and broader device proof |
 | Offline VAD | Silero model, legacy-compatible settings, fallback, cold-start guard, install, and diagnostics | Real microphone validation |
 | Text processing | Command adapters, OpenAI-compatible transport, prompts, context cache, scenes, candidates | One real desktop provider flow |
 | Registry | Live model lifecycle plus current provider/adapter registry list/install/update-by-reinstall, legacy locale detection/normalization, `en_US`/requested/local-override display metadata layering, guarded config materialization, executable script publication, and managed adapter removal | No current script-registry lifecycle gap |
 | CLI | Init, config, model, provider, hotword, device, scene, LLM, adapter, daemon, recording, and doctor; provider removal preserves local entries and supports active-clear semantics; command-provider scripts can be opened through resolved installed selectors | UX polish and continued feature-driven module extraction |
-| Fcitx frontend | Persistent keys, Tap/Hold/Both, menus, filtering, i18n, notifications, owner recovery, partial preedit, outcome application | Real desktop rendering and multi-application proof |
+| Fcitx frontend | Persistent keys, Tap/Hold/Both, menus, filtering, i18n, notifications, owner recovery, plus live normal and command outcomes in one real Fcitx client | GUI-toolkit rendering, focus transitions, menus, clipboard fallback, and multi-application proof |
 | User install | Temporary-HOME profiles, direct per-user activation, staged systemd-backed system activation, environment wrapper, native runtime bundle, and checked Arch package construction | Upgrade, rollback/uninstall, version-selection, repository, and live external-user policy |
 | Diagnostics | Doctor, runtime status, ASR state, audio devices, owner/PID/procfs, live probe | Live error-message refinement |
-| Tests | Workspace, session-bus, C++ addon, staged activation, temporary-HOME and native model smokes | Real desktop checks remain manual/opt-in |
+| Tests | Workspace, session-bus, C++ addon, staged activation, temporary-HOME/native model smokes, and an opt-in real Fcitx acoustic client gate | GUI-toolkit matrix remains manual/opt-in |
 
 ## Highest-risk gaps
 
-1. **Live desktop chain:** deterministic evidence stops before a real Fcitx process, live microphone, and real application rendering.
-2. **Command-mode application behavior:** surrounding-text and primary-selection fallback need proof across applications and toolkits.
+1. **Application breadth:** the core live path is proven in one real Fcitx client, but GUI toolkit rendering, focus transitions, and repeat behavior need broader proof.
+2. **Command-mode application behavior:** surrounding-text replacement is live-proven once; primary-selection fallback and multiple applications/toolkits remain.
 3. **Release boundary:** the checked Arch candidate is deterministic, but production publication, automatic package-manager handoff, incompatible-state rollback, production key operations, destructive stale-owner policy, and live external-user installation remain unproven. Detailed evidence belongs in [`../architecture/packaging-contract.md`](../architecture/packaging-contract.md).
 4. **Remote parity:** settings, authentication, ownership, debounce, Realtime-compatible event semantics, HTTP/WebSocket serving, D-Bus daemon reconciliation, shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
 5. **Maintainability:** `vinput-cli/src/main.rs` remains oversized and should be split only along future feature work.

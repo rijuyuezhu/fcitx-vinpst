@@ -25,7 +25,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M1 Deterministic product spine | complete | staged addon/daemon and outcome smokes |
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
-| M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
+| M4 Real desktop native alpha | active; core path live-proven | real Fcitx client, acoustic PipeWire, partial/input-panel updates, commit, and one command replacement are proven; GUI-toolkit breadth, menus, failure recovery, and reload remain |
 | M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal, and adapter runtime selectors |
 | M6 Release readiness | partial | The checked Arch package and signed candidate pipeline are deterministic; production publication, automatic package-manager handoff, incompatible-state rollback, production key operations, live installed proof, and external-user regression remain. Detailed evidence belongs in [`../architecture/packaging-contract.md`](../architecture/packaging-contract.md). |
 
@@ -51,15 +51,17 @@ The following are implemented and covered by deterministic tests:
 
 Implemented through D-Bus, the streaming path delivers recorder chunks, emits deduplicated live `RecognitionPartial` signals, renders partial-first preedit, and preserves final results for synchronous stop.
 
+Live in a real user session, `ime-fcitx-native-live` now proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, acoustic PipeWire capture, a streaming native model, input-panel partials, candidate selection, deletion, and final commit in a real Fcitx client application.
+
 ## P0: real desktop native alpha
 
 1. Run the deterministic gate before live work.
 2. Install `sherpa-native-live` with a registry-installed supported model.
 3. Restart Fcitx5 through the generated environment wrapper.
 4. Prove addon discovery and D-Bus activation in the real session.
-5. Prove normal trigger -> PipeWire -> native ASR -> partial/preedit -> application commit.
-6. Prove command trigger -> selected text -> candidate/postprocess -> replacement.
-7. Exercise scene/ASR menus, persistent keys, Tap/Hold/Both, localization, notifications, owner loss, and reload.
+5. Repeat normal and command paths in representative GUI applications/toolkits, including clipboard fallback.
+6. Exercise scene/ASR menus, persistent keys, Tap/Hold/Both, localization, notifications, owner loss, focus changes, and reload.
+7. Prove one configured provider-backed command transformation.
 8. Record exact failures and add deterministic regressions before fixing them.
 
 The validation procedure is [`live-desktop-validation.md`](live-desktop-validation.md).
@@ -91,4 +93,4 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 
 ## Next recommended slice
 
-Prove real desktop native dictation first. Port other remaining families, package formats, remote services, or GUI surfaces only after they unblock or follow from that evidence.
+Broaden the proven live normal/command path to representative GUI toolkits and failure/reload cases. Port other model families, package formats, remote services, or GUI surfaces only when they unblock or follow from that evidence.

@@ -4,15 +4,15 @@ Use this as the compact handoff for implementation work. It is a pointer to curr
 
 ## Mission
 
-Continue `fcitx-vinput-rs` from the usable CLI/daemon alpha toward **real desktop native alpha**. Do not rebuild completed management, registry, native ASR, activation, or retained-frontend surfaces.
+Continue `fcitx-vinput-rs` from the usable CLI/daemon alpha and the proven core **real desktop native alpha** path. Do not rebuild completed management, registry, native ASR, activation, or retained-frontend surfaces.
 
-The next proof is:
+The core proof is complete:
 
 ```text
-Fcitx trigger -> live PipeWire capture -> native ASR -> partial/preedit -> application commit
+Fcitx trigger -> acoustic PipeWire capture -> native ASR -> partial/input-panel updates -> application commit
 ```
 
-Then prove command-mode selected-text replacement across real applications.
+Normal commit and one selected-text command replacement are live-proven in a real Fcitx client. The next proof is breadth across representative GUI toolkits, clipboard fallback, menus, focus changes, owner loss, and reload.
 
 ## Repositories
 
@@ -43,9 +43,10 @@ Then prove command-mode selected-text replacement across real applications.
 - `user-ime-sherpa-native-activation-smoke` proves temporary-HOME activation and exact recognition.
 - Native online partials reach concrete Fcitx preedit before stop.
 - Final normal commit and command candidate replacement reach concrete test `InputContext` implementations.
+- `ime-fcitx-native-live` proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, acoustic PipeWire capture, streaming partial input-panel updates, candidate deletion, and final commit in one real Fcitx client application.
 - Persistent keys, Tap/Hold/Both, scene/ASR menus, filtering, i18n, notifications, and daemon recovery are implemented.
 - Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, `SIGTERM` shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
-- Real Fcitx, live PipeWire, and real application behavior remain unproven.
+- Representative GUI-toolkit behavior, primary-selection clipboard fallback, live menus/focus transitions, owner-loss, and reload remain unproven.
 - Remote services, packaging, upgrades, and optional GUI work remain later milestones.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.

@@ -83,6 +83,16 @@ The probe must see the addon module, addon metadata, activation service, current
 
 ## 5. Live normal dictation
 
+Run the repeatable acoustic client gate first:
+
+```sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  VINPUT_LIVE_NATIVE_MODES=normal \
+  just ime-fcitx-native-live
+```
+
+This creates a real Fcitx client input context, sends the configured F9 trigger through Fcitx, plays the WAV through the current output device, and requires non-placeholder partial input-panel updates plus one final commit.
+
 In a real application text field:
 
 1. trigger normal recording;
@@ -95,6 +105,16 @@ In a real application text field:
 Record failures separately for key handling, D-Bus activation, PipeWire setup, target selection, capture format, ASR, partial signal delivery, preedit rendering, final outcome, and application commit.
 
 ## 6. Live command dictation
+
+The same repeatable client gate covers the surrounding-text candidate path:
+
+```sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  VINPUT_LIVE_NATIVE_MODES=command \
+  just ime-fcitx-native-live
+```
+
+It requires F10 handling, selected surrounding text, live partials, a candidate menu, selection of the transformed candidate, `delete-surrounding-text`, and a different replacement commit. Evidence is written under `target/tmp/ime-fcitx-native-live`.
 
 In at least two application/toolkit combinations:
 
@@ -128,6 +148,7 @@ just pipewire-check
 VINPUT_TEST_PIPEWIRE_CONTEXT=1 VINPUT_TEST_PIPEWIRE_ENUMERATE=1 VINPUT_TEST_PIPEWIRE_RECORD=1 just pipewire-live
 just addon-dbus-pipewire-live
 just ime-configured-pipewire-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-native-live
 ```
 
 These checks are intentionally outside `just ci`. Capture the selected target, S16LE/16 kHz/mono plan, and the precise setup or record failure.
@@ -146,4 +167,4 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. It does not prove a real desktop application frontend or live PipeWire capture.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The opt-in `ime-fcitx-native-live` gate proves one real Fcitx client application path, but the manual GUI toolkit matrix remains required for full desktop parity.

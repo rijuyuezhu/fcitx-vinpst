@@ -162,10 +162,11 @@ just addon-dbus-pipewire-live
 just ime-pipewire-live
 just ime-configured-pipewire-live
 just ime-fcitx-live-probe
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-native-live
 scripts/bench-capture-cold-start.sh --follow
 ```
 
-The live recipes are intentionally excluded from `just ci`. `just pipewire-check` exercises CLI/daemon audio-device diagnostics without requiring a live PipeWire daemon. For cold-start measurements, enable `RUST_LOG=vinput_audio=debug,vinput_daemon=debug` in the user service, use waits of at least 10 seconds for cold trials and gaps below 2 seconds for warm trials, then run `scripts/bench-capture-cold-start.sh` or pass `--input` to analyze saved journal output. `just capture-cold-start-smoke` validates the parser with a deterministic fixture and is included in `just ci`. Live failures must record whether setup failed at the session, target, format, sample rate, channel plan, capture, ASR, frontend, or application boundary.
+The live recipes are intentionally excluded from `just ci`. `just ime-fcitx-native-live` uses a real Fcitx client input context and acoustic playback to verify F9 partial/commit plus F10 candidate deletion/replacement; its JSONL evidence is written under `target/tmp/ime-fcitx-native-live`. It does not replace the manual multi-toolkit matrix. `just pipewire-check` exercises CLI/daemon audio-device diagnostics without requiring a live PipeWire daemon. For cold-start measurements, enable `RUST_LOG=vinput_audio=debug,vinput_daemon=debug` in the user service, use waits of at least 10 seconds for cold trials and gaps below 2 seconds for warm trials, then run `scripts/bench-capture-cold-start.sh` or pass `--input` to analyze saved journal output. `just capture-cold-start-smoke` validates the parser with a deterministic fixture and is included in `just ci`. Live failures must record whether setup failed at the session, target, format, sample rate, channel plan, capture, ASR, frontend, or application boundary.
 
 ## Commit style
 
