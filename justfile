@@ -205,6 +205,10 @@ ime-fcitx-menu-paging-live:
 ime-fcitx-asr-menu-paging-live:
     scripts/run-ime-fcitx-asr-menu-paging-live.sh
 
+# Explicit persisted Tap/Hold/Both timing against real Fcitx key events.
+ime-fcitx-trigger-modes-live:
+    scripts/run-ime-fcitx-trigger-modes-live.sh
+
 # Compile toolkit probes without entering a real desktop flow.
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check

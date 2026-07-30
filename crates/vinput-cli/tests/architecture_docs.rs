@@ -981,6 +981,71 @@ fn asr_menu_paging_live_gate_pins_state_and_restore() {
 }
 
 #[test]
+fn trigger_modes_live_gate_pins_persisted_timing_and_restore() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-trigger-mode-probe.py"))
+        .expect("read trigger-mode live probe");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-trigger-modes-live.sh",
+    ))
+    .expect("read trigger-mode live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "choices=(\"Tap\", \"Hold\", \"Both\")",
+        "process_key_sync",
+        "tap-start-press",
+        "tap-release-preserved-recording",
+        "tap-stop-press",
+        "hold-short-remained-idle",
+        "hold-long-press",
+        "hold-long-release",
+        "both-between-cycles",
+        "final_status",
+        "not every trigger key event was consumed",
+    ] {
+        assert!(
+            probe.contains(required),
+            "trigger-mode probe should pin real timing evidence: {required}"
+        );
+    }
+    for required in [
+        "TriggerMode=${mode}",
+        "for mode in Tap Hold Both",
+        "--audio-backend",
+        "command[audio_index + 1] = \"mock\"",
+        "addon-config-before.conf",
+        "service-before.service",
+        "ensure_idle",
+        "restore_addon_config",
+        "restore_service",
+        "profile_unchanged",
+        "addon_config_restored",
+        "service_restored",
+        "fcitx_restored",
+        "backend_restored",
+        "target/tmp/ime-fcitx-trigger-modes-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "trigger-mode runner should pin persistence/restore evidence: {required}"
+        );
+    }
+    for forbidden in ["pw-play", "ydotool", "wtype"] {
+        assert!(
+            !runner.contains(forbidden),
+            "trigger-mode gate should use Fcitx key events and mock audio, not {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-trigger-modes-live:"));
+    assert!(justfile.contains("run-ime-fcitx-trigger-modes-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-trigger-modes-live"));
+}
+
+#[test]
 fn native_fcitx_reload_live_gate_pins_post_reload_recognition() {
     let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-reload-live.sh"))
         .expect("read Fcitx reload live runner");
