@@ -27,8 +27,8 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Discover, install, update, edit, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, localized title/description, batch/streaming validation, mirror download, executable publication, update-by-reinstall with legacy timeout/env preservation, config backup, guarded managed update; local removal guard, active-clear semantics, and legacy-compatible referenced-script editor | None for current script registry |
 | Discover, install, update, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, update-by-reinstall with config backup and guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | None for current script registry |
 | Select and reload a model | deterministic; same-provider reload live-proven | config persistence and background prepare-before-swap are deterministic; virtual-source evidence preserves owner/provider/model and proves post-reload recognition without physical audio devices | Real model/provider-switch reload proof |
-| Normal native dictation | live-proven through isolated audio injection | real Fcitx client, F9, a preflight-verified virtual PipeWire source, streaming native partial input-panel updates, and one final commit through `ime-fcitx-virtual-source-live`; GTK3 and Qt6 evidence collectors are implemented | Physical microphone/device and GTK3/Qt6 application evidence |
-| Command native dictation | live-proven | real Fcitx client, F10, selected surrounding text, live partials, deletion, and an `adapter-backed:` direct replacement commit from the configured local command adapter; GTK3 and Qt6 command probes are implemented | Multi-toolkit evidence, clipboard fallback, and one external provider flow |
+| Normal native dictation | live-proven through isolated audio injection and real applications | real Fcitx client, F9, a preflight-verified virtual PipeWire source, streaming partials, one final commit, and real-key GTK3, Qt6, and Chromium/Ozone application evidence | Physical microphone/device breadth |
+| Command native dictation | live-proven for surrounding text and primary selection | real Fcitx client, F10, live partials, selected surrounding-text deletion/replacement, zero-delete Wayland primary-selection fallback, and `adapter-backed:` commits; GTK3, Qt6, and Chromium command paths are also live-proven | Cross-application breadth and one external provider flow |
 | Scene and ASR menus | live-proven for non-mutating interaction | real Fcitx client, F7/F8 candidates, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits; typed D-Bus state, paging, i18n, and localized titles remain deterministic | Real selection/paging and reload proof |
 | Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, default user-config discovery with persistent D-Bus updates, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-GTK3 and Qt6 text-field probes remain opt-in evidence collectors and are not live-proven without real desktop F9/F10 events. The Fcitx focus-handoff, daemon-owner-loss, same-provider reload, scene/ASR menu, normal dictation, and local command-adapter summaries passed in an installed `sherpa-native-command-live` profile. Remaining behavior includes toolkit rendering, clipboard fallback, cross-application selected-text behavior, menu selection/paging, notifications, model/provider-switch reload, and an external provider.
+The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement and Wayland primary-selection fallback. The fallback gate provides no surrounding text, observes zero deletion events, requires the adapter commit to contain the owned primary fixture, and restores the previous primary text. Remaining behavior includes broader cross-application selected-text behavior, menu selection/paging, notifications, model/provider-switch reload, and an external provider.
 
 ## Release and platform gaps
 
@@ -163,8 +163,8 @@ GTK3 and Qt6 text-field probes remain opt-in evidence collectors and are not liv
 
 ## Immediate next work
 
-1. Run and retain normal/command evidence from the GTK3 and Qt6 probes, including clipboard fallback where surrounding text is unavailable.
-2. Record live menu selection/paging, notification, and model/provider-switch reload behavior.
+1. Record live menu selection/paging and persistent menu-key behavior.
+2. Record notification and model/provider-switch reload behavior.
 3. Validate one external provider-backed command transformation.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.

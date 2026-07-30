@@ -139,6 +139,15 @@ VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
 
 The gate requires `runtime-status` to contain `native-command-live-adapter` and the selected replacement commit to begin with `adapter-backed:`. This is repeatable proof of the configured command-adapter and frontend replacement path, not proof of a remote OpenAI-compatible provider.
 
+To prove the Wayland primary-selection fallback independently of surrounding text:
+
+```sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  just ime-fcitx-primary-selection-live
+```
+
+This gate owns `primary fallback fixture` through `wl-copy --primary`, creates a command input context without calling `set_surrounding_text`, requires live partials, zero `delete-surrounding-text` events, and an `adapter-backed:` commit containing the primary fixture, then restores the exact previous primary text and live capture configuration. Evidence is written under `target/tmp/ime-fcitx-primary-selection-live`.
+
 In at least two application/toolkit combinations:
 
 1. select text and trigger command mode;
@@ -183,6 +192,7 @@ The following installed-profile summaries reported `ok: true`:
 
 - normal dictation: seven non-placeholder partials and one final commit under `target/tmp/ime-fcitx-virtual-source-live`;
 - local command adapter: eight partials, one selected-text deletion, zero candidate rows for the configured single-result scene, and an `adapter-backed:` direct commit under `target/tmp/ime-fcitx-virtual-command-live`;
+- primary-selection fallback: seven partials, no surrounding text, zero deletion events, an `adapter-backed:` commit containing `primary fallback fixture`, and exact primary-text restoration under `target/tmp/ime-fcitx-primary-selection-live`;
 - focus handoff: focus moved to a second Fcitx context, while secondary partial and commit counts remained zero under `target/tmp/ime-fcitx-virtual-focus-live`;
 - owner loss: an unavailable error preedit, zero final commit, and successful post-test D-Bus reactivation under `target/tmp/ime-fcitx-virtual-owner-loss-live`;
 - same-provider reload: the owner PID and effective provider/model remained stable, reload completed without error, and a subsequent virtual-source recognition produced seven partials plus a final commit under `target/tmp/ime-fcitx-virtual-reload-live`;
@@ -236,4 +246,4 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement, focus handoff, verified owner loss, and same-provider reload through a preflight-verified isolated PipeWire source, plus non-mutating scene/ASR menus and GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. The gate restores the original capture target and uses no physical speaker or microphone. Physical microphone/device behavior, clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and an external provider remain outside the proven boundary.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement from surrounding text and Wayland primary selection, focus handoff, verified owner loss, and same-provider reload through a preflight-verified isolated PipeWire source, plus non-mutating scene/ASR menus and GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. The gates restore the original capture target and primary text and use no physical speaker or microphone. Physical microphone/device breadth, menu selection/paging, notifications, model/provider-switch reload, broader cross-application behavior, and an external provider remain outside the proven boundary.

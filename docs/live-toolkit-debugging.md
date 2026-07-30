@@ -150,6 +150,21 @@ Regression commits:
 
 This distinction is important: surrounding-text replacement and primary-selection fallback are separate live cases and must not satisfy each other's gate.
 
+### First run after capture-target switching returns empty ASR text
+
+**Symptom:** the virtual-source preflight contains valid non-zero audio, but the first command probe reports `sherpa-onnx online recognizer returned empty text`; an immediate rerun receives normal partials and commits.
+
+**Interpretation:** distinguish the audio route from recognizer readiness. A successful preflight proves the virtual source itself, while an empty first recognition after daemon restart or capture-target switching can be a cold-start timing race. It is not evidence that primary-selection fallback failed when the client already reports `selection_source=primary`, `surrounding_text_provided=false`, and `delete_count=0`.
+
+**Action:**
+
+- confirm the daemon has returned to `idle` with the expected provider/model and capture target;
+- confirm the preflight WAV has non-zero samples;
+- rerun the same retained gate once;
+- treat repeated empty recognitions as an audio/backend readiness bug and preserve both JSONL attempts.
+
+The first 2026-07-30 primary-fallback attempt hit this symptom; the second attempt produced seven partials and a valid adapter commit. Do not hide the failed attempt by weakening the fallback assertions.
+
 ### English abbreviations become `<unk>`
 
 **Symptom:** Chinese text is committed correctly, while terms such as `GTK` are emitted as `<unk>`.

@@ -43,10 +43,11 @@ Normal commit and one selected-text command replacement are live-proven in a rea
 - `user-ime-sherpa-native-activation-smoke` proves temporary-HOME activation and exact recognition.
 - Native online partials reach concrete Fcitx preedit before stop.
 - Final normal commit and command candidate replacement reach concrete test `InputContext` implementations.
-- `ime-fcitx-virtual-source-live` proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, a preflight-verified isolated PipeWire sink/source, streaming partial input-panel updates, selected-text deletion, and final commit in real Fcitx clients without physical audio devices.
-- Persistent keys, Tap/Hold/Both, scene/ASR menus, filtering, i18n, notifications, and daemon recovery are implemented.
+- `ime-fcitx-virtual-source-live` proves F9 normal dictation and F10 command transformation through the installed addon, current session-bus activation, a preflight-verified isolated PipeWire sink/source, streaming partial input-panel updates, surrounding-text deletion/replacement, and zero-delete Wayland primary-selection fallback without physical audio devices.
+- GTK3, Qt6, and Chromium/Ozone normal and command paths, non-mutating scene/ASR menus, focus handoff, verified owner loss, and same-provider reload are live-proven.
+- Persistent keys, Tap/Hold/Both, filtering, i18n, notifications, and daemon recovery are implemented.
 - Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, `SIGTERM` shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
-- Representative GUI-toolkit behavior, primary-selection clipboard fallback, live menus/focus transitions, owner-loss, and reload remain unproven.
+- Live menu selection/paging, notifications, model/provider-switch reload, broader cross-application behavior, and an external provider flow remain unproven.
 - Remote services, packaging, upgrades, and optional GUI work remain later milestones.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.
