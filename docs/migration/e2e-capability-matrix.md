@@ -28,13 +28,13 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Discover, install, update, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, update-by-reinstall with config backup and guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | None for current script registry |
 | Select and reload a model | deterministic | config persistence, background prepare-before-swap, C++/D-Bus selection smokes | Real desktop reload proof |
 | Normal native dictation | live-proven | real Fcitx client, F9, acoustic PipeWire capture, streaming native partial input-panel updates, and one final commit through `ime-fcitx-native-live`; GTK3 and Qt6 evidence collectors are implemented | Run and retain successful GTK3/Qt6 application evidence |
-| Command native dictation | live-proven | real Fcitx client, F10, selected surrounding text, live partials, fallback candidate selection, deletion, and replacement commit; GTK3 and Qt6 command probes are implemented | Multi-toolkit evidence, clipboard fallback, and real adapter flow |
-| Scene and ASR menus | deterministic | typed D-Bus state, persistent keys, filtering, paging, i18n, localized model titles | Real desktop UI proof |
+| Command native dictation | live-proven | real Fcitx client, F10, selected surrounding text, live partials, deletion, and an `adapter-backed:` direct replacement commit from the configured local command adapter; GTK3 and Qt6 command probes are implemented | Multi-toolkit evidence, clipboard fallback, and one external provider flow |
+| Scene and ASR menus | live-proven for non-mutating interaction | real Fcitx client, F7/F8 candidates, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits; typed D-Bus state, paging, i18n, and localized titles remain deterministic | Real selection/paging and reload proof |
 | Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, default user-config discovery with persistent D-Bus updates, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
 | Diagnose and recover | implemented | `doctor`, runtime status, owner/PID/procfs, activation and live probe | Message refinement from live failures |
-| Provider-backed text processing | deterministic; live collector implemented | command adapters, local OpenAI-compatible mock server, `sherpa-native-command-live`, and an adapter-identity plus `adapter-backed:` commit assertion | Run the native command-adapter gate, then one external provider flow |
+| Provider-backed text processing | live-proven for the configured local command adapter | `sherpa-native-command-live`, runtime adapter identity, acoustic command ASR, selected-text deletion, and an `adapter-backed:` direct commit; OpenAI-compatible transport remains deterministic | One external provider flow |
 | User installation | deterministic | temporary-HOME activation/runtime recognition plus the checked Arch package, repository, signature, candidate-promotion, and explicit handoff gates; see [`../architecture/packaging-contract.md`](../architecture/packaging-contract.md) | Real profile, production repository/key operations, automatic package-manager handoff, incompatible-state rollback, and external-user regression |
 
 ## CLI command surface comparison
@@ -75,7 +75,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Offline VAD | deterministic | tracked Silero model, legacy controls, fallback and diagnostics |
 | Text postprocess | deterministic | command and OpenAI-compatible paths; live provider proof missing |
 | Adapter supervision | deterministic | process/PID lifecycle and D-Bus control |
-| Notifications and recovery | deterministic | local notifications, daemon reload failure, owner loss, cross-client status reconciliation; opt-in focus-handoff and verified-owner-loss live gates are implemented | Run and retain successful focus/owner-loss evidence; then cover reload and notifications |
+| Notifications and recovery | partial; focus and owner loss live-proven | focus handoff keeps partials/final commit on the originating context; verified daemon loss surfaces an unavailable preedit with zero commit and D-Bus activation restores the configured adapter profile | Live reload and notification proof |
 | Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, local-socket tests, and private-session process smoke | Live cross-device browser proof |
 
 ## Registry/resource comparison
@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-GTK3 and Qt6 text-field probes plus Fcitx focus-handoff and daemon-owner-loss probes are implemented as opt-in evidence collectors. They are not marked live-proven until their JSONL summaries pass in a documented installed profile. Remaining behavior includes menu interaction, clipboard fallback, cross-application selected-text behavior, and successful retained toolkit/recovery evidence.
+GTK3 and Qt6 text-field probes remain opt-in evidence collectors and are not live-proven without real desktop F9/F10 events. The Fcitx focus-handoff, daemon-owner-loss, scene/ASR menu, normal dictation, and local command-adapter summaries passed in an installed `sherpa-native-command-live` profile. Remaining behavior includes toolkit rendering, clipboard fallback, cross-application selected-text behavior, menu selection/paging, notifications, reload, and an external provider.
 
 ## Release and platform gaps
 
@@ -164,8 +164,8 @@ GTK3 and Qt6 text-field probes plus Fcitx focus-handoff and daemon-owner-loss pr
 ## Immediate next work
 
 1. Run and retain normal/command evidence from the GTK3 and Qt6 probes, including clipboard fallback where surrounding text is unavailable.
-2. Run the focus-handoff and owner-loss gates, then record live menu, notification, and reload behavior.
-3. Run and retain the native command-adapter gate, then validate one external provider-backed command transformation.
+2. Record live menu selection/paging, notification, and reload behavior.
+3. Validate one external provider-backed command transformation.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.
 

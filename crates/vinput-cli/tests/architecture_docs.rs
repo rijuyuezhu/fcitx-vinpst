@@ -416,8 +416,8 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "ime-pipewire-live:",
         "ime-configured-pipewire-live:",
         "ime-fcitx-native-live:",
-        "ime-gtk3-native-live:",
-        "ime-qt6-native-live:",
+        "ime-gtk3-native-live mode='normal':",
+        "ime-qt6-native-live mode='normal':",
         "ime-fcitx-focus-live:",
         "ime-fcitx-owner-loss-live:",
         "sherpa-offline-local-smoke:",
@@ -1397,7 +1397,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Execute the checked GTK3, Qt6, focus-handoff, owner-loss, menu, and native command-adapter probes",
+        "Execute the checked GTK3 and Qt6 probes with real desktop key events",
     ] {
         assert!(
             plan.contains(required),

@@ -2,7 +2,7 @@
 
 Rust-oriented rewrite of [`fcitx5-vinput`](https://github.com/xifan2333/fcitx5-vinput).
 
-The project is a usable CLI/daemon alpha with a retained C++ Fcitx5 frontend. The native path is now live-proven in a real user session through Fcitx5, acoustic PipeWire capture, streaming ASR partials, input-panel preedit, final commit, and selected-text command replacement in a real Fcitx client application. The active milestone remains **real desktop native alpha** while menu behavior, failure recovery, and command replacement are broadened across GUI toolkits.
+The project is a usable CLI/daemon alpha with a retained C++ Fcitx5 frontend. The native path is now live-proven in a real user session through Fcitx5, acoustic PipeWire capture, streaming ASR partials, input-panel preedit, final commit, selected-text adapter replacement, non-mutating scene/ASR menu interaction, focus handoff, and daemon-owner loss recovery. The active milestone remains **real desktop native alpha** while GTK3/Qt6 application rendering, clipboard fallback, notifications, reload, and external-provider behavior are proven.
 
 ## Architecture
 
@@ -39,13 +39,16 @@ Live-proven in a real user session:
 
 - installed native runtime activation through the current session bus;
 - F9 -> live acoustic PipeWire capture -> streaming native ASR -> partial input-panel updates -> one application commit;
-- F10 -> selected surrounding text -> live partials -> candidate selection -> deletion -> replacement commit;
-- repeatable opt-in evidence through `VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-native-live`.
+- F10 -> selected surrounding text -> live partials -> deletion -> an `adapter-backed:` direct replacement commit from the configured local command adapter;
+- F7/F8 scene and ASR menus -> candidates -> slash filter -> first Escape clears filtering -> second Escape closes the menu with zero text commits;
+- focus handoff keeps partials and the final commit on the input context that started recording;
+- verified daemon-owner loss replaces partial text with an unavailable preedit, commits nothing, and recovers through D-Bus activation;
+- repeatable opt-in evidence through the `ime-fcitx-native-live`, `ime-fcitx-native-command-adapter-live`, `ime-fcitx-menu-live`, `ime-fcitx-focus-live`, and `ime-fcitx-owner-loss-live` recipes.
 
 Still requiring live proof or implementation:
 
-- command replacement and clipboard fallback across multiple GUI applications/toolkits;
-- real menu, focus-transition, notification, owner-loss, and reload behavior;
+- GTK3/Qt6 normal and command evidence plus clipboard fallback across multiple GUI applications;
+- real menu selection/paging, notifications, reload, and external-provider command behavior;
 - remote text live cross-device browser proof;
 - production publication and lifecycle policy beyond the checked Arch candidate, including automatic package-manager handoff, incompatible-state rollback, production key operations, external repository hosting, and live installed-desktop proof;
 - the legacy Qt GUI, which is intentionally deferred.
