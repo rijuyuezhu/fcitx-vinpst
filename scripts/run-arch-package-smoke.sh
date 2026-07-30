@@ -142,4 +142,25 @@ grep -qx 'Exec=/usr/bin/vinput-daemon --dbus --configured-backends --audio-backe
 grep -qx $'\t'"provides = fcitx5-vinput=${version}" "${build_root}/.SRCINFO"
 grep -qx $'\tconflicts = fcitx5-vinput' "${build_root}/.SRCINFO"
 
+(
+  cd "${build_root}"
+  cp PKGBUILD PKGBUILD.pkgrel1
+  trap 'mv -f PKGBUILD.pkgrel1 PKGBUILD' EXIT
+  "${repo_root}/scripts/render-arch-pkgbuild.py" \
+    --template "${repo_root}/packaging/arch/PKGBUILD.in" \
+    --version "${version}" \
+    --pkgrel 2 \
+    --source-url "file://${source_archive}" \
+    --source-sha256 "${source_sha256}" \
+    --source-dir "${source_dir}" \
+    --output PKGBUILD
+  SRCDEST="${source_cache}" makepkg --repackage --nodeps --noconfirm --force
+)
+upgrade_package_archive="$(find "${build_root}" -maxdepth 1 -type f \
+  -name "fcitx-vinput-rs-${version}-2-*.pkg.tar.zst" \
+  ! -name '*-debug-*' -print -quit)"
+test -n "${upgrade_package_archive}"
+scripts/run-arch-package-transaction-smoke.sh \
+  "${package_archive}" "${upgrade_package_archive}"
+
 echo "Arch package smoke passed: ${package_archive}"

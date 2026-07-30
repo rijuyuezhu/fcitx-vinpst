@@ -20,4 +20,7 @@ copies. `fcitx-vinput-rs` conflicts with and provides `fcitx5-vinput` because
 both projects own the same addon, bus name, and user service.
 
 Run `just arch-package-smoke` to render a local-source PKGBUILD, execute
-`makepkg`, inspect the package archive, and run both extracted Rust binaries.
+`makepkg`, inspect the package archive, run both extracted Rust binaries, create
+a `pkgrel=2` repackage, and prove pacman install, upgrade, and uninstall in a
+fakeroot-isolated temporary root. After a full build,
+`just arch-package-transaction-smoke` reruns only the fast transaction checks.

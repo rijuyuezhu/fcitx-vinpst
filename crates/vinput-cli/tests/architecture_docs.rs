@@ -517,6 +517,10 @@ fn packaging_architecture_pins_arch_release_boundary() {
     let package_smoke =
         std::fs::read_to_string(workspace_file("scripts/run-arch-package-smoke.sh"))
             .expect("read Arch package smoke");
+    let transaction_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-arch-package-transaction-smoke.sh",
+    ))
+    .expect("read Arch package transaction smoke");
 
     for required in [
         "checked Arch Linux `x86_64` template",
@@ -530,7 +534,10 @@ fn packaging_architecture_pins_arch_release_boundary() {
         "must never be passed as `cmake --install --prefix`",
         "`just arch-pkgbuild-check`",
         "`just arch-package-smoke`",
-        "Upgrade, rollback, uninstall migration",
+        "`just arch-package-transaction-smoke`",
+        "fakeroot-isolated pacman root",
+        "sentinel remains byte-identical",
+        "Rollback across incompatible versions",
     ] {
         assert!(
             packaging_doc.contains(required),
@@ -557,14 +564,25 @@ fn packaging_architecture_pins_arch_release_boundary() {
         );
     }
 
-    for recipe in ["arch-pkgbuild-check:", "arch-package-smoke:"] {
+    for recipe in [
+        "arch-pkgbuild-check:",
+        "arch-package-smoke:",
+        "arch-package-transaction-smoke:",
+    ] {
         assert!(justfile.contains(recipe), "justfile should define {recipe}");
     }
     assert!(metadata_check.contains("makepkg --printsrcinfo"));
     assert!(package_smoke.contains("makepkg --nodeps --noconfirm --force"));
+    assert!(package_smoke.contains("makepkg --repackage --nodeps"));
+    assert!(package_smoke.contains("run-arch-package-transaction-smoke.sh"));
     assert!(package_smoke.contains("patchelf --print-rpath"));
     assert!(package_smoke.contains("ldd \"${binary}\""));
     assert!(package_smoke.contains("build_root}/src"));
+    assert!(transaction_smoke.contains("fakeroot pacman"));
+    assert!(transaction_smoke.contains("-dd --noscriptlet -U"));
+    assert!(transaction_smoke.contains("-dd --noscriptlet -R"));
+    assert!(transaction_smoke.contains("preserve-user-config"));
+    assert!(transaction_smoke.contains("-Qkk"));
 }
 
 #[test]

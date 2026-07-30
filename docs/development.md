@@ -118,9 +118,10 @@ The checked source of truth is `packaging/arch/PKGBUILD.in`; render release-spec
 ```sh
 just arch-pkgbuild-check
 just arch-package-smoke
+just arch-package-transaction-smoke
 ```
 
-`just arch-pkgbuild-check` is the lightweight deterministic metadata gate included in `just ci`. `just arch-package-smoke` is the explicit release gate: it downloads checksum-pinned sherpa/ONNX Runtime assets when absent, builds a clean package through `makepkg`, extracts it without touching the host profile, validates the full file set and private rpaths, and runs the packaged CLI/daemon. It is intentionally not part of routine CI because it performs a complete release rebuild and requires network access for a cold cache.
+`just arch-pkgbuild-check` is the lightweight deterministic metadata gate included in `just ci`. `just arch-package-smoke` is the explicit release gate: it downloads checksum-pinned sherpa/ONNX Runtime assets when absent, builds a clean package through `makepkg`, extracts it without touching the host profile, validates the full file set and private rpaths, runs the packaged CLI/daemon, creates a `pkgrel=2` repackage, and proves pacman install/upgrade/removal. It is intentionally not part of routine CI because it performs a complete release rebuild and requires network access for a cold cache. `just arch-package-transaction-smoke` reruns only the fast fakeroot pacman transaction against archives already produced by the full package smoke.
 
 ### Native ASR evidence
 
