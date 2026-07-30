@@ -161,6 +161,10 @@ ime-fcitx-focus-live:
 ime-fcitx-owner-loss-live:
     VINPUT_LIVE_NATIVE_MODES=normal VINPUT_LIVE_NATIVE_OWNER_LOSS=1 scripts/run-ime-fcitx-native-live.sh
 
+# Explicit native command-adapter probe: reject fallback ASR candidates.
+ime-fcitx-native-command-adapter-live:
+    VINPUT_LIVE_NATIVE_MODES=command VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' scripts/run-ime-fcitx-native-live.sh
+
 # Explicit scene/ASR menu probe through a real Fcitx input context.
 ime-fcitx-menu-live:
     scripts/run-ime-fcitx-menu-live.sh

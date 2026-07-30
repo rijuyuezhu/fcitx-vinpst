@@ -9,6 +9,8 @@ selected_text="${VINPUT_LIVE_SELECTED_TEXT:-selected text}"
 modes="${VINPUT_LIVE_NATIVE_MODES:-normal,command}"
 focus_switch="${VINPUT_LIVE_NATIVE_FOCUS_SWITCH:-0}"
 owner_loss="${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}"
+expected_text_adapter="${VINPUT_LIVE_EXPECTED_TEXT_ADAPTER:-}"
+expected_commit_prefix="${VINPUT_LIVE_EXPECTED_COMMIT_PREFIX:-}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
 out_dir="${VINPUT_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
 probe="scripts/fcitx-live-client-probe.py"
@@ -66,6 +68,23 @@ if [[ "${status}" != *"'idle'"* ]]; then
   echo "org.fcitx.Vinput must be idle before the live probe: ${status:-unavailable}" >&2
   exit 2
 fi
+if [[ -n "${expected_text_adapter}" ]]; then
+  runtime_status="$(call_service GetRuntimeStatus)"
+  python3 - "${runtime_status}" "${expected_text_adapter}" <<'PY'
+import ast
+import json
+import sys
+
+payload = ast.literal_eval(sys.argv[1])[0]
+status = json.loads(payload)
+expected = sys.argv[2]
+adapter_ids = status.get("text_adapters", {}).get("adapter_ids", [])
+if expected not in adapter_ids:
+    raise SystemExit(
+        f"expected text adapter {expected!r} is not configured; found {adapter_ids!r}"
+    )
+PY
+fi
 
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
@@ -92,6 +111,10 @@ for mode in "${requested_modes[@]}"; do
     echo "focus-switch and owner-loss are separate live cases" >&2
     exit 2
   fi
+  if [[ -n "${expected_commit_prefix}" && "${mode}" != "command" ]]; then
+    echo "VINPUT_LIVE_EXPECTED_COMMIT_PREFIX supports command mode only" >&2
+    exit 2
+  fi
   echo "Running real Fcitx ${mode} native live probe..."
   probe_args=(
     --mode "${mode}"
@@ -103,6 +126,9 @@ for mode in "${requested_modes[@]}"; do
   fi
   if [[ "${owner_loss}" != "0" ]]; then
     probe_args+=(--owner-loss)
+  fi
+  if [[ -n "${expected_commit_prefix}" ]]; then
+    probe_args+=(--expected-commit-prefix "${expected_commit_prefix}")
   fi
   set -o pipefail
   timeout 40s python3 "${probe}" "${probe_args[@]}" \

@@ -442,6 +442,7 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         .expect("read Fcitx live client probe");
     let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-native-live.sh"))
         .expect("read Fcitx native live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
 
     for required in [
         "FcitxG",
@@ -456,6 +457,8 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "final commit leaked to the secondary context",
         "owner loss committed a partial result",
         "owner loss did not surface an unavailable preedit",
+        "final commit did not match expected prefix",
+        "expected_commit_prefix",
         "command mode did not replace selected text",
     ] {
         assert!(
@@ -469,6 +472,8 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "VINPUT_LIVE_NATIVE_MODES",
         "VINPUT_LIVE_NATIVE_FOCUS_SWITCH",
         "VINPUT_LIVE_NATIVE_OWNER_LOSS",
+        "VINPUT_LIVE_EXPECTED_TEXT_ADAPTER",
+        "VINPUT_LIVE_EXPECTED_COMMIT_PREFIX",
         "target/tmp/ime-fcitx-native-live",
         "org.fcitx.Vinput must be idle",
         "trap restore_idle EXIT",
@@ -476,6 +481,7 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "--mode \"${mode}\"",
         "--focus-switch",
         "--owner-loss",
+        "--expected-commit-prefix",
         "timeout 40s",
     ] {
         assert!(
@@ -483,6 +489,21 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
             "live Fcitx runner should pin opt-in policy: {required}"
         );
     }
+    for required in [
+        "ime-fcitx-native-command-adapter-live:",
+        "native-command-live-adapter",
+        "adapter-backed:",
+    ] {
+        assert!(
+            justfile.contains(required),
+            "justfile should pin adapter-backed live recipe: {required}"
+        );
+    }
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-native-command-adapter-live"));
 }
 
 #[test]
