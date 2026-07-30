@@ -7,6 +7,7 @@ cd "${repo_root}"
 wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
 modes="${VINPUT_LIVE_NATIVE_MODES:-normal}"
 reload_before_probe="${VINPUT_LIVE_RELOAD_BEFORE_PROBE:-0}"
+require_partial="${VINPUT_LIVE_REQUIRE_PARTIAL:-1}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
 cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
 out_dir="${VINPUT_LIVE_VIRTUAL_OUT_DIR:-target/tmp/ime-fcitx-virtual-source-live}"
@@ -128,6 +129,15 @@ if [[ ! -x "${cli_binary}" ]]; then
 fi
 if ! fcitx5-remote --check; then
   echo "Fcitx5 is not running in the current desktop session" >&2
+  exit 2
+fi
+
+if [[ "${require_partial}" != "0" && "${require_partial}" != "1" ]]; then
+  echo "VINPUT_LIVE_REQUIRE_PARTIAL must be 0 or 1" >&2
+  exit 2
+fi
+if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 && "${require_partial}" == "0" ]]; then
+  echo "owner-loss validation requires streaming partial evidence" >&2
   exit 2
 fi
 
@@ -280,16 +290,18 @@ fi
 
 VINPUT_LIVE_NATIVE_WAV="${wav_path}" \
 VINPUT_LIVE_NATIVE_MODES="${modes}" \
+VINPUT_LIVE_REQUIRE_PARTIAL="${require_partial}" \
 VINPUT_LIVE_PLAYBACK_TARGET="${sink_name}" \
 VINPUT_LIVE_NATIVE_OUT_DIR="${out_dir}/fcitx" \
   scripts/run-ime-fcitx-native-live.sh
 
 for mode in $(tr ',' ' ' <<<"${modes}"); do
   if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 ]]; then
-    jq -e '
-      select(
+    jq -s -e '
+      any(.[];
         .event == "summary" and
         .ok == true and
+        .require_partial == true and
         .partial_count > 0 and
         .owner_loss == true and
         .owner_loss_preedit_count > 0 and
@@ -298,11 +310,12 @@ for mode in $(tr ',' ' ' <<<"${modes}"); do
       )
     ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
   else
-    jq -e '
-      select(
+    jq -s -e --argjson require_partial "$( [[ "${require_partial}" == "1" ]] && echo true || echo false )" '
+      any(.[];
         .event == "summary" and
         .ok == true and
-        .partial_count > 0 and
+        .require_partial == $require_partial and
+        ($require_partial == false or .partial_count > 0) and
         (.commit | length) > 0
       )
     ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
@@ -331,6 +344,7 @@ jq -n \
   --argjson virtual_pid "${virtual_pid}" \
   --argjson restored_pid "${restored_pid}" \
   --argjson reload_proven "${reload_proven}" \
+  --argjson require_partial "$( [[ "${require_partial}" == "1" ]] && echo true || echo false )" \
   --slurpfile preflight "${out_dir}/preflight.json" \
   '{
     event: "summary",
@@ -343,5 +357,6 @@ jq -n \
     profile_restored: true,
     physical_speaker_or_microphone_used: false,
     reload_before_probe: $reload_proven,
+    require_partial: $require_partial,
     ok: true
   }' | tee "${out_dir}/summary.json"

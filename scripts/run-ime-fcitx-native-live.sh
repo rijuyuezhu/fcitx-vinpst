@@ -10,6 +10,7 @@ modes="${VINPUT_LIVE_NATIVE_MODES:-normal,command}"
 focus_switch="${VINPUT_LIVE_NATIVE_FOCUS_SWITCH:-0}"
 owner_loss="${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}"
 primary_selection_fallback="${VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK:-0}"
+require_partial="${VINPUT_LIVE_REQUIRE_PARTIAL:-1}"
 expected_text_adapter="${VINPUT_LIVE_EXPECTED_TEXT_ADAPTER:-}"
 expected_commit_prefix="${VINPUT_LIVE_EXPECTED_COMMIT_PREFIX:-}"
 playback_target="${VINPUT_LIVE_PLAYBACK_TARGET:-}"
@@ -235,6 +236,9 @@ for mode in "${requested_modes[@]}"; do
     --wav "${wav_path}"
     --selected-text "${selected_text}"
   )
+  if [[ "${require_partial}" == "0" ]]; then
+    probe_args+=(--no-require-partial)
+  fi
   if [[ -n "${playback_target}" ]]; then
     probe_args+=(--playback-target "${playback_target}")
   fi

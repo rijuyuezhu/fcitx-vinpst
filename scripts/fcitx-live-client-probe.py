@@ -429,7 +429,7 @@ class LiveProbe:
             event["pressed"] and event["released"] for event in self.state.key_events
         ):
             failures.append("addon did not consume the expected trigger taps")
-        if not self.state.preedits:
+        if self.args.require_partial and not self.state.preedits:
             failures.append("client received no non-placeholder partial preedit")
         if self.args.owner_loss:
             if not self.state.owner_lost:
@@ -476,6 +476,7 @@ class LiveProbe:
 
         summary = {
             "mode": self.args.mode,
+            "require_partial": self.args.require_partial,
             "partial_count": len(self.state.preedits),
             "commit": self.state.commits[-1] if self.state.commits else "",
             "expected_commit_prefix": self.args.expected_commit_prefix,
@@ -523,6 +524,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-commit-prefix", default="")
     parser.add_argument("--allow-direct-command-commit", action="store_true")
     parser.add_argument("--primary-selection-fallback", action="store_true")
+    parser.add_argument(
+        "--require-partial",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--playback-command", default="pw-play")
     parser.add_argument("--playback-target", default="")
     parser.add_argument("--start-delay-ms", type=int, default=300)
