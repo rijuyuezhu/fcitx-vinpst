@@ -35,7 +35,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
 | Diagnose and recover | implemented | `doctor`, runtime status, owner/PID/procfs, activation and live probe | Message refinement from live failures |
 | Provider-backed text processing | deterministic | command adapters and local OpenAI-compatible mock server | One real desktop provider flow |
-| User installation | deterministic | temporary-HOME addon, direct activation, staged systemd user unit plus D-Bus hint, runtime bundle, exact recognition, clean Arch `makepkg`/extracted-runtime validation, fakeroot pacman install/upgrade/same-version-rollback/uninstall, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification | Real profile, published repository path, automatic package-manager-triggered handoff, incompatible-state rollback, and external-user regression |
+| User installation | deterministic | temporary-HOME addon, direct activation, staged systemd user unit plus D-Bus hint, runtime bundle, exact recognition, clean Arch `makepkg`/extracted-runtime validation, fakeroot pacman install/upgrade/same-version-rollback/uninstall, message-only lifecycle hooks, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification | Real profile, published repository path, automatic package-manager-triggered handoff inside user sessions, incompatible-state rollback, and external-user regression |
 
 ## CLI command surface comparison
 

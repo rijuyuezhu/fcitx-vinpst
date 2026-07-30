@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke arch-pkgbuild-check command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-handoff-diagnostics-smoke daemon-handoff-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke arch-install-script-check arch-pkgbuild-check command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-handoff-diagnostics-smoke daemon-handoff-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -362,6 +362,9 @@ daemon-unavailable-asr-smoke:
     scripts/run-daemon-unavailable-asr-smoke.sh
 
 # Render the Arch package metadata without downloading or building release artifacts.
+arch-install-script-check:
+    scripts/check-arch-install-script.sh
+
 arch-pkgbuild-check:
     scripts/check-arch-pkgbuild.sh
 

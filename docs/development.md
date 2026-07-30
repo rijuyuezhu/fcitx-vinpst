@@ -118,12 +118,13 @@ The `sherpa-native-live` profile validates and copies `libsherpa-onnx` and `libo
 The checked source of truth is `packaging/arch/PKGBUILD.in`; render release-specific source metadata with `scripts/render-arch-pkgbuild.py`.
 
 ```sh
+just arch-install-script-check
 just arch-pkgbuild-check
 just arch-package-smoke
 just arch-package-transaction-smoke
 ```
 
-`just arch-pkgbuild-check` is the lightweight deterministic metadata gate included in `just ci`. `just arch-package-smoke` is the explicit release gate: it downloads checksum-pinned sherpa/ONNX Runtime assets when absent, builds a clean package through `makepkg`, extracts it without touching the host profile, validates the full file set and private rpaths, runs the packaged CLI/daemon, creates a `pkgrel=2` repackage, and proves pacman install/upgrade/same-version rollback/removal. It is intentionally not part of routine CI because it performs a complete release rebuild and requires network access for a cold cache. `just arch-package-transaction-smoke` reruns only the fast fakeroot pacman transaction against archives already produced by the full package smoke.
+`just arch-install-script-check` executes the message-only post-install, post-upgrade, and post-remove hooks with an empty `PATH`; it proves the root package script never invokes user-session commands and pins the lifecycle guidance. `just arch-pkgbuild-check` is the lightweight deterministic metadata gate included in `just ci`. `just arch-package-smoke` is the explicit release gate: it downloads checksum-pinned sherpa/ONNX Runtime assets when absent, builds a clean package through `makepkg`, verifies the embedded `.INSTALL`, extracts it without touching the host profile, validates the full file set and private rpaths, runs the packaged CLI/daemon, creates a `pkgrel=2` repackage, and proves pacman install/upgrade/same-version rollback/removal. It is intentionally not part of routine CI because it performs a complete release rebuild and requires network access for a cold cache. `just arch-package-transaction-smoke` reruns only the fast fakeroot pacman transaction against archives already produced by the full package smoke.
 
 ### Native ASR evidence
 

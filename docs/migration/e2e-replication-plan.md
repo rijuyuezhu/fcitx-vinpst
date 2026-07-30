@@ -27,7 +27,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
 | M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
 | M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal, and adapter runtime selectors |
-| M6 Release readiness | partial | Arch `x86_64` package construction, isolated pacman install/upgrade/same-version-rollback/uninstall, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification are deterministic; incompatible-state rollback, automatic package-manager-triggered handoff, repository publication, install docs, live installed proof, and external-user regression remain |
+| M6 Release readiness | partial | Arch `x86_64` package construction, isolated pacman install/upgrade/same-version-rollback/uninstall, message-only lifecycle hooks and local runbook, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification are deterministic; incompatible-state rollback, automatic package-manager-triggered handoff inside user sessions, repository publication, live installed proof, and external-user regression remain |
 
 ## Completed: usable CLI/daemon alpha
 

@@ -649,6 +649,56 @@ fn packaging_architecture_pins_explicit_daemon_handoff_boundary() {
 }
 
 #[test]
+fn packaging_architecture_pins_message_only_lifecycle_hooks() {
+    let packaging_doc = std::fs::read_to_string(architecture_dir().join("packaging-contract.md"))
+        .expect("read packaging contract doc");
+    let pkgbuild = std::fs::read_to_string(workspace_file("packaging/arch/PKGBUILD.in"))
+        .expect("read Arch PKGBUILD template");
+    let install_script =
+        std::fs::read_to_string(workspace_file("packaging/arch/fcitx-vinput-rs.install"))
+            .expect("read Arch install script");
+    let renderer = std::fs::read_to_string(workspace_file("scripts/render-arch-pkgbuild.py"))
+        .expect("read Arch PKGBUILD renderer");
+    let install_check =
+        std::fs::read_to_string(workspace_file("scripts/check-arch-install-script.sh"))
+            .expect("read Arch install script check");
+    let pkgbuild_check = std::fs::read_to_string(workspace_file("scripts/check-arch-pkgbuild.sh"))
+        .expect("read Arch PKGBUILD check");
+    let package_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-package-smoke.sh"))
+            .expect("read Arch package smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "Package transaction messages",
+        "execute no `systemctl --user`, `fcitx5`, or `vinput` command",
+        "package transaction cannot restart every user session",
+        "user config, models, and cache are preserved",
+        "complete makepkg inputs",
+        "message-only",
+    ] {
+        assert!(
+            packaging_doc.contains(required),
+            "packaging contract should pin lifecycle hook boundary: {required}"
+        );
+    }
+    assert!(pkgbuild.contains("install=fcitx-vinput-rs.install"));
+    for hook in ["post_install()", "post_upgrade()", "post_remove()"] {
+        assert!(install_script.contains(hook));
+    }
+    assert!(install_script.contains("vinput daemon handoff"));
+    assert!(install_script.contains("intentionally preserved"));
+    assert!(renderer.contains("shutil.copyfile"));
+    assert!(renderer.contains("args.install_script.name"));
+    assert!(renderer.contains("REPOSITORY_ROOT = Path(__file__).resolve().parent.parent"));
+    assert!(install_check.contains("PATH=/definitely/missing"));
+    assert!(pkgbuild_check.contains("nested/PKGBUILD"));
+    assert!(install_check.contains("^[[:space:]]*(systemctl|fcitx5|vinput)"));
+    assert!(package_smoke.contains("bsdtar -xOf \"${package_archive}\" .INSTALL"));
+    assert!(justfile.contains("arch-install-script-check:"));
+}
+
+#[test]
 fn registry_architecture_mentions_root_planning() {
     let registry_doc = std::fs::read_to_string(architecture_dir().join("registry-contract.md"))
         .expect("read registry contract doc");

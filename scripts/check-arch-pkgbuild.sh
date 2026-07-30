@@ -21,7 +21,22 @@ scripts/render-arch-pkgbuild.py \
   --source-dir "fcitx-vinput-rs-${version}" \
   --output "${check_root}/PKGBUILD"
 
+(
+  cd "${check_root}"
+  "${repo_root}/scripts/render-arch-pkgbuild.py" \
+    --version "${version}" \
+    --source-url file:///tmp/fcitx-vinput-rs-source.tar.gz \
+    --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+    --source-dir "fcitx-vinput-rs-${version}" \
+    --output nested/PKGBUILD
+)
+cmp packaging/arch/fcitx-vinput-rs.install \
+  "${check_root}/nested/fcitx-vinput-rs.install"
+
 bash -n "${check_root}/PKGBUILD"
+bash -n "${check_root}/fcitx-vinput-rs.install"
+cmp packaging/arch/fcitx-vinput-rs.install \
+  "${check_root}/fcitx-vinput-rs.install"
 (
   cd "${check_root}"
   makepkg --printsrcinfo >.SRCINFO
@@ -34,6 +49,7 @@ grep -qx $'\t'"provides = fcitx5-vinput=${version}" "${srcinfo}"
 grep -qx $'\tconflicts = fcitx5-vinput' "${srcinfo}"
 grep -qx $'\toptions = !debug' "${srcinfo}"
 grep -qx $'\toptions = !lto' "${srcinfo}"
+grep -qx $'\tinstall = fcitx-vinput-rs.install' "${srcinfo}"
 grep -qx $'\tdepends = libpipewire' "${srcinfo}"
 grep -qx $'\tdepends = systemd-libs' "${srcinfo}"
 grep -qx $'\tsha256sums = 650d3da32694fa48e6e018f7087e4840aace56b3187a294a18ba3b9f51e80943' "${srcinfo}"

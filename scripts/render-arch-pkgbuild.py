@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
+
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,7 +21,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--template",
         type=Path,
-        default=Path("packaging/arch/PKGBUILD.in"),
+        default=REPOSITORY_ROOT / "packaging/arch/PKGBUILD.in",
+    )
+    parser.add_argument(
+        "--install-script",
+        type=Path,
+        default=REPOSITORY_ROOT / "packaging/arch/fcitx-vinput-rs.install",
     )
     return parser.parse_args()
 
@@ -41,6 +49,9 @@ def main() -> None:
         raise SystemExit("unresolved Vinput PKGBUILD placeholder")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(rendered, encoding="utf-8")
+    install_output = args.output.parent / args.install_script.name
+    if args.install_script.resolve() != install_output.resolve():
+        shutil.copyfile(args.install_script, install_output)
 
 
 if __name__ == "__main__":

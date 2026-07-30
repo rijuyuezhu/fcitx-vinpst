@@ -1,0 +1,28 @@
+post_install() {
+  printf '%s\n' \
+    ':: fcitx-vinput-rs installed.' \
+    ':: For each desktop user, start the daemon with:' \
+    '   systemctl --user enable --now vinput-daemon.service' \
+    ':: Reload Fcitx5 so the new addon is discovered:' \
+    '   fcitx5 -r'
+}
+
+post_upgrade() {
+  printf '%s\n' \
+    ':: fcitx-vinput-rs upgraded.' \
+    ':: A package transaction cannot safely restart every user session.' \
+    ':: Each logged-in user can hand off a stale daemon with:' \
+    '   vinput daemon handoff' \
+    ':: Reload Fcitx5 if the addon binary changed:' \
+    '   fcitx5 -r'
+}
+
+post_remove() {
+  printf '%s\n' \
+    ':: fcitx-vinput-rs removed.' \
+    ':: User config, models, and cache were intentionally preserved.' \
+    ':: Each logged-in user can stop a still-running daemon with:' \
+    '   systemctl --user stop vinput-daemon.service' \
+    ':: Reload Fcitx5 to unload the removed addon:' \
+    '   fcitx5 -r'
+}

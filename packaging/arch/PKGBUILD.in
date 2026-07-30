@@ -26,6 +26,7 @@ optdepends=('wireplumber: output-volume ducking through wpctl')
 provides=("fcitx5-vinput=${pkgver}")
 conflicts=('fcitx5-vinput')
 options=('!debug' '!lto')
+install=fcitx-vinput-rs.install
 
 _source_dir='@VINPUT_SOURCE_DIR@'
 _sherpa_onnx_ver='1.13.3'

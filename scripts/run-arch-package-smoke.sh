@@ -74,6 +74,9 @@ scripts/render-arch-pkgbuild.py \
   --output "${build_root}/PKGBUILD"
 
 bash -n "${build_root}/PKGBUILD"
+bash -n "${build_root}/fcitx-vinput-rs.install"
+cmp packaging/arch/fcitx-vinput-rs.install \
+  "${build_root}/fcitx-vinput-rs.install"
 (
   cd "${build_root}"
   SRCDEST="${source_cache}" makepkg --printsrcinfo >.SRCINFO
@@ -84,6 +87,13 @@ bash -n "${build_root}/PKGBUILD"
 package_archive="$(find "${build_root}" -maxdepth 1 -type f \
   -name 'fcitx-vinput-rs-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
 test -n "${package_archive}"
+packaged_install="${stage_root}/packaged.INSTALL"
+bsdtar -xOf "${package_archive}" .INSTALL >"${packaged_install}"
+grep -q '^post_install()' "${packaged_install}"
+grep -q '^post_upgrade()' "${packaged_install}"
+grep -q '^post_remove()' "${packaged_install}"
+grep -q 'vinput daemon handoff' "${packaged_install}"
+grep -q 'intentionally preserved' "${packaged_install}"
 bsdtar -xf "${package_archive}" -C "${package_root}"
 
 required_files=(

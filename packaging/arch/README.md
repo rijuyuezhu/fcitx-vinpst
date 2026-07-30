@@ -25,3 +25,18 @@ a `pkgrel=2` repackage, and prove pacman install, upgrade, same-version
 rollback, and uninstall in a
 fakeroot-isolated temporary root. After a full build,
 `just arch-package-transaction-smoke` reruns only the fast transaction checks.
+
+The renderer also copies `fcitx-vinput-rs.install` beside the generated
+PKGBUILD. Its hooks are message-only because a root pacman transaction cannot
+safely target every user's session bus. After installing a local package, each
+desktop user should run:
+
+```sh
+systemctl --user enable --now vinput-daemon.service
+fcitx5 -r
+```
+
+After an upgrade, `vinput daemon handoff` conditionally restarts only a stale
+daemon and verifies the new owner. After removal, the package leaves user
+config, models, and cache intact; a still-running user daemon can be stopped
+with `systemctl --user stop vinput-daemon.service`, followed by `fcitx5 -r`.
