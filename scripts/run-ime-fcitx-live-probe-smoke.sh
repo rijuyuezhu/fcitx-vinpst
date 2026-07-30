@@ -10,7 +10,8 @@ trap 'rm -rf "${tmp_dir}"' EXIT
 stub_bin="${tmp_dir}/bin"
 home_dir="${tmp_dir}/home"
 out_dir="${tmp_dir}/out"
-mkdir -p "${stub_bin}" "${home_dir}" "${out_dir}"
+runtime_dir="${tmp_dir}/runtime"
+mkdir -p "${stub_bin}" "${home_dir}" "${out_dir}" "${runtime_dir}"
 
 cat >"${stub_bin}/fcitx5" <<'SH'
 #!/usr/bin/env bash
@@ -82,6 +83,7 @@ base_env=(
   PATH="${stub_bin}:${PATH}"
   HOME="${home_dir}"
   XDG_DATA_HOME="${home_dir}/.local/share"
+  XDG_RUNTIME_DIR="${runtime_dir}"
   VINPUT_LIVE_SKIP_USER_STATUS=1
   VINPUT_LIVE_SKIP_FCITX_ENV_CHECK=1
 )
@@ -178,5 +180,20 @@ expect_failure stale-bus \
 expect_output stale-bus 'Current org.fcitx.Vinput owner process: pid=4242'
 expect_output stale-bus 'FAIL[runtime-status-unavailable]'
 expect_output stale-bus 'FAIL[stale-bus-owner]'
+
+install -Dm755 /dev/stdin "${home_dir}/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh" <<WRAPPER
+#!/usr/bin/env sh
+exec ${home_dir}/.local/bin/vinput-daemon "\$@"
+WRAPPER
+install -Dm644 /dev/stdin "${runtime_dir}/dbus-1/services/org.fcitx.Vinput.service" <<SERVICE
+[D-BUS Service]
+Name=org.fcitx.Vinput
+Exec=${home_dir}/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh --dbus
+SERVICE
+
+env "${base_env[@]}" DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinput-test-bus \
+  "${probe}" >"${out_dir}/native-wrapper.log" 2>&1
+expect_output native-wrapper 'native runtime wrapper for'
+expect_output native-wrapper 'Live probe complete.'
 
 printf 'ime-fcitx-live-probe smoke passed\n'

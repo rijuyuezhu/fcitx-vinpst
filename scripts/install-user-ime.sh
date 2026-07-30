@@ -22,6 +22,12 @@ fcitx_autostart_file="${autostart_dir}/org.fcitx.Fcitx5.desktop"
 native_runtime_dir="${VINPUT_USER_SHERPA_RUNTIME_DIR:-${data_home}/fcitx-vinput/runtime}"
 native_runtime_lib_dir="${native_runtime_dir}/lib"
 daemon_env_wrapper="${config_dir}/vinput-daemon-with-vinput-env.sh"
+activation_service_path="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
+runtime_activation_service_path=""
+if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+  runtime_activation_service_path="${XDG_RUNTIME_DIR}/dbus-1/services/org.fcitx.Vinput.service"
+fi
+runtime_activation_mode="${VINPUT_USER_RUNTIME_ACTIVATION:-auto}"
 
 daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
 activation_daemon_path="${daemon_path}"
@@ -49,8 +55,11 @@ is_native_sherpa_profile() {
 
 profile_cli_features() {
   case "${profile}" in
-    configured-pipewire-live|real-command-asr-wav|sherpa-native-live|sherpa-sense-voice-live)
+    configured-pipewire-live|real-command-asr-wav)
       printf '%s\n' 'pipewire-backend'
+      ;;
+    sherpa-native-live|sherpa-sense-voice-live)
+      printf '%s\n' 'pipewire-backend,sherpa-onnx-backend'
       ;;
   esac
 }
@@ -97,6 +106,53 @@ import shlex
 import sys
 print(shlex.quote(sys.argv[1]))
 PY
+}
+
+home_matches_current_account() {
+  python3 - "${home_dir}" <<'PY'
+import os
+import pwd
+import sys
+
+requested = os.path.realpath(sys.argv[1])
+account = os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
+raise SystemExit(0 if requested == account else 1)
+PY
+}
+
+runtime_activation_enabled() {
+  case "${runtime_activation_mode}" in
+    1|true|yes)
+      return 0
+      ;;
+    0|false|no)
+      return 1
+      ;;
+    auto)
+      [[ -n "${runtime_activation_service_path}" ]] && home_matches_current_account
+      ;;
+    *)
+      echo "VINPUT_USER_RUNTIME_ACTIVATION must be auto, true, or false" >&2
+      exit 2
+      ;;
+  esac
+}
+
+publish_runtime_activation_service() {
+  if ! runtime_activation_enabled; then
+    return 0
+  fi
+  if [[ ! -f "${activation_service_path}" ]]; then
+    echo "persistent user activation service is missing: ${activation_service_path}" >&2
+    exit 2
+  fi
+  install -Dm644 "${activation_service_path}" "${runtime_activation_service_path}"
+}
+
+remove_runtime_activation_service() {
+  if [[ -n "${runtime_activation_service_path}" ]]; then
+    rm -f "${runtime_activation_service_path}"
+  fi
 }
 
 require_installed_sherpa_runtime() {
@@ -335,6 +391,27 @@ profile_default_config_path() {
   esac
 }
 
+activation_service_config_path() {
+  if [[ ! -f "${activation_service_path}" ]]; then
+    return 0
+  fi
+  python3 - "${activation_service_path}" <<'PY'
+import shlex
+import sys
+
+path = sys.argv[1]
+for line in open(path, encoding="utf-8"):
+    if not line.startswith("Exec="):
+        continue
+    parts = shlex.split(line.removeprefix("Exec=").strip())
+    for index, part in enumerate(parts):
+        if part == "--config" and index + 1 < len(parts):
+            print(parts[index + 1])
+            raise SystemExit(0)
+raise SystemExit(0)
+PY
+}
+
 runtime_status_requested() {
   case "${VINPUT_USER_RUNTIME_STATUS:-}" in
     1|true|yes|on)
@@ -412,25 +489,7 @@ doctor_status() {
     status_config="$(profile_default_config_path)"
   fi
   if [[ -z "${status_config}" ]]; then
-    local service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
-    if [[ -f "${service_file}" ]]; then
-      status_config="$(python3 - "${service_file}" <<'PY'
-import shlex
-import sys
-
-path = sys.argv[1]
-for line in open(path, encoding="utf-8"):
-    if not line.startswith("Exec="):
-        continue
-    parts = shlex.split(line.removeprefix("Exec=").strip())
-    for index, part in enumerate(parts):
-        if part == "--config" and index + 1 < len(parts):
-            print(parts[index + 1])
-            raise SystemExit(0)
-raise SystemExit(0)
-PY
-)"
-    fi
+    status_config="$(activation_service_config_path)"
   fi
 
   local args=(doctor)
@@ -446,8 +505,8 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
     rm -f "${command_asr_wav_helper_path}"
   fi
   rm -f "${vad_model_path}" "${vad_license_path}"
-  cargo_build_vinput_cli
-  "${cli_binary}" activation-service --remove-user
+  rm -f "${activation_service_path}"
+  remove_runtime_activation_service
   rm -rf "${native_runtime_dir}"
   remove_fcitx_env_integration
   echo "Removed user IME files if present:"
@@ -464,6 +523,10 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
 fi
 
 if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
+  if [[ -z "${VINPUT_USER_PROFILE:-}" && -x "${daemon_env_wrapper}" && -d "${native_runtime_lib_dir}" ]]; then
+    profile="sherpa-native-live"
+    config_path="$(activation_service_config_path)"
+  fi
   echo "User IME install status:"
   printf '  module: %s (%s)\n' "${module_path}" "$([[ -f "${module_path}" ]] && echo present || echo missing)"
   printf '  addon metadata: %s (%s)\n' "${addon_conf_path}" "$([[ -f "${addon_conf_path}" ]] && echo present || echo missing)"
@@ -597,6 +660,7 @@ if [[ -n "${audio_backend}" ]]; then
 fi
 activation_args+=("${daemon_args[@]}")
 with_native_runtime "${cli_binary}" "${activation_args[@]}"
+publish_runtime_activation_service
 run_runtime_status_validation
 
 cat <<EOF
@@ -625,7 +689,7 @@ Override trigger keys before launching Fcitx5 if needed:
   VINPUT_FCITX_COMMAND_TRIGGER=F9
 
 For the current session, restart through the wrapper:
-  ${fcitx_env_wrapper} -r
+  ${fcitx_env_wrapper} -dr
 
 For next login, the generated user autostart override starts Fcitx5 with the same environment.
 If your desktop ignores XDG autostart, source this before launching Fcitx5 manually:

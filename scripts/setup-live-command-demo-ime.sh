@@ -31,7 +31,7 @@ cat <<EOF
 
 Live command-demo IME files are installed and the probe passed.
 Restart Fcitx5 for the current session with:
-  ${wrapper} -r
+  ${wrapper} -dr
 
 Then open a text field and test:
   Right Ctrl press/release: normal command-demo commit

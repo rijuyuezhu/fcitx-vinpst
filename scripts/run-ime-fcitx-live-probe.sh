@@ -22,9 +22,15 @@ env_file="${config_dir}/fcitx-vinput.env"
 fcitx_env_wrapper="${config_dir}/fcitx5-with-vinput-env.sh"
 fcitx_autostart_file="${autostart_dir}/org.fcitx.Fcitx5.desktop"
 daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
+daemon_env_wrapper="${config_dir}/vinput-daemon-with-vinput-env.sh"
 module_path="${lib_dir}/fcitx5-vinput.so"
 addon_conf_path="${addon_dir}/vinput.conf"
-service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
+persistent_service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
+runtime_service_file="${XDG_RUNTIME_DIR:-}/dbus-1/services/org.fcitx.Vinput.service"
+service_file="${persistent_service_file}"
+if [[ -n "${XDG_RUNTIME_DIR:-}" && -f "${runtime_service_file}" ]]; then
+  service_file="${runtime_service_file}"
+fi
 status_log="${TMPDIR:-/tmp}/vinput-ime-live-status.$$.log"
 
 failures=()
@@ -64,7 +70,7 @@ print_summary_and_exit_if_failed() {
       printf '  - %s\n' "${item}" >&2
     done
   fi
-  printf '\nSuggested next step: run VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe, then restart Fcitx5 with %s -r. If your desktop ignores the generated autostart override, source %s before launching Fcitx5.\n' "${fcitx_env_wrapper}" "${env_file}" >&2
+  printf '\nSuggested next step: run VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe, then restart Fcitx5 with %s -dr. If your desktop ignores the generated autostart override, source %s before launching Fcitx5.\n' "${fcitx_env_wrapper}" "${env_file}" >&2
   printf 'If stale-bus-owner is listed and the displayed process is safe to stop, rerun with VINPUT_LIVE_STOP_STALE_OWNER=1 to stop it before probing activation.\n' >&2
   exit 1
 }
@@ -108,6 +114,29 @@ try:
                 if parts:
                     print(parts[0])
                 raise SystemExit(0)
+except OSError:
+    pass
+raise SystemExit(0)
+PY
+}
+
+wrapper_exec_daemon() {
+  local path="$1"
+  "${python_bin}" - "$path" <<'PY'
+import shlex
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped.startswith("exec "):
+                continue
+            parts = shlex.split(stripped)
+            if len(parts) >= 2:
+                print(parts[1])
+            raise SystemExit(0)
 except OSError:
     pass
 raise SystemExit(0)
@@ -276,6 +305,14 @@ check_install_shape() {
       add_failure "activation-service-exec-missing" "activation service has no Exec daemon path: ${service_file}"
     elif same_path "${service_daemon}" "${daemon_path}"; then
       printf 'Activation service daemon: %s (matches user daemon)\n' "${service_daemon}"
+    elif same_path "${service_daemon}" "${daemon_env_wrapper}"; then
+      local wrapped_daemon
+      wrapped_daemon="$(wrapper_exec_daemon "${daemon_env_wrapper}")"
+      if [[ -n "${wrapped_daemon}" ]] && same_path "${wrapped_daemon}" "${daemon_path}"; then
+        printf 'Activation service daemon: %s (native runtime wrapper for %s)\n' "${service_daemon}" "${daemon_path}"
+      else
+        add_failure "activation-service-wrapper-mismatch" "activation wrapper '${service_daemon}' does not exec '${daemon_path}'"
+      fi
     else
       add_failure "activation-service-old-daemon" "activation service points to '${service_daemon}', expected '${daemon_path}'"
     fi
@@ -349,7 +386,7 @@ check_fcitx_process_env() {
   if [[ "${inspected}" == "0" ]]; then
     add_warning "fcitx-env-unchecked" "no readable fcitx5 process environment was found"
   elif [[ "${has_matching_process}" == "0" ]]; then
-    add_failure "fcitx-env-not-restarted" "Fcitx5 is running without the generated user addon environment; restart it with ${fcitx_env_wrapper} -r or source ${env_file} before launching Fcitx5"
+    add_failure "fcitx-env-not-restarted" "Fcitx5 is running without the generated user addon environment; restart it with ${fcitx_env_wrapper} -dr or source ${env_file} before launching Fcitx5"
   else
     printf 'Fcitx5 process environment includes the user addon path.\n'
   fi

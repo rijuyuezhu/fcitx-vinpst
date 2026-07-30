@@ -46,7 +46,7 @@ mkdir -p "$(dirname "${VINPUT_USER_CLI_BINARY}")" "$(dirname "${VINPUT_USER_DAEM
 cat >"${VINPUT_USER_CLI_BINARY}" <<'VINPUT'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"${VINPUT_STUB_CALLS:?}"
+printf 'cli LD_LIBRARY_PATH=%s args=%s\n' "${LD_LIBRARY_PATH:-}" "$*" >>"${VINPUT_STUB_CALLS:?}"
 case "${1:-}" in
   activation-service)
     service_dir="${XDG_DATA_HOME:-${HOME}/.local/share}/dbus-1/services"
@@ -283,23 +283,18 @@ VINPUT_STUB_CARGO_CALLS="${cargo_calls_log}" \
 VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
 VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
 VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="${runtime_source_dir}" \
-VINPUT_USER_PROFILE="${profile}" \
 VINPUT_USER_STATUS=1 \
 scripts/install-user-ime.sh >"${out_dir}/status.log" 2>&1
 
-if ! grep -Fq -- '-p vinput-cli --features pipewire-backend' "${cargo_calls_log}"; then
+if ! grep -Fq -- '-p vinput-cli --features pipewire-backend,sherpa-onnx-backend' "${cargo_calls_log}"; then
   cat "${cargo_calls_log}" >&2
-  echo "status build did not keep the CLI free of native sherpa linkage" >&2
+  echo "status build did not enable the native sherpa CLI diagnostics" >&2
   exit 1
 fi
-if grep -F -- '-p vinput-cli' "${cargo_calls_log}" | grep -Fq -- 'sherpa-onnx-backend'; then
-  cat "${cargo_calls_log}" >&2
-  echo "status CLI unexpectedly linked the native sherpa runtime" >&2
-  exit 1
-fi
-if ! grep -Fq -- "doctor --config ${config_path}" "${calls_log}"; then
+if ! grep -Fq -- "cli LD_LIBRARY_PATH=${runtime_lib_dir}" "${calls_log}" ||
+   ! grep -Fq -- "args=doctor --config ${config_path}" "${calls_log}"; then
   cat "${calls_log}" >&2
-  echo "status call did not run doctor against generated sherpa config" >&2
+  echo "status call did not run native doctor with the installed runtime bundle" >&2
   exit 1
 fi
 if ! grep -Fq -- "LD_LIBRARY_PATH=${runtime_lib_dir}" "${calls_log}" ||

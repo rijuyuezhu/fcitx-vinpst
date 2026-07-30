@@ -1279,12 +1279,23 @@ fn native_user_install_pins_runtime_bundle_activation() {
         "with_native_runtime \"${daemon_path}\"",
         "VINPUT_USER_NATIVE_WAV",
         "runtime-status",
+        "VINPUT_USER_RUNTIME_ACTIVATION",
+        "runtime_activation_service_path",
+        "publish_runtime_activation_service",
+        "XDG_RUNTIME_DIR",
     ] {
         assert!(
             install.contains(required),
             "native installer should pin runtime activation contract: {required}"
         );
     }
+    assert!(
+        install
+            .matches("'pipewire-backend,sherpa-onnx-backend'")
+            .count()
+            >= 2,
+        "native CLI and daemon builds should enable the same sherpa runtime feature"
+    );
 
     for required in [
         "VINPUT_TEST_SHERPA_PROFILE=sherpa-native-live",
@@ -1326,6 +1337,29 @@ fn native_user_install_pins_runtime_bundle_activation() {
                 "native install docs should pin runtime bundle contract: {required}"
             );
         }
+    }
+}
+
+#[test]
+fn live_fcitx_restart_commands_daemonize_the_replacement() {
+    for relative_path in [
+        "scripts/install-user-ime.sh",
+        "scripts/setup-live-command-demo-ime.sh",
+        "scripts/run-ime-fcitx-live-probe.sh",
+        "docs/migration/live-desktop-validation.md",
+    ] {
+        let contents = std::fs::read_to_string(workspace_file(relative_path))
+            .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
+        assert!(
+            contents.contains("-dr"),
+            "{relative_path} should restart Fcitx in daemon mode"
+        );
+        assert!(
+            !contents.contains("fcitx5-with-vinput-env.sh\" -r")
+                && !contents.contains("${fcitx_env_wrapper} -r")
+                && !contents.contains("${wrapper} -r"),
+            "{relative_path} should not recommend a foreground replacement"
+        );
     }
 }
 

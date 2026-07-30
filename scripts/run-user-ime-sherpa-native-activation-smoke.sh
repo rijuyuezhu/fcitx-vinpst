@@ -18,11 +18,13 @@ fi
 home_dir="${out_dir_abs}/home"
 data_home="${home_dir}/.local/share"
 config_home="${home_dir}/.config"
+runtime_dir="${out_dir_abs}/runtime"
 install_log="${out_dir_abs}/install.log"
 status_output="${out_dir_abs}/daemon-status.json"
 start_output="${out_dir_abs}/recording-start.json"
 stop_output="${out_dir_abs}/recording-stop.json"
 service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
+runtime_service_file="${runtime_dir}/dbus-1/services/org.fcitx.Vinput.service"
 daemon_path="${home_dir}/.local/bin/vinput-daemon"
 daemon_wrapper="${data_home}/fcitx-vinput/vinput-daemon-with-vinput-env.sh"
 installed_runtime_lib_dir="${data_home}/fcitx-vinput/runtime/lib"
@@ -76,15 +78,17 @@ for library in libsherpa-onnx-c-api.so libonnxruntime.so; do
 done
 
 rm -rf "${out_dir_abs}"
-mkdir -p "${home_dir}" "${config_home}"
+mkdir -p "${home_dir}" "${config_home}" "${runtime_dir}"
 
 common_env=(
   HOME="${home_dir}"
   XDG_DATA_HOME="${data_home}"
   XDG_CONFIG_HOME="${config_home}"
+  XDG_RUNTIME_DIR="${runtime_dir}"
   RUSTUP_HOME="${rustup_home}"
   CARGO_HOME="${cargo_home}"
   VINPUT_USER_PROFILE=sherpa-native-live
+  VINPUT_USER_RUNTIME_ACTIVATION=1
   VINPUT_USER_AUDIO_BACKEND=mock
   VINPUT_USER_SHERPA_MODEL="${model_dir}"
   VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="${runtime_lib_dir}"
@@ -93,7 +97,7 @@ common_env=(
 
 env "${common_env[@]}" scripts/install-user-ime.sh >"${install_log}" 2>&1
 
-for required in "${service_file}" "${daemon_path}" "${daemon_wrapper}" \
+for required in "${service_file}" "${runtime_service_file}" "${daemon_path}" "${daemon_wrapper}" \
   "${installed_runtime_lib_dir}/libsherpa-onnx-c-api.so" \
   "${installed_runtime_lib_dir}/libonnxruntime.so"; do
   if [[ ! -e "${required}" ]]; then
@@ -115,6 +119,8 @@ trap cleanup_install EXIT
 HOME="${home_dir}" \
 XDG_DATA_HOME="${data_home}" \
 XDG_CONFIG_HOME="${config_home}" \
+XDG_RUNTIME_DIR="${runtime_dir}" \
+LD_LIBRARY_PATH="${installed_runtime_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
 VINPUT_ACTIVATION_EXPECTED_TEXT="${expected_text}" \
 VINPUT_ACTIVATION_EXPECTED_DAEMON="${daemon_path}" \
 VINPUT_ACTIVATION_EXPECTED_WAV="${wav_path}" \

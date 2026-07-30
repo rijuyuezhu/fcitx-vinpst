@@ -70,7 +70,7 @@ Do not continue if `doctor` or `runtime-status` reports a model or native-librar
 Prefer the installed wrapper:
 
 ```sh
-"$HOME/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh" -r
+"$HOME/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh" -dr
 ```
 
 Then rerun:
