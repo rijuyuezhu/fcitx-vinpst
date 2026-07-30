@@ -27,8 +27,8 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Discover, install, update, edit, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, localized title/description, batch/streaming validation, mirror download, executable publication, update-by-reinstall with legacy timeout/env preservation, config backup, guarded managed update; local removal guard, active-clear semantics, and legacy-compatible referenced-script editor | None for current script registry |
 | Discover, install, update, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, update-by-reinstall with config backup and guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | None for current script registry |
 | Select and reload a model | deterministic | config persistence, background prepare-before-swap, C++/D-Bus selection smokes | Real desktop reload proof |
-| Normal native dictation | live-proven | real Fcitx client, F9, acoustic PipeWire capture, streaming native partial input-panel updates, and one final commit through `ime-fcitx-native-live` | Repeat in representative GUI toolkits and applications |
-| Command native dictation | live-proven | real Fcitx client, F10, selected surrounding text, live partials, fallback candidate selection, deletion, and replacement commit | Multi-toolkit, clipboard fallback, and real adapter flow |
+| Normal native dictation | live-proven | real Fcitx client, F9, acoustic PipeWire capture, streaming native partial input-panel updates, and one final commit through `ime-fcitx-native-live`; GTK3 and Qt6 evidence collectors are implemented | Run and retain successful GTK3/Qt6 application evidence |
+| Command native dictation | live-proven | real Fcitx client, F10, selected surrounding text, live partials, fallback candidate selection, deletion, and replacement commit; GTK3 and Qt6 command probes are implemented | Multi-toolkit evidence, clipboard fallback, and real adapter flow |
 | Scene and ASR menus | deterministic | typed D-Bus state, persistent keys, filtering, paging, i18n, localized model titles | Real desktop UI proof |
 | Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, default user-config discovery with persistent D-Bus updates, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
@@ -75,7 +75,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Offline VAD | deterministic | tracked Silero model, legacy controls, fallback and diagnostics |
 | Text postprocess | deterministic | command and OpenAI-compatible paths; live provider proof missing |
 | Adapter supervision | deterministic | process/PID lifecycle and D-Bus control |
-| Notifications and recovery | deterministic | local notifications, daemon reload failure, owner loss, cross-client status reconciliation |
+| Notifications and recovery | deterministic | local notifications, daemon reload failure, owner loss, cross-client status reconciliation; opt-in focus-handoff and verified-owner-loss live gates are implemented | Run and retain successful focus/owner-loss evidence; then cover reload and notifications |
 | Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, local-socket tests, and private-session process smoke | Live cross-device browser proof |
 
 ## Registry/resource comparison
@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-Remaining: representative GUI-toolkit rendering, focus transitions, menu interaction, clipboard fallback, and cross-application selected-text behavior.
+GTK3 and Qt6 text-field probes plus Fcitx focus-handoff and daemon-owner-loss probes are implemented as opt-in evidence collectors. They are not marked live-proven until their JSONL summaries pass in a documented installed profile. Remaining behavior includes menu interaction, clipboard fallback, cross-application selected-text behavior, and successful retained toolkit/recovery evidence.
 
 ## Release and platform gaps
 
@@ -163,8 +163,8 @@ Remaining: representative GUI-toolkit rendering, focus transitions, menu interac
 
 ## Immediate next work
 
-1. Prove command replacement and clipboard fallback in at least two GUI application/toolkit combinations.
-2. Record live menu, notification, daemon-loss, focus-transition, and reload behavior.
+1. Run and retain normal/command evidence from the GTK3 and Qt6 probes, including clipboard fallback where surrounding text is unavailable.
+2. Run the focus-handoff and owner-loss gates, then record live menu, notification, and reload behavior.
 3. Validate one real provider-backed command transformation rather than the raw-ASR fallback candidate.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.

@@ -127,6 +127,32 @@ In at least two application/toolkit combinations:
 7. repeat with a configured text provider or adapter when available;
 8. verify failure is safe when no selection can be acquired.
 
+### Repeatable toolkit probes
+
+Use the GTK3 and Qt6 probes to capture toolkit-native preedit and commit evidence. They create real text widgets and wait for a real desktop shortcut; synthetic toolkit key events are intentionally forbidden because they are not reliable under Wayland.
+
+```sh
+VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
+  just ime-gtk3-native-live normal
+VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
+  just ime-gtk3-native-live command
+VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
+  just ime-qt6-native-live normal
+VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
+  just ime-qt6-native-live command
+```
+
+Each window prints JSONL and exits successfully only after the expected partial plus normal commit or command replacement. Evidence is written under `target/tmp/ime-gtk3-native-live` or `target/tmp/ime-qt6-native-live`. A compiled probe or an informal success report without its application/toolkit and output is not matrix evidence.
+
+### Focus and owner-loss probes
+
+```sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-focus-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-owner-loss-live
+```
+
+The focus probe requires partials and the final commit to remain on the input context that started recording even after another context receives focus and sends the stop trigger. The owner-loss probe resolves the current `org.fcitx.Vinput` PID, refuses to stop an unexpected executable, terminates only a verified `vinput-daemon`, requires the frontend to replace live partials with an unavailable error preedit, and rejects any final commit. These are destructive, opt-in real-session checks and remain unproven until their JSONL summaries report `ok: true`.
+
 ## 7. Frontend behavior
 
 Verify in the real session:
@@ -167,4 +193,4 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The opt-in `ime-fcitx-native-live` gate proves one real Fcitx client application path, but the manual GUI toolkit matrix remains required for full desktop parity.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The opt-in `ime-fcitx-native-live` gate proves one real Fcitx client application path. GTK3, Qt6, focus-transition, and owner-loss probes now provide repeatable evidence collection, but their existence is not a pass and the manual application/toolkit matrix remains required for full desktop parity.
