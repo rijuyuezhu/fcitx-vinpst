@@ -558,6 +558,10 @@ fn gtk3_live_probe_requires_real_toolkit_key_events() {
         "g_dbus_connection_signal_subscribe",
         "gtk_main_level",
         "g_source_remove",
+        "selection-ready",
+        "gtk_widget_has_focus",
+        "VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING",
+        "selection_ready",
     ] {
         assert!(
             source.contains(required),

@@ -16,14 +16,17 @@ typedef struct {
   GDBusConnection *bus;
   char *last_text;
   guint partial_subscription_id;
+  guint selection_source_id;
   guint finish_source_id;
   guint timeout_source_id;
   ProbeMode mode;
   const char *initial_text;
+  const char *expected_commit_substring;
   bool require_partial;
   bool partial_seen;
   bool commit_seen;
   bool replacement_seen;
+  bool selection_ready;
   bool timed_out;
   bool window_destroyed;
 } Probe;
@@ -145,6 +148,44 @@ static void OnRecognitionPartial(GDBusConnection *connection, const gchar *sende
   }
 }
 
+static void EmitReady(const Probe *probe) {
+  g_print("{\"event\":\"ready\",\"toolkit\":\"gtk3\",\"mode\":\"%s\","
+          "\"manual_trigger\":true}\n",
+          probe->mode == PROBE_MODE_NORMAL ? "normal" : "command");
+  fflush(stdout);
+}
+
+static gboolean PrepareCommandSelection(gpointer user_data) {
+  Probe *probe = user_data;
+  if (probe->window_destroyed || probe->entry == NULL) {
+    probe->selection_source_id = 0;
+    return G_SOURCE_REMOVE;
+  }
+  if (!gtk_widget_has_focus(probe->entry)) {
+    return G_SOURCE_CONTINUE;
+  }
+
+  gtk_editable_select_region(GTK_EDITABLE(probe->entry), 0, -1);
+  gint start = 0;
+  gint end = 0;
+  if (!gtk_editable_get_selection_bounds(GTK_EDITABLE(probe->entry), &start, &end) ||
+      start == end) {
+    return G_SOURCE_CONTINUE;
+  }
+  char *selected = gtk_editable_get_chars(GTK_EDITABLE(probe->entry), start, end);
+  const bool matches = selected != NULL && strcmp(selected, probe->initial_text) == 0;
+  EmitTextEvent("selection-ready", selected);
+  g_free(selected);
+  if (!matches) {
+    return G_SOURCE_CONTINUE;
+  }
+
+  probe->selection_ready = true;
+  probe->selection_source_id = 0;
+  EmitReady(probe);
+  return G_SOURCE_REMOVE;
+}
+
 static void UpdateFinalOutcome(Probe *probe) {
   if (DaemonIsRecording(probe) || probe->last_text == NULL ||
       *probe->last_text == '\0') {
@@ -164,9 +205,15 @@ static gboolean FinishWhenSuccessful(gpointer user_data) {
   Probe *probe = user_data;
   UpdateFinalOutcome(probe);
   const bool partial_ok = !probe->require_partial || probe->partial_seen;
+  const bool selection_ok = probe->mode == PROBE_MODE_NORMAL || probe->selection_ready;
+  const bool expected_commit_ok =
+      probe->expected_commit_substring == NULL ||
+      *probe->expected_commit_substring == '\0' ||
+      (probe->last_text != NULL &&
+       strstr(probe->last_text, probe->expected_commit_substring) != NULL);
   const bool outcome_ok =
       probe->mode == PROBE_MODE_NORMAL ? probe->commit_seen : probe->replacement_seen;
-  if (partial_ok && outcome_ok) {
+  if (partial_ok && selection_ok && expected_commit_ok && outcome_ok) {
     probe->finish_source_id = 0;
     QuitMainLoop();
     return G_SOURCE_REMOVE;
@@ -241,14 +288,17 @@ int main(int argc, char **argv) {
       .bus = NULL,
       .last_text = g_strdup(mode == PROBE_MODE_COMMAND ? initial_text : ""),
       .partial_subscription_id = 0,
+      .selection_source_id = 0,
       .finish_source_id = 0,
       .timeout_source_id = 0,
       .mode = mode,
       .initial_text = initial_text,
+      .expected_commit_substring = g_getenv("VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING"),
       .require_partial = EnvFlag("VINPUT_TOOLKIT_REQUIRE_PARTIAL", true),
       .partial_seen = false,
       .commit_seen = false,
       .replacement_seen = false,
+      .selection_ready = mode == PROBE_MODE_NORMAL,
       .timed_out = false,
       .window_destroyed = false,
   };
@@ -301,13 +351,11 @@ int main(int argc, char **argv) {
   gtk_widget_show_all(window);
   gtk_widget_grab_focus(probe.entry);
   if (mode == PROBE_MODE_COMMAND) {
-    gtk_editable_select_region(GTK_EDITABLE(probe.entry), 0, -1);
+    probe.selection_source_id = g_timeout_add(100, PrepareCommandSelection, &probe);
+  } else {
+    EmitReady(&probe);
   }
 
-  g_print("{\"event\":\"ready\",\"toolkit\":\"gtk3\",\"mode\":\"%s\","
-          "\"manual_trigger\":true}\n",
-          mode == PROBE_MODE_NORMAL ? "normal" : "command");
-  fflush(stdout);
   probe.finish_source_id = g_timeout_add(200, FinishWhenSuccessful, &probe);
   probe.timeout_source_id = g_timeout_add_seconds(TimeoutSeconds(), OnTimeout, &probe);
   gtk_main();
@@ -320,22 +368,35 @@ int main(int argc, char **argv) {
     g_source_remove(probe.finish_source_id);
     probe.finish_source_id = 0;
   }
+  if (probe.selection_source_id != 0) {
+    g_source_remove(probe.selection_source_id);
+    probe.selection_source_id = 0;
+  }
   UpdateFinalOutcome(&probe);
   const char *final_text = probe.last_text;
   const bool partial_ok = !probe.require_partial || probe.partial_seen;
+  const bool selection_ok = mode == PROBE_MODE_NORMAL || probe.selection_ready;
+  const bool expected_commit_ok =
+      probe.expected_commit_substring == NULL ||
+      *probe.expected_commit_substring == '\0' ||
+      (final_text != NULL &&
+       strstr(final_text, probe.expected_commit_substring) != NULL);
   const bool outcome_ok =
       mode == PROBE_MODE_NORMAL ? probe.commit_seen : probe.replacement_seen;
-  const bool ok = partial_ok && outcome_ok && !probe.timed_out;
+  const bool ok = partial_ok && selection_ok && expected_commit_ok && outcome_ok &&
+                  !probe.timed_out;
   GString *summary = g_string_new("{\"event\":\"summary\",\"toolkit\":\"gtk3\","
                                   "\"mode\":\"");
   g_string_append(summary, mode == PROBE_MODE_NORMAL ? "normal" : "command");
-  g_string_append_printf(summary,
-                         "\",\"partial\":%s,\"commit\":%s,\"replacement\":%s,"
-                         "\"timed_out\":%s,\"ok\":%s,\"text\":\"",
-                         probe.partial_seen ? "true" : "false",
-                         probe.commit_seen ? "true" : "false",
-                         probe.replacement_seen ? "true" : "false",
-                         probe.timed_out ? "true" : "false", ok ? "true" : "false");
+  g_string_append_printf(
+      summary,
+      "\",\"partial\":%s,\"commit\":%s,\"replacement\":%s,"
+      "\"selection_ready\":%s,\"expected_commit\":%s,"
+      "\"timed_out\":%s,\"ok\":%s,\"text\":\"",
+      probe.partial_seen ? "true" : "false", probe.commit_seen ? "true" : "false",
+      probe.replacement_seen ? "true" : "false",
+      probe.selection_ready ? "true" : "false", expected_commit_ok ? "true" : "false",
+      probe.timed_out ? "true" : "false", ok ? "true" : "false");
   AppendJsonEscaped(summary, final_text);
   g_string_append(summary, "\"}\n");
   g_print("%s", summary->str);
