@@ -214,6 +214,15 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Restart the user service only when daemon status reports a stale owner.
+    Handoff {
+        /// Print the conditional restart plan without contacting the daemon or systemd.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Reload the selected ASR backend on the running daemon.
     ReloadAsr {
         /// Print the D-Bus call plan without contacting the daemon.
@@ -1550,6 +1559,7 @@ fn force_json_output(command: &mut Command) {
         Command::Daemon { command } => match command {
             DaemonCommand::Start { json, .. }
             | DaemonCommand::Status { json, .. }
+            | DaemonCommand::Handoff { json, .. }
             | DaemonCommand::ReloadAsr { json, .. }
             | DaemonCommand::Stop { json, .. }
             | DaemonCommand::Restart { json, .. }

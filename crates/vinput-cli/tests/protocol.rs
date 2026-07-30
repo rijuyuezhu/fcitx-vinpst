@@ -545,6 +545,61 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
 }
 
 #[test]
+fn daemon_handoff_dry_run_pins_conditional_restart_and_verification() {
+    let output = vinput_command()
+        .args(["daemon", "handoff", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput daemon handoff --dry-run --json");
+
+    let value = assert_json_success(output, "daemon handoff dry-run json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["dry_run"], true);
+    assert_eq!(value["action"], "handoff");
+    assert_eq!(value["will_call_dbus"], false);
+    assert_eq!(value["will_mutate_user_service"], false);
+    assert_eq!(value["strategy"], "restart-user-service-only-when-stale");
+    assert_eq!(
+        value["restart_condition"],
+        serde_json::json!(["owner-executable-deleted", "owner-executable-path-mismatch"])
+    );
+    assert_eq!(
+        value["service_control"]["command"],
+        "systemctl --user restart vinput-daemon.service"
+    );
+    assert_eq!(value["service_control"]["will_mutate_user_service"], false);
+    assert_eq!(value["verification"]["required_after_restart"], true);
+    assert_eq!(value["verification"]["requires_current_owner"], true);
+    assert!(value["verification"]["attempts"].as_u64().unwrap() > 1);
+}
+
+#[test]
+fn daemon_handoff_text_dry_run_is_explicitly_non_mutating() {
+    let output = vinput_command()
+        .args(["daemon", "handoff", "--dry-run"])
+        .output()
+        .expect("run vinput daemon handoff --dry-run");
+
+    let stdout = assert_stdout_success(output, "daemon handoff dry-run text");
+    assert!(stdout.contains("action: handoff"));
+    assert!(stdout.contains("will_mutate_user_service: false"));
+    assert!(stdout.contains("strategy: restart-user-service-only-when-stale"));
+    assert!(stdout.contains("systemctl --user restart vinput-daemon.service"));
+    assert!(stdout.contains("without --dry-run to inspect and conditionally restart"));
+}
+
+#[test]
+fn global_json_flag_forces_daemon_handoff_json() {
+    let output = vinput_command()
+        .args(["-j", "daemon", "handoff", "--dry-run"])
+        .output()
+        .expect("run vinput -j daemon handoff --dry-run");
+
+    let value = assert_json_success(output, "global JSON daemon handoff dry-run");
+    assert_eq!(value["action"], "handoff");
+    assert_eq!(value["dry_run"], true);
+}
+
+#[test]
 fn daemon_log_lines_dry_run_adds_journalctl_limit() {
     let output = vinput_command()
         .args(["daemon", "log", "--lines", "42", "--dry-run", "--json"])

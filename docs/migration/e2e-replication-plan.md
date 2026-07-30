@@ -27,7 +27,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
 | M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
 | M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal, and adapter runtime selectors |
-| M6 Release readiness | partial | Arch `x86_64` package construction, isolated pacman install/upgrade/same-version-rollback/uninstall, and non-mutating running-owner path/deleted-inode diagnostics are deterministic; incompatible-state rollback, automatic running-service handoff, repository publication, install docs, live installed proof, and external-user regression remain |
+| M6 Release readiness | partial | Arch `x86_64` package construction, isolated pacman install/upgrade/same-version-rollback/uninstall, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification are deterministic; incompatible-state rollback, automatic package-manager-triggered handoff, repository publication, install docs, live installed proof, and external-user regression remain |
 
 ## Completed: usable CLI/daemon alpha
 
@@ -75,7 +75,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 ## P2: release readiness
 
 - keep the checked Arch package for the CLI, daemon, addon, metadata, translations, VAD asset, activation service, and private native runtime green through `just arch-pkgbuild-check` and `just arch-package-smoke`;
-- define incompatible-state rollback, automatic running-service upgrade/removal handoff, and destructive stale-owner migration behavior; keep the implemented owner mismatch/deleted-inode diagnostics non-mutating;
+- define incompatible-state rollback, automatic package-manager-triggered upgrade/removal handoff, and destructive direct-PID stale-owner migration behavior; keep the implemented explicit systemd-user handoff conditional and post-verified;
 - publish the rendered package, signatures, repository metadata, and a short supported installation path;
 - run live validation on supported desktop/application combinations;
 - add external-user regression coverage.

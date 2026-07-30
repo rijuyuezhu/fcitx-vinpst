@@ -521,11 +521,6 @@ fn packaging_architecture_pins_arch_release_boundary() {
         "scripts/run-arch-package-transaction-smoke.sh",
     ))
     .expect("read Arch package transaction smoke");
-    let handoff_smoke = std::fs::read_to_string(workspace_file(
-        "scripts/run-daemon-handoff-diagnostics-smoke.sh",
-    ))
-    .expect("read daemon handoff diagnostics smoke");
-
     for required in [
         "checked Arch Linux `x86_64` template",
         "provides and conflicts with `fcitx5-vinput`",
@@ -542,9 +537,6 @@ fn packaging_architecture_pins_arch_release_boundary() {
         "fakeroot-isolated pacman root",
         "same-version `pkgrel=2` to `pkgrel=1` rollback",
         "sentinel remains byte-identical",
-        "different executable path",
-        "executable inode unlinked by package replacement",
-        "without mutating the service",
         "rollback across versions with incompatible config or state",
     ] {
         assert!(
@@ -576,7 +568,6 @@ fn packaging_architecture_pins_arch_release_boundary() {
         "arch-pkgbuild-check:",
         "arch-package-smoke:",
         "arch-package-transaction-smoke:",
-        "daemon-handoff-diagnostics-smoke:",
     ] {
         assert!(justfile.contains(recipe), "justfile should define {recipe}");
     }
@@ -598,10 +589,63 @@ fn packaging_architecture_pins_arch_release_boundary() {
     );
     assert!(transaction_smoke.contains("preserve-user-config"));
     assert!(transaction_smoke.contains("-Qkk"));
-    assert!(handoff_smoke.contains("owner-executable-path-mismatch"));
-    assert!(handoff_smoke.contains("owner-executable-deleted"));
-    assert!(handoff_smoke.contains("automatic_restart_performed == false"));
-    assert!(handoff_smoke.contains("run vinput daemon restart"));
+}
+
+#[test]
+fn packaging_architecture_pins_explicit_daemon_handoff_boundary() {
+    let packaging_doc = std::fs::read_to_string(architecture_dir().join("packaging-contract.md"))
+        .expect("read packaging contract doc");
+    let dbus_doc = std::fs::read_to_string(architecture_dir().join("dbus-service.md"))
+        .expect("read D-Bus service doc");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+    let diagnostics_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-daemon-handoff-diagnostics-smoke.sh",
+    ))
+    .expect("read daemon handoff diagnostics smoke");
+    let handoff_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-daemon-handoff-smoke.sh"))
+            .expect("read daemon handoff smoke");
+
+    for required in [
+        "different executable path",
+        "executable inode unlinked by package replacement",
+        "explicit `vinput daemon handoff` command",
+        "restarts the systemd user service only for those stale states",
+        "fresh matching owner",
+        "current owners are a strict no-op",
+        "service-control failures leave the owner untouched",
+        "Automatic package-manager invocation",
+    ] {
+        assert!(
+            packaging_doc.contains(required),
+            "packaging contract should pin daemon handoff boundary: {required}"
+        );
+    }
+    for required in [
+        "explicit mutation boundary",
+        "does nothing when the owner is current",
+        "systemctl --user restart vinput-daemon.service",
+        "polls fresh D-Bus status",
+        "never kills a PID directly",
+        "contacts neither D-Bus nor systemd",
+    ] {
+        assert!(
+            dbus_doc.contains(required),
+            "D-Bus contract should pin daemon handoff behavior: {required}"
+        );
+    }
+    for recipe in ["daemon-handoff-diagnostics-smoke:", "daemon-handoff-smoke:"] {
+        assert!(justfile.contains(recipe), "justfile should define {recipe}");
+    }
+    assert!(diagnostics_smoke.contains("owner-executable-path-mismatch"));
+    assert!(diagnostics_smoke.contains("owner-executable-deleted"));
+    assert!(diagnostics_smoke.contains("automatic_restart_performed == false"));
+    assert!(diagnostics_smoke.contains("run vinput daemon handoff"));
+    assert!(handoff_smoke.contains("systemctl-must-not-run"));
+    assert!(handoff_smoke.contains("systemctl-restart"));
+    assert!(handoff_smoke.contains("verification.status == \"current-owner\""));
+    assert!(handoff_smoke.contains("exit 19"));
+    assert!(handoff_smoke.contains("kill -0 \"${old_pid}\""));
 }
 
 #[test]

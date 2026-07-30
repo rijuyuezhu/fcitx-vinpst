@@ -2,6 +2,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
+    thread,
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -13,6 +15,7 @@ pub(crate) fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<(
     match command {
         DaemonCommand::Start { dry_run, json } => print_daemon_start(*dry_run, *json),
         DaemonCommand::Status { dry_run, json } => print_daemon_status(*dry_run, *json),
+        DaemonCommand::Handoff { dry_run, json } => print_daemon_handoff(*dry_run, *json),
         DaemonCommand::ReloadAsr { dry_run, json } => print_daemon_reload_asr_plan(*dry_run, *json),
         DaemonCommand::Stop { dry_run, json } => {
             print_daemon_user_service_plan("stop", None, *dry_run, *json)
@@ -27,6 +30,9 @@ pub(crate) fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<(
         } => print_daemon_user_service_plan("log", *lines, *dry_run, *json),
     }
 }
+
+const HANDOFF_VERIFY_ATTEMPTS: u32 = 100;
+const HANDOFF_VERIFY_INTERVAL: Duration = Duration::from_millis(50);
 
 fn print_daemon_user_service_plan(
     action: &str,
@@ -385,6 +391,228 @@ fn daemon_start_next_steps() -> Vec<&'static str> {
     ]
 }
 
+fn print_daemon_handoff(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
+    let command = daemon_user_service_command("restart", None)?;
+    let output = if dry_run {
+        daemon_handoff_dry_run_json(&command)
+    } else {
+        run_daemon_handoff(&command)?
+    };
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        print_daemon_handoff_result_text(&output);
+    }
+    Ok(())
+}
+
+fn daemon_handoff_dry_run_json(command: &UserServiceCommand) -> serde_json::Value {
+    serde_json::json!({
+        "ok": true,
+        "dry_run": true,
+        "action": "handoff",
+        "will_call_dbus": false,
+        "will_mutate_user_service": false,
+        "strategy": "restart-user-service-only-when-stale",
+        "expected_executable": expected_sibling_daemon_path().filter(|path| path.exists()),
+        "restart_condition": [
+            "owner-executable-deleted",
+            "owner-executable-path-mismatch"
+        ],
+        "service_control": daemon_user_service_dry_run_json("restart", command),
+        "verification": {
+            "required_after_restart": true,
+            "attempts": HANDOFF_VERIFY_ATTEMPTS,
+            "interval_ms": HANDOFF_VERIFY_INTERVAL.as_millis(),
+            "requires_current_owner": true,
+        },
+        "next_steps": [
+            "run vinput daemon handoff without --dry-run to inspect and conditionally restart",
+            "run vinput daemon status to inspect the current owner without restarting"
+        ],
+    })
+}
+
+fn run_daemon_handoff(command: &UserServiceCommand) -> anyhow::Result<serde_json::Value> {
+    let before = daemon_status_via_dbus()?;
+    let restart_required = daemon_snapshot_requires_handoff(&before);
+    if !restart_required {
+        return Ok(serde_json::json!({
+            "ok": true,
+            "dry_run": false,
+            "action": "handoff",
+            "will_call_dbus": true,
+            "will_mutate_user_service": false,
+            "restart_required": false,
+            "restart_attempted": false,
+            "restart_performed": false,
+            "before": before,
+            "service_control": null,
+            "verification": {
+                "ok": true,
+                "attempts": 0,
+                "status": "not-needed",
+                "last_error": null,
+            },
+            "after": before,
+            "next_steps": [
+                "no handoff was needed because the running daemon owner is current",
+                "run vinput daemon status to inspect live D-Bus/runtime state"
+            ],
+        }));
+    }
+
+    let service_control = run_daemon_user_service_command("restart", command);
+    if service_control["ok"].as_bool() != Some(true) {
+        return Ok(serde_json::json!({
+            "ok": false,
+            "dry_run": false,
+            "action": "handoff",
+            "will_call_dbus": true,
+            "will_mutate_user_service": true,
+            "restart_required": true,
+            "restart_attempted": true,
+            "restart_performed": false,
+            "before": before,
+            "service_control": service_control,
+            "verification": {
+                "ok": false,
+                "attempts": 0,
+                "status": "restart-failed",
+                "last_error": null,
+            },
+            "after": null,
+            "next_steps": [
+                "inspect service_control and run vinput daemon log --lines 100",
+                "run vinput activation-service --user-status"
+            ],
+        }));
+    }
+
+    let verification = verify_daemon_handoff();
+    let after = verification["snapshot"].clone();
+    let verified = verification["ok"].as_bool() == Some(true);
+    Ok(serde_json::json!({
+        "ok": verified,
+        "dry_run": false,
+        "action": "handoff",
+        "will_call_dbus": true,
+        "will_mutate_user_service": true,
+        "restart_required": true,
+        "restart_attempted": true,
+        "restart_performed": true,
+        "before": before,
+        "service_control": service_control,
+        "verification": verification,
+        "after": after,
+        "next_steps": if verified {
+            vec![
+                "the restarted daemon owner matches the current installation",
+                "run vinput daemon status to inspect live D-Bus/runtime state"
+            ]
+        } else {
+            vec![
+                "run vinput daemon status and vinput daemon log --lines 100",
+                "inspect the user activation service for an old daemon path"
+            ]
+        },
+    }))
+}
+
+fn daemon_snapshot_requires_handoff(snapshot: &serde_json::Value) -> bool {
+    snapshot["handoff"]["restart_recommended"].as_bool() == Some(true)
+}
+
+fn verify_daemon_handoff() -> serde_json::Value {
+    let mut last_snapshot = None;
+    let mut last_error = None;
+    for attempt in 1..=HANDOFF_VERIFY_ATTEMPTS {
+        match daemon_status_via_dbus() {
+            Ok(snapshot) if daemon_snapshot_is_current(&snapshot) => {
+                return serde_json::json!({
+                    "ok": true,
+                    "attempts": attempt,
+                    "status": "current-owner",
+                    "last_error": null,
+                    "snapshot": snapshot,
+                });
+            }
+            Ok(snapshot) => {
+                last_snapshot = Some(snapshot);
+                last_error = None;
+            }
+            Err(error) => {
+                last_error = Some(error.to_string());
+            }
+        }
+        if attempt < HANDOFF_VERIFY_ATTEMPTS {
+            thread::sleep(HANDOFF_VERIFY_INTERVAL);
+        }
+    }
+    serde_json::json!({
+        "ok": false,
+        "attempts": HANDOFF_VERIFY_ATTEMPTS,
+        "status": "stale-or-unavailable",
+        "last_error": last_error,
+        "snapshot": last_snapshot,
+    })
+}
+
+fn daemon_snapshot_is_current(snapshot: &serde_json::Value) -> bool {
+    snapshot["handoff"]["path_matches"].as_bool() == Some(true)
+        && snapshot["handoff"]["owner_executable_deleted"].as_bool() == Some(false)
+        && !daemon_snapshot_requires_handoff(snapshot)
+}
+
+fn print_daemon_handoff_result_text(output: &serde_json::Value) {
+    println!("dry_run: {}", output["dry_run"].as_bool().unwrap_or(false));
+    println!("action: handoff");
+    println!("ok: {}", output["ok"].as_bool().unwrap_or(false));
+    println!(
+        "will_mutate_user_service: {}",
+        output["will_mutate_user_service"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+    if output["dry_run"].as_bool() == Some(true) {
+        println!("strategy: restart-user-service-only-when-stale");
+        println!(
+            "command: {}",
+            optional_json_str(&output["service_control"]["command"])
+        );
+        println!("next_step: {}", first_json_string(&output["next_steps"]));
+        return;
+    }
+    for field in ["restart_required", "restart_attempted", "restart_performed"] {
+        println!("{field}: {}", output[field].as_bool().unwrap_or(false));
+    }
+    println!(
+        "before_reason: {}",
+        optional_json_str(&output["before"]["handoff"]["reason"])
+    );
+    println!(
+        "verification_status: {}",
+        optional_json_str(&output["verification"]["status"])
+    );
+    println!(
+        "verification_attempts: {}",
+        output["verification"]["attempts"].as_u64().unwrap_or(0)
+    );
+    println!(
+        "after_owner_exe: {}",
+        optional_json_str(&output["after"]["owner"]["process"]["exe"])
+    );
+    println!("next_step: {}", first_json_string(&output["next_steps"]));
+}
+
+fn first_json_string(value: &serde_json::Value) -> &str {
+    value
+        .as_array()
+        .and_then(|values| values.first())
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("-")
+}
+
 type DaemonAsrBackendStateTuple = (
     String,
     String,
@@ -643,7 +871,7 @@ fn daemon_handoff_diagnostics_for_paths(
         "restart_recommended": restart_recommended,
         "reason": reason,
         "automatic_restart_performed": false,
-        "next_step": restart_recommended.then_some("run vinput daemon restart"),
+        "next_step": restart_recommended.then_some("run vinput daemon handoff"),
     })
 }
 
@@ -910,7 +1138,7 @@ mod tests {
         assert_eq!(output["owner_executable_deleted"], true);
         assert_eq!(output["restart_recommended"], true);
         assert_eq!(output["reason"], "owner-executable-deleted");
-        assert_eq!(output["next_step"], "run vinput daemon restart");
+        assert_eq!(output["next_step"], "run vinput daemon handoff");
         assert_eq!(output["automatic_restart_performed"], false);
     }
 
@@ -933,6 +1161,6 @@ mod tests {
         assert_eq!(output["owner_executable_deleted"], false);
         assert_eq!(output["restart_recommended"], true);
         assert_eq!(output["reason"], "owner-executable-path-mismatch");
-        assert_eq!(output["next_step"], "run vinput daemon restart");
+        assert_eq!(output["next_step"], "run vinput daemon handoff");
     }
 }

@@ -726,6 +726,19 @@ fn daemon_status_help_lists_dry_run_and_json_options() {
 }
 
 #[test]
+fn daemon_handoff_help_lists_dry_run_and_json_options() {
+    let output = vinput_command()
+        .args(["daemon", "handoff", "--help"])
+        .output()
+        .expect("run vinput daemon handoff --help");
+
+    let stdout = assert_stdout_success(output, "daemon handoff help output");
+    assert!(stdout.contains("stale owner"));
+    assert!(stdout.contains("--dry-run"));
+    assert!(stdout.contains("--json"));
+}
+
+#[test]
 fn recording_help_lists_dry_run_options() {
     for command in ["start", "stop", "toggle"] {
         let output = vinput_command()

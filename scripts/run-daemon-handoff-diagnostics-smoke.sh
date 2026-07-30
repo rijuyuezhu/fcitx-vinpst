@@ -58,7 +58,7 @@ jq -e \
    and .handoff.restart_recommended == true
    and .handoff.reason == "owner-executable-path-mismatch"
    and .handoff.automatic_restart_performed == false
-   and .handoff.next_step == "run vinput daemon restart"' \
+   and .handoff.next_step == "run vinput daemon handoff"' \
   "${mismatch_root}/status.json" >/dev/null
 
 VINPUT_HANDOFF_CLI="${deleted_root}/bin/vinput" \
@@ -110,12 +110,12 @@ jq -e \
    and .handoff.restart_recommended == true
    and .handoff.reason == "owner-executable-deleted"
    and .handoff.automatic_restart_performed == false
-   and .handoff.next_step == "run vinput daemon restart"' \
+   and .handoff.next_step == "run vinput daemon handoff"' \
   "${deleted_root}/status.json" >/dev/null
 grep -qx 'handoff_owner_exe_deleted: true' "${deleted_root}/status.json.txt"
 grep -qx 'handoff_path_matches: true' "${deleted_root}/status.json.txt"
 grep -qx 'handoff_restart_recommended: true' "${deleted_root}/status.json.txt"
 grep -qx 'handoff_reason: owner-executable-deleted' "${deleted_root}/status.json.txt"
-grep -qx 'handoff_next_step: run vinput daemon restart' "${deleted_root}/status.json.txt"
+grep -qx 'handoff_next_step: run vinput daemon handoff' "${deleted_root}/status.json.txt"
 
 echo "daemon handoff diagnostics smoke passed"
