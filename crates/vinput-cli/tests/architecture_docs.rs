@@ -699,6 +699,51 @@ fn frontend_notification_live_gate_pins_real_fcitx_sender() {
 }
 
 #[test]
+fn daemon_error_notification_live_gate_pins_failure_and_restore() {
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-error-notification-live.sh",
+    ))
+    .expect("read Fcitx error-notification live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "DaemonNotification",
+        "asr_backend_reload_failed",
+        "dialog-error",
+        "error notification timeout was not 5000 ms",
+        "desktop notification did not preserve the daemon error message",
+        "daemon notification did not match the runtime last_error",
+        "has_effective_backend == true",
+        "effective_provider_id == $provider",
+        "effective_model_id == $model",
+        "GetConnectionUnixProcessID",
+        "daemon_sender_verified",
+        "fcitx_sender_verified",
+        "profile_restored",
+        "backend_restored",
+        "target/tmp/ime-fcitx-error-notification-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "error-notification live runner should pin recovery evidence: {required}"
+        );
+    }
+    for forbidden in ["notify-send", "kill -TERM \"${before_pid}\""] {
+        assert!(
+            !runner.contains(forbidden),
+            "error notification gate must preserve the current backend/owner, not use {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-error-notification-live:"));
+    assert!(justfile.contains("run-ime-fcitx-error-notification-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-error-notification-live"));
+}
+
+#[test]
 fn scene_menu_paging_live_gate_pins_state_and_restore() {
     let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-paging-probe.py"))
         .expect("read scene-menu paging probe");

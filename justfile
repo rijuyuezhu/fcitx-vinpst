@@ -189,6 +189,10 @@ ime-fcitx-menu-selection-live:
 ime-fcitx-notification-live:
     scripts/run-ime-fcitx-notification-live.sh
 
+# Explicit daemon-originated ASR reload failure and Fcitx error notification.
+ime-fcitx-error-notification-live:
+    scripts/run-ime-fcitx-error-notification-live.sh
+
 # Explicit scene-menu paging with configured keys and exact profile restoration.
 ime-fcitx-menu-paging-live:
     scripts/run-ime-fcitx-menu-paging-live.sh
