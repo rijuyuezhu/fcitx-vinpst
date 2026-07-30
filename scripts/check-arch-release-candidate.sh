@@ -9,6 +9,18 @@ for command in bsdtar gpg jq repo-add zstd; do
   command -v "${command}" >/dev/null
 done
 
+repo_add_signed() {
+  local signing_home="$1"
+  local fingerprint="$2"
+  local database="$3"
+  local package="$4"
+  local args=(--sign --key "${fingerprint}")
+  if repo-add --help 2>&1 | grep -q -- '--include-sigs'; then
+    args=(--include-sigs "${args[@]}")
+  fi
+  GNUPGHOME="${signing_home}" repo-add "${args[@]}" "${database}" "${package}"
+}
+
 stage_root="${repo_root}/target/tmp/release-candidate-check"
 artifacts="${stage_root}/artifacts"
 signing_home="${stage_root}/signing-home"
@@ -69,8 +81,7 @@ mkdir "${repository}"
 cp "${package_two}" "${package_two}.sig" "${repository}/"
 (
   cd "${repository}"
-  GNUPGHOME="${signing_home}" repo-add \
-    --include-sigs --sign --key "${fingerprint}" \
+  repo_add_signed "${signing_home}" "${fingerprint}" \
     vinput-signed.db.tar.gz "$(basename "${package_two}")"
 )
 
@@ -105,8 +116,11 @@ jq -e '
   ([.artifacts[].role] | all(test("test"; "i") | not)) and
   ([.artifacts[].name] | all(test("0.1.0-2|test|synthetic"; "i") | not))
 ' "${candidate}/manifest.json" >/dev/null
-! find "${candidate}" -maxdepth 1 -type f -printf '%f\n' |
-  grep -Ei '(private|secret|trustdb|revocation|0\.1\.0-2)'
+if find "${candidate}" -maxdepth 1 -type f -printf '%f\n' |
+  grep -Eqi '(private|secret|trustdb|revocation|0\.1\.0-2)'; then
+  echo "release candidate contains forbidden private or test artifacts" >&2
+  exit 1
+fi
 repository_database="${candidate}/fcitx-vinput-rs.db.tar.gz"
 repository_desc="$(bsdtar -xOf "${repository_database}" '*/desc')"
 grep -qx '0.1.0-1' < <(

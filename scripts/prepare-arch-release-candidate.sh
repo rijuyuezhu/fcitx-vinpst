@@ -18,6 +18,18 @@ for command in bsdtar cmp gpg jq mktemp realpath repo-add; do
   command -v "${command}" >/dev/null
 done
 
+repo_add_signed() {
+  local signing_home="$1"
+  local fingerprint="$2"
+  local database="$3"
+  local package="$4"
+  local args=(--sign --key "${fingerprint}")
+  if repo-add --help 2>&1 | grep -q -- '--include-sigs'; then
+    args=(--include-sigs "${args[@]}")
+  fi
+  GNUPGHOME="${signing_home}" repo-add "${args[@]}" "${database}" "${package}"
+}
+
 gate="$(realpath -e "$1")"
 raw_output="$2"
 if [[ -L "${raw_output}" ]]; then
@@ -129,8 +141,7 @@ cp "${package}" "${package_signature}" "${repository}/"
 repository_database="${repository}/${package_name}.db.tar.gz"
 (
   cd "${repository}"
-  GNUPGHOME="${signing_home}" repo-add \
-    --include-sigs --sign --key "${fingerprint}" \
+  repo_add_signed "${signing_home}" "${fingerprint}" \
     "${repository_database}" "$(basename "${package}")"
 )
 repository_files="${repository}/${package_name}.files.tar.gz"
