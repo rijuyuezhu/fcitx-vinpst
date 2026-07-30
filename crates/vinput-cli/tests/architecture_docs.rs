@@ -745,6 +745,57 @@ fn packaging_architecture_pins_local_repository_integration() {
 }
 
 #[test]
+fn packaging_architecture_pins_signed_repository_trust() {
+    let packaging_doc = std::fs::read_to_string(architecture_dir().join("packaging-contract.md"))
+        .expect("read packaging contract doc");
+    let signing_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-signing-smoke.sh"))
+            .expect("read Arch signing smoke");
+    let package_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-package-smoke.sh"))
+            .expect("read Arch package smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "ephemeral Ed25519 signing key",
+        "SigLevel = Required DatabaseRequired",
+        "SHA-256 Sum  Signature",
+        "signer is absent from another isolated keyring",
+        "same-size byte-flipped package",
+        "invalid PGP signature",
+        "No private key, fingerprint, or trust database is checked into the repository",
+        "Production key custody",
+        "ephemeral signed-repository trust/tamper enforcement",
+        "production signing-key operations",
+    ] {
+        assert!(
+            packaging_doc.contains(required),
+            "packaging contract should pin signing boundary: {required}"
+        );
+    }
+    for required in [
+        "--quick-generate-key",
+        "--include-sigs --sign --key",
+        "--include-sigs --verify --sign --key",
+        "fakeroot pacman-key --gpgdir",
+        "--lsign-key",
+        "SigLevel = Required DatabaseRequired",
+        "Validated By    : SHA-256 Sum  Signature",
+        "invalid or corrupted database (PGP signature)",
+        "data[len(data) // 2] ^= 0x01",
+        "invalid or corrupted package (PGP signature)",
+        "target/tmp/arch-signing-smoke",
+    ] {
+        assert!(
+            signing_smoke.contains(required),
+            "signing smoke should prove: {required}"
+        );
+    }
+    assert!(package_smoke.contains("run-arch-signing-smoke.sh"));
+    assert!(justfile.contains("arch-signing-smoke:"));
+}
+
+#[test]
 fn registry_architecture_mentions_root_planning() {
     let registry_doc = std::fs::read_to_string(architecture_dir().join("registry-contract.md"))
         .expect("read registry contract doc");

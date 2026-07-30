@@ -174,5 +174,7 @@ scripts/run-arch-package-transaction-smoke.sh \
   "${package_archive}" "${upgrade_package_archive}"
 scripts/run-arch-repository-smoke.sh \
   "${package_archive}" "${upgrade_package_archive}"
+scripts/run-arch-signing-smoke.sh \
+  "${package_archive}" "${upgrade_package_archive}"
 
 echo "Arch package smoke passed: ${package_archive}"

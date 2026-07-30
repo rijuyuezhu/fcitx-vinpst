@@ -376,6 +376,10 @@ arch-package-smoke:
 arch-repository-smoke:
     scripts/run-arch-repository-smoke.sh
 
+# Reuse package archives from arch-package-smoke to prove signed repository trust and tamper rejection.
+arch-signing-smoke:
+    scripts/run-arch-signing-smoke.sh
+
 # Reuse package archives from arch-package-smoke to prove pacman install, upgrade, and removal.
 arch-package-transaction-smoke:
     scripts/run-arch-package-transaction-smoke.sh

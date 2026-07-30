@@ -28,6 +28,10 @@ fakeroot-isolated temporary root. After a full build,
 transaction checks. `just arch-repository-smoke` creates a local `repo-add`
 database from the same two archives and proves `pacman -S` installation and
 upgrade through a `file://` repository.
+`just arch-signing-smoke` adds an ephemeral signing key, package/database
+signatures, an isolated trusted pacman keyring, unknown-signer rejection, and
+same-size package tamper rejection. The generated private key lives only under
+`target/tmp`; production release keys are not part of the repository.
 
 The renderer also copies `fcitx-vinput-rs.install` beside the generated
 PKGBUILD. Its hooks are message-only because a root pacman transaction cannot
