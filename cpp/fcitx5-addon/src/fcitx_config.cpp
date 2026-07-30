@@ -3,10 +3,23 @@
 #include "vinput_fcitx_bridge/fcitx_i18n.h"
 
 #include <fcitx-config/iniparser.h>
+
+#if __has_include(<fcitx-utils/standardpaths.h>)
 #include <fcitx-utils/standardpaths.h>
+#define VINPUT_FCITX_HAS_STANDARD_PATHS 1
+#else
+#include <fcitx-utils/standardpath.h>
+#define VINPUT_FCITX_HAS_STANDARD_PATHS 0
+#endif
 
 namespace vinput_fcitx_bridge {
 namespace {
+
+#if VINPUT_FCITX_HAS_STANDARD_PATHS
+constexpr auto kFrontendConfigPathType = fcitx::StandardPathsType::PkgConfig;
+#else
+constexpr auto kFrontendConfigPathType = fcitx::StandardPath::Type::PkgConfig;
+#endif
 
 fcitx::ListConstrain<fcitx::KeyConstrain> TriggerConstrain() {
   return fcitx::KeyListConstrain(fcitx::KeyConstrainFlags{
@@ -47,17 +60,16 @@ FrontendSettings VinputFrontendConfig::settings() const {
 
 FrontendSettings LoadFrontendSettings() {
   VinputFrontendConfig config;
-  fcitx::readAsIni(config, fcitx::StandardPathsType::PkgConfig, kFrontendConfigPath);
+  fcitx::readAsIni(config, kFrontendConfigPathType, kFrontendConfigPath);
   return config.settings();
 }
 
 bool SaveFrontendSettings(const FrontendSettings &settings) {
   VinputFrontendConfig config(settings);
   fcitx::RawConfig raw;
-  fcitx::readAsIni(raw, fcitx::StandardPathsType::PkgConfig, kFrontendConfigPath);
+  fcitx::readAsIni(raw, kFrontendConfigPathType, kFrontendConfigPath);
   config.save(raw);
-  return fcitx::safeSaveAsIni(raw, fcitx::StandardPathsType::PkgConfig,
-                              kFrontendConfigPath);
+  return fcitx::safeSaveAsIni(raw, kFrontendConfigPathType, kFrontendConfigPath);
 }
 
 FrontendSettings LoadFrontendSettingsFromPath(const std::filesystem::path &path) {

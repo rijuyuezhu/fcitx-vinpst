@@ -113,7 +113,8 @@ void InitFrontendI18n() {
   static std::once_flag initialized;
   std::call_once(initialized, [] {
     std::setlocale(LC_ALL, "");
-    fcitx::registerDomain(kFrontendTranslationDomain, ResolveLocaleRoot());
+    const auto locale_root = ResolveLocaleRoot();
+    fcitx::registerDomain(kFrontendTranslationDomain, locale_root.c_str());
   });
 }
 
