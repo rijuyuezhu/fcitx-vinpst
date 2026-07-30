@@ -1490,17 +1490,13 @@ fn native_user_install_pins_runtime_bundle_activation() {
         "scripts/run-user-ime-sherpa-native-smoke.sh",
     ))
     .expect("read generic native user smoke");
-    let native_command_smoke = std::fs::read_to_string(workspace_file(
-        "scripts/run-user-ime-sherpa-native-command-smoke.sh",
-    ))
-    .expect("read native command user smoke");
     let sherpa_smoke = std::fs::read_to_string(workspace_file(
         "scripts/run-user-ime-sherpa-sense-voice-smoke.sh",
     ))
     .expect("read shared sherpa user smoke");
+
     for required in [
         "sherpa-native-live",
-        "sherpa-native-command-live",
         "sherpa-sense-voice-live",
         "profile_cli_features",
         "profile_daemon_features",
@@ -1517,8 +1513,6 @@ fn native_user_install_pins_runtime_bundle_activation() {
         "runtime_activation_service_path",
         "publish_runtime_activation_service",
         "XDG_RUNTIME_DIR",
-        "native-command-live-adapter",
-        "adapter-backed:",
     ] {
         assert!(
             install.contains(required),
@@ -1542,16 +1536,6 @@ fn native_user_install_pins_runtime_bundle_activation() {
             "generic native smoke wrapper should pin {required}"
         );
     }
-
-    for required in [
-        "VINPUT_TEST_SHERPA_PROFILE=sherpa-native-command-live",
-        "run-user-ime-sherpa-sense-voice-smoke.sh",
-    ] {
-        assert!(
-            native_command_smoke.contains(required),
-            "native command smoke wrapper should pin {required}"
-        );
-    }
     for required in [
         "runtime_source_dir=",
         "vinput-daemon-with-vinput-env.sh",
@@ -1560,10 +1544,6 @@ fn native_user_install_pins_runtime_bundle_activation() {
         r#""family": "transducer""#,
         r#""runtime": "online""#,
         "sherpa-sense-voice-live",
-        "sherpa-native-command-live",
-        "command_adapter",
-        "native-command-live-adapter",
-        "adapter-backed:",
         "installed native sherpa runtime library is missing",
         "VINPUT_USER_REMOVE=1",
     ] {
@@ -1584,6 +1564,61 @@ fn native_user_install_pins_runtime_bundle_activation() {
             assert!(
                 document.contains(required),
                 "native install docs should pin runtime bundle contract: {required}"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_command_profile_pins_adapter_contract() {
+    let install = std::fs::read_to_string(workspace_file("scripts/install-user-ime.sh"))
+        .expect("read user install script");
+    let native_command_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-user-ime-sherpa-native-command-smoke.sh",
+    ))
+    .expect("read native command user smoke");
+    let sherpa_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-user-ime-sherpa-sense-voice-smoke.sh",
+    ))
+    .expect("read shared sherpa user smoke");
+    let readme = std::fs::read_to_string(workspace_file("README.md")).expect("read README");
+    let live_doc =
+        std::fs::read_to_string(workspace_file("docs/migration/live-desktop-validation.md"))
+            .expect("read live desktop validation doc");
+
+    for required in [
+        "sherpa-native-command-live",
+        "command_adapter",
+        "native-command-live-adapter",
+        "adapter-backed:",
+    ] {
+        assert!(
+            install.contains(required),
+            "native command installer should pin adapter contract: {required}"
+        );
+        assert!(
+            sherpa_smoke.contains(required),
+            "native command smoke should cover adapter contract: {required}"
+        );
+    }
+    for required in [
+        "VINPUT_TEST_SHERPA_PROFILE=sherpa-native-command-live",
+        "run-user-ime-sherpa-sense-voice-smoke.sh",
+    ] {
+        assert!(
+            native_command_smoke.contains(required),
+            "native command smoke wrapper should pin {required}"
+        );
+    }
+    for document in [&readme, &live_doc] {
+        for required in [
+            "sherpa-native-command-live",
+            "ime-fcitx-native-command-adapter-live",
+            "adapter-backed:",
+        ] {
+            assert!(
+                document.contains(required),
+                "native command docs should pin live adapter contract: {required}"
             );
         }
     }
