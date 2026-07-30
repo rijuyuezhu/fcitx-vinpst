@@ -157,6 +157,10 @@ grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/sign-release-manifest.sh$" \
   "${source_listing}"
 grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/verify-release-bundle-signature.sh$" \
   "${source_listing}"
+grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/prepare-arch-release-candidate.sh$" \
+  "${source_listing}"
+grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/verify-arch-release-candidate.sh$" \
+  "${source_listing}"
 
 verify_home="${stage_root}/verify-home"
 mkdir "${verify_home}"
@@ -228,5 +232,19 @@ set -e
 test "${signature_tampered_status}" -ne 0
 grep -q 'detached manifest signature verification failed' \
   "${stage_root}/signature-tampered.out"
+
+candidate="${stage_root}/fcitx-vinput-rs-${version}-x86_64-release-candidate"
+scripts/prepare-arch-release-candidate.sh \
+  "${bundle}" "${candidate}" "${signing_home}" "${public_key}" "${fingerprint}"
+scripts/verify-arch-release-candidate.sh \
+  "${candidate}" "${public_key}" "${fingerprint}"
+test "$(find "${candidate}" -maxdepth 1 -type f | wc -l)" -eq 14
+jq -e '
+  (.artifacts | length) == 11 and
+  ([.artifacts[].role] | all(test("test"; "i") | not)) and
+  ([.artifacts[].name] | all(test("0.1.0-2|test|synthetic"; "i") | not))
+' "${candidate}/manifest.json" >/dev/null
+! find "${candidate}" -maxdepth 1 -type f -printf '%f\n' |
+  grep -Eq '(\.old($|\.)|private|secret|trustdb|revocation|0\.1\.0-2)'
 
 echo "Arch release artifact bundle smoke passed: ${bundle}"

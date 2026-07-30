@@ -971,6 +971,92 @@ fn packaging_architecture_pins_detached_manifest_trust_root() {
 }
 
 #[test]
+fn packaging_architecture_pins_release_candidate_promotion() {
+    let packaging_doc = std::fs::read_to_string(architecture_dir().join("packaging-contract.md"))
+        .expect("read packaging contract doc");
+    let prepare_script =
+        std::fs::read_to_string(workspace_file("scripts/prepare-arch-release-candidate.sh"))
+            .expect("read release candidate preparation script");
+    let verify_script =
+        std::fs::read_to_string(workspace_file("scripts/verify-arch-release-candidate.sh"))
+            .expect("read release candidate verifier");
+    let candidate_check =
+        std::fs::read_to_string(workspace_file("scripts/check-arch-release-candidate.sh"))
+            .expect("read release candidate check");
+    let bundle_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-release-bundle-smoke.sh"))
+            .expect("read Arch release bundle smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "Release candidate promotion",
+        "explicit promotion boundary",
+        "exact 13-role gate policy",
+        "selects only `package-pkgrel1`",
+        "rebuilds fresh `repo-add` database/files metadata",
+        "exactly 11 production roles",
+        "containing `test` or `synthetic` are rejected",
+        "prevents the synthetic `pkgrel=2` upgrade fixture",
+        "`--force` first verifies the old candidate",
+        "`just release-candidate-check`",
+        "not itself a public release",
+        "publish only the verified candidate directory",
+    ] {
+        assert!(
+            packaging_doc.contains(required),
+            "packaging contract should pin candidate promotion: {required}"
+        );
+    }
+
+    for required in [
+        "expected_gate_roles",
+        "package-pkgrel1",
+        "package-signature-pkgrel1",
+        "--include-sigs --sign --key",
+        "signing-public-key=${candidate_public_key}",
+        "verify-arch-release-candidate.sh",
+        "output must not be the signed gate bundle",
+        "output must not be a symlink",
+    ] {
+        assert!(
+            prepare_script.contains(required),
+            "candidate preparation should pin: {required}"
+        );
+    }
+    for required in [
+        "expected_roles",
+        "production candidate policy",
+        "package version",
+        "repository database must contain exactly one package",
+        "repository files index must contain exactly one package",
+        "signing-public-key",
+        "--no-auto-key-retrieve",
+    ] {
+        assert!(
+            verify_script.contains(required),
+            "candidate verifier should pin: {required}"
+        );
+    }
+    for required in [
+        "make_package 1",
+        "make_package 2",
+        "existing-output",
+        "gate-is-not-candidate",
+        "output-inside-gate",
+        "invalid-force",
+        "mutated-candidate",
+    ] {
+        assert!(
+            candidate_check.contains(required),
+            "candidate check should prove: {required}"
+        );
+    }
+    assert!(bundle_smoke.contains("prepare-arch-release-candidate.sh"));
+    assert!(bundle_smoke.contains("0.1.0-2|test|synthetic"));
+    assert!(justfile.contains("release-candidate-check:"));
+}
+
+#[test]
 fn registry_architecture_mentions_root_planning() {
     let registry_doc = std::fs::read_to_string(architecture_dir().join("registry-contract.md"))
         .expect("read registry contract doc");

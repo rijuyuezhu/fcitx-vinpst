@@ -38,8 +38,9 @@ signs `manifest.json`, and verifies `manifest.json.sig` using the public key fro
 outside the bundle plus a pinned fingerprint. The synthetic `pkgrel=2` and test
 key are explicitly labeled test-only; this bundle is release-gate evidence, not
 the public release set. The generated private key lives only under `target/tmp`;
-production key custody and independent fingerprint/public-key distribution are
-not part of the repository.
+the gate then promotes only `pkgrel=1` into a test-role-free candidate and
+rebuilds repository metadata around that package. Production key custody and
+independent fingerprint/public-key distribution are not part of the repository.
 
 The renderer also copies `fcitx-vinput-rs.install` beside the generated
 PKGBUILD. Its hooks are message-only because a root pacman transaction cannot
