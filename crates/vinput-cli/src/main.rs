@@ -1,6 +1,7 @@
 //! `vinput` command-line prototype.
 
 mod daemon_control;
+mod hotword;
 mod live_i18n;
 mod recording_control;
 
@@ -18,6 +19,7 @@ use daemon_control::{
     daemon_owner_probe_plan_json, daemon_service_proxy, handle_daemon_command,
     reload_asr_backend_via_dbus,
 };
+use hotword::{HotwordCommand, handle_hotword_command};
 use live_i18n::{LoadedLiveI18n, load_live_i18n};
 use recording_control::handle_recording_command;
 use vinput_asr::{AsrBackendFactory, AsrTimeoutProbe, SherpaOnnxVadProbe};
@@ -309,85 +311,6 @@ enum RecordingCommand {
         #[arg(long)]
         scene: Option<String>,
         /// Print the D-Bus call plan without contacting the daemon.
-        #[arg(long)]
-        dry_run: bool,
-        /// Print machine-readable JSON instead of text output.
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-/// Hotword configuration inspection commands.
-#[derive(Debug, Subcommand)]
-enum HotwordCommand {
-    /// Show the hotwords file configured for the active or selected ASR provider.
-    Get {
-        /// Optional ASR provider id. Defaults to the active provider.
-        #[arg(long)]
-        provider: Option<String>,
-        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
-        #[arg(long)]
-        config: Option<PathBuf>,
-        /// Print machine-readable JSON instead of text output.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Set the hotwords file for the active or selected ASR provider.
-    Set {
-        /// Hotwords file path to write into provider config.
-        path: String,
-        /// Optional ASR provider id. Defaults to the active provider.
-        #[arg(long)]
-        provider: Option<String>,
-        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
-        #[arg(long)]
-        config: Option<PathBuf>,
-        /// Write the updated config to this path when not using --dry-run.
-        #[arg(long)]
-        output: Option<PathBuf>,
-        /// Update the input/user config in place and write a <config>.bak backup when it exists.
-        #[arg(long)]
-        in_place: bool,
-        /// Preview the config patch without writing.
-        #[arg(long)]
-        dry_run: bool,
-        /// Print machine-readable JSON instead of text output.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Clear the hotwords file for the active or selected ASR provider.
-    Clear {
-        /// Optional ASR provider id. Defaults to the active provider.
-        #[arg(long)]
-        provider: Option<String>,
-        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
-        #[arg(long)]
-        config: Option<PathBuf>,
-        /// Write the updated config to this path when not using --dry-run.
-        #[arg(long)]
-        output: Option<PathBuf>,
-        /// Update the input/user config in place and write a <config>.bak backup when it exists.
-        #[arg(long)]
-        in_place: bool,
-        /// Preview the config patch without writing.
-        #[arg(long)]
-        dry_run: bool,
-        /// Print machine-readable JSON instead of text output.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Open the configured hotwords file in an editor.
-    Edit {
-        /// Optional ASR provider id. Defaults to the active provider.
-        #[arg(long)]
-        provider: Option<String>,
-        /// Optional config JSON file. Omitted to read the user config, then the bundled default.
-        #[arg(long)]
-        config: Option<PathBuf>,
-        /// Editor executable to run. Defaults to `$VINPUT_HOTWORD_EDITOR`, `$VINPUT_CONFIG_EDITOR`, `$EDITOR`, then `$VISUAL`.
-        #[arg(long)]
-        editor: Option<String>,
-        /// Print the edit plan without launching the editor.
         #[arg(long)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
@@ -1815,479 +1738,6 @@ fn handle_device_command(command: DeviceCommand) -> anyhow::Result<()> {
             json_output: json,
         }),
     }
-}
-
-fn handle_hotword_command(command: HotwordCommand) -> anyhow::Result<()> {
-    match command {
-        HotwordCommand::Get {
-            provider,
-            config,
-            json,
-        } => print_hotword_get(provider.as_deref(), config.as_ref(), json),
-        HotwordCommand::Set {
-            path,
-            provider,
-            config,
-            output,
-            in_place,
-            dry_run,
-            json,
-        } => print_hotword_mutation(HotwordMutationRequest {
-            provider_id: provider.as_deref(),
-            hotwords_file: Some(&path),
-            config_path: config.as_ref(),
-            output_path: output.as_deref(),
-            in_place,
-            dry_run,
-            json_output: json,
-        }),
-        HotwordCommand::Clear {
-            provider,
-            config,
-            output,
-            in_place,
-            dry_run,
-            json,
-        } => print_hotword_mutation(HotwordMutationRequest {
-            provider_id: provider.as_deref(),
-            hotwords_file: None,
-            config_path: config.as_ref(),
-            output_path: output.as_deref(),
-            in_place,
-            dry_run,
-            json_output: json,
-        }),
-        HotwordCommand::Edit {
-            provider,
-            config,
-            editor,
-            dry_run,
-            json,
-        } => print_hotword_edit(HotwordEditRequest {
-            provider_id: provider.as_deref(),
-            config_path: config.as_ref(),
-            editor: editor.as_deref(),
-            dry_run,
-            json_output: json,
-        }),
-    }
-}
-
-#[derive(Clone, Copy)]
-struct HotwordEditRequest<'a> {
-    provider_id: Option<&'a str>,
-    config_path: Option<&'a PathBuf>,
-    editor: Option<&'a str>,
-    dry_run: bool,
-    json_output: bool,
-}
-
-struct HotwordEditOutcome {
-    config_path: Option<PathBuf>,
-    source: &'static str,
-    active_provider: String,
-    provider_id: String,
-    provider_type: &'static str,
-    hotwords_file: PathBuf,
-    editor_argv: Vec<String>,
-    dry_run: bool,
-    edited: bool,
-    exit_status: Option<i32>,
-}
-
-#[derive(Clone, Copy)]
-#[allow(clippy::struct_excessive_bools)]
-struct HotwordMutationRequest<'a> {
-    provider_id: Option<&'a str>,
-    hotwords_file: Option<&'a str>,
-    config_path: Option<&'a PathBuf>,
-    output_path: Option<&'a Path>,
-    in_place: bool,
-    dry_run: bool,
-    json_output: bool,
-}
-
-struct HotwordMutationOutcome {
-    config_path: Option<PathBuf>,
-    source: &'static str,
-    active_provider: String,
-    provider_id: String,
-    provider_type: &'static str,
-    before: Option<String>,
-    after: Option<String>,
-    output_path: Option<PathBuf>,
-    backup_path: Option<PathBuf>,
-    in_place: bool,
-    dry_run: bool,
-    wrote_config: bool,
-}
-
-struct HotwordGetContext {
-    config_path: Option<PathBuf>,
-    source: &'static str,
-    active_provider: String,
-    provider: AsrProviderConfig,
-}
-
-fn print_hotword_get(
-    provider_id: Option<&str>,
-    config_path: Option<&PathBuf>,
-    json_output: bool,
-) -> anyhow::Result<()> {
-    let context = load_hotword_get_context(provider_id, config_path)?;
-    if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&hotword_get_json(&context))?
-        );
-    } else {
-        print_hotword_get_text(&context);
-    }
-    Ok(())
-}
-
-fn load_hotword_get_context(
-    provider_id: Option<&str>,
-    config_path: Option<&PathBuf>,
-) -> anyhow::Result<HotwordGetContext> {
-    let loaded = load_config_json(config_path)?;
-    let contents =
-        serde_json::to_string(&loaded.document).context("serialize config for hotword get")?;
-    let config = VinputConfig::from_json_str(&contents).context("parse config for hotword get")?;
-    config
-        .validate()
-        .context("validate config for hotword get")?;
-    let selected_provider_id = provider_id
-        .map(normalize_provider_id)
-        .transpose()?
-        .unwrap_or_else(|| config.asr.active_provider.clone());
-    let provider = config
-        .asr
-        .providers
-        .iter()
-        .find(|provider| provider.id == selected_provider_id)
-        .with_context(|| format!("ASR provider `{selected_provider_id}` not found"))?
-        .clone();
-    Ok(HotwordGetContext {
-        config_path: loaded.path,
-        source: loaded.source,
-        active_provider: config.asr.active_provider,
-        provider,
-    })
-}
-
-fn hotword_get_json(context: &HotwordGetContext) -> serde_json::Value {
-    let hotwords_file = context.provider.hotwords_file.as_deref();
-    serde_json::json!({
-        "ok": true,
-        "config_path": context.config_path.as_ref(),
-        "source": context.source,
-        "active_provider": context.active_provider.as_str(),
-        "provider_id": context.provider.id.as_str(),
-        "provider_type": asr_provider_kind_label(&context.provider.kind),
-        "active": context.provider.id == context.active_provider,
-        "supported": hotword_supported(&context.provider.kind),
-        "configured": hotwords_file.is_some_and(|value| !value.trim().is_empty()),
-        "hotwords_file": hotwords_file,
-        "next_steps": [
-            "run vinput provider list to inspect configured ASR providers",
-            "run vinput hotword set <path> once hotword mutation support is available",
-            "run vinput asr-state to inspect the selected provider runtime readiness"
-        ],
-    })
-}
-
-fn print_hotword_get_text(context: &HotwordGetContext) {
-    println!("source: {}", context.source);
-    if let Some(path) = &context.config_path {
-        println!("config_path: {}", path.display());
-    }
-    println!("active_provider: {}", context.active_provider);
-    println!("provider_id: {}", context.provider.id);
-    println!(
-        "provider_type: {}",
-        asr_provider_kind_label(&context.provider.kind)
-    );
-    println!("active: {}", context.provider.id == context.active_provider);
-    println!("supported: {}", hotword_supported(&context.provider.kind));
-    println!(
-        "configured: {}",
-        configured_label(context.provider.hotwords_file.as_deref())
-    );
-    println!(
-        "hotwords_file: {}",
-        context.provider.hotwords_file.as_deref().unwrap_or("-")
-    );
-}
-
-fn print_hotword_edit(request: HotwordEditRequest<'_>) -> anyhow::Result<()> {
-    let json_output = request.json_output;
-    let outcome = run_hotword_edit(&request)?;
-    if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&hotword_edit_json(&outcome))?
-        );
-    } else {
-        print_hotword_edit_text(&outcome);
-    }
-    Ok(())
-}
-
-fn run_hotword_edit(request: &HotwordEditRequest<'_>) -> anyhow::Result<HotwordEditOutcome> {
-    let context = load_hotword_get_context(request.provider_id, request.config_path)?;
-    if !hotword_supported(&context.provider.kind) {
-        anyhow::bail!(
-            "ASR provider `{}` does not support hotwords",
-            context.provider.id
-        );
-    }
-    let hotwords_file = context
-        .provider
-        .hotwords_file
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .with_context(|| "No hotwords file configured. Use 'hotword set <path>' first.")?;
-    let editor_argv = resolve_hotword_editor(request.editor)?;
-    let mut edited = false;
-    let mut exit_status = None;
-    if !request.dry_run {
-        let status = run_hotword_editor(&editor_argv, Path::new(hotwords_file))?;
-        if !status.success() {
-            anyhow::bail!("hotword editor exited with status {status}");
-        }
-        exit_status = status.code();
-        edited = true;
-    }
-    Ok(HotwordEditOutcome {
-        config_path: context.config_path,
-        source: context.source,
-        active_provider: context.active_provider,
-        provider_id: context.provider.id,
-        provider_type: asr_provider_kind_label(&context.provider.kind),
-        hotwords_file: PathBuf::from(hotwords_file),
-        editor_argv,
-        dry_run: request.dry_run,
-        edited,
-        exit_status,
-    })
-}
-
-fn hotword_edit_json(outcome: &HotwordEditOutcome) -> serde_json::Value {
-    serde_json::json!({
-        "ok": true,
-        "dry_run": outcome.dry_run,
-        "config_path": outcome.config_path.as_ref(),
-        "source": outcome.source,
-        "active_provider": outcome.active_provider,
-        "provider_id": outcome.provider_id,
-        "provider_type": outcome.provider_type,
-        "hotwords_file": outcome.hotwords_file,
-        "editor": outcome.editor_argv.join(" "),
-        "editor_argv": outcome.editor_argv,
-        "edited": outcome.edited,
-        "exit_status": outcome.exit_status,
-        "next_steps": [
-            "run vinput hotword get to verify the configured hotwords file",
-            "run vinput asr-state to inspect the selected provider runtime readiness"
-        ],
-    })
-}
-
-fn print_hotword_edit_text(outcome: &HotwordEditOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("active_provider: {}", outcome.active_provider);
-    println!("provider_id: {}", outcome.provider_id);
-    println!("provider_type: {}", outcome.provider_type);
-    println!("hotwords_file: {}", outcome.hotwords_file.display());
-    println!("editor: {}", outcome.editor_argv.join(" "));
-    println!("edited: {}", outcome.edited);
-    if let Some(exit_status) = outcome.exit_status {
-        println!("exit_status: {exit_status}");
-    }
-}
-
-fn resolve_hotword_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
-    let editor = editor
-        .map(str::to_owned)
-        .or_else(|| std::env::var("VINPUT_HOTWORD_EDITOR").ok())
-        .or_else(|| std::env::var("VINPUT_CONFIG_EDITOR").ok())
-        .or_else(|| std::env::var("EDITOR").ok())
-        .or_else(|| std::env::var("VISUAL").ok())
-        .with_context(
-            || "hotword edit requires --editor or $VINPUT_HOTWORD_EDITOR/$VINPUT_CONFIG_EDITOR/$EDITOR/$VISUAL",
-        )?;
-    let argv = split_editor_argv(&editor);
-    if argv.is_empty() {
-        anyhow::bail!("hotword editor command is empty");
-    }
-    Ok(argv)
-}
-
-fn run_hotword_editor(
-    editor_argv: &[String],
-    path: &Path,
-) -> anyhow::Result<std::process::ExitStatus> {
-    let (program, args) = editor_argv
-        .split_first()
-        .with_context(|| "hotword editor command is empty")?;
-    ProcessCommand::new(program)
-        .args(args)
-        .arg(path)
-        .status()
-        .with_context(|| format!("run hotword editor `{}`", editor_argv.join(" ")))
-}
-
-fn print_hotword_mutation(request: HotwordMutationRequest<'_>) -> anyhow::Result<()> {
-    let json_output = request.json_output;
-    let outcome = run_hotword_mutation(&request)?;
-    if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&hotword_mutation_json(&outcome))?
-        );
-    } else {
-        print_hotword_mutation_text(&outcome);
-    }
-    Ok(())
-}
-
-fn run_hotword_mutation(
-    request: &HotwordMutationRequest<'_>,
-) -> anyhow::Result<HotwordMutationOutcome> {
-    let default_path = default_config_path()?;
-    let mut loaded = load_config_json(request.config_path)?;
-    let contents =
-        serde_json::to_string(&loaded.document).context("serialize config for hotword mutation")?;
-    let config =
-        VinputConfig::from_json_str(&contents).context("parse config for hotword mutation")?;
-    let provider_id = request
-        .provider_id
-        .map(normalize_provider_id)
-        .transpose()?
-        .unwrap_or_else(|| config.asr.active_provider.clone());
-    let provider_index = config
-        .asr
-        .providers
-        .iter()
-        .position(|provider| provider.id == provider_id)
-        .with_context(|| format!("ASR provider `{provider_id}` not found"))?;
-    let provider = &config.asr.providers[provider_index];
-    if !hotword_supported(&provider.kind) {
-        anyhow::bail!("ASR provider `{provider_id}` does not support hotwords");
-    }
-    let provider_type = asr_provider_kind_label(&provider.kind);
-    let before = provider.hotwords_file.clone();
-    let after = request
-        .hotwords_file
-        .map(normalize_hotwords_file)
-        .transpose()?;
-
-    let providers = loaded
-        .document
-        .pointer_mut("/asr/providers")
-        .and_then(serde_json::Value::as_array_mut)
-        .with_context(|| "config pointer `/asr/providers` not found or not an array")?;
-    let provider_object = providers
-        .get_mut(provider_index)
-        .and_then(serde_json::Value::as_object_mut)
-        .with_context(|| format!("ASR provider `{provider_id}` is not a JSON object"))?;
-    if let Some(after) = &after {
-        provider_object.insert(
-            "hotwords_file".to_owned(),
-            serde_json::Value::String(after.clone()),
-        );
-    } else {
-        provider_object.remove("hotwords_file");
-    }
-    validate_config_json_value(&loaded.document, "validate updated hotword config")?;
-
-    let write_target = config_set_write_target(
-        request.output_path,
-        request.in_place,
-        request.dry_run,
-        loaded.path.as_ref(),
-        &default_path,
-    )?;
-
-    let mut wrote_config = false;
-    if !request.dry_run {
-        write_config_set_document(&loaded.document, &write_target)?;
-        wrote_config = true;
-    }
-
-    Ok(HotwordMutationOutcome {
-        config_path: loaded.path.take(),
-        source: loaded.source,
-        active_provider: config.asr.active_provider,
-        provider_id,
-        provider_type,
-        before,
-        after,
-        output_path: write_target.output_path(),
-        backup_path: write_target.backup_path(),
-        in_place: write_target.in_place(),
-        dry_run: request.dry_run,
-        wrote_config,
-    })
-}
-
-fn normalize_hotwords_file(input: &str) -> anyhow::Result<String> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        anyhow::bail!("hotwords file cannot be empty");
-    }
-    Ok(trimmed.to_owned())
-}
-
-fn hotword_mutation_json(outcome: &HotwordMutationOutcome) -> serde_json::Value {
-    serde_json::json!({
-        "ok": true,
-        "dry_run": outcome.dry_run,
-        "config_path": outcome.config_path.as_ref(),
-        "source": outcome.source,
-        "active_provider": outcome.active_provider,
-        "provider_id": outcome.provider_id,
-        "provider_type": outcome.provider_type,
-        "before": outcome.before,
-        "after": outcome.after,
-        "output_path": outcome.output_path,
-        "backup_path": outcome.backup_path,
-        "in_place": outcome.in_place,
-        "will_write_config": !outcome.dry_run,
-        "wrote_config": outcome.wrote_config,
-        "next_steps": [
-            "run vinput hotword get to verify the configured hotwords file",
-            "run vinput asr-state to inspect the selected provider runtime readiness",
-            "run vinput doctor to inspect full local diagnostics"
-        ],
-    })
-}
-
-fn print_hotword_mutation_text(outcome: &HotwordMutationOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("active_provider: {}", outcome.active_provider);
-    println!("provider_id: {}", outcome.provider_id);
-    println!("provider_type: {}", outcome.provider_type);
-    println!("before: {}", outcome.before.as_deref().unwrap_or("-"));
-    println!("after: {}", outcome.after.as_deref().unwrap_or("-"));
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 #[derive(Clone, Copy)]
@@ -5762,7 +5212,7 @@ fn normalize_scene_id(id: &str) -> anyhow::Result<String> {
     Ok(id.to_owned())
 }
 
-fn hotword_supported(kind: &AsrProviderKind) -> bool {
+pub(crate) fn hotword_supported(kind: &AsrProviderKind) -> bool {
     matches!(kind, AsrProviderKind::Local | AsrProviderKind::Command)
 }
 
@@ -7460,7 +6910,7 @@ fn run_provider_use(request: &ProviderUseRequest<'_>) -> anyhow::Result<Provider
     })
 }
 
-fn normalize_provider_id(input: &str) -> anyhow::Result<String> {
+pub(crate) fn normalize_provider_id(input: &str) -> anyhow::Result<String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         anyhow::bail!("ASR provider id cannot be empty");
@@ -7510,7 +6960,7 @@ fn print_provider_use_text(outcome: &ProviderUseOutcome) {
     println!("wrote_config: {}", outcome.wrote_config);
 }
 
-fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {
+pub(crate) fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {
     match kind {
         AsrProviderKind::Local => "local",
         AsrProviderKind::Remote => "remote",
@@ -7518,7 +6968,7 @@ fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {
     }
 }
 
-fn configured_label(value: Option<&str>) -> &'static str {
+pub(crate) fn configured_label(value: Option<&str>) -> &'static str {
     if value.is_some_and(|value| !value.trim().is_empty()) {
         "yes"
     } else {
@@ -8462,7 +7912,7 @@ fn user_activation_service_path() -> anyhow::Result<PathBuf> {
         .join("org.fcitx.Vinput.service"))
 }
 
-fn default_config_path() -> anyhow::Result<PathBuf> {
+pub(crate) fn default_config_path() -> anyhow::Result<PathBuf> {
     Ok(user_config_home()?.join("fcitx-vinput").join("config.json"))
 }
 
@@ -10312,14 +9762,14 @@ struct ConfigSetRequest<'a> {
     json_output: bool,
 }
 
-struct LoadedConfigJson {
-    path: Option<PathBuf>,
-    source: &'static str,
-    document: serde_json::Value,
+pub(crate) struct LoadedConfigJson {
+    pub(crate) path: Option<PathBuf>,
+    pub(crate) source: &'static str,
+    pub(crate) document: serde_json::Value,
 }
 
 #[derive(Clone)]
-enum ConfigSetWriteTarget {
+pub(crate) enum ConfigSetWriteTarget {
     DryRun,
     Output(PathBuf),
     InPlace {
@@ -10329,7 +9779,7 @@ enum ConfigSetWriteTarget {
 }
 
 impl ConfigSetWriteTarget {
-    fn output_path(&self) -> Option<PathBuf> {
+    pub(crate) fn output_path(&self) -> Option<PathBuf> {
         match self {
             Self::DryRun => None,
             Self::Output(path) => Some(path.clone()),
@@ -10337,14 +9787,14 @@ impl ConfigSetWriteTarget {
         }
     }
 
-    fn backup_path(&self) -> Option<PathBuf> {
+    pub(crate) fn backup_path(&self) -> Option<PathBuf> {
         match self {
             Self::InPlace { backup_path, .. } => backup_path.clone(),
             Self::DryRun | Self::Output(_) => None,
         }
     }
 
-    fn in_place(&self) -> bool {
+    pub(crate) fn in_place(&self) -> bool {
         matches!(self, Self::InPlace { .. })
     }
 }
@@ -10430,7 +9880,7 @@ fn run_config_set(request: &ConfigSetRequest<'_>) -> anyhow::Result<ConfigSetOut
     })
 }
 
-fn config_set_write_target(
+pub(crate) fn config_set_write_target(
     output_path: Option<&Path>,
     in_place: bool,
     dry_run: bool,
@@ -10467,7 +9917,7 @@ fn config_set_write_target(
     Ok(ConfigSetWriteTarget::Output(output_path.to_path_buf()))
 }
 
-fn write_config_set_document(
+pub(crate) fn write_config_set_document(
     document: &serde_json::Value,
     target: &ConfigSetWriteTarget,
 ) -> anyhow::Result<()> {
@@ -10550,7 +10000,7 @@ fn print_config_set_outcome_text(outcome: &ConfigSetOutcome) -> anyhow::Result<(
     Ok(())
 }
 
-fn load_config_json(config_path: Option<&PathBuf>) -> anyhow::Result<LoadedConfigJson> {
+pub(crate) fn load_config_json(config_path: Option<&PathBuf>) -> anyhow::Result<LoadedConfigJson> {
     let path = if let Some(path) = config_path {
         Some(path.clone())
     } else {
@@ -10578,7 +10028,10 @@ fn load_config_json(config_path: Option<&PathBuf>) -> anyhow::Result<LoadedConfi
     })
 }
 
-fn validate_config_json_value(document: &serde_json::Value, context: &str) -> anyhow::Result<()> {
+pub(crate) fn validate_config_json_value(
+    document: &serde_json::Value,
+    context: &str,
+) -> anyhow::Result<()> {
     let contents = serde_json::to_string(document).context("serialize config for validation")?;
     let config = VinputConfig::from_json_str(&contents).context("parse config")?;
     config.validate().with_context(|| context.to_owned())
@@ -10813,7 +10266,7 @@ fn resolve_config_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
     Ok(argv)
 }
 
-fn split_editor_argv(editor: &str) -> Vec<String> {
+pub(crate) fn split_editor_argv(editor: &str) -> Vec<String> {
     editor
         .split_whitespace()
         .filter(|part| !part.is_empty())
