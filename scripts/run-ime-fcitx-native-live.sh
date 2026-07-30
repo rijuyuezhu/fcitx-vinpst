@@ -7,6 +7,7 @@ cd "${repo_root}"
 wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
 selected_text="${VINPUT_LIVE_SELECTED_TEXT:-selected text}"
 modes="${VINPUT_LIVE_NATIVE_MODES:-normal,command}"
+focus_switch="${VINPUT_LIVE_NATIVE_FOCUS_SWITCH:-0}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
 out_dir="${VINPUT_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
 probe="scripts/fcitx-live-client-probe.py"
@@ -78,12 +79,21 @@ for mode in "${requested_modes[@]}"; do
       exit 2
       ;;
   esac
+  if [[ "${focus_switch}" != "0" && "${mode}" != "normal" ]]; then
+    echo "VINPUT_LIVE_NATIVE_FOCUS_SWITCH supports normal mode only" >&2
+    exit 2
+  fi
   echo "Running real Fcitx ${mode} native live probe..."
+  probe_args=(
+    --mode "${mode}"
+    --wav "${wav_path}"
+    --selected-text "${selected_text}"
+  )
+  if [[ "${focus_switch}" != "0" ]]; then
+    probe_args+=(--focus-switch)
+  fi
   set -o pipefail
-  timeout 40s python3 "${probe}" \
-    --mode "${mode}" \
-    --wav "${wav_path}" \
-    --selected-text "${selected_text}" \
+  timeout 40s python3 "${probe}" "${probe_args[@]}" \
     | tee "${out_dir}/${mode}.jsonl"
 done
 

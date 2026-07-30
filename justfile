@@ -153,6 +153,10 @@ ime-configured-pipewire-live:
 ime-fcitx-native-live:
     scripts/run-ime-fcitx-native-live.sh
 
+# Explicit focus-transition probe: stop from a second Fcitx input context.
+ime-fcitx-focus-live:
+    VINPUT_LIVE_NATIVE_MODES=normal VINPUT_LIVE_NATIVE_FOCUS_SWITCH=1 scripts/run-ime-fcitx-native-live.sh
+
 # Compile toolkit probes without entering a real desktop flow.
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check

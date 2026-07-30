@@ -32,14 +32,19 @@ PLACEHOLDER_PREEDITS = {
 @dataclass
 class ProbeState:
     connected: bool = False
+    secondary_connected: bool = False
     key_events: list[dict[str, Any]] = field(default_factory=list)
     preedits: list[str] = field(default_factory=list)
+    secondary_preedits: list[str] = field(default_factory=list)
     candidates: list[str] = field(default_factory=list)
     deletes: list[tuple[int, int]] = field(default_factory=list)
     commits: list[str] = field(default_factory=list)
+    secondary_commits: list[str] = field(default_factory=list)
     buffer: str = ""
     playback: subprocess.Popen[bytes] | None = None
     candidate_selected: bool = False
+    scheduled: bool = False
+    focus_switched: bool = False
     timed_out: bool = False
 
 
@@ -58,23 +63,48 @@ def wav_duration_ms(path: Path) -> int:
 class LiveProbe:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.state = ProbeState(buffer=args.selected_text if args.mode == "command" else "")
+        self.state = ProbeState(
+            buffer=args.selected_text if args.mode == "command" else ""
+        )
         self.loop = GLib.MainLoop()
         self.client = FcitxG.Client.new()
         self.client.set_program(f"fcitx-vinput-{args.mode}-live-probe")
-        self.client.set_display(os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or "")
-        self.stop_after_ms = args.play_delay_ms + wav_duration_ms(args.wav) + args.playback_tail_ms
+        self.client.set_display(
+            os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
+        )
+        self.secondary_client = FcitxG.Client.new() if args.focus_switch else None
+        self.stop_after_ms = (
+            args.play_delay_ms + wav_duration_ms(args.wav) + args.playback_tail_ms
+        )
 
         self.client.connect("connected", self.on_connected)
         self.client.connect("commit-string", self.on_commit)
         self.client.connect("delete-surrounding-text", self.on_delete)
         self.client.connect("update-formatted-preedit", self.on_formatted_preedit)
         self.client.connect("update-client-side-ui", self.on_client_ui)
+        if self.secondary_client is not None:
+            self.secondary_client.set_program("fcitx-vinput-focus-target-live-probe")
+            self.secondary_client.set_display(
+                os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
+            )
+            self.secondary_client.connect("connected", self.on_secondary_connected)
+            self.secondary_client.connect("commit-string", self.on_secondary_commit)
+            self.secondary_client.connect(
+                "update-formatted-preedit", self.on_secondary_formatted_preedit
+            )
+            self.secondary_client.connect(
+                "update-client-side-ui", self.on_secondary_client_ui
+            )
 
-    def tap(self, keyval: int) -> None:
-        pressed = bool(self.client.process_key_sync(keyval, 0, 0, False, 0))
-        released = bool(self.client.process_key_sync(keyval, 0, 0, True, 0))
-        event = {"keyval": keyval, "pressed": pressed, "released": released}
+    def tap(self, client: Any, context: str, keyval: int) -> None:
+        pressed = bool(client.process_key_sync(keyval, 0, 0, False, 0))
+        released = bool(client.process_key_sync(keyval, 0, 0, True, 0))
+        event = {
+            "context": context,
+            "keyval": keyval,
+            "pressed": pressed,
+            "released": released,
+        }
         self.state.key_events.append(event)
         emit("key", **event)
 
@@ -85,8 +115,21 @@ class LiveProbe:
         emit(event, text=text, cursor=cursor)
         return text
 
-    def on_formatted_preedit(self, _client: FcitxG.Client, items: object, cursor: int) -> None:
+    def on_formatted_preedit(
+        self, _client: FcitxG.Client, items: object, cursor: int
+    ) -> None:
         self.record_preedit("formatted-preedit", items, cursor)
+
+    def record_secondary_preedit(self, event: str, items: object, cursor: int) -> None:
+        text = "".join((item.string or "") for item in (items or []))
+        if text and text not in PLACEHOLDER_PREEDITS:
+            self.state.secondary_preedits.append(text)
+        emit(event, text=text, cursor=cursor)
+
+    def on_secondary_formatted_preedit(
+        self, _client: FcitxG.Client, items: object, cursor: int
+    ) -> None:
+        self.record_secondary_preedit("secondary-formatted-preedit", items, cursor)
 
     def on_client_ui(
         self,
@@ -111,17 +154,48 @@ class LiveProbe:
             candidates=candidates,
             candidate_cursor=candidate_cursor,
         )
-        if self.args.mode == "command" and candidates and not self.state.candidate_selected:
-            GLib.timeout_add(self.args.candidate_delay_ms, self.select_command_candidate)
+        if (
+            self.args.mode == "command"
+            and candidates
+            and not self.state.candidate_selected
+        ):
+            GLib.timeout_add(
+                self.args.candidate_delay_ms, self.select_command_candidate
+            )
+
+    def on_secondary_client_ui(
+        self,
+        _client: FcitxG.Client,
+        preedit: object,
+        preedit_cursor: int,
+        _aux_up: object,
+        _aux_down: object,
+        candidate_list: object,
+        candidate_cursor: int,
+        _candidate_layout_hint: int,
+        _has_prev: bool,
+        _has_next: bool,
+    ) -> None:
+        self.record_secondary_preedit("secondary-client-ui", preedit, preedit_cursor)
+        candidates = [item.candidate or "" for item in (candidate_list or [])]
+        emit(
+            "secondary-input-panel",
+            candidates=candidates,
+            candidate_cursor=candidate_cursor,
+        )
 
     def on_delete(self, _client: FcitxG.Client, cursor: int, length: int) -> None:
         self.state.deletes.append((cursor, length))
         encoded = self.state.buffer.encode("utf-8")
         start = len(encoded) + cursor
         if start < 0 or start + length > len(encoded):
-            emit("delete-invalid", cursor=cursor, length=length, buffer=self.state.buffer)
+            emit(
+                "delete-invalid", cursor=cursor, length=length, buffer=self.state.buffer
+            )
             return
-        self.state.buffer = (encoded[:start] + encoded[start + length :]).decode("utf-8")
+        self.state.buffer = (encoded[:start] + encoded[start + length :]).decode(
+            "utf-8"
+        )
         emit("delete", cursor=cursor, length=length, buffer=self.state.buffer)
 
     def on_commit(self, _client: FcitxG.Client, text: str) -> None:
@@ -129,6 +203,10 @@ class LiveProbe:
         self.state.buffer += text
         emit("commit", text=text, buffer=self.state.buffer)
         GLib.timeout_add(300, self.finish)
+
+    def on_secondary_commit(self, _client: FcitxG.Client, text: str) -> None:
+        self.state.secondary_commits.append(text)
+        emit("secondary-commit", text=text)
 
     def select_command_candidate(self) -> bool:
         if self.state.candidate_selected or not self.state.candidates:
@@ -140,11 +218,17 @@ class LiveProbe:
         return GLib.SOURCE_REMOVE
 
     def start_recording(self) -> bool:
-        self.tap(Gdk.KEY_F10 if self.args.mode == "command" else Gdk.KEY_F9)
+        self.tap(
+            self.client,
+            "primary",
+            Gdk.KEY_F10 if self.args.mode == "command" else Gdk.KEY_F9,
+        )
         return GLib.SOURCE_REMOVE
 
     def start_playback(self) -> bool:
-        self.state.playback = subprocess.Popen([self.args.playback_command, str(self.args.wav)])
+        self.state.playback = subprocess.Popen(
+            [self.args.playback_command, str(self.args.wav)]
+        )
         emit("playback-start", pid=self.state.playback.pid, sample=str(self.args.wav))
         return GLib.SOURCE_REMOVE
 
@@ -156,7 +240,22 @@ class LiveProbe:
                 self.state.playback.terminate()
                 returncode = self.state.playback.wait(timeout=2)
             emit("playback-exit", returncode=returncode)
-        self.tap(Gdk.KEY_F10 if self.args.mode == "command" else Gdk.KEY_F9)
+        stop_client = self.secondary_client if self.args.focus_switch else self.client
+        assert stop_client is not None
+        self.tap(
+            stop_client,
+            "secondary" if self.args.focus_switch else "primary",
+            Gdk.KEY_F10 if self.args.mode == "command" else Gdk.KEY_F9,
+        )
+        return GLib.SOURCE_REMOVE
+
+    def switch_focus(self) -> bool:
+        if self.secondary_client is None:
+            return GLib.SOURCE_REMOVE
+        self.client.focus_out()
+        self.secondary_client.focus_in()
+        self.state.focus_switched = True
+        emit("focus-switch", source="primary", target="secondary")
         return GLib.SOURCE_REMOVE
 
     def cleanup(self) -> None:
@@ -170,6 +269,27 @@ class LiveProbe:
                 playback.wait(timeout=2)
         if self.state.connected:
             self.client.focus_out()
+        if self.state.secondary_connected and self.secondary_client is not None:
+            self.secondary_client.focus_out()
+
+    def maybe_schedule(self) -> None:
+        if self.state.scheduled or not self.state.connected:
+            return
+        if self.args.focus_switch and not self.state.secondary_connected:
+            return
+        self.state.scheduled = True
+        self.client.focus_in()
+        emit(
+            "connected",
+            valid=bool(self.client.is_valid()),
+            mode=self.args.mode,
+            buffer=self.state.buffer,
+        )
+        GLib.timeout_add(self.args.start_delay_ms, self.start_recording)
+        GLib.timeout_add(self.args.play_delay_ms, self.start_playback)
+        if self.args.focus_switch:
+            GLib.timeout_add(self.args.focus_switch_delay_ms, self.switch_focus)
+        GLib.timeout_add(self.stop_after_ms, self.stop_recording)
 
     def on_connected(self, _client: FcitxG.Client) -> None:
         self.state.connected = True
@@ -178,11 +298,15 @@ class LiveProbe:
         if self.args.mode == "command":
             selected_bytes = len(self.args.selected_text.encode("utf-8"))
             self.client.set_surrounding_text(self.args.selected_text, selected_bytes, 0)
-        self.client.focus_in()
-        emit("connected", valid=bool(self.client.is_valid()), mode=self.args.mode, buffer=self.state.buffer)
-        GLib.timeout_add(self.args.start_delay_ms, self.start_recording)
-        GLib.timeout_add(self.args.play_delay_ms, self.start_playback)
-        GLib.timeout_add(self.stop_after_ms, self.stop_recording)
+        self.maybe_schedule()
+
+    def on_secondary_connected(self, _client: FcitxG.Client) -> None:
+        assert self.secondary_client is not None
+        self.state.secondary_connected = True
+        capabilities = (1 << 1) | (1 << 4) | (1 << 6) | (1 << 39)
+        self.secondary_client.set_capability(capabilities)
+        emit("secondary-connected", valid=bool(self.secondary_client.is_valid()))
+        self.maybe_schedule()
 
     def finish(self) -> bool:
         self.loop.quit()
@@ -208,6 +332,8 @@ class LiveProbe:
             failures.append("probe timed out before commit")
         if not self.state.connected:
             failures.append("Fcitx input context did not connect")
+        if self.args.focus_switch and not self.state.secondary_connected:
+            failures.append("secondary Fcitx input context did not connect")
         if len(self.state.key_events) < 2 or not all(
             event["pressed"] and event["released"] for event in self.state.key_events
         ):
@@ -223,6 +349,13 @@ class LiveProbe:
                 failures.append("command mode did not delete selected text")
             if self.state.buffer == self.args.selected_text:
                 failures.append("command mode did not replace selected text")
+        if self.args.focus_switch:
+            if not self.state.focus_switched:
+                failures.append("focus did not switch to the secondary context")
+            if self.state.secondary_preedits:
+                failures.append("partial preedit leaked to the secondary context")
+            if self.state.secondary_commits:
+                failures.append("final commit leaked to the secondary context")
 
         summary = {
             "mode": self.args.mode,
@@ -230,6 +363,10 @@ class LiveProbe:
             "commit": self.state.commits[-1] if self.state.commits else "",
             "candidate_count": len(self.state.candidates),
             "delete_count": len(self.state.deletes),
+            "focus_switch": self.args.focus_switch,
+            "focus_switched": self.state.focus_switched,
+            "secondary_partial_count": len(self.state.secondary_preedits),
+            "secondary_commit_count": len(self.state.secondary_commits),
             "final_buffer": self.state.buffer,
             "ok": not failures,
             "failures": failures,
@@ -249,18 +386,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--play-delay-ms", type=int, default=1200)
     parser.add_argument("--playback-tail-ms", type=int, default=1000)
     parser.add_argument("--candidate-delay-ms", type=int, default=200)
+    parser.add_argument("--focus-switch", action="store_true")
+    parser.add_argument("--focus-switch-delay-ms", type=int, default=2000)
     parser.add_argument("--result-timeout-ms", type=int, default=8000)
     args = parser.parse_args()
     args.wav = args.wav.resolve()
     if not args.wav.is_file():
         parser.error(f"WAV does not exist: {args.wav}")
+    if args.focus_switch and args.mode != "normal":
+        parser.error("--focus-switch currently supports normal mode only")
+    if args.focus_switch and args.focus_switch_delay_ms >= (
+        args.play_delay_ms + wav_duration_ms(args.wav) + args.playback_tail_ms
+    ):
+        parser.error("--focus-switch-delay-ms must occur before the stop trigger")
     return args
 
 
 def main() -> int:
     try:
         LiveProbe(parse_args()).run()
-    except (GLib.Error, OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+    except (
+        GLib.Error,
+        OSError,
+        RuntimeError,
+        ValueError,
+        subprocess.SubprocessError,
+    ) as error:
         emit("fatal", error=str(error))
         return 1
     return 0

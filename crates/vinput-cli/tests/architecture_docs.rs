@@ -443,6 +443,9 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "partial_count",
         "candidate_count",
         "delete_count",
+        "secondary_commit_count",
+        "partial preedit leaked to the secondary context",
+        "final commit leaked to the secondary context",
         "command mode did not replace selected text",
     ] {
         assert!(
@@ -454,11 +457,13 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
     for required in [
         "VINPUT_LIVE_NATIVE_WAV",
         "VINPUT_LIVE_NATIVE_MODES",
+        "VINPUT_LIVE_NATIVE_FOCUS_SWITCH",
         "target/tmp/ime-fcitx-native-live",
         "org.fcitx.Vinput must be idle",
         "trap restore_idle EXIT",
         "call_service StopRecording",
         "--mode \"${mode}\"",
+        "--focus-switch",
         "timeout 40s",
     ] {
         assert!(
