@@ -446,6 +446,8 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "secondary_commit_count",
         "partial preedit leaked to the secondary context",
         "final commit leaked to the secondary context",
+        "owner loss committed a partial result",
+        "owner loss did not surface an unavailable preedit",
         "command mode did not replace selected text",
     ] {
         assert!(
@@ -458,12 +460,14 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "VINPUT_LIVE_NATIVE_WAV",
         "VINPUT_LIVE_NATIVE_MODES",
         "VINPUT_LIVE_NATIVE_FOCUS_SWITCH",
+        "VINPUT_LIVE_NATIVE_OWNER_LOSS",
         "target/tmp/ime-fcitx-native-live",
         "org.fcitx.Vinput must be idle",
         "trap restore_idle EXIT",
         "call_service StopRecording",
         "--mode \"${mode}\"",
         "--focus-switch",
+        "--owner-loss",
         "timeout 40s",
     ] {
         assert!(

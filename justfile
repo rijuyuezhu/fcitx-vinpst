@@ -157,6 +157,10 @@ ime-fcitx-native-live:
 ime-fcitx-focus-live:
     VINPUT_LIVE_NATIVE_MODES=normal VINPUT_LIVE_NATIVE_FOCUS_SWITCH=1 scripts/run-ime-fcitx-native-live.sh
 
+# Explicit owner-loss probe: stop the current Rust daemon while recording.
+ime-fcitx-owner-loss-live:
+    VINPUT_LIVE_NATIVE_MODES=normal VINPUT_LIVE_NATIVE_OWNER_LOSS=1 scripts/run-ime-fcitx-native-live.sh
+
 # Compile toolkit probes without entering a real desktop flow.
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check

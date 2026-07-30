@@ -8,6 +8,7 @@ wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
 selected_text="${VINPUT_LIVE_SELECTED_TEXT:-selected text}"
 modes="${VINPUT_LIVE_NATIVE_MODES:-normal,command}"
 focus_switch="${VINPUT_LIVE_NATIVE_FOCUS_SWITCH:-0}"
+owner_loss="${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
 out_dir="${VINPUT_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
 probe="scripts/fcitx-live-client-probe.py"
@@ -83,6 +84,14 @@ for mode in "${requested_modes[@]}"; do
     echo "VINPUT_LIVE_NATIVE_FOCUS_SWITCH supports normal mode only" >&2
     exit 2
   fi
+  if [[ "${owner_loss}" != "0" && "${mode}" != "normal" ]]; then
+    echo "VINPUT_LIVE_NATIVE_OWNER_LOSS supports normal mode only" >&2
+    exit 2
+  fi
+  if [[ "${focus_switch}" != "0" && "${owner_loss}" != "0" ]]; then
+    echo "focus-switch and owner-loss are separate live cases" >&2
+    exit 2
+  fi
   echo "Running real Fcitx ${mode} native live probe..."
   probe_args=(
     --mode "${mode}"
@@ -91,6 +100,9 @@ for mode in "${requested_modes[@]}"; do
   )
   if [[ "${focus_switch}" != "0" ]]; then
     probe_args+=(--focus-switch)
+  fi
+  if [[ "${owner_loss}" != "0" ]]; then
+    probe_args+=(--owner-loss)
   fi
   set -o pipefail
   timeout 40s python3 "${probe}" "${probe_args[@]}" \

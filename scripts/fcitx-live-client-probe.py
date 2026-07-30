@@ -5,6 +5,8 @@ import argparse
 import importlib
 import json
 import os
+import re
+import signal
 import subprocess
 import sys
 import wave
@@ -45,6 +47,9 @@ class ProbeState:
     candidate_selected: bool = False
     scheduled: bool = False
     focus_switched: bool = False
+    owner_lost: bool = False
+    owner_pid: int | None = None
+    owner_loss_preedits: list[str] = field(default_factory=list)
     timed_out: bool = False
 
 
@@ -112,6 +117,8 @@ class LiveProbe:
         text = "".join((item.string or "") for item in (items or []))
         if text and text not in PLACEHOLDER_PREEDITS:
             self.state.preedits.append(text)
+        if self.state.owner_lost:
+            self.state.owner_loss_preedits.append(text)
         emit(event, text=text, cursor=cursor)
         return text
 
@@ -258,6 +265,68 @@ class LiveProbe:
         emit("focus-switch", source="primary", target="secondary")
         return GLib.SOURCE_REMOVE
 
+    @staticmethod
+    def dbus_call(method: str, *arguments: str) -> str:
+        completed = subprocess.run(
+            [
+                "gdbus",
+                "call",
+                "--session",
+                "--dest",
+                "org.freedesktop.DBus",
+                "--object-path",
+                "/org/freedesktop/DBus",
+                "--method",
+                f"org.freedesktop.DBus.{method}",
+                *arguments,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return completed.stdout.strip()
+
+    def kill_daemon_owner(self) -> bool:
+        try:
+            owner_result = self.dbus_call("GetNameOwner", "org.fcitx.Vinput")
+            owner_match = re.search(r"'([^']+)'", owner_result)
+            if owner_match is None:
+                raise RuntimeError(f"could not parse daemon owner: {owner_result}")
+            pid_result = self.dbus_call(
+                "GetConnectionUnixProcessID", owner_match.group(1)
+            )
+            pid_match = re.search(r"uint32\s+(\d+)", pid_result)
+            if pid_match is None:
+                raise RuntimeError(f"could not parse daemon owner PID: {pid_result}")
+            pid = int(pid_match.group(1))
+            executable = os.readlink(f"/proc/{pid}/exe")
+            command_line = (
+                Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ")
+            )
+            if (
+                "vinput-daemon" not in Path(executable).name
+                and b"vinput-daemon" not in command_line
+            ):
+                raise RuntimeError(
+                    "refusing to stop unexpected org.fcitx.Vinput owner: "
+                    f"pid={pid} exe={executable}"
+                )
+            self.state.owner_pid = pid
+            self.state.owner_lost = True
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                self.state.owner_lost = False
+                raise
+            emit("owner-loss", pid=pid, executable=executable)
+            GLib.timeout_add(self.args.owner_loss_settle_ms, self.finish)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            emit("owner-loss-error", error=str(error))
+            self.state.timed_out = True
+            self.loop.quit()
+        return GLib.SOURCE_REMOVE
+
     def cleanup(self) -> None:
         playback = self.state.playback
         if playback is not None and playback.poll() is None:
@@ -289,7 +358,10 @@ class LiveProbe:
         GLib.timeout_add(self.args.play_delay_ms, self.start_playback)
         if self.args.focus_switch:
             GLib.timeout_add(self.args.focus_switch_delay_ms, self.switch_focus)
-        GLib.timeout_add(self.stop_after_ms, self.stop_recording)
+        if self.args.owner_loss:
+            GLib.timeout_add(self.args.owner_loss_delay_ms, self.kill_daemon_owner)
+        else:
+            GLib.timeout_add(self.stop_after_ms, self.stop_recording)
 
     def on_connected(self, _client: FcitxG.Client) -> None:
         self.state.connected = True
@@ -334,13 +406,24 @@ class LiveProbe:
             failures.append("Fcitx input context did not connect")
         if self.args.focus_switch and not self.state.secondary_connected:
             failures.append("secondary Fcitx input context did not connect")
-        if len(self.state.key_events) < 2 or not all(
+        expected_key_events = 1 if self.args.owner_loss else 2
+        if len(self.state.key_events) < expected_key_events or not all(
             event["pressed"] and event["released"] for event in self.state.key_events
         ):
-            failures.append("addon did not consume both trigger taps")
+            failures.append("addon did not consume the expected trigger taps")
         if not self.state.preedits:
             failures.append("client received no non-placeholder partial preedit")
-        if not self.state.commits or not self.state.commits[-1]:
+        if self.args.owner_loss:
+            if not self.state.owner_lost:
+                failures.append("daemon owner was not stopped")
+            if self.state.commits:
+                failures.append("owner loss committed a partial result")
+            if not any(
+                "unavailable" in preedit.lower()
+                for preedit in self.state.owner_loss_preedits
+            ):
+                failures.append("owner loss did not surface an unavailable preedit")
+        elif not self.state.commits or not self.state.commits[-1]:
             failures.append("client received no final commit")
         if self.args.mode == "command":
             if not self.state.candidates:
@@ -367,6 +450,14 @@ class LiveProbe:
             "focus_switched": self.state.focus_switched,
             "secondary_partial_count": len(self.state.secondary_preedits),
             "secondary_commit_count": len(self.state.secondary_commits),
+            "owner_loss": self.args.owner_loss,
+            "owner_pid": self.state.owner_pid,
+            "owner_loss_preedit_count": len(self.state.owner_loss_preedits),
+            "owner_loss_preedit": (
+                self.state.owner_loss_preedits[-1]
+                if self.state.owner_loss_preedits
+                else ""
+            ),
             "final_buffer": self.state.buffer,
             "ok": not failures,
             "failures": failures,
@@ -388,6 +479,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidate-delay-ms", type=int, default=200)
     parser.add_argument("--focus-switch", action="store_true")
     parser.add_argument("--focus-switch-delay-ms", type=int, default=2000)
+    parser.add_argument("--owner-loss", action="store_true")
+    parser.add_argument("--owner-loss-delay-ms", type=int, default=2500)
+    parser.add_argument("--owner-loss-settle-ms", type=int, default=1500)
     parser.add_argument("--result-timeout-ms", type=int, default=8000)
     args = parser.parse_args()
     args.wav = args.wav.resolve()
@@ -395,10 +489,16 @@ def parse_args() -> argparse.Namespace:
         parser.error(f"WAV does not exist: {args.wav}")
     if args.focus_switch and args.mode != "normal":
         parser.error("--focus-switch currently supports normal mode only")
+    if args.owner_loss and args.mode != "normal":
+        parser.error("--owner-loss currently supports normal mode only")
+    if args.owner_loss and args.focus_switch:
+        parser.error("--owner-loss and --focus-switch are separate live cases")
     if args.focus_switch and args.focus_switch_delay_ms >= (
         args.play_delay_ms + wav_duration_ms(args.wav) + args.playback_tail_ms
     ):
         parser.error("--focus-switch-delay-ms must occur before the stop trigger")
+    if args.owner_loss and args.owner_loss_delay_ms <= args.play_delay_ms:
+        parser.error("--owner-loss-delay-ms must occur after playback starts")
     return args
 
 
