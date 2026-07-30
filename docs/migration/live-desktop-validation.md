@@ -183,7 +183,13 @@ The following installed-profile summaries reported `ok: true`:
 - same-provider reload: the owner PID and effective provider/model remained stable, reload completed without error, and a subsequent acoustic recognition produced eight partials plus a final commit under `target/tmp/ime-fcitx-reload-live`;
 - scene and ASR menus: candidate display, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits under `target/tmp/ime-fcitx-menu-live`.
 
-The GTK3 probe reached its real-window `ready` event, but no real F9 event arrived before the playback deadline. That attempt is not toolkit evidence. GTK3 and Qt6 remain unproven until their application JSONL summaries report `ok: true` after real desktop key events.
+The real-key application matrix now also reports `ok: true` for all six toolkit cases:
+
+- GTK3 normal and command under `target/tmp/ime-gtk3-native-live`;
+- Qt6 normal and command under `target/tmp/ime-qt6-native-live`;
+- Chromium/Ozone normal and command under `target/tmp/ime-chromium-native-live`.
+
+Every command case emitted `selection-ready` for `selected text`, observed same-run daemon partials, and required the final `adapter-backed:` replacement to contain that selected text. The toolkit probes combine daemon `RecognitionPartial` evidence with the final text observed by the real application widget because Fcitx input-panel preedit is not exposed as client-side preedit in every toolkit. The current Chinese Zipformer model may render English abbreviations as `<unk>`; that is an ASR model limitation, not a toolkit transport failure.
 
 ## 7. Frontend behavior
 
@@ -225,4 +231,4 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement, non-mutating scene/ASR menus, focus handoff, verified owner loss, and same-provider reload followed by another recognition in real Fcitx clients. GTK3 and Qt6 still require real desktop key events and successful application JSONL summaries; clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and an external provider remain outside the proven boundary.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement, non-mutating scene/ASR menus, focus handoff, verified owner loss, same-provider reload followed by another recognition, and GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. Clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and an external provider remain outside the proven boundary.
