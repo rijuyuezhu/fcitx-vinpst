@@ -129,6 +129,31 @@ VINPUT_ACTIVATION_START_OUTPUT="${start_output}" \
 VINPUT_ACTIVATION_STOP_OUTPUT="${stop_output}" \
 VINPUT_ACTIVATION_FRONTEND_BIN="${frontend_bin}" \
   timeout 120s dbus-run-session -- bash -euo pipefail <<'INNER'
+stop_activation_owner() {
+  if [[ ! -f "${VINPUT_ACTIVATION_STATUS_OUTPUT}" ]]; then
+    return 0
+  fi
+  local owner_pid owner_exe expected_exe
+  owner_pid="$(jq -r '.owner.unix_process_id // empty' "${VINPUT_ACTIVATION_STATUS_OUTPUT}")"
+  if [[ ! "${owner_pid}" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+  owner_exe="$(readlink -f "/proc/${owner_pid}/exe" 2>/dev/null || true)"
+  expected_exe="$(realpath "${VINPUT_ACTIVATION_EXPECTED_DAEMON}")"
+  if [[ "${owner_exe}" != "${expected_exe}" ]]; then
+    return 0
+  fi
+  kill "${owner_pid}" 2>/dev/null || true
+  for _ in $(seq 1 100); do
+    if ! kill -0 "${owner_pid}" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.05
+  done
+  kill -KILL "${owner_pid}" 2>/dev/null || true
+}
+trap stop_activation_owner EXIT
+
 if [[ -n "${VINPUT_ACTIVATION_FRONTEND_BIN}" ]]; then
   VINPUT_NATIVE_FRONTEND_EXPECTED_TEXT="${VINPUT_ACTIVATION_EXPECTED_TEXT}" \
     "${VINPUT_ACTIVATION_FRONTEND_BIN}"

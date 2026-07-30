@@ -44,6 +44,31 @@ XDG_DATA_DIRS="${data_home}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 VINPUT_OWNER_SMOKE_STATUS="${status_output}" \
 VINPUT_OWNER_SMOKE_DAEMON="${daemon_path}" \
   timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
+stop_activation_owner() {
+  if [[ ! -f "${VINPUT_OWNER_SMOKE_STATUS}" ]]; then
+    return 0
+  fi
+  local owner_pid owner_exe expected_exe
+  owner_pid="$(jq -r '.owner.unix_process_id // empty' "${VINPUT_OWNER_SMOKE_STATUS}")"
+  if [[ ! "${owner_pid}" =~ ^[0-9]+$ ]]; then
+    return 0
+  fi
+  owner_exe="$(readlink -f "/proc/${owner_pid}/exe" 2>/dev/null || true)"
+  expected_exe="$(realpath "${VINPUT_OWNER_SMOKE_DAEMON}")"
+  if [[ "${owner_exe}" != "${expected_exe}" ]]; then
+    return 0
+  fi
+  kill "${owner_pid}" 2>/dev/null || true
+  for _ in $(seq 1 50); do
+    if ! kill -0 "${owner_pid}" 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.02
+  done
+  kill -KILL "${owner_pid}" 2>/dev/null || true
+}
+trap stop_activation_owner EXIT
+
 target/debug/vinput daemon status --json >"${VINPUT_OWNER_SMOKE_STATUS}"
 python3 - "${VINPUT_OWNER_SMOKE_STATUS}" "${VINPUT_OWNER_SMOKE_DAEMON}" <<'PY'
 import json
