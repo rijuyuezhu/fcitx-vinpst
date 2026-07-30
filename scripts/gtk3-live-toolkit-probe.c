@@ -11,7 +11,13 @@ typedef enum {
 } ProbeMode;
 
 typedef struct {
+  GtkWidget *window;
   GtkWidget *entry;
+  GDBusConnection *bus;
+  char *last_text;
+  guint partial_subscription_id;
+  guint finish_source_id;
+  guint timeout_source_id;
   ProbeMode mode;
   const char *initial_text;
   bool require_partial;
@@ -19,6 +25,7 @@ typedef struct {
   bool commit_seen;
   bool replacement_seen;
   bool timed_out;
+  bool window_destroyed;
 } Probe;
 
 static void AppendJsonEscaped(GString *output, const char *text) {
@@ -87,15 +94,84 @@ static bool EnvFlag(const char *name, bool fallback) {
          g_ascii_strcasecmp(value, "no") != 0;
 }
 
+static bool DaemonIsRecording(Probe *probe) {
+  if (probe->bus == NULL) {
+    return true;
+  }
+
+  GError *error = NULL;
+  GVariant *reply = g_dbus_connection_call_sync(
+      probe->bus, "org.fcitx.Vinput", "/org/fcitx/Vinput", "org.fcitx.Vinput.Service",
+      "GetStatus", NULL, G_VARIANT_TYPE("(s)"), G_DBUS_CALL_FLAGS_NONE, 1000, NULL,
+      &error);
+  if (reply == NULL) {
+    g_clear_error(&error);
+    return true;
+  }
+
+  const char *status = NULL;
+  g_variant_get(reply, "(&s)", &status);
+  const bool recording = status != NULL && strcmp(status, "recording") == 0;
+  g_variant_unref(reply);
+  return recording;
+}
+
+static void RememberText(Probe *probe, const char *text) {
+  g_free(probe->last_text);
+  probe->last_text = g_strdup(text == NULL ? "" : text);
+}
+
+static void QuitMainLoop(void) {
+  if (gtk_main_level() > 0) {
+    gtk_main_quit();
+  }
+}
+
+static void OnRecognitionPartial(GDBusConnection *connection, const gchar *sender_name,
+                                 const gchar *object_path, const gchar *interface_name,
+                                 const gchar *signal_name, GVariant *parameters,
+                                 gpointer user_data) {
+  (void)connection;
+  (void)sender_name;
+  (void)object_path;
+  (void)interface_name;
+  (void)signal_name;
+  Probe *probe = user_data;
+  const char *partial = NULL;
+  g_variant_get(parameters, "(&s)", &partial);
+  EmitTextEvent("daemon-partial", partial);
+  if (partial != NULL && *partial != '\0') {
+    probe->partial_seen = true;
+  }
+}
+
+static void UpdateFinalOutcome(Probe *probe) {
+  if (DaemonIsRecording(probe) || probe->last_text == NULL ||
+      *probe->last_text == '\0') {
+    return;
+  }
+  if (probe->mode == PROBE_MODE_NORMAL) {
+    probe->commit_seen = true;
+    return;
+  }
+  if (strcmp(probe->last_text, probe->initial_text) != 0) {
+    probe->commit_seen = true;
+    probe->replacement_seen = true;
+  }
+}
+
 static gboolean FinishWhenSuccessful(gpointer user_data) {
   Probe *probe = user_data;
+  UpdateFinalOutcome(probe);
   const bool partial_ok = !probe->require_partial || probe->partial_seen;
   const bool outcome_ok =
       probe->mode == PROBE_MODE_NORMAL ? probe->commit_seen : probe->replacement_seen;
   if (partial_ok && outcome_ok) {
-    gtk_main_quit();
+    probe->finish_source_id = 0;
+    QuitMainLoop();
+    return G_SOURCE_REMOVE;
   }
-  return G_SOURCE_REMOVE;
+  return G_SOURCE_CONTINUE;
 }
 
 static void OnPreeditChanged(GtkEntry *entry, const gchar *preedit,
@@ -111,28 +187,29 @@ static void OnPreeditChanged(GtkEntry *entry, const gchar *preedit,
 static void OnChanged(GtkEditable *editable, gpointer user_data) {
   Probe *probe = user_data;
   const char *text = gtk_entry_get_text(GTK_ENTRY(editable));
+  RememberText(probe, text);
   EmitTextEvent("changed", text);
-  if (probe->mode == PROBE_MODE_NORMAL) {
-    probe->commit_seen = text != NULL && *text != '\0';
-  } else if (text != NULL && *text != '\0' && strcmp(text, probe->initial_text) != 0) {
-    probe->commit_seen = true;
-    probe->replacement_seen = true;
+  if (text != NULL && *text != '\0' && DaemonIsRecording(probe)) {
+    probe->partial_seen = true;
   }
-  g_idle_add(FinishWhenSuccessful, probe);
 }
 
 static gboolean OnTimeout(gpointer user_data) {
   Probe *probe = user_data;
+  probe->timeout_source_id = 0;
   probe->timed_out = true;
-  EmitTextEvent("timeout", gtk_entry_get_text(GTK_ENTRY(probe->entry)));
-  gtk_main_quit();
+  EmitTextEvent("timeout", probe->last_text);
+  QuitMainLoop();
   return G_SOURCE_REMOVE;
 }
 
 static void OnWindowDestroy(GtkWidget *widget, gpointer user_data) {
   (void)widget;
-  (void)user_data;
-  gtk_main_quit();
+  Probe *probe = user_data;
+  probe->window = NULL;
+  probe->entry = NULL;
+  probe->window_destroyed = true;
+  QuitMainLoop();
 }
 
 static ProbeMode ParseMode(const char *value) {
@@ -159,7 +236,13 @@ int main(int argc, char **argv) {
     initial_text = "selected text";
   }
   Probe probe = {
+      .window = NULL,
       .entry = NULL,
+      .bus = NULL,
+      .last_text = g_strdup(mode == PROBE_MODE_COMMAND ? initial_text : ""),
+      .partial_subscription_id = 0,
+      .finish_source_id = 0,
+      .timeout_source_id = 0,
       .mode = mode,
       .initial_text = initial_text,
       .require_partial = EnvFlag("VINPUT_TOOLKIT_REQUIRE_PARTIAL", true),
@@ -167,9 +250,25 @@ int main(int argc, char **argv) {
       .commit_seen = false,
       .replacement_seen = false,
       .timed_out = false,
+      .window_destroyed = false,
   };
 
+  GError *bus_error = NULL;
+  probe.bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &bus_error);
+  if (probe.bus == NULL) {
+    g_printerr("failed to connect to the session bus: %s\n",
+               bus_error == NULL ? "unknown error" : bus_error->message);
+    g_clear_error(&bus_error);
+    g_free(probe.last_text);
+    return 1;
+  }
+  probe.partial_subscription_id = g_dbus_connection_signal_subscribe(
+      probe.bus, "org.fcitx.Vinput", "org.fcitx.Vinput.Service", "RecognitionPartial",
+      "/org/fcitx/Vinput", NULL, G_DBUS_SIGNAL_FLAGS_NONE, OnRecognitionPartial, &probe,
+      NULL);
+
   GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  probe.window = window;
   gtk_window_set_default_size(GTK_WINDOW(window), 640, 140);
   gtk_window_set_title(GTK_WINDOW(window), "fcitx-vinput GTK3 live probe");
   g_signal_connect(window, "destroy", G_CALLBACK(OnWindowDestroy), &probe);
@@ -209,10 +308,20 @@ int main(int argc, char **argv) {
           "\"manual_trigger\":true}\n",
           mode == PROBE_MODE_NORMAL ? "normal" : "command");
   fflush(stdout);
-  g_timeout_add_seconds(TimeoutSeconds(), OnTimeout, &probe);
+  probe.finish_source_id = g_timeout_add(200, FinishWhenSuccessful, &probe);
+  probe.timeout_source_id = g_timeout_add_seconds(TimeoutSeconds(), OnTimeout, &probe);
   gtk_main();
 
-  const char *final_text = gtk_entry_get_text(GTK_ENTRY(probe.entry));
+  if (probe.timeout_source_id != 0) {
+    g_source_remove(probe.timeout_source_id);
+    probe.timeout_source_id = 0;
+  }
+  if (probe.finish_source_id != 0) {
+    g_source_remove(probe.finish_source_id);
+    probe.finish_source_id = 0;
+  }
+  UpdateFinalOutcome(&probe);
+  const char *final_text = probe.last_text;
   const bool partial_ok = !probe.require_partial || probe.partial_seen;
   const bool outcome_ok =
       mode == PROBE_MODE_NORMAL ? probe.commit_seen : probe.replacement_seen;
@@ -232,6 +341,13 @@ int main(int argc, char **argv) {
   g_print("%s", summary->str);
   g_string_free(summary, TRUE);
 
-  gtk_widget_destroy(window);
+  if (!probe.window_destroyed && probe.window != NULL) {
+    gtk_widget_destroy(probe.window);
+  }
+  if (probe.partial_subscription_id != 0) {
+    g_dbus_connection_signal_unsubscribe(probe.bus, probe.partial_subscription_id);
+  }
+  g_object_unref(probe.bus);
+  g_free(probe.last_text);
   return ok ? 0 : 1;
 }

@@ -554,6 +554,10 @@ fn gtk3_live_probe_requires_real_toolkit_key_events() {
         "manual_trigger\\\":true",
         "replacement_seen",
         "VINPUT_TOOLKIT_TIMEOUT_SECONDS",
+        "RecognitionPartial",
+        "g_dbus_connection_signal_subscribe",
+        "gtk_main_level",
+        "g_source_remove",
     ] {
         assert!(
             source.contains(required),
