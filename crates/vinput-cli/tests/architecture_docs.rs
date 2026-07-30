@@ -608,6 +608,58 @@ fn virtual_pipewire_live_gate_pins_isolated_audio_and_restore() {
 }
 
 #[test]
+fn scene_menu_selection_live_gate_pins_switch_and_restore() {
+    let probe =
+        std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-selection-probe.py"))
+            .expect("read scene-menu selection probe");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-menu-selection-live.sh",
+    ))
+    .expect("read scene-menu selection runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "GetSceneState",
+        "SetActiveScene",
+        "selection-target",
+        "scene-state",
+        "scene-restored",
+        "self.expected_candidates",
+        "Enter did not switch to the first scene candidate",
+        "original scene was not restored",
+        "scene menu selection unexpectedly committed text",
+    ] {
+        assert!(
+            probe.contains(required),
+            "scene-menu selection probe should pin switch evidence: {required}"
+        );
+    }
+    for forbidden in ["SetActiveAsrTarget", "select_candidate"] {
+        assert!(
+            !probe.contains(forbidden),
+            "scene-menu selection probe should use real menu keys, not {forbidden}"
+        );
+    }
+    for required in [
+        "org.fcitx.Vinput must be idle before scene-menu selection",
+        "target/tmp/ime-fcitx-menu-selection-live",
+        "python3 \"${probe}\" --trigger-key",
+    ] {
+        assert!(
+            runner.contains(required),
+            "scene-menu selection runner should pin safe execution: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-menu-selection-live:"));
+    assert!(justfile.contains("run-ime-fcitx-menu-selection-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-menu-selection-live"));
+}
+
+#[test]
 fn native_fcitx_reload_live_gate_pins_post_reload_recognition() {
     let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-reload-live.sh"))
         .expect("read Fcitx reload live runner");

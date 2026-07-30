@@ -181,6 +181,10 @@ ime-fcitx-primary-selection-live:
 ime-fcitx-menu-live:
     scripts/run-ime-fcitx-menu-live.sh
 
+# Explicit scene-menu selection with exact active-scene restoration.
+ime-fcitx-menu-selection-live:
+    scripts/run-ime-fcitx-menu-selection-live.sh
+
 # Compile toolkit probes without entering a real desktop flow.
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check
