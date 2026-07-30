@@ -233,10 +233,18 @@ class LiveProbe:
         return GLib.SOURCE_REMOVE
 
     def start_playback(self) -> bool:
-        self.state.playback = subprocess.Popen(
-            [self.args.playback_command, str(self.args.wav)]
+        command = [self.args.playback_command]
+        if self.args.playback_target:
+            command.extend(("--target", self.args.playback_target))
+        command.append(str(self.args.wav))
+        self.state.playback = subprocess.Popen(command)
+        emit(
+            "playback-start",
+            pid=self.state.playback.pid,
+            command=command,
+            sample=str(self.args.wav),
+            target=self.args.playback_target,
         )
-        emit("playback-start", pid=self.state.playback.pid, sample=str(self.args.wav))
         return GLib.SOURCE_REMOVE
 
     def stop_recording(self) -> bool:
@@ -482,6 +490,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-commit-prefix", default="")
     parser.add_argument("--allow-direct-command-commit", action="store_true")
     parser.add_argument("--playback-command", default="pw-play")
+    parser.add_argument("--playback-target", default="")
     parser.add_argument("--start-delay-ms", type=int, default=300)
     parser.add_argument("--play-delay-ms", type=int, default=1200)
     parser.add_argument("--playback-tail-ms", type=int, default=1000)

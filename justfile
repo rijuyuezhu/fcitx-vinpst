@@ -149,9 +149,13 @@ ime-pipewire-live:
 ime-configured-pipewire-live:
     scripts/run-ime-configured-pipewire-live-smoke.sh
 
-# Explicit real Fcitx input-context probe through live acoustic PipeWire and native ASR.
+# Explicit real Fcitx input-context probe through the configured PipeWire source.
 ime-fcitx-native-live:
     scripts/run-ime-fcitx-native-live.sh
+
+# Deterministic PipeWire sink/source injection without physical audio devices.
+ime-fcitx-virtual-source-live:
+    scripts/run-ime-fcitx-virtual-source-live.sh
 
 # Explicit focus-transition probe: stop from a second Fcitx input context.
 ime-fcitx-focus-live:

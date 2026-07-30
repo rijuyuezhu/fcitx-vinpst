@@ -11,6 +11,7 @@ focus_switch="${VINPUT_LIVE_NATIVE_FOCUS_SWITCH:-0}"
 owner_loss="${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}"
 expected_text_adapter="${VINPUT_LIVE_EXPECTED_TEXT_ADAPTER:-}"
 expected_commit_prefix="${VINPUT_LIVE_EXPECTED_COMMIT_PREFIX:-}"
+playback_target="${VINPUT_LIVE_PLAYBACK_TARGET:-}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
 out_dir="${VINPUT_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
 probe="scripts/fcitx-live-client-probe.py"
@@ -121,6 +122,9 @@ for mode in "${requested_modes[@]}"; do
     --wav "${wav_path}"
     --selected-text "${selected_text}"
   )
+  if [[ -n "${playback_target}" ]]; then
+    probe_args+=(--playback-target "${playback_target}")
+  fi
   if [[ "${focus_switch}" != "0" ]]; then
     probe_args+=(--focus-switch)
   fi

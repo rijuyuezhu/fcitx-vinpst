@@ -366,7 +366,7 @@ fn asr_architecture_pins_feature_gated_sherpa_backend_scope() {
         "`MockAsrBackend` can attach a shared `MockAsrAudioLog` for deterministic tests",
         "800/800/tail chunk delivery",
         "real session-bus integration test proves that a partial signal arrives before `StopRecording`",
-        "`ime-fcitx-native-live` proves one real acoustic PipeWire/Fcitx application path",
+        "`ime-fcitx-virtual-source-live` proves one real PipeWire/Fcitx application path without physical audio devices",
         "`MockAsrAudioPush` is serde/schema-ready",
     ] {
         assert!(
@@ -388,12 +388,12 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just addon-dbus-pipewire-live",
         "just ime-pipewire-live",
         "just ime-configured-pipewire-live",
-        "just ime-fcitx-native-live",
+        "just ime-fcitx-virtual-source-live",
         "just ime-gtk3-native-live normal",
         "just ime-qt6-native-live normal",
-        "just ime-fcitx-focus-live",
-        "just ime-fcitx-owner-loss-live",
-        "just ime-fcitx-reload-live",
+        "VINPUT_LIVE_NATIVE_FOCUS_SWITCH=1",
+        "VINPUT_LIVE_NATIVE_OWNER_LOSS=1",
+        "VINPUT_LIVE_RELOAD_BEFORE_PROBE=1",
         "VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav",
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
         "VINPUT_TEST_PIPEWIRE_ENUMERATE=1",
@@ -417,6 +417,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "ime-pipewire-live:",
         "ime-configured-pipewire-live:",
         "ime-fcitx-native-live:",
+        "ime-fcitx-virtual-source-live:",
         "ime-gtk3-native-live mode='normal':",
         "ime-qt6-native-live mode='normal':",
         "ime-fcitx-focus-live:",
@@ -436,6 +437,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
     assert!(!check_line.contains("pipewire-live"));
     assert!(!check_line.contains("ime-pipewire-live"));
     assert!(!check_line.contains("ime-fcitx-native-live"));
+    assert!(!check_line.contains("ime-fcitx-virtual-source-live"));
 }
 
 #[test]
@@ -462,6 +464,8 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "final commit did not match expected prefix",
         "expected_commit_prefix",
         "allow_direct_command_commit",
+        "playback_target",
+        "--target",
         "command mode did not replace selected text",
     ] {
         assert!(
@@ -477,6 +481,8 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "VINPUT_LIVE_NATIVE_OWNER_LOSS",
         "VINPUT_LIVE_EXPECTED_TEXT_ADAPTER",
         "VINPUT_LIVE_EXPECTED_COMMIT_PREFIX",
+        "VINPUT_LIVE_PLAYBACK_TARGET",
+        "--playback-target",
         "target/tmp/ime-fcitx-native-live",
         "org.fcitx.Vinput must be idle",
         "trap restore_idle EXIT",
@@ -508,6 +514,43 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         .find(|line| line.starts_with("check:"))
         .expect("check recipe");
     assert!(!check_line.contains("ime-fcitx-native-command-adapter-live"));
+}
+
+#[test]
+fn virtual_pipewire_live_gate_pins_isolated_audio_and_restore() {
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-virtual-source-live.sh",
+    ))
+    .expect("read virtual PipeWire live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "pw-loopback",
+        "media.class=Audio/Sink",
+        "media.class=Audio/Source",
+        "pw-record",
+        "nonzero_samples",
+        "device use",
+        "stop_verified_owner",
+        "VINPUT_LIVE_PLAYBACK_TARGET",
+        "VINPUT_LIVE_RELOAD_BEFORE_PROBE",
+        "reload_in_progress",
+        "owner_loss_preedit_count",
+        "profile_restored",
+        "physical_speaker_or_microphone_used",
+        "target/tmp/ime-fcitx-virtual-source-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "virtual PipeWire runner should pin isolated live evidence: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-virtual-source-live:"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-virtual-source-live"));
 }
 
 #[test]
@@ -658,18 +701,13 @@ fn qt6_live_probe_requires_real_toolkit_key_events() {
 
 #[test]
 fn chromium_live_probe_requires_real_browser_key_events() {
-    let html = std::fs::read_to_string(workspace_file(
-        "scripts/chromium-live-toolkit-probe.html",
-    ))
-    .expect("read Chromium live toolkit page");
-    let collector = std::fs::read_to_string(workspace_file(
-        "scripts/chromium-live-toolkit-probe.py",
-    ))
-    .expect("read Chromium live toolkit collector");
-    let runner = std::fs::read_to_string(workspace_file(
-        "scripts/run-ime-chromium-native-live.sh",
-    ))
-    .expect("read Chromium live toolkit runner");
+    let html = std::fs::read_to_string(workspace_file("scripts/chromium-live-toolkit-probe.html"))
+        .expect("read Chromium live toolkit page");
+    let collector =
+        std::fs::read_to_string(workspace_file("scripts/chromium-live-toolkit-probe.py"))
+            .expect("read Chromium live toolkit collector");
+    let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-chromium-native-live.sh"))
+        .expect("read Chromium live toolkit runner");
     let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
 
     for required in [
@@ -679,7 +717,10 @@ fn chromium_live_probe_requires_real_browser_key_events() {
         "addEventListener(\"input\"",
         "setSelectionRange",
     ] {
-        assert!(html.contains(required), "missing Chromium page contract: {required}");
+        assert!(
+            html.contains(required),
+            "missing Chromium page contract: {required}"
+        );
     }
     for forbidden in ["KeyboardEvent", "dispatchEvent"] {
         assert!(
@@ -1737,7 +1778,8 @@ fn native_command_profile_pins_adapter_contract() {
     for document in [&readme, &live_doc] {
         for required in [
             "sherpa-native-command-live",
-            "ime-fcitx-native-command-adapter-live",
+            "ime-fcitx-virtual-source-live",
+            "VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter",
             "adapter-backed:",
         ] {
             assert!(
@@ -1811,6 +1853,10 @@ fn native_user_activation_pins_owner_and_recognition_roundtrip() {
         "target/debug/vinput daemon status --json",
         "owner[\"ok\"] is True",
         "effective_provider_id",
+        "XDG_RUNTIME_DIR",
+        "runtime_service_file",
+        "stop_stale_smoke_daemons",
+        "activation owner smoke leaked daemon PIDs",
     ] {
         assert!(
             owner_smoke.contains(required),
@@ -2019,7 +2065,7 @@ fn native_partial_preedit_pins_activation_safe_streaming() {
     for required in [
         "sender-independent signal matches before daemon activation",
         "real `RecognitionPartial` value",
-        "opt-in `ime-fcitx-native-live` gate crosses the real session boundary",
+        "opt-in `ime-fcitx-virtual-source-live` gate crosses the real session boundary",
     ] {
         assert!(
             asr_doc.contains(required),
