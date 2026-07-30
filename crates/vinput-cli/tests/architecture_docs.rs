@@ -611,6 +611,10 @@ fn qt6_live_probe_requires_real_toolkit_key_events() {
         "manual_trigger",
         "replacement_seen",
         "VINPUT_TOOLKIT_TIMEOUT_SECONDS",
+        "QProcess",
+        "RecognitionPartial",
+        "gdbus",
+        "daemon-partial",
     ] {
         assert!(
             source.contains(required),

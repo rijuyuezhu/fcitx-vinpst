@@ -4,6 +4,8 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QProcess>
+#include <QRegularExpression>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -88,6 +90,7 @@ int main(int argc, char **argv) {
   bool commit_seen = false;
   bool replacement_seen = false;
   bool timed_out = false;
+  QByteArray partial_monitor_buffer;
 
   QWidget window;
   window.setWindowTitle(QStringLiteral("fcitx-vinput Qt6 live probe"));
@@ -118,6 +121,40 @@ int main(int argc, char **argv) {
       QTimer::singleShot(0, &app, &QApplication::quit);
     }
   };
+
+  QProcess partial_monitor;
+  QObject::connect(&partial_monitor, &QProcess::readyReadStandardOutput, &app, [&] {
+    partial_monitor_buffer.append(partial_monitor.readAllStandardOutput());
+    while (true) {
+      const auto newline = partial_monitor_buffer.indexOf('\n');
+      if (newline < 0) {
+        break;
+      }
+      const auto line = partial_monitor_buffer.left(newline);
+      partial_monitor_buffer.remove(0, newline + 1);
+      if (!line.contains("RecognitionPartial")) {
+        continue;
+      }
+      const auto text = QString::fromUtf8(line);
+      const QRegularExpression pattern(
+          QStringLiteral(R"(RecognitionPartial \('((?:\\.|[^'])*)')"));
+      const auto match = pattern.match(text);
+      const auto partial = match.hasMatch() ? match.captured(1) : text;
+      EmitJson({{"event", "daemon-partial"}, {"text", partial}});
+      partial_seen = true;
+      finish_when_successful();
+    }
+  });
+  partial_monitor.start(QStringLiteral("gdbus"),
+                        {QStringLiteral("monitor"), QStringLiteral("--session"),
+                         QStringLiteral("--dest"), QStringLiteral("org.fcitx.Vinput"),
+                         QStringLiteral("--object-path"),
+                         QStringLiteral("/org/fcitx/Vinput")});
+  if (!partial_monitor.waitForStarted(1000)) {
+    fprintf(stderr, "failed to start gdbus partial monitor: %s\n",
+            partial_monitor.errorString().toUtf8().constData());
+    return 1;
+  }
 
   entry->preedit_observer = [&](const QString &preedit) {
     EmitJson({{"event", "preedit"}, {"text", preedit}});
@@ -155,6 +192,12 @@ int main(int argc, char **argv) {
             {"manual_trigger", true}});
   timeout.start(TimeoutMilliseconds());
   app.exec();
+
+  partial_monitor.terminate();
+  if (!partial_monitor.waitForFinished(1000)) {
+    partial_monitor.kill();
+    partial_monitor.waitForFinished(1000);
+  }
 
   const bool partial_ok = !require_partial || partial_seen;
   const bool outcome_ok = mode == ProbeMode::Normal ? commit_seen : replacement_seen;

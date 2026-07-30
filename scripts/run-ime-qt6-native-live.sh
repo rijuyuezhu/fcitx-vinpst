@@ -30,6 +30,10 @@ command -v fcitx5-remote >/dev/null 2>&1 || {
   echo "fcitx5-remote is required" >&2
   exit 1
 }
+command -v gdbus >/dev/null 2>&1 || {
+  echo "gdbus is required to monitor live recognition partials" >&2
+  exit 1
+}
 if ! fcitx5-remote --check >/dev/null 2>&1; then
   echo "Fcitx5 is not running in this session" >&2
   exit 1
@@ -45,10 +49,6 @@ if [[ -n "${wav}" ]]; then
   }
   command -v pw-play >/dev/null 2>&1 || {
     echo "pw-play is required when VINPUT_LIVE_TOOLKIT_WAV is set" >&2
-    exit 1
-  }
-  command -v gdbus >/dev/null 2>&1 || {
-    echo "gdbus is required when VINPUT_LIVE_TOOLKIT_WAV is set" >&2
     exit 1
   }
 fi
