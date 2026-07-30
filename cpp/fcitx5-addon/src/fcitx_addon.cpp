@@ -4,6 +4,8 @@
 
 #include "vinput_fcitx_bridge/fcitx_i18n.h"
 
+#include "vinput_fcitx_bridge/fcitx_menu_paging.h"
+
 #include "vinput_fcitx_bridge/fcitx_selection.h"
 
 #include <dbus_public.h>
@@ -892,7 +894,7 @@ void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
   RebuildSceneMenu();
 }
 
-void FcitxVinputAddon::RebuildSceneMenu() {
+void FcitxVinputAddon::RebuildSceneMenu(int page) {
   if (!scene_menu_visible_ || scene_menu_ic_ == nullptr) {
     return;
   }
@@ -921,13 +923,17 @@ void FcitxVinputAddon::RebuildSceneMenu() {
   }
   if (candidates->totalSize() > 0) {
     candidates->setGlobalCursorIndex(0);
+    SetMenuCandidatePage(*candidates, page);
+    scene_menu_page_ = candidates->currentPage();
+  } else {
+    scene_menu_page_ = 0;
   }
 
   SetFilteredMenuTitle(scene_menu_ic_, FrontendText("Scenes /filter"),
                        scene_menu_filter_, candidates.get());
   scene_menu_ic_->inputPanel().setAuxDown(
       fcitx::Text(FrontendText("Current: ") + active_label));
-  scene_menu_ic_->inputPanel().setCandidateList(std::move(candidates));
+  PublishMenuCandidateList(scene_menu_ic_, std::move(candidates));
   scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
@@ -948,6 +954,7 @@ void FcitxVinputAddon::HideSceneMenu() {
   scene_menu_ic_ = nullptr;
   scene_menu_filter_.Reset();
   scene_menu_indices_.clear();
+  scene_menu_page_ = 0;
   if (ic == nullptr) {
     return;
   }
@@ -1029,20 +1036,18 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
   auto candidate_list = scene_menu_ic_->inputPanel().candidateList();
   auto *cursor =
       candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
-  auto *pageable = candidate_list != nullptr ? candidate_list->toPageable() : nullptr;
   if (key.checkKeyList(frontend_settings_.page_prev_keys)) {
-    if (pageable != nullptr && pageable->hasPrev()) {
-      pageable->prev();
-    }
+    RebuildSceneMenu(scene_menu_page_ - 1);
+    event.filterAndAccept();
+    return true;
   } else if (key.checkKeyList(frontend_settings_.page_next_keys)) {
-    if (pageable != nullptr && pageable->hasNext()) {
-      pageable->next();
-    }
+    RebuildSceneMenu(scene_menu_page_ + 1);
+    event.filterAndAccept();
+    return true;
   } else {
     const int digit = key.digitSelection();
     if (digit >= 0) {
-      const int page = pageable != nullptr ? pageable->currentPage() : 0;
-      const int index = page * kMenuPageSize + digit;
+      const int index = scene_menu_page_ * kMenuPageSize + digit;
       if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
         SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)],
                     scene_menu_ic_);
@@ -1057,7 +1062,7 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
     } else if (IsMenuEnterKey(key)) {
       int index = CurrentMenuSelectionIndex(candidate_list.get());
       if (index < 0 && !scene_menu_indices_.empty()) {
-        index = 0;
+        index = scene_menu_page_ * kMenuPageSize;
       }
       if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
         SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)],
@@ -1120,7 +1125,7 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
   RebuildAsrMenu();
 }
 
-void FcitxVinputAddon::RebuildAsrMenu() {
+void FcitxVinputAddon::RebuildAsrMenu(int page) {
   if (!asr_menu_visible_ || asr_menu_ic_ == nullptr) {
     return;
   }
@@ -1151,13 +1156,17 @@ void FcitxVinputAddon::RebuildAsrMenu() {
   }
   if (candidates->totalSize() > 0) {
     candidates->setGlobalCursorIndex(0);
+    SetMenuCandidatePage(*candidates, page);
+    asr_menu_page_ = candidates->currentPage();
+  } else {
+    asr_menu_page_ = 0;
   }
 
   SetFilteredMenuTitle(asr_menu_ic_, FrontendText("Models /filter"), asr_menu_filter_,
                        candidates.get());
   asr_menu_ic_->inputPanel().setAuxDown(
       fcitx::Text(FrontendText("Current: ") + EffectiveAsrLabel(asr_menu_state_)));
-  asr_menu_ic_->inputPanel().setCandidateList(std::move(candidates));
+  PublishMenuCandidateList(asr_menu_ic_, std::move(candidates));
   asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
@@ -1172,6 +1181,7 @@ void FcitxVinputAddon::HideAsrMenu() {
   asr_menu_ic_ = nullptr;
   asr_menu_filter_.Reset();
   asr_menu_indices_.clear();
+  asr_menu_page_ = 0;
   if (ic == nullptr) {
     return;
   }
@@ -1253,20 +1263,18 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
   auto candidate_list = asr_menu_ic_->inputPanel().candidateList();
   auto *cursor =
       candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
-  auto *pageable = candidate_list != nullptr ? candidate_list->toPageable() : nullptr;
   if (key.checkKeyList(frontend_settings_.page_prev_keys)) {
-    if (pageable != nullptr && pageable->hasPrev()) {
-      pageable->prev();
-    }
+    RebuildAsrMenu(asr_menu_page_ - 1);
+    event.filterAndAccept();
+    return true;
   } else if (key.checkKeyList(frontend_settings_.page_next_keys)) {
-    if (pageable != nullptr && pageable->hasNext()) {
-      pageable->next();
-    }
+    RebuildAsrMenu(asr_menu_page_ + 1);
+    event.filterAndAccept();
+    return true;
   } else {
     const int digit = key.digitSelection();
     if (digit >= 0) {
-      const int page = pageable != nullptr ? pageable->currentPage() : 0;
-      const int index = page * kMenuPageSize + digit;
+      const int index = asr_menu_page_ * kMenuPageSize + digit;
       if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
         SelectAsrTarget(asr_menu_indices_[static_cast<std::size_t>(index)],
                         asr_menu_ic_);
@@ -1281,7 +1289,7 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
     } else if (IsMenuEnterKey(key)) {
       int index = CurrentMenuSelectionIndex(candidate_list.get());
       if (index < 0 && !asr_menu_indices_.empty()) {
-        index = 0;
+        index = asr_menu_page_ * kMenuPageSize;
       }
       if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
         SelectAsrTarget(asr_menu_indices_[static_cast<std::size_t>(index)],

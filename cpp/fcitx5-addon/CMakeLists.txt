@@ -322,6 +322,22 @@ if(Fcitx5Core_FOUND)
   )
 
   add_executable(
+    vinput_fcitx_bridge_menu_paging_smoke
+    tests/fcitx_menu_paging_smoke.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_bridge_menu_paging_smoke
+    PRIVATE
+      vinput_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_bridge_menu_paging_smoke)
+  add_test(
+    NAME vinput_fcitx_bridge_menu_paging_smoke
+    COMMAND vinput_fcitx_bridge_menu_paging_smoke
+  )
+
+  add_executable(
     vinput_fcitx_bridge_trigger_mode_smoke
     tests/fcitx_trigger_mode_smoke.cpp
   )

@@ -660,6 +660,104 @@ fn scene_menu_selection_live_gate_pins_switch_and_restore() {
 }
 
 #[test]
+fn scene_menu_paging_live_gate_pins_state_and_restore() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-paging-probe.py"))
+        .expect("read scene-menu paging probe");
+    let runner =
+        std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-menu-paging-live.sh"))
+            .expect("read scene-menu paging runner");
+    let addon = std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/src/fcitx_addon.cpp"))
+        .expect("read Fcitx addon source");
+    let header = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_addon.h",
+    ))
+    .expect("read Fcitx addon header");
+    let helper = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/include/vinput_fcitx_bridge/fcitx_menu_paging.h",
+    ))
+    .expect("read Fcitx menu paging helper");
+    let smoke = std::fs::read_to_string(workspace_file(
+        "cpp/fcitx5-addon/tests/fcitx_menu_paging_smoke.cpp",
+    ))
+    .expect("read Fcitx menu paging smoke");
+    let cmake = std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/CMakeLists.txt"))
+        .expect("read Fcitx addon CMakeLists");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "page-next",
+        "page-prev",
+        "first_page_count",
+        "second_page_count",
+        "configured next-page key did not expose the second scene page",
+        "configured previous-page key did not restore the first scene page",
+        "scene paging unexpectedly changed the active scene",
+        "scene paging unexpectedly committed text",
+    ] {
+        assert!(
+            probe.contains(required),
+            "scene-menu paging probe should pin page evidence: {required}"
+        );
+    }
+    for required in [
+        "VINPUT_LIVE_FCITX_ADDON_CONFIG",
+        "PageNextKeys",
+        "PagePrevKeys",
+        "__live_paging_",
+        "stop_verified_owner",
+        "config-backup-before.json",
+        "cmp \"${out_dir}/config-before.json\" \"${config_path}\"",
+        "profile_restored",
+        "target/tmp/ime-fcitx-menu-paging-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "scene-menu paging runner should pin safe restore: {required}"
+        );
+    }
+    for required in [
+        "scene_menu_page_",
+        "asr_menu_page_",
+        "RebuildSceneMenu(scene_menu_page_ + 1)",
+        "RebuildAsrMenu(asr_menu_page_ + 1)",
+        "scene_menu_page_ * kMenuPageSize",
+        "asr_menu_page_ * kMenuPageSize",
+        "PublishMenuCandidateList",
+    ] {
+        assert!(
+            addon.contains(required) || header.contains(required),
+            "Fcitx addon should retain menu page state: {required}"
+        );
+    }
+    for forbidden in ["pageable->next()", "pageable->prev()"] {
+        assert!(
+            !addon.contains(forbidden),
+            "menu paging must not depend on transient panel state via {forbidden}"
+        );
+    }
+    for required in ["SetMenuCandidatePage", "setPage", "totalPages"] {
+        assert!(
+            helper.contains(required),
+            "missing menu paging helper: {required}"
+        );
+    }
+    for required in ["currentPage() == 1", "published->size() == 4", "item-13"] {
+        assert!(
+            smoke.contains(required),
+            "missing menu paging smoke: {required}"
+        );
+    }
+    assert!(cmake.contains("vinput_fcitx_bridge_menu_paging_smoke"));
+    assert!(justfile.contains("ime-fcitx-menu-paging-live:"));
+    assert!(justfile.contains("run-ime-fcitx-menu-paging-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-menu-paging-live"));
+}
+
+#[test]
 fn native_fcitx_reload_live_gate_pins_post_reload_recognition() {
     let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-reload-live.sh"))
         .expect("read Fcitx reload live runner");

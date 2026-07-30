@@ -185,6 +185,10 @@ ime-fcitx-menu-live:
 ime-fcitx-menu-selection-live:
     scripts/run-ime-fcitx-menu-selection-live.sh
 
+# Explicit scene-menu paging with configured keys and exact profile restoration.
+ime-fcitx-menu-paging-live:
+    scripts/run-ime-fcitx-menu-paging-live.sh
+
 # Compile toolkit probes without entering a real desktop flow.
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check
