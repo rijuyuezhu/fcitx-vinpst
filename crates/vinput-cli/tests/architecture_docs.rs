@@ -536,8 +536,9 @@ fn packaging_architecture_pins_arch_release_boundary() {
         "`just arch-package-smoke`",
         "`just arch-package-transaction-smoke`",
         "fakeroot-isolated pacman root",
+        "same-version `pkgrel=2` to `pkgrel=1` rollback",
         "sentinel remains byte-identical",
-        "Rollback across incompatible versions",
+        "Rollback across versions with incompatible config or state",
     ] {
         assert!(
             packaging_doc.contains(required),
@@ -581,6 +582,12 @@ fn packaging_architecture_pins_arch_release_boundary() {
     assert!(transaction_smoke.contains("fakeroot pacman"));
     assert!(transaction_smoke.contains("-dd --noscriptlet -U"));
     assert!(transaction_smoke.contains("-dd --noscriptlet -R"));
+    assert_eq!(
+        transaction_smoke
+            .matches("-U \"${initial_package}\"")
+            .count(),
+        2
+    );
     assert!(transaction_smoke.contains("preserve-user-config"));
     assert!(transaction_smoke.contains("-Qkk"));
 }

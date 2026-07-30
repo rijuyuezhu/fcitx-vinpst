@@ -98,6 +98,12 @@ test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
 assert_package_files_present fcitx-vinput-rs
 assert_user_config_unchanged
 
+fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -U "${initial_package}"
+test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
+  "fcitx-vinput-rs ${initial_version}"
+assert_package_files_present fcitx-vinput-rs
+assert_user_config_unchanged
+
 fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -R fcitx-vinput-rs
 ! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs >/dev/null 2>&1
 assert_user_config_unchanged
@@ -106,4 +112,4 @@ if [[ -d "${pacman_root}/usr" ]]; then
     grep -q .
 fi
 
-echo "Arch package install, upgrade, and uninstall transaction smoke passed"
+echo "Arch package install, upgrade, rollback, and uninstall transaction smoke passed"
