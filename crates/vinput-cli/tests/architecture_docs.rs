@@ -1760,7 +1760,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Cover menu selection/paging, notifications, model/provider-switch reload",
+        "Cover notifications, model/provider-switch reload, live ASR-menu selection/paging",
     ] {
         assert!(
             plan.contains(required),
@@ -1773,7 +1773,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "Daemon capability comparison",
         "Registry/resource comparison",
         "P1.2 sherpa streaming backend",
-        "Record live menu selection/paging and persistent menu-key behavior",
+        "Record live notification and model/provider-switch reload behavior",
         "Do not claim full parity until all of these pass",
         "vinput model install <id-or-short-id>",
     ] {

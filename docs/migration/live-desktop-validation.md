@@ -186,6 +186,15 @@ VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPUT_LIVE_RELOAD_BEFORE_P
 
 The focus probe requires partials and the final commit to remain on the input context that started recording even after another context receives focus and sends the stop trigger. The owner-loss probe resolves the current `org.fcitx.Vinput` PID, refuses to stop an unexpected executable, terminates only a verified `vinput-daemon`, requires the frontend to replace live partials with an unavailable error preedit, and rejects any final commit. The installed `sherpa-native-command-live` profile passed both checks on 2026-07-30; owner loss was followed by successful D-Bus activation back into the same profile and adapter identity.
 
+### Scene menu selection and paging
+
+```sh
+just ime-fcitx-menu-selection-live
+just ime-fcitx-menu-paging-live
+```
+
+The selection gate sends real F7 and Enter events, requires the first non-active scene to become active, accepts no text commit, and restores the original scene. The paging gate snapshots the active profile and any backup, temporarily adds 12 inert scenes, reads the persisted Fcitx `PageNextKeys`/`PagePrevKeys`, proves `1/2 -> 2/2 -> 1/2`, closes with Escape, and restores the profile bytes, backup state, daemon, and active scene. Evidence is written under `target/tmp/ime-fcitx-menu-selection-live` and `target/tmp/ime-fcitx-menu-paging-live`. The live paging result covers Scene; ASR uses the same fixed retained-page implementation and deterministic C++ smoke but still needs a live profile with more than one page of targets.
+
 ### Live evidence recorded on 2026-07-30
 
 The following installed-profile summaries reported `ok: true`:
@@ -196,7 +205,9 @@ The following installed-profile summaries reported `ok: true`:
 - focus handoff: focus moved to a second Fcitx context, while secondary partial and commit counts remained zero under `target/tmp/ime-fcitx-virtual-focus-live`;
 - owner loss: an unavailable error preedit, zero final commit, and successful post-test D-Bus reactivation under `target/tmp/ime-fcitx-virtual-owner-loss-live`;
 - same-provider reload: the owner PID and effective provider/model remained stable, reload completed without error, and a subsequent virtual-source recognition produced seven partials plus a final commit under `target/tmp/ime-fcitx-virtual-reload-live`;
-- scene and ASR menus: candidate display, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits under `target/tmp/ime-fcitx-menu-live`.
+- scene and ASR menus: candidate display, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits under `target/tmp/ime-fcitx-menu-live`;
+- scene menu selection: F7/Enter changed `raw` to `__command__`, emitted zero commits, and restored `raw` under `target/tmp/ime-fcitx-menu-selection-live`;
+- scene menu paging: configured `equal`/`minus` keys proved `1/2 -> 2/2 -> 1/2`, four candidates on page 2, zero commits, Escape close, and exact profile/scene restoration under `target/tmp/ime-fcitx-menu-paging-live`.
 
 The real-key application matrix now also reports `ok: true` for all six toolkit cases:
 
@@ -246,4 +257,4 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement from surrounding text and Wayland primary selection, focus handoff, verified owner loss, and same-provider reload through a preflight-verified isolated PipeWire source, plus non-mutating scene/ASR menus and GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. The gates restore the original capture target and primary text and use no physical speaker or microphone. Physical microphone/device breadth, menu selection/paging, notifications, model/provider-switch reload, broader cross-application behavior, and an external provider remain outside the proven boundary.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement from surrounding text and Wayland primary selection, scene/ASR display/filter, scene selection and configured-key paging, focus handoff, verified owner loss, and same-provider reload through a preflight-verified isolated PipeWire source, plus GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. The gates restore the original capture target, primary text, active scene, and profile bytes and use no physical speaker or microphone. Physical microphone/device breadth, live ASR selection/paging, notifications, model/provider-switch reload, localization breadth, broader cross-application behavior, and an external provider remain outside the proven boundary.

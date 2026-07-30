@@ -29,7 +29,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Select and reload a model | deterministic; same-provider reload live-proven | config persistence and background prepare-before-swap are deterministic; virtual-source evidence preserves owner/provider/model and proves post-reload recognition without physical audio devices | Real model/provider-switch reload proof |
 | Normal native dictation | live-proven through isolated audio injection and real applications | real Fcitx client, F9, a preflight-verified virtual PipeWire source, streaming partials, one final commit, and real-key GTK3, Qt6, and Chromium/Ozone application evidence | Physical microphone/device breadth |
 | Command native dictation | live-proven for surrounding text and primary selection | real Fcitx client, F10, live partials, selected surrounding-text deletion/replacement, zero-delete Wayland primary-selection fallback, and `adapter-backed:` commits; GTK3, Qt6, and Chromium command paths are also live-proven | Cross-application breadth and one external provider flow |
-| Scene and ASR menus | live-proven for non-mutating interaction | real Fcitx client, F7/F8 candidates, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits; typed D-Bus state, paging, i18n, and localized titles remain deterministic | Real selection/paging and reload proof |
+| Scene and ASR menus | scene selection and paging live-proven; ASR display/filter live-proven | real Fcitx clients prove F7/F8 display/filter/Escape, F7 Enter selection with exact scene restoration, and configured-key scene paging across `1/2 -> 2/2 -> 1/2` with zero commits and byte-for-byte profile restoration; Scene/ASR page state shares the same addon implementation and C++ smoke | Live ASR selection/paging, localization breadth, and model/provider-switch reload proof |
 | Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, default user-config discovery with persistent D-Bus updates, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement and Wayland primary-selection fallback. The fallback gate provides no surrounding text, observes zero deletion events, requires the adapter commit to contain the owned primary fixture, and restores the previous primary text. Remaining behavior includes broader cross-application selected-text behavior, menu selection/paging, notifications, model/provider-switch reload, and an external provider.
+The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement, Wayland primary-selection fallback, scene selection, and configured-key scene paging. The fallback gate restores the previous primary text; the menu gates restore the original active scene and profile bytes. Remaining behavior includes broader cross-application selected-text behavior, live ASR selection/paging, notifications, model/provider-switch reload, localization breadth, and an external provider.
 
 ## Release and platform gaps
 
@@ -163,8 +163,8 @@ The installed `sherpa-native-command-live` profile now has retained normal/comma
 
 ## Immediate next work
 
-1. Record live menu selection/paging and persistent menu-key behavior.
-2. Record notification and model/provider-switch reload behavior.
+1. Record live notification and model/provider-switch reload behavior.
+2. Exercise live ASR-menu selection/paging and localization breadth.
 3. Validate one external provider-backed command transformation.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.

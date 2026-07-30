@@ -173,6 +173,44 @@ The first 2026-07-30 primary-fallback attempt hit this symptom; the second attem
 
 **Action:** treat this as a model-quality issue unless partials or final commits are missing. Use pure Chinese utterances for toolkit transport validation, and use a bilingual model for a separate multilingual-quality test.
 
+### Persisted menu keys differ from source defaults
+
+**Symptom:** a paging probe sends `Page_Down`, but the addon reports the key press as unconsumed even though the menu visibly has more than one page.
+
+**Cause:** source defaults are not the live contract after Fcitx has persisted user configuration. The validated profile used:
+
+```ini
+[PagePrevKeys]
+0=minus
+[PageNextKeys]
+0=equal
+```
+
+**Action:** read the active addon configuration under `~/.config/fcitx5/conf/vinput.conf` (or `VINPUT_LIVE_FCITX_ADDON_CONFIG`) and use the configured `PagePrevKeys`/`PageNextKeys`. Do not hard-code `PageUp`/`PageDown` in a retained gate.
+
+Failure signatures are useful:
+
+- wrong key: the page-key press is not consumed;
+- correct configured key with the old addon: the press is consumed, but the client receives an empty input panel instead of page 2.
+
+### Client-side input-panel candidate state is transient
+
+**Symptom:** the first page renders as `Scenes /filter (1/2)`, the configured next-page key is consumed, and the following client-side UI update contains an empty title and no candidates.
+
+**Root cause:** the addon stored no page number of its own and attempted to recover the current page from `InputPanel::candidateList()` during the next key event. With client-side input-panel delivery, that pointer is not a durable state store and may already be absent.
+
+**Fix used:**
+
+- store `scene_menu_page_` and `asr_menu_page_` in the addon;
+- rebuild and republish a fresh candidate list for the requested page;
+- clamp the page through `CommonCandidateList::setPage`;
+- use the retained page for digit selection and Enter fallback;
+- reset the retained page when the menu closes.
+
+The real scene gate temporarily added 12 inert scenes, used the configured `equal`/`minus` keys, and proved `1/2 -> 2/2 -> 1/2`, four candidates on page 2, zero commits, Escape close, unchanged active scene, and byte-for-byte profile/backup restoration. Evidence is under `target/tmp/ime-fcitx-menu-paging-live`. The same page-state implementation is shared by the ASR menu, while the retained live paging evidence currently covers the Scene menu.
+
+Regression commit: `80d2dc5 fix(fcitx): preserve menu page state`.
+
 ### Concurrent work contaminates a small commit
 
 **Symptom:** `git status` contains unrelated live-test or documentation changes while a focused fix is being prepared.
