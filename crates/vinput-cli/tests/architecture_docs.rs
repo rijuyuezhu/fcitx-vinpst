@@ -657,6 +657,76 @@ fn qt6_live_probe_requires_real_toolkit_key_events() {
 }
 
 #[test]
+fn chromium_live_probe_requires_real_browser_key_events() {
+    let html = std::fs::read_to_string(workspace_file(
+        "scripts/chromium-live-toolkit-probe.html",
+    ))
+    .expect("read Chromium live toolkit page");
+    let collector = std::fs::read_to_string(workspace_file(
+        "scripts/chromium-live-toolkit-probe.py",
+    ))
+    .expect("read Chromium live toolkit collector");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-chromium-native-live.sh",
+    ))
+    .expect("read Chromium live toolkit runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "document.hasFocus()",
+        "selection-ready",
+        "manual_trigger",
+        "addEventListener(\"input\"",
+        "setSelectionRange",
+    ] {
+        assert!(html.contains(required), "missing Chromium page contract: {required}");
+    }
+    for forbidden in ["KeyboardEvent", "dispatchEvent"] {
+        assert!(
+            !html.contains(forbidden),
+            "Chromium live probe must not synthesize key events through {forbidden}"
+        );
+    }
+    for required in [
+        "ThreadingHTTPServer",
+        "RecognitionPartial",
+        "daemon-partial",
+        "127.0.0.1",
+        "--user-data-dir=",
+        "--app=",
+        "--ozone-platform=wayland",
+        "--enable-wayland-ime",
+        "VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING",
+        "selection_ready",
+        "expected_commit",
+    ] {
+        assert!(
+            collector.contains(required),
+            "missing Chromium collector contract: {required}"
+        );
+    }
+    for required in [
+        "VINPUT_CHROMIUM_BIN",
+        "target/tmp/ime-chromium-native-live",
+        "Use the real Fcitx shortcut",
+        "fcitx5-remote --check",
+    ] {
+        assert!(
+            runner.contains(required),
+            "missing Chromium runner contract: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-chromium-native-live mode='normal':"));
+    assert!(justfile.contains("run-ime-chromium-native-live.sh \"{{mode}}\""));
+    assert!(justfile.contains("python3 -m py_compile scripts/chromium-live-toolkit-probe.py"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-chromium-native-live"));
+}
+
+#[test]
 fn fcitx_menu_live_probe_is_non_mutating() {
     let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-probe.py"))
         .expect("read Fcitx menu live probe");

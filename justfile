@@ -178,6 +178,8 @@ toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check
     cc -std=c11 -Wall -Wextra -Werror scripts/gtk3-live-toolkit-probe.c -o target/tmp/toolkit-probe-check/gtk3-live-toolkit-probe $(pkg-config --cflags --libs gtk+-3.0)
     c++ -std=c++20 -fPIC -Wall -Wextra -Werror scripts/qt6-live-toolkit-probe.cpp -o target/tmp/toolkit-probe-check/qt6-live-toolkit-probe $(pkg-config --cflags --libs Qt6Widgets)
+    python3 -m py_compile scripts/chromium-live-toolkit-probe.py
+    bash -n scripts/run-ime-chromium-native-live.sh
 
 # Explicit GTK3 application probe. Trigger F9/F10 with a real desktop key event.
 ime-gtk3-native-live mode='normal':
@@ -186,6 +188,10 @@ ime-gtk3-native-live mode='normal':
 # Explicit Qt6 application probe. Trigger F9/F10 with a real desktop key event.
 ime-qt6-native-live mode='normal':
     scripts/run-ime-qt6-native-live.sh "{{mode}}"
+
+# Explicit Chromium/Ozone application probe. Trigger F9/F10 with a real desktop key event.
+ime-chromium-native-live mode='normal':
+    scripts/run-ime-chromium-native-live.sh "{{mode}}"
 
 # Install per-user D-Bus activation service for local desktop testing. Writes under XDG_DATA_HOME or ~/.local/share.
 user-activation-service:

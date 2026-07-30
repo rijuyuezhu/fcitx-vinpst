@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fcitx-vinput Chromium live probe</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 32px; }
+    main { max-width: 760px; }
+    input { box-sizing: border-box; font: inherit; padding: 12px; width: 100%; }
+    code { font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>fcitx-vinput Chromium live probe</h1>
+    <p id="instruction"></p>
+    <input id="probe" autocomplete="off" spellcheck="false">
+  </main>
+  <script>
+    "use strict";
+    const params = new URLSearchParams(location.search);
+    const mode = params.get("mode") || "normal";
+    const initialText = params.get("initial_text") || "selected text";
+    const token = params.get("token") || "";
+    const field = document.getElementById("probe");
+    const instruction = document.getElementById("instruction");
+    let readySent = false;
+
+    instruction.textContent = mode === "command"
+      ? "The text is selected. Press F10, speak, then press F10 again."
+      : "Focus the field. Press F9, speak, then press F9 again.";
+    if (mode === "command") {
+      field.value = initialText;
+    }
+
+    async function emit(event, extra = {}) {
+      const body = JSON.stringify({event, toolkit: "chromium", mode, ...extra});
+      await fetch(`/event?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body,
+        cache: "no-store",
+      });
+    }
+
+    function prepare() {
+      if (readySent) return;
+      field.focus({preventScroll: true});
+      if (!document.hasFocus()) return;
+      if (mode === "command") {
+        field.setSelectionRange(0, field.value.length);
+        if (field.selectionStart !== 0 || field.selectionEnd !== field.value.length) return;
+        readySent = true;
+        void emit("selection-ready", {text: field.value}).then(() => emit("ready", {manual_trigger: true}));
+      } else {
+        readySent = true;
+        void emit("ready", {manual_trigger: true});
+      }
+    }
+
+    field.addEventListener("input", () => void emit("changed", {text: field.value}));
+    window.addEventListener("focus", prepare);
+    document.addEventListener("visibilitychange", prepare);
+    setInterval(prepare, 100);
+    prepare();
+  </script>
+</body>
+</html>
