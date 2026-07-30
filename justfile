@@ -372,6 +372,10 @@ arch-pkgbuild-check:
 arch-package-smoke:
     scripts/run-arch-package-smoke.sh
 
+# Reuse package archives from arch-package-smoke to prove repo-add plus pacman -S install/upgrade.
+arch-repository-smoke:
+    scripts/run-arch-repository-smoke.sh
+
 # Reuse package archives from arch-package-smoke to prove pacman install, upgrade, and removal.
 arch-package-transaction-smoke:
     scripts/run-arch-package-transaction-smoke.sh

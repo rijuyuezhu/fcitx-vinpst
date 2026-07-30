@@ -172,5 +172,7 @@ upgrade_package_archive="$(find "${build_root}" -maxdepth 1 -type f \
 test -n "${upgrade_package_archive}"
 scripts/run-arch-package-transaction-smoke.sh \
   "${package_archive}" "${upgrade_package_archive}"
+scripts/run-arch-repository-smoke.sh \
+  "${package_archive}" "${upgrade_package_archive}"
 
 echo "Arch package smoke passed: ${package_archive}"

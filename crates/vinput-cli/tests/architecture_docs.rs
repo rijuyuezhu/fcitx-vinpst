@@ -699,6 +699,52 @@ fn packaging_architecture_pins_message_only_lifecycle_hooks() {
 }
 
 #[test]
+fn packaging_architecture_pins_local_repository_integration() {
+    let packaging_doc = std::fs::read_to_string(architecture_dir().join("packaging-contract.md"))
+        .expect("read packaging contract doc");
+    let repository_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-repository-smoke.sh"))
+            .expect("read Arch repository smoke");
+    let package_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-package-smoke.sh"))
+            .expect("read Arch package smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "local `repo-add` database",
+        "`file://` pacman repository",
+        "installs the package with `pacman -S`",
+        "replaces the repository entry with `pkgrel=2`",
+        "pacman's cache",
+        "`SigLevel = Never`",
+        "signing and trust policy remain external-publication work",
+        "local repository metadata/install/upgrade behavior",
+        "externally hosted repository publication",
+    ] {
+        assert!(
+            packaging_doc.contains(required),
+            "packaging contract should pin local repository boundary: {required}"
+        );
+    }
+    for required in [
+        "repo-add \"${repository_database}\"",
+        "Server = file://${repository_root}",
+        "-Si fcitx-vinput-rs",
+        "-Sdd --noscriptlet fcitx-vinput-rs",
+        "cache_path}/$(basename \"${initial_package}\")",
+        "cache_path}/$(basename \"${upgrade_package}\")",
+        "preserve-user-config",
+    ] {
+        assert!(
+            repository_smoke.contains(required),
+            "repository smoke should prove: {required}"
+        );
+    }
+    assert!(package_smoke.contains("run-arch-repository-smoke.sh"));
+    assert!(justfile.contains("arch-repository-smoke:"));
+}
+
+#[test]
 fn registry_architecture_mentions_root_planning() {
     let registry_doc = std::fs::read_to_string(architecture_dir().join("registry-contract.md"))
         .expect("read registry contract doc");

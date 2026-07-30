@@ -30,7 +30,7 @@ Implemented and deterministically validated:
 - live adapter registry listing and `vinput adapter install`, including short ids, mirror fallback, executable script publication, config backup, environment placeholders, and guarded managed updates;
 - native offline and online registry-model ASR families currently used by the project;
 - `sherpa-native-live` user installation with a copied `libsherpa-onnx` and `libonnxruntime` bundle;
-- an Arch Linux `x86_64` package recipe covering the Rust binaries, Fcitx addon, systemd/D-Bus activation, translations, VAD asset, private native runtime bundle, and message-only install/upgrade/remove guidance;
+- an Arch Linux `x86_64` package recipe covering the Rust binaries, Fcitx addon, systemd/D-Bus activation, translations, VAD asset, private native runtime bundle, message-only lifecycle guidance, and local pacman repository install/upgrade validation;
 - wrapper-based activation through `vinput-daemon-with-vinput-env.sh`;
 - activation-safe `RecognitionPartial` delivery, concrete Fcitx preedit, final commit, and command candidate replacement in temporary-HOME smokes;
 - persistent frontend keys, Tap/Hold/Both trigger behavior, searchable scene/ASR menus, localization, notifications, and daemon-owner recovery.
@@ -40,7 +40,7 @@ Still requiring live proof or implementation:
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
 - remote text live cross-device browser proof;
-- automatic package-manager-triggered live-service handoff, incompatible-state rollback policy, destructive direct-PID stale-owner cleanup, repository publication, and release hardening (owner diagnostics and explicit conditional `vinput daemon handoff` are implemented);
+- automatic package-manager-triggered live-service handoff, incompatible-state rollback policy, destructive direct-PID stale-owner cleanup, externally hosted repository publication/signing, and release hardening (owner diagnostics, explicit conditional `vinput daemon handoff`, and local repository integration are implemented);
 - the legacy Qt GUI, which is intentionally deferred.
 
 See [`docs/migration/function-gap-audit.md`](docs/migration/function-gap-audit.md) for status and [`docs/migration/e2e-replication-plan.md`](docs/migration/e2e-replication-plan.md) for priorities.

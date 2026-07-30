@@ -24,7 +24,10 @@ Run `just arch-package-smoke` to render a local-source PKGBUILD, execute
 a `pkgrel=2` repackage, and prove pacman install, upgrade, same-version
 rollback, and uninstall in a
 fakeroot-isolated temporary root. After a full build,
-`just arch-package-transaction-smoke` reruns only the fast transaction checks.
+`just arch-package-transaction-smoke` reruns only the fast direct-package
+transaction checks. `just arch-repository-smoke` creates a local `repo-add`
+database from the same two archives and proves `pacman -S` installation and
+upgrade through a `file://` repository.
 
 The renderer also copies `fcitx-vinput-rs.install` beside the generated
 PKGBUILD. Its hooks are message-only because a root pacman transaction cannot
