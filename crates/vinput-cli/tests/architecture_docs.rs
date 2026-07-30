@@ -393,6 +393,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "just ime-qt6-native-live normal",
         "just ime-fcitx-focus-live",
         "just ime-fcitx-owner-loss-live",
+        "just ime-fcitx-reload-live",
         "VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav",
         "VINPUT_TEST_PIPEWIRE_CONTEXT=1",
         "VINPUT_TEST_PIPEWIRE_ENUMERATE=1",
@@ -420,6 +421,7 @@ fn development_doc_pins_optional_pipewire_recipes() {
         "ime-qt6-native-live mode='normal':",
         "ime-fcitx-focus-live:",
         "ime-fcitx-owner-loss-live:",
+        "ime-fcitx-reload-live:",
         "sherpa-offline-local-smoke:",
         "sherpa-online-local-smoke:",
         "sherpa-moonshine-dbus-reload-smoke:",
@@ -506,6 +508,36 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         .find(|line| line.starts_with("check:"))
         .expect("check recipe");
     assert!(!check_line.contains("ime-fcitx-native-command-adapter-live"));
+}
+
+#[test]
+fn native_fcitx_reload_live_gate_pins_post_reload_recognition() {
+    let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-reload-live.sh"))
+        .expect("read Fcitx reload live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "daemon reload-asr --json",
+        "reload_in_progress",
+        "last_error",
+        "before_pid",
+        "effective_provider_id",
+        "effective_model_id",
+        "run-ime-fcitx-native-live.sh",
+        "post_reload_recognition",
+        "target/tmp/ime-fcitx-reload-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "reload live runner should pin post-reload evidence: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-reload-live:"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-reload-live"));
 }
 
 #[test]
