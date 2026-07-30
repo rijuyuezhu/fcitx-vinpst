@@ -551,7 +551,8 @@ fn gtk3_live_probe_requires_real_toolkit_key_events() {
         );
     }
     assert!(justfile.contains("toolkit-probe-check:"));
-    assert!(justfile.contains("ime-gtk3-native-live:"));
+    assert!(justfile.contains("ime-gtk3-native-live mode='normal':"));
+    assert!(justfile.contains("run-ime-gtk3-native-live.sh \"{{mode}}\""));
     let check_line = justfile
         .lines()
         .find(|line| line.starts_with("check:"))
@@ -598,7 +599,8 @@ fn qt6_live_probe_requires_real_toolkit_key_events() {
             "missing Qt6 runner contract: {required}"
         );
     }
-    assert!(justfile.contains("ime-qt6-native-live:"));
+    assert!(justfile.contains("ime-qt6-native-live mode='normal':"));
+    assert!(justfile.contains("run-ime-qt6-native-live.sh \"{{mode}}\""));
     let check_line = justfile
         .lines()
         .find(|line| line.starts_with("check:"))
