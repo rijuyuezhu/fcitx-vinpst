@@ -15,10 +15,17 @@ case "${profile}" in
   sherpa-native-live)
     config_name="sherpa-native-live.json"
     typed_metadata="1"
+    command_adapter=""
+    ;;
+  sherpa-native-command-live)
+    config_name="sherpa-native-command-live.json"
+    typed_metadata="1"
+    command_adapter="1"
     ;;
   sherpa-sense-voice-live)
     config_name="sherpa-sense-voice-live.json"
     typed_metadata=""
+    command_adapter=""
     ;;
   *)
     echo "unsupported VINPUT_TEST_SHERPA_PROFILE: ${profile}" >&2
@@ -215,7 +222,7 @@ if ! grep -Fq -- "LD_LIBRARY_PATH=${runtime_lib_dir}" "${calls_log}" ||
   exit 1
 fi
 
-python3 - "${config_path}" "${model_dir}" "${typed_metadata}" <<'PY'
+python3 - "${config_path}" "${model_dir}" "${typed_metadata}" "${command_adapter}" <<'PY'
 import json
 import pathlib
 import sys
@@ -223,6 +230,7 @@ import sys
 config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 model_dir = pathlib.Path(sys.argv[2]).resolve()
 typed_metadata = bool(sys.argv[3])
+command_adapter = bool(sys.argv[4])
 provider = config["asr"]["providers"][0]
 vad = config["asr"]["vad"]
 assert config["asr"]["active_provider"] == "sherpa-onnx", config
@@ -239,6 +247,21 @@ assert provider["model"] == str(model_dir), provider
 assert provider["hotwords_file"] == str(model_dir / "hotwords.txt"), provider
 assert provider["timeout_ms"] == 7000, provider
 assert config["scenes"]["active_scene"] == "raw", config
+if command_adapter:
+    assert config["llm"]["adapters"] == [
+        {
+            "id": "native-command-live-adapter",
+            "command": "python3",
+            "args": config["llm"]["adapters"][0]["args"],
+        }
+    ], config
+    assert "adapter-backed:" in config["llm"]["adapters"][0]["args"][1], config
+    command_scene = next(
+        scene for scene in config["scenes"]["definitions"] if scene["id"] == "__command__"
+    )
+    assert command_scene["candidate_count"] == 1, command_scene
+else:
+    assert "llm" not in config, config
 PY
 
 if ! grep -Fq -- '--features pipewire-backend,sherpa-onnx-backend' "${cargo_calls_log}"; then

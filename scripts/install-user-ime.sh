@@ -44,7 +44,7 @@ vad_license_path="${vad_dir}/LICENSE"
 
 is_native_sherpa_profile() {
   case "${profile}" in
-    sherpa-native-live|sherpa-sense-voice-live)
+    sherpa-native-live|sherpa-native-command-live|sherpa-sense-voice-live)
       return 0
       ;;
     *)
@@ -58,7 +58,7 @@ profile_cli_features() {
     configured-pipewire-live|real-command-asr-wav)
       printf '%s\n' 'pipewire-backend'
       ;;
-    sherpa-native-live|sherpa-sense-voice-live)
+    sherpa-native-live|sherpa-native-command-live|sherpa-sense-voice-live)
       printf '%s\n' 'pipewire-backend,sherpa-onnx-backend'
       ;;
   esac
@@ -69,7 +69,7 @@ profile_daemon_features() {
     configured-pipewire-live|real-command-asr-wav)
       printf '%s\n' 'pipewire-backend'
       ;;
-    sherpa-native-live|sherpa-sense-voice-live)
+    sherpa-native-live|sherpa-native-command-live|sherpa-sense-voice-live)
       printf '%s\n' 'pipewire-backend,sherpa-onnx-backend'
       ;;
   esac
@@ -282,8 +282,9 @@ write_sherpa_native_config() {
   local model_dir="$2"
   local hotwords_file="$3"
   local timeout_ms="$4"
+  local command_adapter="$5"
   mkdir -p "$(dirname "${output_path}")"
-  python3 - "${output_path}" "${model_dir}" "${hotwords_file}" "${timeout_ms}" <<'PY'
+  python3 - "${output_path}" "${model_dir}" "${hotwords_file}" "${timeout_ms}" "${command_adapter}" <<'PY'
 import json
 import pathlib
 import sys
@@ -292,6 +293,7 @@ output_path = pathlib.Path(sys.argv[1])
 model_dir = pathlib.Path(sys.argv[2]).expanduser().resolve()
 hotwords_arg = sys.argv[3].strip()
 timeout_arg = sys.argv[4].strip()
+command_adapter = sys.argv[5] == "1"
 if not model_dir.is_dir():
     raise SystemExit(f"VINPUT_USER_SHERPA_MODEL must be an existing model directory: {model_dir}")
 
@@ -345,6 +347,7 @@ if timeout_arg:
         raise SystemExit("VINPUT_USER_SHERPA_TIMEOUT_MS must be positive")
     provider["timeout_ms"] = timeout_ms
 
+scenes = [{"id": "raw", "label": "Raw", "candidate_count": 0}]
 config = {
     "version": 1,
     "asr": {
@@ -362,9 +365,34 @@ config = {
     },
     "scenes": {
         "active_scene": "raw",
-        "definitions": [{"id": "raw", "label": "Raw", "candidate_count": 0}],
+        "definitions": scenes,
     },
 }
+if command_adapter:
+    adapter_program = (
+        "import json,sys; req=json.load(sys.stdin); "
+        "selected=(req.get('selected_text') or '').strip(); "
+        "raw=(req.get('raw_text') or '').strip(); "
+        "text=f'adapter-backed: {selected} | command: {raw}'; "
+        "print(json.dumps({'text': text}, ensure_ascii=False))"
+    )
+    config["llm"] = {
+        "adapters": [
+            {
+                "id": "native-command-live-adapter",
+                "command": "python3",
+                "args": ["-c", adapter_program],
+            }
+        ]
+    }
+    scenes.append(
+        {
+            "id": "__command__",
+            "label": "Command",
+            "prompt": "Apply the recognized command to the selected text.",
+            "candidate_count": 1,
+        }
+    )
 output_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 }
@@ -384,6 +412,9 @@ profile_default_config_path() {
       ;;
     sherpa-native-live)
       printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/sherpa-native-live.json}"
+      ;;
+    sherpa-native-command-live)
+      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/sherpa-native-command-live.json}"
       ;;
     sherpa-sense-voice-live)
       printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
@@ -526,13 +557,18 @@ if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   if [[ -z "${VINPUT_USER_PROFILE:-}" && -x "${daemon_env_wrapper}" && -d "${native_runtime_lib_dir}" ]]; then
     config_path="$(activation_service_config_path)"
     if [[ -z "${config_path}" ]]; then
-      if [[ -f "${config_dir}/sherpa-native-live.json" ]]; then
+      if [[ -f "${config_dir}/sherpa-native-command-live.json" ]]; then
+        config_path="${config_dir}/sherpa-native-command-live.json"
+      elif [[ -f "${config_dir}/sherpa-native-live.json" ]]; then
         config_path="${config_dir}/sherpa-native-live.json"
       elif [[ -f "${config_dir}/sherpa-sense-voice-live.json" ]]; then
         config_path="${config_dir}/sherpa-sense-voice-live.json"
       fi
     fi
     case "${config_path}" in
+      */sherpa-native-command-live.json)
+        profile="sherpa-native-command-live"
+        ;;
       */sherpa-sense-voice-live.json)
         profile="sherpa-sense-voice-live"
         ;;
@@ -598,7 +634,7 @@ case "${profile}" in
     install -Dm755 scripts/command-asr-wav-helper.py "${command_asr_wav_helper_path}"
     write_command_asr_wav_helper_config "${config_path}" "${command_asr_wav_helper_path}" "${external_asr_command}" "${helper_timeout_ms}" "${provider_timeout_ms}"
     ;;
-  sherpa-native-live|sherpa-sense-voice-live)
+  sherpa-native-live|sherpa-native-command-live|sherpa-sense-voice-live)
     configured_backends="1"
     install_sherpa_vad="1"
     install_sherpa_runtime="1"
@@ -610,7 +646,11 @@ case "${profile}" in
       echo 'example: VINPUT_USER_SHERPA_MODEL=/path/to/registry-model VINPUT_USER_PROFILE=sherpa-native-live scripts/install-user-ime.sh' >&2
       exit 2
     fi
-    write_sherpa_native_config "${config_path}" "${sherpa_model_dir}" "${VINPUT_USER_SHERPA_HOTWORDS_FILE:-}" "${VINPUT_USER_SHERPA_TIMEOUT_MS:-}"
+    command_adapter=""
+    if [[ "${profile}" == "sherpa-native-command-live" ]]; then
+      command_adapter="1"
+    fi
+    write_sherpa_native_config "${config_path}" "${sherpa_model_dir}" "${VINPUT_USER_SHERPA_HOTWORDS_FILE:-}" "${VINPUT_USER_SHERPA_TIMEOUT_MS:-}" "${command_adapter}"
     native_wav_path="${VINPUT_USER_NATIVE_WAV:-}"
     if [[ -n "${native_wav_path}" ]]; then
       if [[ ! -f "${native_wav_path}" ]]; then
@@ -623,7 +663,7 @@ case "${profile}" in
     ;;
   *)
     echo "unsupported VINPUT_USER_PROFILE: ${profile}" >&2
-    echo "supported profiles: mock, command-demo, configured-pipewire-live, real-command-asr-wav, sherpa-native-live, sherpa-sense-voice-live" >&2
+    echo "supported profiles: mock, command-demo, configured-pipewire-live, real-command-asr-wav, sherpa-native-live, sherpa-native-command-live, sherpa-sense-voice-live" >&2
     exit 2
     ;;
 esac

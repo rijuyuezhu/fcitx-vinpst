@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke toolkit-probe-check arch-install-script-check arch-pkgbuild-check release-manifest-check release-signature-check release-candidate-check command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-handoff-diagnostics-smoke daemon-handoff-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke toolkit-probe-check arch-install-script-check arch-pkgbuild-check release-manifest-check release-signature-check release-candidate-check command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-handoff-diagnostics-smoke daemon-handoff-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke user-ime-sherpa-native-command-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -441,6 +441,10 @@ user-ime-real-command-asr-wav-smoke:
 # Run user-profile IME install smoke for a generic typed native sherpa profile.
 user-ime-sherpa-native-smoke:
     scripts/run-user-ime-sherpa-native-smoke.sh
+
+# Run user-profile install smoke for native ASR plus a configured command adapter.
+user-ime-sherpa-native-command-smoke:
+    scripts/run-user-ime-sherpa-native-command-smoke.sh
 
 # Prove a temporary native user install through D-Bus auto-activation and exact WAV recognition.
 user-ime-sherpa-native-activation-smoke:
