@@ -1057,6 +1057,33 @@ fn packaging_architecture_pins_release_candidate_promotion() {
 }
 
 #[test]
+fn migration_summaries_delegate_packaging_details_to_contract() {
+    for relative_path in [
+        "README.md",
+        "docs/migration/function-gap-audit.md",
+        "docs/migration/e2e-capability-matrix.md",
+        "docs/migration/e2e-replication-plan.md",
+    ] {
+        let summary = std::fs::read_to_string(workspace_file(relative_path))
+            .unwrap_or_else(|error| panic!("read {relative_path}: {error}"));
+        assert!(
+            summary.contains("architecture/packaging-contract.md"),
+            "{relative_path} should delegate detailed packaging evidence to the contract"
+        );
+        for duplicated_detail in [
+            "same-version-rollback",
+            "test-role-free candidate promotion",
+            "detached manifest signing against an external pinned key",
+        ] {
+            assert!(
+                !summary.contains(duplicated_detail),
+                "{relative_path} should not duplicate packaging detail: {duplicated_detail}"
+            );
+        }
+    }
+}
+
+#[test]
 fn registry_architecture_mentions_root_planning() {
     let registry_doc = std::fs::read_to_string(architecture_dir().join("registry-contract.md"))
         .expect("read registry contract doc");

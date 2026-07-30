@@ -40,4 +40,5 @@ Do not maintain parity percentages in multiple files. Prefer evidence-based stag
 - Update the plan only when priorities or milestone acceptance changes.
 - Update live validation only when the real-session procedure changes.
 - Update architecture documents only when a stable boundary or compatibility rule changes.
+- Link subsystem evidence from migration summaries instead of copying detailed package, protocol, or runtime checklists into multiple status files.
 - Keep historical transcripts, one-off review notes, and long command output out of tracked documentation.
