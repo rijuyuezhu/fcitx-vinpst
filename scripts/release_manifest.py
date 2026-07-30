@@ -14,8 +14,11 @@ from typing import Any
 
 MANIFEST_NAME = "manifest.json"
 CHECKSUMS_NAME = "SHA256SUMS"
+MANIFEST_SIGNATURE_NAME = "manifest.json.sig"
 SCHEMA_VERSION = 1
-ALLOWED_METADATA_FILES = {MANIFEST_NAME, CHECKSUMS_NAME}
+REQUIRED_METADATA_FILES = {MANIFEST_NAME, CHECKSUMS_NAME}
+OPTIONAL_METADATA_FILES = {MANIFEST_SIGNATURE_NAME}
+RESERVED_METADATA_FILES = REQUIRED_METADATA_FILES | OPTIONAL_METADATA_FILES
 ROLE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 FILE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._+@-]+$")
 
@@ -89,7 +92,7 @@ def assemble(args: argparse.Namespace) -> None:
             raise ValueError(f"artifact must be a regular file: {source}")
         if not FILE_NAME_PATTERN.fullmatch(source.name) or source.name in {".", ".."}:
             raise ValueError(f"artifact basename is unsafe: {source.name!r}")
-        if source.name in ALLOWED_METADATA_FILES:
+        if source.name in RESERVED_METADATA_FILES:
             raise ValueError(f"artifact name is reserved: {source.name}")
         if source.name in names:
             raise ValueError(f"duplicate artifact basename: {source.name}")
@@ -246,7 +249,7 @@ def verify_bundle(bundle: Path) -> None:
             Path(name).name != name
             or not FILE_NAME_PATTERN.fullmatch(name)
             or name in {".", ".."}
-            or name in ALLOWED_METADATA_FILES
+            or name in RESERVED_METADATA_FILES
         ):
             raise ValueError(f"invalid artifact name: {name}")
         if name in names:
@@ -281,7 +284,8 @@ def verify_bundle(bundle: Path) -> None:
             raise ValueError(f"artifact digest mismatch: {artifact_path.name}")
 
     actual_names = {path.name for path in regular_bundle_files(bundle)}
-    expected_names = names | ALLOWED_METADATA_FILES
+    present_optional_metadata = actual_names & OPTIONAL_METADATA_FILES
+    expected_names = names | REQUIRED_METADATA_FILES | present_optional_metadata
     if actual_names != expected_names:
         extras = sorted(actual_names - expected_names)
         missing = sorted(expected_names - actual_names)

@@ -35,7 +35,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
 | Diagnose and recover | implemented | `doctor`, runtime status, owner/PID/procfs, activation and live probe | Message refinement from live failures |
 | Provider-backed text processing | deterministic | command adapters and local OpenAI-compatible mock server | One real desktop provider flow |
-| User installation | deterministic | temporary-HOME addon, direct activation, staged systemd user unit plus D-Bus hint, runtime bundle, exact recognition, clean Arch `makepkg`/extracted-runtime validation, fakeroot pacman install/upgrade/same-version-rollback/uninstall, local `repo-add` plus `file://` repository install/upgrade, ephemeral package/database signing with isolated trust and tamper rejection, strict release-gate artifact manifest/checksum inventory with signature revalidation, message-only lifecycle hooks, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification | Real profile, externally hosted signed repository path with production key custody/distribution and an externally signed manifest/checksum trust root, automatic package-manager-triggered handoff inside user sessions, incompatible-state rollback, and external-user regression |
+| User installation | deterministic | temporary-HOME addon, direct activation, staged systemd user unit plus D-Bus hint, runtime bundle, exact recognition, clean Arch `makepkg`/extracted-runtime validation, fakeroot pacman install/upgrade/same-version-rollback/uninstall, local `repo-add` plus `file://` repository install/upgrade, ephemeral package/database signing with isolated trust and tamper rejection, strict release-gate artifact manifest/checksum inventory plus detached manifest signing against an external pinned key, message-only lifecycle hooks, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification | Real profile, externally hosted signed repository path with production key custody and independent fingerprint/public-key distribution, automatic package-manager-triggered handoff inside user sessions, incompatible-state rollback, and external-user regression |
 
 ## CLI command surface comparison
 
@@ -154,7 +154,7 @@ Remaining: real desktop rendering, focus transitions, candidate interaction, and
 
 ## Release and platform gaps
 
-- externally hosted repository publication, production signing-key custody/rotation/revocation, public trust distribution, external signing of the release manifest/checksum root, and non-Arch package formats;
+- externally hosted repository publication, production signing-key custody/rotation/revocation and independent public-key/fingerprint distribution, and non-Arch package formats;
 - automatic package-manager-triggered upgrade/removal handoff, incompatible-state rollback, and destructive direct-PID stale-owner policy (explicit conditional systemd-user handoff is implemented);
 - runtime-library version selection;
 - remote text live cross-device browser proof;

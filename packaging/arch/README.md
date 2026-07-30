@@ -33,11 +33,13 @@ signatures, an isolated trusted pacman keyring, unknown-signer rejection, and
 same-size package tamper rejection. `just arch-release-bundle-smoke` then
 assembles the source archive, rendered Arch metadata, package/repository
 artifacts, signatures, and ephemeral public key into a strict `manifest.json`
-plus `SHA256SUMS` inventory and revalidates every detached signature. The
-synthetic `pkgrel=2` and test key are explicitly labeled test-only; this bundle
-is release-gate evidence, not the public release set. The generated private key
-lives only under `target/tmp`; production release keys and an external signature
-over the manifest/checksum trust root are not part of the repository.
+plus `SHA256SUMS` inventory, revalidates every package/database signature,
+signs `manifest.json`, and verifies `manifest.json.sig` using the public key from
+outside the bundle plus a pinned fingerprint. The synthetic `pkgrel=2` and test
+key are explicitly labeled test-only; this bundle is release-gate evidence, not
+the public release set. The generated private key lives only under `target/tmp`;
+production key custody and independent fingerprint/public-key distribution are
+not part of the repository.
 
 The renderer also copies `fcitx-vinput-rs.install` beside the generated
 PKGBUILD. Its hooks are message-only because a root pacman transaction cannot

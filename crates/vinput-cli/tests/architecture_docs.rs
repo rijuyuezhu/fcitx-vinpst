@@ -766,7 +766,7 @@ fn packaging_architecture_pins_signed_repository_trust() {
         "No private key, fingerprint, or trust database is checked into the repository",
         "Production key custody",
         "ephemeral signed-repository trust/tamper enforcement",
-        "production signing-key operations",
+        "production signing-key custody/rotation/revocation",
     ] {
         assert!(
             packaging_doc.contains(required),
@@ -825,7 +825,7 @@ fn packaging_architecture_pins_release_artifact_inventory() {
         "package-pkgrel2-test",
         "signing-public-key-test",
         "not a public release set",
-        "not themselves signed by an external production trust root",
+        "external pinned key",
     ] {
         assert!(
             packaging_doc.contains(required),
@@ -836,6 +836,8 @@ fn packaging_architecture_pins_release_artifact_inventory() {
     for required in [
         "MANIFEST_NAME = \"manifest.json\"",
         "CHECKSUMS_NAME = \"SHA256SUMS\"",
+        "MANIFEST_SIGNATURE_NAME = \"manifest.json.sig\"",
+        "OPTIONAL_METADATA_FILES",
         "SCHEMA_VERSION = 1",
         "duplicate artifact role",
         "artifact must not be inside the output directory",
@@ -868,7 +870,8 @@ fn packaging_architecture_pins_release_artifact_inventory() {
         "--artifact \"package-pkgrel2-test=",
         "--artifact \"signing-public-key-test=",
         "sha256sum -c SHA256SUMS",
-        "gpg --homedir \"${verify_home}\" --batch --verify",
+        "sign-release-manifest.sh",
+        "verify-release-bundle-signature.sh",
         "unexpected.key",
         "artifact digest mismatch",
     ] {
@@ -880,6 +883,91 @@ fn packaging_architecture_pins_release_artifact_inventory() {
     assert!(package_smoke.contains("run-arch-release-bundle-smoke.sh"));
     assert!(justfile.contains("release-manifest-check:"));
     assert!(justfile.contains("arch-release-bundle-smoke:"));
+}
+
+#[test]
+fn packaging_architecture_pins_detached_manifest_trust_root() {
+    let packaging_doc = std::fs::read_to_string(architecture_dir().join("packaging-contract.md"))
+        .expect("read packaging contract doc");
+    let sign_script = std::fs::read_to_string(workspace_file("scripts/sign-release-manifest.sh"))
+        .expect("read release manifest signing script");
+    let verify_script =
+        std::fs::read_to_string(workspace_file("scripts/verify-release-bundle-signature.sh"))
+            .expect("read release bundle signature verifier");
+    let signature_check =
+        std::fs::read_to_string(workspace_file("scripts/check-release-signature.sh"))
+            .expect("read release signature check");
+    let bundle_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-release-bundle-smoke.sh"))
+            .expect("read Arch release bundle smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "`manifest.json.sig` is optional metadata",
+        "avoids a recursive digest/signature dependency",
+        "caller-supplied GPG home",
+        "exact primary fingerprint",
+        "publishes it atomically as mode `0644`",
+        "public-key file from outside the bundle",
+        "independently pinned fingerprint",
+        "disables automatic key retrieval",
+        "matching `VALIDSIG`",
+        "never trusts a key merely because the same bundle contains a copy",
+        "`just release-signature-check`",
+        "unsigned-after-rebuild boundary",
+        "independent trusted channel",
+    ] {
+        assert!(
+            packaging_doc.contains(required),
+            "packaging contract should pin detached trust root: {required}"
+        );
+    }
+
+    for required in [
+        "exact secret signing key is unavailable",
+        "mktemp",
+        "--local-user \"${fingerprint}\"",
+        "--detach-sign",
+        "chmod 644",
+        "mv -f",
+    ] {
+        assert!(
+            sign_script.contains(required),
+            "signing script should pin: {required}"
+        );
+    }
+    for required in [
+        "public key must come from outside the bundle",
+        "--no-auto-key-retrieve",
+        "--status-fd=1",
+        "VALIDSIG",
+        "fingerprint does not match the expected trust root",
+        "release_manifest.py verify",
+    ] {
+        assert!(
+            verify_script.contains(required),
+            "verifier should pin: {required}"
+        );
+    }
+    for required in [
+        "missing-signature",
+        "wrong-fingerprint",
+        "wrong-key",
+        "inside-key",
+        "manifest-tamper",
+        "signature-tamper",
+        "artifact-tamper",
+        "rebuilt-unsigned",
+    ] {
+        assert!(
+            signature_check.contains(required),
+            "signature check should prove: {required}"
+        );
+    }
+    assert!(bundle_smoke.contains("sign-release-manifest.sh"));
+    assert!(bundle_smoke.contains("verify-release-bundle-signature.sh"));
+    assert!(bundle_smoke.contains("signature-tampered-bundle"));
+    assert!(justfile.contains("release-signature-check:"));
 }
 
 #[test]

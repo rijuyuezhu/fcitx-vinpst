@@ -41,6 +41,7 @@ test "${upgrade_version}" = "${version}-2"
 
 build_root="$(dirname "${initial_package}")"
 signing_root="${repo_root}/target/tmp/arch-signing-smoke"
+signing_home="${signing_root}/signing-home"
 signed_repository="${signing_root}/repository"
 repository_name="vinput-signed"
 signed_initial_package="${signed_repository}/$(basename "${initial_package}")"
@@ -48,6 +49,11 @@ signed_upgrade_package="${signed_repository}/$(basename "${upgrade_package}")"
 repository_database="${signed_repository}/${repository_name}.db.tar.gz"
 repository_files="${signed_repository}/${repository_name}.files.tar.gz"
 public_key="${signing_root}/public-key.asc"
+fingerprint="$(
+  gpg --homedir "${signing_home}" --batch --with-colons --list-secret-keys |
+    awk -F: '$1 == "fpr" { print $10; exit }'
+)"
+test -n "${fingerprint}"
 
 required_artifacts=(
   "${build_root}/PKGBUILD"
@@ -95,6 +101,9 @@ scripts/release_manifest.py assemble \
   --artifact "signing-public-key-test=${public_key}"
 
 scripts/release_manifest.py verify "${bundle}"
+scripts/sign-release-manifest.sh "${bundle}" "${signing_home}" "${fingerprint}"
+scripts/verify-release-bundle-signature.sh \
+  "${bundle}" "${public_key}" "${fingerprint}"
 (
   cd "${bundle}"
   sha256sum -c SHA256SUMS
@@ -132,13 +141,21 @@ jq -e \
   ' "${bundle}/manifest.json" >/dev/null
 
 test "$(wc -l <"${bundle}/SHA256SUMS")" -eq 13
-test "$(find "${bundle}" -maxdepth 1 -type f | wc -l)" -eq 15
+test "$(find "${bundle}" -maxdepth 1 -type f | wc -l)" -eq 16
+test "$(stat -c '%a' "${bundle}/manifest.json.sig")" = 644
+! grep -q 'manifest.json.sig' "${bundle}/SHA256SUMS"
+jq -e '[.artifacts[].name] | index("manifest.json.sig") == null' \
+  "${bundle}/manifest.json" >/dev/null
 ! find "${bundle}" -maxdepth 1 -type f -printf '%f\n' |
   grep -Eq '(\.old($|\.)|private|secret|trustdb|revocation)'
 
 source_listing="${stage_root}/source-archive.list"
 tar -tzf "${bundle}/$(basename "${source_archive}")" >"${source_listing}"
 grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/release_manifest.py$" \
+  "${source_listing}"
+grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/sign-release-manifest.sh$" \
+  "${source_listing}"
+grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/verify-release-bundle-signature.sh$" \
   "${source_listing}"
 
 verify_home="${stage_root}/verify-home"
@@ -163,7 +180,8 @@ extra_bundle="${stage_root}/extra-bundle"
 cp -a "${bundle}" "${extra_bundle}"
 printf 'must not ship\n' >"${extra_bundle}/unexpected.key"
 set +e
-scripts/release_manifest.py verify "${extra_bundle}" \
+scripts/verify-release-bundle-signature.sh \
+  "${extra_bundle}" "${public_key}" "${fingerprint}" \
   >"${stage_root}/extra.out" 2>&1
 extra_status=$?
 set -e
@@ -182,11 +200,33 @@ data[len(data) // 2] ^= 0x01
 path.write_bytes(data)
 PY
 set +e
-scripts/release_manifest.py verify "${tampered_bundle}" \
+scripts/verify-release-bundle-signature.sh \
+  "${tampered_bundle}" "${public_key}" "${fingerprint}" \
   >"${stage_root}/tampered.out" 2>&1
 tampered_status=$?
 set -e
 test "${tampered_status}" -ne 0
 grep -q 'artifact digest mismatch' "${stage_root}/tampered.out"
+
+signature_tampered_bundle="${stage_root}/signature-tampered-bundle"
+cp -a "${bundle}" "${signature_tampered_bundle}"
+python3 - "${signature_tampered_bundle}/manifest.json.sig" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+data = bytearray(path.read_bytes())
+data[len(data) // 2] ^= 0x01
+path.write_bytes(data)
+PY
+set +e
+scripts/verify-release-bundle-signature.sh \
+  "${signature_tampered_bundle}" "${public_key}" "${fingerprint}" \
+  >"${stage_root}/signature-tampered.out" 2>&1
+signature_tampered_status=$?
+set -e
+test "${signature_tampered_status}" -ne 0
+grep -q 'detached manifest signature verification failed' \
+  "${stage_root}/signature-tampered.out"
 
 echo "Arch release artifact bundle smoke passed: ${bundle}"
