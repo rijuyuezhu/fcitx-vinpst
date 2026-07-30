@@ -524,8 +524,22 @@ fi
 
 if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   if [[ -z "${VINPUT_USER_PROFILE:-}" && -x "${daemon_env_wrapper}" && -d "${native_runtime_lib_dir}" ]]; then
-    profile="sherpa-native-live"
     config_path="$(activation_service_config_path)"
+    if [[ -z "${config_path}" ]]; then
+      if [[ -f "${config_dir}/sherpa-native-live.json" ]]; then
+        config_path="${config_dir}/sherpa-native-live.json"
+      elif [[ -f "${config_dir}/sherpa-sense-voice-live.json" ]]; then
+        config_path="${config_dir}/sherpa-sense-voice-live.json"
+      fi
+    fi
+    case "${config_path}" in
+      */sherpa-sense-voice-live.json)
+        profile="sherpa-sense-voice-live"
+        ;;
+      *)
+        profile="sherpa-native-live"
+        ;;
+    esac
   fi
   echo "User IME install status:"
   printf '  module: %s (%s)\n' "${module_path}" "$([[ -f "${module_path}" ]] && echo present || echo missing)"
