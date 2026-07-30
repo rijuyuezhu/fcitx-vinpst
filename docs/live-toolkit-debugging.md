@@ -211,6 +211,58 @@ The real scene gate temporarily added 12 inert scenes, used the configured `equa
 
 Regression commit: `80d2dc5 fix(fcitx): preserve menu page state`.
 
+### Installed daemon fails only when run directly
+
+**Symptom:** invoking `~/.local/bin/vinput-daemon` reports an ONNX Runtime symbol or version error, while D-Bus activation works.
+
+**Cause:** direct execution bypasses the generated runtime-library environment. The installed daemon is intended to start through `~/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh`, which sources `fcitx-vinput.env` before loading `libsherpa-onnx` and `libonnxruntime`.
+
+**Action:** use the generated wrapper for standalone diagnostics and compare its environment with the activation service before treating the model as broken.
+
+### A copied local provider id is not another backend instance
+
+**Symptom:** a temporary provider with `type: local` and an id such as `sherpa-onnx-live-alt` appears in the F8 menu but reload fails with “provider ... is not implemented yet”.
+
+**Cause:** the local provider id is also the runtime implementation selector; `type: local` alone does not route an arbitrary id to sherpa-onnx.
+
+**Action:** test another installed model under the existing `sherpa-onnx` provider through the model root. Treat cross-provider switching as a separate contract.
+
+### D-Bus activation ignores a relative model root
+
+**Symptom:** the daemon command line contains `--model-root target/tmp/...`, but `GetAsrDisplayMenuState` exposes no installed target.
+
+**Cause:** a D-Bus activated process does not inherit the repository working directory. Relative model roots resolve from an unrelated directory.
+
+**Action:** write an absolute model root into the temporary activation service and verify the exact path in `vinput daemon status` before opening F8.
+
+### Offline ASR commits without streaming partials
+
+**Symptom:** Paraformer commits valid final text, but a generic streaming gate fails with “no non-placeholder partial preedit”.
+
+**Cause:** offline recognizers do not promise `RecognitionPartial` output. Requiring partials for every model conflates runtime class with frontend correctness.
+
+**Action:** retain `require_partial=true` by default, opt out only for a known offline model, and still require one non-empty final commit. Owner-loss and streaming-model cases must continue to require partial evidence. The reusable live gate records this distinction in its summary.
+
+Regression commit: `876ca2e test(e2e): support offline ASR live probes`.
+
+### Menu filters collide with persisted paging keys or survive cancellation
+
+**Symptom:** hyphens disappear from an F8 filter query, or a new probe starts with an old query already present.
+
+**Cause:** persisted `minus`/`equal` paging keys are handled before printable filter input, and canceling a probe can leave addon menu state alive in the current Fcitx process.
+
+**Action:** avoid configured paging keys in a retained filter fixture, prefer a model root that exposes exactly one target, and restart/verify Fcitx before an isolated selection gate.
+
+### Switching back through the menu API is rejected after a temporary model root
+
+**Symptom:** after F8 persisted Paraformer, `SetActiveAsrTarget` rejects the original Zipformer as not configured or installed.
+
+**Cause:** the temporary model root intentionally exposes only Paraformer, and the persisted profile no longer names Zipformer. The API correctly refuses a target outside both sources.
+
+**Action:** restore the exact original profile bytes and backup state, call the normal reload path, and wait until target and effective provider/model both match the original. Then prove another recognition. Do not weaken target validation for test cleanup.
+
+The retained roundtrip is `just ime-fcitx-model-switch-live`; evidence is under `target/tmp/ime-fcitx-model-switch-live`. It proves F8/Enter selection, an offline Paraformer commit, restoration to Zipformer with streaming partials, and exact service/profile/Fcitx/backend recovery.
+
 ### Concurrent work contaminates a small commit
 
 **Symptom:** `git status` contains unrelated live-test or documentation changes while a focused fix is being prepared.

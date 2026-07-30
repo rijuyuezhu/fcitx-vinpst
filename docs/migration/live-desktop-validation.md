@@ -195,7 +195,19 @@ just ime-fcitx-menu-paging-live
 
 The selection gate sends real F7 and Enter events, requires the first non-active scene to become active, accepts no text commit, and restores the original scene. The paging gate snapshots the active profile and any backup, temporarily adds 12 inert scenes, reads the persisted Fcitx `PageNextKeys`/`PagePrevKeys`, proves `1/2 -> 2/2 -> 1/2`, closes with Escape, and restores the profile bytes, backup state, daemon, and active scene. Evidence is written under `target/tmp/ime-fcitx-menu-selection-live` and `target/tmp/ime-fcitx-menu-paging-live`. The live paging result covers Scene; ASR uses the same fixed retained-page implementation and deterministic C++ smoke but still needs a live profile with more than one page of targets.
 
-### Live evidence recorded on 2026-07-30
+### ASR model selection and notifications
+
+```sh
+just ime-fcitx-model-switch-live
+just ime-fcitx-notification-live
+just ime-fcitx-error-notification-live
+```
+
+The model-switch gate temporarily exposes one installed Paraformer through an absolute activation `--model-root`, restarts Fcitx to clear retained menu state, sends real F8 and Enter events, waits for target/effective reload completion, and proves an offline final commit. It then restores the exact original profile, reloads the streaming Zipformer, requires live partials plus another final commit, and restores the activation service, profile/backup, Fcitx process, and backend. Evidence is under `target/tmp/ime-fcitx-model-switch-live`.
+
+The information-notification gate observes the real `org.freedesktop.Notifications.Notify` call emitted by the current Fcitx PID after scene selection. The error gate induces a recoverable ASR reload failure, requires the daemon `DaemonNotification` and the Fcitx 5-second `dialog-error` call to carry the same error, verifies both sender PIDs, preserves the old backend, and restores the profile. Evidence is under `target/tmp/ime-fcitx-notification-live` and `target/tmp/ime-fcitx-error-notification-live`.
+
+### Live evidence recorded on 2026-07-30 and 2026-07-31
 
 The following installed-profile summaries reported `ok: true`:
 
@@ -207,7 +219,10 @@ The following installed-profile summaries reported `ok: true`:
 - same-provider reload: the owner PID and effective provider/model remained stable, reload completed without error, and a subsequent virtual-source recognition produced seven partials plus a final commit under `target/tmp/ime-fcitx-virtual-reload-live`;
 - scene and ASR menus: candidate display, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits under `target/tmp/ime-fcitx-menu-live`;
 - scene menu selection: F7/Enter changed `raw` to `__command__`, emitted zero commits, and restored `raw` under `target/tmp/ime-fcitx-menu-selection-live`;
-- scene menu paging: configured `equal`/`minus` keys proved `1/2 -> 2/2 -> 1/2`, four candidates on page 2, zero commits, Escape close, and exact profile/scene restoration under `target/tmp/ime-fcitx-menu-paging-live`.
+- scene menu paging: configured `equal`/`minus` keys proved `1/2 -> 2/2 -> 1/2`, four candidates on page 2, zero commits, Escape close, and exact profile/scene restoration under `target/tmp/ime-fcitx-menu-paging-live`;
+- information notification: the real Fcitx PID called `org.freedesktop.Notifications.Notify` with `fcitx5-vinput`, `dialog-information`, the selected scene, and a 3000 ms timeout under `target/tmp/ime-fcitx-notification-live`;
+- daemon error notification: a recoverable invalid-model reload emitted `asr_backend_reload_failed`, and the current Fcitx PID forwarded the exact runtime error through `dialog-error` with a 5000 ms timeout while the old backend remained effective under `target/tmp/ime-fcitx-error-notification-live`;
+- ASR model switch: F8/Enter selected Paraformer, offline recognition committed `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯`, then exact profile restoration reloaded Zipformer and produced eight partials plus `对我做了介绍那么我想说的是呢大家如果对我的研究感兴趣呢`; service, profile, Fcitx, and backend restoration all reported true under `target/tmp/ime-fcitx-model-switch-live`.
 
 The real-key application matrix now also reports `ok: true` for all six toolkit cases:
 
@@ -257,4 +272,4 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement from surrounding text and Wayland primary selection, scene/ASR display/filter, scene selection and configured-key paging, focus handoff, verified owner loss, and same-provider reload through a preflight-verified isolated PipeWire source, plus GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. The gates restore the original capture target, primary text, active scene, and profile bytes and use no physical speaker or microphone. Physical microphone/device breadth, live ASR selection/paging, notifications, model/provider-switch reload, localization breadth, broader cross-application behavior, and an external provider remain outside the proven boundary.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement from surrounding text and Wayland primary selection, scene/ASR display/filter, scene selection and configured-key scene paging, F8 model selection with offline-to-streaming recognition roundtrip, information/error notifications, focus handoff, verified owner loss, and same-provider reload through a preflight-verified isolated PipeWire source, plus GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. The gates restore the original capture target, primary text, active scene, profile bytes, activation service, Fcitx process, and effective backend and use no physical speaker or microphone. Physical microphone/device breadth, live multi-page ASR paging, cross-provider switching, localization breadth, broader cross-application behavior, and an external provider remain outside the proven boundary.

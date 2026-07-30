@@ -1,6 +1,6 @@
 # E2E capability matrix
 
-Reviewed: 2026-07-30
+Reviewed: 2026-07-31
 
 This matrix describes user-visible parity and the evidence level for each path. Status labels are:
 
@@ -26,10 +26,10 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Discover and install a model | implemented | live registry list/info/install, SHA-256, safe extraction, atomic materialization | Update/packaging polish |
 | Discover, install, update, edit, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, localized title/description, batch/streaming validation, mirror download, executable publication, update-by-reinstall with legacy timeout/env preservation, config backup, guarded managed update; local removal guard, active-clear semantics, and legacy-compatible referenced-script editor | None for current script registry |
 | Discover, install, update, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, update-by-reinstall with config backup and guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | None for current script registry |
-| Select and reload a model | deterministic; same-provider reload live-proven | config persistence and background prepare-before-swap are deterministic; virtual-source evidence preserves owner/provider/model and proves post-reload recognition without physical audio devices | Real model/provider-switch reload proof |
+| Select and reload a model | live-proven within the native `sherpa-onnx` provider | real F8/Enter selection switches streaming Zipformer to offline Paraformer, produces a final desktop commit without requiring partials, restores the original profile, reloads Zipformer, and then produces eight streaming partials plus a final commit; service/profile/Fcitx/backend state is restored exactly | Cross-provider switching and broader model combinations |
 | Normal native dictation | live-proven through isolated audio injection and real applications | real Fcitx client, F9, a preflight-verified virtual PipeWire source, streaming partials, one final commit, and real-key GTK3, Qt6, and Chromium/Ozone application evidence | Physical microphone/device breadth |
 | Command native dictation | live-proven for surrounding text and primary selection | real Fcitx client, F10, live partials, selected surrounding-text deletion/replacement, zero-delete Wayland primary-selection fallback, and `adapter-backed:` commits; GTK3, Qt6, and Chromium command paths are also live-proven | Cross-application breadth and one external provider flow |
-| Scene and ASR menus | scene selection and paging live-proven; ASR display/filter live-proven | real Fcitx clients prove F7/F8 display/filter/Escape, F7 Enter selection with exact scene restoration, and configured-key scene paging across `1/2 -> 2/2 -> 1/2` with zero commits and byte-for-byte profile restoration; Scene/ASR page state shares the same addon implementation and C++ smoke | Live ASR selection/paging, localization breadth, and model/provider-switch reload proof |
+| Scene and ASR menus | scene selection/paging and ASR model selection live-proven | real Fcitx clients prove F7/F8 display/filter/Escape, F7 Enter scene selection, F8 Enter model selection with completed reload, and configured-key scene paging across `1/2 -> 2/2 -> 1/2`; all gates reject unintended commits and restore state exactly | Live multi-page ASR paging, localization breadth, and cross-provider selection proof |
 | Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, default user-config discovery with persistent D-Bus updates, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
@@ -75,7 +75,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Offline VAD | deterministic | tracked Silero model, legacy controls, fallback and diagnostics |
 | Text postprocess | deterministic | command and OpenAI-compatible paths; live provider proof missing |
 | Adapter supervision | deterministic | process/PID lifecycle and D-Bus control |
-| Notifications and recovery | partial; focus, owner loss, and same-provider reload live-proven | focus handoff keeps partials/final commit on the originating context; verified daemon loss surfaces an unavailable preedit with zero commit; D-Bus activation restores the configured profile; same-provider reload is followed by successful recognition | Live notification and model/provider-switch reload proof |
+| Notifications and recovery | live-proven for retained local cases | focus handoff keeps partials/final commit on the originating context; verified daemon loss surfaces an unavailable preedit with zero commit; information notifications are observed from the current Fcitx PID; daemon reload failure produces a matching 5-second error notification while preserving the old backend; same-provider reload and model switching are followed by successful recognition | Broader notification categories and cross-provider recovery |
 | Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, local-socket tests, and private-session process smoke | Live cross-device browser proof |
 
 ## Registry/resource comparison
@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement, Wayland primary-selection fallback, scene selection, and configured-key scene paging. The fallback gate restores the previous primary text; the menu gates restore the original active scene and profile bytes. Remaining behavior includes broader cross-application selected-text behavior, live ASR selection/paging, notifications, model/provider-switch reload, localization breadth, and an external provider.
+The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement, Wayland primary-selection fallback, scene selection, configured-key scene paging, F8 model selection/reload, and information/error notifications. The fallback gate restores the previous primary text; menu/model gates restore the original scene, profile, activation service, Fcitx process, and effective backend. Remaining behavior includes broader cross-application selected-text behavior, live multi-page ASR paging, cross-provider switching, localization breadth, physical-device proof, and an external provider.
 
 ## Release and platform gaps
 
@@ -163,9 +163,9 @@ The installed `sherpa-native-command-live` profile now has retained normal/comma
 
 ## Immediate next work
 
-1. Record live notification and model/provider-switch reload behavior.
-2. Exercise live ASR-menu selection/paging and localization breadth.
-3. Validate one external provider-backed command transformation.
+1. Exercise live multi-page ASR-menu paging and localization breadth.
+2. Validate persistent Tap/Hold/Both trigger variants and one physical-device path.
+3. Validate one cross-provider switch and one external provider-backed command transformation.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.
 
