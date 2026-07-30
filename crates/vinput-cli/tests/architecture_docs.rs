@@ -748,6 +748,70 @@ fn daemon_error_notification_live_gate_pins_failure_and_restore() {
 }
 
 #[test]
+fn asr_model_switch_live_gate_pins_roundtrip_and_restore() {
+    let probe =
+        std::fs::read_to_string(workspace_file("scripts/fcitx-live-asr-selection-probe.py"))
+            .expect("read ASR selection live probe");
+    let runner =
+        std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-model-switch-live.sh"))
+            .expect("read ASR model-switch live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "GetAsrDisplayMenuState",
+        "process_key_sync",
+        "selection-target",
+        "reload_in_progress",
+        "last_error",
+        "expected ASR target is already effective",
+        "ASR target reload failed",
+        "filter_complete",
+        "ASR menu selection unexpectedly committed text",
+        "Enter did not complete the expected ASR target reload",
+    ] {
+        assert!(
+            probe.contains(required),
+            "ASR selection probe should pin real menu/reload evidence: {required}"
+        );
+    }
+    for required in [
+        "--model-root",
+        "cp -al",
+        "service-before.service",
+        "config-before.json",
+        "restore_profile",
+        "restore_service",
+        "restart_fcitx",
+        "VINPUT_LIVE_REQUIRE_PARTIAL=0",
+        "require_partial == true",
+        "run-ime-fcitx-virtual-source-live.sh",
+        "profile_restored",
+        "service_restored",
+        "fcitx_restored",
+        "backend_restored",
+        "target/tmp/ime-fcitx-model-switch-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "model-switch runner should pin roundtrip/restore evidence: {required}"
+        );
+    }
+    for forbidden in ["notify-send", "SetActiveAsrTarget"] {
+        assert!(
+            !runner.contains(forbidden),
+            "model-switch gate must use real F8 selection and exact profile restore, not {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-model-switch-live:"));
+    assert!(justfile.contains("run-ime-fcitx-model-switch-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-model-switch-live"));
+}
+
+#[test]
 fn scene_menu_paging_live_gate_pins_state_and_restore() {
     let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-paging-probe.py"))
         .expect("read scene-menu paging probe");

@@ -193,6 +193,10 @@ ime-fcitx-notification-live:
 ime-fcitx-error-notification-live:
     scripts/run-ime-fcitx-error-notification-live.sh
 
+# Explicit F8 model switch, offline recognition, streaming restore, and exact state restoration.
+ime-fcitx-model-switch-live:
+    scripts/run-ime-fcitx-model-switch-live.sh
+
 # Explicit scene-menu paging with configured keys and exact profile restoration.
 ime-fcitx-menu-paging-live:
     scripts/run-ime-fcitx-menu-paging-live.sh
