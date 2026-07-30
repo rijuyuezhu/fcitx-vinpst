@@ -25,7 +25,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M1 Deterministic product spine | complete | staged addon/daemon and outcome smokes |
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
-| M4 Real desktop native alpha | active; core and recovery paths live-proven | real Fcitx client, acoustic PipeWire, partial/input-panel updates, normal commit, local adapter replacement, non-mutating menus, focus handoff, and owner loss are proven; GUI-toolkit breadth, clipboard fallback, notifications, reload, and external-provider proof remain |
+| M4 Real desktop native alpha | active; core and recovery paths live-proven | real Fcitx client, acoustic PipeWire, partial/input-panel updates, normal commit, local adapter replacement, non-mutating menus, focus handoff, owner loss, and same-provider reload are proven; GUI-toolkit breadth, clipboard fallback, notifications, model/provider-switch reload, and external-provider proof remain |
 | M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal, and adapter runtime selectors |
 | M6 Release readiness | partial | The checked Arch package and signed candidate pipeline are deterministic; production publication, automatic package-manager handoff, incompatible-state rollback, production key operations, live installed proof, and external-user regression remain. Detailed evidence belongs in [`../architecture/packaging-contract.md`](../architecture/packaging-contract.md). |
 
@@ -60,7 +60,7 @@ Live in a real user session, `ime-fcitx-native-live` now proves F9 normal dictat
 3. Restart Fcitx5 through the generated environment wrapper.
 4. Prove addon discovery and D-Bus activation in the real session.
 5. Run the checked GTK3 and Qt6 probes for normal and command paths, retain their JSONL evidence, and include clipboard fallback.
-6. Keep the live-proven focus-handoff, owner-loss, and non-mutating scene/ASR menu paths green; next exercise selection/paging, persistent keys, Tap/Hold/Both, localization, notifications, and reload.
+6. Keep the live-proven focus-handoff, owner-loss, same-provider reload, and non-mutating scene/ASR menu paths green; next exercise selection/paging, persistent keys, Tap/Hold/Both, localization, notifications, and model/provider-switch reload.
 7. Keep the live-proven `sherpa-native-command-live` adapter path green, then prove one external provider-backed command transformation.
 8. Record exact failures and add deterministic regressions before fixing them.
 
@@ -93,4 +93,4 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 
 ## Next recommended slice
 
-Execute the checked GTK3 and Qt6 probes with real desktop key events, then cover clipboard fallback, menu selection/paging, notifications, reload, and one external provider-backed command flow. Port other model families, package formats, remote services, or GUI surfaces only when they unblock or follow from that evidence.
+Execute the checked GTK3 and Qt6 probes with real desktop key events, then cover clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and one external provider-backed command flow. Port other model families, package formats, remote services, or GUI surfaces only when they unblock or follow from that evidence.

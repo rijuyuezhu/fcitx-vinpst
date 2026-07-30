@@ -43,12 +43,13 @@ Live-proven in a real user session:
 - F7/F8 scene and ASR menus -> candidates -> slash filter -> first Escape clears filtering -> second Escape closes the menu with zero text commits;
 - focus handoff keeps partials and the final commit on the input context that started recording;
 - verified daemon-owner loss replaces partial text with an unavailable preedit, commits nothing, and recovers through D-Bus activation;
+- an idle same-provider `ReloadAsrBackend` keeps the daemon owner/provider/model stable and is followed by another successful acoustic recognition;
 - repeatable opt-in evidence through the `ime-fcitx-native-live`, `ime-fcitx-native-command-adapter-live`, `ime-fcitx-menu-live`, `ime-fcitx-focus-live`, and `ime-fcitx-owner-loss-live` recipes.
 
 Still requiring live proof or implementation:
 
 - GTK3/Qt6 normal and command evidence plus clipboard fallback across multiple GUI applications;
-- real menu selection/paging, notifications, reload, and external-provider command behavior;
+- real menu selection/paging, notifications, model/provider-switch reload, and external-provider command behavior;
 - remote text live cross-device browser proof;
 - production publication and lifecycle policy beyond the checked Arch candidate, including automatic package-manager handoff, incompatible-state rollback, production key operations, external repository hosting, and live installed-desktop proof;
 - the legacy Qt GUI, which is intentionally deferred.

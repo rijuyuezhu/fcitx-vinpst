@@ -23,7 +23,7 @@ The project has crossed the main implementation threshold for local native ASR a
 - The retained addon applies partial preedit, final commit, command candidate selection, selected-text deletion, and replacement through deterministic frontends and a live Fcitx client application.
 - CLI, config, registry, daemon, recording, diagnostics, and frontend configuration surfaces are broadly implemented.
 
-The core **real desktop native-dictation alpha** path is live-proven through Fcitx trigger -> acoustic PipeWire capture -> native ASR -> partial/input-panel updates -> commit. The same installed profile also proves local adapter-backed selected-text replacement, non-mutating scene/ASR menu filtering, two-context focus handoff, and verified daemon-owner loss. The active target is now GUI-toolkit rendering, clipboard fallback, menu selection/paging, notifications, reload, and one external provider.
+The core **real desktop native-dictation alpha** path is live-proven through Fcitx trigger -> acoustic PipeWire capture -> native ASR -> partial/input-panel updates -> commit. The same installed profile also proves local adapter-backed selected-text replacement, non-mutating scene/ASR menu filtering, two-context focus handoff, verified daemon-owner loss, and same-provider reload followed by another recognition. The active target is now GUI-toolkit rendering, clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and one external provider.
 
 ## Readiness summary
 
@@ -47,7 +47,7 @@ The core **real desktop native-dictation alpha** path is live-proven through Fci
 | Area | Rust state | Remaining gap |
 | --- | --- | --- |
 | D-Bus compatibility | Legacy names, methods, signals, status strings, and payloads preserved; diagnostic extensions added | Real-session compatibility hardening |
-| Runtime lifecycle | Normal/command flow, capture-first startup, partial polling, inferring/postprocessing stop, reload deferral, adapter supervision, plus live focus handoff and owner-loss behavior | Broad application and reload behavior |
+| Runtime lifecycle | Normal/command flow, capture-first startup, partial polling, inferring/postprocessing stop, reload deferral, adapter supervision, plus live focus handoff, owner loss, and same-provider reload behavior | Broad application and model/provider-switch reload behavior |
 | Native ASR | Offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, Moonshine v1, online transducer, and Zipformer2 CTC mapped and WAV-proven | Other legacy families only when concrete demand exists |
 | Command ASR | Batch and streaming command protocols, partials, cancellation, and timeout enforcement | Live external-provider recovery testing |
 | Audio | Typed PCM, processing, mock/file sources, reusable PipeWire streams, target-change rebuild, serialized recording transactions, diagnostics, output ducking lifecycle, and live acoustic capture through the configured source | Audible output-ducking and broader device proof |

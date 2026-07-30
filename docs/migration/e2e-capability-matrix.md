@@ -26,7 +26,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Discover and install a model | implemented | live registry list/info/install, SHA-256, safe extraction, atomic materialization | Update/packaging polish |
 | Discover, install, update, edit, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, localized title/description, batch/streaming validation, mirror download, executable publication, update-by-reinstall with legacy timeout/env preservation, config backup, guarded managed update; local removal guard, active-clear semantics, and legacy-compatible referenced-script editor | None for current script registry |
 | Discover, install, update, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, update-by-reinstall with config backup and guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | None for current script registry |
-| Select and reload a model | deterministic | config persistence, background prepare-before-swap, C++/D-Bus selection smokes | Real desktop reload proof |
+| Select and reload a model | deterministic; same-provider reload live-proven | config persistence and background prepare-before-swap are deterministic; `ime-fcitx-reload-live` preserves owner/provider/model and proves post-reload acoustic recognition | Real model/provider-switch reload proof |
 | Normal native dictation | live-proven | real Fcitx client, F9, acoustic PipeWire capture, streaming native partial input-panel updates, and one final commit through `ime-fcitx-native-live`; GTK3 and Qt6 evidence collectors are implemented | Run and retain successful GTK3/Qt6 application evidence |
 | Command native dictation | live-proven | real Fcitx client, F10, selected surrounding text, live partials, deletion, and an `adapter-backed:` direct replacement commit from the configured local command adapter; GTK3 and Qt6 command probes are implemented | Multi-toolkit evidence, clipboard fallback, and one external provider flow |
 | Scene and ASR menus | live-proven for non-mutating interaction | real Fcitx client, F7/F8 candidates, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits; typed D-Bus state, paging, i18n, and localized titles remain deterministic | Real selection/paging and reload proof |
@@ -75,7 +75,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Offline VAD | deterministic | tracked Silero model, legacy controls, fallback and diagnostics |
 | Text postprocess | deterministic | command and OpenAI-compatible paths; live provider proof missing |
 | Adapter supervision | deterministic | process/PID lifecycle and D-Bus control |
-| Notifications and recovery | partial; focus and owner loss live-proven | focus handoff keeps partials/final commit on the originating context; verified daemon loss surfaces an unavailable preedit with zero commit and D-Bus activation restores the configured adapter profile | Live reload and notification proof |
+| Notifications and recovery | partial; focus, owner loss, and same-provider reload live-proven | focus handoff keeps partials/final commit on the originating context; verified daemon loss surfaces an unavailable preedit with zero commit; D-Bus activation restores the configured profile; same-provider reload is followed by successful recognition | Live notification and model/provider-switch reload proof |
 | Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, local-socket tests, and private-session process smoke | Live cross-device browser proof |
 
 ## Registry/resource comparison
@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-GTK3 and Qt6 text-field probes remain opt-in evidence collectors and are not live-proven without real desktop F9/F10 events. The Fcitx focus-handoff, daemon-owner-loss, scene/ASR menu, normal dictation, and local command-adapter summaries passed in an installed `sherpa-native-command-live` profile. Remaining behavior includes toolkit rendering, clipboard fallback, cross-application selected-text behavior, menu selection/paging, notifications, reload, and an external provider.
+GTK3 and Qt6 text-field probes remain opt-in evidence collectors and are not live-proven without real desktop F9/F10 events. The Fcitx focus-handoff, daemon-owner-loss, same-provider reload, scene/ASR menu, normal dictation, and local command-adapter summaries passed in an installed `sherpa-native-command-live` profile. Remaining behavior includes toolkit rendering, clipboard fallback, cross-application selected-text behavior, menu selection/paging, notifications, model/provider-switch reload, and an external provider.
 
 ## Release and platform gaps
 
@@ -164,7 +164,7 @@ GTK3 and Qt6 text-field probes remain opt-in evidence collectors and are not liv
 ## Immediate next work
 
 1. Run and retain normal/command evidence from the GTK3 and Qt6 probes, including clipboard fallback where surrounding text is unavailable.
-2. Record live menu selection/paging, notification, and reload behavior.
+2. Record live menu selection/paging, notification, and model/provider-switch reload behavior.
 3. Validate one external provider-backed command transformation.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.

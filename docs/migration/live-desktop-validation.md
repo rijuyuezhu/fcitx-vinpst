@@ -167,6 +167,7 @@ Each window prints JSONL and exits successfully only after the expected partial 
 ```sh
 VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-focus-live
 VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-owner-loss-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-reload-live
 ```
 
 The focus probe requires partials and the final commit to remain on the input context that started recording even after another context receives focus and sends the stop trigger. The owner-loss probe resolves the current `org.fcitx.Vinput` PID, refuses to stop an unexpected executable, terminates only a verified `vinput-daemon`, requires the frontend to replace live partials with an unavailable error preedit, and rejects any final commit. The installed `sherpa-native-command-live` profile passed both checks on 2026-07-30; owner loss was followed by successful D-Bus activation back into the same profile and adapter identity.
@@ -179,6 +180,7 @@ The following installed-profile summaries reported `ok: true`:
 - local command adapter: eight partials, one selected-text deletion, zero candidate rows for the configured single-result scene, and an `adapter-backed:` direct commit under `target/tmp/live-evidence/command-adapter`;
 - focus handoff: focus moved to a second Fcitx context, while secondary partial and commit counts remained zero under `target/tmp/live-evidence/focus-handoff`;
 - owner loss: an unavailable error preedit, zero final commit, and successful post-test D-Bus reactivation under `target/tmp/live-evidence/owner-loss`;
+- same-provider reload: the owner PID and effective provider/model remained stable, reload completed without error, and a subsequent acoustic recognition produced eight partials plus a final commit under `target/tmp/ime-fcitx-reload-live`;
 - scene and ASR menus: candidate display, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits under `target/tmp/ime-fcitx-menu-live`.
 
 The GTK3 probe reached its real-window `ready` event, but no real F9 event arrived before the playback deadline. That attempt is not toolkit evidence. GTK3 and Qt6 remain unproven until their application JSONL summaries report `ok: true` after real desktop key events.
@@ -223,4 +225,4 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement, non-mutating scene/ASR menus, focus handoff, and verified owner loss in real Fcitx clients. GTK3 and Qt6 still require real desktop key events and successful application JSONL summaries; clipboard fallback, menu selection/paging, notifications, reload, and an external provider remain outside the proven boundary.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement, non-mutating scene/ASR menus, focus handoff, verified owner loss, and same-provider reload followed by another recognition in real Fcitx clients. GTK3 and Qt6 still require real desktop key events and successful application JSONL summaries; clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and an external provider remain outside the proven boundary.
