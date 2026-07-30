@@ -165,10 +165,17 @@ class MenuProbe:
             failures.append("second Escape did not close the menu")
         if self.state.commits:
             failures.append("menu navigation unexpectedly committed text")
-        if len(self.state.key_events) < 4 or not all(
-            event["pressed"] and event["released"] for event in self.state.key_events
+        key_events = {event["label"]: event for event in self.state.key_events}
+        required_labels = {"trigger", "slash", "escape-filter", "escape-menu"}
+        if not required_labels.issubset(key_events):
+            failures.append("menu probe did not send every expected key tap")
+        elif not all(key_events[label]["pressed"] for label in required_labels):
+            failures.append("addon did not consume every menu key press")
+        elif not all(
+            key_events[label]["released"]
+            for label in ("trigger", "slash", "escape-filter")
         ):
-            failures.append("addon did not consume every menu key tap")
+            failures.append("addon did not consume active-menu key releases")
 
         emit(
             "summary",
@@ -177,6 +184,14 @@ class MenuProbe:
             filter_seen=self.state.filter_seen,
             filter_cleared=self.state.filter_cleared,
             menu_closed=self.state.menu_closed,
+            escape_menu_release_consumed=next(
+                (
+                    event["released"]
+                    for event in self.state.key_events
+                    if event["label"] == "escape-menu"
+                ),
+                None,
+            ),
             commit_count=len(self.state.commits),
             ok=not failures,
             failures=failures,

@@ -619,6 +619,8 @@ fn fcitx_menu_live_probe_is_non_mutating() {
         "first Escape did not clear menu filter mode",
         "second Escape did not close the menu",
         "menu navigation unexpectedly committed text",
+        "addon did not consume active-menu key releases",
+        "escape_menu_release_consumed",
         "candidate_count",
         "commit_count",
     ] {
