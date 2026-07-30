@@ -265,6 +265,7 @@ impl AudioRecorder for PipeWireAudioRecorder {
             self.worker = Some(spawn_recording_worker(
                 Arc::clone(&self.chunk_callback),
                 Arc::clone(&self.first_buffer_latency_ms),
+                &self.stream_config,
             )?);
         }
         let worker = self.worker.as_mut().ok_or_else(|| {
@@ -507,8 +508,8 @@ fn should_expire_idle_stream(state: &PipeWireWorkerState, generation: u64) -> bo
 fn spawn_recording_worker(
     callback: Arc<Mutex<Option<AudioChunkCallback>>>,
     first_buffer_latency_ms: Arc<AtomicU64>,
+    config: &PipeWireStreamConfig,
 ) -> Result<PipeWireRecordingWorker, AudioError> {
-    let config = PipeWireStreamConfig::for_target(CaptureTarget::default());
     let (command_tx, command_rx) = pipewire::channel::channel();
     let idle_worker_tx = command_tx.clone();
     let (idle_timer_tx, idle_timer_rx) = mpsc::channel();
@@ -518,12 +519,13 @@ fn spawn_recording_worker(
     let join = thread::spawn(move || {
         run_recording_worker(&callback, &first_buffer_latency_ms, command_rx, &setup_tx)
     });
-    setup_rx.recv().map_err(|error| {
+    let setup_result = setup_rx.recv().map_err(|error| {
         pipewire_recording_error(
-            &config,
+            config,
             format!("PipeWire recorder worker exited before setup: {error}"),
         )
-    })??;
+    })?;
+    setup_result.map_err(|error| pipewire_recording_error(config, error))?;
     Ok(PipeWireRecordingWorker {
         command_tx,
         idle_timer_tx,
