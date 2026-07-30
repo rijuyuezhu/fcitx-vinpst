@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke arch-install-script-check arch-pkgbuild-check release-manifest-check release-signature-check release-candidate-check command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-handoff-diagnostics-smoke daemon-handoff-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke toolkit-probe-check arch-install-script-check arch-pkgbuild-check release-manifest-check release-signature-check release-candidate-check command-asr-wav-helper-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-handoff-diagnostics-smoke daemon-handoff-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -152,6 +152,15 @@ ime-configured-pipewire-live:
 # Explicit real Fcitx input-context probe through live acoustic PipeWire and native ASR.
 ime-fcitx-native-live:
     scripts/run-ime-fcitx-native-live.sh
+
+# Compile toolkit probes without entering a real desktop flow.
+toolkit-probe-check:
+    mkdir -p target/tmp/toolkit-probe-check
+    cc -std=c11 -Wall -Wextra -Werror scripts/gtk3-live-toolkit-probe.c -o target/tmp/toolkit-probe-check/gtk3-live-toolkit-probe $(pkg-config --cflags --libs gtk+-3.0)
+
+# Explicit GTK3 application probe. Trigger F9/F10 with a real desktop key event.
+ime-gtk3-native-live:
+    scripts/run-ime-gtk3-native-live.sh
 
 # Install per-user D-Bus activation service for local desktop testing. Writes under XDG_DATA_HOME or ~/.local/share.
 user-activation-service:

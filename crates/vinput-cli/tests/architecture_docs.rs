@@ -469,6 +469,58 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
 }
 
 #[test]
+fn gtk3_live_probe_requires_real_toolkit_key_events() {
+    let source = std::fs::read_to_string(workspace_file("scripts/gtk3-live-toolkit-probe.c"))
+        .expect("read GTK3 live toolkit probe");
+    let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-gtk3-native-live.sh"))
+        .expect("read GTK3 live toolkit runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "preedit-changed",
+        "VINPUT_TOOLKIT_REQUIRE_PARTIAL",
+        "manual_trigger\\\":true",
+        "replacement_seen",
+        "VINPUT_TOOLKIT_TIMEOUT_SECONDS",
+    ] {
+        assert!(
+            source.contains(required),
+            "missing GTK3 probe contract: {required}"
+        );
+    }
+    for forbidden in [
+        "gdk_event_new",
+        "gtk_widget_event",
+        "gtk_im_context_filter_keypress",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "GTK3 live probe must not synthesize key events through {forbidden}"
+        );
+    }
+    for required in [
+        "GTK_IM_MODULE=fcitx",
+        "VINPUT_LIVE_TOOLKIT_WAV",
+        "org.fcitx.Vinput.Service.GetStatus",
+        "target/tmp/ime-gtk3-native-live",
+        "Use the real Fcitx shortcut",
+    ] {
+        assert!(
+            runner.contains(required),
+            "missing GTK3 runner contract: {required}"
+        );
+    }
+    assert!(justfile.contains("toolkit-probe-check:"));
+    assert!(justfile.contains("ime-gtk3-native-live:"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(check_line.contains("toolkit-probe-check"));
+    assert!(!check_line.contains("ime-gtk3-native-live"));
+}
+
+#[test]
 fn development_doc_pins_addon_dbus_smoke_recipes() {
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
         .expect("read development guide");
