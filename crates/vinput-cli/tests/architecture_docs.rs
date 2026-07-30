@@ -584,6 +584,53 @@ fn qt6_live_probe_requires_real_toolkit_key_events() {
 }
 
 #[test]
+fn fcitx_menu_live_probe_is_non_mutating() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-probe.py"))
+        .expect("read Fcitx menu live probe");
+    let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-menu-live.sh"))
+        .expect("read Fcitx menu live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "slash did not activate menu filter mode",
+        "first Escape did not clear menu filter mode",
+        "second Escape did not close the menu",
+        "menu navigation unexpectedly committed text",
+        "candidate_count",
+        "commit_count",
+    ] {
+        assert!(
+            probe.contains(required),
+            "missing Fcitx menu outcome contract: {required}"
+        );
+    }
+    for forbidden in ["select_candidate", "SetActiveScene", "SetActiveAsrTarget"] {
+        assert!(
+            !probe.contains(forbidden),
+            "default menu probe must not mutate selection through {forbidden}"
+        );
+    }
+    for required in [
+        "VINPUT_LIVE_MENU_MODES",
+        "VINPUT_LIVE_SCENE_MENU_KEY",
+        "VINPUT_LIVE_ASR_MENU_KEY",
+        "target/tmp/ime-fcitx-menu-live",
+        "org.fcitx.Vinput must be idle",
+    ] {
+        assert!(
+            runner.contains(required),
+            "missing Fcitx menu runner contract: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-menu-live:"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-menu-live"));
+}
+
+#[test]
 fn development_doc_pins_addon_dbus_smoke_recipes() {
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
         .expect("read development guide");
