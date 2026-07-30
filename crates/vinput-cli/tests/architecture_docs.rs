@@ -796,6 +796,93 @@ fn packaging_architecture_pins_signed_repository_trust() {
 }
 
 #[test]
+fn packaging_architecture_pins_release_artifact_inventory() {
+    let packaging_doc = std::fs::read_to_string(architecture_dir().join("packaging-contract.md"))
+        .expect("read packaging contract doc");
+    let manifest_tool = std::fs::read_to_string(workspace_file("scripts/release_manifest.py"))
+        .expect("read release manifest tool");
+    let manifest_check =
+        std::fs::read_to_string(workspace_file("scripts/check-release-manifest.sh"))
+            .expect("read release manifest check");
+    let bundle_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-release-bundle-smoke.sh"))
+            .expect("read Arch release bundle smoke");
+    let package_smoke =
+        std::fs::read_to_string(workspace_file("scripts/run-arch-package-smoke.sh"))
+            .expect("read Arch package smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "Release artifact inventory",
+        "flat release-artifact directory",
+        "one unique role per artifact",
+        "`SHA256SUMS` is sorted by artifact name",
+        "rejects duplicate roles or basenames",
+        "may replace only an existing bundle that already passes",
+        "never publishes a partial bundle",
+        "`just release-manifest-check`",
+        "exactly 13 release-gate artifacts",
+        "package-pkgrel2-test",
+        "signing-public-key-test",
+        "not a public release set",
+        "not themselves signed by an external production trust root",
+    ] {
+        assert!(
+            packaging_doc.contains(required),
+            "packaging contract should pin release inventory boundary: {required}"
+        );
+    }
+
+    for required in [
+        "MANIFEST_NAME = \"manifest.json\"",
+        "CHECKSUMS_NAME = \"SHA256SUMS\"",
+        "SCHEMA_VERSION = 1",
+        "duplicate artifact role",
+        "artifact must not be inside the output directory",
+        "verify_bundle(bundle)",
+        "tempfile.mkdtemp",
+        "release bundle inventory mismatch",
+    ] {
+        assert!(
+            manifest_tool.contains(required),
+            "release manifest tool should pin: {required}"
+        );
+    }
+
+    for required in [
+        "mutated-artifact",
+        "symlink-artifact",
+        "nested-directory",
+        "force-arbitrary",
+        "inside-output",
+        "duplicate-role",
+    ] {
+        assert!(
+            manifest_check.contains(required),
+            "release manifest check should prove: {required}"
+        );
+    }
+
+    for required in [
+        "--artifact \"source-archive=",
+        "--artifact \"package-pkgrel2-test=",
+        "--artifact \"signing-public-key-test=",
+        "sha256sum -c SHA256SUMS",
+        "gpg --homedir \"${verify_home}\" --batch --verify",
+        "unexpected.key",
+        "artifact digest mismatch",
+    ] {
+        assert!(
+            bundle_smoke.contains(required),
+            "release bundle smoke should prove: {required}"
+        );
+    }
+    assert!(package_smoke.contains("run-arch-release-bundle-smoke.sh"));
+    assert!(justfile.contains("release-manifest-check:"));
+    assert!(justfile.contains("arch-release-bundle-smoke:"));
+}
+
+#[test]
 fn registry_architecture_mentions_root_planning() {
     let registry_doc = std::fs::read_to_string(architecture_dir().join("registry-contract.md"))
         .expect("read registry contract doc");

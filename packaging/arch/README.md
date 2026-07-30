@@ -30,8 +30,14 @@ database from the same two archives and proves `pacman -S` installation and
 upgrade through a `file://` repository.
 `just arch-signing-smoke` adds an ephemeral signing key, package/database
 signatures, an isolated trusted pacman keyring, unknown-signer rejection, and
-same-size package tamper rejection. The generated private key lives only under
-`target/tmp`; production release keys are not part of the repository.
+same-size package tamper rejection. `just arch-release-bundle-smoke` then
+assembles the source archive, rendered Arch metadata, package/repository
+artifacts, signatures, and ephemeral public key into a strict `manifest.json`
+plus `SHA256SUMS` inventory and revalidates every detached signature. The
+synthetic `pkgrel=2` and test key are explicitly labeled test-only; this bundle
+is release-gate evidence, not the public release set. The generated private key
+lives only under `target/tmp`; production release keys and an external signature
+over the manifest/checksum trust root are not part of the repository.
 
 The renderer also copies `fcitx-vinput-rs.install` beside the generated
 PKGBUILD. Its hooks are message-only because a root pacman transaction cannot

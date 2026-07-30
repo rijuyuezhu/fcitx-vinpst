@@ -27,7 +27,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
 | M4 Real desktop native alpha | active | live Fcitx, PipeWire, partial/preedit, commit, command replacement |
 | M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal, and adapter runtime selectors |
-| M6 Release readiness | partial | Arch `x86_64` package construction, isolated pacman install/upgrade/same-version-rollback/uninstall, local repository metadata/install/upgrade, ephemeral signed package/database trust and tamper rejection, message-only lifecycle hooks and local runbook, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification are deterministic; incompatible-state rollback, automatic package-manager-triggered handoff inside user sessions, externally hosted repository publication with production key operations, live installed proof, and external-user regression remain |
+| M6 Release readiness | partial | Arch `x86_64` package construction, isolated pacman install/upgrade/same-version-rollback/uninstall, local repository metadata/install/upgrade, ephemeral signed package/database trust and tamper rejection, strict release-gate `manifest.json`/`SHA256SUMS` inventory with signature revalidation, message-only lifecycle hooks and local runbook, running-owner path/deleted-inode diagnostics, and explicit conditional systemd-user handoff with post-restart verification are deterministic; incompatible-state rollback, automatic package-manager-triggered handoff inside user sessions, externally hosted repository publication with production key operations and an externally signed manifest/checksum trust root, live installed proof, and external-user regression remain |
 
 ## Completed: usable CLI/daemon alpha
 
@@ -76,7 +76,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 
 - keep the checked Arch package for the CLI, daemon, addon, metadata, translations, VAD asset, activation service, and private native runtime green through `just arch-pkgbuild-check` and `just arch-package-smoke`;
 - define incompatible-state rollback, automatic package-manager-triggered upgrade/removal handoff, and destructive direct-PID stale-owner migration behavior; keep the implemented explicit systemd-user handoff conditional and post-verified;
-- publish the rendered package, signatures, repository metadata, and a short supported installation path;
+- publish the selected production package, signatures, repository metadata, externally signed manifest/checksum root, and a short supported installation path; do not publish synthetic `pkgrel=2` or ephemeral-key test artifacts;
 - run live validation on supported desktop/application combinations;
 - add external-user regression coverage.
 

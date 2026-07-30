@@ -60,6 +60,8 @@ EOF
 tar \
   --exclude=.git \
   --exclude=target \
+  --exclude='__pycache__' \
+  --exclude='*.py[co]' \
   --exclude='packaging/arch/PKGBUILD' \
   --transform "s,^,${source_dir}/," \
   -czf "${source_archive}" \
@@ -176,5 +178,7 @@ scripts/run-arch-repository-smoke.sh \
   "${package_archive}" "${upgrade_package_archive}"
 scripts/run-arch-signing-smoke.sh \
   "${package_archive}" "${upgrade_package_archive}"
+scripts/run-arch-release-bundle-smoke.sh \
+  "${source_archive}" "${package_archive}" "${upgrade_package_archive}"
 
 echo "Arch package smoke passed: ${package_archive}"
