@@ -63,6 +63,8 @@ The retained C++ addon listens through the Fcitx D-Bus module rather than adding
 
 CLI owner diagnostics deliberately run after the first successful service method call. Proxy construction alone does not activate a D-Bus service, so collecting `GetNameOwner` earlier made the initial `vinput daemon status` response report `owner: null` even though that same query started the daemon. `just user-ime-activation-owner-smoke` covers the corrected first-query behavior against a generated per-user activation service.
 
+`vinput daemon status` also derives a non-mutating package handoff diagnostic from the D-Bus owner PID and `/proc/<pid>/exe`. It compares the owner executable with the `vinput-daemon` sibling of the running CLI, strips Linux's ` (deleted)` suffix for path comparison, reports whether the old inode has been unlinked, and recommends `vinput daemon restart` for a deleted owner inode or a concrete executable-path mismatch. It never kills or restarts the owner automatically. `just daemon-handoff-diagnostics-smoke` proves both mismatch and replaced-inode cases on private session buses.
+
 ## Test coverage
 
 Unit tests call the service facade directly and assert runtime transitions and JSON payloads. The optional integration test runs through a real session bus:

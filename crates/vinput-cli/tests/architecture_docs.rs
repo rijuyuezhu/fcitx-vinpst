@@ -521,6 +521,10 @@ fn packaging_architecture_pins_arch_release_boundary() {
         "scripts/run-arch-package-transaction-smoke.sh",
     ))
     .expect("read Arch package transaction smoke");
+    let handoff_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-daemon-handoff-diagnostics-smoke.sh",
+    ))
+    .expect("read daemon handoff diagnostics smoke");
 
     for required in [
         "checked Arch Linux `x86_64` template",
@@ -538,7 +542,10 @@ fn packaging_architecture_pins_arch_release_boundary() {
         "fakeroot-isolated pacman root",
         "same-version `pkgrel=2` to `pkgrel=1` rollback",
         "sentinel remains byte-identical",
-        "Rollback across versions with incompatible config or state",
+        "different executable path",
+        "executable inode unlinked by package replacement",
+        "without mutating the service",
+        "rollback across versions with incompatible config or state",
     ] {
         assert!(
             packaging_doc.contains(required),
@@ -569,6 +576,7 @@ fn packaging_architecture_pins_arch_release_boundary() {
         "arch-pkgbuild-check:",
         "arch-package-smoke:",
         "arch-package-transaction-smoke:",
+        "daemon-handoff-diagnostics-smoke:",
     ] {
         assert!(justfile.contains(recipe), "justfile should define {recipe}");
     }
@@ -590,6 +598,10 @@ fn packaging_architecture_pins_arch_release_boundary() {
     );
     assert!(transaction_smoke.contains("preserve-user-config"));
     assert!(transaction_smoke.contains("-Qkk"));
+    assert!(handoff_smoke.contains("owner-executable-path-mismatch"));
+    assert!(handoff_smoke.contains("owner-executable-deleted"));
+    assert!(handoff_smoke.contains("automatic_restart_performed == false"));
+    assert!(handoff_smoke.contains("run vinput daemon restart"));
 }
 
 #[test]

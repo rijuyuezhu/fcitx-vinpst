@@ -341,6 +341,7 @@ fn daemon_status_dry_run_prints_dbus_plan_json() {
     let reports = value["reports"].as_array().unwrap();
     assert!(reports.contains(&serde_json::json!("service_status")));
     assert!(reports.contains(&serde_json::json!("bus_owner")));
+    assert!(reports.contains(&serde_json::json!("daemon_handoff")));
     assert!(reports.contains(&serde_json::json!("asr_backend")));
     assert!(reports.contains(&serde_json::json!("runtime_status")));
     assert!(reports.contains(&serde_json::json!("text_adapters")));
@@ -365,7 +366,7 @@ fn daemon_status_text_dry_run_prints_dbus_plan() {
     assert!(stdout.contains("GetAsrBackendState"));
     assert!(stdout.contains("GetRuntimeStatus"));
     assert!(stdout.contains(
-        "reports: service_status, bus_owner, asr_backend, runtime_status, text_adapters"
+        "reports: service_status, bus_owner, daemon_handoff, asr_backend, runtime_status, text_adapters"
     ));
     assert!(
         stdout

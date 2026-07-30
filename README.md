@@ -40,7 +40,7 @@ Still requiring live proof or implementation:
 - real Fcitx5 -> PipeWire -> native ASR -> partial/preedit -> application commit;
 - command replacement and clipboard fallback across real applications;
 - remote text live cross-device browser proof;
-- live-service upgrade handoff, rollback policy, stale-owner cleanup, repository publication, and release hardening;
+- automatic live-service upgrade/removal handoff, incompatible-state rollback policy, destructive stale-owner cleanup, repository publication, and release hardening (owner path/deleted-inode diagnostics are implemented);
 - the legacy Qt GUI, which is intentionally deferred.
 
 See [`docs/migration/function-gap-audit.md`](docs/migration/function-gap-audit.md) for status and [`docs/migration/e2e-replication-plan.md`](docs/migration/e2e-replication-plan.md) for priorities.

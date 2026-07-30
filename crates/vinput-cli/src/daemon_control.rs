@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf, process::Command as ProcessCommand};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command as ProcessCommand,
+};
 
 use anyhow::Context;
 use vinput_protocol::dbus;
@@ -421,6 +425,7 @@ fn daemon_status_dry_run_json() -> serde_json::Value {
         "reports": [
             "service_status",
             "bus_owner",
+            "daemon_handoff",
             "asr_backend",
             "runtime_status",
             "text_adapters"
@@ -459,7 +464,9 @@ fn print_daemon_status_dry_run_text() {
         dbus::method::GET_ASR_BACKEND_STATE,
         dbus::method::GET_RUNTIME_STATUS
     );
-    println!("reports: service_status, bus_owner, asr_backend, runtime_status, text_adapters");
+    println!(
+        "reports: service_status, bus_owner, daemon_handoff, asr_backend, runtime_status, text_adapters"
+    );
     println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
     println!("next_step: run vinput daemon status without --dry-run");
 }
@@ -482,7 +489,8 @@ pub(crate) fn daemon_owner_probe_plan_json() -> serde_json::Value {
         "stale_owner_hints": [
             "runtime-status-unavailable",
             "unexpected owner executable",
-            "activation service points to an old daemon path"
+            "activation service points to an old daemon path",
+            "owner executable inode was deleted during package replacement"
         ]
     })
 }
@@ -497,6 +505,7 @@ fn daemon_status_via_dbus() -> anyhow::Result<serde_json::Value> {
     // diagnostics immediately after the first successful method call so an
     // activation-backed daemon is visible on the initial `daemon status` query.
     let owner = daemon_owner_diagnostics(&connection);
+    let handoff = daemon_handoff_diagnostics(&owner);
     let asr: DaemonAsrBackendStateTuple = proxy
         .call(dbus::method::GET_ASR_BACKEND_STATE, &())
         .context("call GetAsrBackendState on daemon D-Bus service")?;
@@ -523,6 +532,7 @@ fn daemon_status_via_dbus() -> anyhow::Result<serde_json::Value> {
         },
         "runtime_status": runtime_status,
         "owner": owner,
+        "handoff": handoff,
     }))
 }
 
@@ -591,6 +601,59 @@ fn daemon_owner_process_json(pid: u32) -> serde_json::Value {
     })
 }
 
+const DELETED_EXECUTABLE_SUFFIX: &str = " (deleted)";
+
+fn daemon_handoff_diagnostics(owner: &serde_json::Value) -> serde_json::Value {
+    let expected = expected_sibling_daemon_path().filter(|path| path.exists());
+    daemon_handoff_diagnostics_for_paths(owner["process"]["exe"].as_str(), expected.as_deref())
+}
+
+fn expected_sibling_daemon_path() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(|parent| parent.join("vinput-daemon"))
+}
+
+fn daemon_handoff_diagnostics_for_paths(
+    owner_executable: Option<&str>,
+    expected_executable: Option<&Path>,
+) -> serde_json::Value {
+    let owner_executable_deleted =
+        owner_executable.is_some_and(|path| path.ends_with(DELETED_EXECUTABLE_SUFFIX));
+    let normalized_owner_executable =
+        owner_executable.map(|path| path.strip_suffix(DELETED_EXECUTABLE_SUFFIX).unwrap_or(path));
+    let path_matches = normalized_owner_executable
+        .zip(expected_executable)
+        .map(|(owner, expected)| executable_paths_match(Path::new(owner), expected));
+    let reason = if owner_executable_deleted {
+        Some("owner-executable-deleted")
+    } else if path_matches == Some(false) {
+        Some("owner-executable-path-mismatch")
+    } else {
+        None
+    };
+    let restart_recommended = reason.is_some();
+    serde_json::json!({
+        "expected_executable": expected_executable,
+        "owner_executable": owner_executable,
+        "normalized_owner_executable": normalized_owner_executable,
+        "owner_executable_deleted": owner_executable_deleted,
+        "path_matches": path_matches,
+        "restart_recommended": restart_recommended,
+        "reason": reason,
+        "automatic_restart_performed": false,
+        "next_step": restart_recommended.then_some("run vinput daemon restart"),
+    })
+}
+
+fn executable_paths_match(owner: &Path, expected: &Path) -> bool {
+    match (fs::canonicalize(owner), fs::canonicalize(expected)) {
+        (Ok(owner), Ok(expected)) => owner == expected,
+        _ => owner == expected,
+    }
+}
+
 fn print_daemon_status_text(snapshot: &serde_json::Value) {
     println!("status: {}", optional_json_str(&snapshot["status"]));
     if !snapshot["owner"].is_null() {
@@ -611,6 +674,7 @@ fn print_daemon_status_text(snapshot: &serde_json::Value) {
             json_string_array_summary(&snapshot["owner"]["process"]["cmdline"])
         );
     }
+    print_daemon_handoff_text(&snapshot["handoff"]);
     println!(
         "target_provider_id: {}",
         optional_json_str(&snapshot["asr_backend"]["target_provider_id"])
@@ -668,6 +732,32 @@ fn print_daemon_status_text(snapshot: &serde_json::Value) {
         snapshot["runtime_status"]["text_adapters"]["adapter_count"]
             .as_u64()
             .unwrap_or(0)
+    );
+}
+
+fn print_daemon_handoff_text(handoff: &serde_json::Value) {
+    println!(
+        "handoff_expected_exe: {}",
+        optional_json_str(&handoff["expected_executable"])
+    );
+    println!(
+        "handoff_owner_exe_deleted: {}",
+        handoff["owner_executable_deleted"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+    match handoff["path_matches"].as_bool() {
+        Some(matches) => println!("handoff_path_matches: {matches}"),
+        None => println!("handoff_path_matches: -"),
+    }
+    println!(
+        "handoff_restart_recommended: {}",
+        handoff["restart_recommended"].as_bool().unwrap_or(false)
+    );
+    println!("handoff_reason: {}", optional_json_str(&handoff["reason"]));
+    println!(
+        "handoff_next_step: {}",
+        optional_json_str(&handoff["next_step"])
     );
 }
 
@@ -785,4 +875,64 @@ fn request_asr_reload_via_dbus() -> anyhow::Result<DaemonAsrBackendStateTuple> {
     proxy
         .call(dbus::method::GET_ASR_BACKEND_STATE, &())
         .context("call GetAsrBackendState after ReloadAsrBackend")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handoff_diagnostics_accept_matching_executable() {
+        let directory = tempfile::tempdir().expect("create handoff fixture directory");
+        let expected = directory.path().join("vinput-daemon");
+        fs::write(&expected, b"fixture").expect("write expected daemon fixture");
+        let output = daemon_handoff_diagnostics_for_paths(
+            Some(expected.to_str().expect("UTF-8 fixture path")),
+            Some(&expected),
+        );
+
+        assert_eq!(output["path_matches"], true);
+        assert_eq!(output["owner_executable_deleted"], false);
+        assert_eq!(output["restart_recommended"], false);
+        assert!(output["reason"].is_null());
+        assert!(output["next_step"].is_null());
+    }
+
+    #[test]
+    fn handoff_diagnostics_detect_deleted_owner_inode() {
+        let directory = tempfile::tempdir().expect("create handoff fixture directory");
+        let expected = directory.path().join("vinput-daemon");
+        fs::write(&expected, b"fixture").expect("write expected daemon fixture");
+        let owner = format!("{}{}", expected.display(), DELETED_EXECUTABLE_SUFFIX);
+        let output = daemon_handoff_diagnostics_for_paths(Some(&owner), Some(&expected));
+
+        assert_eq!(output["path_matches"], true);
+        assert_eq!(output["owner_executable_deleted"], true);
+        assert_eq!(output["restart_recommended"], true);
+        assert_eq!(output["reason"], "owner-executable-deleted");
+        assert_eq!(output["next_step"], "run vinput daemon restart");
+        assert_eq!(output["automatic_restart_performed"], false);
+    }
+
+    #[test]
+    fn handoff_diagnostics_detect_executable_path_mismatch() {
+        let directory = tempfile::tempdir().expect("create handoff fixture directory");
+        let expected = directory.path().join("expected/vinput-daemon");
+        let owner = directory.path().join("old/vinput-daemon");
+        fs::create_dir_all(expected.parent().expect("expected parent"))
+            .expect("create expected parent");
+        fs::create_dir_all(owner.parent().expect("owner parent")).expect("create owner parent");
+        fs::write(&expected, b"expected").expect("write expected daemon fixture");
+        fs::write(&owner, b"owner").expect("write owner daemon fixture");
+        let output = daemon_handoff_diagnostics_for_paths(
+            Some(owner.to_str().expect("UTF-8 fixture path")),
+            Some(&expected),
+        );
+
+        assert_eq!(output["path_matches"], false);
+        assert_eq!(output["owner_executable_deleted"], false);
+        assert_eq!(output["restart_recommended"], true);
+        assert_eq!(output["reason"], "owner-executable-path-mismatch");
+        assert_eq!(output["next_step"], "run vinput daemon restart");
+    }
 }

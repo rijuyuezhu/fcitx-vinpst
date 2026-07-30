@@ -89,10 +89,11 @@ just addon-dbus-activation-smoke
 just addon-dbus-configured-activation-smoke
 just addon-dbus-adapter-lifecycle-smoke
 just remote-text-daemon-lifecycle-smoke
+just daemon-handoff-diagnostics-smoke
 just ime-e2e-smoke
 ```
 
-`just ime-e2e-smoke` includes fake outcome sink coverage. `just addon-dbus-adapter-lifecycle-smoke` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus. `just remote-text-daemon-lifecycle-smoke` launches the normal daemon in a private session, proves its HTTP health endpoint, D-Bus owner, and redacted endpoint diagnostics, sends `SIGTERM`, and verifies listener release.
+`just ime-e2e-smoke` includes fake outcome sink coverage. `just addon-dbus-adapter-lifecycle-smoke` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus. `just remote-text-daemon-lifecycle-smoke` launches the normal daemon in a private session, proves its HTTP health endpoint, D-Bus owner, and redacted endpoint diagnostics, sends `SIGTERM`, and verifies listener release. `just daemon-handoff-diagnostics-smoke` proves that `daemon status` detects both a D-Bus owner running from a different daemon path and a replaced executable whose old inode appears as ` (deleted)`, while remaining non-mutating.
 
 ### User installation
 
