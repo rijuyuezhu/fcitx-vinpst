@@ -157,10 +157,15 @@ ime-fcitx-native-live:
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check
     cc -std=c11 -Wall -Wextra -Werror scripts/gtk3-live-toolkit-probe.c -o target/tmp/toolkit-probe-check/gtk3-live-toolkit-probe $(pkg-config --cflags --libs gtk+-3.0)
+    c++ -std=c++20 -fPIC -Wall -Wextra -Werror scripts/qt6-live-toolkit-probe.cpp -o target/tmp/toolkit-probe-check/qt6-live-toolkit-probe $(pkg-config --cflags --libs Qt6Widgets)
 
 # Explicit GTK3 application probe. Trigger F9/F10 with a real desktop key event.
 ime-gtk3-native-live:
     scripts/run-ime-gtk3-native-live.sh
+
+# Explicit Qt6 application probe. Trigger F9/F10 with a real desktop key event.
+ime-qt6-native-live:
+    scripts/run-ime-qt6-native-live.sh
 
 # Install per-user D-Bus activation service for local desktop testing. Writes under XDG_DATA_HOME or ~/.local/share.
 user-activation-service:

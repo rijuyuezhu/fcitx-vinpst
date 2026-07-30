@@ -521,6 +521,52 @@ fn gtk3_live_probe_requires_real_toolkit_key_events() {
 }
 
 #[test]
+fn qt6_live_probe_requires_real_toolkit_key_events() {
+    let source = std::fs::read_to_string(workspace_file("scripts/qt6-live-toolkit-probe.cpp"))
+        .expect("read Qt6 live toolkit probe");
+    let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-qt6-native-live.sh"))
+        .expect("read Qt6 live toolkit runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "inputMethodEvent",
+        "VINPUT_TOOLKIT_REQUIRE_PARTIAL",
+        "manual_trigger",
+        "replacement_seen",
+        "VINPUT_TOOLKIT_TIMEOUT_SECONDS",
+    ] {
+        assert!(
+            source.contains(required),
+            "missing Qt6 probe contract: {required}"
+        );
+    }
+    for forbidden in ["QKeyEvent", "sendEvent", "postEvent"] {
+        assert!(
+            !source.contains(forbidden),
+            "Qt6 live probe must not synthesize key events through {forbidden}"
+        );
+    }
+    for required in [
+        "QT_IM_MODULE=fcitx",
+        "VINPUT_LIVE_TOOLKIT_WAV",
+        "org.fcitx.Vinput.Service.GetStatus",
+        "target/tmp/ime-qt6-native-live",
+        "Use the real Fcitx shortcut",
+    ] {
+        assert!(
+            runner.contains(required),
+            "missing Qt6 runner contract: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-qt6-native-live:"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-qt6-native-live"));
+}
+
+#[test]
 fn development_doc_pins_addon_dbus_smoke_recipes() {
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
         .expect("read development guide");
