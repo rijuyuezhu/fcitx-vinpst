@@ -83,15 +83,15 @@ The probe must see the addon module, addon metadata, activation service, current
 
 ## 5. Live normal dictation
 
-Run the repeatable acoustic client gate first:
+Run the repeatable isolated PipeWire client gate first:
 
 ```sh
 VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   VINPUT_LIVE_NATIVE_MODES=normal \
-  just ime-fcitx-native-live
+  just ime-fcitx-virtual-source-live
 ```
 
-This creates a real Fcitx client input context, sends the configured F9 trigger through Fcitx, plays the WAV through the current output device, and requires non-placeholder partial input-panel updates plus one final commit.
+This creates an isolated PipeWire sink/source pair, rejects a silent 16 kHz mono preflight capture, temporarily selects the virtual source, creates a real Fcitx client input context, sends the configured F9 trigger through Fcitx, and requires non-placeholder partial input-panel updates plus one final commit. It restores the original capture configuration and daemon afterward. Physical speaker and microphone behavior are outside this proof.
 
 In a real application text field:
 
@@ -111,10 +111,11 @@ The same repeatable client gate covers the surrounding-text candidate path:
 ```sh
 VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   VINPUT_LIVE_NATIVE_MODES=command \
-  just ime-fcitx-native-live
+  VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live \
+  just ime-fcitx-virtual-source-live
 ```
 
-It requires F10 handling, selected surrounding text, live partials, `delete-surrounding-text`, and a different replacement commit. A scene with multiple candidates must expose a candidate menu; a single-result adapter may commit directly. Evidence is written under `target/tmp/ime-fcitx-native-live` or an explicit `VINPUT_LIVE_NATIVE_OUT_DIR`.
+It requires F10 handling, selected surrounding text, live partials, `delete-surrounding-text`, and a different replacement commit. A scene with multiple candidates must expose a candidate menu; a single-result adapter may commit directly. Evidence is written under the explicit `VINPUT_LIVE_VIRTUAL_OUT_DIR`.
 
 To prove a configured command adapter rather than the raw-ASR fallback candidate, install the native command profile with the same model/runtime inputs:
 
@@ -129,7 +130,11 @@ After restarting Fcitx5 through the generated environment wrapper, run:
 
 ```sh
 VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
-  just ime-fcitx-native-command-adapter-live
+  VINPUT_LIVE_NATIVE_MODES=command \
+  VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter \
+  VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' \
+  VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live \
+  just ime-fcitx-virtual-source-live
 ```
 
 The gate requires `runtime-status` to contain `native-command-live-adapter` and the selected replacement commit to begin with `adapter-backed:`. This is repeatable proof of the configured command-adapter and frontend replacement path, not proof of a remote OpenAI-compatible provider.
@@ -165,9 +170,9 @@ Each window prints JSONL and exits successfully only after the expected partial 
 ### Focus and owner-loss probes
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-focus-live
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-owner-loss-live
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-reload-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPUT_LIVE_NATIVE_FOCUS_SWITCH=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-focus-live just ime-fcitx-virtual-source-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPUT_LIVE_NATIVE_OWNER_LOSS=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-owner-loss-live just ime-fcitx-virtual-source-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPUT_LIVE_RELOAD_BEFORE_PROBE=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-reload-live just ime-fcitx-virtual-source-live
 ```
 
 The focus probe requires partials and the final commit to remain on the input context that started recording even after another context receives focus and sends the stop trigger. The owner-loss probe resolves the current `org.fcitx.Vinput` PID, refuses to stop an unexpected executable, terminates only a verified `vinput-daemon`, requires the frontend to replace live partials with an unavailable error preedit, and rejects any final commit. The installed `sherpa-native-command-live` profile passed both checks on 2026-07-30; owner loss was followed by successful D-Bus activation back into the same profile and adapter identity.
@@ -176,11 +181,11 @@ The focus probe requires partials and the final commit to remain on the input co
 
 The following installed-profile summaries reported `ok: true`:
 
-- normal dictation: eight non-placeholder partials and one final commit under `target/tmp/live-evidence/normal`;
-- local command adapter: eight partials, one selected-text deletion, zero candidate rows for the configured single-result scene, and an `adapter-backed:` direct commit under `target/tmp/live-evidence/command-adapter`;
-- focus handoff: focus moved to a second Fcitx context, while secondary partial and commit counts remained zero under `target/tmp/live-evidence/focus-handoff`;
-- owner loss: an unavailable error preedit, zero final commit, and successful post-test D-Bus reactivation under `target/tmp/live-evidence/owner-loss`;
-- same-provider reload: the owner PID and effective provider/model remained stable, reload completed without error, and a subsequent acoustic recognition produced eight partials plus a final commit under `target/tmp/ime-fcitx-reload-live`;
+- normal dictation: seven non-placeholder partials and one final commit under `target/tmp/ime-fcitx-virtual-source-live`;
+- local command adapter: eight partials, one selected-text deletion, zero candidate rows for the configured single-result scene, and an `adapter-backed:` direct commit under `target/tmp/ime-fcitx-virtual-command-live`;
+- focus handoff: focus moved to a second Fcitx context, while secondary partial and commit counts remained zero under `target/tmp/ime-fcitx-virtual-focus-live`;
+- owner loss: an unavailable error preedit, zero final commit, and successful post-test D-Bus reactivation under `target/tmp/ime-fcitx-virtual-owner-loss-live`;
+- same-provider reload: the owner PID and effective provider/model remained stable, reload completed without error, and a subsequent virtual-source recognition produced seven partials plus a final commit under `target/tmp/ime-fcitx-virtual-reload-live`;
 - scene and ASR menus: candidate display, slash-filter activation, first-Escape filter clearing, second-Escape close, and zero commits under `target/tmp/ime-fcitx-menu-live`.
 
 The real-key application matrix now also reports `ok: true` for all six toolkit cases:
@@ -212,7 +217,7 @@ just pipewire-check
 VINPUT_TEST_PIPEWIRE_CONTEXT=1 VINPUT_TEST_PIPEWIRE_ENUMERATE=1 VINPUT_TEST_PIPEWIRE_RECORD=1 just pipewire-live
 just addon-dbus-pipewire-live
 just ime-configured-pipewire-live
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-native-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav just ime-fcitx-virtual-source-live
 ```
 
 These checks are intentionally outside `just ci`. Capture the selected target, S16LE/16 kHz/mono plan, and the precise setup or record failure.
@@ -231,4 +236,4 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement, non-mutating scene/ASR menus, focus handoff, verified owner loss, same-provider reload followed by another recognition, and GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. Clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and an external provider remain outside the proven boundary.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation, local adapter replacement, focus handoff, verified owner loss, and same-provider reload through a preflight-verified isolated PipeWire source, plus non-mutating scene/ASR menus and GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. The gate restores the original capture target and uses no physical speaker or microphone. Physical microphone/device behavior, clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and an external provider remain outside the proven boundary.

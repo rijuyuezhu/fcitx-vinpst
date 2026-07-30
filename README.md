@@ -2,7 +2,7 @@
 
 Rust-oriented rewrite of [`fcitx5-vinput`](https://github.com/xifan2333/fcitx5-vinput).
 
-The project is a usable CLI/daemon alpha with a retained C++ Fcitx5 frontend. The native path is now live-proven in a real user session through Fcitx5, acoustic PipeWire capture, streaming ASR partials, input-panel preedit, final commit, selected-text adapter replacement, non-mutating scene/ASR menu interaction, focus handoff, and daemon-owner loss recovery. The active milestone remains **real desktop native alpha** while GTK3/Qt6 application rendering, clipboard fallback, notifications, reload, and external-provider behavior are proven.
+The project is a usable CLI/daemon alpha with a retained C++ Fcitx5 frontend. The native path is now live-proven in a real user session through Fcitx5 and an isolated PipeWire virtual sink/source: streaming ASR partials, input-panel preedit, final commit, selected-text adapter replacement, focus handoff, daemon-owner loss, and same-provider reload all pass without using a physical speaker or microphone. Non-mutating scene/ASR menu interaction is also live-proven. The active milestone remains **real desktop native alpha** while physical microphone/device behavior, GTK3/Qt6 application rendering, clipboard fallback, notifications, model/provider-switch reload, and external-provider behavior are proven.
 
 ## Architecture
 
@@ -38,17 +38,17 @@ Implemented and deterministically validated:
 Live-proven in a real user session:
 
 - installed native runtime activation through the current session bus;
-- F9 -> live acoustic PipeWire capture -> streaming native ASR -> partial input-panel updates -> one application commit;
+- an isolated PipeWire sink/source preflight captures non-silent 16 kHz mono PCM, then F9 drives streaming native ASR, partial input-panel updates, and one application commit without physical audio devices;
 - F10 -> selected surrounding text -> live partials -> deletion -> an `adapter-backed:` direct replacement commit from the configured local command adapter;
 - F7/F8 scene and ASR menus -> candidates -> slash filter -> first Escape clears filtering -> second Escape closes the menu with zero text commits;
 - focus handoff keeps partials and the final commit on the input context that started recording;
 - verified daemon-owner loss replaces partial text with an unavailable preedit, commits nothing, and recovers through D-Bus activation;
-- an idle same-provider `ReloadAsrBackend` keeps the daemon owner/provider/model stable and is followed by another successful acoustic recognition;
-- repeatable opt-in evidence through the `ime-fcitx-native-live`, `ime-fcitx-native-command-adapter-live`, `ime-fcitx-menu-live`, `ime-fcitx-focus-live`, and `ime-fcitx-owner-loss-live` recipes.
+- an idle same-provider `ReloadAsrBackend` keeps the daemon owner/provider/model stable and is followed by another successful virtual-source recognition;
+- repeatable opt-in audio evidence through `ime-fcitx-virtual-source-live`, with mode/focus/owner-loss/reload flags, plus non-audio menu evidence through `ime-fcitx-menu-live`.
 
 Still requiring live proof or implementation:
 
-- GTK3/Qt6 normal and command evidence plus clipboard fallback across multiple GUI applications;
+- physical microphone and broader capture-device evidence, plus GTK3/Qt6 normal and command evidence and clipboard fallback across multiple GUI applications;
 - real menu selection/paging, notifications, model/provider-switch reload, and external-provider command behavior;
 - remote text live cross-device browser proof;
 - production publication and lifecycle policy beyond the checked Arch candidate, including automatic package-manager handoff, incompatible-state rollback, production key operations, external repository hosting, and live installed-desktop proof;
@@ -130,18 +130,18 @@ just e2e-demo
 
 It uses `data/e2e-command-demo-config.json` and a generated WAV to exercise audio input, command ASR, command text processing, and recognition JSON without requiring a desktop session.
 
-After installing a native live profile in a real desktop session, run the acoustic Fcitx client gate with a validated speech WAV:
+After installing a native live profile in a real desktop session, run the isolated PipeWire Fcitx gate with a validated speech WAV:
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-native-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-virtual-source-live
 ```
 
-The gate plays the WAV through the current output device, captures it from the configured PipeWire source, and verifies normal partial/commit behavior plus command candidate deletion/replacement. It is intentionally excluded from `just ci`.
+The gate creates an isolated PipeWire sink/source pair, records a non-silent preflight sample, temporarily selects the virtual source, restarts only the verified Rust daemon, and verifies Fcitx partial/commit behavior. It restores the original config, backup state, and daemon on success or failure. No physical speaker or microphone is used, and the gate is intentionally excluded from `just ci`. Direct `ime-fcitx-native-live` playback through the desktop output remains an environment-dependent manual collector and is not retained as proof.
 
 After installing `sherpa-native-command-live`, reject raw-ASR fallback candidates and require the configured adapter result with:
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-native-command-adapter-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_MODES=command VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live just ime-fcitx-virtual-source-live
 ```
 
 This checked profile uses a deterministic local command adapter whose output begins with `adapter-backed:`. It proves the command-adapter transport and frontend replacement path; it is not evidence for an external OpenAI-compatible service.

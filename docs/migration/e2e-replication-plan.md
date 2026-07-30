@@ -25,7 +25,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M1 Deterministic product spine | complete | staged addon/daemon and outcome smokes |
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
-| M4 Real desktop native alpha | active; core and recovery paths live-proven | real Fcitx client, acoustic PipeWire, partial/input-panel updates, normal commit, local adapter replacement, non-mutating menus, focus handoff, owner loss, and same-provider reload are proven; GUI-toolkit breadth, clipboard fallback, notifications, model/provider-switch reload, and external-provider proof remain |
+| M4 Real desktop native alpha | active; core and recovery paths live-proven through isolated audio injection | real Fcitx client, a preflight-verified PipeWire virtual source, partial/input-panel updates, normal commit, local adapter replacement, non-mutating menus, focus handoff, owner loss, and same-provider reload are proven without physical audio devices; physical microphone/device, GUI-toolkit breadth, clipboard fallback, notifications, model/provider-switch reload, and external-provider proof remain |
 | M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal, and adapter runtime selectors |
 | M6 Release readiness | partial | The checked Arch package and signed candidate pipeline are deterministic; production publication, automatic package-manager handoff, incompatible-state rollback, production key operations, live installed proof, and external-user regression remain. Detailed evidence belongs in [`../architecture/packaging-contract.md`](../architecture/packaging-contract.md). |
 
@@ -51,7 +51,7 @@ The following are implemented and covered by deterministic tests:
 
 Implemented through D-Bus, the streaming path delivers recorder chunks, emits deduplicated live `RecognitionPartial` signals, renders partial-first preedit, and preserves final results for synchronous stop.
 
-Live in a real user session, `ime-fcitx-native-live` now proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, acoustic PipeWire capture, a streaming native model, input-panel partials, candidate selection, deletion, and final commit in a real Fcitx client application.
+Live in a real user session, `ime-fcitx-virtual-source-live` now proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, a non-silent preflight-verified PipeWire virtual source, a streaming native model, input-panel partials, deletion, and final commit in real Fcitx clients. The gate does not use or claim physical speaker/microphone behavior.
 
 ## P0: real desktop native alpha
 

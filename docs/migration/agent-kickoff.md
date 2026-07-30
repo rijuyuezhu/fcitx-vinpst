@@ -9,7 +9,7 @@ Continue `fcitx-vinput-rs` from the usable CLI/daemon alpha and the proven core 
 The core proof is complete:
 
 ```text
-Fcitx trigger -> acoustic PipeWire capture -> native ASR -> partial/input-panel updates -> application commit
+Fcitx trigger -> isolated PipeWire virtual source -> native ASR -> partial/input-panel updates -> application commit
 ```
 
 Normal commit and one selected-text command replacement are live-proven in a real Fcitx client. The next proof is breadth across representative GUI toolkits, clipboard fallback, menus, focus changes, owner loss, and reload.
@@ -43,7 +43,7 @@ Normal commit and one selected-text command replacement are live-proven in a rea
 - `user-ime-sherpa-native-activation-smoke` proves temporary-HOME activation and exact recognition.
 - Native online partials reach concrete Fcitx preedit before stop.
 - Final normal commit and command candidate replacement reach concrete test `InputContext` implementations.
-- `ime-fcitx-native-live` proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, acoustic PipeWire capture, streaming partial input-panel updates, candidate deletion, and final commit in one real Fcitx client application.
+- `ime-fcitx-virtual-source-live` proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, a preflight-verified isolated PipeWire sink/source, streaming partial input-panel updates, selected-text deletion, and final commit in real Fcitx clients without physical audio devices.
 - Persistent keys, Tap/Hold/Both, scene/ASR menus, filtering, i18n, notifications, and daemon recovery are implemented.
 - Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, `SIGTERM` shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
 - Representative GUI-toolkit behavior, primary-selection clipboard fallback, live menus/focus transitions, owner-loss, and reload remain unproven.

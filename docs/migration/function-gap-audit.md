@@ -23,7 +23,7 @@ The project has crossed the main implementation threshold for local native ASR a
 - The retained addon applies partial preedit, final commit, command candidate selection, selected-text deletion, and replacement through deterministic frontends and a live Fcitx client application.
 - CLI, config, registry, daemon, recording, diagnostics, and frontend configuration surfaces are broadly implemented.
 
-The core **real desktop native-dictation alpha** path is live-proven through Fcitx trigger -> acoustic PipeWire capture -> native ASR -> partial/input-panel updates -> commit. The same installed profile also proves local adapter-backed selected-text replacement, non-mutating scene/ASR menu filtering, two-context focus handoff, verified daemon-owner loss, and same-provider reload followed by another recognition. The active target is now GUI-toolkit rendering, clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and one external provider.
+The core **real desktop native-dictation alpha** path is live-proven through Fcitx trigger -> a preflight-verified isolated PipeWire virtual source -> native ASR -> partial/input-panel updates -> commit. The same installed profile also proves local adapter-backed selected-text replacement, non-mutating scene/ASR menu filtering, two-context focus handoff, verified daemon-owner loss, and same-provider reload followed by another recognition. No physical speaker or microphone is used by the retained audio evidence. The active target is now physical microphone/device behavior, GUI-toolkit rendering, clipboard fallback, menu selection/paging, notifications, model/provider-switch reload, and one external provider.
 
 ## Readiness summary
 
@@ -33,7 +33,7 @@ The core **real desktop native-dictation alpha** path is live-proven through Fci
 | CLI and daemon management | Usable alpha; broad command coverage |
 | Current registry native ASR families | Real-WAV proven for supported offline/online layouts |
 | Generic native user install | Activation, runtime bundle, partial preedit, final commit, and command replacement deterministically proven |
-| Real desktop normal dictation | Live-proven through a real Fcitx client input context with acoustic PipeWire capture, streaming partials, and one final commit |
+| Real desktop normal dictation | Live-proven through a real Fcitx client input context with an isolated PipeWire virtual source, streaming partials, and one final commit; physical microphone proof remains |
 | Real desktop command dictation | Local adapter-backed deletion/replacement is live-proven in one real Fcitx client input context; multi-toolkit, clipboard-fallback, and external-provider proof remain |
 | Frontend menus/configuration | Scene and ASR candidate display, slash filtering, two-stage Escape close, and zero-commit behavior are live-proven; selection, paging, and reload remain |
 | Adapter resource lifecycle | Implemented for current script registry with localized title/description display, update-by-reinstall, installed short-id start/stop/status resolution, short-id removal, guarded managed-script cleanup, and config backup |
@@ -50,7 +50,7 @@ The core **real desktop native-dictation alpha** path is live-proven through Fci
 | Runtime lifecycle | Normal/command flow, capture-first startup, partial polling, inferring/postprocessing stop, reload deferral, adapter supervision, plus live focus handoff, owner loss, and same-provider reload behavior | Broad application and model/provider-switch reload behavior |
 | Native ASR | Offline transducer, Dolphin, SenseVoice, Paraformer, Qwen3 ASR, Moonshine v1, online transducer, and Zipformer2 CTC mapped and WAV-proven | Other legacy families only when concrete demand exists |
 | Command ASR | Batch and streaming command protocols, partials, cancellation, and timeout enforcement | Live external-provider recovery testing |
-| Audio | Typed PCM, processing, mock/file sources, reusable PipeWire streams, target-change rebuild, serialized recording transactions, diagnostics, output ducking lifecycle, and live acoustic capture through the configured source | Audible output-ducking and broader device proof |
+| Audio | Typed PCM, processing, mock/file sources, reusable PipeWire streams, target-change rebuild, serialized recording transactions, diagnostics, output ducking lifecycle, and live non-silent capture through an isolated virtual source | Physical microphone, audible output-ducking, and broader device proof |
 | Offline VAD | Silero model, legacy-compatible settings, fallback, cold-start guard, install, and diagnostics | Real microphone validation |
 | Text processing | Command adapters, OpenAI-compatible transport, prompts, context cache, scenes, candidates | One real desktop provider flow |
 | Registry | Live model lifecycle plus current provider/adapter registry list/install/update-by-reinstall, legacy locale detection/normalization, `en_US`/requested/local-override display metadata layering, guarded config materialization, executable script publication, and managed adapter removal | No current script-registry lifecycle gap |
@@ -58,7 +58,7 @@ The core **real desktop native-dictation alpha** path is live-proven through Fci
 | Fcitx frontend | Persistent keys, Tap/Hold/Both, menus, filtering, i18n, notifications, owner recovery, plus live normal, adapter command, menu, focus, and owner-loss outcomes in real Fcitx clients | GUI-toolkit rendering, clipboard fallback, menu selection/paging, notifications, reload, and multi-application proof |
 | User install | Temporary-HOME profiles, direct per-user activation, staged systemd-backed system activation, environment wrapper, native runtime bundle, and checked Arch package construction | Upgrade, rollback/uninstall, version-selection, repository, and live external-user policy |
 | Diagnostics | Doctor, runtime status, ASR state, audio devices, owner/PID/procfs, live probe | Live error-message refinement |
-| Tests | Workspace, session-bus, C++ addon, staged activation, temporary-HOME/native model smokes, and an opt-in real Fcitx acoustic client gate | GUI-toolkit matrix remains manual/opt-in |
+| Tests | Workspace, session-bus, C++ addon, staged activation, temporary-HOME/native model smokes, and an opt-in real Fcitx virtual-source gate with profile restoration | Physical microphone and GUI-toolkit matrices remain manual/opt-in |
 
 ## Highest-risk gaps
 
