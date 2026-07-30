@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement, Wayland primary-selection fallback, scene selection, configured-key scene and ASR paging, F8 model selection/reload, and information/error notifications. The fallback gate restores the previous primary text; menu/model gates restore the original scene, profile, activation service, Fcitx process, and effective backend. Remaining behavior includes broader cross-application selected-text behavior, persistent trigger-mode variants, cross-provider switching, localization breadth, physical-device proof, and an external provider.
+The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement, Wayland primary-selection fallback, scene selection, configured-key scene and ASR paging, F8 model selection/reload, persisted Tap/Hold/Both timing, and information/error notifications. The fallback gate restores the previous primary text; trigger/menu/model gates restore the original addon config, scene, profile, activation service, Fcitx process, and effective backend. Remaining behavior includes broader cross-application selected-text behavior, cross-provider switching, localization breadth, physical-device proof, and an external provider.
 
 ## Release and platform gaps
 
@@ -163,7 +163,7 @@ The installed `sherpa-native-command-live` profile now has retained normal/comma
 
 ## Immediate next work
 
-1. Validate persistent Tap/Hold/Both trigger variants and localization breadth.
+1. Validate localization breadth.
 2. Validate one physical-device path.
 3. Validate one cross-provider switch and one external provider-backed command transformation.
 4. Convert live findings into focused fixes and deterministic regressions.

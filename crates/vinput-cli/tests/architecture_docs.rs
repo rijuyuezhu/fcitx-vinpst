@@ -2048,7 +2048,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Cover persistent trigger-mode variants, localization breadth",
+        "Cover localization breadth, physical-device behavior",
     ] {
         assert!(
             plan.contains(required),
@@ -2061,7 +2061,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "Daemon capability comparison",
         "Registry/resource comparison",
         "P1.2 sherpa streaming backend",
-        "Validate persistent Tap/Hold/Both trigger variants and localization breadth",
+        "Validate localization breadth",
         "Do not claim full parity until all of these pass",
         "vinput model install <id-or-short-id>",
     ] {
