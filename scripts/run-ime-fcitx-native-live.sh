@@ -128,7 +128,10 @@ for mode in "${requested_modes[@]}"; do
     probe_args+=(--owner-loss)
   fi
   if [[ -n "${expected_commit_prefix}" ]]; then
-    probe_args+=(--expected-commit-prefix "${expected_commit_prefix}")
+    probe_args+=(
+      --expected-commit-prefix "${expected_commit_prefix}"
+      --allow-direct-command-commit
+    )
   fi
   set -o pipefail
   timeout 40s python3 "${probe}" "${probe_args[@]}" \

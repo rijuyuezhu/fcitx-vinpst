@@ -431,7 +431,7 @@ class LiveProbe:
         ):
             failures.append("final commit did not match expected prefix")
         if self.args.mode == "command":
-            if not self.state.candidates:
+            if not self.state.candidates and not self.args.allow_direct_command_commit:
                 failures.append("command mode produced no candidate menu")
             if not self.state.deletes:
                 failures.append("command mode did not delete selected text")
@@ -450,6 +450,7 @@ class LiveProbe:
             "partial_count": len(self.state.preedits),
             "commit": self.state.commits[-1] if self.state.commits else "",
             "expected_commit_prefix": self.args.expected_commit_prefix,
+            "allow_direct_command_commit": self.args.allow_direct_command_commit,
             "candidate_count": len(self.state.candidates),
             "delete_count": len(self.state.deletes),
             "focus_switch": self.args.focus_switch,
@@ -479,6 +480,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wav", type=Path, required=True)
     parser.add_argument("--selected-text", default="selected text")
     parser.add_argument("--expected-commit-prefix", default="")
+    parser.add_argument("--allow-direct-command-commit", action="store_true")
     parser.add_argument("--playback-command", default="pw-play")
     parser.add_argument("--start-delay-ms", type=int, default=300)
     parser.add_argument("--play-delay-ms", type=int, default=1200)
@@ -502,6 +504,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--owner-loss and --focus-switch are separate live cases")
     if args.expected_commit_prefix and args.mode != "command":
         parser.error("--expected-commit-prefix currently supports command mode only")
+    if args.allow_direct_command_commit and args.mode != "command":
+        parser.error("--allow-direct-command-commit supports command mode only")
     if args.focus_switch and args.focus_switch_delay_ms >= (
         args.play_delay_ms + wav_duration_ms(args.wav) + args.playback_tail_ms
     ):

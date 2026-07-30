@@ -459,6 +459,7 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "owner loss did not surface an unavailable preedit",
         "final commit did not match expected prefix",
         "expected_commit_prefix",
+        "allow_direct_command_commit",
         "command mode did not replace selected text",
     ] {
         assert!(
@@ -482,6 +483,7 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "--focus-switch",
         "--owner-loss",
         "--expected-commit-prefix",
+        "--allow-direct-command-commit",
         "timeout 40s",
     ] {
         assert!(
