@@ -29,7 +29,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Select and reload a model | live-proven within the native `sherpa-onnx` provider | real F8/Enter selection switches streaming Zipformer to offline Paraformer, produces a final desktop commit without requiring partials, restores the original profile, reloads Zipformer, and then produces eight streaming partials plus a final commit; service/profile/Fcitx/backend state is restored exactly | Cross-provider switching and broader model combinations |
 | Normal native dictation | live-proven through isolated audio injection and real applications | real Fcitx client, F9, a preflight-verified virtual PipeWire source, streaming partials, one final commit, and real-key GTK3, Qt6, and Chromium/Ozone application evidence | Physical microphone/device breadth |
 | Command native dictation | live-proven for surrounding text and primary selection | real Fcitx client, F10, live partials, selected surrounding-text deletion/replacement, zero-delete Wayland primary-selection fallback, and `adapter-backed:` commits; GTK3, Qt6, and Chromium command paths are also live-proven | Cross-application breadth and one external provider flow |
-| Scene and ASR menus | scene selection/paging and ASR model selection live-proven | real Fcitx clients prove F7/F8 display/filter/Escape, F7 Enter scene selection, F8 Enter model selection with completed reload, and configured-key scene paging across `1/2 -> 2/2 -> 1/2`; all gates reject unintended commits and restore state exactly | Live multi-page ASR paging, localization breadth, and cross-provider selection proof |
+| Scene and ASR menus | scene and ASR selection/paging live-proven | real Fcitx clients prove F7/F8 display/filter/Escape, F7 Enter scene selection, F8 Enter model selection with completed reload, configured-key scene paging, and a 14-target ASR menu across `1/2 -> 2/2 -> 1/2`; all gates reject unintended commits and restore profile/service/Fcitx/backend state exactly | Localization breadth and cross-provider selection proof |
 | Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, default user-config discovery with persistent D-Bus updates, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
 | Recording control | implemented | start/stop/toggle/status D-Bus paths | Live error handling |
 | Device selection | implemented | PipeWire enumeration seam and guarded config mutation | Real device-selection proof |
@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement, Wayland primary-selection fallback, scene selection, configured-key scene paging, F8 model selection/reload, and information/error notifications. The fallback gate restores the previous primary text; menu/model gates restore the original scene, profile, activation service, Fcitx process, and effective backend. Remaining behavior includes broader cross-application selected-text behavior, live multi-page ASR paging, cross-provider switching, localization breadth, physical-device proof, and an external provider.
+The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement, Wayland primary-selection fallback, scene selection, configured-key scene and ASR paging, F8 model selection/reload, and information/error notifications. The fallback gate restores the previous primary text; menu/model gates restore the original scene, profile, activation service, Fcitx process, and effective backend. Remaining behavior includes broader cross-application selected-text behavior, persistent trigger-mode variants, cross-provider switching, localization breadth, physical-device proof, and an external provider.
 
 ## Release and platform gaps
 
@@ -163,8 +163,8 @@ The installed `sherpa-native-command-live` profile now has retained normal/comma
 
 ## Immediate next work
 
-1. Exercise live multi-page ASR-menu paging and localization breadth.
-2. Validate persistent Tap/Hold/Both trigger variants and one physical-device path.
+1. Validate persistent Tap/Hold/Both trigger variants and localization breadth.
+2. Validate one physical-device path.
 3. Validate one cross-provider switch and one external provider-backed command transformation.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.

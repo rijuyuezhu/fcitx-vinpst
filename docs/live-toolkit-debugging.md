@@ -261,7 +261,7 @@ Regression commit: `876ca2e test(e2e): support offline ASR live probes`.
 
 **Action:** restore the exact original profile bytes and backup state, call the normal reload path, and wait until target and effective provider/model both match the original. Then prove another recognition. Do not weaken target validation for test cleanup.
 
-The retained roundtrip is `just ime-fcitx-model-switch-live`; evidence is under `target/tmp/ime-fcitx-model-switch-live`. It proves F8/Enter selection, an offline Paraformer commit, restoration to Zipformer with streaming partials, and exact service/profile/Fcitx/backend recovery.
+The retained roundtrip is `just ime-fcitx-model-switch-live`; evidence is under `target/tmp/ime-fcitx-model-switch-live`. It proves F8/Enter selection, an offline Paraformer commit, restoration to Zipformer with streaming partials, and exact service/profile/Fcitx/backend recovery. The non-selecting paging companion is `just ime-fcitx-asr-menu-paging-live`; it exposes 14 uniquely titled metadata copies while hard-linking immutable model assets, then verifies configured paging keys and exact restoration without reloading a model.
 
 ### Concurrent work contaminates a small commit
 

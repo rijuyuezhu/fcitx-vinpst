@@ -12,7 +12,7 @@ The core proof is complete:
 Fcitx trigger -> isolated PipeWire virtual source -> native ASR -> partial/input-panel updates -> application commit
 ```
 
-Normal/command application paths, clipboard fallback, menus, notifications, focus/owner recovery, reload, and one real model-switch roundtrip are live-proven. The next proof is physical-device and application breadth, multi-page ASR paging, localization, cross-provider switching, and one external provider flow.
+Normal/command application paths, clipboard fallback, scene/ASR selection and paging, notifications, focus/owner recovery, reload, and one real model-switch roundtrip are live-proven. The next proof is persistent Tap/Hold/Both modes, physical-device and application breadth, localization, cross-provider switching, and one external provider flow.
 
 ## Repositories
 
@@ -47,10 +47,10 @@ Normal/command application paths, clipboard fallback, menus, notifications, focu
 - GTK3, Qt6, and Chromium/Ozone normal and command paths, scene/ASR display/filter, scene selection, configured-key scene paging, focus handoff, verified owner loss, and same-provider reload are live-proven.
 - F8/Enter model selection switches streaming Zipformer to offline Paraformer, proves a final commit, restores the original profile, reloads Zipformer, and proves streaming partials plus another commit; service/profile/Fcitx/backend restoration is retained evidence.
 - Information notifications and daemon-originated error notifications are observed from the current Fcitx/daemon PIDs with exact payload and timeout checks.
-- Scene paging restores the active profile byte-for-byte; ASR paging shares the fixed retained-page implementation and C++ smoke but still lacks a live multi-page profile.
+- Scene paging and a 14-target ASR paging profile both prove `1/2 -> 2/2 -> 1/2`, zero commits, configured-key handling, and exact restoration.
 - Persistent keys, Tap/Hold/Both, filtering, i18n, notifications, and daemon recovery are implemented.
 - Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, `SIGTERM` shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
-- Live multi-page ASR paging, cross-provider switching, localization breadth, physical-device behavior, broader cross-application behavior, and an external provider flow remain unproven.
+- Persistent Tap/Hold/Both modes, cross-provider switching, localization breadth, physical-device behavior, broader cross-application behavior, and an external provider flow remain unproven.
 - Remote services, packaging, upgrades, and optional GUI work remain later milestones.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.
