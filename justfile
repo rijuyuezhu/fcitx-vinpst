@@ -197,6 +197,10 @@ ime-fcitx-error-notification-live:
 ime-fcitx-model-switch-live:
     scripts/run-ime-fcitx-model-switch-live.sh
 
+# Explicit F8 switch between internal sherpa and an external command process.
+ime-fcitx-cross-provider-live:
+    scripts/run-ime-fcitx-cross-provider-live.sh
+
 # Explicit scene-menu paging with configured keys and exact profile restoration.
 ime-fcitx-menu-paging-live:
     scripts/run-ime-fcitx-menu-paging-live.sh

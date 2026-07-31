@@ -824,6 +824,83 @@ fn asr_model_switch_live_gate_pins_roundtrip_and_restore() {
 }
 
 #[test]
+fn asr_cross_provider_live_gate_pins_external_process_and_restore() {
+    let selection =
+        std::fs::read_to_string(workspace_file("scripts/fcitx-live-asr-selection-probe.py"))
+            .expect("read ASR selection probe");
+    let bridge =
+        std::fs::read_to_string(workspace_file("scripts/legacy-command-asr-wav-bridge.py"))
+            .expect("read legacy command bridge");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-cross-provider-live.sh",
+    ))
+    .expect("read cross-provider live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "--expected-provider",
+        "--expected-model",
+        "selection-target",
+        "Enter did not complete the expected ASR target reload",
+    ] {
+        assert!(
+            selection.contains(required),
+            "cross-provider gate should retain real F8 selection evidence: {required}"
+        );
+    }
+    for required in [
+        "sys.stdin.buffer.read()",
+        "VINPUT_ASR_WAV",
+        "external ASR command produced no text",
+    ] {
+        assert!(
+            bridge.contains(required),
+            "cross-provider gate should use the legacy raw-PCM bridge: {required}"
+        );
+    }
+    for required in [
+        "external-command",
+        "external-one-shot",
+        "type\": \"command",
+        "legacy-command-asr-wav-bridge.py",
+        "external-process.log",
+        "child process",
+        "temporary WAV",
+        "GetAsrDisplayMenuState",
+        "--filter-text external",
+        "VINPUT_LIVE_REQUIRE_PARTIAL=0",
+        "VINPUT_LIVE_REQUIRE_PARTIAL=0",
+        "require_partial == false",
+        "require_partial == true",
+        "partial_count > 0",
+        "underlying_recognizer",
+        "sherpa-onnx one-shot daemon using the original model",
+        "cross_provider",
+        "external_process_boundary",
+        "temporary_wavs_cleaned",
+        "profile_restored",
+        "backup_restored",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "fcitx_restored",
+        "backend_restored",
+        "target/tmp/ime-fcitx-cross-provider-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "cross-provider runner should pin external process/restore evidence: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-cross-provider-live:"));
+    assert!(justfile.contains("run-ime-fcitx-cross-provider-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-cross-provider-live"));
+}
+
+#[test]
 fn scene_menu_paging_live_gate_pins_state_and_restore() {
     let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-paging-probe.py"))
         .expect("read scene-menu paging probe");
