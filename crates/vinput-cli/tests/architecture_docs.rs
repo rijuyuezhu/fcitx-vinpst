@@ -1501,6 +1501,75 @@ fn frontend_localization_live_gate_pins_installed_catalog_and_restore() {
 }
 
 #[test]
+fn config_surface_localization_live_gate_pins_official_form_and_restore() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-config-surface-probe.cpp"))
+        .expect("read official configuration-surface probe");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-config-surface-localization-live.sh",
+    ))
+    .expect("read configuration-surface localization runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "ConfigWidget::configDialog",
+        "DBusProvider",
+        "fcitx://config/addon/vinput",
+        "save_called",
+        "changed",
+        "findChildren<QWidget *>",
+        "QComboBox",
+    ] {
+        assert!(
+            probe.contains(required),
+            "configuration-surface probe should use the official form: {required}"
+        );
+    }
+    for required in [
+        "5.1.14",
+        "691c73e08844127ce74a4348776ee9596d7e7ec3",
+        "https://github.com/fcitx/fcitx5-configtool.git",
+        "fcitx://config/addon/vinput",
+        "official_configwidget",
+        "QT_QPA_PLATFORM=offscreen",
+        "Normal Dictation Keys:",
+        "Trigger Mode:",
+        "普通听写快捷键：",
+        "触发模式：",
+        "[\"Tap\", \"Hold\", \"Both\"]",
+        "[\"单击\", \"长按\", \"两者\"]",
+        "save_called",
+        "changed",
+        "stop_fcitx",
+        "module_restored",
+        "catalog_restored",
+        "profile_unchanged",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "addon_metadata_unchanged",
+        "fcitx_env_unchanged",
+        "backend_unchanged",
+        "original_locale_restored",
+        "target/tmp/ime-fcitx-config-surface-localization-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "configuration-surface runner should pin form/restore evidence: {required}"
+        );
+    }
+    assert!(
+        !runner.contains("SetConfig"),
+        "configuration-surface gate must stay read-only"
+    );
+    assert!(justfile.contains("ime-fcitx-config-surface-localization-live:"));
+    assert!(justfile.contains("run-ime-fcitx-config-surface-localization-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-config-surface-localization-live"));
+}
+
+#[test]
 fn frontend_notification_localization_live_gate_pins_locale_and_restore() {
     let runner = std::fs::read_to_string(workspace_file(
         "scripts/run-ime-fcitx-notification-localization-live.sh",

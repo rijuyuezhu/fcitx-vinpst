@@ -241,6 +241,10 @@ ime-fcitx-trigger-modes-live:
 ime-fcitx-localization-live:
     scripts/run-ime-fcitx-localization-live.sh
 
+# Explicit official Fcitx Qt configuration-form localization with exact restore.
+ime-fcitx-config-surface-localization-live:
+    scripts/run-ime-fcitx-config-surface-localization-live.sh
+
 # Explicit real F9 dictation through the default physical ALSA microphone.
 ime-fcitx-physical-microphone-live:
     scripts/run-ime-fcitx-physical-microphone-live.sh
