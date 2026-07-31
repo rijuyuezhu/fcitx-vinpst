@@ -1120,6 +1120,67 @@ fn frontend_localization_live_gate_pins_installed_catalog_and_restore() {
 }
 
 #[test]
+fn physical_microphone_live_gate_pins_real_source_and_restore() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-client-probe.py"))
+        .expect("read Fcitx live client probe");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-physical-microphone-live.sh",
+    ))
+    .expect("read physical microphone runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "--manual-recording-ms",
+        "manual-speech-window",
+        "manual_speech",
+        "is_recognition_partial",
+        "client received no final commit",
+    ] {
+        assert!(
+            probe.contains(required),
+            "physical microphone gate should retain manual speech evidence: {required}"
+        );
+    }
+    for required in [
+        "@DEFAULT_AUDIO_SOURCE@",
+        "media.class",
+        "device.api",
+        "alsa_input.*",
+        "capture_device=default",
+        "--audio-backend pipewire",
+        "physical-microphone gate refuses mock or WAV-backed activation",
+        "--manual-recording-ms",
+        "--require-partial",
+        "partial_count > 0",
+        "physical_microphone_used",
+        "playback_used: false",
+        "profile_unchanged",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "backend_unchanged",
+        "target/tmp/ime-fcitx-physical-microphone-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "physical microphone runner should pin real-device evidence: {required}"
+        );
+    }
+    for forbidden in ["pw-play", "--playback-command", "--playback-target"] {
+        assert!(
+            !runner.contains(forbidden),
+            "physical microphone gate must not inject playback via {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-physical-microphone-live:"));
+    assert!(justfile.contains("run-ime-fcitx-physical-microphone-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-physical-microphone-live"));
+}
+
+#[test]
 fn native_fcitx_reload_live_gate_pins_post_reload_recognition() {
     let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-reload-live.sh"))
         .expect("read Fcitx reload live runner");

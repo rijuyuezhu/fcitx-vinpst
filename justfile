@@ -213,6 +213,10 @@ ime-fcitx-trigger-modes-live:
 ime-fcitx-localization-live:
     scripts/run-ime-fcitx-localization-live.sh
 
+# Explicit real F9 dictation through the default physical ALSA microphone.
+ime-fcitx-physical-microphone-live:
+    scripts/run-ime-fcitx-physical-microphone-live.sh
+
 # Compile toolkit probes without entering a real desktop flow.
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check
