@@ -552,9 +552,7 @@ impl VinputDbusService {
         bool,
         Vec<String>,
     ) {
-        let mut state = self.runtime.lock().await.asr_backend_state();
-        state.remote_endpoints = self.remote_text.lock().await.endpoints();
-        asr_backend_state_tuple(state)
+        asr_backend_state_tuple(self.runtime.lock().await.asr_backend_state())
     }
 
     /// Return text adapter diagnostic state JSON.
@@ -577,7 +575,6 @@ impl VinputDbusService {
         let remote = self.remote_text.lock().await;
         let remote_status = remote.status();
         let endpoints = remote.endpoints();
-        status["asr"]["remote_endpoints"] = serde_json::json!(endpoints);
         status["remote_text"] = serde_json::json!({
             "running": remote_status.running,
             "listen_addr": remote_status.local_addr.map(|address| address.to_string()),
@@ -976,6 +973,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dbus_facade_keeps_remote_asr_and_remote_text_endpoints_separate() {
+        let mut config = VinputConfig::bundled_default().unwrap();
+        config.asr.active_provider = "remote-asr".to_owned();
+        config.asr.providers.push(AsrProviderConfig {
+            id: "remote-asr".to_owned(),
+            kind: AsrProviderKind::Remote,
+            timeout_ms: Some(2_000),
+            model: Some("remote-model".to_owned()),
+            hotwords_file: None,
+            command: None,
+            args: Vec::new(),
+            env: std::collections::HashMap::new(),
+            endpoint: Some("https://asr.example.test/v1".to_owned()),
+        });
+        let service = VinputDbusService::new(
+            RuntimeState::with_configured_asr(config).expect("create remote ASR runtime"),
+        );
+
+        let state = service.get_asr_backend_state().await;
+        assert_eq!(state.0, "remote-asr");
+        assert_eq!(state.2, "remote-asr");
+        assert_eq!(state.7, ["https://asr.example.test/v1"]);
+
+        let status: serde_json::Value =
+            serde_json::from_str(&service.get_runtime_status().await.unwrap()).unwrap();
+        assert_eq!(
+            status["asr"]["remote_endpoints"],
+            serde_json::json!(["https://asr.example.test/v1"])
+        );
+        assert_eq!(status["remote_text"]["endpoints"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
     async fn dbus_facade_reconciles_remote_service_on_config_reload() {
         let first_port = reserve_remote_port();
         let mut second_port = reserve_remote_port();
@@ -1352,7 +1382,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dbus_facade_uses_running_remote_service_endpoints() {
+    async fn dbus_facade_preserves_remote_asr_endpoint_with_mock_runtime() {
         let mut config = VinputConfig::bundled_default().unwrap();
         config.asr.active_provider = "remote".to_owned();
         config.asr.providers.push(AsrProviderConfig {
@@ -1374,7 +1404,7 @@ mod tests {
         assert_eq!(state.2, "mock");
         assert_eq!(state.3, "mock-streaming");
         assert!(state.6);
-        assert!(state.7.is_empty());
+        assert_eq!(state.7, ["https://asr.example.test"]);
     }
 
     #[tokio::test]
