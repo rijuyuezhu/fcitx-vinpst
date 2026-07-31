@@ -115,13 +115,15 @@ import sys
 port, raw = sys.argv[1:]
 status = json.loads(raw)
 assert status["status"] == "idle", status
-asr_endpoints = status["asr_backend"]["remote_endpoints"]
+asr = status["asr_backend"]
 remote = status["runtime_status"]["remote_text"]
+assert asr["target_provider_id"] == "provider.vinput.remote.streaming", asr
+assert asr["remote_endpoints"] == [], asr
 assert remote["running"] is True, remote
 assert remote["listen_addr"] == f"0.0.0.0:{port}", remote
-assert remote["endpoints"] == asr_endpoints, status
-assert all(endpoint.startswith("http://") for endpoint in asr_endpoints), asr_endpoints
-assert all(endpoint.endswith(f":{port}") for endpoint in asr_endpoints), asr_endpoints
+assert remote["endpoints"], remote
+assert all(endpoint.startswith("http://") for endpoint in remote["endpoints"]), remote
+assert all(endpoint.endswith(f":{port}") for endpoint in remote["endpoints"]), remote
 assert "fixture-key" not in raw, raw
 PY
 

@@ -49,11 +49,9 @@ just ci
 
 ```sh
 git diff --check
-cargo test -p vinput-cli --test architecture_docs
-cargo test -p vinput-cli --test readme_layout --test readme_tooling --test readme_demo --test readme_smoke
 ```
 
-Run broader checks when documentation changes public commands, fixtures, or tested contracts.
+Documentation is reviewed as documentation. Do not add tests that assert exact README wording, architecture prose, docstrings, source declarations, recipe names, or other implementation text. Run behavior tests only when documentation changes public commands, fixtures, generated artifacts, or executable contracts.
 
 ### Rust and core behavior
 

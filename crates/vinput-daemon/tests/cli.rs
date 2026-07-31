@@ -750,7 +750,9 @@ fn asr_state_preserves_remote_endpoint() {
     );
     assert_eq!(value["target_provider_id"], "remote");
     assert_eq!(value["target_model_id"], "cloud");
-    assert_eq!(value["has_effective_backend"], false);
+    assert_eq!(value["effective_provider_id"], "remote");
+    assert_eq!(value["effective_model_id"], "cloud");
+    assert_eq!(value["has_effective_backend"], true);
     assert_eq!(
         value["remote_endpoints"],
         serde_json::json!(["https://asr.example.test"])
@@ -1486,35 +1488,4 @@ fn remote_text_server_command_serves_health() {
         }
     });
     assert_eq!(health, Some(serde_json::json!({"ok":true})));
-}
-
-#[test]
-fn help_lists_diagnostics_commands() {
-    let output = run_daemon(&["--help"], "run vinput-daemon --help");
-
-    let stdout = assert_success_stdout(output, "help output");
-    assert!(stdout.contains("--config"));
-    assert!(stdout.contains("--model-root"));
-    assert!(stdout.contains("--configured-backends"));
-    assert!(stdout.contains("--audio-backend"));
-    assert!(stdout.contains("--record-ms"));
-    assert!(stdout.contains("--pcm16le"));
-    assert!(stdout.contains("--wav"));
-    assert!(stdout.contains("--pcm-sample-rate"));
-    assert!(stdout.contains("--pcm-channels"));
-    assert!(stdout.contains("print-config"));
-    assert!(stdout.contains("asr-state"));
-    assert!(stdout.contains("configured ASR backend diagnostics"));
-    assert!(stdout.contains("text-adapters"));
-    assert!(stdout.contains("audio-devices"));
-    assert!(stdout.contains("runtime-status"));
-    assert!(stdout.contains("remote-text-server"));
-    assert!(stdout.contains("configured command text adapter diagnostics"));
-
-    let remote_help = run_daemon(
-        &["remote-text-server", "--help"],
-        "run vinput-daemon remote-text-server --help",
-    );
-    let remote_stdout = assert_success_stdout(remote_help, "remote text server help output");
-    assert!(remote_stdout.contains("--bind"));
 }

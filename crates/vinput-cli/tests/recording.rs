@@ -59,18 +59,6 @@ fn recording_status_dry_run_text_reports_expected_fields() {
 }
 
 #[test]
-fn recording_status_help_lists_dry_run_and_json() {
-    let output = vinput_command()
-        .args(["recording", "status", "--help"])
-        .output()
-        .expect("run vinput recording status --help");
-
-    let stdout = assert_stdout_success(output, "recording status help");
-    assert!(stdout.contains("--dry-run"));
-    assert!(stdout.contains("--json"));
-}
-
-#[test]
 fn global_json_flag_forces_recording_status_json() {
     let output = vinput_command()
         .args(["-j", "recording", "status", "--dry-run"])

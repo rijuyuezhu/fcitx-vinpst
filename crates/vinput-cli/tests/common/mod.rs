@@ -4,27 +4,12 @@ use std::{
     process::{Command, Output},
 };
 
+#[allow(dead_code)]
 pub fn workspace_file(path: &str) -> PathBuf {
     let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     root.push("../..");
     root.push(path);
     root
-}
-
-#[allow(dead_code)]
-pub fn workspace_crate_names() -> Vec<String> {
-    let mut crates = std::fs::read_dir(workspace_file("crates"))
-        .expect("read crates directory")
-        .map(|entry| entry.expect("read crate directory entry").path())
-        .filter(|path| path.is_dir())
-        .filter_map(|path| {
-            path.file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-        })
-        .collect::<Vec<_>>();
-    crates.sort();
-    assert!(!crates.is_empty(), "workspace crates should exist");
-    crates
 }
 
 #[allow(dead_code)]
@@ -66,23 +51,6 @@ pub fn assert_json_success(output: Output, context: &str) -> serde_json::Value {
             String::from_utf8_lossy(&stdout)
         )
     })
-}
-
-#[allow(dead_code)]
-pub fn markdown_note_names(dir: &std::path::Path) -> Vec<String> {
-    let mut note_files = std::fs::read_dir(dir)
-        .expect("read markdown note dir")
-        .map(|entry| entry.expect("read markdown note entry").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "md"))
-        .filter_map(|path| {
-            path.file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-        })
-        .filter(|name| name != "README.md")
-        .collect::<Vec<_>>();
-    note_files.sort();
-    assert!(!note_files.is_empty(), "markdown notes should exist");
-    note_files
 }
 
 #[allow(dead_code)]
