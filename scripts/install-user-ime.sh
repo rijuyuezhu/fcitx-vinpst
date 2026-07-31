@@ -686,7 +686,9 @@ rm -rf "${build_dir}"
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
   -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-  -DVINPUT_DAEMON_EXECUTABLE="${daemon_path}"
+  -DVINPUT_DAEMON_EXECUTABLE="${daemon_path}" \
+  -DVINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR= \
+  -DVINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR="${data_home}/locale"
 cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 install -Dm755 "${build_dir}/fcitx5-vinput.so" "${module_path}"
 install -Dm644 "${build_dir}/vinput-addon.conf" "${addon_conf_path}"

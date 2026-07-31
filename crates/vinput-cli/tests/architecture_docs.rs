@@ -2140,6 +2140,8 @@ fn user_install_pins_frontend_locale_catalog() {
         "scripts/run-user-ime-sherpa-sense-voice-smoke.sh",
     ))
     .expect("read shared sherpa user install smoke");
+    let cmake = std::fs::read_to_string(workspace_file("cpp/fcitx5-addon/CMakeLists.txt"))
+        .expect("read Fcitx addon CMakeLists");
 
     for required in [
         "locale_catalog_source",
@@ -2148,13 +2150,34 @@ fn user_install_pins_frontend_locale_catalog() {
         "install -Dm644 \"${locale_catalog_source}\" \"${locale_catalog_path}\"",
         "rm -f \"${module_path}\" \"${addon_conf_path}\" \"${locale_catalog_path}\"",
         "zh_CN locale catalog:",
+        "VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR=",
+        "VINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR=\"${data_home}/locale\"",
     ] {
         assert!(
             install.contains(required),
             "user installer should pin locale lifecycle: {required}"
         );
     }
-    assert!(command_demo.contains("share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"));
+    for required in [
+        "share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo",
+        "module-strings.txt",
+        "user-installed addon retained its build-tree locale fallback",
+    ] {
+        assert!(
+            command_demo.contains(required),
+            "command-demo smoke should pin embedded locale roots: {required}"
+        );
+    }
+    for required in [
+        "VINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR",
+        "Runtime installed locale root embedded in the addon",
+        "VINPUT_FCITX_INSTALL_LOCALEDIR=\"${VINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR}\"",
+    ] {
+        assert!(
+            cmake.contains(required),
+            "Fcitx CMake should expose installed locale binding: {required}"
+        );
+    }
     for required in [
         "locale_catalog_path=",
         "\"${daemon_wrapper_path}\" \"${locale_catalog_path}\"",

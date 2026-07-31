@@ -116,6 +116,9 @@ if(Fcitx5Core_FOUND)
   set(VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR
       "${VINPUT_FCITX_BUILD_LOCALEDIR}"
       CACHE STRING "Runtime build-tree locale fallback embedded in the addon")
+  set(VINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR
+      "${CMAKE_INSTALL_FULL_LOCALEDIR}"
+      CACHE STRING "Runtime installed locale root embedded in the addon")
   set(VINPUT_FCITX_ZH_CN_MO
       "${VINPUT_FCITX_BUILD_LOCALEDIR}/zh_CN/LC_MESSAGES/fcitx5-vinput.mo")
   add_custom_command(
@@ -160,7 +163,7 @@ if(Fcitx5Core_FOUND)
     vinput_fcitx_bridge_fcitx
     PRIVATE
       VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR}"
-      VINPUT_FCITX_INSTALL_LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
+      VINPUT_FCITX_INSTALL_LOCALEDIR="${VINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR}"
   )
   add_dependencies(vinput_fcitx_bridge_fcitx vinput_fcitx_translations)
   if(Fcitx5Core_VERSION VERSION_GREATER_EQUAL "5.1.9")

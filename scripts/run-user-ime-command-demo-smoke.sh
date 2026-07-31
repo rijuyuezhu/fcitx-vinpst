@@ -32,6 +32,12 @@ test -x "${install_root}/bin/vinput-daemon"
 test -f "${install_root}/lib/fcitx5/fcitx5-vinput.so"
 test -f "${install_root}/share/fcitx5/addon/vinput.conf"
 test -f "${install_root}/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
+strings "${install_root}/lib/fcitx5/fcitx5-vinput.so" >"${install_root}/module-strings.txt"
+grep -Fxq "${install_root}/share/locale" "${install_root}/module-strings.txt"
+if grep -Fq "${repo_root}/target/cpp/fcitx5-user-ime/locale" "${install_root}/module-strings.txt"; then
+  echo "user-installed addon retained its build-tree locale fallback" >&2
+  exit 1
+fi
 test -f "${install_root}/share/fcitx-vinput/e2e-command-demo-config.json"
 test -f "${install_root}/share/fcitx-vinput/e2e-command-demo.wav"
 test -x "${env_wrapper}"
