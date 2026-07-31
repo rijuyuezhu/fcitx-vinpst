@@ -1046,6 +1046,68 @@ fn trigger_modes_live_gate_pins_persisted_timing_and_restore() {
 }
 
 #[test]
+fn frontend_localization_live_gate_pins_installed_catalog_and_restore() {
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-localization-probe.py"))
+        .expect("read frontend localization probe");
+    let runner =
+        std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-localization-live.sh"))
+            .expect("read frontend localization runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "process_key_sync",
+        "--expected-title",
+        "--expected-status-prefix",
+        "localized menu navigation unexpectedly committed text",
+        "Escape did not close the localized menu",
+        "xdg_data_home",
+    ] {
+        assert!(
+            probe.contains(required),
+            "localization probe should pin real Fcitx evidence: {required}"
+        );
+    }
+    for required in [
+        "场景 /过滤",
+        "模型 /过滤",
+        "Scenes /filter",
+        "VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR=",
+        "VINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR=\"${catalog_root}\"",
+        "VINPUT_FCITX_LOCALEDIR",
+        "module-candidate-strings.txt",
+        "localization addon candidate retained its build-tree locale fallback",
+        "stop_fcitx",
+        "addon_config_verified_without_fcitx_writer",
+        "profile_unchanged",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "addon_metadata_unchanged",
+        "fcitx_env_unchanged",
+        "backend_unchanged",
+        "english_locale_restored",
+        "target/tmp/ime-fcitx-localization-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "localization runner should pin installed-catalog restore evidence: {required}"
+        );
+    }
+    for forbidden in ["pw-play", "ydotool", "wtype"] {
+        assert!(
+            !runner.contains(forbidden),
+            "localization gate should use real Fcitx client events, not {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-localization-live:"));
+    assert!(justfile.contains("run-ime-fcitx-localization-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-localization-live"));
+}
+
+#[test]
 fn native_fcitx_reload_live_gate_pins_post_reload_recognition() {
     let runner = std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-reload-live.sh"))
         .expect("read Fcitx reload live runner");

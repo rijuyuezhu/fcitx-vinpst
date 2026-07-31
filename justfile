@@ -209,6 +209,10 @@ ime-fcitx-asr-menu-paging-live:
 ime-fcitx-trigger-modes-live:
     scripts/run-ime-fcitx-trigger-modes-live.sh
 
+# Explicit zh_CN Scene/ASR menus from the installed user locale catalog.
+ime-fcitx-localization-live:
+    scripts/run-ime-fcitx-localization-live.sh
+
 # Compile toolkit probes without entering a real desktop flow.
 toolkit-probe-check:
     mkdir -p target/tmp/toolkit-probe-check
