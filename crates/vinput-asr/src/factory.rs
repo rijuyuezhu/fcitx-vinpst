@@ -8,7 +8,7 @@ use crate::SherpaOnnxBackend;
 use crate::{
     AsrBackend, AsrError, BackendCapabilities, CommandAsrBackend, CommandAsrSpec,
     LegacyCommandBatchRunner, LegacyCommandStreamingRunner, MockAsrBackend, RecognitionContext,
-    SHERPA_ONNX_PROVIDER_ID,
+    RemoteAsrBackend, SHERPA_ONNX_PROVIDER_ID,
 };
 
 const WARMUP_SCENE_ID: &str = "__vinput_asr_warmup__";
@@ -103,6 +103,9 @@ impl AsrBackendFactory {
                 provider,
                 LegacyCommandBatchRunner,
             )?));
+        }
+        if provider.kind == AsrProviderKind::Remote {
+            return Ok(Box::new(RemoteAsrBackend::with_config(provider)?));
         }
         if provider.id == SHERPA_ONNX_PROVIDER_ID && provider.kind == AsrProviderKind::Local {
             #[cfg(feature = "sherpa-onnx-backend")]

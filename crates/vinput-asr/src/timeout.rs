@@ -58,11 +58,10 @@ impl AsrTimeoutProbe {
                     "native sherpa decode is synchronous and cannot be safely cancelled; configured {timeout_ms} ms is diagnostic-only"
                 ),
             ),
-            (Some(kind), Some(timeout_ms)) => (
-                AsrTimeoutEnforcement::Unsupported,
+            (Some(AsrProviderKind::Remote), Some(timeout_ms)) => (
+                AsrTimeoutEnforcement::Enforced,
                 format!(
-                    "ASR provider kind `{}` does not expose cancellable timeout enforcement; configured {timeout_ms} ms is diagnostic-only",
-                    provider_kind_label(kind)
+                    "remote ASR HTTP request is cancelled when its {timeout_ms} ms deadline expires"
                 ),
             ),
             (None, Some(_)) => unreachable!("missing provider cannot expose timeout_ms"),
@@ -74,14 +73,6 @@ impl AsrTimeoutProbe {
             enforcement,
             reason,
         }
-    }
-}
-
-fn provider_kind_label(kind: &AsrProviderKind) -> &'static str {
-    match kind {
-        AsrProviderKind::Local => "local",
-        AsrProviderKind::Command => "command",
-        AsrProviderKind::Remote => "remote",
     }
 }
 
@@ -124,6 +115,15 @@ mod tests {
         assert_eq!(probe.enforcement, AsrTimeoutEnforcement::Unsupported);
         assert!(probe.reason.contains("synchronous"));
         assert!(probe.reason.contains("diagnostic-only"));
+    }
+
+    #[test]
+    fn remote_timeout_is_enforced_by_http_request() {
+        let probe = AsrTimeoutProbe::inspect(&config(AsrProviderKind::Remote, Some(250)));
+        assert_eq!(probe.enforcement, AsrTimeoutEnforcement::Enforced);
+        assert_eq!(probe.timeout_ms, Some(250));
+        assert!(probe.reason.contains("HTTP request"));
+        assert!(probe.reason.contains("deadline"));
     }
 
     #[test]

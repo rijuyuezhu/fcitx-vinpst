@@ -1212,6 +1212,61 @@ fn configured_command_asr_provider_runs_process_helper() {
 }
 
 #[test]
+fn configured_remote_asr_provider_posts_wav_and_returns_text() {
+    let response_body = serde_json::json!({"text": "remote runtime final"}).to_string();
+    let (base_url, handle) = serve_single_http_response(response_body);
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.asr.active_provider = "remote".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "remote".to_owned(),
+        kind: AsrProviderKind::Remote,
+        timeout_ms: Some(2_000),
+        model: Some("remote-runtime-model".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::from([
+            ("VINPUT_ASR_API_KEY".to_owned(), "remote-secret".to_owned()),
+            ("VINPUT_ASR_LANGUAGE".to_owned(), "zh".to_owned()),
+            ("VINPUT_ASR_PROMPT".to_owned(), "runtime prompt".to_owned()),
+        ]),
+        endpoint: Some(format!("{base_url}/v1")),
+    });
+    let mut runtime = RuntimeState::with_configured_asr(config).unwrap();
+
+    runtime.start_recording().unwrap();
+    let payload = runtime.stop_recording(None).unwrap();
+
+    assert_eq!(payload.commit_text, "remote runtime final");
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+    let captured = handle.join().unwrap();
+    assert!(
+        captured
+            .head
+            .starts_with("POST /v1/audio/transcriptions HTTP/1.1")
+    );
+    assert!(
+        captured
+            .head
+            .to_ascii_lowercase()
+            .contains("authorization: bearer remote-secret")
+    );
+    assert!(
+        captured
+            .head
+            .to_ascii_lowercase()
+            .contains("content-type: multipart/form-data; boundary=")
+    );
+    assert!(captured.body.contains("RIFF"));
+    assert!(captured.body.contains("name=\"model\""));
+    assert!(captured.body.contains("remote-runtime-model"));
+    assert!(captured.body.contains("name=\"language\""));
+    assert!(captured.body.contains("zh"));
+    assert!(captured.body.contains("name=\"prompt\""));
+    assert!(captured.body.contains("runtime prompt"));
+}
+
+#[test]
 fn configured_streaming_command_asr_reports_stop_partial() {
     let mut config = VinputConfig::bundled_default().unwrap();
     config.asr.active_provider = "cmd.streaming".to_owned();

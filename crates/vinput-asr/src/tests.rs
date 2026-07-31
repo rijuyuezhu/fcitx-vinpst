@@ -2824,6 +2824,9 @@ fn backend_factory_state_preserves_remote_endpoint() {
     let state = AsrBackendFactory::state_for_config(&config);
     assert_eq!(state.target_provider_id, "remote");
     assert_eq!(state.target_model_id, "cloud-model");
-    assert!(!state.has_effective_backend);
+    assert!(state.has_effective_backend);
+    assert_eq!(state.effective_provider_id, "remote");
+    assert_eq!(state.effective_model_id, "cloud-model");
+    assert!(state.last_error.is_empty());
     assert_eq!(state.remote_endpoints, ["https://asr.example.test"]);
 }

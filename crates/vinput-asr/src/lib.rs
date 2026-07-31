@@ -9,6 +9,7 @@ mod error;
 mod factory;
 mod mock;
 mod payload;
+mod remote;
 mod sherpa;
 mod sherpa_online;
 mod sherpa_vad;
@@ -26,6 +27,11 @@ pub use error::AsrError;
 pub use factory::AsrBackendFactory;
 pub use mock::{MockAsrAudioLog, MockAsrAudioPush, MockAsrBackend};
 pub use payload::events_to_payload;
+pub use remote::{
+    RemoteAsrBackend, RemoteAsrRequest, RemoteAsrSpec, RemoteAsrTransport,
+    ReqwestRemoteAsrTransport, build_openai_compatible_transcriptions_url, encode_pcm16le_wav,
+    extract_openai_compatible_transcription,
+};
 #[cfg(feature = "sherpa-onnx-backend")]
 pub use sherpa::SherpaOnnxBackend;
 pub use sherpa::{
