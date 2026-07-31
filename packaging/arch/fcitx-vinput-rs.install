@@ -10,9 +10,10 @@ post_install() {
 post_upgrade() {
   printf '%s\n' \
     ':: fcitx-vinput-rs upgraded.' \
-    ':: Daemons started by the current systemd user unit restart automatically.' \
-    ':: Older or direct-activation owners may still require:' \
+    ':: Daemons started by current activation metadata hand off automatically.' \
+    ':: If an older owner remains, each affected desktop user can run:' \
     '   vinput daemon handoff' \
+    ':: The guarded handoff reloads systemd metadata or replaces an idle direct owner.' \
     ':: Reload Fcitx5 if the addon binary changed:' \
     '   fcitx5 -r'
 }

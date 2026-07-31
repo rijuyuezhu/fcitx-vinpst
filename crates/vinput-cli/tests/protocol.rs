@@ -560,7 +560,10 @@ fn daemon_handoff_dry_run_pins_conditional_restart_and_verification() {
     assert_eq!(value["action"], "handoff");
     assert_eq!(value["will_call_dbus"], false);
     assert_eq!(value["will_mutate_user_service"], false);
-    assert_eq!(value["strategy"], "restart-user-service-only-when-stale");
+    assert_eq!(
+        value["strategy"],
+        "systemd-reload-or-guarded-direct-owner-termination"
+    );
     assert_eq!(
         value["restart_condition"],
         serde_json::json!(["owner-executable-deleted", "owner-executable-path-mismatch"])
@@ -568,6 +571,19 @@ fn daemon_handoff_dry_run_pins_conditional_restart_and_verification() {
     assert_eq!(
         value["service_control"]["command"],
         "systemctl --user restart vinput-daemon.service"
+    );
+    assert_eq!(
+        value["systemd_control"]["owner_probe"]["command"],
+        "systemctl --user show --property MainPID --value vinput-daemon.service"
+    );
+    assert_eq!(
+        value["systemd_control"]["reload"]["command"],
+        "systemctl --user daemon-reload"
+    );
+    assert_eq!(value["direct_control"]["signal"], "TERM");
+    assert_eq!(
+        value["direct_control"]["reactivation"],
+        "reload D-Bus activation config and verify the new owner"
     );
     assert_eq!(value["service_control"]["will_mutate_user_service"], false);
     assert_eq!(value["verification"]["required_after_restart"], true);
@@ -585,7 +601,7 @@ fn daemon_handoff_text_dry_run_is_explicitly_non_mutating() {
     let stdout = assert_stdout_success(output, "daemon handoff dry-run text");
     assert!(stdout.contains("action: handoff"));
     assert!(stdout.contains("will_mutate_user_service: false"));
-    assert!(stdout.contains("strategy: restart-user-service-only-when-stale"));
+    assert!(stdout.contains("strategy: systemd-reload-or-guarded-direct-owner-termination"));
     assert!(stdout.contains("systemctl --user restart vinput-daemon.service"));
     assert!(stdout.contains("without --dry-run to inspect and conditionally restart"));
 }

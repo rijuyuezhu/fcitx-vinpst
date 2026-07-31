@@ -52,7 +52,11 @@ systemctl --user enable --now vinput-daemon.service
 fcitx5 -r
 ```
 
-After an upgrade, `vinput daemon handoff` conditionally restarts only a stale
-daemon and verifies the new owner. After removal, the package leaves user
+After an upgrade, current activation metadata hands off automatically. When an
+owner from older metadata remains, `vinput daemon handoff` identifies whether
+the exact D-Bus owner belongs to the systemd user unit or to direct activation.
+It reloads and restarts the former; it terminates the latter only after proving
+that it is an idle same-user `vinput-daemon` outside the systemd unit, then
+verifies the newly activated owner. After removal, the package leaves user
 config, models, and cache intact; a still-running user daemon can be stopped
 with `systemctl --user stop vinput-daemon.service`, followed by `fcitx5 -r`.

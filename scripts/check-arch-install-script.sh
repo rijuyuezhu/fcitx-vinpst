@@ -23,11 +23,13 @@ grep -qx '   fcitx5 -r' <<<"${post_install_output}"
 
 post_upgrade_output="$(run_hook post_upgrade)"
 grep -qx ':: fcitx-vinput-rs upgraded.' <<<"${post_upgrade_output}"
-grep -qx ':: Daemons started by the current systemd user unit restart automatically.' \
+grep -qx ':: Daemons started by current activation metadata hand off automatically.' \
   <<<"${post_upgrade_output}"
-grep -qx ':: Older or direct-activation owners may still require:' \
+grep -qx ':: If an older owner remains, each affected desktop user can run:' \
   <<<"${post_upgrade_output}"
 grep -qx '   vinput daemon handoff' <<<"${post_upgrade_output}"
+grep -qx ':: The guarded handoff reloads systemd metadata or replaces an idle direct owner.' \
+  <<<"${post_upgrade_output}"
 grep -qx '   fcitx5 -r' <<<"${post_upgrade_output}"
 
 post_remove_output="$(run_hook post_remove)"
