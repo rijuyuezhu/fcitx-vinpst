@@ -205,6 +205,10 @@ ime-fcitx-cross-provider-live:
 ime-fcitx-cross-provider-failure-live:
     scripts/run-ime-fcitx-cross-provider-failure-live.sh
 
+# Explicit F8 roundtrip through an OpenAI-compatible remote ASR endpoint.
+ime-fcitx-remote-asr-live:
+    scripts/run-ime-fcitx-remote-asr-live.sh
+
 # Explicit F8 roundtrip through an independent whisper.cpp recognizer/model.
 ime-fcitx-whisper-provider-live:
     scripts/run-ime-fcitx-whisper-provider-live.sh

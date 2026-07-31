@@ -971,6 +971,74 @@ fn asr_cross_provider_failure_live_gate_pins_preservation_and_recovery() {
 }
 
 #[test]
+fn remote_asr_live_gate_pins_http_selection_recognition_and_restore() {
+    let fixture =
+        std::fs::read_to_string(workspace_file("scripts/openai-compatible-asr-fixture.py"))
+            .expect("read OpenAI-compatible ASR fixture");
+    let runner =
+        std::fs::read_to_string(workspace_file("scripts/run-ime-fcitx-remote-asr-live.sh"))
+            .expect("read remote ASR live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "/v1/audio/transcriptions",
+        "multipart/form-data",
+        "authorization_value_recorded",
+        "prompt_value_recorded",
+        "inspect_wav",
+        "response_text",
+    ] {
+        assert!(
+            fixture.contains(required),
+            "remote ASR fixture should pin HTTP evidence: {required}"
+        );
+    }
+    for required in [
+        "remote-http",
+        "fixture-remote-asr",
+        "type\": \"remote",
+        "VINPUT_ASR_API_KEY",
+        "VINPUT_ASR_LANGUAGE",
+        "VINPUT_ASR_PROMPT",
+        "openai-compatible-asr-fixture.py",
+        "server-trace.json",
+        "fcitx-live-asr-selection-probe.py",
+        "VINPUT_LIVE_REQUIRE_PARTIAL=0",
+        "remote ASR final-only recognition did not produce the fixture response",
+        "authorization_value_recorded == false",
+        "prompt_value_recorded == false",
+        "remote ASR live evidence leaked its API key",
+        "remote ASR live evidence leaked its prompt",
+        "VINPUT_LIVE_REQUIRE_PARTIAL=1",
+        "recovery_partial_count",
+        "local_fixture_not_hosted_service",
+        "profile_restored",
+        "backup_restored",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "fcitx_restored",
+        "backend_restored",
+        "target/tmp/ime-fcitx-remote-asr-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "remote ASR live runner should pin selection/restore evidence: {required}"
+        );
+    }
+    assert!(
+        !runner.contains("--filter-text"),
+        "remote ASR switching should directly select its unique candidate"
+    );
+    assert!(justfile.contains("ime-fcitx-remote-asr-live:"));
+    assert!(justfile.contains("run-ime-fcitx-remote-asr-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-remote-asr-live"));
+}
+
+#[test]
 fn whisper_cross_provider_live_gate_pins_independent_roundtrip() {
     let preflight = std::fs::read_to_string(workspace_file("scripts/run-whisper-cpp-asr-live.sh"))
         .expect("read whisper.cpp preflight runner");
