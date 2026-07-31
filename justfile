@@ -442,6 +442,10 @@ command-asr-wav-helper-smoke:
 legacy-command-asr-wav-bridge-smoke:
     scripts/run-legacy-command-asr-wav-bridge-smoke.sh
 
+# Build fixed whisper.cpp and run one independent multilingual WAV recognition.
+whisper-cpp-asr-live:
+    scripts/run-whisper-cpp-asr-live.sh
+
 # Run deterministic external OpenAI-compatible text provider fixture smoke.
 openai-compatible-text-provider-fixture-smoke:
     scripts/run-openai-compatible-text-provider-fixture-smoke.sh

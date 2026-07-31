@@ -2534,6 +2534,45 @@ fn legacy_command_asr_wav_bridge_pins_raw_pcm_contract() {
 }
 
 #[test]
+fn whisper_cpp_live_gate_pins_independent_recognizer() {
+    let runner = std::fs::read_to_string(workspace_file("scripts/run-whisper-cpp-asr-live.sh"))
+        .expect("read whisper.cpp live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "v1.9.1",
+        "f049fff95a089aa9969deb009cdd4892b3e74916",
+        "https://github.com/ggerganov/whisper.cpp.git",
+        "WHISPER_BUILD_TESTS=OFF",
+        "WHISPER_BUILD_SERVER=OFF",
+        "ggml-base.bin",
+        "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+        "--no-gpu",
+        "--language",
+        "whisper.cpp produced no recognized text",
+        "independent_recognizer",
+        "binary_sha256",
+        "model_sha256",
+        "wav_sha256",
+        "elapsed_ms",
+        "target/third-party/whisper.cpp-v1.9.1",
+        "target/tmp/whisper-cpp-asr-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "whisper.cpp live runner should pin independent evidence: {required}"
+        );
+    }
+    assert!(justfile.contains("whisper-cpp-asr-live:"));
+    assert!(justfile.contains("run-whisper-cpp-asr-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("whisper-cpp-asr-live"));
+}
+
+#[test]
 fn openai_compatible_text_fixture_pins_external_http_contract() {
     let fixture = std::fs::read_to_string(workspace_file(
         "scripts/openai-compatible-text-provider-fixture.py",
