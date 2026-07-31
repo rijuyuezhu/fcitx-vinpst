@@ -67,7 +67,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Diagnostic extensions | implemented | runtime, adapter, scene, and ASR menu state |
 | Runtime state machine | deterministic | normal/command lifecycle, capture-before-session startup, early-chunk gating, chunk delivery, partials, explicit inferring/postprocessing phases, final result, error cleanup |
 | ASR reload | deterministic | unavailable-but-running configured startup, one non-blocking prepare-before-swap worker, config reread, generation coalescing, old-backend preservation |
-| Audio capture | partial | deterministic lifecycle, live capture from a preflight-verified PipeWire virtual source, and default physical ALSA Digital Microphone recognition through native ASR are proven; audible ducking and broader device combinations remain |
+| Audio capture | partial | deterministic lifecycle, live capture from a preflight-verified PipeWire virtual source, default physical ALSA Digital Microphone recognition through native ASR, and real `wpctl` duck/restore against an isolated virtual sink are proven; audible hardware-output ducking and broader device combinations remain |
 | File input | implemented | WAV and PCM paths are first-class deterministic seams |
 | Command ASR | implemented | batch/streaming protocols, partials, timeouts, cancellation |
 | Native offline ASR | deterministic | supported registry families pass real WAV smokes |
@@ -164,7 +164,7 @@ The installed `sherpa-native-command-live` profile now has retained normal/comma
 ## Immediate next work
 
 1. Validate the implemented remote ASR client against a real hosted service, including DNS/TLS/proxy/rate-limit/outage behavior and credential rotation/custody; validate equivalent real cloud text-provider operational behavior.
-2. Validate additional physical-device switching and audible output ducking.
+2. Validate additional physical-device switching and audible hardware-output ducking.
 3. Broaden localization to additional locales.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and deferred Rust GUI work.

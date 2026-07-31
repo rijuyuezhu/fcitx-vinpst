@@ -60,7 +60,7 @@ Live in a real user session, `ime-fcitx-virtual-source-live` now proves F9 norma
 3. Restart Fcitx5 through the generated environment wrapper.
 4. Prove addon discovery and D-Bus activation in the real session.
 5. Keep the live-proven GTK3, Qt6, Chromium/Ozone, surrounding-text, and primary-selection-fallback paths green.
-6. Keep the live-proven focus-handoff, owner-loss, same-provider reload, default physical-microphone dictation, scene/ASR selection and paging, installed-catalog zh_CN menu, official English/zh_CN configuration-form labels and trigger-mode choices, plus scene-info/ASR-switch/error-summary notification localization, F8 model/command/Whisper/remote success plus remote prepare-failure preservation, Tap/Hold/Both timing, and notification paths green; next exercise additional device switching, real hosted-ASR operational behavior, and additional locales.
+6. Keep the live-proven focus-handoff, owner-loss, same-provider reload, default physical-microphone dictation, isolated real-`wpctl` output duck/restore, scene/ASR selection and paging, installed-catalog zh_CN menu, official English/zh_CN configuration-form labels and trigger-mode choices, plus scene-info/ASR-switch/error-summary notification localization, F8 model/command/Whisper/remote success plus remote prepare-failure preservation, Tap/Hold/Both timing, and notification paths green; next exercise additional device switching, audible hardware-output ducking, real hosted-ASR operational behavior, and additional locales.
 7. Keep both live-proven command paths green: the local adapter and the loopback OpenAI-compatible HTTP provider; next prove real cloud-provider credentials/network failure behavior.
 8. Record exact failures and add deterministic regressions before fixing them.
 
