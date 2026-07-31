@@ -2130,6 +2130,45 @@ fn user_install_smokes_isolate_stub_binaries_from_cargo_outputs() {
 }
 
 #[test]
+fn user_install_pins_frontend_locale_catalog() {
+    let install = std::fs::read_to_string(workspace_file("scripts/install-user-ime.sh"))
+        .expect("read user install script");
+    let command_demo =
+        std::fs::read_to_string(workspace_file("scripts/run-user-ime-command-demo-smoke.sh"))
+            .expect("read command-demo user install smoke");
+    let sherpa_smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-user-ime-sherpa-sense-voice-smoke.sh",
+    ))
+    .expect("read shared sherpa user install smoke");
+
+    for required in [
+        "locale_catalog_source",
+        "locale_catalog_path",
+        "locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo",
+        "install -Dm644 \"${locale_catalog_source}\" \"${locale_catalog_path}\"",
+        "rm -f \"${module_path}\" \"${addon_conf_path}\" \"${locale_catalog_path}\"",
+        "zh_CN locale catalog:",
+    ] {
+        assert!(
+            install.contains(required),
+            "user installer should pin locale lifecycle: {required}"
+        );
+    }
+    assert!(command_demo.contains("share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"));
+    for required in [
+        "locale_catalog_path=",
+        "\"${daemon_wrapper_path}\" \"${locale_catalog_path}\"",
+        "\"${daemon_wrapper_path}\" \"${locale_catalog_path}\"; do",
+        "stub zh_CN catalog",
+    ] {
+        assert!(
+            sherpa_smoke.contains(required),
+            "shared sherpa smoke should prove locale install/removal: {required}"
+        );
+    }
+}
+
+#[test]
 fn native_user_install_pins_runtime_bundle_activation() {
     let readme = std::fs::read_to_string(workspace_file("README.md")).expect("read README");
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))

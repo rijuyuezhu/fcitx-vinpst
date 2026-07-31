@@ -31,6 +31,7 @@ cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
 test -x "${install_root}/bin/vinput-daemon"
 test -f "${install_root}/lib/fcitx5/fcitx5-vinput.so"
 test -f "${install_root}/share/fcitx5/addon/vinput.conf"
+test -f "${install_root}/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
 test -f "${install_root}/share/fcitx-vinput/e2e-command-demo-config.json"
 test -f "${install_root}/share/fcitx-vinput/e2e-command-demo.wav"
 test -x "${env_wrapper}"

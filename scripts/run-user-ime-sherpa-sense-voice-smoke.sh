@@ -118,6 +118,8 @@ if [[ -z "${build_dir}" ]]; then
 fi
 mkdir -p "${build_dir}"
 printf 'stub module\n' >"${build_dir}/fcitx5-vinput.so"
+mkdir -p "${build_dir}/locale/zh_CN/LC_MESSAGES"
+printf 'stub zh_CN catalog\n' >"${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
 cat >"${build_dir}/vinput-addon.conf" <<'CONF'
 Name=Vinput
 Type=SharedLibrary
@@ -180,8 +182,9 @@ vad_license_path="${home_dir}/.local/share/fcitx-vinput/vad/LICENSE"
 runtime_lib_dir="${home_dir}/.local/share/fcitx-vinput/runtime/lib"
 env_path="${home_dir}/.local/share/fcitx-vinput/fcitx-vinput.env"
 daemon_wrapper_path="${home_dir}/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh"
+locale_catalog_path="${home_dir}/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
 
-for path in "${config_path}" "${service_path}" "${vad_model_path}" "${vad_license_path}" "${env_path}" "${daemon_wrapper_path}" "${runtime_lib_dir}/libsherpa-onnx-c-api.so" "${runtime_lib_dir}/libsherpa-onnx-cxx-api.so" "${runtime_lib_dir}/libonnxruntime.so"; do
+for path in "${config_path}" "${service_path}" "${vad_model_path}" "${vad_license_path}" "${env_path}" "${daemon_wrapper_path}" "${locale_catalog_path}" "${runtime_lib_dir}/libsherpa-onnx-c-api.so" "${runtime_lib_dir}/libsherpa-onnx-cxx-api.so" "${runtime_lib_dir}/libonnxruntime.so"; do
   if [[ ! -e "${path}" ]]; then
     cat "${out_dir}/install.log" >&2
     echo "missing expected file: ${path}" >&2
@@ -385,7 +388,7 @@ VINPUT_USER_SHERPA_RUNTIME_LIB_DIR="${runtime_source_dir}" \
 VINPUT_USER_PROFILE="${profile}" \
 VINPUT_USER_REMOVE=1 \
 scripts/install-user-ime.sh >"${out_dir}/remove.log" 2>&1
-for removed in "${service_path}" "${runtime_lib_dir}" "${env_path}" "${daemon_wrapper_path}"; do
+for removed in "${service_path}" "${runtime_lib_dir}" "${env_path}" "${daemon_wrapper_path}" "${locale_catalog_path}"; do
   if [[ -e "${removed}" ]]; then
     cat "${out_dir}/remove.log" >&2
     echo "remove left native install artifact: ${removed}" >&2

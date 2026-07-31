@@ -84,6 +84,8 @@ if [[ -z "${build_dir}" ]]; then
 fi
 mkdir -p "${build_dir}"
 printf 'stub module\n' >"${build_dir}/fcitx5-vinput.so"
+mkdir -p "${build_dir}/locale/zh_CN/LC_MESSAGES"
+printf 'stub zh_CN catalog\n' >"${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
 cat >"${build_dir}/vinput-addon.conf" <<'CONF'
 Name=Vinput
 Type=SharedLibrary

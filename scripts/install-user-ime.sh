@@ -36,6 +36,8 @@ daemon_binary="${VINPUT_USER_DAEMON_BINARY:-target/debug/vinput-daemon}"
 module_path="${lib_dir}/fcitx5-vinput.so"
 addon_conf_path="${addon_dir}/vinput.conf"
 build_dir="target/cpp/fcitx5-user-ime"
+locale_catalog_source="${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
+locale_catalog_path="${data_home}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
 command_asr_wav_helper_path="${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-${bin_dir}/vinput-command-asr-wav-helper}"
 vad_dir="${data_home}/fcitx-vinput/vad"
 vad_model_path="${vad_dir}/silero_vad.onnx"
@@ -531,7 +533,7 @@ doctor_status() {
 }
 
 if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
-  rm -f "${module_path}" "${addon_conf_path}"
+  rm -f "${module_path}" "${addon_conf_path}" "${locale_catalog_path}"
   if [[ -z "${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-}" ]]; then
     rm -f "${command_asr_wav_helper_path}"
   fi
@@ -543,6 +545,7 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   echo "Removed user IME files if present:"
   echo "  ${module_path}"
   echo "  ${addon_conf_path}"
+  echo "  ${locale_catalog_path}"
   echo "  ${env_file}"
   echo "  ${fcitx_env_wrapper}"
   echo "  ${daemon_env_wrapper}"
@@ -580,6 +583,7 @@ if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   echo "User IME install status:"
   printf '  module: %s (%s)\n' "${module_path}" "$([[ -f "${module_path}" ]] && echo present || echo missing)"
   printf '  addon metadata: %s (%s)\n' "${addon_conf_path}" "$([[ -f "${addon_conf_path}" ]] && echo present || echo missing)"
+  printf '  zh_CN locale catalog: %s (%s)\n' "${locale_catalog_path}" "$([[ -f "${locale_catalog_path}" ]] && echo present || echo missing)"
   printf '  daemon: %s (%s)\n' "${daemon_path}" "$([[ -x "${daemon_path}" ]] && echo executable || echo missing)"
   printf '  command ASR WAV helper: %s (%s)\n' "${command_asr_wav_helper_path}" "$([[ -x "${command_asr_wav_helper_path}" ]] && echo executable || echo missing)"
   printf '  Silero VAD model: %s (%s)\n' "${vad_model_path}" "$([[ -f "${vad_model_path}" ]] && echo present || echo missing)"
@@ -686,6 +690,7 @@ cmake -S cpp/fcitx5-addon -B "${build_dir}" \
 cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
 install -Dm755 "${build_dir}/fcitx5-vinput.so" "${module_path}"
 install -Dm644 "${build_dir}/vinput-addon.conf" "${addon_conf_path}"
+install -Dm644 "${locale_catalog_source}" "${locale_catalog_path}"
 mkdir -p "$(dirname "${env_file}")"
 cat >"${env_file}" <<EOF
 # Source this before launching Fcitx5 when using the user-installed fcitx-vinput addon.
@@ -722,6 +727,7 @@ Installed user IME files:
   daemon: ${daemon_path}
   addon module: ${module_path}
   addon metadata: ${addon_conf_path}
+  zh_CN locale catalog: ${locale_catalog_path}
   environment file: ${env_file}
   Fcitx env wrapper: ${fcitx_env_wrapper}
 EOF
