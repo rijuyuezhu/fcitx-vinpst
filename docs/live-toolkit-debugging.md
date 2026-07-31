@@ -225,7 +225,7 @@ Regression commit: `80d2dc5 fix(fcitx): preserve menu page state`.
 
 **Cause:** the local provider id is also the runtime implementation selector; `type: local` alone does not route an arbitrary id to sherpa-onnx.
 
-**Action:** test another installed model under the existing `sherpa-onnx` provider through the model root. Treat cross-provider switching as a separate contract.
+**Action:** use `just ime-fcitx-model-switch-live` for another model under the existing `sherpa-onnx` provider, and `just ime-fcitx-cross-provider-live` for the separate internal-to-command-provider contract. The latter traces a child process and temporary WAV cleanup but intentionally reuses the original sherpa model; do not report it as independent third-party recognizer proof.
 
 ### D-Bus activation ignores a relative model root
 

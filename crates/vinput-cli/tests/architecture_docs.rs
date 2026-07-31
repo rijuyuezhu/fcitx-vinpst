@@ -2260,7 +2260,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Cover cross-provider switching, one external provider-backed command flow",
+        "Cover one external text-provider-backed command transformation",
     ] {
         assert!(
             plan.contains(required),
@@ -2273,7 +2273,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "Daemon capability comparison",
         "Registry/resource comparison",
         "P1.2 sherpa streaming backend",
-        "Validate one cross-provider switch and one external provider-backed command transformation",
+        "Validate one external text-provider-backed command transformation",
         "Do not claim full parity until all of these pass",
         "vinput model install <id-or-short-id>",
     ] {
