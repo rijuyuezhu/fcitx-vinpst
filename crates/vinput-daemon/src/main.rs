@@ -46,6 +46,9 @@ struct Args {
     #[arg(long, value_enum, default_value_t = AudioBackendArg::Mock)]
     audio_backend: AudioBackendArg,
 
+    #[command(flatten)]
+    upgrade: UpgradeArgs,
+
     /// Optional config JSON file. Omitted to use the bundled default config.
     #[arg(long)]
     config: Option<PathBuf>,
@@ -73,6 +76,14 @@ struct Args {
     /// Utility command.
     #[command(subcommand)]
     command: Option<Command>,
+}
+
+/// Package-upgrade lifecycle options.
+#[derive(Debug, clap::Args)]
+struct UpgradeArgs {
+    /// Exit with failure after the running executable is replaced on disk.
+    #[arg(long)]
+    exit_when_executable_replaced: bool,
 }
 
 /// Audio recorder backend selection for long-running daemon sessions.
@@ -178,18 +189,26 @@ async fn main() -> anyhow::Result<()> {
             "mock daemon D-Bus service is running"
         );
         trace_startup("dbus service owned; waiting for shutdown signal");
-        wait_for_shutdown_signal().await?;
+        let shutdown_reason =
+            wait_for_shutdown_signal(args.upgrade.exit_when_executable_replaced).await?;
         service
             .shutdown_remote_text_service()
             .await
             .context("shutdown daemon-owned remote text service")?;
+        if shutdown_reason == ShutdownReason::ExecutableReplaced {
+            bail!("installed daemon executable was replaced");
+        }
     } else {
         info!(
             status = %runtime.status(),
             uptime_ms = runtime.uptime().as_millis(),
             "mock daemon initialized; pass --dbus to expose the legacy D-Bus ABI"
         );
-        wait_forever().await;
+        if wait_for_shutdown_signal(args.upgrade.exit_when_executable_replaced).await?
+            == ShutdownReason::ExecutableReplaced
+        {
+            bail!("installed daemon executable was replaced");
+        }
     }
 
     Ok(())
@@ -266,23 +285,93 @@ fn trace_startup(message: &str) {
     }
 }
 
-async fn wait_forever() {
-    std::future::pending::<()>().await;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShutdownReason {
+    Signal,
+    ExecutableReplaced,
 }
 
 #[cfg(unix)]
-async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
+async fn wait_for_shutdown_signal(
+    exit_when_executable_replaced: bool,
+) -> anyhow::Result<ShutdownReason> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .context("install SIGTERM handler")?;
     tokio::select! {
-        result = tokio::signal::ctrl_c() => result.context("wait for Ctrl-C"),
-        _ = terminate.recv() => Ok(()),
+        result = tokio::signal::ctrl_c() => {
+            result.context("wait for Ctrl-C")?;
+            Ok(ShutdownReason::Signal)
+        },
+        _ = terminate.recv() => Ok(ShutdownReason::Signal),
+        result = wait_for_executable_replacement(exit_when_executable_replaced) => {
+            result?;
+            Ok(ShutdownReason::ExecutableReplaced)
+        },
     }
 }
 
 #[cfg(not(unix))]
-async fn wait_for_shutdown_signal() -> anyhow::Result<()> {
-    tokio::signal::ctrl_c().await.context("wait for Ctrl-C")
+async fn wait_for_shutdown_signal(
+    exit_when_executable_replaced: bool,
+) -> anyhow::Result<ShutdownReason> {
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            result.context("wait for Ctrl-C")?;
+            Ok(ShutdownReason::Signal)
+        },
+        result = wait_for_executable_replacement(exit_when_executable_replaced) => {
+            result?;
+            Ok(ShutdownReason::ExecutableReplaced)
+        },
+    }
+}
+
+async fn wait_for_executable_replacement(enabled: bool) -> anyhow::Result<()> {
+    if !enabled {
+        std::future::pending::<()>().await;
+        unreachable!("pending executable replacement watcher returned");
+    }
+
+    #[cfg(unix)]
+    {
+        let executable = std::env::current_exe().context("resolve running daemon executable")?;
+        wait_for_executable_replacement_at(&executable, std::time::Duration::from_secs(1)).await
+    }
+
+    #[cfg(not(unix))]
+    anyhow::bail!("executable replacement watching is only supported on Unix")
+}
+
+#[cfg(unix)]
+async fn wait_for_executable_replacement_at(
+    executable: &Path,
+    interval: std::time::Duration,
+) -> anyhow::Result<()> {
+    loop {
+        tokio::time::sleep(interval).await;
+        match running_executable_was_replaced(executable) {
+            Ok(true) => return Ok(()),
+            Ok(false) => {}
+            Err(error) => tracing::debug!(
+                executable = %executable.display(),
+                %error,
+                "failed to inspect daemon executable replacement state"
+            ),
+        }
+    }
+}
+
+#[cfg(unix)]
+fn running_executable_was_replaced(executable: &Path) -> std::io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+
+    let running = std::fs::metadata("/proc/self/exe")?;
+    let installed = match std::fs::metadata(executable) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    Ok(running.dev() != installed.dev() || running.ino() != installed.ino())
 }
 
 fn runtime_status_summary(
@@ -550,4 +639,51 @@ fn default_user_config_path() -> anyhow::Result<PathBuf> {
         }
     };
     Ok(config_home.join("fcitx-vinput").join("config.json"))
+}
+
+#[cfg(all(test, unix))]
+mod executable_replacement_tests {
+    use super::*;
+
+    fn replace_with_new_inode(path: &Path, source: &Path) {
+        let replacement = path.with_extension("replacement");
+        std::fs::copy(source, &replacement).expect("copy replacement executable");
+        std::fs::rename(replacement, path).expect("publish replacement executable");
+    }
+
+    #[test]
+    fn executable_identity_detects_atomic_replacement() {
+        let current = std::env::current_exe().expect("resolve test executable");
+        let directory = tempfile::tempdir_in(current.parent().expect("test executable parent"))
+            .expect("create executable replacement directory");
+        let installed = directory.path().join("vinput-daemon");
+        std::fs::hard_link(&current, &installed).expect("link running executable");
+
+        assert!(!running_executable_was_replaced(&installed).unwrap());
+        replace_with_new_inode(&installed, &current);
+        assert!(running_executable_was_replaced(&installed).unwrap());
+    }
+
+    #[tokio::test]
+    async fn executable_watcher_returns_after_atomic_replacement() {
+        let current = std::env::current_exe().expect("resolve test executable");
+        let directory = tempfile::tempdir_in(current.parent().expect("test executable parent"))
+            .expect("create executable watcher directory");
+        let installed = directory.path().join("vinput-daemon");
+        std::fs::hard_link(&current, &installed).expect("link running executable");
+
+        let watched_path = installed.clone();
+        let watcher = tokio::spawn(async move {
+            wait_for_executable_replacement_at(&watched_path, std::time::Duration::from_millis(5))
+                .await
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        replace_with_new_inode(&installed, &current);
+
+        tokio::time::timeout(std::time::Duration::from_secs(1), watcher)
+            .await
+            .expect("watcher timed out")
+            .expect("watcher task panicked")
+            .expect("watcher failed");
+    }
 }

@@ -10,8 +10,8 @@ post_install() {
 post_upgrade() {
   printf '%s\n' \
     ':: fcitx-vinput-rs upgraded.' \
-    ':: A package transaction cannot safely restart every user session.' \
-    ':: Each logged-in user can hand off a stale daemon with:' \
+    ':: Daemons started by the current systemd user unit restart automatically.' \
+    ':: Older or direct-activation owners may still require:' \
     '   vinput daemon handoff' \
     ':: Reload Fcitx5 if the addon binary changed:' \
     '   fcitx5 -r'

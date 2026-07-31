@@ -23,7 +23,9 @@ grep -qx '   fcitx5 -r' <<<"${post_install_output}"
 
 post_upgrade_output="$(run_hook post_upgrade)"
 grep -qx ':: fcitx-vinput-rs upgraded.' <<<"${post_upgrade_output}"
-grep -qx ':: A package transaction cannot safely restart every user session.' \
+grep -qx ':: Daemons started by the current systemd user unit restart automatically.' \
+  <<<"${post_upgrade_output}"
+grep -qx ':: Older or direct-activation owners may still require:' \
   <<<"${post_upgrade_output}"
 grep -qx '   vinput daemon handoff' <<<"${post_upgrade_output}"
 grep -qx '   fcitx5 -r' <<<"${post_upgrade_output}"

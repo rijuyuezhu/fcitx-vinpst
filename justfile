@@ -67,7 +67,8 @@ addon-install-smoke: addon-fcitx-build
     test -f target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
     grep -qx 'Type=dbus' target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
     grep -qx 'BusName=org.fcitx.Vinput' target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
-    grep -qx 'ExecStart=/usr/local/bin/vinput-daemon --dbus' target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
+    grep -qx 'ExecStart=/usr/local/bin/vinput-daemon --dbus --exit-when-executable-replaced' target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
+    grep -qx 'Restart=on-failure' target/tmp/fcitx-addon-install-smoke/usr/lib/systemd/user/vinput-daemon.service
     rm -rf target/cpp/fcitx5-addon-no-systemd target/tmp/fcitx-addon-no-systemd
     cmake -S cpp/fcitx5-addon -B target/cpp/fcitx5-addon-no-systemd -DCMAKE_BUILD_TYPE=Debug -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF
     cmake --build target/cpp/fcitx5-addon-no-systemd --target fcitx5_vinput_addon --parallel
