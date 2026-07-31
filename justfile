@@ -142,6 +142,10 @@ addon-dbus-adapter-lifecycle-smoke:
 systemd-upgrade-live:
     VINPUT_RUN_SYSTEMD_UPGRADE_LIVE=1 scripts/run-systemd-upgrade-live.sh
 
+# Explicit real-wpctl output ducking against an isolated virtual sink.
+output-ducking-live:
+    VINPUT_RUN_OUTPUT_DUCKING_LIVE=1 scripts/run-output-ducking-live.sh
+
 # Explicit live PipeWire D-Bus smoke. Requires a user PipeWire session.
 addon-dbus-pipewire-live:
     scripts/run-cpp-dbus-pipewire-live-smoke.sh
