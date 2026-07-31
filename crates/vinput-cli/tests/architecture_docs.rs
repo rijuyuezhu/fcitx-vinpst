@@ -2327,6 +2327,55 @@ fn user_install_pins_frontend_locale_catalog() {
 }
 
 #[test]
+fn legacy_command_asr_wav_bridge_pins_raw_pcm_contract() {
+    let bridge =
+        std::fs::read_to_string(workspace_file("scripts/legacy-command-asr-wav-bridge.py"))
+            .expect("read legacy command ASR WAV bridge");
+    let smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-legacy-command-asr-wav-bridge-smoke.sh",
+    ))
+    .expect("read legacy command ASR WAV bridge smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "sys.stdin.buffer.read()",
+        "PCM byte length must be even",
+        "not aligned to the channel count",
+        "VINPUT_ASR_WAV",
+        "VINPUT_ASR_SAMPLE_RATE_HZ",
+        "VINPUT_ASR_CHANNELS",
+        "VINPUT_ASR_FRAMES",
+        "external ASR command produced no text",
+        "external ASR command timed out",
+    ] {
+        assert!(
+            bridge.contains(required),
+            "legacy command bridge should pin raw PCM/WAV behavior: {required}"
+        );
+    }
+    for required in [
+        "struct.pack('<5h'",
+        "wav 8000 1 5 5",
+        "PCM input is empty",
+        "PCM byte length must be even",
+        "external ASR command produced no text",
+        "external ASR command timed out",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "legacy command bridge smoke should pin failure coverage: {required}"
+        );
+    }
+    assert!(justfile.contains("legacy-command-asr-wav-bridge-smoke:"));
+    assert!(justfile.contains("run-legacy-command-asr-wav-bridge-smoke.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(check_line.contains("legacy-command-asr-wav-bridge-smoke"));
+}
+
+#[test]
 fn native_user_install_pins_runtime_bundle_activation() {
     let readme = std::fs::read_to_string(workspace_file("README.md")).expect("read README");
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
