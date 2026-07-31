@@ -2760,6 +2760,69 @@ fn openai_compatible_text_fixture_pins_external_http_contract() {
 }
 
 #[test]
+fn openai_compatible_asr_fixture_pins_multipart_and_redaction() {
+    let fixture =
+        std::fs::read_to_string(workspace_file("scripts/openai-compatible-asr-fixture.py"))
+            .expect("read OpenAI-compatible ASR fixture");
+    let smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-openai-compatible-asr-fixture-smoke.sh",
+    ))
+    .expect("read OpenAI-compatible ASR fixture smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "/v1/audio/transcriptions",
+        "multipart/form-data",
+        "Authorization",
+        "Bearer",
+        "audio/wav",
+        "inspect_wav",
+        "prompt_matched",
+        "prompt_value_recorded",
+        "authorization_value_recorded",
+        "sha256",
+        "sample_rate",
+        "sample_width_bits",
+        "frames",
+        "peak",
+        "WAV contained no audible PCM signal",
+    ] {
+        assert!(
+            fixture.contains(required),
+            "OpenAI-compatible ASR fixture should pin request evidence: {required}"
+        );
+    }
+    for required in [
+        "fixture-remote-secret",
+        "fixture-asr-model",
+        "fixture names",
+        "remote fixture final",
+        "urllib.request.Request",
+        "name=\"file\"",
+        "filename=\"audio.wav\"",
+        "wav.sample_rate == 16000",
+        "wav.channels == 1",
+        "wav.sample_width_bits == 16",
+        "authorization_value_recorded == false",
+        "prompt_value_recorded == false",
+        "leaked its API key",
+        "leaked its prompt",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "OpenAI-compatible ASR fixture smoke should pin redaction: {required}"
+        );
+    }
+    assert!(justfile.contains("openai-compatible-asr-fixture-smoke:"));
+    assert!(justfile.contains("run-openai-compatible-asr-fixture-smoke.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(check_line.contains("openai-compatible-asr-fixture-smoke"));
+}
+
+#[test]
 fn native_user_install_pins_runtime_bundle_activation() {
     let readme = std::fs::read_to_string(workspace_file("README.md")).expect("read README");
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
