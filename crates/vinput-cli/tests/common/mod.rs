@@ -2,7 +2,10 @@ use std::{
     fs,
     path::PathBuf,
     process::{Command, Output},
+    sync::atomic::{AtomicU64, Ordering},
 };
+
+static TEMP_FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[allow(dead_code)]
 pub fn workspace_file(path: &str) -> PathBuf {
@@ -14,15 +17,9 @@ pub fn workspace_file(path: &str) -> PathBuf {
 
 #[allow(dead_code)]
 pub fn write_temp_json(prefix: &str, contents: &str) -> PathBuf {
+    let sequence = TEMP_FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let mut path = std::env::temp_dir();
-    path.push(format!(
-        "{prefix}-{}-{}.json",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock should be after unix epoch")
-            .as_nanos()
-    ));
+    path.push(format!("{prefix}-{}-{sequence}.json", std::process::id()));
     fs::write(&path, contents).expect("write temporary JSON fixture");
     path
 }
