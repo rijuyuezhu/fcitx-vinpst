@@ -27,7 +27,7 @@ DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
-grep -qx "Exec=${daemon_path} --dbus" "${service_file}"
+grep -qx "Exec=${daemon_path} --dbus --exit-when-executable-replaced" "${service_file}"
 
 XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
   timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \

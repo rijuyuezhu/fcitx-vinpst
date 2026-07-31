@@ -7841,6 +7841,7 @@ fn write_activation_service(
         args.push(audio_backend.to_owned());
     }
     args.extend(daemon_args.iter().cloned());
+    args.push("--exit-when-executable-replaced".to_owned());
 
     let mut exec_parts = Vec::with_capacity(args.len() + 1);
     exec_parts.push(quote_exec_arg(&daemon.to_string_lossy()));

@@ -367,7 +367,7 @@ fn doctor_reports_existing_user_activation_exec_line() {
     std::fs::create_dir_all(service_path.parent().unwrap()).expect("create service dir");
     std::fs::write(
         &service_path,
-        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/tmp/vinput-daemon --dbus --audio-backend pipewire\n",
+        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/tmp/vinput-daemon --dbus --audio-backend pipewire --exit-when-executable-replaced\n",
     )
     .expect("write user activation service");
 
@@ -389,7 +389,7 @@ fn doctor_reports_existing_user_activation_exec_line() {
     );
     assert_eq!(
         value["activation_service"]["user_service_exec"],
-        "/tmp/vinput-daemon --dbus --audio-backend pipewire"
+        "/tmp/vinput-daemon --dbus --audio-backend pipewire --exit-when-executable-replaced"
     );
     assert_eq!(
         value["activation_service"]["read_error"],

@@ -41,7 +41,7 @@ test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinput.so"
 test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
-grep -qx "Exec=${daemon_path} --dbus --configured-backends --config ${config_path} --wav ${wav_path}" "${service_file}"
+grep -qx "Exec=${daemon_path} --dbus --configured-backends --config ${config_path} --wav ${wav_path} --exit-when-executable-replaced" "${service_file}"
 
 "${outcome_sink_smoke_bin}"
 

@@ -64,7 +64,7 @@ test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinput.so"
 test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
-grep -qx "Exec=${daemon_wrapper}" "${service_file}"
+grep -qx "Exec=${daemon_wrapper} --exit-when-executable-replaced" "${service_file}"
 
 if XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
   VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \

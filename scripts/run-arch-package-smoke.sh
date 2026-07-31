@@ -150,7 +150,7 @@ grep -qx 'ExecStart=/usr/bin/vinput-daemon --dbus --configured-backends --audio-
   "${package_root}/usr/lib/systemd/user/vinput-daemon.service"
 grep -qx 'Restart=on-failure' \
   "${package_root}/usr/lib/systemd/user/vinput-daemon.service"
-grep -qx 'Exec=/usr/bin/vinput-daemon --dbus --configured-backends --audio-backend pipewire' \
+grep -qx 'Exec=/usr/bin/vinput-daemon --dbus --configured-backends --audio-backend pipewire --exit-when-executable-replaced' \
   "${package_root}/usr/share/dbus-1/services/org.fcitx.Vinput.service"
 
 grep -qx $'\t'"provides = fcitx5-vinput=${version}" "${build_root}/.SRCINFO"

@@ -128,7 +128,7 @@ fn activation_service_prints_configured_exec_line() {
     let stdout = assert_stdout_success(output, "activation service output");
     assert_eq!(
         stdout,
-        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec='/opt/vinput daemon/bin/vinput-daemon' --dbus --configured-backends --config '/tmp/vinput config.json' --audio-backend pipewire --log-level debug\n"
+        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec='/opt/vinput daemon/bin/vinput-daemon' --dbus --configured-backends --config '/tmp/vinput config.json' --audio-backend pipewire --log-level debug --exit-when-executable-replaced\n"
     );
 }
 
@@ -164,7 +164,7 @@ fn activation_service_user_writes_xdg_data_home_service() {
     let service = std::fs::read_to_string(&service_path).expect("read generated user service");
     assert_eq!(
         service,
-        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/usr/bin/vinput-daemon --dbus\n"
+        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/usr/bin/vinput-daemon --dbus --exit-when-executable-replaced\n"
     );
     std::fs::remove_dir_all(data_home).expect("remove generated user service fixture");
 }
@@ -227,7 +227,7 @@ fn activation_service_user_status_reports_existing_service() {
     std::fs::create_dir_all(service_path.parent().unwrap()).expect("create service dir");
     std::fs::write(
         &service_path,
-        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/usr/bin/vinput-daemon --dbus\n",
+        "[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/usr/bin/vinput-daemon --dbus --exit-when-executable-replaced\n",
     )
     .expect("write service file");
 
@@ -241,7 +241,10 @@ fn activation_service_user_status_reports_existing_service() {
     assert_eq!(value["user_service_exists"], true);
     assert_eq!(value["user_service_name"], "org.fcitx.Vinput");
     assert_eq!(value["user_service_name_matches"], true);
-    assert_eq!(value["user_service_exec"], "/usr/bin/vinput-daemon --dbus");
+    assert_eq!(
+        value["user_service_exec"],
+        "/usr/bin/vinput-daemon --dbus --exit-when-executable-replaced"
+    );
     assert!(value["next_steps"].as_array().unwrap().iter().any(|step| {
         step.as_str()
             .is_some_and(|step| step.contains("daemon owner/procfs probes"))

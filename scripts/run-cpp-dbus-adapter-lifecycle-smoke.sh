@@ -33,7 +33,7 @@ DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
-grep -qx "Exec=${daemon_path} --dbus --configured-backends --config ${config_path} --wav ${wav_path}" "${service_file}"
+grep -qx "Exec=${daemon_path} --dbus --configured-backends --config ${config_path} --wav ${wav_path} --exit-when-executable-replaced" "${service_file}"
 
 XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="lifecycle heard" \
