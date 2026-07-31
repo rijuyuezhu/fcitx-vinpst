@@ -16,8 +16,10 @@ Rules:
 - Communicate with the user in Chinese; keep code, comments, tests, docs identifiers, and commit messages in English unless surrounding content requires otherwise.
 - Current priority: real desktop native alpha, then command-mode live proof, then packaging and remaining parity.
 - Prefer product-spine work over generic cleanup.
-- Preserve public wire formats and frontend expectations with focused tests.
+- Preserve public wire formats and frontend expectations with focused behavior and compatibility tests.
+- Do not add tests that assert source declarations, interface text, exact documentation wording, docstrings, recipe names, or other implementation prose.
 - Keep the retained Fcitx frontend thin. Backend logic belongs in Rust crates and `vinput-daemon`.
+- Implement any future standalone GUI in Rust; do not port the legacy Qt GUI into C++.
 - Distinguish `implemented`, `deterministic`, and `live-proven`; never count a smoke as desktop proof.
 - Never track files under ignored `docs/plan/`.
 - Use the validation tiers in `docs/development.md`; run focused checks while iterating and the full relevant gate before handoff.

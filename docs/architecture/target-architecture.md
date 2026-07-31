@@ -15,9 +15,9 @@ fcitx-vinput-rs/
     vinput-registry     # registry metadata, download, safe extraction, materialization
     vinput-daemon       # async runtime, D-Bus service, orchestration actors
     vinput-cli          # clap CLI over protocol/config/daemon APIs
+    vinput-gui          # future Rust management GUI over typed crates and D-Bus
   cpp/
     fcitx5-addon        # retained thin AddonInstance frontend bridge
-    gui-qt              # optional retained GUI until a Rust UI decision is made
   data/
   docs/
 ```
@@ -116,7 +116,8 @@ Do not replace the Fcitx5 addon with a Rust addon until mature Rust bindings and
    - Port registry parsing/download with safe extraction tests.
    - Rebuild CLI commands against typed crates.
    - Reduce C++ addon to Fcitx API, menus, preedit, and D-Bus bridge.
-   - Defer GUI rewrite unless Qt maintenance becomes worse than a Rust UI.
+   - Implement any future standalone management GUI in Rust as `vinput-gui`; do not port the legacy Qt GUI into C++.
+   - Keep GUI state and mutations behind typed library/D-Bus APIs instead of invoking CLI text interfaces.
 
 ## What not to port mechanically
 

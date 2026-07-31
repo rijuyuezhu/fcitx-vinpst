@@ -12,7 +12,7 @@ The core proof is complete:
 Fcitx trigger -> isolated PipeWire virtual source -> native ASR -> partial/input-panel updates -> application commit
 ```
 
-Normal/command application paths, default physical-microphone dictation, local-adapter and loopback OpenAI-compatible HTTP-provider command replacement, clipboard fallback, scene/ASR selection and paging, installed-catalog zh_CN menu and scene-info/ASR-switch/error-summary notification localization, persisted Tap/Hold/Both modes, notifications, focus/owner recovery, reload, one real model-switch roundtrip, internal/command and independent Whisper provider roundtrips, invalid-remote prepare failure/recovery, and a successful loopback remote HTTP ASR roundtrip are live-proven. The next proof is additional device/application breadth, real cloud text-provider behavior, real hosted-ASR network/credential behavior, and configuration-surface localization and additional locales.
+Normal/command application paths, default physical-microphone dictation, local-adapter and loopback OpenAI-compatible HTTP-provider command replacement, clipboard fallback, scene/ASR selection and paging, installed-catalog zh_CN menu, official English/zh_CN configuration-form labels and trigger-mode choices, scene-info/ASR-switch/error-summary notification localization, persisted Tap/Hold/Both modes, notifications, focus/owner recovery, reload, one real model-switch roundtrip, internal/command and independent Whisper provider roundtrips, invalid-remote prepare failure/recovery, and a successful loopback remote HTTP ASR roundtrip are live-proven. The next proof is additional device/application breadth, real cloud text-provider behavior, real hosted-ASR network/credential behavior, and additional locales.
 
 ## Repositories
 
@@ -50,8 +50,8 @@ Normal/command application paths, default physical-microphone dictation, local-a
 - Scene paging and a 14-target ASR paging profile both prove `1/2 -> 2/2 -> 1/2`, zero commits, configured-key handling, and exact restoration.
 - Persistent keys and Tap/Hold/Both are implemented and live-proven; installed user-catalog zh_CN Scene/ASR titles/status, localized scene-information text and information/error summaries, verbatim technical error bodies, and English/original-locale restoration are live-proven; filtering, broader i18n, notifications, and daemon recovery are implemented, with notification/recovery paths also live-proven.
 - Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, `SIGTERM` shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
-- ASR provider switching is live-proven with a compatibility child that reuses Sherpa, an independent whisper.cpp recognizer/model, an invalid remote endpoint that proves prepare-failure preservation, and a successful OpenAI-compatible remote HTTP path. The remote success gate verifies real F8/Enter selection, multipart WAV/Bearer/model/language/prompt transport, a final-only application commit, redacted traces, and Zipformer restoration against a loopback process. The external OpenAI-compatible text-provider process is likewise live-proven against loopback. Real hosted-service DNS/TLS/proxy/rate-limit behavior, credential rotation/custody, configuration-surface localization, additional locales/devices, and broader cross-application behavior remain unproven.
-- Remote services, packaging, upgrades, and optional GUI work remain later milestones.
+- ASR provider switching is live-proven with a compatibility child that reuses Sherpa, an independent whisper.cpp recognizer/model, an invalid remote endpoint that proves prepare-failure preservation, and a successful OpenAI-compatible remote HTTP path. The remote success gate verifies real F8/Enter selection, multipart WAV/Bearer/model/language/prompt transport, a final-only application commit, redacted traces, and Zipformer restoration against a loopback process. The external OpenAI-compatible text-provider process is likewise live-proven against loopback. Real hosted-service DNS/TLS/proxy/rate-limit behavior, credential rotation/custody, additional locales/devices, and broader cross-application behavior remain unproven.
+- Remote services, packaging, upgrades, and the deferred Rust GUI remain later milestones; see [`../architecture/gui-contract.md`](../architecture/gui-contract.md).
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.
 
@@ -83,8 +83,9 @@ Documentation-only:
 
 ```sh
 git diff --check
-cargo test -p vinput-cli --test architecture_docs
 ```
+
+Review documentation directly; do not add source-text or prose-presence tests.
 
 Rust/core:
 
