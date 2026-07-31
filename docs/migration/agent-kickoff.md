@@ -12,7 +12,7 @@ The core proof is complete:
 Fcitx trigger -> isolated PipeWire virtual source -> native ASR -> partial/input-panel updates -> application commit
 ```
 
-Normal/command application paths, default physical-microphone dictation, clipboard fallback, scene/ASR selection and paging, installed-catalog zh_CN menu localization, persisted Tap/Hold/Both modes, notifications, focus/owner recovery, reload, one real model-switch roundtrip, and one internal-sherpa-to-external-command-process roundtrip are live-proven. The next proof is additional device/application breadth, one external text-provider flow, a genuinely independent third-party ASR recognizer/model, and remaining localization surfaces/locales.
+Normal/command application paths, default physical-microphone dictation, local-adapter and loopback OpenAI-compatible HTTP-provider command replacement, clipboard fallback, scene/ASR selection and paging, installed-catalog zh_CN menu localization, persisted Tap/Hold/Both modes, notifications, focus/owner recovery, reload, one real model-switch roundtrip, and one internal-sherpa-to-external-command-process roundtrip are live-proven. The next proof is additional device/application breadth, real cloud text-provider behavior, a genuinely independent third-party ASR recognizer/model, and remaining localization surfaces/locales.
 
 ## Repositories
 
@@ -50,7 +50,7 @@ Normal/command application paths, default physical-microphone dictation, clipboa
 - Scene paging and a 14-target ASR paging profile both prove `1/2 -> 2/2 -> 1/2`, zero commits, configured-key handling, and exact restoration.
 - Persistent keys and Tap/Hold/Both are implemented and live-proven; installed user-catalog zh_CN Scene/ASR titles/status and English restoration are live-proven; filtering, broader i18n, notifications, and daemon recovery are implemented, with notification/recovery paths also live-proven.
 - Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, `SIGTERM` shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
-- The ASR cross-provider command-process roundtrip is live-proven, but its child reuses the original sherpa/Zipformer model; an independent third-party ASR recognizer/model, external text-processing provider, localized notification/configuration surfaces, additional locales/devices, and broader cross-application behavior remain unproven.
+- The ASR cross-provider command-process roundtrip is live-proven, but its child reuses the original sherpa/Zipformer model. The external OpenAI-compatible text-provider process is also live-proven, but it is a loopback fixture rather than a third-party cloud service. An independent third-party ASR recognizer/model, real cloud credentials/network behavior, localized notification/configuration surfaces, additional locales/devices, and broader cross-application behavior remain unproven.
 - Remote services, packaging, upgrades, and optional GUI work remain later milestones.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.

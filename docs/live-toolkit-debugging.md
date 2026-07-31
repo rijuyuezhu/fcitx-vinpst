@@ -342,3 +342,6 @@ When adding another application or failure mode:
 6. write JSONL to a stable `target/tmp` directory;
 7. add a deterministic architecture/contract test for the probe;
 8. run the narrow validation tier, then the full relevant gate before handoff.
+### External text provider boundary
+
+Use `just ime-fcitx-external-text-provider-live` to distinguish configured OpenAI-compatible HTTP behavior from the local command-adapter path. The gate restarts the daemon because `reload-asr` does not rebuild `text_processor`, records only the `Bearer` scheme rather than the fixture token, requires real surrounding-text deletion and exact candidate commit, then restarts again and verifies `native-command-live-adapter` is restored. Its server is loopback-only and deterministic; failures against real cloud credentials, DNS/TLS, rate limits, timeouts, or disconnects remain separate work.

@@ -25,7 +25,7 @@ Compatibility means preserving user-visible contracts, not mechanically translat
 | M1 Deterministic product spine | complete | staged addon/daemon and outcome smokes |
 | M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
 | M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
-| M4 Real desktop native alpha | active; core, toolkit, fallback, menu, localization, notification, model-switch, cross-provider, trigger-mode, physical-microphone, and recovery paths live-proven | real Fcitx client, isolated PipeWire injection, default physical ALSA Digital Microphone dictation, GTK3/Qt6/Chromium normal and command paths, surrounding-text replacement, primary-selection fallback, non-mutating menus, scene and ASR selection/paging, installed-catalog zh_CN menu localization, F8 same-provider model selection and internal-sherpa-to-external-command-process switching, persisted Tap/Hold/Both timing, information/error notifications, focus handoff, owner loss, and same-provider reload are proven; additional physical-device switching, a genuinely independent third-party ASR recognizer/model, remaining localization surfaces/locales, and external text-provider proof remain |
+| M4 Real desktop native alpha | active; core, toolkit, fallback, menu, localization, notification, model-switch, cross-provider, external-text-provider, trigger-mode, physical-microphone, and recovery paths live-proven | real Fcitx client, isolated PipeWire injection, default physical ALSA Digital Microphone dictation, GTK3/Qt6/Chromium normal and command paths, surrounding-text replacement through both a local adapter and an independent loopback OpenAI-compatible HTTP process, primary-selection fallback, non-mutating menus, scene and ASR selection/paging, installed-catalog zh_CN menu localization, F8 same-provider model selection and internal-sherpa-to-external-command-process switching, persisted Tap/Hold/Both timing, information/error notifications, focus handoff, owner loss, and same-provider reload are proven; additional physical-device switching, a genuinely independent third-party ASR recognizer/model, real cloud text-provider/network behavior, and remaining localization surfaces/locales remain |
 | M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal, and adapter runtime selectors |
 | M6 Release readiness | partial | The checked Arch package and signed candidate pipeline are deterministic; production publication, automatic package-manager handoff, incompatible-state rollback, production key operations, live installed proof, and external-user regression remain. Detailed evidence belongs in [`../architecture/packaging-contract.md`](../architecture/packaging-contract.md). |
 
@@ -61,7 +61,7 @@ Live in a real user session, `ime-fcitx-virtual-source-live` now proves F9 norma
 4. Prove addon discovery and D-Bus activation in the real session.
 5. Keep the live-proven GTK3, Qt6, Chromium/Ozone, surrounding-text, and primary-selection-fallback paths green.
 6. Keep the live-proven focus-handoff, owner-loss, same-provider reload, default physical-microphone dictation, scene/ASR selection and paging, installed-catalog zh_CN menu localization, F8 model/cross-provider selection, Tap/Hold/Both timing, and information/error notification paths green; next exercise additional device switching, a genuinely independent third-party ASR recognizer/model, and remaining localization surfaces/locales.
-7. Keep the live-proven `sherpa-native-command-live` adapter path green, then prove one external provider-backed command transformation.
+7. Keep both live-proven command paths green: the local adapter and the loopback OpenAI-compatible HTTP provider; next prove real cloud-provider credentials/network failure behavior.
 8. Record exact failures and add deterministic regressions before fixing them.
 
 The validation procedure is [`live-desktop-validation.md`](live-desktop-validation.md).
@@ -69,7 +69,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 ## P1: parity after live alpha
 
 - Port other remaining native model layouts only when registry or user demand is concrete.
-- Validate one real OpenAI-compatible or command text provider in desktop command mode.
+- Validate one real third-party OpenAI-compatible text service, including credential handling and network failure behavior.
 - Broaden daemon-originated notification categories from observed needs.
 - Reduce oversized modules only along feature boundaries.
 - Prove a real browser/device flow using the redacted endpoints reported by `vinput daemon status`.
@@ -93,4 +93,4 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 
 ## Next recommended slice
 
-Cover one external text-provider-backed command transformation, a genuinely independent third-party ASR recognizer/model, additional physical-device switching, and remaining localization surfaces/locales while keeping the retained ASR cross-provider, physical-microphone, toolkit, installed-catalog localization, trigger-mode, ASR paging, model-selection, notification, fallback, scene-menu, and recovery evidence green. Port other model families, package formats, remote services, or GUI surfaces only when they unblock or follow from that evidence.
+Cover a genuinely independent third-party ASR recognizer/model, real cloud text-provider credential/network behavior, additional physical-device switching, and remaining localization surfaces/locales while keeping the retained external HTTP text-provider, ASR cross-provider, physical-microphone, toolkit, installed-catalog localization, trigger-mode, ASR paging, model-selection, notification, fallback, scene-menu, and recovery evidence green. Port other model families, package formats, remote services, or GUI surfaces only when they unblock or follow from that evidence.

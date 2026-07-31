@@ -2341,7 +2341,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Cover one external text-provider-backed command transformation",
+        "real cloud text-provider credential/network behavior",
     ] {
         assert!(
             plan.contains(required),
@@ -2354,7 +2354,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "Daemon capability comparison",
         "Registry/resource comparison",
         "P1.2 sherpa streaming backend",
-        "Validate one external text-provider-backed command transformation",
+        "real cloud text-provider credential/network behavior",
         "Do not claim full parity until all of these pass",
         "vinput model install <id-or-short-id>",
     ] {
