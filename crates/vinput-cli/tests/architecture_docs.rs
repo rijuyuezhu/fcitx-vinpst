@@ -1489,6 +1489,55 @@ fn frontend_localization_live_gate_pins_installed_catalog_and_restore() {
 }
 
 #[test]
+fn frontend_notification_localization_live_gate_pins_locale_and_restore() {
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-notification-localization-live.sh",
+    ))
+    .expect("read notification localization runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "LANGUAGE=zh_CN:zh",
+        "VINPUT_LIVE_FCITX_SETTLE_SECONDS",
+        "VINPUT_LIVE_NOTIFICATION_EXPECTED_SUMMARY='语音输入'",
+        "VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_PREFIX='已切换场景到“'",
+        "VINPUT_LIVE_ERROR_NOTIFICATION_EXPECTED_SUMMARY='语音输入'",
+        "VINPUT_LIVE_NOTIFICATION_EXPECTED_SUMMARY='Voice Input'",
+        "error_body_preserved",
+        "original_locale_restored",
+        "profile_unchanged",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "addon_metadata_unchanged",
+        "module_unchanged",
+        "catalog_unchanged",
+        "fcitx_env_unchanged",
+        "backend_unchanged",
+        "scripts/run-ime-fcitx-notification-live.sh",
+        "scripts/run-ime-fcitx-error-notification-live.sh",
+        "target/tmp/ime-fcitx-notification-localization-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "notification localization runner should pin locale/restore evidence: {required}"
+        );
+    }
+    for forbidden in ["notify-send", "org.freedesktop.Notifications.Notify --"] {
+        assert!(
+            !runner.contains(forbidden),
+            "localized notification gate must observe the addon instead of injecting via {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-notification-localization-live:"));
+    assert!(justfile.contains("run-ime-fcitx-notification-localization-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-notification-localization-live"));
+}
+
+#[test]
 fn physical_microphone_live_gate_pins_real_source_and_restore() {
     let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-client-probe.py"))
         .expect("read Fcitx live client probe");

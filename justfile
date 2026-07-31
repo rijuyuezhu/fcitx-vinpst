@@ -193,6 +193,10 @@ ime-fcitx-notification-live:
 ime-fcitx-error-notification-live:
     scripts/run-ime-fcitx-error-notification-live.sh
 
+# Explicit zh_CN information/error notifications and English locale restoration.
+ime-fcitx-notification-localization-live:
+    scripts/run-ime-fcitx-notification-localization-live.sh
+
 # Explicit F8 model switch, offline recognition, streaming restore, and exact state restoration.
 ime-fcitx-model-switch-live:
     scripts/run-ime-fcitx-model-switch-live.sh
