@@ -15,6 +15,15 @@ addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
 remote_provider="${VINPUT_LIVE_FAILURE_PROVIDER_ID:-remote-unavailable}"
 remote_model="${VINPUT_LIVE_FAILURE_MODEL_ID:-remote-failure-fixture}"
 remote_endpoint="${VINPUT_LIVE_FAILURE_ENDPOINT:-ftp://127.0.0.1/unavailable}"
+expected_notification_summary="${VINPUT_LIVE_FAILURE_EXPECTED_NOTIFICATION_SUMMARY:-Voice Input}"
+expected_switch_body_prefix="${VINPUT_LIVE_FAILURE_EXPECTED_SWITCH_BODY_PREFIX:-}"
+expected_switch_body_suffix="${VINPUT_LIVE_FAILURE_EXPECTED_SWITCH_BODY_SUFFIX:-}"
+if [[ -z "${expected_switch_body_prefix}" ]]; then
+  expected_switch_body_prefix="ASR switch requested for '"
+fi
+if [[ -z "${expected_switch_body_suffix}" ]]; then
+  expected_switch_body_suffix="'."
+fi
 trigger_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
 recognition_wav="${VINPUT_LIVE_FAILURE_RECOVERY_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
 config_path=""
@@ -305,7 +314,11 @@ stop_monitor
 python3 - \
   "${monitor_log}" \
   "${out_dir_abs}/failed-status.json" \
-  "${out_dir_abs}/notification.json" <<'PY'
+  "${out_dir_abs}/notification.json" \
+  "${expected_notification_summary}" \
+  "${remote_model}" \
+  "${expected_switch_body_prefix}" \
+  "${expected_switch_body_suffix}" <<'PY'
 import json
 import re
 import sys
@@ -314,6 +327,9 @@ from pathlib import Path
 monitor_path = Path(sys.argv[1])
 status_path = Path(sys.argv[2])
 out_path = Path(sys.argv[3])
+expected_summary = sys.argv[4]
+target_model = sys.argv[5]
+expected_switch_body = f"{sys.argv[6]}{target_model}{sys.argv[7]}"
 expected_error = json.loads(status_path.read_text(encoding="utf-8"))["asr_backend"][
     "last_error"
 ]
@@ -359,6 +375,11 @@ for block in blocks:
                 notifications.append(notification)
 
 error_signals = [signal for signal in signals if signal["code"] == "asr_backend_reload_failed"]
+info_notifications = [
+    notification
+    for notification in notifications
+    if notification["icon"] == "dialog-information"
+]
 error_notifications = [
     notification
     for notification in notifications
@@ -366,27 +387,52 @@ error_notifications = [
 ]
 if len(error_signals) != 1:
     raise SystemExit(f"expected one ASR reload failure signal, found {len(error_signals)}")
+if len(info_notifications) != 1:
+    raise SystemExit(f"expected one Fcitx switch notification, found {len(info_notifications)}")
 if len(error_notifications) != 1:
     raise SystemExit(f"expected one Fcitx error notification, found {len(error_notifications)}")
 signal = error_signals[0]
-notification = error_notifications[0]
+info_notification = info_notifications[0]
+error_notification = error_notifications[0]
 failures = []
 if signal["raw_message"] != expected_error:
     failures.append("daemon notification did not match runtime last_error")
-if notification["body"] != expected_error:
+if info_notification["summary"] != expected_summary:
+    failures.append("ASR switch notification summary did not match the expected locale")
+if info_notification["body"] != expected_switch_body:
+    failures.append("ASR switch notification body did not match the expected locale")
+if info_notification["timeout_ms"] != 3000:
+    failures.append("ASR switch notification timeout was not 3000 ms")
+if error_notification["summary"] != expected_summary:
+    failures.append("error notification summary did not match the expected locale")
+if error_notification["body"] != expected_error:
     failures.append("desktop notification did not preserve runtime last_error")
-if notification["timeout_ms"] != 5000:
+if error_notification["timeout_ms"] != 5000:
     failures.append("error notification timeout was not 5000 ms")
 result = {
     "event": "notification",
     "daemon_sender": signal["sender"],
-    "fcitx_sender": notification["sender"],
+    "fcitx_sender": error_notification["sender"],
+    "info_fcitx_sender": info_notification["sender"],
+    "error_fcitx_sender": error_notification["sender"],
     "code": signal["code"],
     "error": expected_error,
-    "app_name": notification["app_name"],
-    "icon": notification["icon"],
-    "summary": notification["summary"],
-    "timeout_ms": notification["timeout_ms"],
+    "expected_summary": expected_summary,
+    "switch": {
+        "app_name": info_notification["app_name"],
+        "icon": info_notification["icon"],
+        "summary": info_notification["summary"],
+        "body": info_notification["body"],
+        "expected_body": expected_switch_body,
+        "timeout_ms": info_notification["timeout_ms"],
+    },
+    "failure": {
+        "app_name": error_notification["app_name"],
+        "icon": error_notification["icon"],
+        "summary": error_notification["summary"],
+        "body_preserved": error_notification["body"] == expected_error,
+        "timeout_ms": error_notification["timeout_ms"],
+    },
     "ok": not failures,
     "failures": failures,
 }
@@ -397,23 +443,33 @@ if failures:
 PY
 
 daemon_sender="$(jq -r '.daemon_sender' "${out_dir_abs}/notification.json")"
-fcitx_sender="$(jq -r '.fcitx_sender' "${out_dir_abs}/notification.json")"
+info_fcitx_sender="$(jq -r '.info_fcitx_sender' "${out_dir_abs}/notification.json")"
+error_fcitx_sender="$(jq -r '.error_fcitx_sender' "${out_dir_abs}/notification.json")"
 daemon_sender_pid="$(gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
   --method org.freedesktop.DBus.GetConnectionUnixProcessID "${daemon_sender}" \
   | python3 -c 'import re,sys; match=re.search(r"uint32 (\d+)", sys.stdin.read()); print(match.group(1) if match else "")')"
-fcitx_sender_pid="$(gdbus call --session \
+info_fcitx_sender_pid="$(gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
-  --method org.freedesktop.DBus.GetConnectionUnixProcessID "${fcitx_sender}" \
+  --method org.freedesktop.DBus.GetConnectionUnixProcessID "${info_fcitx_sender}" \
+  | python3 -c 'import re,sys; match=re.search(r"uint32 (\d+)", sys.stdin.read()); print(match.group(1) if match else "")')"
+error_fcitx_sender_pid="$(gdbus call --session \
+  --dest org.freedesktop.DBus \
+  --object-path /org/freedesktop/DBus \
+  --method org.freedesktop.DBus.GetConnectionUnixProcessID "${error_fcitx_sender}" \
   | python3 -c 'import re,sys; match=re.search(r"uint32 (\d+)", sys.stdin.read()); print(match.group(1) if match else "")')"
 if [[ "${daemon_sender_pid}" != "${before_pid}" ]]; then
   echo "DaemonNotification sender was not the current vinput-daemon" >&2
   exit 1
 fi
-if [[ "${fcitx_sender_pid}" != "${fcitx_pid}" ]]; then
-  echo "desktop notification sender was not the current fcitx5 process" >&2
+if [[ "${info_fcitx_sender_pid}" != "${fcitx_pid}" ]]; then
+  echo "ASR switch notification sender was not the current fcitx5 process" >&2
+  exit 1
+fi
+if [[ "${error_fcitx_sender_pid}" != "${fcitx_pid}" ]]; then
+  echo "error notification sender was not the current fcitx5 process" >&2
   exit 1
 fi
 
@@ -478,7 +534,8 @@ jq -n \
   --argjson before_pid "${before_pid}" \
   --argjson daemon_sender_pid "${daemon_sender_pid}" \
   --argjson fcitx_pid "${fcitx_pid}" \
-  --argjson fcitx_sender_pid "${fcitx_sender_pid}" \
+  --argjson info_fcitx_sender_pid "${info_fcitx_sender_pid}" \
+  --argjson error_fcitx_sender_pid "${error_fcitx_sender_pid}" \
   --argjson recovery_partial_count "${recovery_partial_count}" \
   --argjson selection_ok "${selection_ok}" \
   --argjson selection_preserved "${selection_preserved}" \
@@ -500,8 +557,10 @@ jq -n \
       daemon_sender_pid: $daemon_sender_pid,
       daemon_sender_verified: ($before_pid == $daemon_sender_pid),
       fcitx_pid: $fcitx_pid,
-      fcitx_sender_pid: $fcitx_sender_pid,
-      fcitx_sender_verified: ($fcitx_pid == $fcitx_sender_pid),
+      info_fcitx_sender_pid: $info_fcitx_sender_pid,
+      error_fcitx_sender_pid: $error_fcitx_sender_pid,
+      info_fcitx_sender_verified: ($fcitx_pid == $info_fcitx_sender_pid),
+      error_fcitx_sender_verified: ($fcitx_pid == $error_fcitx_sender_pid),
       notification: $notification_ok
     },
     recovery: {
@@ -522,7 +581,8 @@ jq -n \
       $selection_preserved and
       $notification_ok and
       ($before_pid == $daemon_sender_pid) and
-      ($fcitx_pid == $fcitx_sender_pid) and
+      ($fcitx_pid == $info_fcitx_sender_pid) and
+      ($fcitx_pid == $error_fcitx_sender_pid) and
       ($recovery_partial_count > 0) and
       (($recovery_commit | length) > 0)
     )
