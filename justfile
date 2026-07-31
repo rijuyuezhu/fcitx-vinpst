@@ -197,6 +197,10 @@ ime-fcitx-error-notification-live:
 ime-fcitx-notification-localization-live:
     scripts/run-ime-fcitx-notification-localization-live.sh
 
+# Explicit zh_CN ASR-switch/error notifications with provider recovery and locale restoration.
+ime-fcitx-asr-notification-localization-live:
+    scripts/run-ime-fcitx-asr-notification-localization-live.sh
+
 # Explicit F8 model switch, offline recognition, streaming restore, and exact state restoration.
 ime-fcitx-model-switch-live:
     scripts/run-ime-fcitx-model-switch-live.sh

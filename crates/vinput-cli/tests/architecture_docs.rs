@@ -1550,6 +1550,61 @@ fn frontend_notification_localization_live_gate_pins_locale_and_restore() {
 }
 
 #[test]
+fn asr_notification_localization_live_gate_pins_switch_failure_and_restore() {
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-asr-notification-localization-live.sh",
+    ))
+    .expect("read ASR notification localization runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "LANGUAGE=zh_CN:zh",
+        "VINPUT_LIVE_FAILURE_EXPECTED_NOTIFICATION_SUMMARY='语音输入'",
+        "VINPUT_LIVE_FAILURE_EXPECTED_SWITCH_BODY_PREFIX='已请求切换语音识别到“'",
+        "VINPUT_LIVE_FAILURE_EXPECTED_SWITCH_BODY_SUFFIX='”。'",
+        "已请求切换语音识别到“remote-failure-fixture”。",
+        "failure.previous_backend_preserved",
+        "failure.info_fcitx_sender_verified",
+        "failure.error_fcitx_sender_verified",
+        "recovery.recognition",
+        "error_body_preserved",
+        "stop_fcitx",
+        "install -m 0644 \"${out_dir}/addon-config-before.conf\"",
+        "Fcitx did not exit before restoring the original locale/config",
+        "original_locale_restored",
+        "profile_unchanged",
+        "backup_restored",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "addon_metadata_unchanged",
+        "module_unchanged",
+        "catalog_unchanged",
+        "fcitx_env_unchanged",
+        "backend_unchanged",
+        "scripts/run-ime-fcitx-cross-provider-failure-live.sh",
+        "target/tmp/ime-fcitx-asr-notification-localization-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "ASR notification localization runner should pin switch/failure evidence: {required}"
+        );
+    }
+    for forbidden in ["notify-send", "org.freedesktop.Notifications.Notify --"] {
+        assert!(
+            !runner.contains(forbidden),
+            "localized ASR notification gate must observe the addon instead of injecting via {forbidden}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-asr-notification-localization-live:"));
+    assert!(justfile.contains("run-ime-fcitx-asr-notification-localization-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-asr-notification-localization-live"));
+}
+
+#[test]
 fn physical_microphone_live_gate_pins_real_source_and_restore() {
     let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-client-probe.py"))
         .expect("read Fcitx live client probe");
