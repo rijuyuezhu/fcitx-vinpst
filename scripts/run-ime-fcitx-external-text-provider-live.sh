@@ -393,6 +393,7 @@ VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
 VINPUT_LIVE_NATIVE_MODES=command \
 VINPUT_LIVE_SELECTED_TEXT="${selected_text}" \
 VINPUT_LIVE_EXPECTED_COMMIT_PREFIX="${expected_prefix}" \
+VINPUT_LIVE_CANDIDATE_DELAY_MS=0 \
 VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-recognition" \
   scripts/run-ime-fcitx-virtual-source-live.sh
 
@@ -438,6 +439,34 @@ if grep -Fq "${api_key}" "${server_trace}" "${server_ready}"; then
 fi
 jq -s -e 'any(.[]; .event == "summary" and .ok == true and .selection_source == "surrounding" and .delete_count > 0 and .candidate_count >= 3 and (.commit | length) > 0)' \
   "${command_summary}" >/dev/null
+
+VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPUT_LIVE_NATIVE_MODES=command \
+VINPUT_LIVE_SELECTED_TEXT="" \
+VINPUT_LIVE_CLEAR_PRIMARY_SELECTION=1 \
+VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR=1 \
+VINPUT_LIVE_REQUIRE_PARTIAL=0 \
+VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-no-selection" \
+  scripts/run-ime-fcitx-virtual-source-live.sh
+
+no_selection_summary="${out_dir_abs}/external-text-no-selection/fcitx/command.jsonl"
+jq -s -e '
+  any(.[];
+    .event == "summary" and
+    .ok == true and
+    .selected_text == "" and
+    .commit == "" and
+    .delete_count == 0 and
+    .final_buffer == ""
+  ) and
+  any(.[];
+    (.event == "client-ui" or .event == "input-panel") and
+    .text == "Please select text first."
+  )
+' "${no_selection_summary}" >/dev/null
+"${cli_binary}" daemon status --json >"${out_dir_abs}/after-no-selection-status.json"
+jq -e '.status == "idle" and .runtime_status.active_session == false' \
+  "${out_dir_abs}/after-no-selection-status.json" >/dev/null
 
 restore_profile
 restored_daemon_pid="$(jq -r '.owner.unix_process_id' "${out_dir_abs}/restored-status.json")"
@@ -488,6 +517,10 @@ jq -n \
     failure_commit_suppressed: true,
     failure_delete_suppressed: true,
     failure_daemon_idle_after_error: true,
+    no_selection_rejected_before_recording: true,
+    no_selection_commit_suppressed: true,
+    no_selection_delete_suppressed: true,
+    no_selection_primary_restored: true,
     request_path: "/v1/chat/completions",
     authorization_scheme: "Bearer",
     authorization_value_recorded: false,

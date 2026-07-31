@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
 
 wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
-selected_text="${VINPUT_LIVE_SELECTED_TEXT:-selected text}"
+selected_text="${VINPUT_LIVE_SELECTED_TEXT-selected text}"
 modes="${VINPUT_LIVE_NATIVE_MODES:-normal,command}"
 focus_switch="${VINPUT_LIVE_NATIVE_FOCUS_SWITCH:-0}"
 owner_loss="${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}"
@@ -14,6 +14,8 @@ require_partial="${VINPUT_LIVE_REQUIRE_PARTIAL:-1}"
 expected_text_adapter="${VINPUT_LIVE_EXPECTED_TEXT_ADAPTER:-}"
 expected_commit_prefix="${VINPUT_LIVE_EXPECTED_COMMIT_PREFIX:-}"
 expect_unchanged_on_error="${VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}"
+clear_primary_selection="${VINPUT_LIVE_CLEAR_PRIMARY_SELECTION:-0}"
+candidate_delay_ms="${VINPUT_LIVE_CANDIDATE_DELAY_MS:-200}"
 playback_target="${VINPUT_LIVE_PLAYBACK_TARGET:-}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
 out_dir="${VINPUT_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
@@ -39,7 +41,7 @@ restore_idle() {
 
 restore_primary_selection() {
   local restored_path
-  if [[ "${primary_selection_fallback}" == "0" || "${primary_snapshot_ready}" == "0" ]]; then
+  if [[ "${primary_snapshot_ready}" == "0" ]]; then
     return 0
   fi
   if [[ -n "${primary_owner_pid}" ]]; then
@@ -97,6 +99,15 @@ if [[ -f "${env_file}" ]]; then
   # shellcheck disable=SC1090
   . "${env_file}"
 fi
+if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+  runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  mapfile -t wayland_sockets < <(
+    find "${runtime_dir}" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' 2>/dev/null
+  )
+  if [[ "${#wayland_sockets[@]}" == 1 ]]; then
+    export WAYLAND_DISPLAY="${wayland_sockets[0]}"
+  fi
+fi
 
 for command in python3 pw-play fcitx5-remote gdbus timeout; do
   if ! command -v "${command}" >/dev/null 2>&1; then
@@ -104,7 +115,7 @@ for command in python3 pw-play fcitx5-remote gdbus timeout; do
     exit 2
   fi
 done
-if [[ "${primary_selection_fallback}" != "0" ]]; then
+if [[ "${primary_selection_fallback}" != "0" || "${clear_primary_selection}" != "0" ]]; then
   for command in wl-copy wl-paste; do
     if ! command -v "${command}" >/dev/null 2>&1; then
       echo "required primary-selection command is missing: ${command}" >&2
@@ -150,9 +161,13 @@ fi
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
 
-if [[ "${primary_selection_fallback}" != "0" ]]; then
+if [[ "${primary_selection_fallback}" != "0" && "${clear_primary_selection}" != "0" ]]; then
+  echo "primary-selection fallback and clearing are mutually exclusive" >&2
+  exit 2
+fi
+if [[ "${primary_selection_fallback}" != "0" || "${clear_primary_selection}" != "0" ]]; then
   if [[ "${modes}" != "command" ]]; then
-    echo "VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK requires command-only mode" >&2
+    echo "primary-selection setup requires command-only mode" >&2
     exit 2
   fi
   if timeout 2s wl-paste --primary --no-newline \
@@ -162,28 +177,29 @@ if [[ "${primary_selection_fallback}" != "0" ]]; then
     : >"${out_dir}/primary-selection-before.txt"
   fi
   primary_snapshot_ready=1
-  wl-copy --primary --foreground --type 'text/plain;charset=utf-8' \
-    < <(printf '%s' "${selected_text}") &
-  primary_owner_pid=$!
-  primary_ready=0
-  for _ in $(seq 1 100); do
-    if ! kill -0 "${primary_owner_pid}" 2>/dev/null; then
-      break
+  if [[ "${primary_selection_fallback}" != "0" ]]; then
+    wl-copy --primary --foreground --type 'text/plain;charset=utf-8' \
+      < <(printf '%s' "${selected_text}") &
+    primary_owner_pid=$!
+    primary_ready=0
+    for _ in $(seq 1 100); do
+      if ! kill -0 "${primary_owner_pid}" 2>/dev/null; then
+        break
+      fi
+      if current_primary="$(timeout 1s wl-paste --primary --no-newline 2>/dev/null)" &&
+        [[ "${current_primary}" == "${selected_text}" ]]; then
+        primary_ready=1
+        break
+      fi
+      sleep 0.05
+    done
+    if [[ "${primary_ready}" != "1" ]]; then
+      echo "temporary Wayland primary selection did not become readable" >&2
+      exit 1
     fi
-    if current_primary="$(timeout 1s wl-paste --primary --no-newline 2>/dev/null)" &&
-      [[ "${current_primary}" == "${selected_text}" ]]; then
-      primary_ready=1
-      break
-    fi
-    sleep 0.05
-  done
-  if [[ "${primary_ready}" != "1" ]]; then
-    echo "temporary Wayland primary selection did not become readable" >&2
-    exit 1
-  fi
-  sleep 0.2
-  python3 - "${selected_text}" "${primary_before_present}" \
-    >"${out_dir}/primary-selection-setup.json" <<'PY'
+    sleep 0.2
+    python3 - "${selected_text}" "${primary_before_present}" \
+      >"${out_dir}/primary-selection-setup.json" <<'PY'
 import json
 import sys
 
@@ -199,6 +215,24 @@ print(
     )
 )
 PY
+  else
+    wl-copy --primary --clear
+    primary_cleared=0
+    for _ in $(seq 1 50); do
+      if ! timeout 1s wl-paste --primary --no-newline >/dev/null 2>&1; then
+        primary_cleared=1
+        break
+      fi
+      sleep 0.05
+    done
+    if [[ "${primary_cleared}" != "1" ]]; then
+      echo "Wayland primary selection did not clear" >&2
+      exit 1
+    fi
+    printf '{"event":"primary-selection-cleared","previous_text_present":%s,"ok":true}\n' \
+      "$( [[ "${primary_before_present}" == "1" ]] && echo true || echo false )" \
+      >"${out_dir}/primary-selection-setup.json"
+  fi
 fi
 
 IFS=',' read -r -a requested_modes <<<"${modes}"
@@ -231,6 +265,10 @@ for mode in "${requested_modes[@]}"; do
     echo "VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK supports command mode only" >&2
     exit 2
   fi
+  if [[ "${clear_primary_selection}" != "0" && "${mode}" != "command" ]]; then
+    echo "VINPUT_LIVE_CLEAR_PRIMARY_SELECTION supports command mode only" >&2
+    exit 2
+  fi
   if [[ "${expect_unchanged_on_error}" != "0" && "${mode}" != "command" ]]; then
     echo "VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR supports command mode only" >&2
     exit 2
@@ -244,6 +282,7 @@ for mode in "${requested_modes[@]}"; do
     --mode "${mode}"
     --wav "${wav_path}"
     --selected-text "${selected_text}"
+    --candidate-delay-ms "${candidate_delay_ms}"
   )
   if [[ "${require_partial}" == "0" ]]; then
     probe_args+=(--no-require-partial)
