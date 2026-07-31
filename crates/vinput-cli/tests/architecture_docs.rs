@@ -2110,7 +2110,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "P0: real desktop native alpha",
         "Implemented through D-Bus",
         "deduplicated live `RecognitionPartial` signals",
-        "Cover localization breadth, physical-device behavior",
+        "Cover physical-device behavior, cross-provider switching",
     ] {
         assert!(
             plan.contains(required),
@@ -2123,7 +2123,7 @@ fn migration_docs_pin_cli_daemon_e2e_matrix() {
         "Daemon capability comparison",
         "Registry/resource comparison",
         "P1.2 sherpa streaming backend",
-        "Validate localization breadth",
+        "Validate one physical-device path",
         "Do not claim full parity until all of these pass",
         "vinput model install <id-or-short-id>",
     ] {
