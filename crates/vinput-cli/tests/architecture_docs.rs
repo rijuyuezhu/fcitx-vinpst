@@ -473,6 +473,10 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "--wav and --manual-recording-ms are mutually exclusive",
         "--wav is required unless --manual-recording-ms is used",
         "manual_speech",
+        "ERROR_PREEDIT_MARKERS",
+        "is_recognition_partial",
+        "org.fcitx.Vinput.Error",
+        "unavailable",
         "command mode did not replace selected text",
     ] {
         assert!(

@@ -29,6 +29,18 @@ PLACEHOLDER_PREEDITS = {
     "... Inferring ...",
     "... Postprocessing ...",
 }
+ERROR_PREEDIT_MARKERS = (
+    "org.fcitx.Vinput.Error",
+    "unavailable",
+)
+
+
+def is_recognition_partial(text: str) -> bool:
+    return bool(
+        text
+        and text not in PLACEHOLDER_PREEDITS
+        and not any(marker.lower() in text.lower() for marker in ERROR_PREEDIT_MARKERS)
+    )
 
 
 @dataclass
@@ -120,7 +132,7 @@ class LiveProbe:
 
     def record_preedit(self, event: str, items: object, cursor: int) -> str:
         text = "".join((item.string or "") for item in (items or []))
-        if text and text not in PLACEHOLDER_PREEDITS:
+        if is_recognition_partial(text):
             self.state.preedits.append(text)
         if self.state.owner_lost:
             self.state.owner_loss_preedits.append(text)
@@ -134,7 +146,7 @@ class LiveProbe:
 
     def record_secondary_preedit(self, event: str, items: object, cursor: int) -> None:
         text = "".join((item.string or "") for item in (items or []))
-        if text and text not in PLACEHOLDER_PREEDITS:
+        if is_recognition_partial(text):
             self.state.secondary_preedits.append(text)
         emit(event, text=text, cursor=cursor)
 
