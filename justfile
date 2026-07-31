@@ -146,6 +146,10 @@ systemd-upgrade-live:
 output-ducking-live:
     VINPUT_RUN_OUTPUT_DUCKING_LIVE=1 scripts/run-output-ducking-live.sh
 
+# Explicit same-recorder PipeWire target switch across two isolated sources.
+pipewire-device-switch-live:
+    VINPUT_RUN_PIPEWIRE_DEVICE_SWITCH_LIVE=1 scripts/run-pipewire-device-switch-live.sh
+
 # Explicit live PipeWire D-Bus smoke. Requires a user PipeWire session.
 addon-dbus-pipewire-live:
     scripts/run-cpp-dbus-pipewire-live-smoke.sh

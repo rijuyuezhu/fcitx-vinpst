@@ -102,6 +102,12 @@ pub const TEST_PIPEWIRE_RECORD_ENV: &str = "VINPUT_TEST_PIPEWIRE_RECORD";
 pub const TEST_PIPEWIRE_RECORD_MS_ENV: &str = "VINPUT_TEST_PIPEWIRE_RECORD_MS";
 /// Optional minimum absolute PCM peak required by the live recorder test.
 pub const TEST_PIPEWIRE_MIN_PEAK_ENV: &str = "VINPUT_TEST_PIPEWIRE_MIN_PEAK";
+/// First explicit source used by the live target-switch test.
+pub const TEST_PIPEWIRE_SWITCH_SOURCE_A_ENV: &str = "VINPUT_TEST_PIPEWIRE_SWITCH_SOURCE_A";
+/// Second explicit source used by the live target-switch test.
+pub const TEST_PIPEWIRE_SWITCH_SOURCE_B_ENV: &str = "VINPUT_TEST_PIPEWIRE_SWITCH_SOURCE_B";
+/// JSON evidence path written by the live target-switch test.
+pub const TEST_PIPEWIRE_SWITCH_SUMMARY_ENV: &str = "VINPUT_TEST_PIPEWIRE_SWITCH_SUMMARY";
 
 /// Returns whether a `PipeWire` live integration test gate is explicitly enabled.
 #[must_use]
@@ -1093,6 +1099,18 @@ mod tests {
             super::TEST_PIPEWIRE_RECORD_ENV,
             "VINPUT_TEST_PIPEWIRE_RECORD"
         );
+        assert_eq!(
+            super::TEST_PIPEWIRE_SWITCH_SOURCE_A_ENV,
+            "VINPUT_TEST_PIPEWIRE_SWITCH_SOURCE_A"
+        );
+        assert_eq!(
+            super::TEST_PIPEWIRE_SWITCH_SOURCE_B_ENV,
+            "VINPUT_TEST_PIPEWIRE_SWITCH_SOURCE_B"
+        );
+        assert_eq!(
+            super::TEST_PIPEWIRE_SWITCH_SUMMARY_ENV,
+            "VINPUT_TEST_PIPEWIRE_SWITCH_SUMMARY"
+        );
         assert!(!super::TEST_PIPEWIRE_ENUMERATE_ENV.is_empty());
         assert!(!super::TEST_PIPEWIRE_CONTEXT_ENV.is_empty());
         assert!(!super::TEST_PIPEWIRE_RECORD_ENV.is_empty());
@@ -1349,6 +1367,76 @@ mod tests {
         }
 
         assert!(*callback_count.lock().unwrap() >= 2);
+    }
+
+    #[test]
+    fn pipewire_recorder_live_rebuilds_for_target_switch_when_enabled() {
+        let Ok(source_a) = std::env::var(super::TEST_PIPEWIRE_SWITCH_SOURCE_A_ENV) else {
+            return;
+        };
+        let source_b = std::env::var(super::TEST_PIPEWIRE_SWITCH_SOURCE_B_ENV)
+            .expect("second PipeWire switch source must be configured");
+        let summary_path = std::env::var(super::TEST_PIPEWIRE_SWITCH_SUMMARY_ENV)
+            .expect("PipeWire switch summary path must be configured");
+        let record_ms = std::env::var(super::TEST_PIPEWIRE_RECORD_MS_ENV)
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(500);
+        let minimum_peak = std::env::var(super::TEST_PIPEWIRE_MIN_PEAK_ENV)
+            .ok()
+            .and_then(|value| value.parse::<i16>().ok())
+            .unwrap_or(512);
+        let mut recorder = super::PipeWireAudioRecorder::new();
+        let mut recordings = Vec::new();
+
+        for source in [&source_a, &source_b] {
+            super::AudioRecorder::begin_recording(
+                &mut recorder,
+                super::CaptureTarget::Object(source.clone()),
+            )
+            .unwrap();
+            let timing = recorder.last_start_timing();
+            assert!(!timing.stream_reused);
+            assert!(timing.created_new_stream);
+            std::thread::sleep(std::time::Duration::from_millis(record_ms));
+            let captured = super::AudioRecorder::stop_and_get_buffer(&mut recorder).unwrap();
+            let expected_source = format!("pipewire:{source}");
+            assert_eq!(
+                captured.source_name.as_deref(),
+                Some(expected_source.as_str())
+            );
+            assert_eq!(captured.pcm.spec(), super::recording_pcm_spec());
+            assert!(
+                captured.pcm.peak_abs() >= minimum_peak,
+                "PipeWire source {source} peak {} was below required minimum {minimum_peak}",
+                captured.pcm.peak_abs(),
+            );
+            recordings.push(serde_json::json!({
+                "source": source,
+                "reported_source": captured.source_name,
+                "frames": captured.pcm.frame_len(),
+                "duration_ms": captured.pcm.duration_ms(),
+                "peak_abs": captured.pcm.peak_abs(),
+                "first_buffer_ms": recorder.first_buffer_latency_ms(),
+                "stream_reused": timing.stream_reused,
+                "created_new_stream": timing.created_new_stream,
+                "create_stream_ms": timing.create_stream_ms,
+                "set_active_ms": timing.set_active_ms,
+                "start_total_ms": timing.start_total_ms,
+            }));
+        }
+
+        std::fs::write(
+            summary_path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "ok": true,
+                "same_recorder": true,
+                "target_switch_rebuilt_stream": true,
+                "recordings": recordings,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
     }
 
     #[test]
