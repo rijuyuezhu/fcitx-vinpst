@@ -468,6 +468,11 @@ fn native_fcitx_live_gate_pins_real_client_outcomes() {
         "allow_direct_command_commit",
         "playback_target",
         "--target",
+        "manual-speech-window",
+        "--manual-recording-ms",
+        "--wav and --manual-recording-ms are mutually exclusive",
+        "--wav is required unless --manual-recording-ms is used",
+        "manual_speech",
         "command mode did not replace selected text",
     ] {
         assert!(

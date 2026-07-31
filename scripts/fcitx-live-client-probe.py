@@ -82,7 +82,9 @@ class LiveProbe:
         )
         self.secondary_client = FcitxG.Client.new() if args.focus_switch else None
         self.stop_after_ms = (
-            args.play_delay_ms + wav_duration_ms(args.wav) + args.playback_tail_ms
+            args.start_delay_ms + args.manual_recording_ms
+            if args.manual_recording_ms > 0
+            else args.play_delay_ms + wav_duration_ms(args.wav) + args.playback_tail_ms
         )
 
         self.client.connect("connected", self.on_connected)
@@ -372,8 +374,15 @@ class LiveProbe:
                 else "none"
             ),
         )
+        if self.args.manual_recording_ms > 0:
+            emit(
+                "manual-speech-window",
+                starts_after_ms=self.args.start_delay_ms,
+                recording_ms=self.args.manual_recording_ms,
+            )
         GLib.timeout_add(self.args.start_delay_ms, self.start_recording)
-        GLib.timeout_add(self.args.play_delay_ms, self.start_playback)
+        if self.args.manual_recording_ms == 0:
+            GLib.timeout_add(self.args.play_delay_ms, self.start_playback)
         if self.args.focus_switch:
             GLib.timeout_add(self.args.focus_switch_delay_ms, self.switch_focus)
         if self.args.owner_loss:
@@ -476,6 +485,8 @@ class LiveProbe:
 
         summary = {
             "mode": self.args.mode,
+            "manual_recording_ms": self.args.manual_recording_ms,
+            "manual_speech": self.args.manual_recording_ms > 0,
             "require_partial": self.args.require_partial,
             "partial_count": len(self.state.preedits),
             "commit": self.state.commits[-1] if self.state.commits else "",
@@ -519,7 +530,8 @@ class LiveProbe:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("normal", "command"), required=True)
-    parser.add_argument("--wav", type=Path, required=True)
+    parser.add_argument("--wav", type=Path)
+    parser.add_argument("--manual-recording-ms", type=int, default=0)
     parser.add_argument("--selected-text", default="selected text")
     parser.add_argument("--expected-commit-prefix", default="")
     parser.add_argument("--allow-direct-command-commit", action="store_true")
@@ -542,9 +554,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--owner-loss-settle-ms", type=int, default=1500)
     parser.add_argument("--result-timeout-ms", type=int, default=8000)
     args = parser.parse_args()
-    args.wav = args.wav.resolve()
-    if not args.wav.is_file():
-        parser.error(f"WAV does not exist: {args.wav}")
+    if args.manual_recording_ms < 0:
+        parser.error("--manual-recording-ms must be non-negative")
+    if args.manual_recording_ms > 0:
+        if args.wav is not None:
+            parser.error("--wav and --manual-recording-ms are mutually exclusive")
+        if args.mode != "normal":
+            parser.error("--manual-recording-ms currently supports normal mode only")
+        if args.focus_switch or args.owner_loss:
+            parser.error(
+                "--manual-recording-ms is separate from focus-switch and owner-loss cases"
+            )
+    else:
+        if args.wav is None:
+            parser.error("--wav is required unless --manual-recording-ms is used")
+        args.wav = args.wav.resolve()
+        if not args.wav.is_file():
+            parser.error(f"WAV does not exist: {args.wav}")
     if args.focus_switch and args.mode != "normal":
         parser.error("--focus-switch currently supports normal mode only")
     if args.owner_loss and args.mode != "normal":
