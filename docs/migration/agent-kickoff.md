@@ -12,7 +12,7 @@ The core proof is complete:
 Fcitx trigger -> isolated PipeWire virtual source -> native ASR -> partial/input-panel updates -> application commit
 ```
 
-Normal/command application paths, clipboard fallback, scene/ASR selection and paging, installed-catalog zh_CN menu localization, persisted Tap/Hold/Both modes, notifications, focus/owner recovery, reload, and one real model-switch roundtrip are live-proven. The next proof is physical-device and application breadth, cross-provider switching, one external provider flow, and remaining localization surfaces/locales.
+Normal/command application paths, default physical-microphone dictation, clipboard fallback, scene/ASR selection and paging, installed-catalog zh_CN menu localization, persisted Tap/Hold/Both modes, notifications, focus/owner recovery, reload, and one real model-switch roundtrip are live-proven. The next proof is additional device/application breadth, cross-provider switching, one external provider flow, and remaining localization surfaces/locales.
 
 ## Repositories
 
@@ -50,7 +50,7 @@ Normal/command application paths, clipboard fallback, scene/ASR selection and pa
 - Scene paging and a 14-target ASR paging profile both prove `1/2 -> 2/2 -> 1/2`, zero commits, configured-key handling, and exact restoration.
 - Persistent keys and Tap/Hold/Both are implemented and live-proven; installed user-catalog zh_CN Scene/ASR titles/status and English restoration are live-proven; filtering, broader i18n, notifications, and daemon recovery are implemented, with notification/recovery paths also live-proven.
 - Remote text settings, protocol semantics, browser assets, Axum runtime, normal D-Bus daemon startup/provider-selection/reload ownership, `SIGTERM` shutdown, and redacted endpoint diagnostics are deterministic; live cross-device browser proof remains.
-- Cross-provider switching, localized notification/configuration surfaces and additional locales, physical-device behavior, broader cross-application behavior, and an external provider flow remain unproven.
+- Cross-provider switching, localized notification/configuration surfaces and additional locales, additional physical-device switching, broader cross-application behavior, and an external provider flow remain unproven.
 - Remote services, packaging, upgrades, and optional GUI work remain later milestones.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.

@@ -27,7 +27,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 | Discover, install, update, edit, and remove an ASR provider | implemented | current `registry/providers.json`, short ids, localized title/description, batch/streaming validation, mirror download, executable publication, update-by-reinstall with legacy timeout/env preservation, config backup, guarded managed update; local removal guard, active-clear semantics, and legacy-compatible referenced-script editor | None for current script registry |
 | Discover, install, update, remove, and control an adapter | implemented | current `registry/adapters.json`, short ids, localized title/description, mirror download, executable publication, update-by-reinstall with config backup and guarded managed update; short-id removal and in-place managed-script cleanup without deleting user-defined files; installed-selector validation before start/stop/status D-Bus calls | None for current script registry |
 | Select and reload a model | live-proven within the native `sherpa-onnx` provider | real F8/Enter selection switches streaming Zipformer to offline Paraformer, produces a final desktop commit without requiring partials, restores the original profile, reloads Zipformer, and then produces eight streaming partials plus a final commit; service/profile/Fcitx/backend state is restored exactly | Cross-provider switching and broader model combinations |
-| Normal native dictation | live-proven through isolated audio injection and real applications | real Fcitx client, F9, a preflight-verified virtual PipeWire source, streaming partials, one final commit, and real-key GTK3, Qt6, and Chromium/Ozone application evidence | Physical microphone/device breadth |
+| Normal native dictation | live-proven through isolated injection, the default physical microphone, and real applications | real Fcitx client, F9, a preflight-verified virtual PipeWire source, the default physical ALSA Digital Microphone without playback injection, streaming partials, final commits, and real-key GTK3, Qt6, and Chromium/Ozone application evidence | Additional physical-device switching breadth |
 | Command native dictation | live-proven for surrounding text and primary selection | real Fcitx client, F10, live partials, selected surrounding-text deletion/replacement, zero-delete Wayland primary-selection fallback, and `adapter-backed:` commits; GTK3, Qt6, and Chromium command paths are also live-proven | Cross-application breadth and one external provider flow |
 | Scene and ASR menus | selection/paging and zh_CN menu localization live-proven | real Fcitx clients prove F7/F8 display/filter/Escape, F7 Enter scene selection, F8 Enter model selection with completed reload, configured-key scene paging, a 14-target ASR menu across `1/2 -> 2/2 -> 1/2`, and installed-catalog `场景 /过滤` / `模型 /过滤` plus `当前：` status text; all gates reject unintended commits and restore profile/service/Fcitx/backend state exactly | Localized notification/configuration surfaces, additional locales, and cross-provider selection proof |
 | Daemon lifecycle | implemented | direct per-user activation, systemd-backed system activation, default user-config discovery with persistent D-Bus updates, status, reload, stop/restart/log plans and owner diagnostics | Non-systemd and upgrade hardening |
@@ -67,7 +67,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Diagnostic extensions | implemented | runtime, adapter, scene, and ASR menu state |
 | Runtime state machine | deterministic | normal/command lifecycle, capture-before-session startup, early-chunk gating, chunk delivery, partials, explicit inferring/postprocessing phases, final result, error cleanup |
 | ASR reload | deterministic | unavailable-but-running configured startup, one non-blocking prepare-before-swap worker, config reread, generation coalescing, old-backend preservation |
-| Audio capture | partial | deterministic lifecycle plus live capture from a preflight-verified PipeWire virtual source through native recognition are proven; physical microphones, audible ducking, and broader device combinations remain |
+| Audio capture | partial | deterministic lifecycle, live capture from a preflight-verified PipeWire virtual source, and default physical ALSA Digital Microphone recognition through native ASR are proven; audible ducking and broader device combinations remain |
 | File input | implemented | WAV and PCM paths are first-class deterministic seams |
 | Command ASR | implemented | batch/streaming protocols, partials, timeouts, cancellation |
 | Native offline ASR | deterministic | supported registry families pass real WAV smokes |
@@ -150,7 +150,7 @@ Implemented and deterministically tested, with normal/command outcome applicatio
 - daemon signal monitoring, owner-loss recovery, and external-session reconciliation;
 - selected-text replacement plus primary-selection clipboard fallback.
 
-The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for surrounding-text replacement, Wayland primary-selection fallback, scene selection, configured-key scene and ASR paging, installed-catalog zh_CN Scene/ASR titles/status with English restoration, F8 model selection/reload, persisted Tap/Hold/Both timing, and information/error notifications. The fallback gate restores the previous primary text; localization/trigger/menu/model gates restore the original addon config, scene, profile, activation service, Fcitx process, and effective backend. Remaining behavior includes broader cross-application selected-text behavior, cross-provider switching, localized notification/configuration surfaces and additional locales, physical-device proof, and an external provider.
+The installed `sherpa-native-command-live` profile now has retained normal/command evidence for GTK3, Qt6, and Chromium/Ozone, plus real Fcitx-client evidence for default physical-microphone dictation, surrounding-text replacement, Wayland primary-selection fallback, scene selection, configured-key scene and ASR paging, installed-catalog zh_CN Scene/ASR titles/status with English restoration, F8 model selection/reload, persisted Tap/Hold/Both timing, and information/error notifications. The physical gate uses no playback injection; fallback/localization/trigger/menu/model gates restore the original addon config, scene, profile, activation service, Fcitx process, and effective backend. Remaining behavior includes broader cross-application selected-text behavior, cross-provider switching, localized notification/configuration surfaces and additional locales, additional physical-device switching, and an external provider.
 
 ## Release and platform gaps
 
@@ -163,8 +163,8 @@ The installed `sherpa-native-command-live` profile now has retained normal/comma
 
 ## Immediate next work
 
-1. Validate one physical-device path.
-2. Validate one cross-provider switch and one external provider-backed command transformation.
+1. Validate one cross-provider switch and one external provider-backed command transformation.
+2. Validate additional physical-device switching and audible output ducking.
 3. Broaden localization to notification/configuration surfaces and additional locales.
 4. Convert live findings into focused fixes and deterministic regressions.
 5. Only then advance upgrade/repository policy, additional package formats, remote live proof, and optional GUI work.
