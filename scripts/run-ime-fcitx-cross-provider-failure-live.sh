@@ -24,6 +24,7 @@ fi
 if [[ -z "${expected_switch_body_suffix}" ]]; then
   expected_switch_body_suffix="'."
 fi
+fcitx_settle_seconds="${VINPUT_LIVE_FCITX_SETTLE_SECONDS:-1}"
 trigger_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
 recognition_wav="${VINPUT_LIVE_FAILURE_RECOVERY_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
 config_path=""
@@ -80,13 +81,43 @@ restart_fcitx() {
       { [[ -z "${previous_pid}" ]] || [[ ! -e "/proc/${previous_pid}" ]]; } &&
       fcitx5-remote --check >/dev/null 2>&1 &&
       grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinput.so" "/proc/${pid}/maps"; then
-      printf '%s\n' "${pid}"
-      return 0
+      sleep "${fcitx_settle_seconds}"
+      if [[ -e "/proc/${pid}" ]] && fcitx5-remote --check >/dev/null 2>&1 &&
+        grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinput.so" "/proc/${pid}/maps"; then
+        printf '%s\n' "${pid}"
+        return 0
+      fi
     fi
     sleep 0.1
   done
   echo "Fcitx did not restart with the user-installed addon" >&2
   return 1
+}
+
+stop_fcitx() {
+  local pid
+  if ! pgrep -x fcitx5 >/dev/null 2>&1; then
+    return 0
+  fi
+  fcitx5-remote -e >/dev/null 2>&1 || true
+  for _ in $(seq 1 180); do
+    if ! pgrep -x fcitx5 >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  pid="$(pgrep -n -x fcitx5 || true)"
+  echo "Fcitx did not exit before addon configuration restoration: ${pid}" >&2
+  return 1
+}
+
+restore_addon_config() {
+  if [[ ! -f "${out_dir_abs}/addon-before.conf" ]]; then
+    return 0
+  fi
+  stop_fcitx
+  install -m 0644 "${out_dir_abs}/addon-before.conf" "${addon_config}"
+  cmp "${out_dir_abs}/addon-before.conf" "${addon_config}"
 }
 
 restore_profile() {
@@ -118,6 +149,9 @@ cleanup() {
     exit_code=1
   fi
   if [[ "${fcitx_restart_needed}" == 1 ]]; then
+    if ! restore_addon_config; then
+      exit_code=1
+    fi
     if ! restart_fcitx >"${out_dir_abs}/fcitx-cleanup.pid"; then
       exit_code=1
     fi
@@ -496,7 +530,7 @@ else
   test ! -e "${config_path}.bak"
 fi
 cmp "${out_dir_abs}/service-before.conf" "${service_path}"
-cmp "${out_dir_abs}/addon-before.conf" "${addon_config}"
+restore_addon_config
 restart_fcitx | tee "${out_dir_abs}/fcitx-restored.pid"
 fcitx_restart_needed=0
 "${cli_binary}" daemon status --json >"${out_dir_abs}/final-status.json"
