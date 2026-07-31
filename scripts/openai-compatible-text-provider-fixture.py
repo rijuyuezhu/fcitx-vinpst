@@ -160,6 +160,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--response-prefix", default="external-http: ")
+    parser.add_argument("--expect-error", action="store_true")
     args = parser.parse_args()
     if not args.api_key:
         parser.error("--api-key must be non-empty")
@@ -191,9 +192,9 @@ def main() -> int:
         server.serve_forever()
     finally:
         server.server_close()
-    if server.request_count != 1:
-        return 1
-    return 0
+    if args.expect_error:
+        return int(server.request_count != 0 or not args.error_file.is_file())
+    return int(server.request_count != 1 or args.error_file.exists())
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ backup_existed=0
 profile_mutated=0
 server_pid=""
 external_server_pid=""
+failure_server_pid=""
 server_ready="${out_dir_abs}/server-ready.json"
 server_trace="${out_dir_abs}/server-trace.json"
 server_error="${out_dir_abs}/server-error.txt"
@@ -99,6 +100,49 @@ stop_server() {
     wait "${server_pid}" 2>/dev/null || true
   fi
   server_pid=""
+}
+
+start_server() {
+  local mode="${1:-success}"
+  local -a fixture_args=(
+    --ready-file "${server_ready}"
+    --trace-file "${server_trace}"
+    --error-file "${server_error}"
+    --api-key "${api_key}"
+    --model "${provider_model}"
+    --response-prefix "${response_prefix}"
+  )
+  if [[ "${mode}" == error ]]; then
+    fixture_args+=(--expect-error)
+  elif [[ "${mode}" != success ]]; then
+    echo "unknown external text fixture mode: ${mode}" >&2
+    return 2
+  fi
+  rm -f "${server_ready}" "${server_trace}" "${server_error}" "${server_log}"
+  python3 "${fixture}" "${fixture_args[@]}" \
+    >"${server_log}" 2>&1 &
+  server_pid=$!
+  for _ in $(seq 1 100); do
+    [[ -f "${server_ready}" ]] && break
+    if ! kill -0 "${server_pid}" 2>/dev/null; then
+      cat "${server_log}" >&2
+      echo "external text provider exited before readiness" >&2
+      return 1
+    fi
+    sleep 0.05
+  done
+  if [[ ! -f "${server_ready}" ]]; then
+    echo "external text provider did not publish readiness" >&2
+    return 1
+  fi
+  local server_exe server_cmdline
+  server_exe="$(readlink "/proc/${server_pid}/exe")"
+  server_cmdline="$(tr '\0' ' ' <"/proc/${server_pid}/cmdline")"
+  if [[ "${server_exe}" != *python* || "${server_cmdline}" != *"${fixture}"* ]]; then
+    echo "external text provider process identity mismatch: pid=${server_pid}" >&2
+    return 1
+  fi
+  base_url="$(jq -r '.base_url' "${server_ready}")"
 }
 
 restore_profile() {
@@ -198,41 +242,14 @@ ruff check "${fixture}"
 ruff format --check "${fixture}"
 python3 -m py_compile "${fixture}"
 
-python3 "${fixture}" \
-  --ready-file "${server_ready}" \
-  --trace-file "${server_trace}" \
-  --error-file "${server_error}" \
-  --api-key "${api_key}" \
-  --model "${provider_model}" \
-  --response-prefix "${response_prefix}" \
-  >"${server_log}" 2>&1 &
-server_pid=$!
-for _ in $(seq 1 100); do
-  [[ -f "${server_ready}" ]] && break
-  if ! kill -0 "${server_pid}" 2>/dev/null; then
-    cat "${server_log}" >&2
-    echo "external text provider exited before readiness" >&2
-    exit 1
-  fi
-  sleep 0.05
-done
-if [[ ! -f "${server_ready}" ]]; then
-  echo "external text provider did not publish readiness" >&2
-  exit 1
-fi
-server_exe="$(readlink "/proc/${server_pid}/exe")"
-server_cmdline="$(tr '\0' ' ' <"/proc/${server_pid}/cmdline")"
-if [[ "${server_exe}" != *python* || "${server_cmdline}" != *"${fixture}"* ]]; then
-  echo "external text provider process identity mismatch: pid=${server_pid}" >&2
-  exit 1
-fi
-base_url="$(jq -r '.base_url' "${server_ready}")"
+start_server error
+failure_base_url="${base_url}/unavailable"
 
 python3 - \
   "${out_dir_abs}/config-before.json" \
-  "${out_dir_abs}/config-external-text.json" \
+  "${out_dir_abs}/config-external-text-failure.json" \
   "${provider_id}" \
-  "${base_url}" \
+  "${failure_base_url}" \
   "${api_key}" \
   "${provider_model}" <<'PY'
 import json
@@ -269,17 +286,17 @@ command["timeout_ms"] = 10000
 command["context_lines"] = 0
 target.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
-"${cli_binary}" config validate "${out_dir_abs}/config-external-text.json" --json \
-  | tee "${out_dir_abs}/config-validate.json"
+"${cli_binary}" config validate "${out_dir_abs}/config-external-text-failure.json" --json \
+  | tee "${out_dir_abs}/config-failure-validate.json"
 
-install -m 0644 "${out_dir_abs}/config-external-text.json" "${config_path}"
+install -m 0644 "${out_dir_abs}/config-external-text-failure.json" "${config_path}"
 profile_mutated=1
 stop_verified_owner
-activate_and_wait "${out_dir_abs}/external-text-status.json"
-external_daemon_pid="$(jq -r '.owner.unix_process_id' "${out_dir_abs}/external-text-status.json")"
+activate_and_wait "${out_dir_abs}/external-text-failure-status.json"
+failure_daemon_pid="$(jq -r '.owner.unix_process_id' "${out_dir_abs}/external-text-failure-status.json")"
 original_daemon_pid="$(jq -r '.owner.unix_process_id' "${out_dir_abs}/before.json")"
-if [[ "${external_daemon_pid}" == "${original_daemon_pid}" ]]; then
-  echo "daemon PID did not change after enabling the external text provider" >&2
+if [[ "${failure_daemon_pid}" == "${original_daemon_pid}" ]]; then
+  echo "daemon PID did not change after enabling the failing external text provider" >&2
   exit 1
 fi
 
@@ -299,6 +316,78 @@ if config.get("active_scene") != "raw":
     raise SystemExit(f"external text setup changed active scene: {config.get('active_scene')!r}")
 print(json.dumps({"provider": provider_id, "model": model, "ok": True}))
 PY
+
+VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPUT_LIVE_NATIVE_MODES=command \
+VINPUT_LIVE_SELECTED_TEXT="${selected_text}" \
+VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR=1 \
+VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-failure" \
+  scripts/run-ime-fcitx-virtual-source-live.sh
+
+failure_server_pid="${server_pid}"
+wait "${server_pid}"
+server_pid=""
+test -f "${server_error}"
+grep -Fq 'unexpected request path:' "${server_error}"
+install -m 0644 "${server_ready}" "${out_dir_abs}/failure-server-ready.json"
+install -m 0644 "${server_error}" "${out_dir_abs}/failure-server-error.txt"
+install -m 0644 "${server_log}" "${out_dir_abs}/failure-server.log"
+
+failure_command_summary="${out_dir_abs}/external-text-failure/fcitx/command.jsonl"
+jq -s -e \
+  --arg selected "${selected_text}" '
+    any(.[];
+      .event == "summary" and
+      .ok == true and
+      .expect_unchanged_on_error == true and
+      .selection_source == "surrounding" and
+      .selected_text == $selected and
+      .commit == "" and
+      .delete_count == 0 and
+      .final_buffer == $selected
+    )
+  ' "${failure_command_summary}" >/dev/null
+"${cli_binary}" daemon status --json >"${out_dir_abs}/after-failure-status.json"
+jq -e \
+  --arg config_path "${config_path}" '
+    .status == "idle" and
+    .owner.ok == true and
+    (.owner.process.cmdline | index($config_path)) != null and
+    .runtime_status.active_session == false and
+    (.runtime_status.text_adapters.adapter_ids | length) == 0
+  ' "${out_dir_abs}/after-failure-status.json" >/dev/null
+post_failure_daemon_pid="$(jq -r '.owner.unix_process_id' "${out_dir_abs}/after-failure-status.json")"
+
+start_server success
+success_base_url="${base_url}"
+python3 - \
+  "${out_dir_abs}/config-external-text-failure.json" \
+  "${out_dir_abs}/config-external-text.json" \
+  "${success_base_url}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+base_url = sys.argv[3]
+config = json.loads(source.read_text(encoding="utf-8"))
+providers = config["llm"]["providers"]
+if len(providers) != 1:
+    raise SystemExit(f"expected one HTTP text provider, found {len(providers)}")
+providers[0]["base_url"] = base_url
+target.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+"${cli_binary}" config validate "${out_dir_abs}/config-external-text.json" --json \
+  | tee "${out_dir_abs}/config-success-validate.json"
+install -m 0644 "${out_dir_abs}/config-external-text.json" "${config_path}"
+stop_verified_owner
+activate_and_wait "${out_dir_abs}/external-text-status.json"
+external_daemon_pid="$(jq -r '.owner.unix_process_id' "${out_dir_abs}/external-text-status.json")"
+if [[ "${external_daemon_pid}" == "${post_failure_daemon_pid}" ]]; then
+  echo "daemon PID did not change while recovering the external text provider" >&2
+  exit 1
+fi
 
 VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
 VINPUT_LIVE_NATIVE_MODES=command \
@@ -375,11 +464,15 @@ jq -n \
   --arg provider_id "${provider_id}" \
   --arg provider_model "${provider_model}" \
   --arg base_url "${base_url}" \
+  --arg failure_base_url "${failure_base_url}" \
   --arg selected_text "${selected_text}" \
   --arg raw_asr_text "${raw_asr}" \
   --arg commit "${final_commit}" \
+  --argjson failure_server_pid "${failure_server_pid}" \
   --argjson server_pid "${external_server_pid}" \
   --argjson original_daemon_pid "${original_daemon_pid}" \
+  --argjson failure_daemon_pid "${failure_daemon_pid}" \
+  --argjson post_failure_daemon_pid "${post_failure_daemon_pid}" \
   --argjson external_daemon_pid "${external_daemon_pid}" \
   --argjson restored_daemon_pid "${restored_daemon_pid}" '
   {
@@ -389,16 +482,25 @@ jq -n \
     provider_id: $provider_id,
     provider_model: $provider_model,
     base_url: $base_url,
+    failure_base_url: $failure_base_url,
+    failure_http_status: 404,
+    failure_selected_text_preserved: true,
+    failure_commit_suppressed: true,
+    failure_delete_suppressed: true,
+    failure_daemon_idle_after_error: true,
     request_path: "/v1/chat/completions",
     authorization_scheme: "Bearer",
     authorization_value_recorded: false,
     selected_text: $selected_text,
     raw_asr_text: $raw_asr_text,
     commit: $commit,
+    failure_server_pid: $failure_server_pid,
     external_server_pid: $server_pid,
     surrounding_text_deleted: true,
     candidate_selected: true,
     original_daemon_pid: $original_daemon_pid,
+    failure_daemon_pid: $failure_daemon_pid,
+    post_failure_daemon_pid: $post_failure_daemon_pid,
     external_daemon_pid: $external_daemon_pid,
     restored_daemon_pid: $restored_daemon_pid,
     profile_restored: true,

@@ -296,7 +296,20 @@ VINPUT_LIVE_NATIVE_OUT_DIR="${out_dir}/fcitx" \
   scripts/run-ime-fcitx-native-live.sh
 
 for mode in $(tr ',' ' ' <<<"${modes}"); do
-  if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 ]]; then
+  if [[ "${VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}" != 0 ]]; then
+    jq -s -e --arg selected "${VINPUT_LIVE_SELECTED_TEXT:-}" '
+      any(.[];
+        .event == "summary" and
+        .ok == true and
+        .expect_unchanged_on_error == true and
+        .selection_source == "surrounding" and
+        .selected_text == $selected and
+        .commit == "" and
+        .delete_count == 0 and
+        .final_buffer == $selected
+      )
+    ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
+  elif [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 ]]; then
     jq -s -e '
       any(.[];
         .event == "summary" and

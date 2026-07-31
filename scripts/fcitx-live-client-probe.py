@@ -279,6 +279,8 @@ class LiveProbe:
             "secondary" if self.args.focus_switch else "primary",
             Gdk.KEY_F10 if self.args.mode == "command" else Gdk.KEY_F9,
         )
+        if self.args.expect_unchanged_on_error:
+            GLib.timeout_add(self.args.error_settle_ms, self.finish)
         return GLib.SOURCE_REMOVE
 
     def switch_focus(self) -> bool:
@@ -462,6 +464,13 @@ class LiveProbe:
                 for preedit in self.state.owner_loss_preedits
             ):
                 failures.append("owner loss did not surface an unavailable preedit")
+        elif self.args.expect_unchanged_on_error:
+            if self.state.commits:
+                failures.append("error path unexpectedly committed text")
+            if self.state.deletes:
+                failures.append("error path unexpectedly deleted surrounding text")
+            if self.state.buffer != self.args.selected_text:
+                failures.append("error path changed the selected text buffer")
         elif not self.state.commits or not self.state.commits[-1]:
             failures.append("client received no final commit")
         if self.args.expected_commit_prefix and (
@@ -469,7 +478,7 @@ class LiveProbe:
             or not self.state.commits[-1].startswith(self.args.expected_commit_prefix)
         ):
             failures.append("final commit did not match expected prefix")
-        if self.args.mode == "command":
+        if self.args.mode == "command" and not self.args.expect_unchanged_on_error:
             if not self.state.candidates and not self.args.allow_direct_command_commit:
                 failures.append("command mode produced no candidate menu")
             final_commit = self.state.commits[-1] if self.state.commits else ""
@@ -504,6 +513,7 @@ class LiveProbe:
             "commit": self.state.commits[-1] if self.state.commits else "",
             "expected_commit_prefix": self.args.expected_commit_prefix,
             "allow_direct_command_commit": self.args.allow_direct_command_commit,
+            "expect_unchanged_on_error": self.args.expect_unchanged_on_error,
             "primary_selection_fallback": self.args.primary_selection_fallback,
             "selection_source": (
                 "primary"
@@ -547,6 +557,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--selected-text", default="selected text")
     parser.add_argument("--expected-commit-prefix", default="")
     parser.add_argument("--allow-direct-command-commit", action="store_true")
+    parser.add_argument("--expect-unchanged-on-error", action="store_true")
+    parser.add_argument("--error-settle-ms", type=int, default=2000)
     parser.add_argument("--primary-selection-fallback", action="store_true")
     parser.add_argument(
         "--require-partial",
@@ -568,6 +580,12 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.manual_recording_ms < 0:
         parser.error("--manual-recording-ms must be non-negative")
+    if args.error_settle_ms <= 0:
+        parser.error("--error-settle-ms must be positive")
+    if args.expect_unchanged_on_error and args.mode != "command":
+        parser.error("--expect-unchanged-on-error requires command mode")
+    if args.expect_unchanged_on_error and args.primary_selection_fallback:
+        parser.error("--expect-unchanged-on-error requires surrounding selected text")
     if args.manual_recording_ms > 0:
         if args.wav is not None:
             parser.error("--wav and --manual-recording-ms are mutually exclusive")

@@ -13,6 +13,7 @@ primary_selection_fallback="${VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK:-0}"
 require_partial="${VINPUT_LIVE_REQUIRE_PARTIAL:-1}"
 expected_text_adapter="${VINPUT_LIVE_EXPECTED_TEXT_ADAPTER:-}"
 expected_commit_prefix="${VINPUT_LIVE_EXPECTED_COMMIT_PREFIX:-}"
+expect_unchanged_on_error="${VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}"
 playback_target="${VINPUT_LIVE_PLAYBACK_TARGET:-}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
 out_dir="${VINPUT_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
@@ -230,6 +231,14 @@ for mode in "${requested_modes[@]}"; do
     echo "VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK supports command mode only" >&2
     exit 2
   fi
+  if [[ "${expect_unchanged_on_error}" != "0" && "${mode}" != "command" ]]; then
+    echo "VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR supports command mode only" >&2
+    exit 2
+  fi
+  if [[ "${expect_unchanged_on_error}" != "0" && -n "${expected_commit_prefix}" ]]; then
+    echo "error-preservation and expected-commit modes are mutually exclusive" >&2
+    exit 2
+  fi
   echo "Running real Fcitx ${mode} native live probe..."
   probe_args=(
     --mode "${mode}"
@@ -256,6 +265,9 @@ for mode in "${requested_modes[@]}"; do
       --expected-commit-prefix "${expected_commit_prefix}"
       --allow-direct-command-commit
     )
+  fi
+  if [[ "${expect_unchanged_on_error}" != "0" ]]; then
+    probe_args+=(--expect-unchanged-on-error)
   fi
   set -o pipefail
   timeout 40s python3 "${probe}" "${probe_args[@]}" \
