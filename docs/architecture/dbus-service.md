@@ -32,7 +32,7 @@ Preserve these legacy method names and payload shapes:
 - `StartAdapter`
 - `StopAdapter`
 
-`GetTextAdapterState` and `GetRuntimeStatus` are Rust diagnostic extensions. `GetSceneState() -> sa(ss)`, `SetActiveScene(s) -> b`, `GetAsrMenuState() -> sssbsa(sss)`, `SetActiveAsrProvider(s) -> b`, `GetAsrTargetMenuState() -> ssssbsa(ssss)`, `SetActiveAsrTarget(ss) -> b`, and `GetAsrDisplayMenuState() -> ssssbsa(sssss)` are Rust configuration extensions used by the retained Fcitx frontend. They can remain available, but they are not part of the original C++ daemon vtable and should be documented as extensions whenever listed.
+`GetTextAdapterState` and `GetRuntimeStatus` are Rust diagnostic extensions. `GetSceneState() -> sa(ss)`, `SetActiveScene(s) -> b`, `GetCaptureDevice() -> s`, `SetCaptureDevice(s) -> b`, `GetAsrMenuState() -> sssbsa(sss)`, `SetActiveAsrProvider(s) -> b`, `GetAsrTargetMenuState() -> ssssbsa(ssss)`, `SetActiveAsrTarget(ss) -> b`, and `GetAsrDisplayMenuState() -> ssssbsa(sssss)` are Rust configuration extensions used by retained frontends and future Rust management surfaces. They can remain available, but they are not part of the original C++ daemon vtable and should be documented as extensions whenever listed.
 
 ## Status strings
 
@@ -92,6 +92,7 @@ The Rust service pins these legacy-visible behaviors with unit and D-Bus integra
 - configured daemon startup failures leave the service idle with no effective ASR backend, preserve the target/error in `GetAsrBackendState`, reject recording without mock output, and remain recoverable through `ReloadAsrBackend`;
 - `GetSceneState` returns the active scene plus typed id/label pairs without making the C++ frontend parse daemon config JSON;
 - `SetActiveScene` is idle-only, rejects unknown scenes with the legacy operation error, updates runtime state, and atomically persists the explicit or automatically discovered daemon config when one exists; its boolean reply distinguishes persistent and runtime-only selection;
+- `GetCaptureDevice` returns the normalized config value used by the next recording; `SetCaptureDevice` is idle-only, validates through the typed `CaptureTarget` parser, atomically persists the explicit or discovered config when available, and changes the target used by the same daemon/recorder on the next start without restarting the owner;
 - `GetAsrMenuState` exposes configured target, actual effective provider/model, reload progress, the last reload error, and typed provider id/kind/model rows without making C++ parse config JSON;
 - `SetActiveAsrProvider` rejects unknown providers, atomically persists the explicit or automatically discovered daemon config when one exists, and queues the selected provider through the same non-blocking prepare-before-swap worker; its boolean reply distinguishes persistent and runtime-only selection;
 - `GetAsrTargetMenuState` scans the configured model root outside the runtime mutex, combines flat Rust and legacy engine/model install layouts with configured provider rows, and preserves its original stable item-id/concrete-value ABI;
