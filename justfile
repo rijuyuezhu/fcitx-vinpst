@@ -201,6 +201,10 @@ ime-fcitx-model-switch-live:
 ime-fcitx-cross-provider-live:
     scripts/run-ime-fcitx-cross-provider-live.sh
 
+# Explicit F10 selected-text transformation through an external HTTP process.
+ime-fcitx-external-text-provider-live:
+    scripts/run-ime-fcitx-external-text-provider-live.sh
+
 # Explicit scene-menu paging with configured keys and exact profile restoration.
 ime-fcitx-menu-paging-live:
     scripts/run-ime-fcitx-menu-paging-live.sh

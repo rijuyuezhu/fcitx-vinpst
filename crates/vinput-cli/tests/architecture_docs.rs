@@ -901,6 +901,87 @@ fn asr_cross_provider_live_gate_pins_external_process_and_restore() {
 }
 
 #[test]
+fn external_text_provider_live_gate_pins_http_replacement_and_restore() {
+    let fixture = std::fs::read_to_string(workspace_file(
+        "scripts/openai-compatible-text-provider-fixture.py",
+    ))
+    .expect("read OpenAI-compatible fixture");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-external-text-provider-live.sh",
+    ))
+    .expect("read external text provider runner");
+    let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-client-probe.py"))
+        .expect("read Fcitx live client probe");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "/v1/chat/completions",
+        "authorization_value_recorded",
+        "selected_text",
+        "raw_asr_text",
+        "candidate",
+    ] {
+        assert!(
+            fixture.contains(required),
+            "external text live gate should retain fixture evidence: {required}"
+        );
+    }
+    for required in [
+        "selection_source",
+        "delete_count",
+        "candidate_count",
+        "select-candidate",
+    ] {
+        assert!(
+            probe.contains(required),
+            "external text live gate should retain F10 replacement evidence: {required}"
+        );
+    }
+    for required in [
+        "external-http",
+        "fixture-text-model",
+        "openai-compatible-text-provider-fixture.py",
+        "server-trace.json",
+        "authorization_scheme",
+        "response_format",
+        "config[\"llm\"][\"providers\"]",
+        "config[\"llm\"][\"adapters\"] = []",
+        "__command__",
+        "stop_verified_owner",
+        "external HTTP text runtime unexpectedly retained command adapters",
+        "VINPUT_LIVE_NATIVE_MODES=command",
+        "VINPUT_LIVE_SELECTED_TEXT",
+        "VINPUT_LIVE_EXPECTED_COMMIT_PREFIX",
+        "selection_source == \"surrounding\"",
+        "delete_count > 0",
+        "candidate_count >= 3",
+        "Fcitx final commit did not equal the external HTTP candidate",
+        "authorization_value_recorded == false",
+        "local_fixture_not_third_party_cloud",
+        "external_server_pid",
+        "profile_restored",
+        "backup_restored",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "local_adapter_restored",
+        "backend_restored",
+        "target/tmp/ime-fcitx-external-text-provider-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "external text runner should pin HTTP/restore evidence: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-external-text-provider-live:"));
+    assert!(justfile.contains("run-ime-fcitx-external-text-provider-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-external-text-provider-live"));
+}
+
+#[test]
 fn scene_menu_paging_live_gate_pins_state_and_restore() {
     let probe = std::fs::read_to_string(workspace_file("scripts/fcitx-live-menu-paging-probe.py"))
         .expect("read scene-menu paging probe");
