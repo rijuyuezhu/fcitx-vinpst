@@ -78,6 +78,15 @@ msgstr "下一页快捷键"
 msgid "Trigger Mode"
 msgstr "触发模式"
 
+msgid "Tap"
+msgstr "单击"
+
+msgid "Hold"
+msgstr "长按"
+
+msgid "Both"
+msgstr "两者"
+
 msgid "Voice Input"
 msgstr "语音输入"
 

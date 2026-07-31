@@ -7,6 +7,7 @@
 #include <fcitx-config/configuration.h>
 #include <fcitx-config/enum.h>
 #include <fcitx-config/option.h>
+#include <fcitx-utils/i18n.h>
 #include <fcitx-utils/key.h>
 
 namespace vinput_fcitx_bridge {
@@ -18,7 +19,7 @@ enum class TriggerMode : std::uint8_t {
   Hold,
   Both,
 };
-FCITX_CONFIG_ENUM_NAME(TriggerMode, "Tap", "Hold", "Both")
+FCITX_CONFIG_ENUM_NAME_WITH_I18N(TriggerMode, N_("Tap"), N_("Hold"), N_("Both"))
 
 struct FrontendSettings {
   fcitx::KeyList normal_triggers{fcitx::Key(FcitxKey_Control_R)};
@@ -60,7 +61,7 @@ public:
       page_prev_keys;
   fcitx::Option<fcitx::KeyList, fcitx::ListConstrain<fcitx::KeyConstrain>>
       page_next_keys;
-  fcitx::Option<TriggerMode> trigger_mode;
+  fcitx::OptionWithAnnotation<TriggerMode, TriggerModeI18NAnnotation> trigger_mode;
 };
 
 FrontendSettings LoadFrontendSettings();

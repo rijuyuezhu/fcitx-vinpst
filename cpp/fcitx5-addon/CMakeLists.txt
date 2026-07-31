@@ -161,6 +161,8 @@ if(Fcitx5Core_FOUND)
   target_compile_features(vinput_fcitx_bridge_fcitx PUBLIC cxx_std_20)
   target_compile_definitions(
     vinput_fcitx_bridge_fcitx
+    PUBLIC
+      FCITX_GETTEXT_DOMAIN="fcitx5-vinput"
     PRIVATE
       VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR}"
       VINPUT_FCITX_INSTALL_LOCALEDIR="${VINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR}"
@@ -274,6 +276,11 @@ if(Fcitx5Core_FOUND)
   add_test(
     NAME vinput_fcitx_bridge_config_smoke
     COMMAND vinput_fcitx_bridge_config_smoke
+  )
+  set_tests_properties(
+    vinput_fcitx_bridge_config_smoke
+    PROPERTIES ENVIRONMENT
+      "LANGUAGE=zh_CN;LC_ALL=zh_CN.utf8;VINPUT_FCITX_LOCALEDIR=${VINPUT_FCITX_BUILD_LOCALEDIR}"
   )
 
   add_executable(
@@ -420,6 +427,7 @@ if(Fcitx5Core_FOUND)
   target_compile_definitions(
     vinput_fcitx_addon_dbus_smoke
     PRIVATE
+      FCITX_GETTEXT_DOMAIN="fcitx5-vinput"
       VINPUT_FCITX_BUILD_LOCALEDIR="${VINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR}"
       VINPUT_FCITX_INSTALL_LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
   )

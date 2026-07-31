@@ -18,6 +18,9 @@ int main() {
   assert(FrontendCountText("Choose Result (%zu)", 6) == "选择结果（6项）");
   assert(FrontendPageText(2, 4) == "（2/4页）");
   assert(FrontendText("Voice Input") == "语音输入");
+  assert(FrontendText("Tap") == "单击");
+  assert(FrontendText("Hold") == "长按");
+  assert(FrontendText("Both") == "两者");
   assert(FrontendText("Unknown error.") == "未知错误。");
   assert(FrontendText("... Recording ...") == "... 正在录音 ...");
   assert(FrontendText("... Commanding ...") == "... 正在命令 ...");

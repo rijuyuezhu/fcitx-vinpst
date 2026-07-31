@@ -1,4 +1,5 @@
 #include "vinput_fcitx_bridge/fcitx_config.h"
+#include "vinput_fcitx_bridge/fcitx_i18n.h"
 
 #include <cassert>
 #include <filesystem>
@@ -21,14 +22,22 @@ bool Contains(const std::string &text, const std::string &needle) {
   return text.find(needle) != std::string::npos;
 }
 
+bool HasValueByPath(const fcitx::RawConfig &config, const std::string &path,
+                    const std::string &expected) {
+  const auto *value = config.valueByPath(path);
+  return value != nullptr && *value == expected;
+}
+
 } // namespace
 
 int main() {
   using vinput_fcitx_bridge::FrontendSettings;
+  using vinput_fcitx_bridge::InitFrontendI18n;
   using vinput_fcitx_bridge::LoadFrontendSettingsFromPath;
   using vinput_fcitx_bridge::SaveFrontendSettingsToPath;
   using vinput_fcitx_bridge::VinputFrontendConfig;
 
+  InitFrontendI18n();
   const auto path = UniqueConfigPath();
   const auto defaults = LoadFrontendSettingsFromPath(path);
   assert(defaults == FrontendSettings{});
@@ -82,6 +91,16 @@ int main() {
   VinputFrontendConfig roundtrip;
   roundtrip.load(raw, true);
   assert(roundtrip.settings() == settings);
+
+  fcitx::RawConfig description;
+  config.dumpDescription(description);
+  constexpr auto prefix = "VinputFrontendConfig/TriggerMode/";
+  assert(HasValueByPath(description, std::string(prefix) + "Enum/0", "Tap"));
+  assert(HasValueByPath(description, std::string(prefix) + "Enum/1", "Hold"));
+  assert(HasValueByPath(description, std::string(prefix) + "Enum/2", "Both"));
+  assert(HasValueByPath(description, std::string(prefix) + "EnumI18n/0", "单击"));
+  assert(HasValueByPath(description, std::string(prefix) + "EnumI18n/1", "长按"));
+  assert(HasValueByPath(description, std::string(prefix) + "EnumI18n/2", "两者"));
 
   std::filesystem::remove_all(path.parent_path());
   return 0;
