@@ -8,6 +8,9 @@ out_dir="${VINPUT_LIVE_NOTIFICATION_OUT_DIR:-target/tmp/ime-fcitx-notification-l
 monitor_log="${out_dir}/dbus-monitor.log"
 selection_log="${out_dir}/scene-selection.jsonl"
 notification_json="${out_dir}/notification.json"
+expected_summary="${VINPUT_LIVE_NOTIFICATION_EXPECTED_SUMMARY:-Voice Input}"
+expected_body_prefix="${VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_PREFIX:-}"
+expected_body_suffix="${VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_SUFFIX:-}"
 monitor_pid=""
 
 stop_monitor() {
@@ -74,7 +77,13 @@ VINPUT_LIVE_MENU_SELECTION_OUT_DIR="${out_dir}/selection-runner" \
 sleep 0.3
 stop_monitor
 
-python3 - "${monitor_log}" "${selection_log}" "${notification_json}" <<'PY'
+python3 - \
+  "${monitor_log}" \
+  "${selection_log}" \
+  "${notification_json}" \
+  "${expected_summary}" \
+  "${expected_body_prefix}" \
+  "${expected_body_suffix}" <<'PY'
 import json
 import re
 import sys
@@ -83,6 +92,9 @@ from pathlib import Path
 monitor_path = Path(sys.argv[1])
 selection_path = Path(sys.argv[2])
 out_path = Path(sys.argv[3])
+expected_summary = sys.argv[4]
+expected_body_prefix = sys.argv[5]
+expected_body_suffix = sys.argv[6]
 
 target_label = None
 for line in selection_path.read_text().splitlines():
@@ -126,14 +138,23 @@ if notification["replaces_id"] != 0:
     failures.append("notification unexpectedly replaced an existing id")
 if notification["icon"] != "dialog-information":
     failures.append("scene switch notification did not use the information icon")
-if not notification["summary"]:
-    failures.append("notification summary was empty")
+if notification["summary"] != expected_summary:
+    failures.append(
+        f"notification summary was {notification['summary']!r}, expected {expected_summary!r}"
+    )
 if notification["target_label"] not in notification["body"]:
     failures.append("notification body did not contain the selected scene label")
+if expected_body_prefix and not notification["body"].startswith(expected_body_prefix):
+    failures.append("notification body did not use the expected localized prefix")
+if expected_body_suffix and not notification["body"].endswith(expected_body_suffix):
+    failures.append("notification body did not use the expected localized suffix")
 if notification["timeout_ms"] != 3000:
     failures.append("information notification timeout was not 3000 ms")
 notification["ok"] = not failures
 notification["failures"] = failures
+notification["expected_summary"] = expected_summary
+notification["expected_body_prefix"] = expected_body_prefix
+notification["expected_body_suffix"] = expected_body_suffix
 out_path.write_text(json.dumps(notification, ensure_ascii=False, indent=2) + "\n")
 print(json.dumps({"event": "notification", **notification}, ensure_ascii=False))
 if failures:

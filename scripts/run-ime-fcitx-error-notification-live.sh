@@ -6,6 +6,7 @@ cd "${repo_root}"
 
 cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
 out_dir="${VINPUT_LIVE_ERROR_NOTIFICATION_OUT_DIR:-target/tmp/ime-fcitx-error-notification-live}"
+expected_summary="${VINPUT_LIVE_ERROR_NOTIFICATION_EXPECTED_SUMMARY:-Voice Input}"
 monitor_log="${out_dir}/dbus-monitor.log"
 config_path=""
 profile_mutated=0
@@ -217,8 +218,11 @@ sleep 0.5
 stop_monitor
 restore_profile
 
-python3 - "${monitor_log}" "${out_dir}/failed-status.json" \
-  "${out_dir}/notification.json" <<'PY'
+python3 - \
+  "${monitor_log}" \
+  "${out_dir}/failed-status.json" \
+  "${out_dir}/notification.json" \
+  "${expected_summary}" <<'PY'
 import json
 import re
 import sys
@@ -227,6 +231,7 @@ from pathlib import Path
 monitor_path = Path(sys.argv[1])
 status_path = Path(sys.argv[2])
 out_path = Path(sys.argv[3])
+expected_summary = sys.argv[4]
 expected_error = json.loads(status_path.read_text())["asr_backend"]["last_error"]
 blocks = re.split(r"(?=(?:signal|method call) time=)", monitor_path.read_text())
 signals = []
@@ -286,8 +291,10 @@ if signal["raw_message"] != expected_error:
     failures.append("daemon notification did not match the runtime last_error")
 if notification["body"] != expected_error:
     failures.append("desktop notification did not preserve the daemon error message")
-if not notification["summary"]:
-    failures.append("error notification summary was empty")
+if notification["summary"] != expected_summary:
+    failures.append(
+        f"error notification summary was {notification['summary']!r}, expected {expected_summary!r}"
+    )
 if notification["timeout_ms"] != 5000:
     failures.append("error notification timeout was not 5000 ms")
 result = {
@@ -299,6 +306,7 @@ result = {
     "app_name": notification["app_name"],
     "icon": notification["icon"],
     "summary": notification["summary"],
+    "expected_summary": expected_summary,
     "timeout_ms": notification["timeout_ms"],
     "ok": not failures,
     "failures": failures,
