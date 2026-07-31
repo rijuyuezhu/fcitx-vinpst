@@ -14,7 +14,7 @@ service_path="${VINPUT_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/o
 addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
 remote_provider="${VINPUT_LIVE_FAILURE_PROVIDER_ID:-remote-unavailable}"
 remote_model="${VINPUT_LIVE_FAILURE_MODEL_ID:-remote-failure-fixture}"
-remote_endpoint="${VINPUT_LIVE_FAILURE_ENDPOINT:-https://127.0.0.1:9/v1/audio/transcriptions}"
+remote_endpoint="${VINPUT_LIVE_FAILURE_ENDPOINT:-ftp://127.0.0.1/unavailable}"
 trigger_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
 recognition_wav="${VINPUT_LIVE_FAILURE_RECOVERY_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
 config_path=""
@@ -291,6 +291,12 @@ done
 if [[ "${failure_seen}" != "1" ]]; then
   echo "remote provider reload did not fail while preserving the original backend" >&2
   cat "${out_dir_abs}/failed-status.json" >&2 2>/dev/null || true
+  exit 1
+fi
+failure_error="$(jq -r '.asr_backend.last_error' "${out_dir_abs}/failed-status.json")"
+if [[ "${failure_error}" != *"unsupported remote ASR endpoint scheme"* ]]; then
+  echo "remote provider failure did not identify the unsupported endpoint scheme" >&2
+  cat "${out_dir_abs}/failed-status.json" >&2
   exit 1
 fi
 sleep 0.5
