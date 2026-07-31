@@ -201,6 +201,10 @@ ime-fcitx-model-switch-live:
 ime-fcitx-cross-provider-live:
     scripts/run-ime-fcitx-cross-provider-live.sh
 
+# Explicit F8 roundtrip through an independent whisper.cpp recognizer/model.
+ime-fcitx-whisper-provider-live:
+    scripts/run-ime-fcitx-whisper-provider-live.sh
+
 # Explicit F10 selected-text transformation through an external HTTP process.
 ime-fcitx-external-text-provider-live:
     scripts/run-ime-fcitx-external-text-provider-live.sh

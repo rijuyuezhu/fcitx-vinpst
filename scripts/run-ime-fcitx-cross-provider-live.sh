@@ -16,16 +16,38 @@ bridge="${repo_root}/scripts/legacy-command-asr-wav-bridge.py"
 service_path="${VINPUT_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service}"
 addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
 daemon_wrapper="${HOME}/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh"
+
 trigger_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
+external_recognizer="${VINPUT_LIVE_EXTERNAL_RECOGNIZER:-sherpa-one-shot}"
 external_provider="${VINPUT_LIVE_EXTERNAL_PROVIDER_ID:-external-command}"
 external_model="${VINPUT_LIVE_EXTERNAL_MODEL_ID:-external-one-shot}"
 recognition_wav="${VINPUT_LIVE_EXTERNAL_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
+whisper_binary="${VINPUT_LIVE_WHISPER_BINARY:-${repo_root}/target/third-party/whisper.cpp-v1.9.1/build/bin/whisper-cli}"
+whisper_source="${VINPUT_LIVE_WHISPER_SOURCE:-${repo_root}/target/third-party/whisper.cpp-v1.9.1/src}"
+whisper_model="${VINPUT_LIVE_WHISPER_MODEL:-${HOME}/.local/share/voxtype/models/ggml-base.bin}"
+whisper_language="${VINPUT_LIVE_WHISPER_LANGUAGE:-zh}"
+whisper_commit="f049fff95a089aa9969deb009cdd4892b3e74916"
+underlying_recognizer="sherpa-onnx one-shot daemon using the original model"
+independent_recognizer=false
 config_path=""
 profile_mutated=0
 fcitx_restart_needed=0
 backup_existed=0
 original_provider=""
 original_model=""
+
+case "${external_recognizer}" in
+  sherpa-one-shot)
+    ;;
+  whisper-cpp)
+    underlying_recognizer="whisper.cpp v1.9.1 with an independent multilingual model"
+    independent_recognizer=true
+    ;;
+  *)
+    echo "unsupported external recognizer mode: ${external_recognizer}" >&2
+    exit 2
+    ;;
+esac
 
 call_service() {
   gdbus call --session \
@@ -119,7 +141,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-for command in cmp fcitx5 fcitx5-remote gdbus install jq pgrep python3 ruff; do
+for command in cmp fcitx5 fcitx5-remote gdbus git install jq pgrep python3 ruff sha256sum; do
   if ! command -v "${command}" >/dev/null 2>&1; then
     echo "required cross-provider command is missing: ${command}" >&2
     exit 2
@@ -138,6 +160,19 @@ for path in \
     exit 2
   fi
 done
+if [[ "${external_recognizer}" == "whisper-cpp" ]]; then
+  for path in "${whisper_binary}" "${whisper_model}" "${whisper_source}/.git"; do
+    if [[ ! -e "${path}" ]]; then
+      echo "Whisper cross-provider input is missing: ${path}" >&2
+      exit 2
+    fi
+  done
+  actual_whisper_commit="$(git -C "${whisper_source}" rev-parse HEAD)"
+  if [[ "${actual_whisper_commit}" != "${whisper_commit}" ]]; then
+    echo "Whisper source commit mismatch: ${actual_whisper_commit}" >&2
+    exit 2
+  fi
+fi
 if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
   echo "DBUS_SESSION_BUS_ADDRESS is not set" >&2
   exit 2
@@ -195,7 +230,11 @@ python3 - \
   "${daemon_wrapper}" \
   "${external_provider}" \
   "${external_model}" \
-  "${external_trace}" <<'PY'
+  "${external_trace}" \
+  "${external_recognizer}" \
+  "${whisper_binary}" \
+  "${whisper_model}" \
+  "${whisper_language}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -208,11 +247,50 @@ daemon = sys.argv[5]
 provider_id = sys.argv[6]
 model_id = sys.argv[7]
 trace_path = sys.argv[8]
+recognizer = sys.argv[9]
+whisper_binary = sys.argv[10]
+whisper_model = sys.argv[11]
+whisper_language = sys.argv[12]
 
 native = json.loads(source.read_text(encoding="utf-8"))
 if any(provider.get("id") == provider_id for provider in native["asr"]["providers"]):
     raise SystemExit(f"temporary provider id already exists: {provider_id}")
-native_path.write_text(json.dumps(native, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+native_path.write_text(
+    json.dumps(native, indent=2, ensure_ascii=False) + "\n",
+    encoding="utf-8",
+)
+
+if recognizer == "sherpa-one-shot":
+    command = (
+        'set -euo pipefail; printf "recognizer=sherpa-one-shot pid=%s wav=%s\\n" '
+        '"$$" "$VINPUT_ASR_WAV" >> "$VINPUT_EXTERNAL_TRACE"; '
+        '"$VINPUT_EXTERNAL_DAEMON" --configured-backends '
+        '--config "$VINPUT_EXTERNAL_CONFIG" --once --wav "$VINPUT_ASR_WAV" '
+        "| jq -er '.commit_text | select(type == \"string\" and length > 0)'"
+    )
+    provider_env = {
+        "VINPUT_EXTERNAL_DAEMON": daemon,
+        "VINPUT_EXTERNAL_CONFIG": str(native_path),
+        "VINPUT_EXTERNAL_TRACE": trace_path,
+    }
+elif recognizer == "whisper-cpp":
+    command = (
+        'set -euo pipefail; printf "recognizer=whisper-cpp pid=%s wav=%s\\n" '
+        '"$$" "$VINPUT_ASR_WAV" >> "$VINPUT_EXTERNAL_TRACE"; '
+        'export LD_LIBRARY_PATH="$VINPUT_WHISPER_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; '
+        '"$VINPUT_WHISPER_BINARY" --no-gpu --threads 8 '
+        '--language "$VINPUT_WHISPER_LANGUAGE" --no-timestamps --no-prints '
+        '--model "$VINPUT_WHISPER_MODEL" --file "$VINPUT_ASR_WAV"'
+    )
+    provider_env = {
+        "VINPUT_EXTERNAL_TRACE": trace_path,
+        "VINPUT_WHISPER_BINARY": whisper_binary,
+        "VINPUT_WHISPER_LIB_DIR": str(Path(whisper_binary).parent),
+        "VINPUT_WHISPER_MODEL": whisper_model,
+        "VINPUT_WHISPER_LANGUAGE": whisper_language,
+    }
+else:
+    raise SystemExit(f"unsupported external recognizer: {recognizer}")
 
 external = json.loads(source.read_text(encoding="utf-8"))
 external["asr"]["providers"].append(
@@ -220,19 +298,8 @@ external["asr"]["providers"].append(
         "id": provider_id,
         "type": "command",
         "command": bridge,
-        "args": [
-            "--timeout-ms",
-            "90000",
-            "--",
-            "bash",
-            "-c",
-            'set -euo pipefail; printf "pid=%s wav=%s\\n" "$$" "$VINPUT_ASR_WAV" >> "$VINPUT_EXTERNAL_TRACE"; "$VINPUT_EXTERNAL_DAEMON" --configured-backends --config "$VINPUT_EXTERNAL_CONFIG" --once --wav "$VINPUT_ASR_WAV" | jq -er \'.commit_text | select(type == "string" and length > 0)\'',
-        ],
-        "env": {
-            "VINPUT_EXTERNAL_DAEMON": daemon,
-            "VINPUT_EXTERNAL_CONFIG": str(native_path),
-            "VINPUT_EXTERNAL_TRACE": trace_path,
-        },
+        "args": ["--timeout-ms", "90000", "--", "bash", "-c", command],
+        "env": provider_env,
         "model": model_id,
         "timeout_ms": 95000,
     }
@@ -270,7 +337,7 @@ if [[ ! -s "${external_trace}" ]]; then
   echo "external command preflight did not record a child process" >&2
   exit 1
 fi
-preflight_wav="$(sed -n 's/^pid=[0-9][0-9]* wav=//p' "${external_trace}" | head -1)"
+preflight_wav="$(sed -n 's/^recognizer=[^ ]* pid=[0-9][0-9]* wav=//p' "${external_trace}" | head -1)"
 if [[ -z "${preflight_wav}" || -e "${preflight_wav}" ]]; then
   echo "external bridge did not clean its preflight temporary WAV: ${preflight_wav}" >&2
   exit 1
@@ -331,7 +398,7 @@ if [[ ! -s "${external_trace}" ]]; then
   echo "external provider recognition did not execute a child process" >&2
   exit 1
 fi
-live_wav="$(sed -n 's/^pid=[0-9][0-9]* wav=//p' "${external_trace}" | tail -1)"
+live_wav="$(sed -n 's/^recognizer=[^ ]* pid=[0-9][0-9]* wav=//p' "${external_trace}" | tail -1)"
 if [[ -z "${live_wav}" || -e "${live_wav}" ]]; then
   echo "external bridge did not clean its live temporary WAV: ${live_wav}" >&2
   exit 1
@@ -340,6 +407,12 @@ fi
 external_commit="$(jq -r 'select(.event == "summary") | .commit' \
   "${out_dir_abs}/external-recognition/fcitx/normal.jsonl")"
 external_child_count="$(wc -l <"${external_trace}")"
+external_binary_sha256=""
+external_model_sha256=""
+if [[ "${external_recognizer}" == "whisper-cpp" ]]; then
+  external_binary_sha256="$(sha256sum "${whisper_binary}" | awk '{print $1}')"
+  external_model_sha256="$(sha256sum "${whisper_model}" | awk '{print $1}')"
+fi
 
 restore_profile
 wait_backend "${original_provider}" "${original_model}" \
@@ -369,7 +442,12 @@ jq -n \
   --arg external_commit "${external_commit}" \
   --arg original_commit "${original_commit}" \
   --arg bridge "${bridge}" \
-  --arg underlying_recognizer "sherpa-onnx one-shot daemon using the original model" \
+  --arg external_recognizer "${external_recognizer}" \
+  --arg underlying_recognizer "${underlying_recognizer}" \
+  --arg whisper_commit "${whisper_commit}" \
+  --arg binary_sha256 "${external_binary_sha256}" \
+  --arg model_sha256 "${external_model_sha256}" \
+  --argjson independent_recognizer "${independent_recognizer}" \
   --argjson external_child_count "${external_child_count}" \
   '{
     event: "summary",
@@ -381,7 +459,12 @@ jq -n \
       model: $external_model,
       kind: "command",
       bridge: $bridge,
+      recognizer_mode: $external_recognizer,
       underlying_recognizer: $underlying_recognizer,
+      independent_recognizer: $independent_recognizer,
+      whisper_commit: (if $independent_recognizer then $whisper_commit else null end),
+      binary_sha256: (if $independent_recognizer then $binary_sha256 else null end),
+      model_sha256: (if $independent_recognizer then $model_sha256 else null end),
       final_only: true,
       child_process_count: $external_child_count,
       commit: $external_commit,

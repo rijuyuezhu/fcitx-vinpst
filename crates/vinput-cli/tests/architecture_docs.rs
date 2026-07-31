@@ -901,6 +901,71 @@ fn asr_cross_provider_live_gate_pins_external_process_and_restore() {
 }
 
 #[test]
+fn whisper_cross_provider_live_gate_pins_independent_roundtrip() {
+    let preflight = std::fs::read_to_string(workspace_file("scripts/run-whisper-cpp-asr-live.sh"))
+        .expect("read whisper.cpp preflight runner");
+    let wrapper = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-whisper-provider-live.sh",
+    ))
+    .expect("read whisper.cpp Fcitx live wrapper");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-cross-provider-live.sh",
+    ))
+    .expect("read cross-provider live runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "independent_recognizer",
+        "f049fff95a089aa9969deb009cdd4892b3e74916",
+        "model_sha256",
+        "whisper.cpp produced no recognized text",
+    ] {
+        assert!(
+            preflight.contains(required),
+            "Whisper preflight should pin independent evidence: {required}"
+        );
+    }
+    for required in [
+        "VINPUT_LIVE_EXTERNAL_RECOGNIZER=whisper-cpp",
+        "VINPUT_LIVE_EXTERNAL_PROVIDER_ID=external-whisper",
+        "VINPUT_LIVE_EXTERNAL_MODEL_ID=whisper-cpp-base-multilingual",
+        "run-whisper-cpp-asr-live.sh",
+        "run-ime-fcitx-cross-provider-live.sh",
+        "target/tmp/ime-fcitx-whisper-provider-live",
+    ] {
+        assert!(
+            wrapper.contains(required),
+            "Whisper Fcitx wrapper should pin live inputs: {required}"
+        );
+    }
+    for required in [
+        "whisper-cpp",
+        "Whisper source commit mismatch",
+        "--no-gpu",
+        "VINPUT_WHISPER_MODEL",
+        "independent_recognizer",
+        "binary_sha256",
+        "model_sha256",
+        "require_partial == false",
+        "partial_count > 0",
+        "profile_restored",
+        "backend_restored",
+    ] {
+        assert!(
+            runner.contains(required),
+            "cross-provider runner should pin independent Whisper roundtrip: {required}"
+        );
+    }
+    assert!(justfile.contains("ime-fcitx-whisper-provider-live:"));
+    assert!(justfile.contains("run-ime-fcitx-whisper-provider-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-whisper-provider-live"));
+}
+
+#[test]
 fn external_text_provider_live_gate_pins_http_replacement_and_restore() {
     let fixture = std::fs::read_to_string(workspace_file(
         "scripts/openai-compatible-text-provider-fixture.py",
