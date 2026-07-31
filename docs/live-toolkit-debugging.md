@@ -225,7 +225,7 @@ Regression commit: `80d2dc5 fix(fcitx): preserve menu page state`.
 
 **Cause:** the local provider id is also the runtime implementation selector; `type: local` alone does not route an arbitrary id to sherpa-onnx.
 
-**Action:** use `just ime-fcitx-model-switch-live` for another model under the existing `sherpa-onnx` provider, and `just ime-fcitx-cross-provider-live` for the separate internal-to-command-provider contract. The latter traces a child process and temporary WAV cleanup but intentionally reuses the original sherpa model; do not report it as independent third-party recognizer proof.
+**Action:** use `just ime-fcitx-model-switch-live` for another model under the existing `sherpa-onnx` provider, `just ime-fcitx-cross-provider-live` for the separate internal-to-command-provider contract that intentionally reuses the original sherpa model, and `just ime-fcitx-whisper-provider-live` when independent recognizer/model proof is required. The Whisper gate pins source/model hashes, traces the external process, checks temporary WAV cleanup, and restores Zipformer streaming recognition.
 
 ### D-Bus activation ignores a relative model root
 
