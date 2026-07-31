@@ -2453,6 +2453,58 @@ fn legacy_command_asr_wav_bridge_pins_raw_pcm_contract() {
 }
 
 #[test]
+fn openai_compatible_text_fixture_pins_external_http_contract() {
+    let fixture = std::fs::read_to_string(workspace_file(
+        "scripts/openai-compatible-text-provider-fixture.py",
+    ))
+    .expect("read OpenAI-compatible text fixture");
+    let smoke = std::fs::read_to_string(workspace_file(
+        "scripts/run-openai-compatible-text-provider-fixture-smoke.sh",
+    ))
+    .expect("read OpenAI-compatible text fixture smoke");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "/v1/chat/completions",
+        "Bearer",
+        "response_format",
+        "json_object",
+        "asr|selected",
+        "extract_tagged_text",
+        "authorization_value_recorded",
+        "external-http:",
+        "ThreadingHTTPServer",
+        "server.shutdown",
+    ] {
+        assert!(
+            fixture.contains(required),
+            "OpenAI fixture should pin HTTP/request evidence: {required}"
+        );
+    }
+    for required in [
+        "<selected>",
+        "<asr>",
+        "This is selected text.",
+        "make it shorter",
+        "fromjson",
+        "authorization_value_recorded == false",
+        "OpenAI-compatible fixture leaked its API key into evidence",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "OpenAI fixture smoke should pin transformation/redaction: {required}"
+        );
+    }
+    assert!(justfile.contains("openai-compatible-text-provider-fixture-smoke:"));
+    assert!(justfile.contains("run-openai-compatible-text-provider-fixture-smoke.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(check_line.contains("openai-compatible-text-provider-fixture-smoke"));
+}
+
+#[test]
 fn native_user_install_pins_runtime_bundle_activation() {
     let readme = std::fs::read_to_string(workspace_file("README.md")).expect("read README");
     let development = std::fs::read_to_string(workspace_file("docs/development.md"))
