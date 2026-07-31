@@ -98,6 +98,10 @@ pub const TEST_PIPEWIRE_CONTEXT_ENV: &str = "VINPUT_TEST_PIPEWIRE_CONTEXT";
 
 /// Enables live `PipeWire` recorder tests when set in the environment.
 pub const TEST_PIPEWIRE_RECORD_ENV: &str = "VINPUT_TEST_PIPEWIRE_RECORD";
+/// Optional live-test recording duration in milliseconds.
+pub const TEST_PIPEWIRE_RECORD_MS_ENV: &str = "VINPUT_TEST_PIPEWIRE_RECORD_MS";
+/// Optional minimum absolute PCM peak required by the live recorder test.
+pub const TEST_PIPEWIRE_MIN_PEAK_ENV: &str = "VINPUT_TEST_PIPEWIRE_MIN_PEAK";
 
 /// Returns whether a `PipeWire` live integration test gate is explicitly enabled.
 #[must_use]
@@ -1283,17 +1287,38 @@ mod tests {
         if !super::live_test_enabled(super::TEST_PIPEWIRE_RECORD_ENV) {
             return;
         }
+        let record_ms = std::env::var(super::TEST_PIPEWIRE_RECORD_MS_ENV)
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(100);
+        let minimum_peak = std::env::var(super::TEST_PIPEWIRE_MIN_PEAK_ENV)
+            .ok()
+            .and_then(|value| value.parse::<i16>().ok())
+            .unwrap_or(0);
         let mut recorder = super::PipeWireAudioRecorder::new();
         super::AudioRecorder::begin_recording(&mut recorder, super::CaptureTarget::Default)
             .unwrap();
 
         assert!(super::AudioRecorder::is_recording(&recorder));
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(record_ms));
         let captured = super::AudioRecorder::stop_and_get_buffer(&mut recorder).unwrap();
+        eprintln!(
+            "PipeWire live capture: source={:?} frames={} duration_ms={} peak_abs={} first_buffer_ms={:?}",
+            captured.source_name,
+            captured.pcm.frame_len(),
+            captured.pcm.duration_ms(),
+            captured.pcm.peak_abs(),
+            recorder.first_buffer_latency_ms(),
+        );
 
         assert!(!super::AudioRecorder::is_recording(&recorder));
         assert_eq!(captured.pcm.spec(), super::recording_pcm_spec());
         assert_eq!(captured.source_name.as_deref(), Some("pipewire:default"));
+        assert!(
+            captured.pcm.peak_abs() >= minimum_peak,
+            "PipeWire live capture peak {} was below required minimum {minimum_peak}",
+            captured.pcm.peak_abs(),
+        );
     }
 
     #[test]

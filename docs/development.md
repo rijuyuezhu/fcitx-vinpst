@@ -158,6 +158,7 @@ Run only in a real user session where PipeWire and Fcitx5 are expected to work:
 ```sh
 just pipewire-check
 VINPUT_TEST_PIPEWIRE_CONTEXT=1 VINPUT_TEST_PIPEWIRE_ENUMERATE=1 VINPUT_TEST_PIPEWIRE_RECORD=1 just pipewire-live
+VINPUT_TEST_PIPEWIRE_RECORD=1 VINPUT_TEST_PIPEWIRE_RECORD_MS=12000 VINPUT_TEST_PIPEWIRE_MIN_PEAK=1000 cargo test -p vinput-audio --features pipewire-backend pipewire_recorder_live_capture_when_enabled -- --nocapture
 just addon-dbus-pipewire-live
 just ime-pipewire-live
 just ime-configured-pipewire-live
