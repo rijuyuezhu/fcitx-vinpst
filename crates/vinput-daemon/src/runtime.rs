@@ -3,6 +3,7 @@
 mod active_session;
 mod adapter_process;
 mod asr_menu;
+mod capture;
 mod config_io;
 mod diagnostics;
 mod errors;

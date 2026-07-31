@@ -108,6 +108,7 @@ impl RuntimeState {
             "current_scene": self.current_scene,
             "selected_text_present": self.selected_text.is_some(),
             "partial_text": self.partial_text(),
+            "capture_device": self.config.global.capture_device,
             "dbus": {
                 "service": dbus::SERVICE_BUS_NAME,
                 "object_path": dbus::SERVICE_OBJECT_PATH,

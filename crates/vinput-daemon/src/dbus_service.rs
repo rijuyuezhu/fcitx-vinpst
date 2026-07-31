@@ -599,6 +599,22 @@ impl VinputDbusService {
             .map_err(|error| Self::map_runtime_error(&error))
     }
 
+    /// Return the capture-device config value used by the next recording.
+    #[zbus(name = "GetCaptureDevice")]
+    async fn get_capture_device(&self) -> String {
+        self.runtime.lock().await.capture_device()
+    }
+
+    /// Select and persist the capture device used by the next recording.
+    #[zbus(name = "SetCaptureDevice")]
+    async fn set_capture_device(&self, target: &str) -> Result<bool, VinputDbusError> {
+        self.runtime
+            .lock()
+            .await
+            .set_capture_device(target)
+            .map_err(|error| Self::map_runtime_error(&error))
+    }
+
     /// Return target/effective ASR state and configured provider rows.
     #[zbus(
         name = "GetAsrMenuState",

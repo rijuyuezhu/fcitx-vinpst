@@ -38,6 +38,10 @@ pub mod method {
     pub const GET_SCENE_STATE: &str = "GetSceneState";
     /// Select and persist the active scene when a config file is available.
     pub const SET_ACTIVE_SCENE: &str = "SetActiveScene";
+    /// Return the capture-device config value used by the next recording.
+    pub const GET_CAPTURE_DEVICE: &str = "GetCaptureDevice";
+    /// Select and persist the capture device used by the next recording.
+    pub const SET_CAPTURE_DEVICE: &str = "SetCaptureDevice";
     /// Return target/effective ASR state plus configured provider rows.
     pub const GET_ASR_MENU_STATE: &str = "GetAsrMenuState";
     /// Select, persist, and queue reload for a configured ASR provider.
@@ -102,6 +106,8 @@ pub const DIAGNOSTIC_EXTENSION_METHODS: &[&str] =
 pub const CONFIG_EXTENSION_METHODS: &[&str] = &[
     method::GET_SCENE_STATE,
     method::SET_ACTIVE_SCENE,
+    method::GET_CAPTURE_DEVICE,
+    method::SET_CAPTURE_DEVICE,
     method::GET_ASR_MENU_STATE,
     method::SET_ACTIVE_ASR_PROVIDER,
     method::GET_ASR_TARGET_MENU_STATE,
@@ -120,6 +126,8 @@ pub const SERVICE_METHODS: &[&str] = &[
     method::GET_RUNTIME_STATUS,
     method::GET_SCENE_STATE,
     method::SET_ACTIVE_SCENE,
+    method::GET_CAPTURE_DEVICE,
+    method::SET_CAPTURE_DEVICE,
     method::GET_ASR_MENU_STATE,
     method::SET_ACTIVE_ASR_PROVIDER,
     method::GET_ASR_TARGET_MENU_STATE,
