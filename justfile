@@ -201,6 +201,10 @@ ime-fcitx-model-switch-live:
 ime-fcitx-cross-provider-live:
     scripts/run-ime-fcitx-cross-provider-live.sh
 
+# Explicit F8 failure/recovery proof for an unsupported remote ASR target.
+ime-fcitx-cross-provider-failure-live:
+    scripts/run-ime-fcitx-cross-provider-failure-live.sh
+
 # Explicit F8 roundtrip through an independent whisper.cpp recognizer/model.
 ime-fcitx-whisper-provider-live:
     scripts/run-ime-fcitx-whisper-provider-live.sh

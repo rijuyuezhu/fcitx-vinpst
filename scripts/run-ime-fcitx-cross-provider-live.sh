@@ -378,7 +378,6 @@ python3 "${selection_probe}" \
   --trigger-key "${trigger_key}" \
   --expected-provider "${external_provider}" \
   --expected-model "${external_model}" \
-  --filter-text external \
   | tee "${out_dir_abs}/asr-selection.jsonl"
 jq -s -e 'any(.[]; .event == "summary" and .ok == true and .selected == true and .filter_complete == true)' \
   "${out_dir_abs}/asr-selection.jsonl" >/dev/null

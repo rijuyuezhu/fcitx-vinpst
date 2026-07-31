@@ -867,7 +867,6 @@ fn asr_cross_provider_live_gate_pins_external_process_and_restore() {
         "child process",
         "temporary WAV",
         "GetAsrDisplayMenuState",
-        "--filter-text external",
         "VINPUT_LIVE_REQUIRE_PARTIAL=0",
         "VINPUT_LIVE_REQUIRE_PARTIAL=0",
         "require_partial == false",
@@ -891,6 +890,10 @@ fn asr_cross_provider_live_gate_pins_external_process_and_restore() {
             "cross-provider runner should pin external process/restore evidence: {required}"
         );
     }
+    assert!(
+        !runner.contains("--filter-text"),
+        "cross-provider switching should directly select its unique candidate"
+    );
     assert!(justfile.contains("ime-fcitx-cross-provider-live:"));
     assert!(justfile.contains("run-ime-fcitx-cross-provider-live.sh"));
     let check_line = justfile
@@ -898,6 +901,72 @@ fn asr_cross_provider_live_gate_pins_external_process_and_restore() {
         .find(|line| line.starts_with("check:"))
         .expect("check recipe");
     assert!(!check_line.contains("ime-fcitx-cross-provider-live"));
+}
+
+#[test]
+fn asr_cross_provider_failure_live_gate_pins_preservation_and_recovery() {
+    let probe =
+        std::fs::read_to_string(workspace_file("scripts/fcitx-live-asr-selection-probe.py"))
+            .expect("read ASR selection probe");
+    let runner = std::fs::read_to_string(workspace_file(
+        "scripts/run-ime-fcitx-cross-provider-failure-live.sh",
+    ))
+    .expect("read cross-provider failure runner");
+    let justfile = std::fs::read_to_string(workspace_file("justfile")).expect("read justfile");
+
+    for required in [
+        "--expect-reload-failure",
+        "expect_reload_failure",
+        "failure_preserved",
+        "failed ASR reload did not preserve the previous backend",
+        "final_effective_provider",
+        "final_effective_model",
+    ] {
+        assert!(
+            probe.contains(required),
+            "ASR selection probe should pin expected failure behavior: {required}"
+        );
+    }
+    for required in [
+        "remote-unavailable",
+        "remote-failure-fixture",
+        "type\": \"remote",
+        "https://127.0.0.1:9/v1/audio/transcriptions",
+        "--expect-reload-failure",
+        "asr_backend_reload_failed",
+        "dialog-error",
+        "timeout_ms\"] != 5000",
+        "previous_backend_preserved",
+        "daemon_sender_verified",
+        "fcitx_sender_verified",
+        "VINPUT_LIVE_REQUIRE_PARTIAL=1",
+        "recovery_partial_count",
+        "restart_fcitx",
+        "fcitx-before-selection.pid",
+        "profile_restored",
+        "backup_restored",
+        "service_unchanged",
+        "addon_config_unchanged",
+        "fcitx_restored",
+        "backend_restored",
+        "target/tmp/ime-fcitx-cross-provider-failure-live",
+    ] {
+        assert!(
+            runner.contains(required),
+            "cross-provider failure runner should pin recovery evidence: {required}"
+        );
+    }
+    assert!(
+        !runner.contains("--filter-text"),
+        "cross-provider failure should directly select its unique candidate"
+    );
+    assert!(justfile.contains("ime-fcitx-cross-provider-failure-live:"));
+    assert!(justfile.contains("run-ime-fcitx-cross-provider-failure-live.sh"));
+    let check_line = justfile
+        .lines()
+        .find(|line| line.starts_with("check:"))
+        .expect("check recipe");
+    assert!(!check_line.contains("ime-fcitx-cross-provider-failure-live"));
 }
 
 #[test]

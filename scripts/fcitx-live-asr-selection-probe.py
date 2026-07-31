@@ -105,8 +105,10 @@ class SelectionState:
     filter_complete: bool = False
     selection_scheduled: bool = False
     selected: bool = False
+    failure_preserved: bool = False
     timed_out: bool = False
     failure_error: str = ""
+    final_state: dict[str, Any] = field(default_factory=dict)
     candidates: list[str] = field(default_factory=list)
     latest_candidates: list[str] = field(default_factory=list)
     commits: list[str] = field(default_factory=list)
@@ -264,8 +266,19 @@ class AsrSelectionProbe:
         )
         if state["last_error"]:
             self.state.failure_error = state["last_error"]
+            self.state.final_state = state
             emit("reload-failed", error=self.state.failure_error)
-            self.loop.quit()
+            if self.args.expect_reload_failure:
+                self.state.failure_preserved = (
+                    not state["reload_in_progress"]
+                    and state["target_provider"] == self.args.expected_provider
+                    and state["target_model"] == self.args.expected_model
+                    and state["effective_provider"] == self.before["effective_provider"]
+                    and state["effective_model"] == self.before["effective_model"]
+                )
+                GLib.timeout_add(100, self.finish)
+            else:
+                self.loop.quit()
             return GLib.SOURCE_REMOVE
         if (
             not state["reload_in_progress"]
@@ -316,12 +329,22 @@ class AsrSelectionProbe:
             failures.append(
                 "ASR selection fixture did not expose exactly one candidate"
             )
-        if self.state.failure_error:
-            failures.append(f"ASR target reload failed: {self.state.failure_error}")
+        if self.args.expect_reload_failure:
+            if not self.state.failure_error:
+                failures.append("ASR target reload unexpectedly succeeded")
+            if not self.state.failure_preserved:
+                failures.append(
+                    "failed ASR reload did not preserve the previous backend"
+                )
+            if self.state.selected:
+                failures.append("failed ASR target was reported as selected")
+        else:
+            if self.state.failure_error:
+                failures.append(f"ASR target reload failed: {self.state.failure_error}")
+            if not self.state.selected:
+                failures.append("Enter did not complete the expected ASR target reload")
         if not self.state.menu_closed:
             failures.append("ASR menu did not close after selection")
-        if not self.state.selected:
-            failures.append("Enter did not complete the expected ASR target reload")
         if self.state.commits:
             failures.append("ASR menu selection unexpectedly committed text")
         key_events = {event["label"]: event for event in self.state.key_events}
@@ -341,6 +364,15 @@ class AsrSelectionProbe:
             candidate_count=len(self.state.candidates),
             menu_closed=self.state.menu_closed,
             selected=self.state.selected,
+            expect_reload_failure=self.args.expect_reload_failure,
+            failure_error=self.state.failure_error,
+            failure_preserved=self.state.failure_preserved,
+            final_target_provider=self.state.final_state.get("target_provider", ""),
+            final_target_model=self.state.final_state.get("target_model", ""),
+            final_effective_provider=self.state.final_state.get(
+                "effective_provider", ""
+            ),
+            final_effective_model=self.state.final_state.get("effective_model", ""),
             commit_count=len(self.state.commits),
             ok=not failures,
             failures=failures,
@@ -355,6 +387,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-provider", required=True)
     parser.add_argument("--expected-model", required=True)
     parser.add_argument("--filter-text", default="")
+    parser.add_argument("--expect-reload-failure", action="store_true")
     parser.add_argument("--timeout-ms", type=int, default=30_000)
     args = parser.parse_args()
     args.trigger_keyval = Gdk.keyval_from_name(args.trigger_key)
