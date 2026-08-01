@@ -11,3 +11,5 @@ and live tests:
 They are executable test instruments, not product daemons. Callers must provide
 explicit temporary output paths and must not persist credentials or recognized
 user text in tracked files.
+
+`remote-text-input-client.py` authenticates one deterministic input client and finalizes exact text for remote-text process smokes.

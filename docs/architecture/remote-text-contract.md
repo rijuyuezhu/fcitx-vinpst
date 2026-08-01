@@ -92,5 +92,9 @@ The successful 2026-08-01 run used Google Chrome 152.0.7967.2 dev through `192.1
 
 Remote text parity remains **partial** at the final physical-device boundary:
 
-- repeat the browser input flow from another phone, tablet, laptop, or other network peer using a redacted endpoint reported by the normal daemon;
-- refine external-user network/firewall troubleshooting from that separate-device run.
+- run `scripts/live/network/run-remote-text-external-device-live.sh` with explicit physical-device confirmation and complete its random challenge from another phone, tablet, laptop, or computer; the collector rejects peers matching any local address, requires the exact event sequence plus operator confirmation that the peer is not a local VM/container, retains no key, and releases the listener;
+- repeat the successful collector path against a redacted endpoint reported by the normal daemon, then refine external-user network/firewall troubleshooting from that separate-device run.
+
+`scripts/tests/daemon/run-remote-text-external-collector-smoke.sh` keeps the fail-closed boundary in deterministic CI: the wrapper refuses to start without explicit physical-device confirmation, no input times out without proof, and a completed same-host challenge is rejected after the exact event sequence because its peer belongs to the local address set.
+
+The collector is implemented and its no-device timeout/cleanup path is fail-closed, but no separate device was available in the 2026-08-01 session, so this row remains unproven.

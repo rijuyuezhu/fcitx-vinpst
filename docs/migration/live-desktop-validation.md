@@ -302,7 +302,15 @@ VINPUT_REMOTE_TEXT_BROWSER=/path/to/chromium \
 
 The gate selects an operational non-loopback IPv4 address, serves the browser page on `0.0.0.0`, and uses a real Chromium-family browser to load that LAN URL. The page authenticates and sends text over `/ws`; the Realtime-compatible output client remains on loopback and requires the Bearer key. Evidence under `target/tmp/remote-text-chromium-lan-live/` includes page state, established LAN/loopback sockets, exact committed/delta/completed events, and Linux renderer-sandbox fields. The temporary key must not appear in retained files, the browser profile must be removed, and the listener must be released.
 
-This is same-host non-loopback transport proof, not another-device proof. Record `same_host_lan_proof=true` and `cross_device_proof=false`; do not advance the cross-device matrix row until a separate physical browser reaches an endpoint reported by the normal daemon.
+This is same-host non-loopback transport proof, not another-device proof. Record `same_host_lan_proof=true` and `cross_device_proof=false`. To collect the final physical-device boundary, run:
+
+```sh
+VINPUT_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1 \
+VINPUT_REMOTE_TEXT_EXTERNAL_TIMEOUT=180 \
+  scripts/live/network/run-remote-text-external-device-live.sh
+```
+
+Open the printed one-time URL on another physical device, enter the exact random challenge, and press Send. Set the confirmation variable only after verifying the URL is opened on another physical phone, tablet, laptop, or computer, not a local VM/container. The collector advances the row only when that operator confirmation is present, the challenge roundtrip succeeds, and `ss` observes an established peer address that differs from every address assigned to the server host. It records `same_host_lan_proof=false`, `distinct_network_peer_proof=true`, `operator_confirmed_physical_device=true`, and `cross_device_proof=true`, uses real `/usr/bin/ip` and `/usr/bin/ss`, retains no key, and releases the listener. A timeout or same-host-only run is a failure and must not produce `summary.json`.
 
 ## 9. Live PipeWire diagnostics
 
