@@ -51,7 +51,7 @@ The following are implemented and covered by deterministic tests:
 
 Implemented through D-Bus, the streaming path delivers recorder chunks, emits deduplicated live `RecognitionPartial` signals, renders partial-first preedit, and preserves final results for synchronous stop.
 
-Live in a real user session, `ime-fcitx-virtual-source-live` now proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, a non-silent preflight-verified PipeWire virtual source, a streaming native model, input-panel partials, deletion, and final commit in real Fcitx clients. The gate does not use or claim physical speaker/microphone behavior.
+Live in a real user session, `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh` now proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, a non-silent preflight-verified PipeWire virtual source, a streaming native model, input-panel partials, deletion, and final commit in real Fcitx clients. The gate does not use or claim physical speaker/microphone behavior.
 
 ## P0: real desktop native alpha
 
@@ -76,7 +76,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 
 ## P2: release readiness
 
-- keep checked release-time native-runtime bundle selection and the Arch package for the CLI, daemon, addon, metadata, translations, VAD asset, activation service, and private runtime green through `just arch-pkgbuild-check` and `just arch-package-smoke`;
+- keep checked release-time native-runtime bundle selection and the Arch package for the CLI, daemon, addon, metadata, translations, VAD asset, activation service, and private runtime green through `scripts/release/check-arch-pkgbuild.sh` and `just package-smoke`;
 - validate current-metadata restart and guarded old-metadata handoff through an actual host package-installed upgrade, then automate cross-user old-metadata upgrade invocation; keep every handoff conditional, identity-guarded, and post-verified. Keep unknown future schemas refusal-only and byte-preserving; add migration rollback only when a second production schema exists;
 - publish the selected production package, signatures, repository metadata, detached manifest signature and independently distributed pinned fingerprint, and a short supported installation path; do not publish synthetic `pkgrel=2` or ephemeral-key test artifacts;
 - run live validation on supported desktop/application combinations;

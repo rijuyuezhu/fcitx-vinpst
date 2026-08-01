@@ -65,7 +65,7 @@ Real local-socket tests cover HTTP assets, authorization failure, single-input o
 
 An unchanged disabled or unchanged active configuration is a no-op. Changing port, debounce, API key, or provider stops the old listener before starting the desired one. Switching to a non-remote provider stops the service. A replacement bind failure returns an explicit D-Bus error and does not retain the stale listener or credentials. `SIGINT` and `SIGTERM` trigger graceful listener shutdown before process exit.
 
-Deterministic evidence covers lifecycle start, no-op reconciliation, settings-driven restart, provider-selection enable/disable, bind-failure cleanup, and config-file reload. `scripts/run-remote-text-daemon-lifecycle-smoke.sh` additionally launches the normal daemon inside a private `dbus-run-session`, proves both `/health` and `GetStatus`, sends `SIGTERM`, and verifies that the listener is released.
+Deterministic evidence covers lifecycle start, no-op reconciliation, settings-driven restart, provider-selection enable/disable, bind-failure cleanup, and config-file reload. `scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh` additionally launches the normal daemon inside a private `dbus-run-session`, proves both `/health` and `GetStatus`, sends `SIGTERM`, and verifies that the listener is released.
 
 ## Runtime endpoint diagnostics
 

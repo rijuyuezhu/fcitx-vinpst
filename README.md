@@ -44,7 +44,7 @@ Live-proven in a real user session:
 - focus handoff keeps partials and the final commit on the input context that started recording;
 - verified daemon-owner loss replaces partial text with an unavailable preedit, commits nothing, and recovers through D-Bus activation;
 - an idle same-provider `ReloadAsrBackend` keeps the daemon owner/provider/model stable and is followed by another successful virtual-source recognition;
-- repeatable opt-in audio evidence through `ime-fcitx-virtual-source-live`, with mode/focus/owner-loss/reload flags, plus non-audio menu evidence through `ime-fcitx-menu-live`.
+- repeatable opt-in audio evidence through `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh`, with mode/focus/owner-loss/reload flags, plus non-audio menu evidence through `scripts/live/niri/run-ime-fcitx-menu-live.sh`.
 
 Still requiring live proof or implementation:
 
@@ -99,11 +99,10 @@ Use `just` as the project interface:
 
 ```sh
 just fmt-check
+just lint
 just test
-just dbus-test
-just addon-test
-just ci
-just smoke
+just check
+just package-check
 ```
 
 `just ci` is the full deterministic project gate. Optional live PipeWire and real-desktop checks are intentionally excluded.
@@ -111,21 +110,21 @@ just smoke
 Useful focused integration recipes:
 
 ```sh
-just addon-dbus-smoke
-just capture-cold-start-smoke
-just addon-dbus-asr-menu-smoke
-just addon-dbus-activation-smoke
-just addon-dbus-configured-activation-smoke
-just addon-dbus-adapter-lifecycle-smoke
-just ime-e2e-smoke
+scripts/tests/cpp/run-cpp-dbus-smoke.sh
+scripts/tests/asr/run-capture-cold-start-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-asr-menu-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-activation-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-configured-activation-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-adapter-lifecycle-smoke.sh
+scripts/tests/install/run-ime-e2e-smoke.sh
 ```
 
-`just ime-e2e-smoke` includes fake outcome sink coverage. `just addon-dbus-adapter-lifecycle-smoke` covers configured text adapter start/duplicate-start/stop diagnostics over DBus.
+`scripts/tests/install/run-ime-e2e-smoke.sh` includes fake outcome sink coverage. `scripts/tests/cpp/run-cpp-dbus-adapter-lifecycle-smoke.sh` covers configured text adapter start/duplicate-start/stop diagnostics over DBus.
 
 Run the committed deterministic demo with:
 
 ```sh
-just e2e-demo
+just demo
 ```
 
 It uses `data/e2e-command-demo-config.json` and a generated WAV to exercise audio input, command ASR, command text processing, and recognition JSON without requiring a desktop session.
@@ -133,15 +132,15 @@ It uses `data/e2e-command-demo-config.json` and a generated WAV to exercise audi
 After installing a native live profile in a real desktop session, run the isolated PipeWire Fcitx gate with a validated speech WAV:
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-virtual-source-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 ```
 
-The gate creates an isolated PipeWire sink/source pair, records a non-silent preflight sample, temporarily selects the virtual source, restarts only the verified Rust daemon, and verifies Fcitx partial/commit behavior. It restores the original config, backup state, and daemon on success or failure. No physical speaker or microphone is used, and the gate is intentionally excluded from `just ci`. Direct `ime-fcitx-native-live` playback through the desktop output remains an environment-dependent manual collector and is not retained as proof.
+The gate creates an isolated PipeWire sink/source pair, records a non-silent preflight sample, temporarily selects the virtual source, restarts only the verified Rust daemon, and verifies Fcitx partial/commit behavior. It restores the original config, backup state, and daemon on success or failure. No physical speaker or microphone is used, and the gate is intentionally excluded from `just ci`. Direct `scripts/live/niri/run-ime-fcitx-native-live.sh` playback through the desktop output remains an environment-dependent manual collector and is not retained as proof.
 
 After installing `sherpa-native-command-live`, reject raw-ASR fallback candidates and require the configured adapter result with:
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_MODES=command VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live just ime-fcitx-virtual-source-live
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_MODES=command VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 ```
 
 This checked profile uses a deterministic local command adapter whose output begins with `adapter-backed:`. It proves the command-adapter transport and frontend replacement path; it is not evidence for an external OpenAI-compatible service.
@@ -151,9 +150,9 @@ This checked profile uses a deterministic local command adapter whose output beg
 Before changing the real user profile, use the temporary-HOME checks:
 
 ```sh
-just user-ime-sherpa-native-smoke
-just user-ime-sherpa-native-command-smoke
-just user-ime-sherpa-native-activation-smoke
+scripts/tests/install/run-user-ime-sherpa-native-smoke.sh
+scripts/tests/install/run-user-ime-sherpa-native-command-smoke.sh
+scripts/tests/install/run-user-ime-sherpa-native-activation-smoke.sh
 ```
 
 For an explicitly approved real profile:
@@ -162,12 +161,12 @@ For an explicitly approved real profile:
 VINPUT_USER_PROFILE=sherpa-native-live \
   VINPUT_USER_SHERPA_MODEL=/path/to/installed-model \
   VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/lib \
-  scripts/install-user-ime.sh
+  scripts/install/install-user-ime.sh
 ```
 
 The legacy `sherpa-sense-voice-live` profile remains as a compatibility alias. The installer validates and copies `libsherpa-onnx` and `libonnxruntime`, then activates the installed daemon through `vinput-daemon-with-vinput-env.sh` so readiness checks and D-Bus activation use the same native runtime.
 
-Use `VINPUT_USER_PROFILE=sherpa-native-command-live` with the same model and runtime arguments to install the deterministic command-adapter variant. Its generated config includes `native-command-live-adapter` and the command scene required by `ime-fcitx-native-command-adapter-live`.
+Use `VINPUT_USER_PROFILE=sherpa-native-command-live` with the same model and runtime arguments to install the deterministic command-adapter variant. Its generated config includes `native-command-live-adapter` and the command scene used by the documented native command-adapter live scenario.
 
 Live desktop validation is documented in [`docs/migration/live-desktop-validation.md`](docs/migration/live-desktop-validation.md).
 

@@ -4,7 +4,7 @@
 release source archive whose top-level directory matches `--source-dir`:
 
 ```sh
-scripts/render-arch-pkgbuild.py \
+scripts/release/render-arch-pkgbuild.py \
   --version 0.1.0 \
   --source-url https://example.invalid/fcitx-vinput-rs-0.1.0.tar.gz \
   --source-sha256 <sha256> \
@@ -30,18 +30,18 @@ Private rpaths prevent those pinned libraries from replacing unrelated system
 copies. `fcitx-vinput-rs` conflicts with and provides `fcitx5-vinput` because
 both projects own the same addon, bus name, and user service.
 
-Run `just arch-package-smoke` to render a local-source PKGBUILD, execute
+Run `just package-smoke` to render a local-source PKGBUILD, execute
 `makepkg`, inspect the package archive, run both extracted Rust binaries, create
 a `pkgrel=2` repackage, and prove pacman install, upgrade, same-version
 rollback, and uninstall in a
 fakeroot-isolated temporary root. After a full build,
-`just arch-package-transaction-smoke` reruns only the fast direct-package
-transaction checks. `just arch-repository-smoke` creates a local `repo-add`
+`scripts/release/run-arch-package-transaction-smoke.sh` reruns only the fast direct-package
+transaction checks. `scripts/release/run-arch-repository-smoke.sh` creates a local `repo-add`
 database from the same two archives and proves `pacman -S` installation and
 upgrade through a `file://` repository.
-`just arch-signing-smoke` adds an ephemeral signing key, package/database
+`scripts/release/run-arch-signing-smoke.sh` adds an ephemeral signing key, package/database
 signatures, an isolated trusted pacman keyring, unknown-signer rejection, and
-same-size package tamper rejection. `just arch-release-bundle-smoke` then
+same-size package tamper rejection. `scripts/release/run-arch-release-bundle-smoke.sh` then
 assembles the source archive, rendered Arch metadata, package/repository
 artifacts, signatures, and ephemeral public key into a strict `manifest.json`
 plus `SHA256SUMS` inventory, revalidates every package/database signature,

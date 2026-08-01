@@ -17,6 +17,18 @@ Keep the workspace split by responsibility:
 
 The retained C++ frontend owns Fcitx API integration, menus, preedit/commit presentation, selected-text handling, notifications, and the bus bridge. Backend state and processing belong in Rust.
 
+### Source organization
+
+Keep public facades thin and place use-case logic behind domain modules:
+
+- `vinput-cli/src/main.rs` is routing only. Clap data lives under `cli/`, command use cases under `commands/`, daemon lifecycle under `daemon_control/`, and shared path/config/registry/output services in focused support modules.
+- `vinput-config/src/lib.rs` re-exports the public schema. Schema data, defaults/normalization, validation, file behavior, errors, and tests are separate modules.
+- `vinput-asr/src/sherpa/` separates the public typed specification, offline layout/path inference, and the feature-gated runtime backend.
+- the retained Fcitx addon separates recording/daemon integration from Scene/ASR menu implementation; do not move backend policy into C++.
+- `scripts/` is grouped by deterministic tests, release operations, installation, fixtures, opt-in live evidence, and developer tools. The `justfile` is a thin facade for broad workflows; specialized gates are invoked directly from their documented script paths.
+
+`scripts/tests/source-layout-check.sh` prevents production Rust/C++ files from growing beyond 1200 lines and gives fixture-heavy tests a 3000-line ceiling. Treat the limits as regression guards, not as targets: split earlier when data, orchestration, transport, formatting, or platform integration form distinct reasons to change.
+
 ## Coding rules
 
 - Preserve service names, method and signal names, status strings, recognition JSON, config semantics, and frontend expectations.
@@ -63,88 +75,88 @@ cargo clippy --workspace --all-targets -- -D warnings
 ### D-Bus integration
 
 ```sh
-just dbus-test
-just dbus-lint
+just test
+just lint
 ```
 
-`just dbus-test` runs the isolated session-bus suite and covers legacy methods, configured backends, reload, adapters, and partial-before-stop behavior.
+`just test` runs the isolated session-bus suite and covers legacy methods, configured backends, reload, adapters, and partial-before-stop behavior.
 
 ### Retained C++ frontend
 
 ```sh
-just addon-format-check
-just addon-test
+just fmt-check
+just test
 ```
 
-Run `just addon-lint` when Fcitx5 headers and `clang-tidy` are available.
+Run `just lint` when Fcitx5 headers and `clang-tidy` are available.
 
 ### Deterministic addon and IME paths
 
 ```sh
-just addon-dbus-smoke
-just addon-dbus-asr-menu-smoke
-just addon-dbus-activation-smoke
-just addon-dbus-configured-activation-smoke
-just addon-dbus-adapter-lifecycle-smoke
-just remote-text-daemon-lifecycle-smoke
-just daemon-handoff-diagnostics-smoke
-just daemon-handoff-smoke
-just ime-e2e-smoke
+scripts/tests/cpp/run-cpp-dbus-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-asr-menu-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-activation-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-configured-activation-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-adapter-lifecycle-smoke.sh
+scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh
+scripts/tests/daemon/run-daemon-handoff-diagnostics-smoke.sh
+scripts/tests/daemon/run-daemon-handoff-smoke.sh
+scripts/tests/install/run-ime-e2e-smoke.sh
 ```
 
-`just ime-e2e-smoke` includes fake outcome sink coverage. `just addon-dbus-adapter-lifecycle-smoke` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus. `just remote-text-daemon-lifecycle-smoke` launches the normal daemon in a private session, proves its HTTP health endpoint, D-Bus owner, and redacted endpoint diagnostics, sends `SIGTERM`, and verifies listener release. `just daemon-handoff-diagnostics-smoke` proves that `daemon status` detects both a D-Bus owner running from a different daemon path and a replaced executable whose old inode appears as ` (deleted)`, while remaining non-mutating. `just daemon-handoff-smoke` proves the explicit conditional restart command: current owners never invoke systemctl, stale owners restart and pass a fresh owner-path check, and failed service control leaves the old owner alive.
+`scripts/tests/install/run-ime-e2e-smoke.sh` includes fake outcome sink coverage. `scripts/tests/cpp/run-cpp-dbus-adapter-lifecycle-smoke.sh` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus. `scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh` launches the normal daemon in a private session, proves its HTTP health endpoint, D-Bus owner, and redacted endpoint diagnostics, sends `SIGTERM`, and verifies listener release. `scripts/tests/daemon/run-daemon-handoff-diagnostics-smoke.sh` proves that `daemon status` detects both a D-Bus owner running from a different daemon path and a replaced executable whose old inode appears as ` (deleted)`, while remaining non-mutating. `scripts/tests/daemon/run-daemon-handoff-smoke.sh` proves the explicit conditional restart command: current owners never invoke systemctl, stale owners restart and pass a fresh owner-path check, and failed service control leaves the old owner alive.
 
 ### User installation
 
 Use a temporary `HOME` unless mutation of the real profile is explicitly requested:
 
 ```sh
-just user-ime-command-demo-smoke
-just user-ime-activation-owner-smoke
-just user-ime-real-command-asr-wav-smoke
-just user-ime-sherpa-native-smoke
-just user-ime-sherpa-native-activation-smoke
-just user-ime-sherpa-sense-voice-smoke
+scripts/tests/install/run-user-ime-command-demo-smoke.sh
+scripts/tests/install/run-user-ime-activation-owner-smoke.sh
+scripts/tests/install/run-user-ime-real-command-asr-wav-smoke.sh
+scripts/tests/install/run-user-ime-sherpa-native-smoke.sh
+scripts/tests/install/run-user-ime-sherpa-native-activation-smoke.sh
+scripts/tests/install/run-user-ime-sherpa-sense-voice-smoke.sh
 ```
 
-`scripts/install-user-ime.sh` normally uses `target/debug/vinput` and `target/debug/vinput-daemon`. Tests that provide stubs must use `VINPUT_USER_CLI_BINARY` and `VINPUT_USER_DAEMON_BINARY` under their own temporary tree. Never overwrite Cargo outputs: Cargo fingerprints do not detect external binary replacement reliably.
+`scripts/install/install-user-ime.sh` normally uses `target/debug/vinput` and `target/debug/vinput-daemon`. Tests that provide stubs must use `VINPUT_USER_CLI_BINARY` and `VINPUT_USER_DAEMON_BINARY` under their own temporary tree. Never overwrite Cargo outputs: Cargo fingerprints do not detect external binary replacement reliably.
 
 The `sherpa-native-live` profile validates and copies `libsherpa-onnx` and `libonnxruntime`, creates `vinput-daemon-with-vinput-env.sh`, and runs `runtime-status` through the installed bundle. `sherpa-native-command-live` uses the same native runtime and adds a deterministic command adapter for real frontend validation; `sherpa-sense-voice-live` remains a compatibility alias. Set `VINPUT_USER_RUNTIME_STATUS=0` only for file-placement debugging.
 
 ### Arch packaging
 
-The checked source of truth is `packaging/arch/PKGBUILD.in`; render release-specific source metadata with `scripts/render-arch-pkgbuild.py`.
+The checked source of truth is `packaging/arch/PKGBUILD.in`; render release-specific source metadata with `scripts/release/render-arch-pkgbuild.py`.
 
 ```sh
-just arch-install-script-check
-just arch-pkgbuild-check
-just release-manifest-check
-just release-signature-check
-just release-candidate-check
-just arch-package-smoke
-just arch-package-transaction-smoke
-just arch-repository-smoke
-just arch-signing-smoke
-just arch-release-bundle-smoke
+scripts/release/check-arch-install-script.sh
+scripts/release/check-arch-pkgbuild.sh
+scripts/release/check-release-manifest.sh
+scripts/release/check-release-signature.sh
+scripts/release/check-arch-release-candidate.sh
+just package-smoke
+scripts/release/run-arch-package-transaction-smoke.sh
+scripts/release/run-arch-repository-smoke.sh
+scripts/release/run-arch-signing-smoke.sh
+scripts/release/run-arch-release-bundle-smoke.sh
 ```
 
-`just release-manifest-check` validates the strict flat-bundle schema, exact inventory, sorted checksums, atomic staging, safe `--force` replacement, and negative mutation/extra/symlink cases with tiny local fixtures. `just release-signature-check` creates ephemeral keys under `target/tmp`, proves atomic detached-manifest signing plus isolated external-key/fingerprint verification, and rejects missing/tampered signatures, manifest or artifact changes, wrong trust roots, bundled-key trust, and stale signatures after bundle rebuild. `just release-candidate-check` builds minimal signed Arch packages and proves that promotion selects only the formal package, rebuilds single-version repository metadata, removes every test/synthetic role, signs the new candidate, and refuses unsafe force/output paths. `just arch-install-script-check` executes the message-only post-install, post-upgrade, and post-remove hooks with an empty `PATH`; it proves the root package script never invokes user-session commands and pins the lifecycle guidance. `just arch-pkgbuild-check` is the lightweight deterministic metadata gate included in `just ci`. `just arch-package-smoke` is the explicit release gate: it downloads checksum-pinned sherpa/ONNX Runtime assets when absent, builds a clean package through `makepkg`, verifies the embedded `.INSTALL`, extracts it without touching the host profile, validates the full file set and private rpaths, runs the packaged CLI/daemon, creates a `pkgrel=2` repackage, and proves direct pacman install/upgrade/same-version rollback/removal, local-repository install/upgrade, and signed-repository trust/tamper enforcement. It is intentionally not part of routine CI because it performs a complete release rebuild and requires network access for a cold cache. `just arch-package-transaction-smoke` reruns only the fast fakeroot direct-package transaction; `just arch-repository-smoke` reruns the unsigned `repo-add` plus `file://` path; `just arch-signing-smoke` creates only ephemeral keys under `target/tmp` and proves trusted signatures plus unknown-signer and tamper rejection. `just arch-release-bundle-smoke` assembles the source archive, rendered Arch metadata, both release-gate package revisions, package/database signatures, repository databases, and ephemeral public key into an exact `manifest.json` plus `SHA256SUMS` inventory, signs `manifest.json`, and verifies `manifest.json.sig` against the public key outside the bundle and a pinned fingerprint; the synthetic `pkgrel=2` and test key are explicitly labeled as test roles rather than public release assets. The same gate then promotes only `pkgrel=1` into an 11-role candidate with freshly signed repository metadata and verifies that no test role or `pkgrel=2` file remains.
+`scripts/release/check-release-manifest.sh` validates the strict flat-bundle schema, exact inventory, sorted checksums, atomic staging, safe `--force` replacement, and negative mutation/extra/symlink cases with tiny local fixtures. `scripts/release/check-release-signature.sh` creates ephemeral keys under `target/tmp`, proves atomic detached-manifest signing plus isolated external-key/fingerprint verification, and rejects missing/tampered signatures, manifest or artifact changes, wrong trust roots, bundled-key trust, and stale signatures after bundle rebuild. `scripts/release/check-arch-release-candidate.sh` builds minimal signed Arch packages and proves that promotion selects only the formal package, rebuilds single-version repository metadata, removes every test/synthetic role, signs the new candidate, and refuses unsafe force/output paths. `scripts/release/check-arch-install-script.sh` executes the message-only post-install, post-upgrade, and post-remove hooks with an empty `PATH`; it proves the root package script never invokes user-session commands and pins the lifecycle guidance. `scripts/release/check-arch-pkgbuild.sh` is the lightweight deterministic metadata gate included in `just ci`. `just package-smoke` is the explicit release gate: it downloads checksum-pinned sherpa/ONNX Runtime assets when absent, builds a clean package through `makepkg`, verifies the embedded `.INSTALL`, extracts it without touching the host profile, validates the full file set and private rpaths, runs the packaged CLI/daemon, creates a `pkgrel=2` repackage, and proves direct pacman install/upgrade/same-version rollback/removal, local-repository install/upgrade, and signed-repository trust/tamper enforcement. It is intentionally not part of routine CI because it performs a complete release rebuild and requires network access for a cold cache. `scripts/release/run-arch-package-transaction-smoke.sh` reruns only the fast fakeroot direct-package transaction; `scripts/release/run-arch-repository-smoke.sh` reruns the unsigned `repo-add` plus `file://` path; `scripts/release/run-arch-signing-smoke.sh` creates only ephemeral keys under `target/tmp` and proves trusted signatures plus unknown-signer and tamper rejection. `scripts/release/run-arch-release-bundle-smoke.sh` assembles the source archive, rendered Arch metadata, both release-gate package revisions, package/database signatures, repository databases, and ephemeral public key into an exact `manifest.json` plus `SHA256SUMS` inventory, signs `manifest.json`, and verifies `manifest.json.sig` against the public key outside the bundle and a pinned fingerprint; the synthetic `pkgrel=2` and test key are explicitly labeled as test roles rather than public release assets. The same gate then promotes only `pkgrel=1` into an 11-role candidate with freshly signed repository metadata and verifies that no test role or `pkgrel=2` file remains.
 
 ### Native ASR evidence
 
 Generic local recipes validate typed `vinput-model.json`, runtime construction, and one WAV recognition outside Fcitx5:
 
 ```sh
-just sherpa-offline-local-smoke
-just sherpa-sense-voice-local-smoke
-just sherpa-offline-transducer-local-smoke
-just sherpa-dolphin-local-smoke
-just sherpa-paraformer-local-smoke
-just sherpa-qwen3-local-smoke
-just sherpa-online-local-smoke
-just sherpa-online-transducer-local-smoke
-just sherpa-zipformer2-ctc-local-smoke
-just sherpa-moonshine-dbus-reload-smoke
+scripts/tests/asr/run-sherpa-offline-local-smoke.sh
+scripts/tests/asr/run-sherpa-sense-voice-local-smoke.sh
+scripts/tests/asr/run-sherpa-family-smoke.sh offline-transducer
+scripts/tests/asr/run-sherpa-family-smoke.sh dolphin
+scripts/tests/asr/run-sherpa-family-smoke.sh paraformer
+scripts/tests/asr/run-sherpa-family-smoke.sh qwen3
+scripts/tests/asr/run-sherpa-online-local-smoke.sh
+scripts/tests/asr/run-sherpa-family-smoke.sh online-transducer
+scripts/tests/asr/run-sherpa-family-smoke.sh zipformer2-ctc
+scripts/tests/asr/run-sherpa-family-smoke.sh moonshine-reload
 ```
 
 Model-dependent recipes require the documented `VINPUT_SHERPA_*` environment values. They are evidence for model/runtime support, not proof of live microphone or application behavior.
@@ -154,25 +166,25 @@ Model-dependent recipes require the documented `VINPUT_SHERPA_*` environment val
 Run only in a real user session where PipeWire and Fcitx5 are expected to work:
 
 ```sh
-just pipewire-check
-VINPUT_TEST_PIPEWIRE_CONTEXT=1 VINPUT_TEST_PIPEWIRE_ENUMERATE=1 VINPUT_TEST_PIPEWIRE_RECORD=1 just pipewire-live
+scripts/tests/pipewire-check.sh
+scripts/live/audio/run-pipewire-tests-live.sh
 VINPUT_TEST_PIPEWIRE_RECORD=1 VINPUT_TEST_PIPEWIRE_RECORD_MS=12000 VINPUT_TEST_PIPEWIRE_MIN_PEAK=1000 cargo test -p vinput-audio --features pipewire-backend pipewire_recorder_live_capture_when_enabled -- --nocapture
-just addon-dbus-pipewire-live
-just ime-pipewire-live
-just ime-configured-pipewire-live
-just ime-fcitx-live-probe
-just ime-fcitx-remote-asr-live
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav just ime-fcitx-virtual-source-live
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_MODES=command VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live just ime-fcitx-virtual-source-live
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_FOCUS_SWITCH=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-focus-live just ime-fcitx-virtual-source-live
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_OWNER_LOSS=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-owner-loss-live just ime-fcitx-virtual-source-live
-VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_RELOAD_BEFORE_PROBE=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-reload-live just ime-fcitx-virtual-source-live
-VINPUT_LIVE_TOOLKIT_WAV=/path/to/speech.wav just ime-gtk3-native-live normal
-VINPUT_LIVE_TOOLKIT_WAV=/path/to/speech.wav just ime-qt6-native-live normal
-scripts/bench-capture-cold-start.sh --follow
+scripts/live/audio/run-cpp-dbus-pipewire-live-smoke.sh
+scripts/live/audio/run-ime-pipewire-live-smoke.sh
+scripts/live/audio/run-ime-configured-pipewire-live-smoke.sh
+scripts/live/niri/run-ime-fcitx-live-probe.sh
+scripts/live/niri/run-ime-fcitx-remote-asr-live.sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_MODES=command VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_FOCUS_SWITCH=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-focus-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_NATIVE_OWNER_LOSS=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-owner-loss-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav VINPUT_LIVE_RELOAD_BEFORE_PROBE=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-reload-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPUT_LIVE_TOOLKIT_WAV=/path/to/speech.wav scripts/live/niri/run-ime-gtk3-native-live.sh normal
+VINPUT_LIVE_TOOLKIT_WAV=/path/to/speech.wav scripts/live/niri/run-ime-qt6-native-live.sh normal
+scripts/tools/bench-capture-cold-start.sh --follow
 ```
 
-The live recipes are intentionally excluded from `just ci`. `ime-fcitx-virtual-source-live` is the retained audio evidence gate: it creates a unique mono PipeWire sink/source pair, records a non-silent 16 kHz preflight sample, snapshots the live config and any existing backup, temporarily selects the virtual source, restarts only the verified Rust daemon, and then runs the real Fcitx client probe. Normal, local-adapter command, focus-handoff, owner-loss, and same-provider reload outcomes are selected through environment flags and each writes JSONL plus a wrapper summary. Cleanup restores the config byte-for-byte, preserves prior backup state, reactivates the original profile, and removes the virtual nodes. The successful 2026-07-30 evidence used no physical speaker or microphone; direct `ime-fcitx-native-live`, `ime-fcitx-focus-live`, `ime-fcitx-owner-loss-live`, `ime-fcitx-reload-live`, and `ime-fcitx-native-command-adapter-live` remain configured-source manual collectors and are not retained as proof when they depend on desktop output-to-microphone pickup. The local adapter validates configured adapter transport, not an external provider. `ime-fcitx-remote-asr-live` temporarily adds one OpenAI-compatible remote provider, verifies real F8/Enter selection plus multipart WAV/Bearer/model/language/prompt transport and a final-only commit against an independent loopback process, then restores streaming Zipformer; it does not prove a hosted service's DNS/TLS/proxy/rate-limit or credential-rotation behavior. `ime-fcitx-menu-live` verifies non-mutating scene/ASR candidate display, slash filtering, two-stage Escape close, and zero commit. `ime-fcitx-notification-localization-live` restarts the installed addon under zh_CN, proves localized scene-information text and localized information/error summaries while preserving the daemon's technical error body, then restores English and the original locale environment exactly. `ime-fcitx-asr-notification-localization-live` adds the real F8 invalid-provider path, proves the localized ASR-switch template plus error summary, keeps the old backend effective, recognizes again after restoration, and restores configuration bytes after stopping the localized Fcitx writer. `ime-gtk3-native-live` and `ime-qt6-native-live` open real toolkit text fields and still require actual desktop F9/F10 events; they deliberately do not synthesize GDK or Qt key events under Wayland. Preserve JSONL output for every claimed result. `just pipewire-check` exercises CLI/daemon audio-device diagnostics without requiring a live PipeWire daemon. For cold-start measurements, enable `RUST_LOG=vinput_audio=debug,vinput_daemon=debug` in the user service, use waits of at least 10 seconds for cold trials and gaps below 2 seconds for warm trials, then run `scripts/bench-capture-cold-start.sh` or pass `--input` to analyze saved journal output. `just capture-cold-start-smoke` validates the parser with a deterministic fixture and is included in `just ci`. Live failures must record whether setup failed at the session, target, format, sample rate, channel plan, capture, ASR, frontend, or application boundary.
+The live recipes are intentionally excluded from `just ci`. `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh` is the retained audio evidence gate: it creates a unique mono PipeWire sink/source pair, records a non-silent 16 kHz preflight sample, snapshots the live config and any existing backup, temporarily selects the virtual source, restarts only the verified Rust daemon, and then runs the real Fcitx client probe. Normal, local-adapter command, focus-handoff, owner-loss, and same-provider reload outcomes are selected through environment flags and each writes JSONL plus a wrapper summary. Cleanup restores the config byte-for-byte, preserves prior backup state, reactivates the original profile, and removes the virtual nodes. The successful 2026-07-30 evidence used no physical speaker or microphone; direct `scripts/live/niri/run-ime-fcitx-native-live.sh`, `ime-fcitx-focus-live`, `ime-fcitx-owner-loss-live`, `ime-fcitx-reload-live`, and `ime-fcitx-native-command-adapter-live` remain configured-source manual collectors and are not retained as proof when they depend on desktop output-to-microphone pickup. The local adapter validates configured adapter transport, not an external provider. `scripts/live/niri/run-ime-fcitx-remote-asr-live.sh` temporarily adds one OpenAI-compatible remote provider, verifies real F8/Enter selection plus multipart WAV/Bearer/model/language/prompt transport and a final-only commit against an independent loopback process, then restores streaming Zipformer; it does not prove a hosted service's DNS/TLS/proxy/rate-limit or credential-rotation behavior. `scripts/live/niri/run-ime-fcitx-menu-live.sh` verifies non-mutating scene/ASR candidate display, slash filtering, two-stage Escape close, and zero commit. `scripts/live/niri/run-ime-fcitx-notification-localization-live.sh` restarts the installed addon under zh_CN, proves localized scene-information text and localized information/error summaries while preserving the daemon's technical error body, then restores English and the original locale environment exactly. `scripts/live/niri/run-ime-fcitx-asr-notification-localization-live.sh` adds the real F8 invalid-provider path, proves the localized ASR-switch template plus error summary, keeps the old backend effective, recognizes again after restoration, and restores configuration bytes after stopping the localized Fcitx writer. `scripts/live/niri/run-ime-gtk3-native-live.sh` and `scripts/live/niri/run-ime-qt6-native-live.sh` open real toolkit text fields and still require actual desktop F9/F10 events; they deliberately do not synthesize GDK or Qt key events under Wayland. Preserve JSONL output for every claimed result. `scripts/tests/pipewire-check.sh` exercises CLI/daemon audio-device diagnostics without requiring a live PipeWire daemon. For cold-start measurements, enable `RUST_LOG=vinput_audio=debug,vinput_daemon=debug` in the user service, use waits of at least 10 seconds for cold trials and gaps below 2 seconds for warm trials, then run `scripts/tools/bench-capture-cold-start.sh` or pass `--input` to analyze saved journal output. `scripts/tests/asr/run-capture-cold-start-smoke.sh` validates the parser with a deterministic fixture and is included in `just ci`. Live failures must record whether setup failed at the session, target, format, sample rate, channel plan, capture, ASR, frontend, or application boundary.
 
 ## Commit style
 

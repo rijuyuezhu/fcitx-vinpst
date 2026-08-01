@@ -16,7 +16,7 @@ This matrix describes user-visible parity and the evidence level for each path. 
 - Legacy reference is `/workspace/fcitx5-vinput`.
 - `cargo test --workspace --all-targets`, D-Bus integration, and retained-addon tests pass at the reviewed baseline.
 - Native registry models are validated by model-specific local WAV smokes.
-- `sherpa-native-live` installation is validated in temporary HOME environments with a copied `libsherpa-onnx` and `libonnxruntime` bundle, wrapper activation through `vinput-daemon-with-vinput-env.sh`, and `user-ime-sherpa-native-activation-smoke`. `sherpa-native-command-live` adds a checked local command adapter and has its own temporary-HOME install smoke.
+- `sherpa-native-live` installation is validated in temporary HOME environments with a copied `libsherpa-onnx` and `libonnxruntime` bundle, wrapper activation through `vinput-daemon-with-vinput-env.sh`, and `scripts/tests/install/run-user-ime-sherpa-native-activation-smoke.sh`. `sherpa-native-command-live` adds a checked local command adapter and has its own temporary-HOME install smoke.
 
 ## User journeys
 

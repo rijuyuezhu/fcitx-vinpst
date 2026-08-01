@@ -79,7 +79,7 @@ A useful summary must name the toolkit and mode and end with `"ok":true`.
 **Action:**
 
 - use real speech for an interactive application probe; or
-- use `ime-fcitx-virtual-source-live` for repeatable injected-audio Fcitx-client evidence.
+- use `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh` for repeatable injected-audio Fcitx-client evidence.
 
 Never label a speaker-to-microphone pickup attempt as retained audio proof.
 
@@ -225,7 +225,7 @@ Regression commit: `80d2dc5 fix(fcitx): preserve menu page state`.
 
 **Cause:** the local provider id is also the runtime implementation selector; `type: local` alone does not route an arbitrary id to sherpa-onnx.
 
-**Action:** use `just ime-fcitx-model-switch-live` for another model under the existing `sherpa-onnx` provider, `just ime-fcitx-cross-provider-live` for the separate internal-to-command-provider contract that intentionally reuses the original sherpa model, and `just ime-fcitx-whisper-provider-live` when independent recognizer/model proof is required. The Whisper gate pins source/model hashes, traces the external process, checks temporary WAV cleanup, and restores Zipformer streaming recognition. Use `just ime-fcitx-cross-provider-failure-live` for the complementary prepare-failure contract: one unique remote candidate with an unsupported endpoint scheme is selected directly, the prior effective backend must remain intact, daemon/Fcitx error notifications must match, and the restored backend must produce partials and a final commit. Use `just ime-fcitx-remote-asr-live` for successful remote-protocol proof: it validates multipart WAV/Bearer/model/language/prompt transport, redacted trace evidence, a final-only application commit, and Zipformer restoration against an independent loopback endpoint.
+**Action:** use `scripts/live/niri/run-ime-fcitx-model-switch-live.sh` for another model under the existing `sherpa-onnx` provider, `scripts/live/niri/run-ime-fcitx-cross-provider-live.sh` for the separate internal-to-command-provider contract that intentionally reuses the original sherpa model, and `scripts/live/niri/run-ime-fcitx-whisper-provider-live.sh` when independent recognizer/model proof is required. The Whisper gate pins source/model hashes, traces the external process, checks temporary WAV cleanup, and restores Zipformer streaming recognition. Use `scripts/live/niri/run-ime-fcitx-cross-provider-failure-live.sh` for the complementary prepare-failure contract: one unique remote candidate with an unsupported endpoint scheme is selected directly, the prior effective backend must remain intact, daemon/Fcitx error notifications must match, and the restored backend must produce partials and a final commit. Use `scripts/live/niri/run-ime-fcitx-remote-asr-live.sh` for successful remote-protocol proof: it validates multipart WAV/Bearer/model/language/prompt transport, redacted trace evidence, a final-only application commit, and Zipformer restoration against an independent loopback endpoint.
 
 ### D-Bus activation ignores a relative model root
 
@@ -261,7 +261,7 @@ Regression commit: `876ca2e test(e2e): support offline ASR live probes`.
 
 **Action:** restore the exact original profile bytes and backup state, call the normal reload path, and wait until target and effective provider/model both match the original. Then prove another recognition. Do not weaken target validation for test cleanup.
 
-The retained roundtrip is `just ime-fcitx-model-switch-live`; evidence is under `target/tmp/ime-fcitx-model-switch-live`. It proves F8/Enter selection, an offline Paraformer commit, restoration to Zipformer with streaming partials, and exact service/profile/Fcitx/backend recovery. The non-selecting paging companion is `just ime-fcitx-asr-menu-paging-live`; it exposes 14 uniquely titled metadata copies while hard-linking immutable model assets, then verifies configured paging keys and exact restoration without reloading a model. Persisted trigger timing is isolated by `just ime-fcitx-trigger-modes-live`, which swaps only the addon mode and activation audio backend, uses real Fcitx events, and restores both files exactly. Installed-catalog localization is isolated by `just ime-fcitx-localization-live`: the user addon embeds `XDG_DATA_HOME/locale`, disables its build-tree fallback, verifies zh_CN Scene/ASR panels through real Fcitx events, exits Fcitx before exact config comparison to avoid delayed-save races, and restores an English session. `just ime-fcitx-notification-localization-live` separately proves zh_CN scene-information text and information/error summaries, keeps the daemon's technical error body verbatim, waits for each restarted Fcitx process to settle, and restores the original locale plus all mutable files. `just ime-fcitx-asr-notification-localization-live` proves the remaining `已请求切换语音识别到“...”` template through real F8/Enter events; both the shared child and wrapper stop Fcitx before restoring byte-exact addon configuration so localized comment writeback cannot escape the gate.
+The retained roundtrip is `scripts/live/niri/run-ime-fcitx-model-switch-live.sh`; evidence is under `target/tmp/ime-fcitx-model-switch-live`. It proves F8/Enter selection, an offline Paraformer commit, restoration to Zipformer with streaming partials, and exact service/profile/Fcitx/backend recovery. The non-selecting paging companion is `scripts/live/niri/run-ime-fcitx-asr-menu-paging-live.sh`; it exposes 14 uniquely titled metadata copies while hard-linking immutable model assets, then verifies configured paging keys and exact restoration without reloading a model. Persisted trigger timing is isolated by `scripts/live/niri/run-ime-fcitx-trigger-modes-live.sh`, which swaps only the addon mode and activation audio backend, uses real Fcitx events, and restores both files exactly. Installed-catalog localization is isolated by `scripts/live/niri/run-ime-fcitx-localization-live.sh`: the user addon embeds `XDG_DATA_HOME/locale`, disables its build-tree fallback, verifies zh_CN Scene/ASR panels through real Fcitx events, exits Fcitx before exact config comparison to avoid delayed-save races, and restores an English session. `scripts/live/niri/run-ime-fcitx-notification-localization-live.sh` separately proves zh_CN scene-information text and information/error summaries, keeps the daemon's technical error body verbatim, waits for each restarted Fcitx process to settle, and restores the original locale plus all mutable files. `scripts/live/niri/run-ime-fcitx-asr-notification-localization-live.sh` proves the remaining `已请求切换语音识别到“...”` template through real F8/Enter events; both the shared child and wrapper stop Fcitx before restoring byte-exact addon configuration so localized comment writeback cannot escape the gate.
 
 ### Concurrent work contaminates a small commit
 
@@ -279,21 +279,21 @@ The retained roundtrip is `just ime-fcitx-model-switch-live`; evidence is under 
 Run with a real desktop key event:
 
 ```sh
-just ime-gtk3-native-live normal
-just ime-gtk3-native-live command
-just ime-qt6-native-live normal
-just ime-qt6-native-live command
-just ime-chromium-native-live normal
-just ime-chromium-native-live command
+scripts/live/niri/run-ime-gtk3-native-live.sh normal
+scripts/live/niri/run-ime-gtk3-native-live.sh command
+scripts/live/niri/run-ime-qt6-native-live.sh normal
+scripts/live/niri/run-ime-qt6-native-live.sh command
+scripts/live/niri/run-ime-chromium-native-live.sh normal
+scripts/live/niri/run-ime-chromium-native-live.sh command
 ```
 
 For a strict command provenance check:
 
 ```sh
 VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING='selected text' \
-  just ime-gtk3-native-live command
+  scripts/live/niri/run-ime-gtk3-native-live.sh command
 VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING='selected text' \
-  just ime-qt6-native-live command
+  scripts/live/niri/run-ime-qt6-native-live.sh command
 ```
 
 Chromium command mode applies the same selected-text assertion automatically.
@@ -344,4 +344,4 @@ When adding another application or failure mode:
 8. run the narrow validation tier, then the full relevant gate before handoff.
 ### External text provider boundary
 
-Use `just ime-fcitx-external-text-provider-live` to distinguish configured OpenAI-compatible HTTP behavior from the local command-adapter path. The gate restarts the daemon because `reload-asr` does not rebuild `text_processor`, records only the `Bearer` scheme rather than the fixture token, requires real surrounding-text deletion and exact candidate commit, then restarts again and verifies `native-command-live-adapter` is restored. Its server is loopback-only and deterministic; failures against real cloud credentials, DNS/TLS, rate limits, timeouts, or disconnects remain separate work.
+Use `scripts/live/niri/run-ime-fcitx-external-text-provider-live.sh` to distinguish configured OpenAI-compatible HTTP behavior from the local command-adapter path. The gate restarts the daemon because `reload-asr` does not rebuild `text_processor`, records only the `Bearer` scheme rather than the fixture token, requires real surrounding-text deletion and exact candidate commit, then restarts again and verifies `native-command-live-adapter` is restored. Its server is loopback-only and deterministic; failures against real cloud credentials, DNS/TLS, rate limits, timeouts, or disconnects remain separate work.
