@@ -10,8 +10,9 @@ The Rust workspace is split by responsibility:
 
 - `crates/vinput-protocol`: stable D-Bus names, status strings, and recognition payloads.
 - `crates/vinput-config`: typed configuration, defaults, normalization, and validation.
+- `crates/vinput-process`: shared Unix helper supervision, whole-process-group cleanup, deadlines, and bounded output capture.
 - `crates/vinput-audio`: PCM types, audio transforms, recorder traits, and optional PipeWire capture.
-- `crates/vinput-asr`: ASR traits plus mock, command, and optional native `sherpa-onnx` backends.
+- `crates/vinput-asr`: ASR traits plus mock, supervised command, remote, and optional native `sherpa-onnx` backends.
 - `crates/vinput-text`: scene prompts, command adapters, context cache, and OpenAI-compatible transport.
 - `crates/vinput-registry`: live model/script registry metadata, checksums, safe extraction, and managed installation.
 - `crates/vinput-daemon`: runtime orchestration and the legacy-compatible D-Bus service.
@@ -39,7 +40,7 @@ Live-proven in a real user session:
 
 - installed native runtime activation through the current session bus;
 - an isolated PipeWire sink/source preflight captures non-silent 16 kHz mono PCM, then F9 drives streaming native ASR, partial input-panel updates, and one application commit without physical audio devices;
-- F10 -> selected surrounding text -> live partials -> deletion -> an `adapter-backed:` direct replacement commit from the configured local command adapter; command helpers run in isolated process groups, are terminated with their descendants when the effective scene deadline expires, and cap stdout and stderr independently at 1 MiB;
+- F10 -> selected surrounding text -> live partials -> deletion -> an `adapter-backed:` direct replacement commit from the configured local command adapter; command text and command ASR helpers share isolated process-group supervision, terminate descendants on configured deadlines or output failure, clean up descendants after direct-child exit, and cap stdout and stderr independently at 1 MiB;
 - F7/F8 scene and ASR menus -> candidates -> slash filter -> first Escape clears filtering -> second Escape closes the menu with zero text commits;
 - focus handoff keeps partials and the final commit on the input context that started recording;
 - verified daemon-owner loss replaces partial text with an unavailable preedit, commits nothing, and recovers through D-Bus activation;

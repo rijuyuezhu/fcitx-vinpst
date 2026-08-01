@@ -9,6 +9,7 @@ fcitx-vinput-rs/
   crates/
     vinput-protocol     # stable D-Bus/JSON ABI shared by all components
     vinput-config       # config schema, migration, normalization, validation
+    vinput-process      # bounded Unix helper supervision shared by ASR/text
     vinput-audio        # PipeWire capture and pure PCM transforms
     vinput-asr          # ASR traits, mock backend, command backend, sherpa-onnx backend
     vinput-text         # scene prompts, text adapters, command-mode text transforms
@@ -22,7 +23,7 @@ fcitx-vinput-rs/
   docs/
 ```
 
-The current workspace already has the pure protocol/config/audio/ASR/text/registry crates plus `vinput-daemon` and `vinput-cli`. Backend implementations can keep landing behind those seams without changing the top-level crate boundaries.
+The current workspace already has the pure protocol/config/process/audio/ASR/text/registry crates plus `vinput-daemon` and `vinput-cli`. Backend implementations can keep landing behind those seams without changing the top-level crate boundaries.
 
 ## Runtime actors
 
@@ -34,7 +35,7 @@ Fcitx5 addon (C++)
               ├─ Audio capture task          -> vinput-audio
               ├─ ASR session task            -> vinput-asr
               ├─ Postprocess task            -> vinput-text
-              ├─ Adapter supervisor task     -> vinput-text / vinput-daemon
+              ├─ Command helper supervisor   -> vinput-process (used by vinput-asr / vinput-text)
               ├─ Remote text service task    -> vinput-daemon::remote
               └─ Registry/install helpers    -> vinput-registry
 ```

@@ -8,6 +8,7 @@ This directory contains tracked architecture and compatibility contracts for the
 2. Subsystem contract for the area being changed:
    - [`dbus-service.md`](dbus-service.md): legacy D-Bus service facade, diagnostic extension, and compatibility rules.
    - [`config-contract.md`](config-contract.md): default config fixture, parsing, validation, and diagnostics behavior.
+   - [`process-contract.md`](process-contract.md): shared command-helper process groups, deadlines, descendant cleanup, and bounded output capture.
    - [`registry-contract.md`](registry-contract.md): registry metadata, dry-run planning, and sample fixture contracts.
    - [`asr-contract.md`](asr-contract.md): ASR backend/session seams, command ASR behavior, and diagnostics.
    - [`audio-contract.md`](audio-contract.md): PCM layout, WAV/raw byte policy, recorder lifecycle, and PipeWire scaffold.
