@@ -2331,6 +2331,7 @@ dependencies = [
  "vinput-audio",
  "vinput-config",
  "vinput-http",
+ "vinput-process",
  "vinput-protocol",
 ]
 
@@ -2413,6 +2414,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vinput-process"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "thiserror",
+]
+
+[[package]]
 name = "vinput-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2445,7 +2454,6 @@ dependencies = [
 name = "vinput-text"
 version = "0.1.0"
 dependencies = [
- "nix",
  "regex",
  "reqwest",
  "serde",
@@ -2454,6 +2462,7 @@ dependencies = [
  "thiserror",
  "vinput-config",
  "vinput-http",
+ "vinput-process",
  "vinput-protocol",
 ]
 

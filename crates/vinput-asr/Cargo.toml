@@ -24,6 +24,7 @@ vinput-audio = { path = "../vinput-audio" }
 vinput-protocol = { path = "../vinput-protocol" }
 vinput-config = { path = "../vinput-config" }
 vinput-http = { path = "../vinput-http" }
+vinput-process = { path = "../vinput-process" }
 
 
 [dev-dependencies]
