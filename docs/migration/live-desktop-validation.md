@@ -251,7 +251,7 @@ The information-notification gate observes the real `org.freedesktop.Notificatio
 The following installed-profile summaries reported `ok: true`:
 
 - normal dictation: seven non-placeholder partials and one final commit under `target/tmp/ime-fcitx-virtual-source-live`;
-- local command adapter: eight partials, one selected-text deletion, zero candidate rows for the configured single-result scene, and an `adapter-backed:` direct commit under `target/tmp/ime-fcitx-virtual-command-live`; deterministic process tests separately prove the parent deadline kills the helper process group and drains large stderr without deadlock;
+- local command adapter: eight partials, one selected-text deletion, zero candidate rows for the configured single-result scene, and an `adapter-backed:` direct commit under `target/tmp/ime-fcitx-virtual-command-live`; deterministic process tests separately prove the parent deadline kills the helper process group, drains large stderr without deadlock, and rejects stdout or stderr above the independent 1 MiB limits;
 - primary-selection fallback: seven partials, no surrounding text, zero deletion events, an `adapter-backed:` commit containing `primary fallback fixture`, and exact primary-text restoration under `target/tmp/ime-fcitx-primary-selection-live`;
 - focus handoff: focus moved to a second Fcitx context, while secondary partial and commit counts remained zero under `target/tmp/ime-fcitx-virtual-focus-live`;
 - owner loss: an unavailable error preedit, zero final commit, and successful post-test D-Bus reactivation under `target/tmp/ime-fcitx-virtual-owner-loss-live`;
