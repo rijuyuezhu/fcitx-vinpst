@@ -8,6 +8,7 @@ use std::{
 use vinput_config::{
     COMMAND_SCENE_ID, LlmProviderConfig, RAW_SCENE_ID, SceneDefinition, redact_url_for_diagnostics,
 };
+use vinput_http::{blocking_client_from_environment, reqwest_error_category};
 use vinput_protocol::{Candidate, CandidateSource, RecognitionPayload};
 
 use crate::prompt::{
@@ -388,7 +389,11 @@ fn send_openai_compatible_request_blocking(
     request: &OpenAiCompatibleChatRequest,
     timeout_ms: Option<u64>,
 ) -> Result<String, TextError> {
-    let client = reqwest::blocking::Client::new();
+    let client = blocking_client_from_environment().map_err(|error| {
+        TextError::AdapterFailed(format!(
+            "OpenAI-compatible HTTP client setup failed: {error}"
+        ))
+    })?;
     let mut builder = client.post(&request.url).json(&request.body);
     for (name, value) in &request.headers {
         builder = builder.header(name, value);
@@ -426,26 +431,6 @@ fn send_openai_compatible_request_blocking(
         )));
     }
     Ok(body)
-}
-
-fn reqwest_error_category(error: &reqwest::Error) -> &'static str {
-    if error.is_connect() {
-        "connection failed"
-    } else if error.is_redirect() {
-        "redirect failed"
-    } else if error.is_body() {
-        "request or response body failed"
-    } else if error.is_decode() {
-        "response decode failed"
-    } else if error.is_builder() {
-        "request build failed"
-    } else if error.is_status() {
-        "HTTP status failed"
-    } else if error.is_request() {
-        "request failed"
-    } else {
-        "transport failed"
-    }
 }
 
 fn redact_openai_error_body(body: &str, headers: &[(String, String)]) -> String {

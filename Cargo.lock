@@ -2318,6 +2318,7 @@ dependencies = [
  "thiserror",
  "vinput-audio",
  "vinput-config",
+ "vinput-http",
  "vinput-protocol",
 ]
 
@@ -2391,6 +2392,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "vinput-http"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "vinput-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2430,6 +2440,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "vinput-config",
+ "vinput-http",
  "vinput-protocol",
 ]
 

@@ -4,6 +4,7 @@ use std::fmt;
 
 use vinput_audio::{PcmBuffer, PcmSpec, i16_samples_to_le_bytes};
 use vinput_config::{AsrProviderConfig, AsrProviderKind, redact_url_for_diagnostics};
+use vinput_http::{blocking_client_from_environment, reqwest_error_category};
 
 use crate::{
     AsrBackend, AsrError, BackendCapabilities, BackendDescriptor, RecognitionContext,
@@ -257,7 +258,9 @@ fn send_remote_asr_request_blocking(request: &RemoteAsrRequest) -> Result<String
         form = form.text("prompt", prompt.clone());
     }
 
-    let client = reqwest::blocking::Client::new();
+    let client = blocking_client_from_environment().map_err(|error| {
+        AsrError::Backend(format!("remote ASR HTTP client setup failed: {error}"))
+    })?;
     let mut builder = client.post(&request.url).multipart(form);
     if !request.api_key().is_empty() {
         builder = builder.bearer_auth(request.api_key());
@@ -300,26 +303,6 @@ fn send_remote_asr_request_blocking(request: &RemoteAsrRequest) -> Result<String
         )));
     }
     Ok(body)
-}
-
-fn reqwest_error_category(error: &reqwest::Error) -> &'static str {
-    if error.is_connect() {
-        "connection failed"
-    } else if error.is_redirect() {
-        "redirect failed"
-    } else if error.is_body() {
-        "request or response body failed"
-    } else if error.is_decode() {
-        "response decode failed"
-    } else if error.is_builder() {
-        "request build failed"
-    } else if error.is_status() {
-        "HTTP status failed"
-    } else if error.is_request() {
-        "request failed"
-    } else {
-        "transport failed"
-    }
 }
 
 fn redact_known_values<'a>(text: &str, values: impl IntoIterator<Item = &'a str>) -> String {

@@ -2,6 +2,7 @@
 members = [
     "crates/vinput-protocol",
     "crates/vinput-config",
+    "crates/vinput-http",
     "crates/vinput-asr",
     "crates/vinput-audio",
     "crates/vinput-registry",
