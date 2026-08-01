@@ -17,12 +17,17 @@ provider_network_generate_tls_material() {
     -out "${fixture_ca_cert}" \
     -days 1 \
     -subj '/CN=vinput fixture CA' \
+    -addext 'basicConstraints=critical,CA:TRUE' \
+    -addext 'keyUsage=critical,keyCertSign,cRLSign' \
     >"${out_dir}/${prefix}-ca.stdout" \
     2>"${out_dir}/${prefix}-ca.stderr"
   openssl req -new -newkey rsa:2048 -nodes \
     -keyout "${fixture_server_key}" \
     -out "${fixture_server_csr}" \
     -subj '/CN=127.0.0.1' \
+    -addext 'basicConstraints=critical,CA:FALSE' \
+    -addext 'keyUsage=critical,digitalSignature,keyEncipherment' \
+    -addext 'extendedKeyUsage=serverAuth' \
     -addext 'subjectAltName=IP:127.0.0.1' \
     >"${out_dir}/${prefix}-server.stdout" \
     2>"${out_dir}/${prefix}-server.stderr"
@@ -98,6 +103,30 @@ provider_network_start_connect_proxy() {
     --proxy-password "${proxy_password}" \
     "${tls_args[@]}" \
     >"${log_file}" 2>&1 &
+  local pid=$!
+  fixture_pids+=("${pid}")
+  wait_ready "${pid}" "${ready_file}" "${log_file}"
+  started_pid="${pid}"
+  started_url="$(jq -r '.proxy_url' "${ready_file}")"
+}
+
+provider_network_start_intercept_proxy() {
+  local name="$1"
+  local expected_host="$2"
+  local expected_port="$3"
+  local upstream_host="$4"
+  local upstream_port="$5"
+  local proxy_username="$6"
+  local proxy_password="$7"
+  local intercept_cert="$8"
+  local intercept_key="$9"
+  local upstream_ca_cert="${10}"
+  local ready_file="${out_dir}/${name}.ready.json"
+  local trace_file="${out_dir}/${name}.trace.json"
+  local error_file="${out_dir}/${name}.fixture-error.txt"
+  local log_file="${out_dir}/${name}.fixture.log"
+
+  python3 "${intercept_proxy_fixture}"     --ready-file "${ready_file}"     --trace-file "${trace_file}"     --error-file "${error_file}"     --expected-host "${expected_host}"     --expected-port "${expected_port}"     --upstream-host "${upstream_host}"     --upstream-port "${upstream_port}"     --proxy-username "${proxy_username}"     --proxy-password "${proxy_password}"     --intercept-cert "${intercept_cert}"     --intercept-key "${intercept_key}"     --upstream-ca-cert "${upstream_ca_cert}"     >"${log_file}" 2>&1 &
   local pid=$!
   fixture_pids+=("${pid}")
   wait_ready "${pid}" "${ready_file}" "${log_file}"

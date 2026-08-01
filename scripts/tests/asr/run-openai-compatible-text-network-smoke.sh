@@ -25,6 +25,7 @@ done
 origin_fixture="scripts/fixtures/openai-compatible-text-provider-fixture.py"
 proxy_fixture="scripts/fixtures/http-chat-proxy-fixture.py"
 connect_proxy_fixture="scripts/fixtures/https-connect-proxy-fixture.py"
+intercept_proxy_fixture="scripts/fixtures/https-intercept-proxy-fixture.py"
 cli="target/debug/vinput"
 out_dir="target/tmp/openai-compatible-text-network-smoke"
 config_file="${out_dir}/config.json"
@@ -55,8 +56,8 @@ trap cleanup EXIT INT TERM
 
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
-ruff check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}"
-ruff format --check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}"
+ruff check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}" "${intercept_proxy_fixture}"
+ruff format --check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}" "${intercept_proxy_fixture}"
 cargo build -q -p vinput-cli --bin vinput
 
 write_config() {
@@ -388,6 +389,43 @@ jq -e --argjson port "${https_proxy_origin_port}" '
   .payload_recorded == false
 ' "${out_dir}/https-proxy-endpoint.trace.json" >/dev/null
 
+# A local interception proxy terminates and re-establishes verified TLS without retaining payloads.
+start_origin tls-intercept-origin "tls intercept text final: " 200 "unused" 0 0   --tls-cert "${fixture_server_cert}"   --tls-key "${fixture_server_key}"
+tls_intercept_origin_pid="${started_pid}"
+tls_intercept_origin_url="${started_url}"
+tls_intercept_origin_port="$(provider_network_url_port "${tls_intercept_origin_url}")"
+provider_network_start_intercept_proxy   tls-intercept-proxy 127.0.0.1 "${tls_intercept_origin_port}"   127.0.0.1 "${tls_intercept_origin_port}"   "${proxy_username}" "${proxy_password}"   "${fixture_server_cert}" "${fixture_server_key}" "${fixture_ca_cert}"
+tls_intercept_proxy_pid="${started_pid}"
+tls_intercept_proxy_url="$(provider_network_proxy_url_with_credentials   "${started_url}" "${proxy_username}" "${proxy_password}")"
+write_config "${tls_intercept_origin_url}"
+run_cli_success   tls-intercept-proxy "tls intercept text final: ${input_text}" 5000   env   -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy   -u NO_PROXY -u no_proxy   HTTPS_PROXY="${tls_intercept_proxy_url}" https_proxy="${tls_intercept_proxy_url}"   SSL_CERT_FILE="${fixture_ca_cert}"
+wait_fixture "${tls_intercept_origin_pid}"
+wait_fixture "${tls_intercept_proxy_pid}"
+jq -e --arg input "${input_text}" '
+  .event == "request" and
+  .request_count == 1 and
+  .response_status == 200 and
+  .raw_asr_text == $input and
+  .candidate == ("tls intercept text final: " + $input)
+' "${out_dir}/tls-intercept-origin.trace.json" >/dev/null
+jq -e --argjson port "${tls_intercept_origin_port}" '
+  .event == "tls-intercept" and
+  .request_count == 1 and
+  .method == "CONNECT" and
+  .target_host == "127.0.0.1" and
+  .target_port == $port and
+  .proxy_authorization_scheme == "Basic" and
+  .proxy_authorization_value_recorded == false and
+  .proxy_authenticated == true and
+  (.client_tls_version | startswith("TLSv")) and
+  (.upstream_tls_version | startswith("TLSv")) and
+  .request_header_bytes > 0 and
+  .request_body_bytes > 0 and
+  .response_header_bytes > 0 and
+  .response_body_bytes > 0 and
+  .payload_recorded == false
+' "${out_dir}/tls-intercept-proxy.trace.json" >/dev/null
+
 # NO_PROXY bypasses an available proxy for the loopback origin.
 start_origin no-proxy-origin "no proxy text final: " 200 "unused" 0 0
 origin_pid="${started_pid}"
@@ -504,7 +542,7 @@ grep -Fq 'OpenAI-compatible HTTP request failed' "${out_dir}/connection-refused.
 rm -f "${config_file}" "${out_dir}/tls-key.pem" "${out_dir}/tls-cert.pem"
 provider_network_remove_tls_material
 unset proxy_username proxy_password authenticated_proxy_url custom_ca_proxy_url
-unset https_proxy_endpoint_url
+unset https_proxy_endpoint_url tls_intercept_proxy_url
 for proxy_secret in fixture-proxy-user fixture-proxy-password; do
   if grep -R -F -- "${proxy_secret}" "${out_dir}" >/dev/null; then
     echo "network evidence retained proxy credentials" >&2
@@ -525,6 +563,7 @@ jq -n \
     custom_ca_bundle: true,
     https_connect_proxy: true,
     https_proxy_endpoint: true,
+    tls_interception_proxy: true,
     no_proxy_bypass: true,
     rate_limit_429: true,
     service_unavailable_503: true,
