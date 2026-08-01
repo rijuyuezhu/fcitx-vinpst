@@ -133,6 +133,22 @@ run_cli_failure() {
   fi
 }
 
+run_cli_failure_with_default_timeout() {
+  local name="$1"
+  shift
+  set +e
+  "$@" "${cli}" llm test network-text \
+    --config "${config_file}" \
+    --text "${input_text}" \
+    --json >"${out_dir}/${name}.stdout" 2>"${out_dir}/${name}.stderr"
+  local status=$?
+  set -e
+  if ((status == 0)); then
+    echo "OpenAI-compatible text default-timeout case unexpectedly succeeded: ${name}" >&2
+    exit 1
+  fi
+}
+
 wait_ready() {
   local pid="$1"
   local ready_file="$2"
@@ -528,7 +544,27 @@ jq -e --argjson padding "${oversized_padding_bytes}" '
   .response_padding_bytes == $padding
 ' "${out_dir}/oversized-error.trace.json" >/dev/null
 
-# Request deadlines fail explicitly after the origin accepts the request.
+# Omitting `--timeout-ms` preserves the legacy 4000 ms scene deadline.
+"${clear_proxy_env[@]}" "${cli}" llm test network-text \
+  --config "${config_file}" \
+  --text "${input_text}" \
+  --dry-run \
+  --json >"${out_dir}/default-timeout-dry-run.stdout" \
+  2>"${out_dir}/default-timeout-dry-run.stderr"
+jq -e '.timeout_ms == 4000 and .dry_run == true and .called == false' \
+  "${out_dir}/default-timeout-dry-run.stdout" >/dev/null
+start_origin default-timeout "late default response: " 200 "unused" 4250 0
+default_timeout_pid="${started_pid}"
+default_timeout_url="${started_url}"
+write_config "${default_timeout_url}"
+run_cli_failure_with_default_timeout default-timeout "${clear_proxy_env[@]}"
+wait_fixture "${default_timeout_pid}"
+grep -Fq 'OpenAI-compatible HTTP request timed out' \
+  "${out_dir}/default-timeout.stderr"
+jq -e '.event == "request" and .response_delay_ms == 4250' \
+  "${out_dir}/default-timeout.trace.json" >/dev/null
+
+# Explicit request deadlines fail after the origin accepts the request.
 start_origin timeout "late text response: " 200 "unused" 250 0
 timeout_pid="${started_pid}"
 timeout_url="${started_url}"
@@ -628,6 +664,7 @@ jq -n \
     rate_limit_429: true,
     service_unavailable_503: true,
     redirects_rejected: true,
+    legacy_default_timeout_4000_ms: true,
     request_timeout: true,
     response_body_timeout: true,
     oversized_success_response_rejected: true,

@@ -978,6 +978,16 @@ fn validation_accepts_positive_timeout_ms() {
 }
 
 #[test]
+fn scene_effective_timeout_preserves_legacy_default_and_explicit_value() {
+    let mut config = VinputConfig::bundled_default().unwrap();
+    let scene = &mut config.scenes.definitions[0];
+    scene.timeout_ms = None;
+    assert_eq!(scene.effective_timeout_ms(), 4_000);
+    scene.timeout_ms = Some(2_500);
+    assert_eq!(scene.effective_timeout_ms(), 2_500);
+}
+
+#[test]
 fn validation_rejects_unknown_scene_provider() {
     let mut config = VinputConfig::bundled_default().unwrap();
     config.scenes.definitions[0].provider_id = Some("missing-provider".to_owned());

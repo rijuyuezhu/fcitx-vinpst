@@ -539,6 +539,35 @@ fn openai_text_adapter_sends_request_and_maps_payload() {
 }
 
 #[test]
+fn openai_text_adapter_uses_legacy_timeout_when_scene_omits_one() {
+    let prompted = SceneDefinition {
+        prompt: Some("Polish: {{ asr }}".to_owned()),
+        provider_id: Some("openai-compatible".to_owned()),
+        ..scene("polish", 0)
+    };
+    let response_body = serde_json::json!({
+        "choices": [{
+            "message": {
+                "content": serde_json::json!({"candidates": ["polished"]}).to_string()
+            }
+        }]
+    })
+    .to_string();
+    let transport = StaticOpenAiTransport::new(response_body);
+    let seen_timeout_ms = transport.seen_timeout_ms.clone();
+
+    OpenAiCompatibleTextAdapter::new(provider(serde_json::json!({})), transport)
+        .finish(&TextRequest {
+            raw_text: "raw text",
+            scene: &prompted,
+            selected_text: None,
+        })
+        .unwrap();
+
+    assert_eq!(*seen_timeout_ms.lock().unwrap(), Some(4_000));
+}
+
+#[test]
 fn openai_text_adapter_reports_response_without_candidates() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
@@ -1753,6 +1782,7 @@ fn command_text_request_preserves_missing_selected_text() {
     assert!(request.selected_text.is_none());
     let value = serde_json::to_value(&request).unwrap();
     assert!(value["selected_text"].is_null());
+    assert_eq!(value["scene"]["timeout_ms"], 4_000);
 }
 
 #[test]

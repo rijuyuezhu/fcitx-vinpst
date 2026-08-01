@@ -1460,6 +1460,22 @@ fn llm_test_dry_run_json_reports_redacted_request_without_http() {
 }
 
 #[test]
+fn llm_test_dry_run_reports_legacy_default_timeout() {
+    let path = write_llm_fixture("vinput-llm-test-default-timeout");
+
+    let output = vinput_command()
+        .args(["llm", "test", "openai", "--config"])
+        .arg(&path)
+        .args(["--text", "default timeout", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput llm test default timeout dry-run");
+    fs::remove_file(&path).expect("remove temporary llm config");
+
+    let value = assert_json_success(output, "llm test default timeout dry-run");
+    assert_eq!(value["timeout_ms"], 4_000);
+}
+
+#[test]
 fn llm_test_dry_run_redacts_url_credentials_and_query_values() {
     let mut config: serde_json::Value = serde_json::from_str(llm_fixture_json()).unwrap();
     config["llm"]["providers"][0]["base_url"] = serde_json::Value::String(
