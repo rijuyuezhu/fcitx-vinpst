@@ -6,12 +6,14 @@
 
 mod config;
 mod defaults;
+mod diagnostics;
 mod error;
 mod schema;
 #[cfg(test)]
 mod tests;
 mod validation;
 
+pub use diagnostics::redact_url_for_diagnostics;
 pub use error::ConfigError;
 pub use schema::{
     AsrConfig, AsrProviderConfig, AsrProviderKind, COMMAND_SCENE_ID, CURRENT_CONFIG_VERSION,
