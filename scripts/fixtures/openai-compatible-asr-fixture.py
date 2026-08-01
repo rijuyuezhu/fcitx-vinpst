@@ -6,7 +6,9 @@ import array
 import hashlib
 import io
 import json
+import ssl
 import threading
+import time
 import wave
 from email import policy
 from email.parser import BytesParser
@@ -108,7 +110,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def fail(self, status: int, message: str) -> None:
         self.send_json(status, {"error": message})
@@ -189,9 +194,16 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "prompt_value_recorded": False,
             "wav": wav,
             "response_text": args.response_text,
+            "response_status": args.response_status,
+            "response_delay_ms": args.response_delay_ms,
         }
         write_json(args.trace_file, trace)
-        self.send_json(200, {"text": args.response_text})
+        if args.response_delay_ms:
+            time.sleep(args.response_delay_ms / 1000)
+        if 200 <= args.response_status < 300:
+            self.send_json(args.response_status, {"text": args.response_text})
+        else:
+            self.send_json(args.response_status, {"error": args.response_error})
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
 
@@ -205,6 +217,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--language", required=True)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--response-text", required=True)
+    parser.add_argument("--response-status", type=int, default=200)
+    parser.add_argument("--response-error", default="fixture request failed")
+    parser.add_argument("--response-delay-ms", type=int, default=0)
+    parser.add_argument("--tls-cert", type=Path)
+    parser.add_argument("--tls-key", type=Path)
     parser.add_argument("--sample-rate", type=int, default=16_000)
     parser.add_argument("--channels", type=int, default=1)
     args = parser.parse_args()
@@ -215,6 +232,14 @@ def parse_args() -> argparse.Namespace:
         parser.error("--sample-rate must be positive")
     if args.channels <= 0:
         parser.error("--channels must be positive")
+    if not 200 <= args.response_status <= 599:
+        parser.error("--response-status must be from 200 to 599")
+    if args.response_delay_ms < 0:
+        parser.error("--response-delay-ms must be non-negative")
+    if bool(args.tls_cert) != bool(args.tls_key):
+        parser.error("--tls-cert and --tls-key must be provided together")
+    if args.response_status >= 300 and not args.response_error:
+        parser.error("--response-error must be non-empty for failure responses")
     return args
 
 
@@ -223,6 +248,12 @@ def main() -> int:
     for path in (args.ready_file, args.trace_file, args.error_file):
         path.unlink(missing_ok=True)
     server = FixtureServer(args)
+    scheme = "http"
+    if args.tls_cert is not None and args.tls_key is not None:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(args.tls_cert, args.tls_key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
     host, port = server.server_address
     write_json(
         args.ready_file,
@@ -230,8 +261,9 @@ def main() -> int:
             "event": "ready",
             "host": host,
             "port": port,
-            "base_url": f"http://{host}:{port}/v1",
+            "base_url": f"{scheme}://{host}:{port}/v1",
             "path": "/v1/audio/transcriptions",
+            "tls": scheme == "https",
             "api_key_recorded": False,
             "prompt_value_recorded": False,
         },
