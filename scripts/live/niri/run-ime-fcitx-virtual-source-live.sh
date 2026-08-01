@@ -208,7 +208,7 @@ if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 && "${require_partial}" == "0" 
 fi
 case "${probe_kind}" in
 fcitx) ;;
-gtk4 | gnome-text-editor | kitty | chromium)
+gtk4 | gnome-text-editor | kitty | chromium | vscode)
   case "${toolkit_mode}" in
   normal | command) ;;
   *)
@@ -218,7 +218,7 @@ gtk4 | gnome-text-editor | kitty | chromium)
   esac
   ;;
 *)
-  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, gnome-text-editor, kitty, or chromium" >&2
+  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, gnome-text-editor, kitty, chromium, or vscode" >&2
   exit 2
   ;;
 esac
@@ -228,10 +228,11 @@ if [[ "${probe_kind}" == gtk4 ]] &&
   echo "VINPUT_TOOLKIT_EXPECTED_CYCLES must be an integer from 1 to 20" >&2
   exit 2
 fi
-if [[ "${probe_kind}" == chromium && "${toolkit_mode}" == command ]]; then
+if [[ ("${probe_kind}" == chromium || "${probe_kind}" == vscode) &&
+  "${toolkit_mode}" == command ]]; then
   for command in timeout wl-copy wl-paste; do
     if ! command -v "${command}" >/dev/null 2>&1; then
-      echo "required Chromium primary-restoration command is missing: ${command}" >&2
+      echo "required application primary-restoration command is missing: ${command}" >&2
       exit 2
     fi
   done
@@ -500,6 +501,41 @@ elif [[ "${probe_kind}" == kitty ]]; then
     .written == true and
     .ok == true
   ' "${out_dir}/kitty/${toolkit_mode}.summary.json" >/dev/null
+elif [[ "${probe_kind}" == vscode ]]; then
+  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/vscode" \
+    scripts/live/niri/run-ime-vscode-live.sh "${toolkit_mode}"
+  jq -e --arg mode "${toolkit_mode}" '
+    .event == "summary" and
+    .application == "vscode" and
+    .mode == $mode and
+    .partial_count > 0 and
+    .replacement == ($mode == "command") and
+    (($mode == "normal" and .selection_transport == "none") or
+     ($mode == "command" and
+      (.selection_transport == "surrounding-text" or
+       .selection_transport == "primary-selection-fallback"))) and
+    .primary_selection_restored == true and
+    .saved == true and
+    .profile_removed == true and
+    .process_residue == false and
+    .window_residue == false and
+    .ok == true
+  ' "${out_dir}/vscode/${toolkit_mode}.summary.json" >/dev/null
+  jq -e '
+    .event == "renderer-sandbox" and
+    .application == "vscode" and
+    .no_sandbox_flag == false and
+    .no_new_privs == 1 and
+    .seccomp == 2 and
+    .cap_eff == "0000000000000000" and
+    .nspid_depth >= 2 and
+    .ok == true
+  ' "${out_dir}/vscode/${toolkit_mode}.sandbox.json" >/dev/null
+  if [[ "${toolkit_mode}" == command ]]; then
+    primary_restore_proven=true
+  fi
 else
   VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
   VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
