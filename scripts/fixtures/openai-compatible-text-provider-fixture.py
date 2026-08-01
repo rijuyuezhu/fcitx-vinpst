@@ -49,10 +49,18 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def log_message(self, _format: str, *_args: object) -> None:
         return
 
-    def send_json(self, status: int, value: object, body_delay_ms: int = 0) -> None:
+    def send_json(
+        self,
+        status: int,
+        value: object,
+        body_delay_ms: int = 0,
+        location: str | None = None,
+    ) -> None:
         body = json.dumps(value, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        if location is not None:
+            self.send_header("Location", location)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.end_headers()
@@ -144,6 +152,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "response_delay_ms": args.response_delay_ms,
             "response_body_delay_ms": args.response_body_delay_ms,
             "response_padding_bytes": args.response_padding_bytes,
+            "response_location_present": bool(args.response_location),
         }
         write_json(args.trace_file, trace)
         if args.response_delay_ms:
@@ -192,6 +201,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--response-delay-ms", type=int, default=0)
     parser.add_argument("--response-body-delay-ms", type=int, default=0)
     parser.add_argument("--response-padding-bytes", type=int, default=0)
+    parser.add_argument("--response-location", default="")
     parser.add_argument("--tls-cert", type=Path)
     parser.add_argument("--tls-key", type=Path)
     parser.add_argument("--allow-empty-selected", action="store_true")
@@ -213,6 +223,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--response-body-delay-ms must be non-negative")
     if not 0 <= args.response_padding_bytes <= 16 * 1024 * 1024:
         parser.error("--response-padding-bytes must be from 0 to 16777216")
+    if args.response_location and not 300 <= args.response_status < 400:
+        parser.error("--response-location requires a 3xx response status")
     if bool(args.tls_cert) != bool(args.tls_key):
         parser.error("--tls-cert and --tls-key must be provided together")
     if args.response_status >= 300 and not args.response_error:

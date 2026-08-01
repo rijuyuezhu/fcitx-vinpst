@@ -469,9 +469,34 @@ for case_name in rate-limit service-unavailable; do
   grep -Fq "${marker}" "${out_dir}/${case_name}.stderr"
 done
 
-# Decoded success and error bodies larger than the shared safety limit are rejected.
+# Provider redirects fail closed and never contact the advertised target.
+start_origin redirect-target "redirect target must not run: " 200 "unused" 0 0
+redirect_target_pid="${started_pid}"
+redirect_target_url="${started_url}"
+redirect_marker="text-redirect-denied-marker"
+start_origin redirect-origin "unused: " 307 "${redirect_marker}" 0 0 \
+  --response-location "${redirect_target_url}"
+redirect_origin_pid="${started_pid}"
+redirect_origin_url="${started_url}"
+write_config "${redirect_origin_url}"
+run_cli_failure redirect 2000 "${clear_proxy_env[@]}"
+wait_fixture "${redirect_origin_pid}"
+grep -Fq 'HTTP 307' "${out_dir}/redirect.stderr"
+grep -Fq "${redirect_marker}" "${out_dir}/redirect.stderr"
+jq -e '
+  .event == "request" and
+  .request_count == 1 and
+  .response_status == 307 and
+  .response_location_present == true
+' "${out_dir}/redirect-origin.trace.json" >/dev/null
+test ! -e "${out_dir}/redirect-target.trace.json"
+test ! -e "${out_dir}/redirect-target.fixture-error.txt"
+stop_fixture "${redirect_target_pid}"
+
+# Success and error bodies larger than the shared safety limit are rejected.
 oversized_padding_bytes=1100000
-start_origin oversized-success "oversized success: " 200 "unused" 0 0   --response-padding-bytes "${oversized_padding_bytes}"
+start_origin oversized-success "oversized success: " 200 "unused" 0 0 \
+  --response-padding-bytes "${oversized_padding_bytes}"
 oversized_success_pid="${started_pid}"
 oversized_success_url="${started_url}"
 write_config "${oversized_success_url}"
@@ -485,7 +510,8 @@ jq -e --argjson padding "${oversized_padding_bytes}" '
 ' "${out_dir}/oversized-success.trace.json" >/dev/null
 
 oversized_error_marker="oversized-text-error-marker"
-start_origin oversized-error "unused: " 503 "${oversized_error_marker}" 0 0   --response-padding-bytes "${oversized_padding_bytes}"
+start_origin oversized-error "unused: " 503 "${oversized_error_marker}" 0 0 \
+  --response-padding-bytes "${oversized_padding_bytes}"
 oversized_error_pid="${started_pid}"
 oversized_error_url="${started_url}"
 write_config "${oversized_error_url}"
@@ -601,6 +627,7 @@ jq -n \
     no_proxy_bypass: true,
     rate_limit_429: true,
     service_unavailable_503: true,
+    redirects_rejected: true,
     request_timeout: true,
     response_body_timeout: true,
     oversized_success_response_rejected: true,
