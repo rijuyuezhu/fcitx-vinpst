@@ -143,22 +143,18 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "response_status": args.response_status,
             "response_delay_ms": args.response_delay_ms,
             "response_body_delay_ms": args.response_body_delay_ms,
+            "response_padding_bytes": args.response_padding_bytes,
         }
         write_json(args.trace_file, trace)
         if args.response_delay_ms:
             time.sleep(args.response_delay_ms / 1000)
         if args.response_status >= 300:
-            self.send_json(
-                args.response_status,
-                {"error": {"message": args.response_error}},
-                args.response_body_delay_ms,
+            response: dict[str, object] = {"error": {"message": args.response_error}}
+        else:
+            response_content = json.dumps(
+                {"candidates": [candidate]}, ensure_ascii=False
             )
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
-            return
-        response_content = json.dumps({"candidates": [candidate]}, ensure_ascii=False)
-        self.send_json(
-            args.response_status,
-            {
+            response = {
                 "id": "fixture-response",
                 "object": "chat.completion",
                 "choices": [
@@ -171,7 +167,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
                         "finish_reason": "stop",
                     }
                 ],
-            },
+            }
+        if args.response_padding_bytes:
+            response["padding"] = "x" * args.response_padding_bytes
+        self.send_json(
+            args.response_status,
+            response,
             args.response_body_delay_ms,
         )
         threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -190,6 +191,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--response-error", default="fixture request failed")
     parser.add_argument("--response-delay-ms", type=int, default=0)
     parser.add_argument("--response-body-delay-ms", type=int, default=0)
+    parser.add_argument("--response-padding-bytes", type=int, default=0)
     parser.add_argument("--tls-cert", type=Path)
     parser.add_argument("--tls-key", type=Path)
     parser.add_argument("--allow-empty-selected", action="store_true")
@@ -209,6 +211,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--response-delay-ms must be non-negative")
     if args.response_body_delay_ms < 0:
         parser.error("--response-body-delay-ms must be non-negative")
+    if not 0 <= args.response_padding_bytes <= 16 * 1024 * 1024:
+        parser.error("--response-padding-bytes must be from 0 to 16777216")
     if bool(args.tls_cert) != bool(args.tls_key):
         parser.error("--tls-cert and --tls-key must be provided together")
     if args.response_status >= 300 and not args.response_error:

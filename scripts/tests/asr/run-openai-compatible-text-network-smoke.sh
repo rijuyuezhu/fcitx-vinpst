@@ -234,7 +234,7 @@ wait_fixture() {
 stop_fixture() {
   local pid="$1"
   if kill -0 "${pid}" 2>/dev/null; then
-    kill -TERM "${pid}"
+    kill -TERM "${pid}" 2>/dev/null || true
   fi
   set +e
   wait "${pid}"
@@ -469,6 +469,39 @@ for case_name in rate-limit service-unavailable; do
   grep -Fq "${marker}" "${out_dir}/${case_name}.stderr"
 done
 
+# Decoded success and error bodies larger than the shared safety limit are rejected.
+oversized_padding_bytes=1100000
+start_origin oversized-success "oversized success: " 200 "unused" 0 0   --response-padding-bytes "${oversized_padding_bytes}"
+oversized_success_pid="${started_pid}"
+oversized_success_url="${started_url}"
+write_config "${oversized_success_url}"
+run_cli_failure oversized-success 2000 "${clear_proxy_env[@]}"
+wait_fixture "${oversized_success_pid}"
+grep -Fq 'OpenAI-compatible HTTP response body exceeds 1048576-byte limit'   "${out_dir}/oversized-success.stderr"
+jq -e --argjson padding "${oversized_padding_bytes}" '
+  .event == "request" and
+  .response_status == 200 and
+  .response_padding_bytes == $padding
+' "${out_dir}/oversized-success.trace.json" >/dev/null
+
+oversized_error_marker="oversized-text-error-marker"
+start_origin oversized-error "unused: " 503 "${oversized_error_marker}" 0 0   --response-padding-bytes "${oversized_padding_bytes}"
+oversized_error_pid="${started_pid}"
+oversized_error_url="${started_url}"
+write_config "${oversized_error_url}"
+run_cli_failure oversized-error 2000 "${clear_proxy_env[@]}"
+wait_fixture "${oversized_error_pid}"
+grep -Fq 'OpenAI-compatible HTTP response body exceeds 1048576-byte limit'   "${out_dir}/oversized-error.stderr"
+if grep -Fq "${oversized_error_marker}" "${out_dir}/oversized-error.stderr"; then
+  echo "oversized text-provider error body leaked into diagnostics" >&2
+  exit 1
+fi
+jq -e --argjson padding "${oversized_padding_bytes}" '
+  .event == "request" and
+  .response_status == 503 and
+  .response_padding_bytes == $padding
+' "${out_dir}/oversized-error.trace.json" >/dev/null
+
 # Request deadlines fail explicitly after the origin accepts the request.
 start_origin timeout "late text response: " 200 "unused" 250 0
 timeout_pid="${started_pid}"
@@ -516,7 +549,8 @@ stop_fixture "${tls_pid}"
 
 # DNS resolution and a refused local connection remain distinct request failures.
 write_config 'http://remote-text-dns-failure.invalid/v1?api-key=diagnostic-url-secret#fragment'
-run_cli_failure dns 2000 "${clear_proxy_env[@]}"
+run_cli_failure dns 5000 "${clear_proxy_env[@]}" \
+  RES_OPTIONS='attempts:1 timeout:1'
 grep -Fq 'OpenAI-compatible HTTP request failed' "${out_dir}/dns.stderr"
 grep -Fq 'api-key=REDACTED' "${out_dir}/dns.stderr"
 if grep -Fq 'diagnostic-url-secret' "${out_dir}/dns.stderr"; then
@@ -569,6 +603,8 @@ jq -n \
     service_unavailable_503: true,
     request_timeout: true,
     response_body_timeout: true,
+    oversized_success_response_rejected: true,
+    oversized_error_response_rejected: true,
     self_signed_tls_rejected: true,
     dns_failure: true,
     connection_refused: true,
