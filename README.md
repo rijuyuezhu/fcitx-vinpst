@@ -52,7 +52,7 @@ Live-proven in a real user session:
 Still requiring live proof or implementation:
 
 - additional physical-device switching breadth, audible hardware-output ducking, and hour-scale or longer soak evidence beyond the completed ten-cycle GTK4 bounded soak;
-- real hosted ASR and cloud text-provider operations, including third-party DNS/TLS, authenticated or corporate proxies/custom CAs, provider-specific rate-limit/outage policy, and credential rotation/custody; both production clients have deterministic local proxy, `NO_PROXY`, 429/503, timeout, self-signed TLS rejection, DNS failure, connection-refusal, and credential-redaction coverage;
+- real hosted ASR and cloud text-provider operations, including third-party DNS/TLS, HTTPS CONNECT or corporate proxy schemes, custom CAs, provider-specific rate-limit/outage policy, and credential rotation/custody; both production clients have deterministic local plain-HTTP proxy routing, proxy-URL Basic authentication, `NO_PROXY`, 429/503, separately classified request and response-body timeouts, self-signed TLS rejection, DNS failure, connection-refusal, and credential-redaction coverage;
 - remote-text browser proof from another physical network device; the real Chromium same-host LAN path is complete;
 - production repository/key publication, an actual host package-installed upgrade, live multi-user upgrade/removal, and regression on an unrelated external machine;
 - the standalone management GUI, which is intentionally deferred and must be implemented in Rust.
