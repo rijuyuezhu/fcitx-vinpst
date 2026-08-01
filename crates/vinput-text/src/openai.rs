@@ -8,7 +8,10 @@ use std::{
 use vinput_config::{
     COMMAND_SCENE_ID, LlmProviderConfig, RAW_SCENE_ID, SceneDefinition, redact_url_for_diagnostics,
 };
-use vinput_http::{blocking_client_from_environment, reqwest_error_category};
+use vinput_http::{
+    MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError, blocking_client_from_environment,
+    read_provider_response_text, reqwest_error_category,
+};
 use vinput_protocol::{Candidate, CandidateSource, RecognitionPayload};
 
 use crate::prompt::{
@@ -414,15 +417,19 @@ fn send_openai_compatible_request_blocking(
         }
     })?;
     let status = response.status();
-    let body = response.text().map_err(|error| {
-        if error.is_timeout() {
+    let body = read_provider_response_text(response).map_err(|error| match error {
+        ResponseBodyError::TimedOut => {
             TextError::AdapterFailed("OpenAI-compatible HTTP response body timed out".to_owned())
-        } else {
-            TextError::AdapterFailed(format!(
-                "OpenAI-compatible HTTP response body read failed for `{diagnostic_url}`: {}",
-                reqwest_error_category(&error)
-            ))
         }
+        ResponseBodyError::TooLarge => TextError::AdapterFailed(format!(
+            "OpenAI-compatible HTTP response body exceeds {MAX_PROVIDER_RESPONSE_BYTES}-byte limit"
+        )),
+        ResponseBodyError::InvalidUtf8 => TextError::AdapterFailed(
+            "OpenAI-compatible HTTP response body is not valid UTF-8".to_owned(),
+        ),
+        ResponseBodyError::Read => TextError::AdapterFailed(format!(
+            "OpenAI-compatible HTTP response body read failed for `{diagnostic_url}`: {error}"
+        )),
     })?;
     if !status.is_success() {
         let body = redact_openai_error_body(&body, &request.headers);

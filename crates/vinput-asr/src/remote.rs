@@ -4,7 +4,10 @@ use std::fmt;
 
 use vinput_audio::{PcmBuffer, PcmSpec, i16_samples_to_le_bytes};
 use vinput_config::{AsrProviderConfig, AsrProviderKind, redact_url_for_diagnostics};
-use vinput_http::{blocking_client_from_environment, reqwest_error_category};
+use vinput_http::{
+    MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError, blocking_client_from_environment,
+    read_provider_response_text, reqwest_error_category,
+};
 
 use crate::{
     AsrBackend, AsrError, BackendCapabilities, BackendDescriptor, RecognitionContext,
@@ -280,15 +283,19 @@ fn send_remote_asr_request_blocking(request: &RemoteAsrRequest) -> Result<String
         }
     })?;
     let status = response.status();
-    let body = response.text().map_err(|error| {
-        if error.is_timeout() {
+    let body = read_provider_response_text(response).map_err(|error| match error {
+        ResponseBodyError::TimedOut => {
             AsrError::Backend("remote ASR HTTP response body timed out".to_owned())
-        } else {
-            AsrError::Backend(format!(
-                "remote ASR HTTP response read failed for `{diagnostic_url}`: {}",
-                reqwest_error_category(&error)
-            ))
         }
+        ResponseBodyError::TooLarge => AsrError::Backend(format!(
+            "remote ASR HTTP response body exceeds {MAX_PROVIDER_RESPONSE_BYTES}-byte limit"
+        )),
+        ResponseBodyError::InvalidUtf8 => {
+            AsrError::Backend("remote ASR HTTP response body is not valid UTF-8".to_owned())
+        }
+        ResponseBodyError::Read => AsrError::Backend(format!(
+            "remote ASR HTTP response read failed for `{diagnostic_url}`: {error}"
+        )),
     })?;
     if !status.is_success() {
         let body = redact_known_values(

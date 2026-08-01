@@ -1,11 +1,37 @@
 //! Shared HTTP client construction and safe transport diagnostics.
 
-use std::{env, fs, io::Read, path::Path};
+use std::{
+    env,
+    error::Error as _,
+    fs,
+    io::{self, Read},
+    path::Path,
+};
 
 /// Environment variable containing an additional PEM certificate bundle.
 pub const SSL_CERT_FILE_ENV: &str = "SSL_CERT_FILE";
 
 const MAX_EXTRA_CA_BUNDLE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Maximum response-body size accepted from ASR and text providers.
+pub const MAX_PROVIDER_RESPONSE_BYTES: u64 = 1024 * 1024;
+
+/// Errors produced while reading a bounded provider response body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ResponseBodyError {
+    /// The response body stalled beyond the request deadline.
+    #[error("response body timed out")]
+    TimedOut,
+    /// The response stream failed for a non-timeout reason.
+    #[error("response body read failed")]
+    Read,
+    /// The response body exceeded the configured safety limit.
+    #[error("response body exceeds the supported size limit")]
+    TooLarge,
+    /// The response body was not valid UTF-8 text.
+    #[error("response body is not valid UTF-8")]
+    InvalidUtf8,
+}
 
 /// Errors produced while constructing the shared provider HTTP client.
 ///
@@ -70,6 +96,58 @@ pub fn reqwest_error_category(error: &reqwest::Error) -> &'static str {
     }
 }
 
+/// Reads one provider response as UTF-8 while bounding the body size.
+///
+/// The limit applies to the bytes exposed by reqwest's response reader. Error
+/// messages intentionally omit response contents and URLs.
+pub fn read_provider_response_text(
+    response: reqwest::blocking::Response,
+) -> Result<String, ResponseBodyError> {
+    read_utf8_bounded(response, MAX_PROVIDER_RESPONSE_BYTES)
+}
+
+fn read_utf8_bounded(reader: impl Read, max_bytes: u64) -> Result<String, ResponseBodyError> {
+    let read_limit = max_bytes
+        .checked_add(1)
+        .ok_or(ResponseBodyError::TooLarge)?;
+    let mut bytes = Vec::new();
+    reader
+        .take(read_limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            if io_error_is_timeout(&error) {
+                ResponseBodyError::TimedOut
+            } else {
+                ResponseBodyError::Read
+            }
+        })?;
+    let body_len = u64::try_from(bytes.len()).map_err(|_| ResponseBodyError::TooLarge)?;
+    if body_len > max_bytes {
+        return Err(ResponseBodyError::TooLarge);
+    }
+    String::from_utf8(bytes).map_err(|_| ResponseBodyError::InvalidUtf8)
+}
+
+fn io_error_is_timeout(error: &io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+    ) {
+        return true;
+    }
+    let mut source = error.source();
+    while let Some(cause) = source {
+        if cause
+            .downcast_ref::<reqwest::Error>()
+            .is_some_and(reqwest::Error::is_timeout)
+        {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
+}
+
 fn blocking_client_with_extra_ca_path(
     certificate_path: Option<&Path>,
 ) -> Result<reqwest::blocking::Client, HttpClientError> {
@@ -110,11 +188,27 @@ fn blocking_client_with_extra_ca_path(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, io::Write};
+    use std::{
+        fs,
+        io::{self, Cursor, Read, Write},
+    };
 
     use tempfile::tempdir;
 
-    use super::{HttpClientError, MAX_EXTRA_CA_BUNDLE_BYTES, blocking_client_with_extra_ca_path};
+    use super::{
+        HttpClientError, MAX_EXTRA_CA_BUNDLE_BYTES, ResponseBodyError,
+        blocking_client_with_extra_ca_path, read_utf8_bounded,
+    };
+
+    struct FailingReader {
+        kind: io::ErrorKind,
+    }
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::new(self.kind, "fixture reader failure"))
+        }
+    }
 
     #[test]
     fn default_client_keeps_builtin_trust_configuration() {
@@ -156,6 +250,47 @@ mod tests {
         assert_eq!(
             blocking_client_with_extra_ca_path(Some(&oversized)).unwrap_err(),
             HttpClientError::CertificateFileTooLarge
+        );
+    }
+
+    #[test]
+    fn provider_response_body_accepts_the_limit_and_rejects_the_next_byte() {
+        assert_eq!(read_utf8_bounded(Cursor::new(b"four"), 4).unwrap(), "four");
+        assert_eq!(
+            read_utf8_bounded(Cursor::new(b"five!"), 4).unwrap_err(),
+            ResponseBodyError::TooLarge
+        );
+    }
+
+    #[test]
+    fn provider_response_body_rejects_invalid_utf8() {
+        assert_eq!(
+            read_utf8_bounded(Cursor::new([0xff]), 4).unwrap_err(),
+            ResponseBodyError::InvalidUtf8
+        );
+    }
+
+    #[test]
+    fn provider_response_body_classifies_timeout_and_read_failures() {
+        assert_eq!(
+            read_utf8_bounded(
+                FailingReader {
+                    kind: io::ErrorKind::TimedOut,
+                },
+                4,
+            )
+            .unwrap_err(),
+            ResponseBodyError::TimedOut
+        );
+        assert_eq!(
+            read_utf8_bounded(
+                FailingReader {
+                    kind: io::ErrorKind::ConnectionReset,
+                },
+                4,
+            )
+            .unwrap_err(),
+            ResponseBodyError::Read
         );
     }
 }
