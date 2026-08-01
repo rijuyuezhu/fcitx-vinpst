@@ -144,7 +144,7 @@ if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 && "${require_partial}" == "0" 
 fi
 case "${probe_kind}" in
 fcitx) ;;
-gtk4)
+gtk4 | gnome-text-editor)
   case "${toolkit_mode}" in
   normal | command) ;;
   *)
@@ -154,7 +154,7 @@ gtk4)
   esac
   ;;
 *)
-  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx or gtk4" >&2
+  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, or gnome-text-editor" >&2
   exit 2
   ;;
 esac
@@ -353,7 +353,7 @@ if [[ "${probe_kind}" == fcitx ]]; then
       ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
     fi
   done
-else
+elif [[ "${probe_kind}" == gtk4 ]]; then
   toolkit_expected="${VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING:-}"
   if [[ "${toolkit_mode}" == command && -z "${toolkit_expected}" ]]; then
     toolkit_expected="adapter-backed: selected text"
@@ -391,6 +391,20 @@ else
     .focused == true and
     .ok == true
   ' "${out_dir}/gtk4/${toolkit_mode}.focus.json" >/dev/null
+else
+  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/gnome-text-editor" \
+    scripts/run-ime-gnome-text-editor-live.sh "${toolkit_mode}"
+  jq -e --arg mode "${toolkit_mode}" '
+    .event == "summary" and
+    .application == "gnome-text-editor" and
+    .mode == $mode and
+    .partial_count > 0 and
+    .replacement == ($mode == "command") and
+    .saved == true and
+    .ok == true
+  ' "${out_dir}/gnome-text-editor/${toolkit_mode}.summary.json" >/dev/null
 fi
 
 restore_profile

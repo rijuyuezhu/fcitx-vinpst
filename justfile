@@ -269,7 +269,7 @@ toolkit-probe-check:
     cc -std=c11 -Wall -Wextra -Werror scripts/gtk4-live-toolkit-probe.c -o target/tmp/toolkit-probe-check/gtk4-live-toolkit-probe $(pkg-config --cflags --libs gtk4)
     c++ -std=c++20 -fPIC -Wall -Wextra -Werror scripts/qt6-live-toolkit-probe.cpp -o target/tmp/toolkit-probe-check/qt6-live-toolkit-probe $(pkg-config --cflags --libs Qt6Widgets)
     python3 -m py_compile scripts/chromium-live-toolkit-probe.py scripts/send-uinput-key.py
-    bash -n scripts/run-ime-chromium-native-live.sh scripts/run-ime-gtk4-native-live.sh scripts/run-ime-fcitx-virtual-source-live.sh
+    bash -n scripts/run-ime-chromium-native-live.sh scripts/run-ime-gtk4-native-live.sh scripts/run-ime-gnome-text-editor-live.sh scripts/run-ime-fcitx-virtual-source-live.sh
 
 # Explicit GTK3 application probe. Trigger F9/F10 with a real desktop key event.
 ime-gtk3-native-live mode='normal':
@@ -282,6 +282,10 @@ ime-gtk4-native-live mode='normal':
 # Explicit isolated-audio GTK4 path with real kernel uinput F9/F10 events.
 ime-gtk4-virtual-source-live mode='normal':
     VINPUT_LIVE_VIRTUAL_PROBE_KIND=gtk4 VINPUT_LIVE_TOOLKIT_MODE="{{mode}}" VINPUT_LIVE_VIRTUAL_OUT_DIR="target/tmp/ime-gtk4-virtual-source-live/{{mode}}" scripts/run-ime-fcitx-virtual-source-live.sh
+
+# GNOME Text Editor path with saved-file, niri-focus, uinput, and isolated-audio evidence.
+ime-gnome-text-editor-virtual-source-live mode='normal':
+    VINPUT_LIVE_VIRTUAL_PROBE_KIND=gnome-text-editor VINPUT_LIVE_TOOLKIT_MODE="{{mode}}" VINPUT_LIVE_VIRTUAL_OUT_DIR="target/tmp/ime-gnome-text-editor-virtual-source-live/{{mode}}" scripts/run-ime-fcitx-virtual-source-live.sh
 
 # Explicit Qt6 application probe. Trigger F9/F10 with a real desktop key event.
 ime-qt6-native-live mode='normal':

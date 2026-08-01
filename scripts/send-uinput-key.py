@@ -15,9 +15,19 @@ SYN_REPORT = 0
 BUS_USB = 0x03
 
 KEY_CODES = {
+    "CTRL": 29,
+    "A": 30,
+    "S": 31,
     "ENTER": 28,
     "F9": 67,
     "F10": 68,
+}
+KEY_SEQUENCES = {
+    "CTRL+A": (KEY_CODES["CTRL"], KEY_CODES["A"]),
+    "CTRL+S": (KEY_CODES["CTRL"], KEY_CODES["S"]),
+    "ENTER": (KEY_CODES["ENTER"],),
+    "F9": (KEY_CODES["F9"],),
+    "F10": (KEY_CODES["F10"],),
 }
 
 
@@ -41,7 +51,7 @@ def emit_event(device: int, event_type: int, code: int, value: int) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("key", choices=sorted(KEY_CODES))
+    parser.add_argument("key", choices=sorted(KEY_SEQUENCES))
     parser.add_argument("--device", default="/dev/uinput")
     parser.add_argument("--hold-ms", type=int, default=40)
     parser.add_argument("--settle-ms", type=int, default=500)
@@ -59,12 +69,13 @@ def main() -> int:
     if not os.access(device_path, os.W_OK):
         raise SystemExit(f"uinput device is not writable: {device_path}")
 
-    key_code = KEY_CODES[args.key]
+    key_codes = KEY_SEQUENCES[args.key]
     descriptor = os.open(device_path, os.O_WRONLY | os.O_NONBLOCK)
     created = False
     try:
         fcntl.ioctl(descriptor, UI_SET_EVBIT, EV_KEY)
-        fcntl.ioctl(descriptor, UI_SET_KEYBIT, key_code)
+        for key_code in key_codes:
+            fcntl.ioctl(descriptor, UI_SET_KEYBIT, key_code)
         name = b"fcitx-vinput-live-keyboard"
         header = struct.pack(
             "80sHHHHI",
@@ -80,10 +91,12 @@ def main() -> int:
         fcntl.ioctl(descriptor, UI_DEV_CREATE)
         created = True
         time.sleep(args.settle_ms / 1000)
-        emit_event(descriptor, EV_KEY, key_code, 1)
+        for key_code in key_codes:
+            emit_event(descriptor, EV_KEY, key_code, 1)
         emit_event(descriptor, EV_SYN, SYN_REPORT, 0)
         time.sleep(args.hold_ms / 1000)
-        emit_event(descriptor, EV_KEY, key_code, 0)
+        for key_code in reversed(key_codes):
+            emit_event(descriptor, EV_KEY, key_code, 0)
         emit_event(descriptor, EV_SYN, SYN_REPORT, 0)
         time.sleep(0.05)
     finally:
@@ -96,7 +109,8 @@ def main() -> int:
             {
                 "event": "uinput-key",
                 "key": args.key,
-                "code": key_code,
+                "code": key_codes[-1],
+                "codes": key_codes,
                 "device": str(device_path),
                 "ok": True,
             }
