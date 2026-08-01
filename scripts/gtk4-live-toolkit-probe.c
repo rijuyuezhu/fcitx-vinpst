@@ -16,6 +16,7 @@ typedef struct {
   GDBusConnection *bus;
   GMainLoop *loop;
   char *last_text;
+  char *last_completed_text;
   guint partial_subscription_id;
   guint selection_source_id;
   guint finish_source_id;
@@ -23,6 +24,8 @@ typedef struct {
   ProbeMode mode;
   const char *initial_text;
   const char *expected_commit_substring;
+  unsigned int expected_cycles;
+  unsigned int completed_cycles;
   bool require_partial;
   bool partial_seen;
   bool commit_seen;
@@ -86,6 +89,21 @@ static unsigned int TimeoutSeconds(void) {
   if (errno != 0 || end == value || *end != '\0' || parsed == 0 || parsed > 3600) {
     g_printerr("invalid VINPUT_TOOLKIT_TIMEOUT_SECONDS: %s\n", value);
     return 60;
+  }
+  return (unsigned int)parsed;
+}
+
+static unsigned int ExpectedCycles(void) {
+  const char *value = g_getenv("VINPUT_TOOLKIT_EXPECTED_CYCLES");
+  if (value == NULL || *value == '\0') {
+    return 1;
+  }
+  errno = 0;
+  char *end = NULL;
+  const unsigned long parsed = strtoul(value, &end, 10);
+  if (errno != 0 || end == value || *end != '\0' || parsed == 0 || parsed > 20) {
+    g_printerr("invalid VINPUT_TOOLKIT_EXPECTED_CYCLES: %s\n", value);
+    return 1;
   }
   return (unsigned int)parsed;
 }
@@ -154,6 +172,14 @@ static void EmitReady(const Probe *probe) {
   g_print("{\"event\":\"ready\",\"toolkit\":\"gtk4\",\"mode\":\"%s\","
           "\"manual_trigger\":true}\n",
           probe->mode == PROBE_MODE_NORMAL ? "normal" : "command");
+  fflush(stdout);
+}
+
+static void EmitCycleEvent(const Probe *probe, const char *event) {
+  g_print("{\"event\":\"%s\",\"toolkit\":\"gtk4\",\"mode\":\"%s\","
+          "\"cycle\":%u,\"expected_cycles\":%u}\n",
+          event, probe->mode == PROBE_MODE_NORMAL ? "normal" : "command",
+          probe->completed_cycles, probe->expected_cycles);
   fflush(stdout);
 }
 
@@ -229,10 +255,33 @@ static gboolean FinishWhenSuccessful(gpointer user_data) {
        strstr(probe->last_text, probe->expected_commit_substring) != NULL);
   const bool outcome_ok =
       probe->mode == PROBE_MODE_NORMAL ? probe->commit_seen : probe->replacement_seen;
-  if (partial_ok && selection_ok && expected_commit_ok && outcome_ok) {
-    probe->finish_source_id = 0;
-    QuitMainLoop(probe);
-    return G_SOURCE_REMOVE;
+  const bool new_text = probe->last_text != NULL &&
+                        (probe->last_completed_text == NULL ||
+                         strcmp(probe->last_text, probe->last_completed_text) != 0);
+  if (partial_ok && selection_ok && expected_commit_ok && outcome_ok && new_text) {
+    ++probe->completed_cycles;
+    g_free(probe->last_completed_text);
+    probe->last_completed_text = g_strdup(probe->last_text);
+    EmitCycleEvent(probe, "cycle-complete");
+    if (probe->completed_cycles >= probe->expected_cycles) {
+      probe->finish_source_id = 0;
+      QuitMainLoop(probe);
+      return G_SOURCE_REMOVE;
+    }
+
+    probe->partial_seen = false;
+    probe->commit_seen = false;
+    probe->replacement_seen = false;
+    if (probe->mode == PROBE_MODE_COMMAND) {
+      gtk_editable_select_region(GTK_EDITABLE(probe->entry), 0, -1);
+      gint start = 0;
+      gint end = 0;
+      probe->selection_ready =
+          gtk_editable_get_selection_bounds(GTK_EDITABLE(probe->entry), &start, &end) &&
+          start != end;
+      EmitTextEvent("selection-ready", probe->last_text);
+    }
+    EmitCycleEvent(probe, "cycle-ready");
   }
   return G_SOURCE_CONTINUE;
 }
@@ -242,9 +291,6 @@ static void OnChanged(GtkEditable *editable, gpointer user_data) {
   const char *text = gtk_editable_get_text(editable);
   RememberText(probe, text);
   EmitTextEvent("changed", text);
-  if (text != NULL && *text != '\0' && DaemonIsRecording(probe)) {
-    probe->partial_seen = true;
-  }
 }
 
 static gboolean OnTimeout(gpointer user_data) {
@@ -293,6 +339,7 @@ int main(int argc, char **argv) {
       .bus = NULL,
       .loop = g_main_loop_new(NULL, FALSE),
       .last_text = g_strdup(mode == PROBE_MODE_COMMAND ? initial_text : ""),
+      .last_completed_text = NULL,
       .partial_subscription_id = 0,
       .selection_source_id = 0,
       .finish_source_id = 0,
@@ -300,6 +347,8 @@ int main(int argc, char **argv) {
       .mode = mode,
       .initial_text = initial_text,
       .expected_commit_substring = g_getenv("VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING"),
+      .expected_cycles = ExpectedCycles(),
+      .completed_cycles = 0,
       .require_partial = EnvFlag("VINPUT_TOOLKIT_REQUIRE_PARTIAL", true),
       .partial_seen = false,
       .commit_seen = false,
@@ -318,6 +367,7 @@ int main(int argc, char **argv) {
                bus_error == NULL ? "unknown error" : bus_error->message);
     g_clear_error(&bus_error);
     g_free(probe.last_text);
+    g_free(probe.last_completed_text);
     return 1;
   }
   probe.partial_subscription_id = g_dbus_connection_signal_subscribe(
@@ -389,7 +439,7 @@ int main(int argc, char **argv) {
   const bool outcome_ok =
       mode == PROBE_MODE_NORMAL ? probe.commit_seen : probe.replacement_seen;
   const bool ok = partial_ok && selection_ok && expected_commit_ok && outcome_ok &&
-                  !probe.timed_out;
+                  probe.completed_cycles == probe.expected_cycles && !probe.timed_out;
   GString *summary = g_string_new("{\"event\":\"summary\",\"toolkit\":\"gtk4\","
                                   "\"mode\":\"");
   g_string_append(summary, mode == PROBE_MODE_NORMAL ? "normal" : "command");
@@ -397,10 +447,12 @@ int main(int argc, char **argv) {
       summary,
       "\",\"partial\":%s,\"commit\":%s,\"replacement\":%s,"
       "\"selection_ready\":%s,\"expected_commit\":%s,"
+      "\"completed_cycles\":%u,\"expected_cycles\":%u,"
       "\"timed_out\":%s,\"ok\":%s,\"text\":\"",
       probe.partial_seen ? "true" : "false", probe.commit_seen ? "true" : "false",
       probe.replacement_seen ? "true" : "false",
       probe.selection_ready ? "true" : "false", expected_commit_ok ? "true" : "false",
+      probe.completed_cycles, probe.expected_cycles,
       probe.timed_out ? "true" : "false", ok ? "true" : "false");
   AppendJsonEscaped(summary, final_text);
   g_string_append(summary, "\"}\n");
@@ -416,5 +468,6 @@ int main(int argc, char **argv) {
   g_object_unref(probe.bus);
   g_main_loop_unref(probe.loop);
   g_free(probe.last_text);
+  g_free(probe.last_completed_text);
   return ok ? 0 : 1;
 }

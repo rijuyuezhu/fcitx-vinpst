@@ -8,6 +8,7 @@ wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
 modes="${VINPUT_LIVE_NATIVE_MODES:-normal}"
 probe_kind="${VINPUT_LIVE_VIRTUAL_PROBE_KIND:-fcitx}"
 toolkit_mode="${VINPUT_LIVE_TOOLKIT_MODE:-normal}"
+toolkit_cycles="${VINPUT_TOOLKIT_EXPECTED_CYCLES:-1}"
 reload_before_probe="${VINPUT_LIVE_RELOAD_BEFORE_PROBE:-0}"
 require_partial="${VINPUT_LIVE_REQUIRE_PARTIAL:-1}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
@@ -212,6 +213,12 @@ gtk4 | gnome-text-editor | kitty | chromium)
   exit 2
   ;;
 esac
+if [[ "${probe_kind}" == gtk4 ]] &&
+  [[ ! "${toolkit_cycles}" =~ ^[0-9]+$ || "${toolkit_cycles}" -lt 1 ||
+    "${toolkit_cycles}" -gt 20 ]]; then
+  echo "VINPUT_TOOLKIT_EXPECTED_CYCLES must be an integer from 1 to 20" >&2
+  exit 2
+fi
 if [[ "${probe_kind}" == chromium && "${toolkit_mode}" == command ]]; then
   for command in timeout wl-copy wl-paste; do
     if ! command -v "${command}" >/dev/null 2>&1; then
@@ -425,9 +432,10 @@ elif [[ "${probe_kind}" == gtk4 ]]; then
   VINPUT_LIVE_TOOLKIT_AUTO_TRIGGER=1 \
   VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/gtk4" \
   VINPUT_TOOLKIT_REQUIRE_PARTIAL="${require_partial}" \
+  VINPUT_TOOLKIT_EXPECTED_CYCLES="${toolkit_cycles}" \
   VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING="${toolkit_expected}" \
     scripts/run-ime-gtk4-native-live.sh "${toolkit_mode}"
-  jq -s -e --arg mode "${toolkit_mode}" '
+  jq -s -e --arg mode "${toolkit_mode}" --argjson cycles "${toolkit_cycles}" '
     any(.[];
       .event == "summary" and
       .toolkit == "gtk4" and
@@ -435,6 +443,8 @@ elif [[ "${probe_kind}" == gtk4 ]]; then
       .partial == true and
       .commit == true and
       .replacement == ($mode == "command") and
+      .completed_cycles == $cycles and
+      .expected_cycles == $cycles and
       .timed_out == false and
       .ok == true
     )
@@ -443,8 +453,8 @@ elif [[ "${probe_kind}" == gtk4 ]]; then
   if [[ "${toolkit_mode}" == command ]]; then
     toolkit_key=F10
   fi
-  jq -s -e --arg key "${toolkit_key}" '
-    length == 2 and
+  jq -s -e --arg key "${toolkit_key}" --argjson expected "$((toolkit_cycles * 2))" '
+    length == $expected and
     all(.[]; .event == "uinput-key" and .key == $key and .ok == true)
   ' "${out_dir}/gtk4/${toolkit_mode}.uinput.jsonl" >/dev/null
   jq -e '
@@ -518,6 +528,18 @@ else
   fi
 fi
 
+same_daemon_owner=false
+if [[ "${probe_kind}" == gtk4 ]]; then
+  "${cli_binary}" daemon status --json >"${out_dir}/status-after-probe.json"
+  jq -e --argjson virtual_pid "${virtual_pid}" '
+    .status == "idle" and
+    .runtime_status.active_session == false and
+    .owner.ok == true and
+    .owner.unix_process_id == $virtual_pid
+  ' "${out_dir}/status-after-probe.json" >/dev/null
+  same_daemon_owner=true
+fi
+
 restore_profile
 cmp "${out_dir}/config-before.json" "${config_path}"
 if [[ "${backup_existed}" == 1 ]]; then
@@ -545,6 +567,7 @@ jq -n \
   --argjson reload_proven "${reload_proven}" \
   --argjson require_partial "$( [[ "${require_partial}" == "1" ]] && echo true || echo false )" \
   --argjson primary_selection_restored "${primary_restore_proven}" \
+  --argjson same_daemon_owner "${same_daemon_owner}" \
   --slurpfile preflight "${out_dir}/preflight.json" \
   '{
     event: "summary",
@@ -560,5 +583,6 @@ jq -n \
     reload_before_probe: $reload_proven,
     require_partial: $require_partial,
     primary_selection_restored: $primary_selection_restored,
+    same_daemon_owner: $same_daemon_owner,
     ok: true
   }' | tee "${out_dir}/summary.json"

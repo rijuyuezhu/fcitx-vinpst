@@ -283,6 +283,10 @@ ime-gtk4-native-live mode='normal':
 ime-gtk4-virtual-source-live mode='normal':
     VINPUT_LIVE_VIRTUAL_PROBE_KIND=gtk4 VINPUT_LIVE_TOOLKIT_MODE="{{mode}}" VINPUT_LIVE_VIRTUAL_OUT_DIR="target/tmp/ime-gtk4-virtual-source-live/{{mode}}" scripts/run-ime-fcitx-virtual-source-live.sh
 
+# Same GTK4 window and daemon owner across repeated isolated-audio dictation cycles.
+ime-gtk4-repeat-virtual-source-live mode='normal' cycles='3':
+    VINPUT_TOOLKIT_EXPECTED_CYCLES="{{cycles}}" VINPUT_LIVE_VIRTUAL_PROBE_KIND=gtk4 VINPUT_LIVE_TOOLKIT_MODE="{{mode}}" VINPUT_LIVE_VIRTUAL_OUT_DIR="target/tmp/ime-gtk4-repeat-virtual-source-live/{{mode}}" scripts/run-ime-fcitx-virtual-source-live.sh
+
 # GNOME Text Editor path with saved-file, niri-focus, uinput, and isolated-audio evidence.
 ime-gnome-text-editor-virtual-source-live mode='normal':
     VINPUT_LIVE_VIRTUAL_PROBE_KIND=gnome-text-editor VINPUT_LIVE_TOOLKIT_MODE="{{mode}}" VINPUT_LIVE_VIRTUAL_OUT_DIR="target/tmp/ime-gnome-text-editor-virtual-source-live/{{mode}}" scripts/run-ime-fcitx-virtual-source-live.sh

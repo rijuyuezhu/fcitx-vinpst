@@ -19,11 +19,20 @@ log="${out_dir}/${mode}.jsonl"
 wav="${VINPUT_LIVE_TOOLKIT_WAV:-}"
 playback_target="${VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
 auto_trigger="${VINPUT_LIVE_TOOLKIT_AUTO_TRIGGER:-0}"
+expected_cycles="${VINPUT_TOOLKIT_EXPECTED_CYCLES:-1}"
 uinput_sender="${VINPUT_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/send-uinput-key.py}"
-playback_done="${out_dir}/${mode}.playback-done"
+playback_done_prefix="${out_dir}/${mode}.playback-done"
+trigger_armed_prefix="${out_dir}/${mode}.trigger-armed"
 uinput_log="${out_dir}/${mode}.uinput.jsonl"
+trigger_log="${out_dir}/${mode}.trigger.jsonl"
 focus_log="${out_dir}/${mode}.focus.json"
 window_title="fcitx-vinput GTK4 live probe"
+
+if [[ ! "${expected_cycles}" =~ ^[0-9]+$ ||
+  "${expected_cycles}" -lt 1 || "${expected_cycles}" -gt 20 ]]; then
+  echo "VINPUT_TOOLKIT_EXPECTED_CYCLES must be an integer from 1 to 20" >&2
+  exit 2
+fi
 
 command -v cc >/dev/null 2>&1 || {
   echo "cc is required to build the GTK4 live probe" >&2
@@ -69,7 +78,7 @@ if [[ -n "${wav}" ]]; then
   }
 fi
 if [[ "${auto_trigger}" != 0 ]]; then
-  rm -f "${uinput_log}" "${focus_log}"
+  rm -f "${uinput_log}" "${trigger_log}" "${focus_log}"
   if [[ -z "${wav}" ]]; then
     echo "automatic GTK4 triggering requires VINPUT_LIVE_TOOLKIT_WAV" >&2
     exit 2
@@ -135,25 +144,58 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if [[ -n "${wav}" ]]; then
-  rm -f "${playback_done}"
+  rm -f "${playback_done_prefix}".* "${trigger_armed_prefix}".*
   (
-    for _ in $(seq 1 300); do
-      status="$(gdbus call --session --dest org.fcitx.Vinput \
-        --object-path /org/fcitx/Vinput \
-        --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
-      if [[ "${status}" == *"recording"* ]]; then
-        if [[ -n "${playback_target}" ]]; then
-          pw-play --target "${playback_target}" "${wav}"
-        else
-          pw-play "${wav}"
-        fi
-        : >"${playback_done}"
-        exit 0
+    set -euo pipefail
+    for cycle in $(seq 1 "${expected_cycles}"); do
+      for _ in $(seq 1 300); do
+        [[ -e "${trigger_armed_prefix}.${cycle}" ]] && break
+        sleep 0.1
+      done
+      if [[ ! -e "${trigger_armed_prefix}.${cycle}" ]]; then
+        echo "GTK4 cycle ${cycle} was not armed before playback" >&2
+        exit 1
       fi
-      sleep 0.1
+      if [[ "${cycle}" -gt 1 ]]; then
+        idle_seen=0
+        for _ in $(seq 1 300); do
+          status="$(gdbus call --session --dest org.fcitx.Vinput \
+            --object-path /org/fcitx/Vinput \
+            --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+          if [[ "${status}" == *"idle"* ]]; then
+            idle_seen=1
+            break
+          fi
+          sleep 0.1
+        done
+        if [[ "${idle_seen}" != 1 ]]; then
+          echo "daemon did not return idle before GTK4 cycle ${cycle}" >&2
+          exit 1
+        fi
+      fi
+
+      recording_seen=0
+      for _ in $(seq 1 300); do
+        status="$(gdbus call --session --dest org.fcitx.Vinput \
+          --object-path /org/fcitx/Vinput \
+          --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+        if [[ "${status}" == *"recording"* ]]; then
+          recording_seen=1
+          break
+        fi
+        sleep 0.1
+      done
+      if [[ "${recording_seen}" != 1 ]]; then
+        echo "daemon did not enter recording before GTK4 cycle ${cycle} playback" >&2
+        exit 1
+      fi
+      if [[ -n "${playback_target}" ]]; then
+        pw-play --target "${playback_target}" "${wav}"
+      else
+        pw-play "${wav}"
+      fi
+      : >"${playback_done_prefix}.${cycle}"
     done
-    echo "daemon did not enter recording before the WAV playback deadline" >&2
-    exit 1
   ) &
   playback_pid=$!
 fi
@@ -166,6 +208,7 @@ fi
 
 set +e
 VINPUT_TOOLKIT_EXTERNAL_WINDOW_FOCUS="${auto_trigger}" \
+VINPUT_TOOLKIT_EXPECTED_CYCLES="${expected_cycles}" \
   GTK_IM_MODULE=fcitx "${binary}" "${mode}" > >(tee "${log}") &
 probe_pid=$!
 if [[ "${auto_trigger}" != 0 ]]; then
@@ -212,19 +255,72 @@ if [[ "${auto_trigger}" != 0 ]]; then
         focused: true,
         ok: true
       }' >"${focus_log}"
-    "${uinput_sender}" "${trigger_key}" | tee -a "${uinput_log}"
-    for _ in $(seq 1 300); do
-      if [[ -e "${playback_done}" ]]; then
-        break
+    for cycle in $(seq 1 "${expected_cycles}"); do
+      if [[ "${cycle}" -gt 1 ]]; then
+        ready_seen=0
+        for _ in $(seq 1 300); do
+          ready_count="$(grep -Fc '"event":"cycle-ready"' "${log}" 2>/dev/null || true)"
+          if [[ "${ready_count}" -ge $((cycle - 1)) ]]; then
+            ready_seen=1
+            break
+          fi
+          sleep 0.1
+        done
+        if [[ "${ready_seen}" != 1 ]]; then
+          echo "GTK4 probe did not become ready for cycle ${cycle}" >&2
+          exit 1
+        fi
+        niri msg action focus-window --id "${window_id}" >/dev/null
+        focused_id="$(niri msg --json focused-window | jq -r '.id // empty')"
+        if [[ "${focused_id}" != "${window_id}" ]]; then
+          echo "GTK4 probe window lost focus before cycle ${cycle}" >&2
+          exit 1
+        fi
       fi
-      sleep 0.1
+
+      daemon_state="$(gdbus call --session --dest org.fcitx.Vinput \
+        --object-path /org/fcitx/Vinput \
+        --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+      if [[ "${daemon_state}" != *"idle"* ]]; then
+        echo "daemon was not idle immediately before GTK4 cycle ${cycle}" >&2
+        exit 1
+      fi
+      if [[ "${cycle}" == 1 ]]; then
+        if grep -Eq '"event":"(changed|daemon-partial)"' "${log}"; then
+          echo "GTK4 probe changed or emitted partials before the first automatic trigger" >&2
+          exit 1
+        fi
+      else
+        previous_complete_line="$(
+          grep -n '"event":"cycle-complete"' "${log}" |
+            sed -n "$((cycle - 1))p" | cut -d: -f1
+        )"
+        if [[ -z "${previous_complete_line}" ]] ||
+          tail -n "+$((previous_complete_line + 1))" "${log}" |
+            grep -Eq '"event":"(changed|daemon-partial)"'; then
+          echo "GTK4 probe changed before automatic cycle ${cycle}" >&2
+          exit 1
+        fi
+      fi
+      jq -nc --arg mode "${mode}" --argjson cycle "${cycle}" \
+        '{event: "auto-trigger-start", toolkit: "gtk4", mode: $mode, cycle: $cycle}' \
+        >>"${trigger_log}"
+      : >"${trigger_armed_prefix}.${cycle}"
+
+      "${uinput_sender}" "${trigger_key}" | tee -a "${uinput_log}"
+      for _ in $(seq 1 300); do
+        if [[ -e "${playback_done_prefix}.${cycle}" ]]; then
+          break
+        fi
+        sleep 0.1
+      done
+      if [[ ! -e "${playback_done_prefix}.${cycle}" ]]; then
+        echo "GTK4 cycle ${cycle} playback did not finish before the stop trigger" >&2
+        exit 1
+      fi
+      sleep 0.3
+      "${uinput_sender}" "${trigger_key}" | tee -a "${uinput_log}"
     done
-    if [[ ! -e "${playback_done}" ]]; then
-      echo "GTK4 playback did not finish before the stop-trigger deadline" >&2
-      exit 1
-    fi
-    sleep 0.3
-    "${uinput_sender}" "${trigger_key}" | tee -a "${uinput_log}"
   ) &
   trigger_pid=$!
 fi
@@ -241,5 +337,63 @@ fi
 if [[ -n "${playback_pid}" ]]; then
   wait "${playback_pid}" || status=1
   playback_pid=""
+fi
+
+if [[ "${status}" == 0 && "${auto_trigger}" != 0 ]]; then
+  jq -s -e --arg mode "${mode}" --argjson cycles "${expected_cycles}" '
+    any(.[];
+      .event == "summary" and
+      .toolkit == "gtk4" and
+      .mode == $mode and
+      .completed_cycles == $cycles and
+      .expected_cycles == $cycles and
+      .timed_out == false and
+      .ok == true)
+  ' "${log}" >/dev/null
+  jq -s -e --arg key "$( [[ "${mode}" == command ]] && echo F10 || echo F9 )" \
+    --argjson expected "$((expected_cycles * 2))" '
+      length == $expected and
+      all(.[]; .event == "uinput-key" and .key == $key and .ok == true)
+    ' "${uinput_log}" >/dev/null
+  cycle_complete_count="$(grep -Fc '"event":"cycle-complete"' "${log}" || true)"
+  cycle_ready_count="$(grep -Fc '"event":"cycle-ready"' "${log}" || true)"
+  if [[ "${cycle_complete_count}" -ne "${expected_cycles}" ||
+    "${cycle_ready_count}" -ne $((expected_cycles - 1)) ]]; then
+    echo "GTK4 cycle event counts did not match the expected repeat contract" >&2
+    status=1
+  fi
+  jq -s -e --arg mode "${mode}" --argjson cycles "${expected_cycles}" '
+    length == $cycles and
+    all(.[]; .event == "auto-trigger-start" and .toolkit == "gtk4" and
+      .mode == $mode and .cycle >= 1 and .cycle <= $cycles) and
+    ([.[].cycle] == [range(1; $cycles + 1)])
+  ' "${trigger_log}" >/dev/null
+  for cycle in $(seq 1 "${expected_cycles}"); do
+    complete_line="$(
+      grep -n '"event":"cycle-complete"' "${log}" |
+        sed -n "${cycle}p" | cut -d: -f1
+    )"
+    previous_complete_line=0
+    if [[ "${cycle}" -gt 1 ]]; then
+      previous_complete_line="$(
+        grep -n '"event":"cycle-complete"' "${log}" |
+          sed -n "$((cycle - 1))p" | cut -d: -f1
+      )"
+    fi
+    if [[ -z "${complete_line}" || -z "${previous_complete_line}" ||
+      "${previous_complete_line}" -ge "${complete_line}" ]]; then
+      echo "GTK4 cycle ${cycle} completion ordering was invalid" >&2
+      status=1
+      continue
+    fi
+    partial_count="$(
+      sed -n "$((previous_complete_line + 1)),$((complete_line - 1))p" "${log}" |
+        grep -Fc '"event":"daemon-partial"' || true
+    )"
+    if [[ "${partial_count}" -lt 3 ]]; then
+      echo "GTK4 cycle ${cycle} did not contain a complete D-Bus partial sequence" >&2
+      status=1
+    fi
+  done
 fi
 exit "${status}"
