@@ -81,10 +81,10 @@ The runtime uses an OpenAI-compatible buffered transcription contract:
 
 1. `endpoint` may be a base URL or a full `/audio/transcriptions` URL; only `http` and `https` are accepted, and a bad scheme fails during prepare-before-swap before replacing the current backend;
 2. signed interleaved PCM is encoded in memory as canonical 16-bit little-endian RIFF/WAVE and sent as multipart field `file` with filename `audio.wav`, alongside `model` and optional `language` and `prompt` fields;
-3. a non-empty API key is sent as `Authorization: Bearer ...`, but backend/request debug output and retained live traces record only redacted credential metadata;
+3. a non-empty API key is sent as `Authorization: Bearer ...`, but backend/request debug output hides the key and prompt. Diagnostic URLs remove userinfo/fragments and replace query values with `REDACTED` while the real multipart request keeps the original URL, query values, prompt, and headers;
 4. successful responses must be JSON objects with a non-empty string `text`; the backend is final-only and emits no invented streaming partials;
-5. `timeout_ms` is enforced across the HTTP request and response body; pre-header and post-header stalls have distinct diagnostics, non-success HTTP responses retain their response body in the backend error, and warmup only creates and cancels a session without contacting the endpoint;
-6. `GetAsrBackendState` and `runtime-status.asr.remote_endpoints` retain the configured ASR endpoint independently from the separate remote-text server diagnostics.
+5. `timeout_ms` is enforced across the HTTP request and response body; pre-header and post-header stalls have distinct diagnostics. Non-success HTTP responses retain their diagnostic body after replacing exact occurrences of the configured API key and prompt with `<redacted>`; this known-value replacement is not arbitrary secret detection. Warmup only creates and cancels a session without contacting the endpoint;
+6. `GetAsrBackendState` and `runtime-status.asr.remote_endpoints` expose the configured ASR target independently from the separate remote-text server diagnostics, but only through the shared diagnostic URL representation: host and path remain visible, userinfo/fragment are removed, and query values are redacted.
 
 `scripts/tests/asr/run-openai-compatible-asr-fixture-smoke.sh` deterministically validates multipart parsing, Bearer authentication, WAV shape/signal, model/language/prompt matching, response handling, and evidence redaction. `scripts/tests/asr/run-openai-compatible-asr-network-smoke.sh` separately runs the production daemon through proxy, bypass, HTTP failure, timeout, TLS trust, DNS, and refused-connection cases with redacted retained evidence. `scripts/live/niri/run-ime-fcitx-remote-asr-live.sh` proves the real Fcitx/PipeWire path against the independent loopback process and restores the original streaming backend. These fixtures prove protocol and local network semantics, not a third-party hosted service or production credential operations.
 
@@ -125,7 +125,7 @@ The local smoke prepends `target/debug` to `LD_LIBRARY_PATH` by default so the c
 
 ## Diagnostics
 
-Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable. An empty active provider is the explicit legacy-compatible unselected state and reports `no active ASR provider is configured`; runtime construction fails rather than selecting a fallback implicitly.
+Both `vinput-cli asr-state` and `vinput-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. Remote endpoint entries use the shared redacted URL representation, so an endpoint can remain identifiable without exposing URL credentials, fragment data, or query values. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable. An empty active provider is the explicit legacy-compatible unselected state and reports `no active ASR provider is configured`; runtime construction fails rather than selecting a fallback implicitly.
 
 ## Known compatibility gaps
 
