@@ -2284,6 +2284,143 @@ fn process_command_text_runner_writes_request_and_reads_response() {
 }
 
 #[test]
+fn process_command_text_runner_times_out_and_kills_descendants() {
+    let directory = tempfile::tempdir().unwrap();
+    let child_pid_path = directory.path().join("child.pid");
+    let prompted = SceneDefinition {
+        prompt: Some("polish".to_owned()),
+        timeout_ms: Some(100),
+        ..scene("polish", 0)
+    };
+    let config = LlmAdapterConfig {
+        id: "cmd-adapter".to_owned(),
+        command: "sh".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            r#"sleep 30 & echo $! > "$CHILD_PID"; cat >/dev/null; wait"#.to_owned(),
+        ],
+        env: std::collections::HashMap::from([(
+            "CHILD_PID".to_owned(),
+            child_pid_path.to_string_lossy().into_owned(),
+        )]),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    };
+
+    let started = std::time::Instant::now();
+    let error = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
+        &config,
+        ProcessCommandTextRunner,
+    ))
+    .finish(&TextRequest {
+        raw_text: "raw text",
+        scene: &prompted,
+        selected_text: None,
+    })
+    .unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert_eq!(
+        error,
+        TextError::AdapterFailed("text adapter `cmd-adapter` timed out after 100 ms".to_owned())
+    );
+
+    let child_pid = std::fs::read_to_string(&child_pid_path)
+        .unwrap()
+        .trim()
+        .parse::<u32>()
+        .unwrap();
+    let child_status = std::path::PathBuf::from(format!("/proc/{child_pid}/status"));
+    let descendant_is_runnable = || {
+        std::fs::read_to_string(&child_status).is_ok_and(|status| {
+            status
+                .lines()
+                .find(|line| line.starts_with("State:"))
+                .is_none_or(|line| !line.contains("Z (zombie)") && !line.contains("X (dead)"))
+        })
+    };
+    for _ in 0..100 {
+        if !descendant_is_runnable() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        !descendant_is_runnable(),
+        "timed-out text adapter descendant {child_pid} remained runnable"
+    );
+}
+
+#[test]
+fn process_command_text_runner_times_out_while_helper_ignores_stdin() {
+    let prompted = SceneDefinition {
+        prompt: Some("polish".to_owned()),
+        timeout_ms: Some(100),
+        ..scene("polish", 0)
+    };
+    let config = LlmAdapterConfig {
+        id: "cmd-adapter".to_owned(),
+        command: "sh".to_owned(),
+        args: vec!["-c".to_owned(), "sleep 30".to_owned()],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    };
+    let raw_text = "x".repeat(1024 * 1024);
+
+    let started = std::time::Instant::now();
+    let error = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
+        &config,
+        ProcessCommandTextRunner,
+    ))
+    .finish(&TextRequest {
+        raw_text: &raw_text,
+        scene: &prompted,
+        selected_text: None,
+    })
+    .unwrap_err();
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert_eq!(
+        error,
+        TextError::AdapterFailed("text adapter `cmd-adapter` timed out after 100 ms".to_owned())
+    );
+}
+
+#[test]
+fn process_command_text_runner_drains_large_stderr_without_deadlock() {
+    let prompted = SceneDefinition {
+        prompt: Some("polish".to_owned()),
+        timeout_ms: Some(2_000),
+        ..scene("polish", 0)
+    };
+    let config = LlmAdapterConfig {
+        id: "cmd-adapter".to_owned(),
+        command: "sh".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            r#"cat >/dev/null; yes x | head -c 262144 >&2; printf '%s\n' '{"text":"drained final"}'"#
+                .to_owned(),
+        ],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    };
+
+    let payload = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
+        &config,
+        ProcessCommandTextRunner,
+    ))
+    .finish(&TextRequest {
+        raw_text: "raw text",
+        scene: &prompted,
+        selected_text: None,
+    })
+    .unwrap();
+
+    assert_eq!(payload.commit_text, "drained final");
+}
+
+#[test]
 fn process_command_text_runner_reports_nonzero_exit() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
