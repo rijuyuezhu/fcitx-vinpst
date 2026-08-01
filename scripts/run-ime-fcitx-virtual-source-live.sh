@@ -144,7 +144,7 @@ if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 && "${require_partial}" == "0" 
 fi
 case "${probe_kind}" in
 fcitx) ;;
-gtk4 | gnome-text-editor)
+gtk4 | gnome-text-editor | kitty)
   case "${toolkit_mode}" in
   normal | command) ;;
   *)
@@ -154,7 +154,7 @@ gtk4 | gnome-text-editor)
   esac
   ;;
 *)
-  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, or gnome-text-editor" >&2
+  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, gnome-text-editor, or kitty" >&2
   exit 2
   ;;
 esac
@@ -391,7 +391,7 @@ elif [[ "${probe_kind}" == gtk4 ]]; then
     .focused == true and
     .ok == true
   ' "${out_dir}/gtk4/${toolkit_mode}.focus.json" >/dev/null
-else
+elif [[ "${probe_kind}" == gnome-text-editor ]]; then
   VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
   VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
   VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/gnome-text-editor" \
@@ -405,6 +405,20 @@ else
     .saved == true and
     .ok == true
   ' "${out_dir}/gnome-text-editor/${toolkit_mode}.summary.json" >/dev/null
+else
+  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/kitty" \
+    scripts/run-ime-kitty-live.sh "${toolkit_mode}"
+  jq -e --arg mode "${toolkit_mode}" '
+    .event == "summary" and
+    .application == "kitty" and
+    .mode == $mode and
+    .partial_count > 0 and
+    .primary_selection_fallback == ($mode == "command") and
+    .written == true and
+    .ok == true
+  ' "${out_dir}/kitty/${toolkit_mode}.summary.json" >/dev/null
 fi
 
 restore_profile
