@@ -166,7 +166,7 @@ HTTPS_PROXY=http://proxy.example.test:3128 \
 vinput llm test <provider-id> --config "$config"
 ```
 
-The deterministic tests cover a Basic-authenticated HTTP CONNECT tunnel to a CA-signed HTTPS fixture. They do not establish support for PAC, NTLM/Kerberos, HTTPS proxy endpoints, or a production TLS-interception policy.
+The deterministic tests cover Basic-authenticated CONNECT tunnels through both plain-HTTP and TLS-protected HTTPS proxy endpoints to CA-signed HTTPS fixtures. They do not establish support for PAC, NTLM/Kerberos, or a production TLS-interception policy.
 
 ## 6. Upgrade
 
