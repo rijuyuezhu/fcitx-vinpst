@@ -4,7 +4,9 @@
 import argparse
 import json
 import re
+import ssl
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -53,7 +55,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def fail(self, status: int, message: str) -> None:
         self.send_json(status, {"error": {"message": message}})
@@ -106,14 +111,17 @@ class FixtureHandler(BaseHTTPRequestHandler):
         tagged = extract_tagged_text(content)
         selected = tagged.get("selected", "")
         raw_asr = tagged.get("asr", "")
-        if not selected:
+        if not selected and not args.allow_empty_selected:
             self.fail(400, "the command request omitted selected text")
             return
         if not raw_asr:
             self.fail(400, "the command request omitted raw ASR text")
             return
 
-        candidate = f"{args.response_prefix}{selected} | command: {raw_asr}"
+        if selected:
+            candidate = f"{args.response_prefix}{selected} | command: {raw_asr}"
+        else:
+            candidate = f"{args.response_prefix}{raw_asr}"
         self.server.request_count += 1
         trace: dict[str, Any] = {
             "event": "request",
@@ -129,11 +137,22 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "selected_text": selected,
             "raw_asr_text": raw_asr,
             "candidate": candidate,
+            "response_status": args.response_status,
+            "response_delay_ms": args.response_delay_ms,
         }
         write_json(args.trace_file, trace)
+        if args.response_delay_ms:
+            time.sleep(args.response_delay_ms / 1000)
+        if args.response_status >= 300:
+            self.send_json(
+                args.response_status,
+                {"error": {"message": args.response_error}},
+            )
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
         response_content = json.dumps({"candidates": [candidate]}, ensure_ascii=False)
         self.send_json(
-            200,
+            args.response_status,
             {
                 "id": "fixture-response",
                 "object": "chat.completion",
@@ -160,6 +179,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--response-prefix", default="external-http: ")
+    parser.add_argument("--response-status", type=int, default=200)
+    parser.add_argument("--response-error", default="fixture request failed")
+    parser.add_argument("--response-delay-ms", type=int, default=0)
+    parser.add_argument("--tls-cert", type=Path)
+    parser.add_argument("--tls-key", type=Path)
+    parser.add_argument("--allow-empty-selected", action="store_true")
     parser.add_argument("--expect-error", action="store_true")
     args = parser.parse_args()
     if not args.api_key:
@@ -168,6 +193,14 @@ def parse_args() -> argparse.Namespace:
         parser.error("--model must be non-empty")
     if not args.response_prefix:
         parser.error("--response-prefix must be non-empty")
+    if not 200 <= args.response_status <= 599:
+        parser.error("--response-status must be from 200 to 599")
+    if args.response_delay_ms < 0:
+        parser.error("--response-delay-ms must be non-negative")
+    if bool(args.tls_cert) != bool(args.tls_key):
+        parser.error("--tls-cert and --tls-key must be provided together")
+    if args.response_status >= 300 and not args.response_error:
+        parser.error("--response-error must be non-empty for failure responses")
     return args
 
 
@@ -176,6 +209,12 @@ def main() -> int:
     for path in (args.ready_file, args.trace_file, args.error_file):
         path.unlink(missing_ok=True)
     server = FixtureServer(args)
+    scheme = "http"
+    if args.tls_cert is not None and args.tls_key is not None:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(args.tls_cert, args.tls_key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
     host, port = server.server_address
     write_json(
         args.ready_file,
@@ -183,8 +222,9 @@ def main() -> int:
             "event": "ready",
             "host": host,
             "port": port,
-            "base_url": f"http://{host}:{port}/v1",
+            "base_url": f"{scheme}://{host}:{port}/v1",
             "path": "/v1/chat/completions",
+            "tls": scheme == "https",
             "api_key_recorded": False,
         },
     )

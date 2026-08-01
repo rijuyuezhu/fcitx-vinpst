@@ -26,6 +26,7 @@ scripts/tests/asr/run-legacy-command-asr-wav-bridge-smoke.sh
 scripts/tests/asr/run-openai-compatible-asr-fixture-smoke.sh
 scripts/tests/asr/run-openai-compatible-asr-network-smoke.sh
 scripts/tests/asr/run-openai-compatible-text-provider-fixture-smoke.sh
+scripts/tests/asr/run-openai-compatible-text-network-smoke.sh
 scripts/tests/asr/run-capture-cold-start-smoke.sh
 
 scripts/tests/daemon/run-daemon-default-config-smoke.sh
