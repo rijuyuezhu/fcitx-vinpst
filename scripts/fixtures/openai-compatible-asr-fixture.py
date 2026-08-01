@@ -89,10 +89,11 @@ def inspect_wav(payload: bytes) -> dict[str, int | str]:
 
 
 class FixtureServer(ThreadingHTTPServer):
+    allow_reuse_address = True
     daemon_threads = True
 
     def __init__(self, args: argparse.Namespace) -> None:
-        super().__init__(("127.0.0.1", 0), FixtureHandler)
+        super().__init__(("127.0.0.1", args.port), FixtureHandler)
         self.args = args
         self.request_count = 0
 
@@ -223,6 +224,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ready-file", type=Path, required=True)
     parser.add_argument("--trace-file", type=Path, required=True)
     parser.add_argument("--error-file", type=Path, required=True)
+    parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--language", required=True)
@@ -237,6 +239,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-rate", type=int, default=16_000)
     parser.add_argument("--channels", type=int, default=1)
     args = parser.parse_args()
+    if not 0 <= args.port <= 65_535:
+        parser.error("--port must be from 0 to 65535")
     for name in ("api_key", "model", "language", "prompt", "response_text"):
         if not getattr(args, name):
             parser.error(f"--{name.replace('_', '-')} must be non-empty")

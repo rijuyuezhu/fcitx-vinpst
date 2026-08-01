@@ -34,10 +34,11 @@ def extract_tagged_text(content: str) -> dict[str, str]:
 
 
 class FixtureServer(ThreadingHTTPServer):
+    allow_reuse_address = True
     daemon_threads = True
 
     def __init__(self, args: argparse.Namespace) -> None:
-        super().__init__(("127.0.0.1", 0), FixtureHandler)
+        super().__init__(("127.0.0.1", args.port), FixtureHandler)
         self.args = args
         self.request_count = 0
 
@@ -181,6 +182,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ready-file", type=Path, required=True)
     parser.add_argument("--trace-file", type=Path, required=True)
     parser.add_argument("--error-file", type=Path, required=True)
+    parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--api-key", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--response-prefix", default="external-http: ")
@@ -193,6 +195,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-empty-selected", action="store_true")
     parser.add_argument("--expect-error", action="store_true")
     args = parser.parse_args()
+    if not 0 <= args.port <= 65_535:
+        parser.error("--port must be from 0 to 65535")
     if not args.api_key:
         parser.error("--api-key must be non-empty")
     if not args.model:
