@@ -16,7 +16,7 @@ Subdirectories group process smokes by the component they exercise:
 - `asr/`: command/remote/native ASR and fixture behavior;
 - `cpp/`: retained Fcitx bridge and D-Bus process behavior;
 - `daemon/`: activation, handoff, removal, and remote-service lifecycle;
-- `install/`: temporary-HOME per-user installation and activation.
+- `install/`: temporary-HOME per-user installation and activation, including the external-user guide command smoke.
 
 These scripts may create files only under `target/` or temporary directories.
 Real desktop, audio, and host-system mutation belongs under `../live/` instead.

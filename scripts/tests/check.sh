@@ -35,6 +35,7 @@ scripts/tests/daemon/run-direct-activation-upgrade-smoke.sh
 scripts/tests/daemon/run-daemon-unavailable-asr-smoke.sh
 scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh
 
+scripts/tests/install/run-user-guide-command-smoke.sh
 scripts/tests/install/run-user-ime-activation-owner-smoke.sh
 scripts/tests/install/run-user-ime-real-command-asr-wav-smoke.sh
 scripts/tests/install/run-user-ime-sherpa-sense-voice-smoke.sh
