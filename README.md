@@ -44,7 +44,8 @@ Live-proven in a real user session:
 - focus handoff keeps partials and the final commit on the input context that started recording;
 - verified daemon-owner loss replaces partial text with an unavailable preedit, commits nothing, and recovers through D-Bus activation;
 - an idle same-provider `ReloadAsrBackend` keeps the daemon owner/provider/model stable and is followed by another successful virtual-source recognition;
-- repeatable opt-in audio evidence through `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh`, with mode/focus/owner-loss/reload flags, plus non-audio menu evidence through `scripts/live/niri/run-ime-fcitx-menu-live.sh`.
+- repeatable opt-in audio evidence through `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh`, including saved-file normal/command paths for sandbox-attested VS Code/Electron; its command path proves PRIMARY-selection fallback rather than surrounding-text transport.
+- non-audio menu evidence through `scripts/live/niri/run-ime-fcitx-menu-live.sh`.
 - a real sandboxed Chromium page through the host non-loopback LAN address, with authenticated remote-text input, loopback Realtime output, exact committed/delta/completed events, and complete credential/profile/listener cleanup; another physical device remains unproven.
 
 Still requiring live proof or implementation:
