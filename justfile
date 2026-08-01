@@ -269,7 +269,7 @@ toolkit-probe-check:
     cc -std=c11 -Wall -Wextra -Werror scripts/gtk4-live-toolkit-probe.c -o target/tmp/toolkit-probe-check/gtk4-live-toolkit-probe $(pkg-config --cflags --libs gtk4)
     c++ -std=c++20 -fPIC -Wall -Wextra -Werror scripts/qt6-live-toolkit-probe.cpp -o target/tmp/toolkit-probe-check/qt6-live-toolkit-probe $(pkg-config --cflags --libs Qt6Widgets)
     python3 -m py_compile scripts/chromium-live-toolkit-probe.py scripts/send-uinput-key.py
-    bash -n scripts/run-ime-chromium-native-live.sh scripts/run-ime-gtk4-native-live.sh scripts/run-ime-gnome-text-editor-live.sh scripts/run-ime-kitty-live.sh scripts/run-ime-fcitx-virtual-source-live.sh
+    bash -n scripts/run-ime-chromium-native-live.sh scripts/run-ime-chromium-virtual-live.sh scripts/run-ime-gtk4-native-live.sh scripts/run-ime-gnome-text-editor-live.sh scripts/run-ime-kitty-live.sh scripts/run-ime-fcitx-virtual-source-live.sh
 
 # Explicit GTK3 application probe. Trigger F9/F10 with a real desktop key event.
 ime-gtk3-native-live mode='normal':
@@ -298,6 +298,10 @@ ime-qt6-native-live mode='normal':
 # Explicit Chromium/Ozone application probe. Trigger F9/F10 with a real desktop key event.
 ime-chromium-native-live mode='normal':
     scripts/run-ime-chromium-native-live.sh "{{mode}}"
+
+# Isolated-audio Chromium/Ozone path with niri focus, uinput, and renderer sandbox evidence.
+ime-chromium-virtual-source-live mode='normal':
+    VINPUT_LIVE_VIRTUAL_PROBE_KIND=chromium VINPUT_LIVE_TOOLKIT_MODE="{{mode}}" VINPUT_LIVE_VIRTUAL_OUT_DIR="target/tmp/ime-chromium-virtual-source-live/{{mode}}" scripts/run-ime-fcitx-virtual-source-live.sh
 
 # Install per-user D-Bus activation service for local desktop testing. Writes under XDG_DATA_HOME or ~/.local/share.
 user-activation-service:

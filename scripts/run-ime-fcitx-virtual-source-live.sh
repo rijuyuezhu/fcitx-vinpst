@@ -21,6 +21,10 @@ record_pid=""
 config_path=""
 profile_mutated=0
 backup_existed=0
+primary_restore_needed=0
+primary_restore_present=0
+primary_restore_path=""
+primary_restore_proven=false
 
 call_service() {
   gdbus call --session \
@@ -94,6 +98,53 @@ restore_profile() {
   profile_mutated=0
 }
 
+restore_primary_after_gate() {
+  local current runtime_dir
+  [[ "${primary_restore_needed}" == 1 ]] || return 0
+  if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    mapfile -t wayland_sockets < <(
+      find "${runtime_dir}" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' 2>/dev/null
+    )
+    if [[ "${#wayland_sockets[@]}" != 1 ]]; then
+      echo "expected exactly one Wayland socket for primary-selection restoration" >&2
+      return 1
+    fi
+    export WAYLAND_DISPLAY="${wayland_sockets[0]}"
+  fi
+  if [[ "${primary_restore_present}" == 1 ]]; then
+    wl-copy --primary --type 'text/plain;charset=utf-8' <"${primary_restore_path}" >/dev/null 2>&1
+    for _ in $(seq 1 50); do
+      if timeout 1s wl-paste --primary --no-newline >"${out_dir}/primary-final.txt" 2>/dev/null &&
+        cmp -s "${primary_restore_path}" "${out_dir}/primary-final.txt"; then
+        primary_restore_needed=0
+        primary_restore_proven=true
+        return 0
+      fi
+      sleep 0.05
+    done
+    echo "failed to restore Chromium primary-selection bytes after outer cleanup" >&2
+    return 1
+  fi
+  wl-copy --primary --clear
+  for _ in $(seq 1 50); do
+    if ! timeout 1s wl-paste --primary --no-newline >"${out_dir}/primary-final.txt" 2>/dev/null; then
+      primary_restore_needed=0
+      primary_restore_proven=true
+      return 0
+    fi
+    current="$(cat "${out_dir}/primary-final.txt")"
+    if [[ -z "${current}" ]]; then
+      primary_restore_needed=0
+      primary_restore_proven=true
+      return 0
+    fi
+    sleep 0.05
+  done
+  echo "failed to clear Chromium primary selection after outer cleanup" >&2
+  return 1
+}
+
 cleanup() {
   local exit_code=$?
   trap - EXIT
@@ -106,6 +157,9 @@ cleanup() {
   if [[ -n "${loopback_pid}" ]] && kill -0 "${loopback_pid}" 2>/dev/null; then
     kill -TERM "${loopback_pid}" 2>/dev/null || true
     wait "${loopback_pid}" 2>/dev/null || true
+  fi
+  if ! restore_primary_after_gate; then
+    exit_code=1
   fi
   exit "${exit_code}"
 }
@@ -144,7 +198,7 @@ if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 && "${require_partial}" == "0" 
 fi
 case "${probe_kind}" in
 fcitx) ;;
-gtk4 | gnome-text-editor | kitty)
+gtk4 | gnome-text-editor | kitty | chromium)
   case "${toolkit_mode}" in
   normal | command) ;;
   *)
@@ -154,10 +208,18 @@ gtk4 | gnome-text-editor | kitty)
   esac
   ;;
 *)
-  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, gnome-text-editor, or kitty" >&2
+  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, gnome-text-editor, kitty, or chromium" >&2
   exit 2
   ;;
 esac
+if [[ "${probe_kind}" == chromium && "${toolkit_mode}" == command ]]; then
+  for command in timeout wl-copy wl-paste; do
+    if ! command -v "${command}" >/dev/null 2>&1; then
+      echo "required Chromium primary-restoration command is missing: ${command}" >&2
+      exit 2
+    fi
+  done
+fi
 
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
@@ -405,7 +467,7 @@ elif [[ "${probe_kind}" == gnome-text-editor ]]; then
     .saved == true and
     .ok == true
   ' "${out_dir}/gnome-text-editor/${toolkit_mode}.summary.json" >/dev/null
-else
+elif [[ "${probe_kind}" == kitty ]]; then
   VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
   VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
   VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/kitty" \
@@ -419,6 +481,41 @@ else
     .written == true and
     .ok == true
   ' "${out_dir}/kitty/${toolkit_mode}.summary.json" >/dev/null
+else
+  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/chromium" \
+    scripts/run-ime-chromium-virtual-live.sh "${toolkit_mode}"
+  jq -s -e --arg mode "${toolkit_mode}" '
+    any(.[];
+      .event == "summary" and
+      .toolkit == "chromium" and
+      .mode == $mode and
+      .partial == true and
+      .commit == true and
+      .replacement == ($mode == "command") and
+      .selection_ready == ($mode == "command") and
+      .timed_out == false and
+      .ok == true)
+  ' "${out_dir}/chromium/${toolkit_mode}.jsonl" >/dev/null
+  jq -e '
+    .event == "renderer-sandbox" and
+    .browser_no_sandbox_flag == false and
+    .no_new_privs == 1 and
+    .seccomp == 2 and
+    .cap_eff == "0000000000000000" and
+    .nspid_depth >= 2 and
+    .ok == true
+  ' "${out_dir}/chromium/${toolkit_mode}.sandbox.json" >/dev/null
+  if [[ "${toolkit_mode}" == command ]]; then
+    primary_restore_path="${out_dir}/chromium/command.primary-before.txt"
+    test -f "${primary_restore_path}"
+    primary_restore_present="$(
+      jq -r 'if .previous_selection_present then 1 else 0 end' \
+        "${out_dir}/chromium/command.primary-selection.json"
+    )"
+    primary_restore_needed=1
+  fi
 fi
 
 restore_profile
@@ -435,6 +532,8 @@ if [[ "${restored_capture}" != "${before_capture}" ]]; then
   exit 1
 fi
 
+restore_primary_after_gate
+
 jq -n \
   --arg sink "${sink_name}" \
   --arg source "${source_name}" \
@@ -445,6 +544,7 @@ jq -n \
   --argjson restored_pid "${restored_pid}" \
   --argjson reload_proven "${reload_proven}" \
   --argjson require_partial "$( [[ "${require_partial}" == "1" ]] && echo true || echo false )" \
+  --argjson primary_selection_restored "${primary_restore_proven}" \
   --slurpfile preflight "${out_dir}/preflight.json" \
   '{
     event: "summary",
@@ -459,5 +559,6 @@ jq -n \
     physical_speaker_or_microphone_used: false,
     reload_before_probe: $reload_proven,
     require_partial: $require_partial,
+    primary_selection_restored: $primary_selection_restored,
     ok: true
   }' | tee "${out_dir}/summary.json"
