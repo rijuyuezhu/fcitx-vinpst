@@ -2,15 +2,14 @@
 
 use std::{
     io::Write,
-    process::{Child, Command, Output, Stdio},
-    thread,
-    time::{Duration, Instant},
+    process::{Command, Output},
 };
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use vinput_audio::{PcmBuffer, PcmSpec, i16_samples_to_le_bytes};
 use vinput_config::{AsrProviderConfig, AsrProviderKind};
+use vinput_process::{PipedCommandError, PipedCommandOutput, run_piped_command};
 
 use crate::{
     AsrBackend, AsrError, BackendCapabilities, BackendDescriptor, RecognitionContext,
@@ -299,45 +298,21 @@ impl CommandAsrRunner for LegacyCommandBatchRunner {
         spec: &CommandAsrSpec,
         request: &CommandAsrRequest,
     ) -> Result<Vec<RecognitionEvent>, AsrError> {
-        let mut child = Command::new(&spec.command)
-            .args(&spec.args)
-            .envs(&spec.env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                AsrError::Backend(format!(
-                    "failed to spawn legacy command ASR provider `{}`: {error}",
-                    spec.provider_id
-                ))
+        let mut command = Command::new(&spec.command);
+        command.args(&spec.args).envs(&spec.env);
+        let result =
+            run_command_asr_process(spec, "legacy command ASR provider", &mut command, |stdin| {
+                write_i16_le_pcm(stdin, &request.samples)
             })?;
-
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            AsrError::Backend(format!(
-                "legacy command ASR provider `{}` did not expose stdin",
-                spec.provider_id
-            ))
-        })?;
-        let write_result = write_i16_le_pcm(&mut stdin, &request.samples).map_err(|error| {
-            AsrError::Backend(format!(
-                "failed to write legacy command ASR PCM for `{}`: {error}",
-                spec.provider_id
-            ))
-        });
-        drop(stdin);
-
-        if let Err(write_error) = write_result {
-            let output = wait_for_command_output(spec, child)?;
-            if !output.status.success() {
-                return command_exit_error(spec, &output);
-            }
-            return Err(write_error);
-        }
-
-        let output = wait_for_command_output(spec, child)?;
+        let output = result.output;
         if !output.status.success() {
             return command_exit_error(spec, &output);
+        }
+        if let Some(error) = result.stdin_error {
+            return Err(AsrError::Backend(format!(
+                "failed to write legacy command ASR PCM for `{}`: {error}",
+                spec.provider_id
+            )));
         }
         let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
         if text.is_empty() {
@@ -375,60 +350,30 @@ impl CommandAsrRunner for LegacyCommandStreamingRunner {
         spec: &CommandAsrSpec,
         request: &CommandAsrRequest,
     ) -> Result<Vec<RecognitionEvent>, AsrError> {
-        let mut child = Command::new(&spec.command)
-            .args(&spec.args)
-            .envs(&spec.env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                AsrError::Backend(format!(
-                    "failed to spawn legacy command streaming ASR provider `{}`: {error}",
-                    spec.provider_id
-                ))
-            })?;
-
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            AsrError::Backend(format!(
-                "legacy command streaming ASR provider `{}` did not expose stdin",
-                spec.provider_id
-            ))
-        })?;
-        let write_result = (|| {
-            stdin.write_all(
-                legacy_command_streaming_audio_line(&request.samples, true).as_bytes(),
-            )?;
-            stdin.write_all(
-                b"
-",
-            )?;
-            stdin.write_all(legacy_command_streaming_finish_line().as_bytes())?;
-            stdin.write_all(
-                b"
-",
-            )?;
-            Ok::<(), std::io::Error>(())
-        })()
-        .map_err(|error| {
-            AsrError::Backend(format!(
-                "failed to write legacy command streaming events for `{}`: {error}",
-                spec.provider_id
-            ))
-        });
-        drop(stdin);
-
-        if let Err(write_error) = write_result {
-            let output = wait_for_command_output(spec, child)?;
-            if !output.status.success() {
-                return command_exit_error(spec, &output);
-            }
-            return Err(write_error);
-        }
-
-        let output = wait_for_command_output(spec, child)?;
+        let audio_line = legacy_command_streaming_audio_line(&request.samples, true);
+        let finish_line = legacy_command_streaming_finish_line();
+        let mut command = Command::new(&spec.command);
+        command.args(&spec.args).envs(&spec.env);
+        let result = run_command_asr_process(
+            spec,
+            "legacy command streaming ASR provider",
+            &mut command,
+            |stdin| {
+                stdin.write_all(audio_line.as_bytes())?;
+                stdin.write_all(b"\n")?;
+                stdin.write_all(finish_line.as_bytes())?;
+                stdin.write_all(b"\n")
+            },
+        )?;
+        let output = result.output;
         if !output.status.success() {
             return command_exit_error(spec, &output);
+        }
+        if let Some(error) = result.stdin_error {
+            return Err(AsrError::Backend(format!(
+                "failed to write legacy command streaming events for `{}`: {error}",
+                spec.provider_id
+            )));
         }
         parse_legacy_command_streaming_stdout(&output.stdout)
     }
@@ -475,54 +420,28 @@ impl CommandAsrRunner for ProcessCommandAsrRunner {
         spec: &CommandAsrSpec,
         request: &CommandAsrRequest,
     ) -> Result<Vec<RecognitionEvent>, AsrError> {
-        let mut child = Command::new(&spec.command)
-            .args(&spec.args)
-            .envs(&spec.env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                AsrError::Backend(format!(
-                    "failed to spawn command ASR provider `{}`: {error}",
-                    spec.provider_id
-                ))
-            })?;
-
-        let mut stdin = child.stdin.take().ok_or_else(|| {
+        let mut request_bytes = serde_json::to_vec(request).map_err(|error| {
             AsrError::Backend(format!(
-                "command ASR provider `{}` did not expose stdin",
+                "failed to encode command ASR request for `{}`: {error}",
                 spec.provider_id
             ))
         })?;
-        let write_result = (|| {
-            serde_json::to_writer(&mut stdin, request).map_err(|error| {
-                AsrError::Backend(format!(
-                    "failed to encode command ASR request for `{}`: {error}",
-                    spec.provider_id
-                ))
+        request_bytes.push(b'\n');
+        let mut command = Command::new(&spec.command);
+        command.args(&spec.args).envs(&spec.env);
+        let result =
+            run_command_asr_process(spec, "command ASR provider", &mut command, |stdin| {
+                stdin.write_all(&request_bytes)
             })?;
-            stdin.write_all(b"\n").map_err(|error| {
-                AsrError::Backend(format!(
-                    "failed to write command ASR request for `{}`: {error}",
-                    spec.provider_id
-                ))
-            })?;
-            Ok(())
-        })();
-        drop(stdin);
-
-        if let Err(write_error) = write_result {
-            let output = wait_for_command_output(spec, child)?;
-            if !output.status.success() {
-                return command_exit_error(spec, &output);
-            }
-            return Err(write_error);
-        }
-
-        let output = wait_for_command_output(spec, child)?;
+        let output = result.output;
         if !output.status.success() {
             return command_exit_error(spec, &output);
+        }
+        if let Some(error) = result.stdin_error {
+            return Err(AsrError::Backend(format!(
+                "failed to write command ASR request for `{}`: {error}",
+                spec.provider_id
+            )));
         }
         let response: CommandAsrResponse =
             serde_json::from_slice(&output.stdout).map_err(|error| {
@@ -533,6 +452,66 @@ impl CommandAsrRunner for ProcessCommandAsrRunner {
             })?;
         response.into_events()
     }
+}
+
+fn run_command_asr_process(
+    spec: &CommandAsrSpec,
+    spawn_label: &str,
+    command: &mut Command,
+    write_stdin: impl FnOnce(&mut std::process::ChildStdin) -> std::io::Result<()>,
+) -> Result<PipedCommandOutput, AsrError> {
+    run_piped_command(command, spec.timeout_ms, write_stdin)
+        .map_err(|error| command_asr_process_error(spec, spawn_label, error))
+}
+
+fn command_asr_process_error(
+    spec: &CommandAsrSpec,
+    spawn_label: &str,
+    error: PipedCommandError,
+) -> AsrError {
+    let provider_id = &spec.provider_id;
+    let message = match error {
+        PipedCommandError::Spawn(error) => {
+            format!("failed to spawn {spawn_label} `{provider_id}`: {error}")
+        }
+        PipedCommandError::WatchdogStart(error) => format!(
+            "failed to start command ASR provider `{provider_id}` timeout watchdog: {error}"
+        ),
+        PipedCommandError::OutputCaptureStart(error) => {
+            format!("failed to capture command ASR provider `{provider_id}` output: {error}")
+        }
+        PipedCommandError::StdinUnavailable => {
+            format!("{spawn_label} `{provider_id}` did not expose stdin")
+        }
+        PipedCommandError::TimedOut { timeout_ms } => {
+            format!("command ASR provider `{provider_id}` timed out after {timeout_ms} ms")
+        }
+        PipedCommandError::StdoutTooLarge { limit } => {
+            format!("command ASR provider `{provider_id}` stdout exceeds {limit}-byte limit")
+        }
+        PipedCommandError::StderrTooLarge { limit } => {
+            format!("command ASR provider `{provider_id}` stderr exceeds {limit}-byte limit")
+        }
+        PipedCommandError::StdoutRead => {
+            format!("failed to read command ASR provider `{provider_id}` stdout")
+        }
+        PipedCommandError::StderrRead => {
+            format!("failed to read command ASR provider `{provider_id}` stderr")
+        }
+        PipedCommandError::Wait(error) => {
+            format!("failed to wait for command ASR provider `{provider_id}`: {error}")
+        }
+        PipedCommandError::WatchdogPanicked => {
+            format!("command ASR provider `{provider_id}` timeout watchdog panicked")
+        }
+        PipedCommandError::StdoutReaderPanicked => {
+            format!("command ASR provider `{provider_id}` stdout reader panicked")
+        }
+        PipedCommandError::StderrReaderPanicked => {
+            format!("command ASR provider `{provider_id}` stderr reader panicked")
+        }
+    };
+    AsrError::Backend(message)
 }
 
 fn command_exit_error(
@@ -546,47 +525,6 @@ fn command_exit_error(
         output.status,
         stderr.trim()
     )))
-}
-
-fn wait_for_command_output(spec: &CommandAsrSpec, mut child: Child) -> Result<Output, AsrError> {
-    let Some(timeout_ms) = spec.timeout_ms else {
-        return child.wait_with_output().map_err(|error| {
-            AsrError::Backend(format!(
-                "failed to wait for command ASR provider `{}`: {error}",
-                spec.provider_id
-            ))
-        });
-    };
-
-    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
-    loop {
-        if child
-            .try_wait()
-            .map_err(|error| {
-                AsrError::Backend(format!(
-                    "failed to poll command ASR provider `{}`: {error}",
-                    spec.provider_id
-                ))
-            })?
-            .is_some()
-        {
-            return child.wait_with_output().map_err(|error| {
-                AsrError::Backend(format!(
-                    "failed to collect command ASR provider `{}` output: {error}",
-                    spec.provider_id
-                ))
-            });
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(AsrError::Backend(format!(
-                "command ASR provider `{}` timed out after {} ms",
-                spec.provider_id, timeout_ms
-            )));
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
 }
 
 /// Command-backed ASR backend skeleton.
