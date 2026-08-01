@@ -51,6 +51,22 @@ print(port)
 PY
 }
 
+provider_network_proxy_url_with_credentials() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+from urllib.parse import quote, urlsplit, urlunsplit
+
+url, username, password = sys.argv[1:]
+parsed = urlsplit(url)
+userinfo = f"{quote(username, safe='')}:{quote(password, safe='')}@"
+print(
+    urlunsplit(
+        (parsed.scheme, userinfo + parsed.netloc, parsed.path, parsed.query, parsed.fragment)
+    )
+)
+PY
+}
+
 provider_network_start_connect_proxy() {
   local name="$1"
   local expected_host="$2"
@@ -59,6 +75,12 @@ provider_network_start_connect_proxy() {
   local upstream_port="$5"
   local proxy_username="$6"
   local proxy_password="$7"
+  local tls_cert="${8:-}"
+  local tls_key="${9:-}"
+  local tls_args=()
+  if [[ -n "${tls_cert}" || -n "${tls_key}" ]]; then
+    tls_args=(--tls-cert "${tls_cert}" --tls-key "${tls_key}")
+  fi
   local ready_file="${out_dir}/${name}.ready.json"
   local trace_file="${out_dir}/${name}.trace.json"
   local error_file="${out_dir}/${name}.fixture-error.txt"
@@ -74,6 +96,7 @@ provider_network_start_connect_proxy() {
     --upstream-port "${upstream_port}" \
     --proxy-username "${proxy_username}" \
     --proxy-password "${proxy_password}" \
+    "${tls_args[@]}" \
     >"${log_file}" 2>&1 &
   local pid=$!
   fixture_pids+=("${pid}")

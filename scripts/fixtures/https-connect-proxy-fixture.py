@@ -6,6 +6,7 @@ import base64
 import json
 import socket
 import socketserver
+import ssl
 import threading
 from pathlib import Path
 from typing import Any
@@ -198,6 +199,7 @@ class ConnectProxyHandler(socketserver.BaseRequestHandler):
             "proxy_authorization_scheme": "Basic",
             "proxy_authorization_value_recorded": False,
             "proxy_authenticated": True,
+            "proxy_tls": args.tls_cert is not None,
             "client_to_upstream_bytes": counts[0],
             "upstream_to_client_bytes": counts[1],
             "tunnel_timeout": bool(tunnel_errors),
@@ -218,6 +220,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--upstream-port", type=int, required=True)
     parser.add_argument("--proxy-username", required=True)
     parser.add_argument("--proxy-password", required=True)
+    parser.add_argument("--tls-cert", type=Path)
+    parser.add_argument("--tls-key", type=Path)
     args = parser.parse_args()
     for name in ("expected_host", "upstream_host", "proxy_username", "proxy_password"):
         if not getattr(args, name):
@@ -225,6 +229,8 @@ def parse_args() -> argparse.Namespace:
     for name in ("expected_port", "upstream_port"):
         if not 1 <= getattr(args, name) <= 65_535:
             parser.error(f"--{name.replace('_', '-')} must be from 1 to 65535")
+    if bool(args.tls_cert) != bool(args.tls_key):
+        parser.error("--tls-cert and --tls-key must be provided together")
     return args
 
 
@@ -233,6 +239,12 @@ def main() -> int:
     for path in (args.ready_file, args.trace_file, args.error_file):
         path.unlink(missing_ok=True)
     server = ConnectProxyServer(args)
+    scheme = "http"
+    if args.tls_cert is not None and args.tls_key is not None:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(args.tls_cert, args.tls_key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        scheme = "https"
     host, port = server.server_address
     write_json(
         args.ready_file,
@@ -240,7 +252,8 @@ def main() -> int:
             "event": "ready",
             "host": host,
             "port": port,
-            "proxy_url": f"http://{host}:{port}",
+            "proxy_url": f"{scheme}://{host}:{port}",
+            "proxy_tls": scheme == "https",
             "proxy_auth_required": True,
             "proxy_credentials_recorded": False,
             "payload_recorded": False,

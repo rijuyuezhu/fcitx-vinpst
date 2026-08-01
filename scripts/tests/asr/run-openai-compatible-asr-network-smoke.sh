@@ -360,6 +360,52 @@ jq -e --argjson port "${custom_ca_origin_port}" '
   .payload_recorded == false
 ' "${out_dir}/custom-ca-connect.trace.json" >/dev/null
 
+# A TLS-protected proxy endpoint can authenticate and establish the same HTTPS tunnel.
+start_origin https-proxy-origin "https proxy final" 200 "unused" 0 0 \
+  --tls-cert "${fixture_server_cert}" \
+  --tls-key "${fixture_server_key}"
+https_proxy_origin_pid="${started_pid}"
+https_proxy_origin_url="${started_url}"
+https_proxy_origin_port="$(provider_network_url_port "${https_proxy_origin_url}")"
+provider_network_start_connect_proxy \
+  https-proxy-endpoint 127.0.0.1 "${https_proxy_origin_port}" \
+  127.0.0.1 "${https_proxy_origin_port}" \
+  "${proxy_username}" "${proxy_password}" \
+  "${fixture_server_cert}" "${fixture_server_key}"
+https_proxy_endpoint_pid="${started_pid}"
+https_proxy_endpoint_url="$(provider_network_proxy_url_with_credentials \
+  "${started_url}" "${proxy_username}" "${proxy_password}")"
+write_config "${https_proxy_origin_url}" 5000
+run_daemon_success https-proxy-endpoint "https proxy final" \
+  env \
+  -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy \
+  -u NO_PROXY -u no_proxy \
+  HTTPS_PROXY="${https_proxy_endpoint_url}" https_proxy="${https_proxy_endpoint_url}" \
+  SSL_CERT_FILE="${fixture_ca_cert}"
+wait_fixture "${https_proxy_origin_pid}"
+wait_fixture "${https_proxy_endpoint_pid}"
+jq -e '
+  .event == "request" and
+  .request_count == 1 and
+  .response_status == 200 and
+  .response_text == "https proxy final"
+' "${out_dir}/https-proxy-origin.trace.json" >/dev/null
+jq -e --argjson port "${https_proxy_origin_port}" '
+  .event == "connect-tunnel" and
+  .request_count == 1 and
+  .method == "CONNECT" and
+  .target_host == "127.0.0.1" and
+  .target_port == $port and
+  .proxy_authorization_scheme == "Basic" and
+  .proxy_authorization_value_recorded == false and
+  .proxy_authenticated == true and
+  .proxy_tls == true and
+  .client_to_upstream_bytes > 0 and
+  .upstream_to_client_bytes > 0 and
+  .tunnel_timeout == false and
+  .payload_recorded == false
+' "${out_dir}/https-proxy-endpoint.trace.json" >/dev/null
+
 # NO_PROXY bypasses an available proxy for the loopback origin.
 start_origin no-proxy-origin "no proxy final" 200 "unused" 0 0
 origin_pid="${started_pid}"
@@ -448,8 +494,14 @@ write_config 'http://remote-asr-dns-failure.invalid/v1?api-key=diagnostic-url-se
 run_daemon_failure dns "${clear_proxy_env[@]}"
 grep -Fq 'remote ASR HTTP request failed' "${out_dir}/dns.stderr"
 grep -Fq 'api-key=REDACTED' "${out_dir}/dns.stderr"
-! grep -Fq 'diagnostic-url-secret' "${out_dir}/dns.stderr"
-! grep -Fq 'fragment' "${out_dir}/dns.stderr"
+if grep -Fq 'diagnostic-url-secret' "${out_dir}/dns.stderr"; then
+  echo "DNS failure diagnostics retained the query secret" >&2
+  exit 1
+fi
+if grep -Fq 'fragment' "${out_dir}/dns.stderr"; then
+  echo "DNS failure diagnostics retained the URL fragment" >&2
+  exit 1
+fi
 
 refused_port="$(python3 - <<'PY'
 import socket
@@ -465,6 +517,7 @@ grep -Fq 'remote ASR HTTP request failed' "${out_dir}/connection-refused.stderr"
 rm -f "${config_file}" "${out_dir}/tls-key.pem" "${out_dir}/tls-cert.pem"
 provider_network_remove_tls_material
 unset proxy_username proxy_password authenticated_proxy_url custom_ca_proxy_url
+unset https_proxy_endpoint_url
 for proxy_secret in fixture-proxy-user fixture-proxy-password; do
   if grep -R -F -- "${proxy_secret}" "${out_dir}" >/dev/null; then
     echo "network evidence retained proxy credentials" >&2
@@ -488,6 +541,7 @@ jq -n \
     basic_proxy_auth: true,
     custom_ca_bundle: true,
     https_connect_proxy: true,
+    https_proxy_endpoint: true,
     no_proxy_bypass: true,
     rate_limit_429: true,
     service_unavailable_503: true,
