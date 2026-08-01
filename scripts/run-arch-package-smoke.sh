@@ -94,13 +94,16 @@ bsdtar -xOf "${package_archive}" .INSTALL >"${packaged_install}"
 grep -q '^post_install()' "${packaged_install}"
 grep -q '^post_upgrade()' "${packaged_install}"
 grep -q '^post_remove()' "${packaged_install}"
+grep -q '^pre_remove()' "${packaged_install}"
 grep -q 'vinput daemon handoff' "${packaged_install}"
+grep -q 'package-remove-handoff' "${packaged_install}"
 grep -q 'intentionally preserved' "${packaged_install}"
 bsdtar -xf "${package_archive}" -C "${package_root}"
 
 required_files=(
   usr/bin/vinput
   usr/bin/vinput-daemon
+  usr/lib/fcitx-vinput/package-remove-handoff
   usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so
   usr/lib/fcitx-vinput/libonnxruntime.so
   usr/lib/fcitx5/fcitx5-vinput.so

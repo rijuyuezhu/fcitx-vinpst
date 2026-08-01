@@ -225,6 +225,18 @@ enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Stop and disable the running daemon before package removal.
+    PrepareRemove {
+        /// Print the guarded removal plan without contacting D-Bus or systemd.
+        #[arg(long)]
+        dry_run: bool,
+        /// Probe the live session and removal guards without stopping or signalling anything.
+        #[arg(long, conflicts_with = "dry_run")]
+        preflight: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Reload the selected ASR backend on the running daemon.
     ReloadAsr {
         /// Print the D-Bus call plan without contacting the daemon.
@@ -1483,6 +1495,7 @@ fn force_json_output(command: &mut Command) {
             DaemonCommand::Start { json, .. }
             | DaemonCommand::Status { json, .. }
             | DaemonCommand::Handoff { json, .. }
+            | DaemonCommand::PrepareRemove { json, .. }
             | DaemonCommand::ReloadAsr { json, .. }
             | DaemonCommand::Stop { json, .. }
             | DaemonCommand::Restart { json, .. }

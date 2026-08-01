@@ -10,7 +10,8 @@ bash -n "${install_script}"
 
 run_hook() {
   local hook="$1"
-  PATH=/definitely/missing /bin/bash -euo pipefail -c \
+  VINPUT_PACKAGE_REMOVE_HANDOFF="${VINPUT_PACKAGE_REMOVE_HANDOFF:-}" \
+    PATH=/definitely/missing /bin/bash -euo pipefail -c \
     'source "$1"; "$2" 0.1.0-1 0.1.0-0' \
     arch-install-hook "${install_script}" "${hook}"
 }
@@ -32,14 +33,28 @@ grep -qx ':: The guarded handoff reloads systemd metadata or replaces an idle di
   <<<"${post_upgrade_output}"
 grep -qx '   fcitx5 -r' <<<"${post_upgrade_output}"
 
+helper_dir="$(mktemp -d)"
+trap 'rm -rf "${helper_dir}"' EXIT
+cat >"${helper_dir}/remove-helper" <<'SH'
+#!/bin/bash
+printf '%s\n' 'guarded removal helper invoked'
+SH
+chmod +x "${helper_dir}/remove-helper"
+VINPUT_PACKAGE_REMOVE_HANDOFF="${helper_dir}/remove-helper"
+pre_remove_output="$(run_hook pre_remove)"
+grep -qx 'guarded removal helper invoked' <<<"${pre_remove_output}"
+
 post_remove_output="$(run_hook post_remove)"
 grep -qx ':: fcitx-vinput-rs removed.' <<<"${post_remove_output}"
-grep -qx ':: User config, models, and cache were intentionally preserved.' \
+grep -qx ':: Active daemon owners were stopped by the guarded pre-remove handoff.' \
   <<<"${post_remove_output}"
-grep -qx '   systemctl --user stop vinput-daemon.service' \
+grep -qx ':: User config, models, and cache were intentionally preserved.' \
   <<<"${post_remove_output}"
 grep -qx '   fcitx5 -r' <<<"${post_remove_output}"
 
-! grep -Eq '^[[:space:]]*(systemctl|fcitx5|vinput)[[:space:]]' "${install_script}"
+if grep -Eq '^[[:space:]]*(systemctl|fcitx5|vinput)[[:space:]]' "${install_script}"; then
+  echo "Arch install hooks must not invoke unqualified runtime commands" >&2
+  exit 1
+fi
 
 echo "Arch install script check passed"

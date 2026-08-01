@@ -1,3 +1,5 @@
+# shellcheck shell=bash
+
 post_install() {
   printf '%s\n' \
     ':: fcitx-vinput-rs installed.' \
@@ -18,12 +20,18 @@ post_upgrade() {
     '   fcitx5 -r'
 }
 
+pre_remove() {
+  local helper="${VINPUT_PACKAGE_REMOVE_HANDOFF:-/usr/lib/fcitx-vinput/package-remove-handoff}"
+  if [[ -x "${helper}" ]]; then
+    "${helper}"
+  fi
+}
+
 post_remove() {
   printf '%s\n' \
     ':: fcitx-vinput-rs removed.' \
+    ':: Active daemon owners were stopped by the guarded pre-remove handoff.' \
     ':: User config, models, and cache were intentionally preserved.' \
-    ':: Each logged-in user can stop a still-running daemon with:' \
-    '   systemctl --user stop vinput-daemon.service' \
     ':: Reload Fcitx5 to unload the removed addon:' \
     '   fcitx5 -r'
 }

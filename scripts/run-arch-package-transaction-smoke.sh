@@ -76,6 +76,7 @@ assert_package_files_present() {
   for path in \
     /usr/bin/vinput \
     /usr/bin/vinput-daemon \
+    /usr/lib/fcitx-vinput/package-remove-handoff \
     /usr/lib/fcitx5/fcitx5-vinput.so \
     /usr/lib/systemd/user/vinput-daemon.service \
     /usr/share/dbus-1/services/org.fcitx.Vinput.service; do

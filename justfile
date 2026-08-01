@@ -26,7 +26,7 @@ test:
 dbus-test:
     dbus-run-session -- cargo test -p vinput-daemon --features dbus-integration --test dbus_integration
 
-check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke toolkit-probe-check arch-install-script-check arch-pkgbuild-check release-manifest-check release-signature-check release-candidate-check command-asr-wav-helper-smoke legacy-command-asr-wav-bridge-smoke openai-compatible-asr-fixture-smoke openai-compatible-text-provider-fixture-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-handoff-diagnostics-smoke daemon-handoff-smoke direct-activation-upgrade-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke user-ime-sherpa-native-command-smoke
+check: fmt-check lint test dbus-test dbus-lint addon-test addon-install-smoke addon-dbus-smoke addon-dbus-asr-menu-smoke toolkit-probe-check arch-install-script-check arch-pkgbuild-check release-manifest-check release-signature-check release-candidate-check command-asr-wav-helper-smoke legacy-command-asr-wav-bridge-smoke openai-compatible-asr-fixture-smoke openai-compatible-text-provider-fixture-smoke capture-cold-start-smoke daemon-default-config-smoke daemon-handoff-diagnostics-smoke daemon-handoff-smoke daemon-removal-handoff-smoke package-remove-handoff-smoke direct-activation-upgrade-smoke daemon-unavailable-asr-smoke remote-text-daemon-lifecycle-smoke user-ime-activation-owner-smoke user-ime-real-command-asr-wav-smoke user-ime-sherpa-sense-voice-smoke user-ime-sherpa-native-smoke user-ime-sherpa-native-command-smoke
 
 addon-format:
     clang-format -i {{addon-sources}}
@@ -379,6 +379,7 @@ smoke:
     cargo run -q -p vinput-cli -- daemon start --dry-run --json
     cargo run -q -p vinput-cli -- daemon status --dry-run --json
     cargo run -q -p vinput-cli -- daemon handoff --dry-run --json
+    cargo run -q -p vinput-cli -- daemon prepare-remove --dry-run --json
     cargo run -q -p vinput-cli -- daemon reload-asr --dry-run --json
     cargo run -q -p vinput-cli -- daemon stop --dry-run --json
     cargo run -q -p vinput-cli -- daemon restart --dry-run --json
@@ -511,6 +512,12 @@ daemon-handoff-diagnostics-smoke:
 
 daemon-handoff-smoke:
     scripts/run-daemon-handoff-smoke.sh
+
+daemon-removal-handoff-smoke:
+    scripts/run-daemon-removal-handoff-smoke.sh
+
+package-remove-handoff-smoke:
+    scripts/run-package-remove-handoff-smoke.sh
 
 direct-activation-upgrade-smoke:
     scripts/run-direct-activation-upgrade-smoke.sh

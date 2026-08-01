@@ -6,12 +6,16 @@ arch=('x86_64')
 url='https://github.com/rijuyuezhu/fcitx-vinput-rs'
 license=('GPL-3.0-or-later' 'Apache-2.0' 'MIT')
 depends=(
+  'coreutils'
   'fcitx5'
+  'glib2'
   'glibc'
   'libgcc'
   'libpipewire'
   'libstdc++'
+  'systemd'
   'systemd-libs'
+  'util-linux'
 )
 makedepends=(
   'cargo'
@@ -82,6 +86,8 @@ package() {
   install -Dm755 "${srcdir}/cargo-target/release/vinput" "${pkgdir}/usr/bin/vinput"
   install -Dm755 "${srcdir}/cargo-target/release/vinput-daemon" \
     "${pkgdir}/usr/bin/vinput-daemon"
+  install -Dm755 scripts/package-remove-handoff.sh \
+    "${pkgdir}/usr/lib/fcitx-vinput/package-remove-handoff"
 
   install -Dm755 \
     "${srcdir}/sherpa-onnx-v${_sherpa_onnx_ver}-linux-x64-shared-lib/lib/libsherpa-onnx-c-api.so" \
