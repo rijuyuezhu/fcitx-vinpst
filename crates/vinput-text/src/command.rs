@@ -2,12 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::{
-    io::Write,
+    io::{Read, Write},
     os::unix::process::CommandExt,
     process::{Child, Command, Output, Stdio},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         mpsc,
     },
     thread,
@@ -26,6 +26,13 @@ use crate::{
     TextAdapter, TextError, TextProcessor, TextRequest, command_mode_payload,
     scene_needs_postprocessing,
 };
+
+const MAX_COMMAND_TEXT_OUTPUT_BYTES: usize = 1024 * 1024;
+const OUTPUT_OK: u8 = 0;
+const STDOUT_TOO_LARGE: u8 = 1;
+const STDERR_TOO_LARGE: u8 = 2;
+const STDOUT_READ_FAILED: u8 = 3;
+const STDERR_READ_FAILED: u8 = 4;
 
 /// JSON request passed to command-backed text adapter helpers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,16 +203,27 @@ impl CommandTextRunner for ProcessCommandTextRunner {
             Ok(watchdog) => watchdog,
             Err(error) => {
                 kill_text_adapter_process_group(process_group_id);
-                let _ = child.wait_with_output();
+                let _ = child.wait();
                 return Err(TextError::AdapterFailed(format!(
                     "failed to start text adapter `{adapter_id}` timeout watchdog: {error}"
+                )));
+            }
+        };
+        let output_readers = match start_text_adapter_output_readers(&mut child, process_group_id) {
+            Ok(output_readers) => output_readers,
+            Err(error) => {
+                kill_text_adapter_process_group(process_group_id);
+                let _ = child.wait();
+                let _ = finish_text_adapter_watchdog(watchdog);
+                return Err(TextError::AdapterFailed(format!(
+                    "failed to capture text adapter `{adapter_id}` output: {error}"
                 )));
             }
         };
 
         let Some(mut stdin) = child.stdin.take() else {
             kill_text_adapter_process_group(process_group_id);
-            let _ = wait_for_text_adapter(adapter_id, child, watchdog);
+            let _ = wait_for_text_adapter(adapter_id, child, watchdog, output_readers);
             return Err(TextError::AdapterFailed(format!(
                 "text adapter `{adapter_id}` did not expose stdin"
             )));
@@ -227,14 +245,14 @@ impl CommandTextRunner for ProcessCommandTextRunner {
         drop(stdin);
 
         if let Err(write_error) = write_result {
-            let output = wait_for_text_adapter(adapter_id, child, watchdog)?;
+            let output = wait_for_text_adapter(adapter_id, child, watchdog, output_readers)?;
             if !output.status.success() {
                 return text_adapter_exit_error(adapter_id, &output);
             }
             return Err(write_error);
         }
 
-        let output = wait_for_text_adapter(adapter_id, child, watchdog)?;
+        let output = wait_for_text_adapter(adapter_id, child, watchdog, output_readers)?;
         if !output.status.success() {
             return text_adapter_exit_error(adapter_id, &output);
         }
@@ -253,6 +271,12 @@ struct TextAdapterWatchdog {
     timed_out: Arc<AtomicBool>,
     thread: thread::JoinHandle<()>,
     timeout_ms: u64,
+}
+
+struct TextAdapterOutputReaders {
+    stdout: thread::JoinHandle<Vec<u8>>,
+    stderr: thread::JoinHandle<Vec<u8>>,
+    failure: Arc<AtomicU8>,
 }
 
 fn start_text_adapter_watchdog(
@@ -284,32 +308,161 @@ fn start_text_adapter_watchdog(
     })
 }
 
+fn start_text_adapter_output_readers(
+    child: &mut Child,
+    process_group_id: u32,
+) -> std::io::Result<TextAdapterOutputReaders> {
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| std::io::Error::other("stdout pipe is unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| std::io::Error::other("stderr pipe is unavailable"))?;
+    let failure = Arc::new(AtomicU8::new(OUTPUT_OK));
+    let stdout_failure = Arc::clone(&failure);
+    let stdout = thread::Builder::new()
+        .name("vinput-text-adapter-stdout".to_owned())
+        .spawn(move || {
+            read_text_adapter_output(
+                stdout,
+                process_group_id,
+                stdout_failure.as_ref(),
+                STDOUT_TOO_LARGE,
+                STDOUT_READ_FAILED,
+            )
+        })?;
+    let stderr_failure = Arc::clone(&failure);
+    let stderr = match thread::Builder::new()
+        .name("vinput-text-adapter-stderr".to_owned())
+        .spawn(move || {
+            read_text_adapter_output(
+                stderr,
+                process_group_id,
+                stderr_failure.as_ref(),
+                STDERR_TOO_LARGE,
+                STDERR_READ_FAILED,
+            )
+        }) {
+        Ok(stderr) => stderr,
+        Err(error) => {
+            kill_text_adapter_process_group(process_group_id);
+            let _ = stdout.join();
+            return Err(error);
+        }
+    };
+    Ok(TextAdapterOutputReaders {
+        stdout,
+        stderr,
+        failure,
+    })
+}
+
+fn read_text_adapter_output(
+    reader: impl Read,
+    process_group_id: u32,
+    failure: &AtomicU8,
+    too_large_code: u8,
+    read_failed_code: u8,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    match reader
+        .take(u64::try_from(MAX_COMMAND_TEXT_OUTPUT_BYTES).expect("1 MiB fits u64") + 1)
+        .read_to_end(&mut bytes)
+    {
+        Ok(_) if bytes.len() > MAX_COMMAND_TEXT_OUTPUT_BYTES => {
+            record_text_adapter_output_failure(failure, too_large_code, process_group_id);
+            bytes.truncate(MAX_COMMAND_TEXT_OUTPUT_BYTES);
+        }
+        Ok(_) => {}
+        Err(_) => {
+            record_text_adapter_output_failure(failure, read_failed_code, process_group_id);
+        }
+    }
+    bytes
+}
+
+fn record_text_adapter_output_failure(failure: &AtomicU8, code: u8, process_group_id: u32) {
+    if failure
+        .compare_exchange(OUTPUT_OK, code, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        kill_text_adapter_process_group(process_group_id);
+    }
+}
+
 fn wait_for_text_adapter(
     adapter_id: &str,
-    child: Child,
+    mut child: Child,
     watchdog: TextAdapterWatchdog,
+    output_readers: TextAdapterOutputReaders,
 ) -> Result<Output, TextError> {
     let process_group_id = child.id();
-    let output = child.wait_with_output();
-    let _ = watchdog.completed_sender.send(());
-    watchdog.thread.join().map_err(|_| {
-        TextError::AdapterFailed(format!(
-            "text adapter `{adapter_id}` timeout watchdog panicked"
-        ))
-    })?;
+    let status = child.wait();
+    if status.is_err() {
+        kill_text_adapter_process_group(process_group_id);
+    }
+    let stdout = output_readers.stdout.join();
+    let stderr = output_readers.stderr.join();
+    let (timed_out, timeout_ms) = finish_text_adapter_watchdog(watchdog)?;
 
-    if watchdog.timed_out.load(Ordering::Acquire) {
+    if let Some(message) = text_adapter_output_failure_message(
+        adapter_id,
+        output_readers.failure.load(Ordering::Acquire),
+    ) {
+        return Err(TextError::AdapterFailed(message));
+    }
+    if timed_out {
         return Err(TextError::AdapterFailed(format!(
-            "text adapter `{adapter_id}` timed out after {} ms",
-            watchdog.timeout_ms
+            "text adapter `{adapter_id}` timed out after {timeout_ms} ms"
         )));
     }
-    output.map_err(|error| {
-        kill_text_adapter_process_group(process_group_id);
+    let stdout = stdout.map_err(|_| {
+        TextError::AdapterFailed(format!(
+            "text adapter `{adapter_id}` stdout reader panicked"
+        ))
+    })?;
+    let stderr = stderr.map_err(|_| {
+        TextError::AdapterFailed(format!(
+            "text adapter `{adapter_id}` stderr reader panicked"
+        ))
+    })?;
+    let status = status.map_err(|error| {
         TextError::AdapterFailed(format!(
             "failed to wait for text adapter `{adapter_id}`: {error}"
         ))
+    })?;
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
     })
+}
+
+fn finish_text_adapter_watchdog(watchdog: TextAdapterWatchdog) -> Result<(bool, u64), TextError> {
+    let timeout_ms = watchdog.timeout_ms;
+    let _ = watchdog.completed_sender.send(());
+    watchdog.thread.join().map_err(|_| {
+        TextError::AdapterFailed("text adapter timeout watchdog panicked".to_owned())
+    })?;
+    let timed_out = watchdog.timed_out.load(Ordering::Acquire);
+    Ok((timed_out, timeout_ms))
+}
+
+fn text_adapter_output_failure_message(adapter_id: &str, failure: u8) -> Option<String> {
+    match failure {
+        OUTPUT_OK => None,
+        STDOUT_TOO_LARGE => Some(format!(
+            "text adapter `{adapter_id}` stdout exceeds {MAX_COMMAND_TEXT_OUTPUT_BYTES}-byte limit"
+        )),
+        STDERR_TOO_LARGE => Some(format!(
+            "text adapter `{adapter_id}` stderr exceeds {MAX_COMMAND_TEXT_OUTPUT_BYTES}-byte limit"
+        )),
+        STDOUT_READ_FAILED => Some(format!("failed to read text adapter `{adapter_id}` stdout")),
+        STDERR_READ_FAILED => Some(format!("failed to read text adapter `{adapter_id}` stderr")),
+        _ => Some(format!("text adapter `{adapter_id}` output capture failed")),
+    }
 }
 
 fn kill_text_adapter_process_group(process_group_id: u32) {
