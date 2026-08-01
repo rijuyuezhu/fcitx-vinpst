@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="${script_dir}"
+while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
+  parent="$(dirname "${repo_root}")"
+  if [[ "${parent}" == "${repo_root}" ]]; then
+    echo "cannot locate repository root from ${script_dir}" >&2
+    exit 1
+  fi
+  repo_root="${parent}"
+done
+cd "${repo_root}"
+
+just addon-build
+cargo build -q -p vinput-daemon
+
+dbus-run-session -- bash -euo pipefail <<'INNER'
+log_file="target/tmp/vinput-cpp-dbus-smoke-daemon.log"
+config_home="target/tmp/vinput-cpp-dbus-smoke-config"
+bridge_smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_bridge_dbus_smoke"
+addon_smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_addon_dbus_smoke"
+mkdir -p "$(dirname "${log_file}")"
+rm -rf "${config_home}"
+mkdir -p "${config_home}"
+export XDG_CONFIG_HOME="$(pwd)/${config_home}"
+
+target/debug/vinput-daemon --dbus >"${log_file}" 2>&1 &
+daemon_pid=$!
+cleanup() {
+  kill "${daemon_pid}" >/dev/null 2>&1 || true
+  wait "${daemon_pid}" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+sleep 0.5
+
+run_smokes() {
+  "${bridge_smoke_bin}" || return 1
+  if [[ -x "${addon_smoke_bin}" ]]; then
+    "${addon_smoke_bin}" || return 1
+  fi
+}
+
+for _ in $(seq 1 50); do
+  if run_smokes; then
+    exit 0
+  fi
+  if ! kill -0 "${daemon_pid}" >/dev/null 2>&1; then
+    cat "${log_file}" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+
+cat "${log_file}" >&2
+exit 1
+INNER

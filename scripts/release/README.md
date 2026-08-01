@@ -1,0 +1,27 @@
+# Release scripts
+
+This directory owns the Arch package and signed release-candidate boundary.
+
+Lightweight checks, also exposed through `just package-check`:
+
+```sh
+scripts/release/check-arch-install-script.sh
+scripts/release/check-arch-pkgbuild.sh
+scripts/release/check-release-manifest.sh
+scripts/release/check-release-signature.sh
+scripts/release/check-arch-release-candidate.sh
+```
+
+The complete release gate is:
+
+```sh
+scripts/release/run-arch-package-smoke.sh
+```
+
+It builds the checked runtime bundle, package and synthetic upgrade archive,
+then runs isolated pacman transaction/repository/signing tests and promotes a
+verified release candidate. Test keys and synthetic `pkgrel=2` artifacts are
+never production release inputs.
+
+`package-remove-handoff.sh` is installed into the package and is therefore part
+of the product lifecycle contract, not a developer convenience script.

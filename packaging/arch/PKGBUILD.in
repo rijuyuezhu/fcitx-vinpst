@@ -88,7 +88,7 @@ package() {
   install -Dm755 "${srcdir}/cargo-target/release/vinput" "${pkgdir}/usr/bin/vinput"
   install -Dm755 "${srcdir}/cargo-target/release/vinput-daemon" \
     "${pkgdir}/usr/bin/vinput-daemon"
-  install -Dm755 scripts/package-remove-handoff.sh \
+  install -Dm755 scripts/release/package-remove-handoff.sh \
     "${pkgdir}/usr/lib/fcitx-vinput/package-remove-handoff"
 
   install -Dm755 \
