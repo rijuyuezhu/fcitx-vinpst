@@ -19,5 +19,8 @@ vinput-config = { path = "../vinput-config" }
 vinput-http = { path = "../vinput-http" }
 vinput-protocol = { path = "../vinput-protocol" }
 
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

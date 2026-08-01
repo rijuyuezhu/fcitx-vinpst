@@ -3,7 +3,20 @@
 use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
-    process::{Command, Output, Stdio},
+    os::unix::process::CommandExt,
+    process::{Child, Command, Output, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread,
+    time::Duration,
+};
+
+use nix::{
+    sys::signal::{Signal, kill, killpg},
+    unistd::Pid,
 };
 
 use vinput_config::{COMMAND_SCENE_ID, LlmAdapterConfig, RAW_SCENE_ID, SceneDefinition};
@@ -163,6 +176,7 @@ impl CommandTextRunner for ProcessCommandTextRunner {
     ) -> Result<RecognitionPayload, TextError> {
         let mut command_process = Command::new(command);
         command_process
+            .process_group(0)
             .args(args)
             .envs(env)
             .stdin(Stdio::piped())
@@ -176,10 +190,26 @@ impl CommandTextRunner for ProcessCommandTextRunner {
                 "failed to spawn text adapter `{adapter_id}`: {error}"
             ))
         })?;
+        let process_group_id = child.id();
+        let timeout_ms = request.scene.effective_timeout_ms();
+        let watchdog = match start_text_adapter_watchdog(process_group_id, timeout_ms) {
+            Ok(watchdog) => watchdog,
+            Err(error) => {
+                kill_text_adapter_process_group(process_group_id);
+                let _ = child.wait_with_output();
+                return Err(TextError::AdapterFailed(format!(
+                    "failed to start text adapter `{adapter_id}` timeout watchdog: {error}"
+                )));
+            }
+        };
 
-        let mut stdin = child.stdin.take().ok_or_else(|| {
-            TextError::AdapterFailed(format!("text adapter `{adapter_id}` did not expose stdin"))
-        })?;
+        let Some(mut stdin) = child.stdin.take() else {
+            kill_text_adapter_process_group(process_group_id);
+            let _ = wait_for_text_adapter(adapter_id, child, watchdog);
+            return Err(TextError::AdapterFailed(format!(
+                "text adapter `{adapter_id}` did not expose stdin"
+            )));
+        };
         let helper_request = CommandTextRequest::from_text_request(adapter_id, request);
         let write_result = (|| {
             serde_json::to_writer(&mut stdin, &helper_request).map_err(|error| {
@@ -197,14 +227,14 @@ impl CommandTextRunner for ProcessCommandTextRunner {
         drop(stdin);
 
         if let Err(write_error) = write_result {
-            let output = wait_for_text_adapter(adapter_id, child)?;
+            let output = wait_for_text_adapter(adapter_id, child, watchdog)?;
             if !output.status.success() {
                 return text_adapter_exit_error(adapter_id, &output);
             }
             return Err(write_error);
         }
 
-        let output = wait_for_text_adapter(adapter_id, child)?;
+        let output = wait_for_text_adapter(adapter_id, child, watchdog)?;
         if !output.status.success() {
             return text_adapter_exit_error(adapter_id, &output);
         }
@@ -218,15 +248,76 @@ impl CommandTextRunner for ProcessCommandTextRunner {
     }
 }
 
+struct TextAdapterWatchdog {
+    completed_sender: mpsc::Sender<()>,
+    timed_out: Arc<AtomicBool>,
+    thread: thread::JoinHandle<()>,
+    timeout_ms: u64,
+}
+
+fn start_text_adapter_watchdog(
+    process_group_id: u32,
+    timeout_ms: u64,
+) -> std::io::Result<TextAdapterWatchdog> {
+    let (completed_sender, completed_receiver) = mpsc::channel();
+    let timed_out = Arc::new(AtomicBool::new(false));
+    let watchdog_timed_out = Arc::clone(&timed_out);
+    let thread = thread::Builder::new()
+        .name("vinput-text-adapter-watchdog".to_owned())
+        .spawn(move || {
+            match completed_receiver.recv_timeout(Duration::from_millis(timeout_ms)) {
+                Ok(()) => {}
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    watchdog_timed_out.store(true, Ordering::Release);
+                    kill_text_adapter_process_group(process_group_id);
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    kill_text_adapter_process_group(process_group_id);
+                }
+            }
+        })?;
+    Ok(TextAdapterWatchdog {
+        completed_sender,
+        timed_out,
+        thread,
+        timeout_ms,
+    })
+}
+
 fn wait_for_text_adapter(
     adapter_id: &str,
-    child: std::process::Child,
+    child: Child,
+    watchdog: TextAdapterWatchdog,
 ) -> Result<Output, TextError> {
-    child.wait_with_output().map_err(|error| {
+    let process_group_id = child.id();
+    let output = child.wait_with_output();
+    let _ = watchdog.completed_sender.send(());
+    watchdog.thread.join().map_err(|_| {
+        TextError::AdapterFailed(format!(
+            "text adapter `{adapter_id}` timeout watchdog panicked"
+        ))
+    })?;
+
+    if watchdog.timed_out.load(Ordering::Acquire) {
+        return Err(TextError::AdapterFailed(format!(
+            "text adapter `{adapter_id}` timed out after {} ms",
+            watchdog.timeout_ms
+        )));
+    }
+    output.map_err(|error| {
+        kill_text_adapter_process_group(process_group_id);
         TextError::AdapterFailed(format!(
             "failed to wait for text adapter `{adapter_id}`: {error}"
         ))
     })
+}
+
+fn kill_text_adapter_process_group(process_group_id: u32) {
+    if let Ok(process_group_id) = i32::try_from(process_group_id) {
+        let process_group = Pid::from_raw(process_group_id);
+        let _ = killpg(process_group, Signal::SIGKILL);
+        let _ = kill(process_group, Signal::SIGKILL);
+    }
 }
 
 fn text_adapter_exit_error(
