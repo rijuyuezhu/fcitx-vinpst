@@ -225,6 +225,36 @@ fn serve_delayed_http_response(response_body: String, delay: std::time::Duration
     base_url
 }
 
+fn serve_delayed_http_response_body(response_body: String, delay: std::time::Duration) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        loop {
+            let read = std::io::Read::read(&mut stream, &mut chunk).unwrap_or(0);
+            if read == 0 {
+                return;
+            }
+            buffer.extend_from_slice(&chunk[..read]);
+            if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            response_body.len()
+        );
+        if std::io::Write::write_all(&mut stream, headers.as_bytes()).is_err() {
+            return;
+        }
+        std::thread::sleep(delay);
+        let _ = std::io::Write::write_all(&mut stream, response_body.as_bytes());
+    });
+    base_url
+}
+
 #[test]
 fn raw_scene_returns_raw_text() {
     let raw = scene(RAW_SCENE_ID, 0);
@@ -407,6 +437,30 @@ fn reqwest_openai_transport_honors_request_timeout() {
         error,
         TextError::AdapterFailed(message)
             if message == "OpenAI-compatible HTTP request timed out"
+    ));
+}
+
+#[test]
+fn reqwest_openai_transport_classifies_response_body_timeout() {
+    let base_url = serve_delayed_http_response_body(
+        r#"{"choices":[]}"#.to_owned(),
+        std::time::Duration::from_millis(200),
+    );
+    let request = OpenAiCompatibleChatRequest {
+        url: format!("{base_url}/chat/completions"),
+        headers: build_openai_compatible_headers(""),
+        body: serde_json::json!({"messages": []}),
+        ignored_extra_body_keys: Vec::new(),
+    };
+
+    let error = ReqwestOpenAiCompatibleChatTransport::new()
+        .send(&request, Some(25))
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        TextError::AdapterFailed(message)
+            if message == "OpenAI-compatible HTTP response body timed out"
     ));
 }
 

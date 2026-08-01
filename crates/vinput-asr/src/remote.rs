@@ -271,7 +271,11 @@ fn send_remote_asr_request_blocking(request: &RemoteAsrRequest) -> Result<String
     })?;
     let status = response.status();
     let body = response.text().map_err(|error| {
-        AsrError::Backend(format!("remote ASR HTTP response read failed: {error}"))
+        if error.is_timeout() {
+            AsrError::Backend("remote ASR HTTP response body timed out".to_owned())
+        } else {
+            AsrError::Backend(format!("remote ASR HTTP response read failed: {error}"))
+        }
     })?;
     if !status.is_success() {
         return Err(AsrError::Backend(format!(
@@ -712,7 +716,8 @@ mod tests {
     fn serve_single_response(
         status: &str,
         body: &str,
-        delay: Duration,
+        response_delay: Duration,
+        body_delay: Duration,
     ) -> (String, thread::JoinHandle<CapturedHttpRequest>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -744,14 +749,15 @@ mod tests {
                 assert!(count > 0, "HTTP client closed before request body");
                 received.extend_from_slice(&buffer[..count]);
             }
-            thread::sleep(delay);
+            thread::sleep(response_delay);
             write!(
                 stream,
-                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response_body.len(),
-                response_body
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                response_body.len()
             )
             .unwrap();
+            thread::sleep(body_delay);
+            let _ = write!(stream, "{response_body}");
             CapturedHttpRequest {
                 head: String::from_utf8_lossy(&received[..header_end]).into_owned(),
                 body: received[header_end..expected_len].to_vec(),
@@ -774,8 +780,12 @@ mod tests {
 
     #[test]
     fn reqwest_transport_posts_multipart_wav_and_bearer() {
-        let (url, handle) =
-            serve_single_response("200 OK", r#"{"text":"via remote http"}"#, Duration::ZERO);
+        let (url, handle) = serve_single_response(
+            "200 OK",
+            r#"{"text":"via remote http"}"#,
+            Duration::ZERO,
+            Duration::ZERO,
+        );
         let body = ReqwestRemoteAsrTransport
             .transcribe(&request(url, Some(2_000)))
             .unwrap();
@@ -810,6 +820,7 @@ mod tests {
             "503 Service Unavailable",
             r#"{"error":"offline"}"#,
             Duration::ZERO,
+            Duration::ZERO,
         );
         let error = ReqwestRemoteAsrTransport
             .transcribe(&request(url, Some(2_000)))
@@ -818,12 +829,31 @@ mod tests {
         assert!(error.to_string().contains("HTTP 503"));
         assert!(error.to_string().contains("offline"));
 
-        let (url, handle) =
-            serve_single_response("200 OK", r#"{"text":"late"}"#, Duration::from_millis(200));
+        let (url, handle) = serve_single_response(
+            "200 OK",
+            r#"{"text":"late"}"#,
+            Duration::from_millis(200),
+            Duration::ZERO,
+        );
         let error = ReqwestRemoteAsrTransport
             .transcribe(&request(url, Some(20)))
             .unwrap_err();
         assert!(error.to_string().contains("timed out"));
+        handle.join().unwrap();
+
+        let (url, handle) = serve_single_response(
+            "200 OK",
+            r#"{"text":"late body"}"#,
+            Duration::ZERO,
+            Duration::from_millis(200),
+        );
+        let error = ReqwestRemoteAsrTransport
+            .transcribe(&request(url, Some(20)))
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "backend error: remote ASR HTTP response body timed out"
+        );
         handle.join().unwrap();
     }
 }

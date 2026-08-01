@@ -382,9 +382,13 @@ fn send_openai_compatible_request_blocking(
     })?;
     let status = response.status();
     let body = response.text().map_err(|error| {
-        TextError::AdapterFailed(format!(
-            "OpenAI-compatible HTTP response body read failed: {error}"
-        ))
+        if error.is_timeout() {
+            TextError::AdapterFailed("OpenAI-compatible HTTP response body timed out".to_owned())
+        } else {
+            TextError::AdapterFailed(format!(
+                "OpenAI-compatible HTTP response body read failed: {error}"
+            ))
+        }
     })?;
     if !status.is_success() {
         return Err(TextError::AdapterFailed(format!(
