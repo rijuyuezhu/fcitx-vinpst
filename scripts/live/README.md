@@ -12,7 +12,9 @@ host lifecycle changes.
   the installed user profile; each gate states whether it is loopback, same-host
   LAN, or true cross-device evidence.
 - `niri/` contains desktop automation tied to the project's niri/Wayland test
-  host. It is not a portable generic desktop test suite.
+  host. It is not a portable generic desktop test suite. The GTK4 bounded-soak
+  runner accepts 10-20 cycles and records bounded evidence separately from any
+  future hour-scale soak.
 
 Each live runner must fail closed when its prerequisites or restoration checks
 are not satisfied. Evidence under `target/tmp/` is diagnostic output, not a

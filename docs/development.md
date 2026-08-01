@@ -185,6 +185,8 @@ VINPUT_LIVE_TOOLKIT_WAV=/path/to/speech.wav scripts/live/niri/run-ime-gtk3-nativ
 VINPUT_LIVE_TOOLKIT_WAV=/path/to/speech.wav scripts/live/niri/run-ime-qt6-native-live.sh normal
 VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav scripts/live/niri/run-ime-vscode-virtual-live.sh normal
 VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav scripts/live/niri/run-ime-vscode-virtual-live.sh command
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav scripts/live/niri/run-ime-gtk4-soak-virtual-live.sh normal 10
+VINPUT_LIVE_NATIVE_WAV=/path/to/speech.wav scripts/live/niri/run-ime-gtk4-soak-virtual-live.sh command 10
 scripts/tools/bench-capture-cold-start.sh --follow
 ```
 

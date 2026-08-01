@@ -44,13 +44,14 @@ Live-proven in a real user session:
 - focus handoff keeps partials and the final commit on the input context that started recording;
 - verified daemon-owner loss replaces partial text with an unavailable preedit, commits nothing, and recovers through D-Bus activation;
 - an idle same-provider `ReloadAsrBackend` keeps the daemon owner/provider/model stable and is followed by another successful virtual-source recognition;
-- repeatable opt-in audio evidence through `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh`, including saved-file normal/command paths for sandbox-attested VS Code/Electron; its command path proves PRIMARY-selection fallback rather than surrounding-text transport.
+- repeatable opt-in audio evidence through `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh`, including saved-file normal/command paths for sandbox-attested VS Code/Electron; its command path proves PRIMARY-selection fallback rather than surrounding-text transport;
+- a bounded GTK4 soak of ten normal cycles and ten command cycles in one window and one daemon ownership generation, with 20 real F9/F10 events per mode, at least seven partials per cycle, and exact profile/PipeWire restoration.
 - non-audio menu evidence through `scripts/live/niri/run-ime-fcitx-menu-live.sh`.
 - a real sandboxed Chromium page through the host non-loopback LAN address, with authenticated remote-text input, loopback Realtime output, exact committed/delta/completed events, and complete credential/profile/listener cleanup; another physical device remains unproven.
 
 Still requiring live proof or implementation:
 
-- additional physical-device switching breadth and audible hardware-output ducking;
+- additional physical-device switching breadth, audible hardware-output ducking, and hour-scale or longer soak evidence beyond the completed ten-cycle GTK4 bounded soak;
 - real hosted ASR and cloud text-provider DNS/TLS/proxy/rate-limit/outage and credential-operation evidence;
 - remote-text browser proof from another physical network device; the real Chromium same-host LAN path is complete;
 - production repository/key publication, an actual host package-installed upgrade, live multi-user upgrade/removal, and regression on an unrelated external machine;
