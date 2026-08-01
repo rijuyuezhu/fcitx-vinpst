@@ -128,20 +128,20 @@ vinput daemon restart
 
 Verify the new candidate exactly as in step 1, then install the new package with `pacman -U`.
 
-Current activation metadata handles executable replacement automatically. After the transaction:
+The package hook automatically scans ownership-verified live session buses. It skips sessions without an existing daemon owner, so an upgrade never starts vinput for an inactive user. For each existing owner it runs the guarded handoff as that user: current owners remain unchanged, a stale systemd owner reloads metadata and restarts the unit, and a stale direct D-Bus owner is signalled only after the same-user, non-systemd, idle, no-active-session checks pass and a new current owner can be verified.
+
+After the transaction, check the current desktop session:
 
 ```sh
 vinput daemon status
 ```
 
-When status reports an owner from an old path or a deleted executable inode, run the guarded handoff:
+Run the manual fallback only when pacman reported an automatic handoff failure or status still reports an old path/deleted executable:
 
 ```sh
 vinput daemon handoff
 vinput daemon status
 ```
-
-The handoff is a no-op for a current owner. For a stale systemd owner it reloads user-service metadata and restarts the unit. For a stale direct D-Bus owner it signals only an idle, same-user, non-systemd `vinput-daemon`, then requires a newly activated current owner.
 
 Reload Fcitx5 when the addon changed:
 
@@ -200,4 +200,4 @@ Review those directories before deleting them manually. Keeping them permits lat
 
 Repository tests prove candidate construction and verification, clean package build, package/repository signatures, isolated install/upgrade/rollback/removal, user-config preservation, direct and systemd handoff behavior, and guarded removal behavior.
 
-They do not yet prove a production-hosted repository, production key operations, an actual package upgrade on an unrelated external user's machine, or a live production multi-user uninstall. Those remain release-readiness work.
+They do not yet prove a production-hosted repository, production key operations, an actual package upgrade on an unrelated external user's machine, or a live production multi-user upgrade/removal. Those remain release-readiness work.

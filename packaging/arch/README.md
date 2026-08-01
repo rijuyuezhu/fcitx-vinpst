@@ -56,20 +56,20 @@ rebuilds repository metadata around that package. Production key custody and
 independent fingerprint/public-key distribution are not part of the repository.
 
 The renderer also copies `fcitx-vinput-rs.install` beside the generated
-PKGBUILD. Its hooks are message-only because a root pacman transaction cannot
-safely target every user's session bus. After installing a local package, each
-desktop user should run:
+PKGBUILD. The package installs a shared trusted-session helper plus guarded
+upgrade and removal dispatchers. After installing a local package, each desktop
+user should run:
 
 ```sh
 systemctl --user enable --now vinput-daemon.service
 fcitx5 -r
 ```
 
-After an upgrade, current activation metadata hands off automatically. When an
-owner from older metadata remains, `vinput daemon handoff` identifies whether
-the exact D-Bus owner belongs to the systemd user unit or to direct activation.
-It reloads and restarts the former; it terminates the latter only after proving
-that it is an idle same-user `vinput-daemon` outside the systemd unit, then
-verifies the newly activated owner. After removal, the package leaves user
-config, models, and cache intact; a still-running user daemon can be stopped
-with `systemctl --user stop vinput-daemon.service`, followed by `fcitx5 -r`.
+After an upgrade, the package scans only ownership-verified live session buses.
+Sessions without an existing daemon owner are skipped. For each existing owner,
+it runs the guarded `vinput daemon handoff` as that user: current owners are
+unchanged, while stale systemd/direct owners are handled only after the CLI's
+identity and idle checks. A failed session causes the package hook to report an
+error and that user can retry `vinput daemon handoff`. Removal uses the separate
+two-phase guarded preflight and leaves user config, models, and cache intact;
+reload Fcitx5 afterward with `fcitx5 -r`.

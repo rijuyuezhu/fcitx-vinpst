@@ -23,5 +23,10 @@ then runs isolated pacman transaction/repository/signing tests and promotes a
 verified release candidate. Test keys and synthetic `pkgrel=2` artifacts are
 never production release inputs.
 
-`package-remove-handoff.sh` is installed into the package and is therefore part
-of the product lifecycle contract, not a developer convenience script.
+The package lifecycle contract installs three cooperating files:
+
+- `package-session-common.sh`: ownership-verified session-bus discovery and minimal user environment construction;
+- `package-upgrade-handoff.sh`: existing-owner-only dispatch into `vinput daemon handoff`;
+- `package-remove-handoff.sh`: all-session removal preflight, guarded mutation, and activation rollback.
+
+They are product lifecycle code, not developer convenience scripts.
