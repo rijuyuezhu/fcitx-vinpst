@@ -13,6 +13,8 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
+source scripts/tests/asr/provider-network-common.sh
+
 for command in jq openssl python3 ruff; do
   command -v "${command}" >/dev/null 2>&1 || {
     printf 'required command not found: %s\n' "${command}" >&2
@@ -22,6 +24,7 @@ done
 
 origin_fixture="scripts/fixtures/openai-compatible-text-provider-fixture.py"
 proxy_fixture="scripts/fixtures/http-chat-proxy-fixture.py"
+connect_proxy_fixture="scripts/fixtures/https-connect-proxy-fixture.py"
 cli="target/debug/vinput"
 out_dir="target/tmp/openai-compatible-text-network-smoke"
 config_file="${out_dir}/config.json"
@@ -43,7 +46,8 @@ cleanup() {
       wait "${pid}" 2>/dev/null || true
     fi
   done
-  rm -f "${config_file}"
+  rm -f "${config_file}" "${out_dir}/tls-key.pem" "${out_dir}/tls-cert.pem"
+  provider_network_remove_tls_material
   find scripts -type d -name __pycache__ -prune -exec rm -rf {} +
   exit "${exit_code}"
 }
@@ -51,8 +55,8 @@ trap cleanup EXIT INT TERM
 
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
-ruff check "${origin_fixture}" "${proxy_fixture}"
-ruff format --check "${origin_fixture}" "${proxy_fixture}"
+ruff check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}"
+ruff format --check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}"
 cargo build -q -p vinput-cli --bin vinput
 
 write_config() {
@@ -86,6 +90,7 @@ clear_proxy_env=(
   -u HTTP_PROXY -u http_proxy
   -u HTTPS_PROXY -u https_proxy
   -u NO_PROXY -u no_proxy
+  -u SSL_CERT_FILE
 )
 
 run_cli_success() {
@@ -289,6 +294,52 @@ jq -e '
   .proxy_authenticated == true
 ' "${out_dir}/authenticated-proxy.trace.json" >/dev/null
 
+# An additional PEM root enables verified HTTPS through an authenticated CONNECT proxy.
+provider_network_generate_tls_material custom-ca
+start_origin custom-ca-origin "custom ca text final: " 200 "unused" 0 0 \
+  --tls-cert "${fixture_server_cert}" \
+  --tls-key "${fixture_server_key}"
+custom_ca_origin_pid="${started_pid}"
+custom_ca_origin_url="${started_url}"
+custom_ca_origin_port="$(provider_network_url_port "${custom_ca_origin_url}")"
+provider_network_start_connect_proxy \
+  custom-ca-connect 127.0.0.1 "${custom_ca_origin_port}" \
+  127.0.0.1 "${custom_ca_origin_port}" \
+  "${proxy_username}" "${proxy_password}"
+custom_ca_proxy_pid="${started_pid}"
+custom_ca_proxy_url="${started_url/http:\/\//http://${proxy_username}:${proxy_password}@}"
+write_config "${custom_ca_origin_url}"
+run_cli_success \
+  custom-ca-connect "custom ca text final: ${input_text}" 5000 \
+  env \
+  -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy \
+  -u NO_PROXY -u no_proxy \
+  HTTPS_PROXY="${custom_ca_proxy_url}" https_proxy="${custom_ca_proxy_url}" \
+  SSL_CERT_FILE="${fixture_ca_cert}"
+wait_fixture "${custom_ca_origin_pid}"
+wait_fixture "${custom_ca_proxy_pid}"
+jq -e --arg input "${input_text}" '
+  .event == "request" and
+  .request_count == 1 and
+  .response_status == 200 and
+  .raw_asr_text == $input and
+  .candidate == ("custom ca text final: " + $input)
+' "${out_dir}/custom-ca-origin.trace.json" >/dev/null
+jq -e --argjson port "${custom_ca_origin_port}" '
+  .event == "connect-tunnel" and
+  .request_count == 1 and
+  .method == "CONNECT" and
+  .target_host == "127.0.0.1" and
+  .target_port == $port and
+  .proxy_authorization_scheme == "Basic" and
+  .proxy_authorization_value_recorded == false and
+  .proxy_authenticated == true and
+  .client_to_upstream_bytes > 0 and
+  .upstream_to_client_bytes > 0 and
+  .tunnel_timeout == false and
+  .payload_recorded == false
+' "${out_dir}/custom-ca-connect.trace.json" >/dev/null
+
 # NO_PROXY bypasses an available proxy for the loopback origin.
 start_origin no-proxy-origin "no proxy text final: " 200 "unused" 0 0
 origin_pid="${started_pid}"
@@ -396,8 +447,9 @@ write_config "http://127.0.0.1:${refused_port}/v1"
 run_cli_failure connection-refused 2000 "${clear_proxy_env[@]}"
 grep -Fq 'OpenAI-compatible HTTP request failed' "${out_dir}/connection-refused.stderr"
 
-rm -f "${config_file}" "${out_dir}/tls-key.pem"
-unset proxy_username proxy_password authenticated_proxy_url
+rm -f "${config_file}" "${out_dir}/tls-key.pem" "${out_dir}/tls-cert.pem"
+provider_network_remove_tls_material
+unset proxy_username proxy_password authenticated_proxy_url custom_ca_proxy_url
 for proxy_secret in fixture-proxy-user fixture-proxy-password; do
   if grep -R -F -- "${proxy_secret}" "${out_dir}" >/dev/null; then
     echo "network evidence retained proxy credentials" >&2
@@ -415,6 +467,8 @@ jq -n \
     event: $event,
     proxy_route: true,
     basic_proxy_auth: true,
+    custom_ca_bundle: true,
+    https_connect_proxy: true,
     no_proxy_bypass: true,
     rate_limit_429: true,
     service_unavailable_503: true,
