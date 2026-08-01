@@ -12,6 +12,17 @@ scripts/render-arch-pkgbuild.py \
   --output packaging/arch/PKGBUILD
 ```
 
+The renderer selects the default entry from `runtime-bundles.json`. A release
+may select another checked entry with `--runtime-bundle <id>` or point at a
+different manifest with `--runtime-bundles <path>`. Every entry must provide a
+safe package architecture and Rust target, sherpa archive/version/root, ONNX Runtime license
+version, and lowercase SHA-256 values for every downloaded runtime/license
+asset. Unknown bundle ids, duplicate ids, malformed checksums, unsafe tokens,
+or unresolved template values fail before a PKGBUILD is written. Adding a
+production runtime version therefore requires a reviewed manifest entry and a
+successful package smoke; the application does not switch C libraries at
+runtime.
+
 The package builds the PipeWire and sherpa-onnx features, installs the retained
 Fcitx addon plus D-Bus/systemd activation files, and bundles the exact sherpa
 1.13.3/ONNX Runtime 1.24.4 shared libraries under `/usr/lib/fcitx-vinput`.
