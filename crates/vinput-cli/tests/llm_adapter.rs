@@ -1460,6 +1460,36 @@ fn llm_test_dry_run_json_reports_redacted_request_without_http() {
 }
 
 #[test]
+fn llm_test_dry_run_redacts_url_credentials_and_query_values() {
+    let mut config: serde_json::Value = serde_json::from_str(llm_fixture_json()).unwrap();
+    config["llm"]["providers"][0]["base_url"] = serde_json::Value::String(
+        "https://url-user:url-password@llm.example.test/v1?api-key=url-secret#fragment".to_owned(),
+    );
+    let path = write_temp_json("vinput-llm-test-url-redaction", &config.to_string());
+
+    let output = vinput_command()
+        .args(["llm", "test", "openai", "--config"])
+        .arg(&path)
+        .args(["--text", "visible dry-run body", "--dry-run", "--json"])
+        .output()
+        .expect("run vinput llm test URL redaction dry-run");
+    fs::remove_file(&path).expect("remove temporary llm config");
+
+    let value = assert_json_success(output, "llm test URL redaction dry-run");
+    assert_eq!(
+        value["request"]["url"],
+        "https://llm.example.test/v1/chat/completions?api-key=REDACTED"
+    );
+    let serialized = value.to_string();
+    assert!(serialized.contains("visible dry-run body"));
+    assert!(!serialized.contains("url-user"));
+    assert!(!serialized.contains("url-password"));
+    assert!(!serialized.contains("url-secret"));
+    assert!(!serialized.contains("fragment"));
+    assert!(!serialized.contains("secret-token"));
+}
+
+#[test]
 fn llm_test_text_dry_run_outputs_expected_fields_without_secrets() {
     let path = write_llm_fixture("vinput-llm-test-text-dry-run");
 

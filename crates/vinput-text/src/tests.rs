@@ -391,11 +391,13 @@ fn reqwest_openai_transport_posts_json_and_returns_body() {
 
 #[test]
 fn reqwest_openai_transport_reports_http_errors_with_body() {
-    let (base_url, handle) =
-        serve_single_http_response("500 Internal Server Error", "boom".to_owned());
+    let (base_url, handle) = serve_single_http_response(
+        "500 Internal Server Error",
+        "Bearer secret-token secret-token".to_owned(),
+    );
     let request = OpenAiCompatibleChatRequest {
         url: format!("{base_url}/chat/completions"),
-        headers: build_openai_compatible_headers(""),
+        headers: build_openai_compatible_headers("secret-token"),
         body: serde_json::json!({"messages": []}),
         ignored_extra_body_keys: Vec::new(),
     };
@@ -408,8 +410,34 @@ fn reqwest_openai_transport_reports_http_errors_with_body() {
     assert!(matches!(
         error,
         TextError::AdapterFailed(message)
-            if message.contains("HTTP 500") && message.contains("boom")
+            if message.contains("HTTP 500")
+                && message.contains("<redacted>")
+                && !message.contains("secret-token")
     ));
+}
+
+#[test]
+fn reqwest_openai_transport_redacts_sensitive_url_from_request_error() {
+    let request = OpenAiCompatibleChatRequest {
+        url: "ftp://url-user:url-password@api.example.test/chat/completions?api-key=url-secret#fragment"
+            .to_owned(),
+        headers: build_openai_compatible_headers("secret-token"),
+        body: serde_json::json!({"messages": []}),
+        ignored_extra_body_keys: Vec::new(),
+    };
+
+    let error = ReqwestOpenAiCompatibleChatTransport::new()
+        .send(&request, Some(500))
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("failed for"), "{error}");
+    assert!(error.contains("api-key=REDACTED"));
+    assert!(!error.contains("url-user"));
+    assert!(!error.contains("url-password"));
+    assert!(!error.contains("url-secret"));
+    assert!(!error.contains("fragment"));
+    assert!(!error.contains("secret-token"));
 }
 
 #[test]
@@ -1072,10 +1100,12 @@ fn openai_chat_request_debug_redacts_authorization_header() {
     };
     let mut provider = provider(serde_json::json!({}));
     provider.api_key = "secret-token".to_owned();
+    provider.base_url =
+        "https://url-user:url-password@api.example.test/v1?api-key=url-secret#fragment".to_owned();
 
     let built = build_openai_compatible_chat_request(
         &TextRequest {
-            raw_text: "raw",
+            raw_text: "raw-body-secret",
             scene: &prompted,
             selected_text: None,
         },
@@ -1094,7 +1124,14 @@ fn openai_chat_request_debug_redacts_authorization_header() {
     );
     let debug = format!("{built:?}");
     assert!(debug.contains("<redacted>"));
+    assert!(debug.contains("api-key=REDACTED"));
+    assert!(debug.contains("body_keys"));
     assert!(!debug.contains("secret-token"));
+    assert!(!debug.contains("raw-body-secret"));
+    assert!(!debug.contains("url-user"));
+    assert!(!debug.contains("url-password"));
+    assert!(!debug.contains("url-secret"));
+    assert!(!debug.contains("fragment"));
     assert!(
         built
             .headers
@@ -1145,6 +1182,15 @@ fn openai_chat_url_appends_chat_completions_path() {
     assert_eq!(
         build_openai_compatible_chat_url("https://api.example.test/v1///").as_deref(),
         Some("https://api.example.test/v1/chat/completions")
+    );
+    assert_eq!(
+        build_openai_compatible_chat_url(
+            "https://api.example.test/v1?api-version=2026-01-01&key=request-secret#fragment"
+        )
+        .as_deref(),
+        Some(
+            "https://api.example.test/v1/chat/completions?api-version=2026-01-01&key=request-secret#fragment"
+        )
     );
 }
 

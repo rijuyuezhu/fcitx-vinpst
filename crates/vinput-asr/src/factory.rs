@@ -1,6 +1,8 @@
 //! ASR backend factory and config-derived diagnostic state.
 
-use vinput_config::{AsrConfig, AsrProviderConfig, AsrProviderKind, VadConfig};
+use vinput_config::{
+    AsrConfig, AsrProviderConfig, AsrProviderKind, VadConfig, redact_url_for_diagnostics,
+};
 use vinput_protocol::AsrBackendState;
 
 #[cfg(feature = "sherpa-onnx-backend")]
@@ -172,7 +174,7 @@ fn remote_endpoints(config: &AsrConfig) -> Vec<String> {
         .and_then(|provider| provider.endpoint.as_deref())
         .map(str::trim)
         .filter(|endpoint| !endpoint.is_empty())
-        .map(|endpoint| vec![endpoint.to_owned()])
+        .map(|endpoint| vec![redact_url_for_diagnostics(endpoint)])
         .unwrap_or_default()
 }
 
@@ -196,7 +198,10 @@ pub(crate) fn provider_kind_label(kind: &AsrProviderKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
+
+    use vinput_config::{AsrConfig, AsrProviderConfig, AsrProviderKind};
 
     use super::AsrBackendFactory;
     use crate::{
@@ -296,5 +301,33 @@ mod tests {
                 .contains("failed to prepare ASR backend `warmup-test`")
         );
         assert!(error.to_string().contains("session init failed"));
+    }
+
+    #[test]
+    fn state_redacts_remote_endpoint_credentials_and_query_values() {
+        let config = AsrConfig {
+            active_provider: "remote".to_owned(),
+            providers: vec![AsrProviderConfig {
+                id: "remote".to_owned(),
+                kind: AsrProviderKind::Remote,
+                timeout_ms: Some(1_000),
+                model: Some("model".to_owned()),
+                hotwords_file: None,
+                command: None,
+                args: Vec::new(),
+                env: HashMap::new(),
+                endpoint: Some(
+                    "https://user:password@asr.example.test/v1?api-key=secret#fragment".to_owned(),
+                ),
+            }],
+            ..AsrConfig::default()
+        };
+
+        let state = AsrBackendFactory::state_for_config(&config);
+
+        assert_eq!(
+            state.remote_endpoints,
+            ["https://asr.example.test/v1?api-key=REDACTED"]
+        );
     }
 }

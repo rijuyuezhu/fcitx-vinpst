@@ -378,9 +378,12 @@ fi
 stop_fixture "${tls_pid}"
 
 # DNS resolution and a refused local connection remain distinct request failures.
-write_config 'http://remote-text-dns-failure.invalid/v1'
+write_config 'http://remote-text-dns-failure.invalid/v1?api-key=diagnostic-url-secret#fragment'
 run_cli_failure dns 2000 "${clear_proxy_env[@]}"
 grep -Fq 'OpenAI-compatible HTTP request failed' "${out_dir}/dns.stderr"
+grep -Fq 'api-key=REDACTED' "${out_dir}/dns.stderr"
+! grep -Fq 'diagnostic-url-secret' "${out_dir}/dns.stderr"
+! grep -Fq 'fragment' "${out_dir}/dns.stderr"
 
 refused_port="$(python3 - <<'PY'
 import socket

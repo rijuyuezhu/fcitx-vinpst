@@ -3,7 +3,7 @@
 use std::fmt;
 
 use vinput_audio::{PcmBuffer, PcmSpec, i16_samples_to_le_bytes};
-use vinput_config::{AsrProviderConfig, AsrProviderKind};
+use vinput_config::{AsrProviderConfig, AsrProviderKind, redact_url_for_diagnostics};
 
 use crate::{
     AsrBackend, AsrError, BackendCapabilities, BackendDescriptor, RecognitionContext,
@@ -40,7 +40,7 @@ impl fmt::Debug for RemoteAsrSpec {
         formatter
             .debug_struct("RemoteAsrSpec")
             .field("provider_id", &self.provider_id)
-            .field("url", &self.url)
+            .field("url", &redact_url_for_diagnostics(&self.url))
             .field("model_id", &self.model_id)
             .field(
                 "api_key",
@@ -51,7 +51,7 @@ impl fmt::Debug for RemoteAsrSpec {
                 },
             )
             .field("language", &self.language)
-            .field("prompt", &self.prompt)
+            .field("prompt", &self.prompt.as_ref().map(|_| "<redacted>"))
             .field("timeout_ms", &self.timeout_ms)
             .finish()
     }
@@ -135,8 +135,11 @@ fn trimmed_env(provider: &AsrProviderConfig, key: &str) -> Option<String> {
 
 /// Resolves a base URL or full transcription endpoint.
 pub fn build_openai_compatible_transcriptions_url(endpoint: &str) -> Result<String, AsrError> {
+    let diagnostic_endpoint = redact_url_for_diagnostics(endpoint);
     let mut url = reqwest::Url::parse(endpoint).map_err(|error| {
-        AsrError::Backend(format!("invalid remote ASR endpoint `{endpoint}`: {error}"))
+        AsrError::Backend(format!(
+            "invalid remote ASR endpoint `{diagnostic_endpoint}`: {error}"
+        ))
     })?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(AsrError::Backend(format!(
@@ -177,10 +180,10 @@ impl fmt::Debug for RemoteAsrRequest {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("RemoteAsrRequest")
-            .field("url", &self.url)
+            .field("url", &redact_url_for_diagnostics(&self.url))
             .field("model", &self.model)
             .field("language", &self.language)
-            .field("prompt", &self.prompt)
+            .field("prompt", &self.prompt.as_ref().map(|_| "<redacted>"))
             .field(
                 "wav_bytes",
                 &format_args!("<{} bytes>", self.wav_bytes.len()),
@@ -262,11 +265,15 @@ fn send_remote_asr_request_blocking(request: &RemoteAsrRequest) -> Result<String
     if let Some(timeout_ms) = request.timeout_ms {
         builder = builder.timeout(std::time::Duration::from_millis(timeout_ms));
     }
+    let diagnostic_url = redact_url_for_diagnostics(&request.url);
     let response = builder.send().map_err(|error| {
         if error.is_timeout() {
             AsrError::Backend("remote ASR HTTP request timed out".to_owned())
         } else {
-            AsrError::Backend(format!("remote ASR HTTP request failed: {error}"))
+            AsrError::Backend(format!(
+                "remote ASR HTTP request failed for `{diagnostic_url}`: {}",
+                reqwest_error_category(&error)
+            ))
         }
     })?;
     let status = response.status();
@@ -274,15 +281,54 @@ fn send_remote_asr_request_blocking(request: &RemoteAsrRequest) -> Result<String
         if error.is_timeout() {
             AsrError::Backend("remote ASR HTTP response body timed out".to_owned())
         } else {
-            AsrError::Backend(format!("remote ASR HTTP response read failed: {error}"))
+            AsrError::Backend(format!(
+                "remote ASR HTTP response read failed for `{diagnostic_url}`: {}",
+                reqwest_error_category(&error)
+            ))
         }
     })?;
     if !status.is_success() {
+        let body = redact_known_values(
+            &body,
+            [
+                request.api_key(),
+                request.prompt.as_deref().unwrap_or_default(),
+            ],
+        );
         return Err(AsrError::Backend(format!(
             "remote ASR provider returned HTTP {status}: {body}"
         )));
     }
     Ok(body)
+}
+
+fn reqwest_error_category(error: &reqwest::Error) -> &'static str {
+    if error.is_connect() {
+        "connection failed"
+    } else if error.is_redirect() {
+        "redirect failed"
+    } else if error.is_body() {
+        "request or response body failed"
+    } else if error.is_decode() {
+        "response decode failed"
+    } else if error.is_builder() {
+        "request build failed"
+    } else if error.is_status() {
+        "HTTP status failed"
+    } else if error.is_request() {
+        "request failed"
+    } else {
+        "transport failed"
+    }
+}
+
+fn redact_known_values<'a>(text: &str, values: impl IntoIterator<Item = &'a str>) -> String {
+    values
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .fold(text.to_owned(), |redacted, value| {
+            redacted.replace(value, "<redacted>")
+        })
 }
 
 /// Extracts the required non-empty `text` field from an OpenAI-compatible response.
@@ -572,6 +618,13 @@ mod tests {
             .unwrap(),
             "https://api.example/v1/audio/transcriptions"
         );
+        assert_eq!(
+            build_openai_compatible_transcriptions_url(
+                "https://api.example/v1?api-version=2026-01-01&key=request-secret#fragment"
+            )
+            .unwrap(),
+            "https://api.example/v1/audio/transcriptions?api-version=2026-01-01&key=request-secret#fragment"
+        );
         assert!(
             build_openai_compatible_transcriptions_url("ftp://api.example/v1")
                 .unwrap_err()
@@ -582,7 +635,10 @@ mod tests {
 
     #[test]
     fn remote_spec_uses_typed_and_legacy_environment_fields() {
-        let spec = RemoteAsrSpec::try_from(&provider("https://api.example/v1")).unwrap();
+        let spec = RemoteAsrSpec::try_from(&provider(
+            "https://url-user:url-password@api.example/v1?api-version=2026-01-01&key=url-secret#fragment",
+        ))
+        .unwrap();
         assert_eq!(spec.provider_id, "remote-test");
         assert_eq!(spec.model_id, "whisper-test");
         assert_eq!(spec.language.as_deref(), Some("en"));
@@ -592,6 +648,13 @@ mod tests {
         let debug = format!("{spec:?}");
         assert!(debug.contains("<redacted>"));
         assert!(!debug.contains("secret-token"));
+        assert!(!debug.contains("names"));
+        assert!(!debug.contains("url-user"));
+        assert!(!debug.contains("url-password"));
+        assert!(!debug.contains("url-secret"));
+        assert!(!debug.contains("fragment"));
+        assert!(debug.contains("api-version=REDACTED"));
+        assert!(debug.contains("key=REDACTED"));
 
         let mut env_model = provider("https://api.example/v1");
         env_model.model = Some("  ".to_owned());
@@ -818,7 +881,7 @@ mod tests {
     fn reqwest_transport_reports_http_body_and_timeout() {
         let (url, handle) = serve_single_response(
             "503 Service Unavailable",
-            r#"{"error":"offline"}"#,
+            r#"{"error":"fixture-token fixture prompt"}"#,
             Duration::ZERO,
             Duration::ZERO,
         );
@@ -827,7 +890,9 @@ mod tests {
             .unwrap_err();
         handle.join().unwrap();
         assert!(error.to_string().contains("HTTP 503"));
-        assert!(error.to_string().contains("offline"));
+        assert!(error.to_string().contains("<redacted>"));
+        assert!(!error.to_string().contains("fixture-token"));
+        assert!(!error.to_string().contains("fixture prompt"));
 
         let (url, handle) = serve_single_response(
             "200 OK",
@@ -855,5 +920,22 @@ mod tests {
             "backend error: remote ASR HTTP response body timed out"
         );
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn reqwest_transport_redacts_sensitive_url_from_request_error() {
+        let url = "ftp://url-user:url-password@api.example.test/v1/audio/transcriptions?api-key=url-secret#fragment".to_owned();
+
+        let error = ReqwestRemoteAsrTransport
+            .transcribe(&request(url, Some(500)))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("failed for"), "{error}");
+        assert!(error.contains("api-key=REDACTED"));
+        assert!(!error.contains("url-user"));
+        assert!(!error.contains("url-password"));
+        assert!(!error.contains("url-secret"));
+        assert!(!error.contains("fragment"));
     }
 }

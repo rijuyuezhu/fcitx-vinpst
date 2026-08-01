@@ -292,7 +292,7 @@ fn llm_test_output(
         "will_call_http": !dry_run,
         "called": !dry_run,
         "request": {
-            "url": request.url,
+            "url": request.redacted_url(),
             "headers": request.redacted_headers(),
             "body": request.body,
             "ignored_extra_body_keys": request.ignored_extra_body_keys,

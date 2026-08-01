@@ -5,7 +5,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use vinput_config::{COMMAND_SCENE_ID, LlmProviderConfig, RAW_SCENE_ID, SceneDefinition};
+use vinput_config::{
+    COMMAND_SCENE_ID, LlmProviderConfig, RAW_SCENE_ID, SceneDefinition, redact_url_for_diagnostics,
+};
 use vinput_protocol::{Candidate, CandidateSource, RecognitionPayload};
 
 use crate::prompt::{
@@ -34,6 +36,17 @@ const OPENAI_COMPATIBLE_BEARER_PREFIX: &str = "Bearer ";
 pub fn build_openai_compatible_chat_url(base_url: &str) -> Option<String> {
     if base_url.is_empty() {
         return None;
+    }
+    if let Ok(mut url) = reqwest::Url::parse(base_url) {
+        if !url
+            .path()
+            .trim_end_matches('/')
+            .ends_with(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH)
+        {
+            let path = url.path().trim_end_matches('/');
+            url.set_path(&format!("{path}{OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH}"));
+        }
+        return Some(url.to_string());
     }
     if base_url.ends_with(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH) {
         return Some(base_url.to_owned());
@@ -177,6 +190,12 @@ pub struct OpenAiCompatibleChatRequest {
 }
 
 impl OpenAiCompatibleChatRequest {
+    /// Returns the request URL with userinfo, fragment, and query values redacted.
+    #[must_use]
+    pub fn redacted_url(&self) -> String {
+        redact_url_for_diagnostics(&self.url)
+    }
+
     /// Returns request headers with secrets redacted for logs or diagnostics.
     #[must_use]
     pub fn redacted_headers(&self) -> Vec<(String, String)> {
@@ -186,11 +205,16 @@ impl OpenAiCompatibleChatRequest {
 
 impl fmt::Debug for OpenAiCompatibleChatRequest {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let body_keys = self
+            .body
+            .as_object()
+            .map(|body| body.keys().map(String::as_str).collect::<Vec<_>>())
+            .unwrap_or_default();
         formatter
             .debug_struct("OpenAiCompatibleChatRequest")
-            .field("url", &self.url)
+            .field("url", &self.redacted_url())
             .field("headers", &self.redacted_headers())
-            .field("body", &self.body)
+            .field("body_keys", &body_keys)
             .field("ignored_extra_body_keys", &self.ignored_extra_body_keys)
             .finish()
     }
@@ -373,11 +397,15 @@ fn send_openai_compatible_request_blocking(
         builder = builder.timeout(std::time::Duration::from_millis(timeout_ms));
     }
 
+    let diagnostic_url = request.redacted_url();
     let response = builder.send().map_err(|error| {
         if error.is_timeout() {
             TextError::AdapterFailed("OpenAI-compatible HTTP request timed out".to_owned())
         } else {
-            TextError::AdapterFailed(format!("OpenAI-compatible HTTP request failed: {error}"))
+            TextError::AdapterFailed(format!(
+                "OpenAI-compatible HTTP request failed for `{diagnostic_url}`: {}",
+                reqwest_error_category(&error)
+            ))
         }
     })?;
     let status = response.status();
@@ -386,16 +414,58 @@ fn send_openai_compatible_request_blocking(
             TextError::AdapterFailed("OpenAI-compatible HTTP response body timed out".to_owned())
         } else {
             TextError::AdapterFailed(format!(
-                "OpenAI-compatible HTTP response body read failed: {error}"
+                "OpenAI-compatible HTTP response body read failed for `{diagnostic_url}`: {}",
+                reqwest_error_category(&error)
             ))
         }
     })?;
     if !status.is_success() {
+        let body = redact_openai_error_body(&body, &request.headers);
         return Err(TextError::AdapterFailed(format!(
             "OpenAI-compatible provider returned HTTP {status}: {body}"
         )));
     }
     Ok(body)
+}
+
+fn reqwest_error_category(error: &reqwest::Error) -> &'static str {
+    if error.is_connect() {
+        "connection failed"
+    } else if error.is_redirect() {
+        "redirect failed"
+    } else if error.is_body() {
+        "request or response body failed"
+    } else if error.is_decode() {
+        "response decode failed"
+    } else if error.is_builder() {
+        "request build failed"
+    } else if error.is_status() {
+        "HTTP status failed"
+    } else if error.is_request() {
+        "request failed"
+    } else {
+        "transport failed"
+    }
+}
+
+fn redact_openai_error_body(body: &str, headers: &[(String, String)]) -> String {
+    headers
+        .iter()
+        .filter(|(name, value)| {
+            name.eq_ignore_ascii_case(OPENAI_COMPATIBLE_AUTHORIZATION_HEADER) && !value.is_empty()
+        })
+        .flat_map(|(_, value)| {
+            [
+                value.as_str(),
+                value
+                    .strip_prefix(OPENAI_COMPATIBLE_BEARER_PREFIX)
+                    .unwrap_or_default(),
+            ]
+        })
+        .filter(|value| !value.is_empty())
+        .fold(body.to_owned(), |redacted, value| {
+            redacted.replace(value, "<redacted>")
+        })
 }
 
 /// Text adapter backed by an OpenAI-compatible chat transport.

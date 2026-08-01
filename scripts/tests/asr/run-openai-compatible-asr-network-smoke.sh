@@ -395,9 +395,12 @@ fi
 stop_fixture "${tls_pid}"
 
 # DNS resolution and a refused local connection remain distinct request failures.
-write_config 'http://remote-asr-dns-failure.invalid/v1' 2000
+write_config 'http://remote-asr-dns-failure.invalid/v1?api-key=diagnostic-url-secret#fragment' 2000
 run_daemon_failure dns "${clear_proxy_env[@]}"
 grep -Fq 'remote ASR HTTP request failed' "${out_dir}/dns.stderr"
+grep -Fq 'api-key=REDACTED' "${out_dir}/dns.stderr"
+! grep -Fq 'diagnostic-url-secret' "${out_dir}/dns.stderr"
+! grep -Fq 'fragment' "${out_dir}/dns.stderr"
 
 refused_port="$(python3 - <<'PY'
 import socket
