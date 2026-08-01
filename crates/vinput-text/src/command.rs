@@ -59,7 +59,7 @@ pub struct CommandTextScene {
     pub model: Option<String>,
     /// Number of candidates requested by the scene.
     pub candidate_count: u8,
-    /// Scene timeout in milliseconds, if configured.
+    /// Effective scene timeout in milliseconds.
     #[serde(default)]
     pub timeout_ms: Option<u64>,
     /// Previous context lines requested by the scene.
@@ -77,7 +77,7 @@ impl CommandTextScene {
             provider_id: scene.provider_id.clone(),
             model: scene.model.clone(),
             candidate_count: scene.candidate_count,
-            timeout_ms: scene.timeout_ms,
+            timeout_ms: Some(scene.effective_timeout_ms()),
             context_lines: scene.context_lines,
         }
     }

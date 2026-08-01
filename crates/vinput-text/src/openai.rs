@@ -500,7 +500,9 @@ impl<T: OpenAiCompatibleChatTransport> TextAdapter for OpenAiCompatibleTextAdapt
         }
         .ok_or_else(|| TextError::UnsupportedAdapter(request.scene.id.clone()))?;
 
-        let response_body = self.transport.send(&built, request.scene.timeout_ms)?;
+        let response_body = self
+            .transport
+            .send(&built, Some(request.scene.effective_timeout_ms()))?;
         let candidates = extract_openai_compatible_candidates(&response_body);
         if request.scene.id == COMMAND_SCENE_ID {
             return Ok(command_mode_payload(

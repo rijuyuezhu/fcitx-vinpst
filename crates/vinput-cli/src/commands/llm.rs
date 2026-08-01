@@ -211,6 +211,7 @@ fn run_llm_test(
         .find(|provider| provider.id == id)
         .with_context(|| format!("LLM provider `{id}` not found"))?;
     let scene = llm_test_scene(provider, timeout_ms);
+    let effective_timeout_ms = scene.effective_timeout_ms();
     let request = TextRequest {
         raw_text: text,
         scene: &scene,
@@ -225,7 +226,7 @@ fn run_llm_test(
             loaded.path.as_ref(),
             loaded.source,
             &id,
-            timeout_ms,
+            effective_timeout_ms,
             true,
             &built,
             None,
@@ -244,7 +245,7 @@ fn run_llm_test(
         loaded.path.as_ref(),
         loaded.source,
         &id,
-        timeout_ms,
+        effective_timeout_ms,
         false,
         &built,
         Some(&payload),
@@ -276,7 +277,7 @@ fn llm_test_output(
     config_path: Option<&PathBuf>,
     source: &'static str,
     provider_id: &str,
-    timeout_ms: Option<u64>,
+    timeout_ms: u64,
     dry_run: bool,
     request: &vinput_text::OpenAiCompatibleChatRequest,
     payload: Option<&RecognitionPayload>,

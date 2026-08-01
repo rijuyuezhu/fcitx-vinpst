@@ -17,6 +17,7 @@ pub use diagnostics::redact_url_for_diagnostics;
 pub use error::ConfigError;
 pub use schema::{
     AsrConfig, AsrProviderConfig, AsrProviderKind, COMMAND_SCENE_ID, CURRENT_CONFIG_VERSION,
-    GlobalConfig, LlmAdapterConfig, LlmConfig, LlmProviderConfig, RAW_SCENE_ID, RegistryConfig,
-    SceneDefinition, ScenesConfig, VadConfig, VinputConfig, VinputConfigSummary,
+    DEFAULT_SCENE_TIMEOUT_MS, GlobalConfig, LlmAdapterConfig, LlmConfig, LlmProviderConfig,
+    RAW_SCENE_ID, RegistryConfig, SceneDefinition, ScenesConfig, VadConfig, VinputConfig,
+    VinputConfigSummary,
 };

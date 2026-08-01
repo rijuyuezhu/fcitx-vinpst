@@ -17,6 +17,9 @@ pub const RAW_SCENE_ID: &str = "__raw__";
 /// Built-in command scene id used by the legacy project.
 pub const COMMAND_SCENE_ID: &str = "__command__";
 
+/// Legacy-compatible request timeout used when a scene omits `timeout_ms`.
+pub const DEFAULT_SCENE_TIMEOUT_MS: u64 = 4_000;
+
 /// Highest configuration schema version supported by this binary.
 pub const CURRENT_CONFIG_VERSION: u32 = 1;
 
@@ -306,6 +309,12 @@ pub struct SceneDefinition {
 }
 
 impl SceneDefinition {
+    /// Returns the explicit timeout or the legacy 4000 ms scene default.
+    #[must_use]
+    pub fn effective_timeout_ms(&self) -> u64 {
+        self.timeout_ms.unwrap_or(DEFAULT_SCENE_TIMEOUT_MS)
+    }
+
     /// Candidate source expected for this scene when no LLM is needed.
     #[must_use]
     pub fn default_candidate_source(&self) -> CandidateSource {
