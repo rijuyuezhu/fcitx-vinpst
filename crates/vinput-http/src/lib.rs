@@ -64,7 +64,9 @@ pub enum HttpClientError {
 ///
 /// Reqwest's built-in `WebPKI` roots remain enabled. When `SSL_CERT_FILE` names a
 /// non-empty PEM bundle, every certificate in that bundle is added as an extra
-/// trust root. Certificate verification is never disabled.
+/// trust root. Certificate verification is never disabled. Redirects are also
+/// disabled so provider credentials and POST bodies remain bound to the
+/// configured endpoint.
 pub fn blocking_client_from_environment() -> Result<reqwest::blocking::Client, HttpClientError> {
     let certificate_path = env::var_os(SSL_CERT_FILE_ENV)
         .filter(|value| !value.is_empty())
@@ -151,7 +153,8 @@ fn io_error_is_timeout(error: &io::Error) -> bool {
 fn blocking_client_with_extra_ca_path(
     certificate_path: Option<&Path>,
 ) -> Result<reqwest::blocking::Client, HttpClientError> {
-    let mut builder = reqwest::blocking::Client::builder();
+    let mut builder =
+        reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none());
     if let Some(certificate_path) = certificate_path {
         let certificate_file = fs::File::open(certificate_path)
             .map_err(|_| HttpClientError::CertificateFileInspection)?;
