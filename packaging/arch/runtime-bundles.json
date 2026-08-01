@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "default_bundle": "sherpa-onnx-1.13.3-linux-x64",
+  "bundles": [
+    {
+      "id": "sherpa-onnx-1.13.3-linux-x64",
+      "package_arch": "x86_64",
+      "rust_target": "x86_64-unknown-linux-gnu",
+      "sherpa_onnx_version": "1.13.3",
+      "sherpa_onnx_archive": "sherpa-onnx-v1.13.3-linux-x64-shared-lib.tar.bz2",
+      "sherpa_onnx_archive_root": "sherpa-onnx-v1.13.3-linux-x64-shared-lib",
+      "sherpa_onnx_sha256": "650d3da32694fa48e6e018f7087e4840aace56b3187a294a18ba3b9f51e80943",
+      "sherpa_onnx_license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "onnxruntime_version": "1.24.4",
+      "onnxruntime_license_sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+    }
+  ]
+}

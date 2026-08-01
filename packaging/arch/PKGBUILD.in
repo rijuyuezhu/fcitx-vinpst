@@ -2,7 +2,7 @@ pkgname=fcitx-vinput-rs
 pkgver=@VINPUT_PKGVER@
 pkgrel=@VINPUT_PKGREL@
 pkgdesc='Rust rewrite of fcitx5-vinput with native ASR and PipeWire capture'
-arch=('x86_64')
+arch=('@VINPUT_PACKAGE_ARCH@')
 url='https://github.com/rijuyuezhu/fcitx-vinput-rs'
 license=('GPL-3.0-or-later' 'Apache-2.0' 'MIT')
 depends=(
@@ -33,25 +33,27 @@ options=('!debug' '!lto')
 install=fcitx-vinput-rs.install
 
 _source_dir='@VINPUT_SOURCE_DIR@'
-_sherpa_onnx_ver='1.13.3'
-_onnxruntime_ver='1.24.4'
+_sherpa_onnx_ver='@VINPUT_SHERPA_ONNX_VERSION@'
+_sherpa_onnx_archive='@VINPUT_SHERPA_ONNX_ARCHIVE@'
+_sherpa_onnx_archive_root='@VINPUT_SHERPA_ONNX_ARCHIVE_ROOT@'
+_onnxruntime_ver='@VINPUT_ONNXRUNTIME_VERSION@'
 source=(
   "${pkgname}-${pkgver}.tar.gz::@VINPUT_SOURCE_URL@"
-  "sherpa-onnx-v${_sherpa_onnx_ver}-linux-x64-shared-lib.tar.bz2::https://github.com/k2-fsa/sherpa-onnx/releases/download/v${_sherpa_onnx_ver}/sherpa-onnx-v${_sherpa_onnx_ver}-linux-x64-shared-lib.tar.bz2"
+  "${_sherpa_onnx_archive}::https://github.com/k2-fsa/sherpa-onnx/releases/download/v${_sherpa_onnx_ver}/${_sherpa_onnx_archive}"
   "sherpa-onnx-LICENSE-${_sherpa_onnx_ver}::https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${_sherpa_onnx_ver}/LICENSE"
   "onnxruntime-LICENSE-${_onnxruntime_ver}::https://raw.githubusercontent.com/microsoft/onnxruntime/v${_onnxruntime_ver}/LICENSE"
 )
 sha256sums=(
   '@VINPUT_SOURCE_SHA256@'
-  '650d3da32694fa48e6e018f7087e4840aace56b3187a294a18ba3b9f51e80943'
-  'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30'
-  '2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c'
+  '@VINPUT_SHERPA_ONNX_SHA256@'
+  '@VINPUT_SHERPA_ONNX_LICENSE_SHA256@'
+  '@VINPUT_ONNXRUNTIME_LICENSE_SHA256@'
 )
 
 prepare() {
   cd "${_source_dir}"
   export CARGO_HOME="${srcdir}/cargo-home"
-  cargo fetch --locked --target x86_64-unknown-linux-gnu
+  cargo fetch --locked --target @VINPUT_RUST_TARGET@
 }
 
 build() {
@@ -59,7 +61,7 @@ build() {
   export CARGO_HOME="${srcdir}/cargo-home"
   export CARGO_TARGET_DIR="${srcdir}/cargo-target"
   export CARGO_NET_OFFLINE=true
-  export SHERPA_ONNX_LIB_DIR="${srcdir}/sherpa-onnx-v${_sherpa_onnx_ver}-linux-x64-shared-lib/lib"
+  export SHERPA_ONNX_LIB_DIR="${srcdir}/${_sherpa_onnx_archive_root}/lib"
   export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=${srcdir}=."
   export CFLAGS="${CFLAGS} -ffile-prefix-map=${srcdir}=. -fdebug-prefix-map=${srcdir}=."
   export CXXFLAGS="${CXXFLAGS} -ffile-prefix-map=${srcdir}=. -fdebug-prefix-map=${srcdir}=."
@@ -90,10 +92,10 @@ package() {
     "${pkgdir}/usr/lib/fcitx-vinput/package-remove-handoff"
 
   install -Dm755 \
-    "${srcdir}/sherpa-onnx-v${_sherpa_onnx_ver}-linux-x64-shared-lib/lib/libsherpa-onnx-c-api.so" \
+    "${srcdir}/${_sherpa_onnx_archive_root}/lib/libsherpa-onnx-c-api.so" \
     "${pkgdir}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so"
   install -Dm755 \
-    "${srcdir}/sherpa-onnx-v${_sherpa_onnx_ver}-linux-x64-shared-lib/lib/libonnxruntime.so" \
+    "${srcdir}/${_sherpa_onnx_archive_root}/lib/libonnxruntime.so" \
     "${pkgdir}/usr/lib/fcitx-vinput/libonnxruntime.so"
   patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinput' "${pkgdir}/usr/bin/vinput"
   patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinput' "${pkgdir}/usr/bin/vinput-daemon"
