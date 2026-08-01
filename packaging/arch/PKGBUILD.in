@@ -88,6 +88,10 @@ package() {
   install -Dm755 "${srcdir}/cargo-target/release/vinput" "${pkgdir}/usr/bin/vinput"
   install -Dm755 "${srcdir}/cargo-target/release/vinput-daemon" \
     "${pkgdir}/usr/bin/vinput-daemon"
+  install -Dm644 scripts/release/package-session-common.sh \
+    "${pkgdir}/usr/lib/fcitx-vinput/package-session-common.sh"
+  install -Dm755 scripts/release/package-upgrade-handoff.sh \
+    "${pkgdir}/usr/lib/fcitx-vinput/package-upgrade-handoff"
   install -Dm755 scripts/release/package-remove-handoff.sh \
     "${pkgdir}/usr/lib/fcitx-vinput/package-remove-handoff"
 

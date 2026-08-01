@@ -30,6 +30,7 @@ scripts/tests/daemon/run-daemon-default-config-smoke.sh
 scripts/tests/daemon/run-daemon-handoff-diagnostics-smoke.sh
 scripts/tests/daemon/run-daemon-handoff-smoke.sh
 scripts/tests/daemon/run-daemon-removal-handoff-smoke.sh
+scripts/tests/daemon/run-package-upgrade-handoff-smoke.sh
 scripts/tests/daemon/run-package-remove-handoff-smoke.sh
 scripts/tests/daemon/run-direct-activation-upgrade-smoke.sh
 scripts/tests/daemon/run-daemon-unavailable-asr-smoke.sh

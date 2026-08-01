@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 activation_file="${VINPUT_REMOVE_ACTIVATION_FILE:-/usr/share/dbus-1/services/org.fcitx.Vinput.service}"
 runtime_root="${VINPUT_REMOVE_RUNTIME_ROOT:-/run/user}"
 vinput_binary="${VINPUT_REMOVE_VINPUT:-/usr/bin/vinput}"
@@ -14,6 +15,11 @@ mktemp_binary="${VINPUT_REMOVE_MKTEMP:-/usr/bin/mktemp}"
 gdbus_binary="${VINPUT_REMOVE_GDBUS:-/usr/bin/gdbus}"
 systemctl_binary="${VINPUT_REMOVE_SYSTEMCTL:-/usr/bin/systemctl}"
 kill_binary="${VINPUT_REMOVE_KILL:-/usr/bin/kill}"
+
+# shellcheck source=package-session-common.sh
+source "${script_dir}/package-session-common.sh"
+
+session_uid=""
 
 for command in \
   "${vinput_binary}" \
@@ -49,40 +55,6 @@ if [[ -e "${activation_file}" ]]; then
 fi
 "${rm_binary}" -f -- "${activation_file}"
 
-load_session_identity() {
-  local bus_path="$1"
-  local passwd_entry
-
-  session_runtime_dir="$(dirname "${bus_path}")"
-  session_uid="${session_runtime_dir##*/}"
-  [[ "${session_uid}" =~ ^[0-9]+$ ]] || return 2
-  [[ -S "${bus_path}" ]] || return 2
-  if [[ "$("${stat_binary}" -c %u -- "${session_runtime_dir}")" != "${session_uid}" ||
-    "$("${stat_binary}" -c %u -- "${bus_path}")" != "${session_uid}" ]]; then
-    echo "skipping untrusted runtime bus ownership: ${bus_path}" >&2
-    return 1
-  fi
-
-  passwd_entry="$("${getent_binary}" passwd "${session_uid}" || true)"
-  [[ -n "${passwd_entry}" ]] || return 2
-  IFS=: read -r session_user _ _ _ _ session_home _ <<<"${passwd_entry}"
-  [[ -n "${session_user}" && -n "${session_home}" ]] || return 2
-  session_bus_path="${bus_path}"
-  return 0
-}
-
-run_in_session() {
-  "${runuser_binary}" -u "${session_user}" -- \
-    "${env_binary}" -i \
-    HOME="${session_home}" \
-    USER="${session_user}" \
-    LOGNAME="${session_user}" \
-    PATH=/usr/bin:/bin \
-    XDG_RUNTIME_DIR="${session_runtime_dir}" \
-    DBUS_SESSION_BUS_ADDRESS="unix:path=${session_bus_path}" \
-    "$@"
-}
-
 reload_restored_activation() {
   local rollback_failures=0
   local identity_status
@@ -90,8 +62,8 @@ reload_restored_activation() {
   ((activation_existed == 1)) || return 0
   "${cp_binary}" -a -- "${backup_dir}/activation.service" "${activation_file}"
   for bus_path in "${runtime_root}"/[0-9]*/bus; do
-    if load_session_identity "${bus_path}"; then
-      if ! run_in_session \
+    if vinput_package_load_session_identity "${bus_path}"; then
+      if ! vinput_package_run_in_session \
         "${gdbus_binary}" call --session \
         --dest org.freedesktop.DBus \
         --object-path /org/freedesktop/DBus \
@@ -113,9 +85,9 @@ sessions=0
 preflight_failures=0
 shopt -s nullglob
 for bus_path in "${runtime_root}"/[0-9]*/bus; do
-  if load_session_identity "${bus_path}"; then
+  if vinput_package_load_session_identity "${bus_path}"; then
     sessions=$((sessions + 1))
-    if ! run_in_session \
+    if ! vinput_package_run_in_session \
       VINPUT_DAEMON_SYSTEMCTL="${systemctl_binary}" \
       VINPUT_DAEMON_KILL="${kill_binary}" \
       "${vinput_binary}" daemon prepare-remove --preflight --json; then
@@ -140,8 +112,8 @@ fi
 
 failures=0
 for bus_path in "${runtime_root}"/[0-9]*/bus; do
-  if load_session_identity "${bus_path}"; then
-    if ! run_in_session \
+  if vinput_package_load_session_identity "${bus_path}"; then
+    if ! vinput_package_run_in_session \
       VINPUT_DAEMON_SYSTEMCTL="${systemctl_binary}" \
       VINPUT_DAEMON_KILL="${kill_binary}" \
       "${vinput_binary}" daemon prepare-remove --json; then

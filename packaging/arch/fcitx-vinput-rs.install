@@ -10,14 +10,25 @@ post_install() {
 }
 
 post_upgrade() {
+  local helper="${VINPUT_PACKAGE_UPGRADE_HANDOFF:-/usr/lib/fcitx-vinput/package-upgrade-handoff}"
+  local helper_status=0
+
+  if [[ -x "${helper}" ]]; then
+    "${helper}" || helper_status=$?
+  fi
   printf '%s\n' \
     ':: fcitx-vinput-rs upgraded.' \
-    ':: Daemons started by current activation metadata hand off automatically.' \
-    ':: If an older owner remains, each affected desktop user can run:' \
+    ':: Live user sessions with an existing daemon owner were checked automatically.' \
+    ':: Current owners are unchanged; stale owners use the guarded daemon handoff.' \
+    ':: If a session was unavailable, that desktop user can retry:' \
     '   vinput daemon handoff' \
-    ':: The guarded handoff reloads systemd metadata or replaces an idle direct owner.' \
     ':: Reload Fcitx5 if the addon binary changed:' \
     '   fcitx5 -r'
+  if ((helper_status != 0)); then
+    printf '%s\n' \
+      ':: Automatic vinput daemon handoff failed for at least one live session.' >&2
+    return "${helper_status}"
+  fi
 }
 
 pre_remove() {

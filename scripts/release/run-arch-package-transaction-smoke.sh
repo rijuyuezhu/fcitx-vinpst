@@ -111,6 +111,8 @@ assert_package_files_present() {
   for path in \
     /usr/bin/vinput \
     /usr/bin/vinput-daemon \
+    /usr/lib/fcitx-vinput/package-session-common.sh \
+    /usr/lib/fcitx-vinput/package-upgrade-handoff \
     /usr/lib/fcitx-vinput/package-remove-handoff \
     /usr/lib/fcitx5/fcitx5-vinput.so \
     /usr/lib/systemd/user/vinput-daemon.service \
