@@ -48,13 +48,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def log_message(self, _format: str, *_args: object) -> None:
         return
 
-    def send_json(self, status: int, value: object) -> None:
+    def send_json(self, status: int, value: object, body_delay_ms: int = 0) -> None:
         body = json.dumps(value, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.end_headers()
+        if body_delay_ms:
+            time.sleep(body_delay_ms / 1000)
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -139,6 +141,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "candidate": candidate,
             "response_status": args.response_status,
             "response_delay_ms": args.response_delay_ms,
+            "response_body_delay_ms": args.response_body_delay_ms,
         }
         write_json(args.trace_file, trace)
         if args.response_delay_ms:
@@ -147,6 +150,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_json(
                 args.response_status,
                 {"error": {"message": args.response_error}},
+                args.response_body_delay_ms,
             )
             threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
@@ -167,6 +171,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     }
                 ],
             },
+            args.response_body_delay_ms,
         )
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
@@ -182,6 +187,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--response-status", type=int, default=200)
     parser.add_argument("--response-error", default="fixture request failed")
     parser.add_argument("--response-delay-ms", type=int, default=0)
+    parser.add_argument("--response-body-delay-ms", type=int, default=0)
     parser.add_argument("--tls-cert", type=Path)
     parser.add_argument("--tls-key", type=Path)
     parser.add_argument("--allow-empty-selected", action="store_true")
@@ -197,6 +203,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--response-status must be from 200 to 599")
     if args.response_delay_ms < 0:
         parser.error("--response-delay-ms must be non-negative")
+    if args.response_body_delay_ms < 0:
+        parser.error("--response-body-delay-ms must be non-negative")
     if bool(args.tls_cert) != bool(args.tls_key):
         parser.error("--tls-cert and --tls-key must be provided together")
     if args.response_status >= 300 and not args.response_error:

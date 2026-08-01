@@ -2,6 +2,7 @@
 """Act as one deterministic HTTP proxy for an OpenAI-compatible chat request."""
 
 import argparse
+import base64
 import hashlib
 import json
 import threading
@@ -45,6 +46,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         args = self.server.args
         target = urlsplit(self.path)
         authorization = self.headers.get("Authorization", "")
+        proxy_authorization = self.headers.get("Proxy-Authorization", "")
         content_type = self.headers.get("Content-Type", "")
         try:
             content_length = int(self.headers.get("Content-Length", ""))
@@ -56,6 +58,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
             or target.path != "/v1/chat/completions"
         ):
             self.send_json(502, {"error": {"message": "unexpected proxy target"}})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
+        expected_proxy_authorization = ""
+        if args.proxy_username is not None and args.proxy_password is not None:
+            credentials = f"{args.proxy_username}:{args.proxy_password}".encode()
+            expected_proxy_authorization = (
+                "Basic " + base64.b64encode(credentials).decode()
+            )
+        if proxy_authorization != expected_proxy_authorization:
+            self.send_json(
+                407, {"error": {"message": "missing or invalid proxy authorization"}}
+            )
             threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
         if authorization != f"Bearer {args.api_key}":
@@ -106,6 +120,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "target_path": target.path,
                 "authorization_scheme": "Bearer",
                 "authorization_value_recorded": False,
+                "proxy_authorization_scheme": (
+                    "Basic" if expected_proxy_authorization else None
+                ),
+                "proxy_authorization_value_recorded": False,
+                "proxy_authenticated": bool(expected_proxy_authorization),
                 "content_type": "application/json",
                 "model": request["model"],
                 "input_text_present": True,
@@ -145,10 +164,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", required=True)
     parser.add_argument("--input-text", required=True)
     parser.add_argument("--response-text", required=True)
+    parser.add_argument("--proxy-username")
+    parser.add_argument("--proxy-password")
     args = parser.parse_args()
     for name in ("api_key", "expected_host", "model", "input_text", "response_text"):
         if not getattr(args, name):
             parser.error(f"--{name.replace('_', '-')} must be non-empty")
+    if bool(args.proxy_username) != bool(args.proxy_password):
+        parser.error("--proxy-username and --proxy-password must be provided together")
     return args
 
 
@@ -164,6 +187,8 @@ def main() -> int:
             "event": "ready",
             "proxy_url": f"http://{host}:{port}",
             "api_key_recorded": False,
+            "proxy_credentials_recorded": False,
+            "proxy_auth_required": args.proxy_username is not None,
             "input_text_recorded": False,
         },
     )

@@ -175,7 +175,8 @@ start_origin() {
   local response_status="$3"
   local response_error="$4"
   local response_delay_ms="$5"
-  shift 5
+  local response_body_delay_ms="$6"
+  shift 6
   local ready_file="${out_dir}/${name}.ready.json"
   local trace_file="${out_dir}/${name}.trace.json"
   local error_file="${out_dir}/${name}.fixture-error.txt"
@@ -192,6 +193,7 @@ start_origin() {
     --response-status "${response_status}" \
     --response-error "${response_error}" \
     --response-delay-ms "${response_delay_ms}" \
+    --response-body-delay-ms "${response_body_delay_ms}" \
     "$@" >"${log_file}" 2>&1 &
   local pid=$!
   fixture_pids+=("${pid}")
@@ -204,6 +206,15 @@ start_proxy() {
   local name="$1"
   local expected_host="$2"
   local response_text="$3"
+  local proxy_username="${4:-}"
+  local proxy_password="${5:-}"
+  local proxy_auth_args=()
+  if [[ -n "${proxy_username}" || -n "${proxy_password}" ]]; then
+    proxy_auth_args=(
+      --proxy-username "${proxy_username}"
+      --proxy-password "${proxy_password}"
+    )
+  fi
   local ready_file="${out_dir}/${name}.ready.json"
   local trace_file="${out_dir}/${name}.trace.json"
   local log_file="${out_dir}/${name}.fixture.log"
@@ -214,6 +225,7 @@ start_proxy() {
     --expected-host "${expected_host}" \
     --model "${model}" \
     --response-text "${response_text}" \
+    "${proxy_auth_args[@]}" \
     >"${log_file}" 2>&1 &
   local pid=$!
   fixture_pids+=("${pid}")
@@ -274,8 +286,33 @@ jq -e '
   .response_text == "proxy routed final"
 ' "${out_dir}/proxy-route.trace.json" >/dev/null
 
+# Basic credentials embedded in the proxy URL produce a redacted Proxy-Authorization header.
+proxy_username="fixture-proxy-user"
+proxy_password="fixture-proxy-password"
+start_proxy authenticated-proxy remote-asr-auth-proxy.invalid "authenticated proxy final" \
+  "${proxy_username}" "${proxy_password}"
+authenticated_proxy_pid="${started_pid}"
+authenticated_proxy_url="${started_url/http:\/\//http://${proxy_username}:${proxy_password}@}"
+write_config "http://remote-asr-auth-proxy.invalid/v1" 2000
+run_daemon_success authenticated-proxy "authenticated proxy final" \
+  env \
+  -u ALL_PROXY -u all_proxy -u HTTPS_PROXY -u https_proxy -u NO_PROXY -u no_proxy \
+  HTTP_PROXY="${authenticated_proxy_url}" http_proxy="${authenticated_proxy_url}"
+wait_fixture "${authenticated_proxy_pid}"
+jq -e '
+  .event == "proxy-request" and
+  .request_count == 1 and
+  .target_host == "remote-asr-auth-proxy.invalid" and
+  .target_path == "/v1/audio/transcriptions" and
+  .authorization_scheme == "Bearer" and
+  .authorization_value_recorded == false and
+  .proxy_authorization_scheme == "Basic" and
+  .proxy_authorization_value_recorded == false and
+  .proxy_authenticated == true
+' "${out_dir}/authenticated-proxy.trace.json" >/dev/null
+
 # NO_PROXY bypasses an available proxy for the loopback origin.
-start_origin no-proxy-origin "no proxy final" 200 "unused" 0
+start_origin no-proxy-origin "no proxy final" 200 "unused" 0 0
 origin_pid="${started_pid}"
 origin_url="${started_url}"
 start_proxy no-proxy-unused unused.invalid "must not be used"
@@ -302,7 +339,7 @@ for case_name in rate-limit service-unavailable; do
     status=503
     marker="service-offline-marker"
   fi
-  start_origin "${case_name}" "unused" "${status}" "${marker}" 0
+  start_origin "${case_name}" "unused" "${status}" "${marker}" 0 0
   origin_pid="${started_pid}"
   origin_url="${started_url}"
   write_config "${origin_url}" 2000
@@ -313,7 +350,7 @@ for case_name in rate-limit service-unavailable; do
 done
 
 # Request deadlines fail explicitly after the origin accepts the request.
-start_origin timeout "late response" 200 "unused" 250
+start_origin timeout "late response" 200 "unused" 250 0
 timeout_pid="${started_pid}"
 timeout_url="${started_url}"
 write_config "${timeout_url}" 25
@@ -323,6 +360,18 @@ grep -Fq 'remote ASR HTTP request timed out' "${out_dir}/timeout.stderr"
 jq -e '.event == "request" and .response_delay_ms == 250' \
   "${out_dir}/timeout.trace.json" >/dev/null
 
+# Response headers followed by a stalled body retain a distinct diagnostic.
+start_origin response-body-timeout "late body" 200 "unused" 0 250
+body_timeout_pid="${started_pid}"
+body_timeout_url="${started_url}"
+write_config "${body_timeout_url}" 25
+run_daemon_failure response-body-timeout "${clear_proxy_env[@]}"
+wait_fixture "${body_timeout_pid}"
+grep -Fq 'remote ASR HTTP response body timed out' \
+  "${out_dir}/response-body-timeout.stderr"
+jq -e '.event == "request" and .response_body_delay_ms == 250' \
+  "${out_dir}/response-body-timeout.trace.json" >/dev/null
+
 # A self-signed HTTPS endpoint is rejected by the production rustls trust policy.
 openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "${out_dir}/tls-key.pem" \
@@ -331,7 +380,7 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -subj '/CN=127.0.0.1' \
   -addext 'subjectAltName=IP:127.0.0.1' \
   >"${out_dir}/openssl.stdout" 2>"${out_dir}/openssl.stderr"
-start_origin tls "must not complete" 200 "unused" 0 \
+start_origin tls "must not complete" 200 "unused" 0 0 \
   --tls-cert "${out_dir}/tls-cert.pem" \
   --tls-key "${out_dir}/tls-key.pem"
 tls_pid="${started_pid}"
@@ -362,6 +411,13 @@ run_daemon_failure connection-refused "${clear_proxy_env[@]}"
 grep -Fq 'remote ASR HTTP request failed' "${out_dir}/connection-refused.stderr"
 
 rm -f "${config_file}" "${out_dir}/tls-key.pem"
+unset proxy_username proxy_password authenticated_proxy_url
+for proxy_secret in fixture-proxy-user fixture-proxy-password; do
+  if grep -R -F -- "${proxy_secret}" "${out_dir}" >/dev/null; then
+    echo "network evidence retained proxy credentials" >&2
+    exit 1
+  fi
+done
 if grep -R -F -- "${api_key}" "${out_dir}" >/dev/null; then
   echo "remote ASR network evidence retained the API key" >&2
   exit 1
@@ -376,10 +432,12 @@ jq -n \
   '{
     event: $event,
     proxy_route: true,
+    basic_proxy_auth: true,
     no_proxy_bypass: true,
     rate_limit_429: true,
     service_unavailable_503: true,
     request_timeout: true,
+    response_body_timeout: true,
     self_signed_tls_rejected: true,
     dns_failure: true,
     connection_refused: true,
