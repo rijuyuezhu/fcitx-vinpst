@@ -13,6 +13,7 @@ scripts/tests/addon-install-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-asr-menu-smoke.sh
 scripts/tests/toolkit-probe-check.sh
+scripts/tests/niri-live-argument-smoke.sh
 
 scripts/release/check-arch-install-script.sh
 scripts/release/check-arch-pkgbuild.sh

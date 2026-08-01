@@ -29,6 +29,7 @@ wav="${VINPUT_LIVE_TOOLKIT_WAV:-}"
 playback_target="${VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
 auto_trigger="${VINPUT_LIVE_TOOLKIT_AUTO_TRIGGER:-0}"
 expected_cycles="${VINPUT_TOOLKIT_EXPECTED_CYCLES:-1}"
+timeout_seconds="${VINPUT_TOOLKIT_TIMEOUT_SECONDS:-}"
 uinput_sender="${VINPUT_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
 playback_done_prefix="${out_dir}/${mode}.playback-done"
 trigger_armed_prefix="${out_dir}/${mode}.trigger-armed"
@@ -40,6 +41,17 @@ window_title="fcitx-vinput GTK4 live probe"
 if [[ ! "${expected_cycles}" =~ ^[0-9]+$ ||
   "${expected_cycles}" -lt 1 || "${expected_cycles}" -gt 20 ]]; then
   echo "VINPUT_TOOLKIT_EXPECTED_CYCLES must be an integer from 1 to 20" >&2
+  exit 2
+fi
+if [[ -z "${timeout_seconds}" ]]; then
+  timeout_seconds=$((expected_cycles * 15))
+  if ((timeout_seconds < 60)); then
+    timeout_seconds=60
+  fi
+fi
+if [[ ! "${timeout_seconds}" =~ ^[0-9]+$ ||
+  "${timeout_seconds}" -lt 1 || "${timeout_seconds}" -gt 3600 ]]; then
+  echo "VINPUT_TOOLKIT_TIMEOUT_SECONDS must be an integer from 1 to 3600" >&2
   exit 2
 fi
 
@@ -218,6 +230,7 @@ fi
 set +e
 VINPUT_TOOLKIT_EXTERNAL_WINDOW_FOCUS="${auto_trigger}" \
 VINPUT_TOOLKIT_EXPECTED_CYCLES="${expected_cycles}" \
+VINPUT_TOOLKIT_TIMEOUT_SECONDS="${timeout_seconds}" \
   GTK_IM_MODULE=fcitx "${binary}" "${mode}" > >(tee "${log}") &
 probe_pid=$!
 if [[ "${auto_trigger}" != 0 ]]; then
