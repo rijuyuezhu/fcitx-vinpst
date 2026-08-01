@@ -179,6 +179,7 @@ if(Fcitx5Core_FOUND)
 
   add_library(fcitx5_vinput_addon MODULE
     src/fcitx_addon.cpp
+    src/fcitx_addon_menu.cpp
     src/fcitx_addon_factory.cpp
   )
   target_link_libraries(fcitx5_vinput_addon
@@ -415,6 +416,7 @@ if(Fcitx5Core_FOUND)
     vinput_fcitx_addon_dbus_smoke
     tests/fcitx_addon_dbus_smoke.cpp
     src/fcitx_addon.cpp
+    src/fcitx_addon_menu.cpp
     src/fcitx_i18n.cpp
     src/fcitx_config.cpp
     src/fcitx_daemon_signal_monitor.cpp
@@ -447,6 +449,7 @@ if(Fcitx5Core_FOUND)
     vinput_fcitx_native_addon_dbus_smoke
     tests/native_fcitx_addon_dbus_smoke.cpp
     src/fcitx_addon.cpp
+    src/fcitx_addon_menu.cpp
   )
   target_compile_definitions(
     vinput_fcitx_native_addon_dbus_smoke
