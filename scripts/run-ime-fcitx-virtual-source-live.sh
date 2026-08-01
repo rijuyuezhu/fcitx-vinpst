@@ -6,6 +6,8 @@ cd "${repo_root}"
 
 wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
 modes="${VINPUT_LIVE_NATIVE_MODES:-normal}"
+probe_kind="${VINPUT_LIVE_VIRTUAL_PROBE_KIND:-fcitx}"
+toolkit_mode="${VINPUT_LIVE_TOOLKIT_MODE:-normal}"
 reload_before_probe="${VINPUT_LIVE_RELOAD_BEFORE_PROBE:-0}"
 require_partial="${VINPUT_LIVE_REQUIRE_PARTIAL:-1}"
 env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
@@ -140,6 +142,22 @@ if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 && "${require_partial}" == "0" 
   echo "owner-loss validation requires streaming partial evidence" >&2
   exit 2
 fi
+case "${probe_kind}" in
+fcitx) ;;
+gtk4)
+  case "${toolkit_mode}" in
+  normal | command) ;;
+  *)
+    echo "VINPUT_LIVE_TOOLKIT_MODE must be normal or command" >&2
+    exit 2
+    ;;
+  esac
+  ;;
+*)
+  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx or gtk4" >&2
+  exit 2
+  ;;
+esac
 
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
@@ -288,52 +306,92 @@ if [[ "${reload_before_probe}" != 0 ]]; then
   reload_proven=true
 fi
 
-VINPUT_LIVE_NATIVE_WAV="${wav_path}" \
-VINPUT_LIVE_NATIVE_MODES="${modes}" \
-VINPUT_LIVE_REQUIRE_PARTIAL="${require_partial}" \
-VINPUT_LIVE_PLAYBACK_TARGET="${sink_name}" \
-VINPUT_LIVE_NATIVE_OUT_DIR="${out_dir}/fcitx" \
-  scripts/run-ime-fcitx-native-live.sh
+if [[ "${probe_kind}" == fcitx ]]; then
+  VINPUT_LIVE_NATIVE_WAV="${wav_path}" \
+  VINPUT_LIVE_NATIVE_MODES="${modes}" \
+  VINPUT_LIVE_REQUIRE_PARTIAL="${require_partial}" \
+  VINPUT_LIVE_PLAYBACK_TARGET="${sink_name}" \
+  VINPUT_LIVE_NATIVE_OUT_DIR="${out_dir}/fcitx" \
+    scripts/run-ime-fcitx-native-live.sh
 
-for mode in $(tr ',' ' ' <<<"${modes}"); do
-  if [[ "${VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}" != 0 ]]; then
-    jq -s -e --arg selected "${VINPUT_LIVE_SELECTED_TEXT:-}" '
-      any(.[];
-        .event == "summary" and
-        .ok == true and
-        .expect_unchanged_on_error == true and
-        .selection_source == "surrounding" and
-        .selected_text == $selected and
-        .commit == "" and
-        .delete_count == 0 and
-        .final_buffer == $selected
-      )
-    ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
-  elif [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 ]]; then
-    jq -s -e '
-      any(.[];
-        .event == "summary" and
-        .ok == true and
-        .require_partial == true and
-        .partial_count > 0 and
-        .owner_loss == true and
-        .owner_loss_preedit_count > 0 and
-        (.owner_loss_preedit | ascii_downcase | contains("unavailable")) and
-        .commit == ""
-      )
-    ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
-  else
-    jq -s -e --argjson require_partial "$( [[ "${require_partial}" == "1" ]] && echo true || echo false )" '
-      any(.[];
-        .event == "summary" and
-        .ok == true and
-        .require_partial == $require_partial and
-        ($require_partial == false or .partial_count > 0) and
-        (.commit | length) > 0
-      )
-    ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
+  for mode in $(tr ',' ' ' <<<"${modes}"); do
+    if [[ "${VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}" != 0 ]]; then
+      jq -s -e --arg selected "${VINPUT_LIVE_SELECTED_TEXT:-}" '
+        any(.[];
+          .event == "summary" and
+          .ok == true and
+          .expect_unchanged_on_error == true and
+          .selection_source == "surrounding" and
+          .selected_text == $selected and
+          .commit == "" and
+          .delete_count == 0 and
+          .final_buffer == $selected
+        )
+      ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
+    elif [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 ]]; then
+      jq -s -e '
+        any(.[];
+          .event == "summary" and
+          .ok == true and
+          .require_partial == true and
+          .partial_count > 0 and
+          .owner_loss == true and
+          .owner_loss_preedit_count > 0 and
+          (.owner_loss_preedit | ascii_downcase | contains("unavailable")) and
+          .commit == ""
+        )
+      ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
+    else
+      jq -s -e --argjson require_partial "$( [[ "${require_partial}" == "1" ]] && echo true || echo false )" '
+        any(.[];
+          .event == "summary" and
+          .ok == true and
+          .require_partial == $require_partial and
+          ($require_partial == false or .partial_count > 0) and
+          (.commit | length) > 0
+        )
+      ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
+    fi
+  done
+else
+  toolkit_expected="${VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING:-}"
+  if [[ "${toolkit_mode}" == command && -z "${toolkit_expected}" ]]; then
+    toolkit_expected="adapter-backed: selected text"
   fi
-done
+  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPUT_LIVE_TOOLKIT_AUTO_TRIGGER=1 \
+  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/gtk4" \
+  VINPUT_TOOLKIT_REQUIRE_PARTIAL="${require_partial}" \
+  VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING="${toolkit_expected}" \
+    scripts/run-ime-gtk4-native-live.sh "${toolkit_mode}"
+  jq -s -e --arg mode "${toolkit_mode}" '
+    any(.[];
+      .event == "summary" and
+      .toolkit == "gtk4" and
+      .mode == $mode and
+      .partial == true and
+      .commit == true and
+      .replacement == ($mode == "command") and
+      .timed_out == false and
+      .ok == true
+    )
+  ' "${out_dir}/gtk4/${toolkit_mode}.jsonl" >/dev/null
+  toolkit_key=F9
+  if [[ "${toolkit_mode}" == command ]]; then
+    toolkit_key=F10
+  fi
+  jq -s -e --arg key "${toolkit_key}" '
+    length == 2 and
+    all(.[]; .event == "uinput-key" and .key == $key and .ok == true)
+  ' "${out_dir}/gtk4/${toolkit_mode}.uinput.jsonl" >/dev/null
+  jq -e '
+    .event == "window-focus" and
+    .backend == "niri" and
+    .focused == true and
+    .ok == true
+  ' "${out_dir}/gtk4/${toolkit_mode}.focus.json" >/dev/null
+fi
 
 restore_profile
 cmp "${out_dir}/config-before.json" "${config_path}"
@@ -352,6 +410,7 @@ fi
 jq -n \
   --arg sink "${sink_name}" \
   --arg source "${source_name}" \
+  --arg probe_kind "${probe_kind}" \
   --arg before_capture "${before_capture}" \
   --argjson before_pid "${before_pid}" \
   --argjson virtual_pid "${virtual_pid}" \
@@ -361,6 +420,7 @@ jq -n \
   --slurpfile preflight "${out_dir}/preflight.json" \
   '{
     event: "summary",
+    probe_kind: $probe_kind,
     route: {sink: $sink, source: $source},
     preflight: $preflight[0],
     before_capture: $before_capture,

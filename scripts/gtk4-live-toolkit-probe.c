@@ -28,6 +28,7 @@ typedef struct {
   bool commit_seen;
   bool replacement_seen;
   bool selection_ready;
+  bool trust_external_window_focus;
   bool timed_out;
   bool window_destroyed;
 } Probe;
@@ -162,8 +163,14 @@ static gboolean PrepareFocusAndSelection(gpointer user_data) {
     probe->selection_source_id = 0;
     return G_SOURCE_REMOVE;
   }
-  if (!gtk_window_is_active(GTK_WINDOW(probe->window)) ||
-      !gtk_widget_has_focus(probe->entry)) {
+  gtk_widget_grab_focus(probe->entry);
+  const bool window_active = gtk_window_is_active(GTK_WINDOW(probe->window));
+  GtkWidget *focus_widget = gtk_window_get_focus(GTK_WINDOW(probe->window));
+  const bool entry_focused =
+      gtk_widget_has_focus(probe->entry) || gtk_widget_is_focus(probe->entry) ||
+      focus_widget == probe->entry ||
+      (focus_widget != NULL && gtk_widget_is_ancestor(focus_widget, probe->entry));
+  if (!entry_focused || (!probe->trust_external_window_focus && !window_active)) {
     return G_SOURCE_CONTINUE;
   }
   if (probe->mode == PROBE_MODE_NORMAL) {
@@ -298,6 +305,8 @@ int main(int argc, char **argv) {
       .commit_seen = false,
       .replacement_seen = false,
       .selection_ready = mode == PROBE_MODE_NORMAL,
+      .trust_external_window_focus =
+          EnvFlag("VINPUT_TOOLKIT_EXTERNAL_WINDOW_FOCUS", false),
       .timed_out = false,
       .window_destroyed = false,
   };
