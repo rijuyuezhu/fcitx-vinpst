@@ -5,7 +5,7 @@ and live tests:
 
 - command-ASR JSON/WAV helpers;
 - the legacy raw-PCM-to-WAV compatibility bridge;
-- loopback OpenAI-compatible ASR and text-provider servers, with optional fixed loopback ports for same-endpoint restart/CA-file replacement and controlled response padding for bounded-body gates, and optional 3xx `Location` headers for fail-closed redirect gates;
+- loopback OpenAI-compatible ASR and text-provider servers, with optional fixed loopback ports for same-endpoint restart/CA-file replacement and controlled response delays/padding for timeout and bounded-body gates, and optional 3xx `Location` headers for fail-closed redirect gates;
 - deterministic WAV generation.
 
 They are executable test instruments, not product daemons. Callers must provide

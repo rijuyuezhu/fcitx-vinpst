@@ -35,7 +35,7 @@ Pinned decisions, covered by `crates/vinput-config/tests/legacy_compat.rs`:
 - command ASR providers must configure a non-empty `command`.
 - `global.duck_output_while_recording` defaults to `false`; `global.duck_output_volume` defaults to `0.25`, finite parsed values are clamped to `0.0..=1.0`, and non-finite runtime values are rejected.
 - VAD threshold and duration values are strictly range-checked instead of silently clamped: threshold `0.05..=0.95`, minimum speech `0.05..=2.0` seconds, minimum silence `0.05..=5.0` seconds, and speech padding at most `2000` ms.
-- scene `candidate_count`, `timeout_ms`, and `context_lines` limits are strict and are not clamped/defaulted after invalid values are provided.
+- omitted scene `timeout_ms` uses the legacy 4000 ms request deadline; an explicitly provided zero remains invalid rather than being repaired. Scene `candidate_count` and `context_lines` limits are strict and are not clamped after invalid values are provided.
 - missing active scene references are rejected. Unknown non-empty active ASR provider references are rejected when an explicit provider list is present; minimal diagnostics configs that omit providers retain the historical placeholder behavior. The exact empty string is a valid legacy-compatible "no provider selected" state, while whitespace-only ids remain invalid.
 - unknown scene `provider_id`, blank scene `model`, and blank scene `prompt` are rejected. Non-empty `model` or `prompt` without a provider remains accepted by the current validation contract.
 
