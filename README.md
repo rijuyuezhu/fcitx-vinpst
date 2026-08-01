@@ -45,14 +45,15 @@ Live-proven in a real user session:
 - verified daemon-owner loss replaces partial text with an unavailable preedit, commits nothing, and recovers through D-Bus activation;
 - an idle same-provider `ReloadAsrBackend` keeps the daemon owner/provider/model stable and is followed by another successful virtual-source recognition;
 - repeatable opt-in audio evidence through `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh`, with mode/focus/owner-loss/reload flags, plus non-audio menu evidence through `scripts/live/niri/run-ime-fcitx-menu-live.sh`.
+- a real sandboxed Chromium page through the host non-loopback LAN address, with authenticated remote-text input, loopback Realtime output, exact committed/delta/completed events, and complete credential/profile/listener cleanup; another physical device remains unproven.
 
 Still requiring live proof or implementation:
 
-- physical microphone and broader capture-device evidence, plus GTK3/Qt6 normal and command evidence and clipboard fallback across multiple GUI applications;
-- real menu selection/paging, notifications, model/provider-switch reload, and external-provider command behavior;
-- remote text live cross-device browser proof;
-- production publication and lifecycle policy beyond the checked Arch candidate, including automatic package-manager handoff, incompatible-state rollback, production key operations, external repository hosting, and live installed-desktop proof;
-- the legacy Qt GUI, which is intentionally deferred.
+- additional physical-device switching breadth and audible hardware-output ducking;
+- real hosted ASR and cloud text-provider DNS/TLS/proxy/rate-limit/outage and credential-operation evidence;
+- remote-text browser proof from another physical network device; the real Chromium same-host LAN path is complete;
+- production repository/key publication, an actual host package-installed upgrade, live multi-user upgrade/removal, and regression on an unrelated external machine;
+- the standalone management GUI, which is intentionally deferred and must be implemented in Rust.
 
 See [`docs/migration/function-gap-audit.md`](docs/migration/function-gap-audit.md) for status and [`docs/migration/e2e-replication-plan.md`](docs/migration/e2e-replication-plan.md) for priorities.
 

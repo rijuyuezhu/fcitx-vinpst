@@ -72,7 +72,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 - Validate one real third-party OpenAI-compatible text service, including credential handling and network failure behavior.
 - Broaden daemon-originated notification categories from observed needs.
 - Keep the source-layout regression guard green and continue splitting only when data, orchestration, transport, formatting, or platform integration form distinct feature boundaries.
-- Prove a real browser/device flow using the redacted endpoints reported by `vinput daemon status`.
+- Keep the real Chromium same-host LAN gate green, then repeat the browser flow from another physical device using a redacted endpoint reported by `vinput daemon status`.
 
 ## P2: release readiness
 

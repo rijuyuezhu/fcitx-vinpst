@@ -121,7 +121,7 @@ Do not replace the Fcitx5 addon with a Rust addon until mature Rust bindings and
 
 ## What not to port mechanically
 
-- Raw HTTP/WebSocket code in `daemon/remote`: the deterministic protocol core, Axum runtime, normal-daemon reload/shutdown ownership, and redacted endpoint diagnostics are implemented; prove the real cross-device browser path rather than porting raw socket code.
+- Raw HTTP/WebSocket code in `daemon/remote`: the deterministic protocol core, Axum runtime, normal-daemon reload/shutdown ownership, redacted endpoint diagnostics, and a real Chromium same-host LAN path are implemented; repeat the browser flow from another physical device rather than porting raw socket code.
 - Generic path/file/process/string utilities: prefer well-maintained Rust crates.
 - C++ daemon poll loop: replace with structured async tasks and explicit shutdown.
 - Ad-hoc JSON parsing: use typed serde models and golden fixtures.

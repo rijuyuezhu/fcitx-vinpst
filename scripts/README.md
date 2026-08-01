@@ -13,6 +13,7 @@ behavior does not depend on their current directory depth.
 | `fixtures/` | Standalone protocol, ASR, text-provider, and WAV fixtures | Called by tests and live gates |
 | `live/audio/` | Opt-in PipeWire, WirePlumber, microphone, and recognizer probes | Real user audio session |
 | `live/system/` | Opt-in host lifecycle probes | Real user systemd/session bus |
+| `live/network/` | Opt-in HTTP/WebSocket/browser transport probes | Operational network interface and real client application |
 | `live/niri/` | Local desktop automation for the project's niri/Wayland test host | niri, Fcitx, uinput, GUI applications |
 | `tools/` | Developer diagnostics and benchmarks | Manual use |
 
@@ -23,6 +24,7 @@ gate, and invoke specialized scripts directly. For example:
 ```sh
 scripts/tests/daemon/run-daemon-handoff-smoke.sh
 scripts/live/audio/run-output-ducking-live.sh
+scripts/live/network/run-remote-text-chromium-lan-live.sh
 scripts/live/niri/run-ime-gtk4-native-live.sh command
 ```
 

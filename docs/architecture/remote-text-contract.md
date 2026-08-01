@@ -80,9 +80,17 @@ The legacy `GetAsrBackendState.remote_endpoints` field describes the running bro
 
 The private-session lifecycle smoke queries `vinput daemon status --json`, checks that `asr_backend.remote_endpoints` and `runtime_status.remote_text.endpoints` agree, validates the listener address, and rejects any API-key leak.
 
+## Same-host LAN browser evidence
+
+The opt-in `scripts/live/network/run-remote-text-chromium-lan-live.sh` gate starts the standalone server on `0.0.0.0` and loads the real browser page through an operational non-loopback IPv4 endpoint. A Chromium renderer authenticates the `/ws` input connection and submits text through the page editor, while a separate Bearer-authenticated output client connects to `/v1/realtime` through loopback, preserving the service's output-peer restriction.
+
+The retained evidence requires the page to report both clients connected, the editor to be enabled, and one exact `input_audio_buffer.committed` -> transcription `delta` -> transcription `completed` sequence with a shared item id and exact text. Socket evidence must contain a non-loopback browser connection and a loopback output connection. The Chromium renderer must retain `NoNewPrivs=1`, seccomp filter mode, zero effective capabilities, a nested PID namespace, and no browser sandbox-disable flag. Cleanup removes the temporary browser profile, redacts and scans for the API key, stops the server through `SIGINT`, and proves listener release.
+
+The successful 2026-08-01 run used Google Chrome 152.0.7967.2 dev through `192.168.0.104`. This is real-browser, non-loopback, same-host LAN transport evidence. It deliberately records `same_host_lan_proof=true` and `cross_device_proof=false`.
+
 ## Remaining live proof
 
-Remote text parity remains **partial** only at the user-facing evidence boundary:
+Remote text parity remains **partial** at the final physical-device boundary:
 
-- prove the browser flow from another real device on the desktop user's network;
-- refine external-user setup and troubleshooting documentation from that real-session evidence.
+- repeat the browser input flow from another phone, tablet, laptop, or other network peer using a redacted endpoint reported by the normal daemon;
+- refine external-user network/firewall troubleshooting from that separate-device run.

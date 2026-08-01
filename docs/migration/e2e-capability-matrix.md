@@ -76,7 +76,7 @@ Current CLI gaps are not command-group gaps. They are output polish, non-systemd
 | Text postprocess | live-proven for local adapter and loopback OpenAI-compatible provider | deterministic command/OpenAI paths plus real F10 HTTP request, candidate selection, deletion, commit, and restoration; third-party cloud behavior remains |
 | Adapter supervision | deterministic | process/PID lifecycle and D-Bus control |
 | Notifications and recovery | live-proven for retained local cases | focus handoff keeps partials/final commit on the originating context; verified daemon loss surfaces an unavailable preedit with zero commit; information notifications are observed from the current Fcitx PID; daemon reload failure produces a matching 5-second error notification while preserving the old backend; same-provider reload and model switching are followed by successful recognition | Broader notification categories and cross-provider recovery |
-| Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, local-socket tests, and private-session process smoke | Live cross-device browser proof |
+| Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, local-socket tests, private-session process smoke, and a real sandboxed Chromium same-host LAN page/WebSocket path with exact event and cleanup evidence | Browser proof from another physical network device |
 
 ## Registry/resource comparison
 
@@ -156,7 +156,7 @@ The installed `sherpa-native-command-live` profile now has retained normal/comma
 
 - externally hosted repository publication, production signing-key custody/rotation/revocation and independent public-key/fingerprint distribution, and non-Arch package formats;
 - actual host package-installed upgrade and live production multi-user upgrade/removal proof; deterministic ownership-verified upgrade/removal dispatch is complete, unsupported future-schema refusal/preservation is complete, and migration rollback waits for a second production schema;
-- remote text live cross-device browser proof;
+- remote text browser proof from another physical network device; the real Chromium same-host LAN path is complete;
 - deferred Rust `vinput-gui` implementation after its iced-first spike criteria are met; see [`../architecture/gui-contract.md`](../architecture/gui-contract.md).
 
 ## Immediate next work

@@ -291,7 +291,20 @@ Verify in the real session:
 - cross-client busy-state reconciliation;
 - model selection followed by background reload.
 
-## 8. Live PipeWire diagnostics
+## 8. Remote text LAN browser path
+
+Run the standalone diagnostic gate without changing the installed user profile:
+
+```sh
+VINPUT_REMOTE_TEXT_BROWSER=/path/to/chromium \
+  scripts/live/network/run-remote-text-chromium-lan-live.sh
+```
+
+The gate selects an operational non-loopback IPv4 address, serves the browser page on `0.0.0.0`, and uses a real Chromium-family browser to load that LAN URL. The page authenticates and sends text over `/ws`; the Realtime-compatible output client remains on loopback and requires the Bearer key. Evidence under `target/tmp/remote-text-chromium-lan-live/` includes page state, established LAN/loopback sockets, exact committed/delta/completed events, and Linux renderer-sandbox fields. The temporary key must not appear in retained files, the browser profile must be removed, and the listener must be released.
+
+This is same-host non-loopback transport proof, not another-device proof. Record `same_host_lan_proof=true` and `cross_device_proof=false`; do not advance the cross-device matrix row until a separate physical browser reaches an endpoint reported by the normal daemon.
+
+## 9. Live PipeWire diagnostics
 
 ```sh
 scripts/tests/pipewire-check.sh

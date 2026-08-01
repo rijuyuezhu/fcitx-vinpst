@@ -8,6 +8,9 @@ host lifecycle changes.
   graph and restores the original graph/configuration before exit.
 - `system/` exercises the current user systemd/session-bus lifecycle and must
   restore the original owner and activation metadata.
+- `network/` exercises real HTTP/WebSocket/browser boundaries without changing
+  the installed user profile; each gate states whether it is loopback, same-host
+  LAN, or true cross-device evidence.
 - `niri/` contains desktop automation tied to the project's niri/Wayland test
   host. It is not a portable generic desktop test suite.
 
