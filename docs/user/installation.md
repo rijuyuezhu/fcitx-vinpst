@@ -124,6 +124,50 @@ vinput device use <target> --config "$config" --in-place
 vinput daemon restart
 ```
 
+### Custom provider CA and proxy environment
+
+Remote ASR and OpenAI-compatible text providers use the standard proxy environment supported by reqwest. `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` may be set for the daemon process or for a one-shot `vinput llm test` command. A proxy URL may contain Basic credentials, but treat that URL as a secret and do not include it in logs or bug reports.
+
+Set `SSL_CERT_FILE` to an absolute path containing a PEM certificate bundle when a provider must trust an additional private CA. The bundle must be a regular file no larger than 4 MiB. Its certificates are added to the built-in `WebPKI` roots; they do not replace public roots, and certificate verification is not disabled.
+
+For the systemd user service, create a private environment file and reference it from a drop-in:
+
+```sh
+install -d -m 700 "${XDG_CONFIG_HOME:-$HOME/.config}/fcitx-vinput"
+cat >"${XDG_CONFIG_HOME:-$HOME/.config}/fcitx-vinput/provider.env" <<'EOF'
+SSL_CERT_FILE=/absolute/path/to/private-ca-bundle.pem
+HTTPS_PROXY=http://proxy.example.test:3128
+NO_PROXY=localhost,127.0.0.1
+EOF
+chmod 600 "${XDG_CONFIG_HOME:-$HOME/.config}/fcitx-vinput/provider.env"
+
+systemctl --user edit vinput-daemon.service
+```
+
+Use this drop-in, replacing the path when `XDG_CONFIG_HOME` is customized:
+
+```ini
+[Service]
+EnvironmentFile=%h/.config/fcitx-vinput/provider.env
+```
+
+Then reload and restart the service:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user restart vinput-daemon.service
+```
+
+For an isolated CLI check, pass the environment only to that command:
+
+```sh
+SSL_CERT_FILE=/absolute/path/to/private-ca-bundle.pem \
+HTTPS_PROXY=http://proxy.example.test:3128 \
+vinput llm test <provider-id> --config "$config"
+```
+
+The deterministic tests cover a Basic-authenticated HTTP CONNECT tunnel to a CA-signed HTTPS fixture. They do not establish support for PAC, NTLM/Kerberos, HTTPS proxy endpoints, or a production TLS-interception policy.
+
 ## 6. Upgrade
 
 Verify the new candidate exactly as in step 1, then install the new package with `pacman -U`.
@@ -169,6 +213,7 @@ Common boundaries:
 - **Stale daemon after upgrade:** inspect `daemon status`, then use `vinput daemon handoff` only when stale-owner diagnostics are present.
 - **Addon not visible:** verify the package is installed, restart Fcitx5 with `fcitx5 -r`, and inspect the addon section of `doctor`.
 - **No audio source:** run `vinput device list --config "$config"`; verify the user PipeWire session and select a valid target.
+- **Private provider certificate is rejected:** verify that `SSL_CERT_FILE` names a readable PEM bundle, restart the daemon after changing its environment, and confirm the service drop-in points to the intended environment file. Client setup errors intentionally omit the local certificate path and file contents.
 - **Removal is refused:** finish or stop the active recording and retry. The package intentionally refuses to terminate an active session.
 
 For a reproducible bug report, retain the package version, architecture, `doctor` output, `daemon status`, the last relevant daemon log lines, and whether the problem occurs before capture, during ASR, in the Fcitx frontend, or only in one application.
