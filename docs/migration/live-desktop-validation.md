@@ -161,7 +161,7 @@ In at least two application/toolkit combinations:
 
 ### Repeatable toolkit probes
 
-Use the GTK3 and Qt6 probes to capture toolkit-native preedit and commit evidence. They create real text widgets and wait for a real desktop shortcut; synthetic toolkit key events are intentionally forbidden because they are not reliable under Wayland.
+Use the GTK3 and Qt6 probes to capture toolkit-native preedit and commit evidence. They create real text widgets and wait for a real desktop shortcut; synthetic toolkit key events are intentionally forbidden because they are not reliable under Wayland. The GTK4 gate additionally supports a repeatable niri path: it verifies the exact focused window through `niri msg`, sends real kernel F9/F10 events through writable `/dev/uinput`, routes the validated WAV through an isolated PipeWire source, and never injects a GDK key event.
 
 ```sh
 VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
@@ -172,9 +172,13 @@ VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
   just ime-qt6-native-live normal
 VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
   just ime-qt6-native-live command
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  just ime-gtk4-virtual-source-live normal
+VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  just ime-gtk4-virtual-source-live command
 ```
 
-Each window prints JSONL and exits successfully only after the expected partial plus normal commit or command replacement. Evidence is written under `target/tmp/ime-gtk3-native-live` or `target/tmp/ime-qt6-native-live`. A compiled probe or an informal success report without its application/toolkit and output is not matrix evidence.
+Each window prints JSONL and exits successfully only after the expected partial plus normal commit or command replacement. GTK4 additionally retains compositor-focus JSON, exactly two successful uinput-key events, isolated-audio preflight, and profile restoration under `target/tmp/ime-gtk4-virtual-source-live/{normal,command}`. A compiled probe or an informal success report without its application/toolkit and output is not matrix evidence.
 
 ### Focus and owner-loss probes
 
@@ -246,9 +250,10 @@ The following installed-profile summaries reported `ok: true`:
 - daemon error notification: a recoverable invalid-model reload emitted `asr_backend_reload_failed`, and the current Fcitx PID forwarded the exact runtime error through `dialog-error` with a 5000 ms timeout while the old backend remained effective under `target/tmp/ime-fcitx-error-notification-live`;
 - ASR model switch: F8/Enter selected Paraformer, offline recognition committed `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯`, then exact profile restoration reloaded Zipformer and produced eight partials plus `对我做了介绍那么我想说的是呢大家如果对我的研究感兴趣呢`; service, profile, Fcitx, and backend restoration all reported true under `target/tmp/ime-fcitx-model-switch-live`.
 
-The real-key application matrix now also reports `ok: true` for all six toolkit cases:
+The real-key application matrix now also reports `ok: true` for all eight toolkit cases:
 
 - GTK3 normal and command under `target/tmp/ime-gtk3-native-live`;
+- GTK4 normal and command under `target/tmp/ime-gtk4-virtual-source-live`, with niri focus and `/dev/uinput` evidence;
 - Qt6 normal and command under `target/tmp/ime-qt6-native-live`;
 - Chromium/Ozone normal and command under `target/tmp/ime-chromium-native-live`.
 
@@ -294,7 +299,7 @@ Real desktop native alpha requires one documented profile where:
 - diagnostics explain install, owner, runtime, audio, and frontend failures;
 - `just ci` remains green afterward.
 
-Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation through both an isolated PipeWire source and the default physical ALSA Digital Microphone, surrounding-text replacement through both a local adapter and a loopback OpenAI-compatible HTTP process, Wayland primary-selection fallback, safe command rejection when both surrounding and primary selections are empty, scene/ASR display/filter, scene selection and configured-key scene paging, installed-catalog zh_CN Scene/ASR titles/status, official English/zh_CN configuration-form labels and trigger-mode choices, and scene-info/ASR-switch/error-summary notifications with English/original-locale restoration, F8 same-provider model selection and internal-to-command-provider switching with recognition roundtrips, information/error notifications, focus handoff, verified owner loss, and same-provider reload, plus GTK3, Qt6, and Chromium normal/command application paths with real desktop key events. The gates restore the original capture target, primary text, active scene, profile and backup bytes, activation service, Fcitx process, local adapter, and effective backend; the physical gate uses no playback injection. The compatibility external-command child reuses the original Sherpa/Zipformer model, while the companion Whisper gate proves an independent local recognizer/model. Both the remote ASR endpoint and external text provider are independent loopback HTTP fixtures: their request/response runtimes are live-proven, but hosted-service DNS/TLS/proxy/rate-limit/outage behavior and credential rotation/custody are not. Additional physical-device switching breadth, additional locales, and broader cross-application behavior remain outside the proven boundary.
+Temporary-HOME `user-ime-sherpa-native-activation-smoke` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation through both an isolated PipeWire source and the default physical ALSA Digital Microphone, surrounding-text replacement through both a local adapter and a loopback OpenAI-compatible HTTP process, Wayland primary-selection fallback, safe command rejection when both surrounding and primary selections are empty, scene/ASR display/filter, scene selection and configured-key scene paging, installed-catalog zh_CN Scene/ASR titles/status, official English/zh_CN configuration-form labels and trigger-mode choices, and scene-info/ASR-switch/error-summary notifications with English/original-locale restoration, F8 same-provider model selection and internal-to-command-provider switching with recognition roundtrips, information/error notifications, focus handoff, verified owner loss, and same-provider reload, plus GTK3, GTK4, Qt6, and Chromium normal/command application paths with real desktop key events. The gates restore the original capture target, primary text, active scene, profile and backup bytes, activation service, Fcitx process, local adapter, and effective backend; the physical gate uses no playback injection. The compatibility external-command child reuses the original Sherpa/Zipformer model, while the companion Whisper gate proves an independent local recognizer/model. Both the remote ASR endpoint and external text provider are independent loopback HTTP fixtures: their request/response runtimes are live-proven, but hosted-service DNS/TLS/proxy/rate-limit/outage behavior and credential rotation/custody are not. Additional physical-device switching breadth, additional locales, and broader cross-application behavior remain outside the proven boundary.
 
 The opt-in `just systemd-upgrade-live` gate uses the current user systemd manager without installing a package. It requires the existing vinput owner to be idle, saves the original D-Bus activation entry and owner executable/command entry, starts a temporary `Type=dbus` runtime unit, atomically replaces a copied daemon, and requires `NRestarts >= 1`, a changed `MainPID`, and a healthy replacement owner. It then removes the temporary unit, restores the activation file byte-for-byte through rename, reloads D-Bus activation, reactivates the original profile, verifies the original executable and command entry, and rejects unit or backup residue. Evidence is retained in `target/tmp/systemd-upgrade-live/summary.json`; this is live supervision proof, not yet an actual package-installed upgrade.
 
