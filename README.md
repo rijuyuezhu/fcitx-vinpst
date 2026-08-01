@@ -30,7 +30,7 @@ Implemented and deterministically validated:
 - live adapter registry listing and `vinput adapter install`, including short ids, mirror fallback, executable script publication, config backup, environment placeholders, and guarded managed updates;
 - native offline and online registry-model ASR families currently used by the project;
 - `sherpa-native-live` user installation with a copied `libsherpa-onnx` and `libonnxruntime` bundle, plus the checked `sherpa-native-command-live` variant with one configured command adapter;
-- a checked Arch Linux `x86_64` package and signed release-candidate pipeline; the exact artifact, trust, transaction, and handoff contracts live in [`docs/architecture/packaging-contract.md`](docs/architecture/packaging-contract.md);
+- a checked Arch Linux `x86_64` package and signed release-candidate pipeline; external-user installation and lifecycle steps live in [`docs/user/installation.md`](docs/user/installation.md), while artifact, trust, transaction, and handoff contracts live in [`docs/architecture/packaging-contract.md`](docs/architecture/packaging-contract.md);
 - wrapper-based activation through `vinput-daemon-with-vinput-env.sh`;
 - activation-safe `RecognitionPartial` delivery, concrete Fcitx preedit, final commit, and command candidate replacement in temporary-HOME smokes;
 - persistent frontend keys, Tap/Hold/Both trigger behavior, searchable scene/ASR menus, localization, notifications, and daemon-owner recovery.

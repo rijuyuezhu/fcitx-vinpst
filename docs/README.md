@@ -2,7 +2,11 @@
 
 The tracked documentation is split by purpose. Read only the source needed for the task; do not copy status text between files.
 
-## Required reading order
+## User documentation
+
+External users installing the Arch package should start with [`user/installation.md`](user/installation.md).
+
+## Required developer reading order
 
 1. [`../AGENTS.md`](../AGENTS.md): repository rules and current product priority.
 2. [`development.md`](development.md): workflow, validation tiers, and commit style.
@@ -29,6 +33,7 @@ Do not maintain parity percentages in multiple files. Prefer evidence-based stag
 
 ## Directory roles
 
+- [`user/installation.md`](user/installation.md): supported external-user Arch lifecycle and its evidence boundary.
 - [`architecture/`](architecture/): crate boundaries and compatibility contracts.
 - [`migration/`](migration/): current status, capability gaps, execution plan, and live validation.
 - [`legacy/`](legacy/): tracked analysis of the original C++ source.

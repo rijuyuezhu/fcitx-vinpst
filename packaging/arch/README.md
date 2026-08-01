@@ -1,5 +1,7 @@
 # Arch Linux package
 
+External users should follow [`../../docs/user/installation.md`](../../docs/user/installation.md). This file documents package construction and release validation.
+
 `PKGBUILD.in` is the release template for the Rust rewrite. Render it with a
 release source archive whose top-level directory matches `--source-dir`:
 
