@@ -406,7 +406,7 @@ fn reqwest_openai_transport_honors_request_timeout() {
     assert!(matches!(
         error,
         TextError::AdapterFailed(message)
-            if message.contains("HTTP request failed")
+            if message == "OpenAI-compatible HTTP request timed out"
     ));
 }
 

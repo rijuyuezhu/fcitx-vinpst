@@ -374,7 +374,11 @@ fn send_openai_compatible_request_blocking(
     }
 
     let response = builder.send().map_err(|error| {
-        TextError::AdapterFailed(format!("OpenAI-compatible HTTP request failed: {error}"))
+        if error.is_timeout() {
+            TextError::AdapterFailed("OpenAI-compatible HTTP request timed out".to_owned())
+        } else {
+            TextError::AdapterFailed(format!("OpenAI-compatible HTTP request failed: {error}"))
+        }
     })?;
     let status = response.status();
     let body = response.text().map_err(|error| {
