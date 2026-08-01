@@ -20,6 +20,8 @@ pub const RAW_SCENE_ID: &str = "__raw__";
 
 /// Built-in command scene id used by the legacy project.
 pub const COMMAND_SCENE_ID: &str = "__command__";
+/// Highest configuration schema version supported by this binary.
+pub const CURRENT_CONFIG_VERSION: u32 = 1;
 
 /// Complete config document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -46,7 +48,9 @@ pub struct VinputConfig {
 impl VinputConfig {
     /// Parses config from JSON.
     pub fn from_json_str(input: &str) -> Result<Self, ConfigError> {
-        Ok(serde_json::from_str::<Self>(input)?.normalized())
+        let config = serde_json::from_str::<Self>(input)?.normalized();
+        config.validate_schema_version()?;
+        Ok(config)
     }
 
     /// Reads and parses config from a JSON file.
@@ -82,11 +86,22 @@ impl VinputConfig {
 
     /// Validates cross-field invariants that serde cannot express.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        self.validate_schema_version()?;
         validate_registry(&self.registry)?;
         validate_global(&self.global)?;
         validate_scenes(&self.scenes, &self.llm)?;
         validate_asr(&self.asr)?;
         validate_llm(&self.llm)?;
+        Ok(())
+    }
+
+    fn validate_schema_version(&self) -> Result<(), ConfigError> {
+        if self.version > CURRENT_CONFIG_VERSION {
+            return Err(ConfigError::UnsupportedSchemaVersion {
+                found: self.version,
+                supported: CURRENT_CONFIG_VERSION,
+            });
+        }
         Ok(())
     }
 
@@ -719,6 +734,14 @@ pub enum ConfigError {
     /// JSON parsing failed.
     #[error("invalid config JSON: {0}")]
     Json(#[from] serde_json::Error),
+    /// Config schema is newer than this binary understands.
+    #[error("unsupported config schema version {found}; this binary supports up to {supported}")]
+    UnsupportedSchemaVersion {
+        /// Version found in the config document.
+        found: u32,
+        /// Highest supported version.
+        supported: u32,
+    },
     /// Reading a config file failed.
     #[error("failed to read config file `{}`: {source}", path.display())]
     ReadFile {
@@ -1010,6 +1033,42 @@ mod tests {
         config.validate().unwrap();
         assert_eq!(config.version, 1);
         assert_eq!(config.scenes.active_scene, RAW_SCENE_ID);
+    }
+
+    #[test]
+    fn parser_rejects_future_schema_versions() {
+        let error = VinputConfig::from_json_str(
+            r#"{
+              "version": 2,
+              "asr": {
+                "active_provider": "p",
+                "providers": [{"id":"p","type":"local"}]
+              }
+            }"#,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            super::ConfigError::UnsupportedSchemaVersion {
+                found: 2,
+                supported: super::CURRENT_CONFIG_VERSION
+            }
+        ));
+    }
+
+    #[test]
+    fn validation_rejects_manually_constructed_future_schema_versions() {
+        let mut config = VinputConfig::bundled_default().unwrap();
+        config.version = super::CURRENT_CONFIG_VERSION + 1;
+
+        assert!(matches!(
+            config.validate(),
+            Err(super::ConfigError::UnsupportedSchemaVersion {
+                found: 2,
+                supported: super::CURRENT_CONFIG_VERSION
+            })
+        ));
     }
 
     #[test]

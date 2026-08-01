@@ -126,6 +126,32 @@ fn config_validate_prints_summary_for_valid_config() {
 }
 
 #[test]
+fn config_validate_rejects_future_schema_without_output() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 2,
+          "future_state": {"sentinel": "preserve-user-config"}
+        }
+        "#,
+    );
+
+    let output = vinput_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .arg("--json")
+        .output()
+        .expect("run vinput config validate on future schema");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("future-schema stderr is UTF-8");
+    assert!(stderr.contains("unsupported config schema version 2"));
+    assert!(stderr.contains("supports up to 1"));
+}
+
+#[test]
 fn config_validate_summary_omits_sensitive_config_details() {
     let path = write_temp_config(
         r#"

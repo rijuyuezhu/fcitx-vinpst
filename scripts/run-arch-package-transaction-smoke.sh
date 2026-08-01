@@ -51,8 +51,16 @@ printf '%s\n' \
   'Architecture = auto' \
   'SigLevel = Never' \
   'LocalFileSigLevel = Never' >"${config_path}"
-printf '%s\n' '{"sentinel":"preserve-user-config"}' >"${user_config}"
+cat >"${user_config}" <<'EOF'
+{
+  "version": 2,
+  "future_state": {
+    "sentinel": "preserve-incompatible-user-config"
+  }
+}
+EOF
 user_config_sha256="$(sha256sum "${user_config}" | awk '{print $1}')"
+printf '%s\n' "${user_config_sha256}" >"${transaction_root}/user-config.sha256"
 
 pacman_args=(
   --root "${pacman_root}"
@@ -66,6 +74,24 @@ pacman_args=(
 assert_user_config_unchanged() {
   test "$(sha256sum "${user_config}" | awk '{print $1}')" = \
     "${user_config_sha256}"
+}
+
+assert_future_config_rejected() {
+  local phase="$1"
+  local stderr_path="${transaction_root}/${phase}-future-config.stderr"
+  local stdout_path="${transaction_root}/${phase}-future-config.stdout"
+  local status
+  set +e
+  "${pacman_root}/usr/bin/vinput" config validate "${user_config}" --json \
+    >"${stdout_path}" 2>"${stderr_path}"
+  status=$?
+  set -e
+  test "${status}" -ne 0
+  test ! -s "${stdout_path}"
+  grep -Fq \
+    'unsupported config schema version 2; this binary supports up to 1' \
+    "${stderr_path}"
+  assert_user_config_unchanged
 }
 
 assert_package_files_present() {
@@ -92,22 +118,27 @@ test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
   "fcitx-vinput-rs ${initial_version}"
 assert_package_files_present fcitx-vinput-rs
 assert_user_config_unchanged
+assert_future_config_rejected installed
 
 fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -U "${upgrade_package}"
 test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
   "fcitx-vinput-rs ${upgrade_version}"
 assert_package_files_present fcitx-vinput-rs
 assert_user_config_unchanged
+assert_future_config_rejected upgraded
 
 fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -U "${initial_package}"
 test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
   "fcitx-vinput-rs ${initial_version}"
 assert_package_files_present fcitx-vinput-rs
 assert_user_config_unchanged
+assert_future_config_rejected rolled-back
 
 fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -R fcitx-vinput-rs
 ! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs >/dev/null 2>&1
 assert_user_config_unchanged
+test "$(cat "${transaction_root}/user-config.sha256")" = \
+  "$(sha256sum "${user_config}" | awk '{print $1}')"
 if [[ -d "${pacman_root}/usr" ]]; then
   ! find "${pacman_root}/usr" \( -type f -o -type l \) -print -quit |
     grep -q .
