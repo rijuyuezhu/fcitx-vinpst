@@ -52,6 +52,12 @@ Response fields are `payload` for a full `RecognitionPayload`, `text` for a simp
 
 The command text adapter contract mirrors the command ASR helper style: one JSON request on stdin, one JSON response on stdout, explicit typed errors, and injected runner seams in tests.
 
+## Long-running adapter lifecycle
+
+Configured adapter services start in dedicated Unix process groups. The runtime persists a versioned JSON record containing the leader PID and Linux `/proc/<pid>/stat` start time through a mode-0600 temporary file followed by atomic rename. A matching live fingerprint rejects duplicate start; a missing, exited, or mismatched fingerprint is stale and may be removed before a new start. Legacy integer-only PID files are fail-closed: start refuses to overwrite them, while stop removes them without sending a signal because they cannot distinguish the original adapter from PID reuse.
+
+Tracked adapters preserve the legacy shutdown schedule: send `SIGTERM`, wait up to two seconds, then send `SIGKILL` and wait up to three more seconds. Stop, daemon drop, and exited-process refresh operate on the whole process group, so descendants are terminated even when the direct child has already exited. On Linux, tracked direct-child cleanup uses the shared `waitid(WNOWAIT)` boundary before reap. An untracked fingerprinted record is signaled only after its current `/proc` start time still matches; this is a recovery path for a prior daemon owner, not a claim of pidfd-based supervision or cross-daemon start locking.
+
 ## Daemon runtime wiring
 
 The default daemon constructor still uses mock text processing for prototype compatibility. To exercise configured backends explicitly, run the daemon with `--configured-backends`. That path builds ASR from `asr.active_provider` and text post-processing from `llm.providers[]` through `ReqwestOpenAiCompatibleChatTransport` when providers are configured; when no providers are configured it falls back to command adapters from `llm.adapters[]`.

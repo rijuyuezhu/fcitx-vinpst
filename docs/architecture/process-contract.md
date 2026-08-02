@@ -12,6 +12,12 @@ The direct child defines the helper lifecycle. On Linux, the supervisor observes
 
 The supervisor returns a stdin-write error alongside a completed process result. Consumers therefore preserve the existing priority rule: a non-zero helper exit and bounded stderr diagnostic take precedence over a broken stdin pipe; otherwise the original stdin-write failure is surfaced.
 
+## Long-lived process groups
+
+The crate also exposes the process-group primitives used by long-running command text adapters. `configure_process_group` creates the same isolated group boundary as `run_piped_command`. Signaling targets the group first and falls back to the direct child only when the group operation fails, avoiding a redundant PID signal after successful whole-group delivery. Tracked children use `try_wait_child_and_cleanup` and `terminate_child_process_group`; on Linux the same `waitid(WNOWAIT)` reservation keeps the direct child PID/PGID unavailable for reuse until remaining descendants are terminated and the child is reaped.
+
+These primitives do not define adapter PID-file ownership or restart policy. `vinput-text` owns those compatibility decisions and supplies the legacy TERM/KILL timing.
+
 ## Consumer contracts
 
 Command text adapters always pass the effective scene deadline, including the legacy 4000 ms default. Command ASR providers pass their configured optional `timeout_ms`: a configured value is enforced across the whole helper lifecycle, while an omitted value remains explicitly `not_configured`. Consequently, a command ASR helper can still run indefinitely when `timeout_ms` is omitted if it never exits, including while ignoring a blocked stdin writer; the runtime does not invent an undocumented ASR default.
