@@ -208,3 +208,49 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
     };
     assert!(ensure_config_save_allowed(&inconsistent).is_err());
 }
+
+#[test]
+fn daemon_poll_state_distinguishes_owner_loss_and_recovery() {
+    let snapshot = DaemonSnapshot {
+        status: "idle".to_owned(),
+        runtime: json!({"active_session": false}),
+    };
+    assert_eq!(
+        daemon_state_from_poll(Ok(Some(snapshot.clone()))),
+        DaemonLoadState::Ready(snapshot)
+    );
+    assert_eq!(
+        daemon_state_from_poll(Ok(None)),
+        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
+    );
+    assert_eq!(
+        daemon_state_from_poll(Err("session bus unavailable".to_owned())),
+        DaemonLoadState::Failed("session bus unavailable".to_owned())
+    );
+}
+
+#[test]
+fn daemon_polling_serializes_refreshes_and_recovers() {
+    let (mut app, _) = App::boot();
+    assert!(app.daemon_refresh_in_flight);
+
+    let snapshot = DaemonSnapshot {
+        status: "idle".to_owned(),
+        runtime: json!({"active_session": false}),
+    };
+    let _ = app.update(Message::DaemonLoaded(Ok(snapshot.clone())));
+    assert!(!app.daemon_refresh_in_flight);
+    assert_eq!(app.daemon, DaemonLoadState::Ready(snapshot));
+
+    let _ = app.update(Message::DaemonPollTick);
+    assert!(app.daemon_refresh_in_flight);
+    let _ = app.update(Message::DaemonPollTick);
+    assert!(app.daemon_refresh_in_flight);
+
+    let _ = app.update(Message::DaemonPolled(Ok(None)));
+    assert!(!app.daemon_refresh_in_flight);
+    assert_eq!(
+        app.daemon,
+        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
+    );
+}

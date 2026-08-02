@@ -3,10 +3,11 @@
 use std::{
     env,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use iced::{
-    Element, Length, Task, Theme,
+    Element, Length, Subscription, Task, Theme,
     widget::{
         button, checkbox, column, container, pick_list, row, scrollable, slider, text, text_input,
     },
@@ -153,6 +154,7 @@ pub struct App {
     config: Result<ConfigDocument, String>,
     draft: Option<ConfigDraft>,
     daemon: DaemonLoadState,
+    daemon_refresh_in_flight: bool,
     operation: OperationState,
     model_selector: String,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
@@ -169,6 +171,10 @@ pub enum Message {
     RefreshDaemon,
     /// Result of an asynchronous daemon refresh.
     DaemonLoaded(Result<DaemonSnapshot, String>),
+    /// Periodic non-activating daemon-owner poll.
+    DaemonPollTick,
+    /// Result of a periodic non-activating daemon-owner poll.
+    DaemonPolled(Result<Option<DaemonSnapshot>, String>),
     /// Reload config from disk.
     ReloadConfig,
     /// Update the default recognition language draft.
@@ -226,6 +232,7 @@ impl App {
                 config,
                 draft,
                 daemon: DaemonLoadState::Loading,
+                daemon_refresh_in_flight: true,
                 operation: OperationState::Idle,
                 model_selector: String::new(),
                 installed_models: load_installed_models(),
@@ -239,15 +246,18 @@ impl App {
         match message {
             Message::SelectPage(page) => self.page = page,
             Message::FilterChanged(filter) => self.filter = filter,
-            Message::RefreshDaemon => {
-                self.daemon = DaemonLoadState::Loading;
-                return daemon_refresh_task();
-            }
+            Message::RefreshDaemon => return self.begin_daemon_refresh(true),
             Message::DaemonLoaded(result) => {
+                self.daemon_refresh_in_flight = false;
                 self.daemon = match result {
                     Ok(snapshot) => DaemonLoadState::Ready(snapshot),
                     Err(error) => DaemonLoadState::Failed(error),
                 };
+            }
+            Message::DaemonPollTick => return self.begin_daemon_poll(),
+            Message::DaemonPolled(result) => {
+                self.daemon_refresh_in_flight = false;
+                self.daemon = daemon_state_from_poll(result);
             }
             Message::ReloadConfig => self.reload_config(),
             Message::DefaultLanguageChanged(value) => self.update_draft(|draft| {
@@ -288,6 +298,34 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    fn begin_daemon_refresh(&mut self, show_loading: bool) -> Task<Message> {
+        if self.daemon_refresh_in_flight {
+            return Task::none();
+        }
+        self.daemon_refresh_in_flight = true;
+        if show_loading {
+            self.daemon = DaemonLoadState::Loading;
+        }
+        daemon_refresh_task()
+    }
+
+    fn begin_daemon_poll(&mut self) -> Task<Message> {
+        if self.daemon_refresh_in_flight {
+            return Task::none();
+        }
+        self.daemon_refresh_in_flight = true;
+        daemon_poll_task()
+    }
+
+    /// Polls daemon ownership without activating a missing service.
+    pub fn subscription(&self) -> Subscription<Message> {
+        if self.daemon_refresh_in_flight {
+            Subscription::none()
+        } else {
+            iced::time::every(Duration::from_secs(2)).map(|_| Message::DaemonPollTick)
+        }
     }
 
     fn update_draft(&mut self, update: impl FnOnce(&mut ConfigDraft)) {
@@ -348,7 +386,7 @@ impl App {
             outcome.path.display(),
             outcome.daemon_reload
         ));
-        daemon_refresh_task()
+        self.begin_daemon_refresh(false)
     }
 
     fn begin_recording(&mut self, start: bool) -> Task<Message> {
@@ -372,7 +410,7 @@ impl App {
             Ok(summary) => OperationState::Succeeded(summary),
             Err(error) => OperationState::Failed(error),
         };
-        daemon_refresh_task()
+        self.begin_daemon_refresh(false)
     }
 
     fn begin_model_install(&mut self) -> Task<Message> {
@@ -414,7 +452,7 @@ impl App {
             Ok(summary) => OperationState::Succeeded(summary),
             Err(error) => OperationState::Failed(error),
         };
-        daemon_refresh_task()
+        self.begin_daemon_refresh(false)
     }
 
     fn replace_config(&mut self, config: Result<ConfigDocument, String>) {
@@ -837,7 +875,28 @@ pub fn load_config_document(path: Option<&Path>) -> Result<ConfigDocument, Strin
 /// Queries daemon status and runtime diagnostics using the shared D-Bus contract.
 pub fn query_daemon_snapshot() -> Result<DaemonSnapshot, String> {
     let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
-    let proxy = daemon_proxy(&connection)?;
+    query_daemon_snapshot_on(&connection)
+}
+
+fn query_daemon_snapshot_if_owned() -> Result<Option<DaemonSnapshot>, String> {
+    let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
+    let bus_proxy =
+        zbus::blocking::fdo::DBusProxy::new(&connection).map_err(|error| error.to_string())?;
+    let service_name = zbus::names::BusName::try_from(dbus::SERVICE_BUS_NAME)
+        .map_err(|error| error.to_string())?;
+    if !bus_proxy
+        .name_has_owner(service_name)
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(None);
+    }
+    query_daemon_snapshot_on(&connection).map(Some)
+}
+
+fn query_daemon_snapshot_on(
+    connection: &zbus::blocking::Connection,
+) -> Result<DaemonSnapshot, String> {
+    let proxy = daemon_proxy(connection)?;
     let status = proxy
         .call::<_, _, String>(dbus::method::GET_STATUS, &())
         .map_err(|error| error.to_string())?;
@@ -846,6 +905,16 @@ pub fn query_daemon_snapshot() -> Result<DaemonSnapshot, String> {
         .map_err(|error| error.to_string())?;
     let runtime = serde_json::from_str(&runtime_json).map_err(|error| error.to_string())?;
     Ok(DaemonSnapshot { status, runtime })
+}
+
+fn daemon_state_from_poll(result: Result<Option<DaemonSnapshot>, String>) -> DaemonLoadState {
+    match result {
+        Ok(Some(snapshot)) => DaemonLoadState::Ready(snapshot),
+        Ok(None) => DaemonLoadState::Failed(
+            "Daemon is not running; waiting for its D-Bus owner.".to_owned(),
+        ),
+        Err(error) => DaemonLoadState::Failed(error),
+    }
 }
 
 fn daemon_proxy(
@@ -1012,6 +1081,13 @@ fn daemon_refresh_task() -> Task<Message> {
     Task::perform(async { query_daemon_snapshot() }, Message::DaemonLoaded)
 }
 
+fn daemon_poll_task() -> Task<Message> {
+    Task::perform(
+        async { query_daemon_snapshot_if_owned() },
+        Message::DaemonPolled,
+    )
+}
+
 fn filtered_asr_rows(config: &VinputConfig, filter: &str) -> Vec<String> {
     let filter = filter.to_ascii_lowercase();
     config
@@ -1062,6 +1138,7 @@ fn llm_adapter_rows(config: &VinputConfig) -> Vec<String> {
 pub fn run() -> iced::Result {
     iced::application(App::boot, App::update, App::view)
         .title(APPLICATION_TITLE)
+        .subscription(App::subscription)
         .theme(Theme::TokyoNight)
         .window_size((960.0, 640.0))
         .run()
