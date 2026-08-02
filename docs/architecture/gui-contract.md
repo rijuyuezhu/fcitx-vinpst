@@ -13,7 +13,7 @@ The first Iced 0.14 implementation is part of the workspace and provides four le
 
 The application reads `VinputConfig` directly, validates an explicit or discovered user config, and falls back to the bundled default only when the user file is absent. GUI and CLI config mutations share the `vinput-config` persistence API: validation precedes any filesystem mutation, an existing file receives an adjacent `.bak`, the replacement is written and synchronized beside the destination, and rename publishes it atomically. The GUI refuses to overwrite a file changed after loading and refuses a save while a reachable daemon is non-idle or reports an active session. A missing daemon does not block an otherwise valid offline config save; the result explicitly reports that reload was skipped.
 
-Daemon state and actions use the shared `vinput-protocol` D-Bus constants and typed zbus calls. Status uses `GetStatus` and `GetRuntimeStatus`, save requests `ReloadAsrBackend`, and recording controls use `StartRecording`/`StopRecording`; the GUI does not parse CLI output or launch the CLI as a helper. Model installation calls the shared registry fetch/checksum/safe-extraction/atomic-materialization APIs. GUI and CLI deletion share one typed managed-root boundary that rejects the root itself, paths outside it, non-directories, and active configured local-model paths.
+Daemon state and actions use the shared `vinput-protocol` D-Bus constants and typed zbus calls. Status uses `GetStatus` and `GetRuntimeStatus`, save requests `ReloadAsrBackend`, and recording controls use `StartRecording`/`StopRecording`; the GUI does not parse CLI output or launch the CLI as a helper. A serialized two-second `NameHasOwner` poll detects owner loss without activating a missing service and automatically refreshes status when the owner returns. Model installation calls the shared registry fetch/checksum/safe-extraction/atomic-materialization APIs. GUI and CLI deletion share one typed managed-root boundary that rejects the root itself, paths outside it, non-directories, and active configured local-model paths.
 
 `vinput-gui --check --offline` produces a redacted machine-readable snapshot without opening a window or requiring a session bus. Packaging uses this mode to verify the installed binary, typed config loading, page inventory, and secret-safe diagnostics. `--check` without `--offline` additionally probes the live daemon.
 
@@ -40,14 +40,14 @@ The initial spike has proven:
 4. Wayland/X11-capable compilation with software rendering;
 5. headless CI/package checking and Arch package integration.
 
-The first mutation slice additionally proves typed form state, dirty/reset handling, first-file creation, backup-preserving replacement, external-change conflict rejection, active-session save guards, daemon reload reporting, and direct recording actions. The resource slice proves mirror fallback without credential/URL leakage, checksum-aware install/update, installed-model discovery, shared managed-root deletion, active-model refusal, and post-operation reconciliation.
+The first mutation slice additionally proves typed form state, dirty/reset handling, first-file creation, backup-preserving replacement, external-change conflict rejection, active-session save guards, daemon reload reporting, and direct recording actions. The resource slice proves mirror fallback without credential/URL leakage, checksum-aware install/update, installed-model discovery, shared managed-root deletion, active-model refusal, and post-operation reconciliation. The recovery slice proves non-activating owner detection, serialized refreshes, explicit unavailable state, and automatic status recovery after daemon restart.
 
 ## Remaining parity
 
 The next GUI slices are:
 
 1. provider, scene, LLM, adapter, and hotword lifecycle actions beyond active provider/scene selection, plus richer model details and selection;
-2. daemon owner-change subscriptions, reconnect, and operation-state reconciliation;
+2. signal-driven daemon owner-change subscriptions and richer operation-state reconciliation beyond the current safe polling recovery;
 3. download/install progress, cancellation, retry, and richer error presentation;
 4. command-mode recording and selected-text integration;
 5. zh_CN UI localization, accessibility review, keyboard navigation, clipboard, and desktop notification validation;
