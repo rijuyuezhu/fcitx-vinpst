@@ -7,10 +7,15 @@ use std::{
 
 use iced::{
     Element, Length, Task, Theme,
-    widget::{button, column, container, row, scrollable, text, text_input},
+    widget::{
+        button, checkbox, column, container, pick_list, row, scrollable, slider, text, text_input,
+    },
 };
 use serde_json::{Value, json};
-use vinput_config::{AsrProviderKind, VinputConfig, redact_url_for_diagnostics};
+use vinput_config::{
+    AsrProviderKind, VinputConfig, config_backup_path, redact_url_for_diagnostics,
+    write_config_file,
+};
 use vinput_protocol::dbus;
 
 /// Product display name.
@@ -63,6 +68,69 @@ pub struct DaemonSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct ConfigDraft {
+    default_language: String,
+    capture_device: String,
+    duck_output_while_recording: bool,
+    duck_output_volume: f32,
+    vad_enabled: bool,
+    vad_threshold: f32,
+    active_provider: String,
+    active_scene: String,
+}
+
+impl ConfigDraft {
+    fn from_config(config: &VinputConfig) -> Self {
+        Self {
+            default_language: config.global.default_language.clone(),
+            capture_device: config.global.capture_device.clone(),
+            duck_output_while_recording: config.global.duck_output_while_recording,
+            duck_output_volume: config.global.duck_output_volume,
+            vad_enabled: config.asr.vad.enabled,
+            vad_threshold: config.asr.vad.threshold,
+            active_provider: config.asr.active_provider.clone(),
+            active_scene: config.scenes.active_scene.clone(),
+        }
+    }
+
+    fn apply_to(&self, config: &mut VinputConfig) {
+        config
+            .global
+            .default_language
+            .clone_from(&self.default_language);
+        config
+            .global
+            .capture_device
+            .clone_from(&self.capture_device);
+        config.global.duck_output_while_recording = self.duck_output_while_recording;
+        config.global.duck_output_volume = self.duck_output_volume;
+        config.asr.vad.enabled = self.vad_enabled;
+        config.asr.vad.threshold = self.vad_threshold;
+        config.asr.active_provider.clone_from(&self.active_provider);
+        config.scenes.active_scene.clone_from(&self.active_scene);
+    }
+}
+
+/// Result of a successful GUI config save.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigSaveOutcome {
+    /// Final user config path.
+    pub path: PathBuf,
+    /// Adjacent backup written before replacement, when the config already existed.
+    pub backup_path: Option<PathBuf>,
+    /// Daemon reload outcome, without config contents or credentials.
+    pub daemon_reload: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum OperationState {
+    Idle,
+    Running(&'static str),
+    Succeeded(String),
+    Failed(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 enum DaemonLoadState {
     Loading,
     Ready(DaemonSnapshot),
@@ -75,7 +143,9 @@ pub struct App {
     page: Page,
     filter: String,
     config: Result<ConfigDocument, String>,
+    draft: Option<ConfigDraft>,
     daemon: DaemonLoadState,
+    operation: OperationState,
 }
 
 /// GUI messages.
@@ -91,18 +161,52 @@ pub enum Message {
     DaemonLoaded(Result<DaemonSnapshot, String>),
     /// Reload config from disk.
     ReloadConfig,
+    /// Update the default recognition language draft.
+    DefaultLanguageChanged(String),
+    /// Update the capture target draft.
+    CaptureDeviceChanged(String),
+    /// Toggle output ducking in the draft.
+    DuckOutputChanged(bool),
+    /// Update the output ducking volume in the draft.
+    DuckVolumeChanged(f32),
+    /// Toggle VAD in the draft.
+    VadEnabledChanged(bool),
+    /// Update the VAD threshold in the draft.
+    VadThresholdChanged(f32),
+    /// Select the active ASR provider in the draft.
+    ActiveProviderChanged(String),
+    /// Select the active scene in the draft.
+    ActiveSceneChanged(String),
+    /// Restore editable fields from the loaded config.
+    ResetConfigDraft,
+    /// Validate, back up, and atomically save the config draft.
+    SaveConfig,
+    /// Result of an asynchronous config save.
+    ConfigSaved(Result<ConfigSaveOutcome, String>),
+    /// Start normal recording over D-Bus.
+    StartRecording,
+    /// Stop recording over D-Bus.
+    StopRecording,
+    /// Result of an asynchronous recording action.
+    RecordingActionFinished(Result<String, String>),
 }
 
 impl App {
     /// Creates the initial GUI state and starts a daemon refresh.
     pub fn boot() -> (Self, Task<Message>) {
         let config = load_config_document(None);
+        let draft = config
+            .as_ref()
+            .ok()
+            .map(|document| ConfigDraft::from_config(&document.config));
         (
             Self {
                 page: Page::Control,
                 filter: String::new(),
                 config,
+                draft,
                 daemon: DaemonLoadState::Loading,
+                operation: OperationState::Idle,
             },
             daemon_refresh_task(),
         )
@@ -123,11 +227,131 @@ impl App {
                     Err(error) => DaemonLoadState::Failed(error),
                 };
             }
-            Message::ReloadConfig => {
-                self.config = load_config_document(None);
-            }
+            Message::ReloadConfig => self.reload_config(),
+            Message::DefaultLanguageChanged(value) => self.update_draft(|draft| {
+                draft.default_language = value;
+            }),
+            Message::CaptureDeviceChanged(value) => self.update_draft(|draft| {
+                draft.capture_device = value;
+            }),
+            Message::DuckOutputChanged(value) => self.update_draft(|draft| {
+                draft.duck_output_while_recording = value;
+            }),
+            Message::DuckVolumeChanged(value) => self.update_draft(|draft| {
+                draft.duck_output_volume = value;
+            }),
+            Message::VadEnabledChanged(value) => self.update_draft(|draft| {
+                draft.vad_enabled = value;
+            }),
+            Message::VadThresholdChanged(value) => self.update_draft(|draft| {
+                draft.vad_threshold = value;
+            }),
+            Message::ActiveProviderChanged(value) => self.update_draft(|draft| {
+                draft.active_provider = value;
+            }),
+            Message::ActiveSceneChanged(value) => self.update_draft(|draft| {
+                draft.active_scene = value;
+            }),
+            Message::ResetConfigDraft => self.reset_config_draft(),
+            Message::SaveConfig => return self.begin_config_save(),
+            Message::ConfigSaved(result) => return self.finish_config_save(result),
+            Message::StartRecording => return self.begin_recording(true),
+            Message::StopRecording => return self.begin_recording(false),
+            Message::RecordingActionFinished(result) => return self.finish_recording(result),
         }
         Task::none()
+    }
+
+    fn update_draft(&mut self, update: impl FnOnce(&mut ConfigDraft)) {
+        if let Some(draft) = &mut self.draft {
+            update(draft);
+        }
+    }
+
+    fn reload_config(&mut self) {
+        let path = self
+            .config
+            .as_ref()
+            .ok()
+            .map(|document| document.path.clone());
+        self.replace_config(load_config_document(path.as_deref()));
+        self.operation = OperationState::Idle;
+    }
+
+    fn reset_config_draft(&mut self) {
+        self.draft = self
+            .config
+            .as_ref()
+            .ok()
+            .map(|document| ConfigDraft::from_config(&document.config));
+        self.operation = OperationState::Idle;
+    }
+
+    fn begin_config_save(&mut self) -> Task<Message> {
+        let (Ok(document), Some(draft)) = (&self.config, &self.draft) else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        self.operation = OperationState::Running("Saving configuration…");
+        let document = document.clone();
+        let draft = draft.clone();
+        Task::perform(
+            async move { save_config_with_daemon(&document, &draft) },
+            Message::ConfigSaved,
+        )
+    }
+
+    fn finish_config_save(&mut self, result: Result<ConfigSaveOutcome, String>) -> Task<Message> {
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
+        };
+        let backup = outcome.backup_path.as_ref().map_or_else(
+            || "no previous file".to_owned(),
+            |path| format!("backup {}", path.display()),
+        );
+        self.replace_config(load_config_document(Some(&outcome.path)));
+        self.operation = OperationState::Succeeded(format!(
+            "Saved {} ({backup}); {}",
+            outcome.path.display(),
+            outcome.daemon_reload
+        ));
+        daemon_refresh_task()
+    }
+
+    fn begin_recording(&mut self, start: bool) -> Task<Message> {
+        let scene = self
+            .draft
+            .as_ref()
+            .map_or_else(String::new, |draft| draft.active_scene.clone());
+        self.operation = OperationState::Running(if start {
+            "Starting recording…"
+        } else {
+            "Stopping recording…"
+        });
+        Task::perform(
+            async move { run_recording_action(start, &scene) },
+            Message::RecordingActionFinished,
+        )
+    }
+
+    fn finish_recording(&mut self, result: Result<String, String>) -> Task<Message> {
+        self.operation = match result {
+            Ok(summary) => OperationState::Succeeded(summary),
+            Err(error) => OperationState::Failed(error),
+        };
+        daemon_refresh_task()
+    }
+
+    fn replace_config(&mut self, config: Result<ConfigDocument, String>) {
+        self.draft = config
+            .as_ref()
+            .ok()
+            .map(|document| ConfigDraft::from_config(&document.config));
+        self.config = config;
     }
 
     /// Renders the GUI.
@@ -164,66 +388,204 @@ impl App {
     }
 
     fn control_page(&self) -> Element<'_, Message> {
+        let busy = matches!(self.operation, OperationState::Running(_));
         let mut body = column![
             text("Control").size(30),
-            row![
-                button("Refresh daemon").on_press(Message::RefreshDaemon),
-                button("Reload config").on_press(Message::ReloadConfig),
-            ]
-            .spacing(10),
+            self.control_actions(busy),
+            self.daemon_status_view(),
         ]
         .spacing(14);
+        if let Some(notice) = self.operation_notice() {
+            body = body.push(notice);
+        }
+        body = body.push(self.config_editor(busy));
+        scrollable(body).into()
+    }
 
-        body = body.push(match &self.daemon {
+    fn control_actions(&self, busy: bool) -> Element<'_, Message> {
+        let daemon_status = match &self.daemon {
+            DaemonLoadState::Ready(snapshot) => Some(snapshot.status.as_str()),
+            DaemonLoadState::Loading | DaemonLoadState::Failed(_) => None,
+        };
+        let can_start = !busy && daemon_status == Some("idle");
+        let can_stop = !busy && daemon_status == Some("recording");
+        row![
+            button("Refresh daemon").on_press(Message::RefreshDaemon),
+            button("Reload config").on_press(Message::ReloadConfig),
+            button("Start recording").on_press_maybe(can_start.then_some(Message::StartRecording)),
+            button("Stop recording").on_press_maybe(can_stop.then_some(Message::StopRecording)),
+        ]
+        .spacing(10)
+        .into()
+    }
+
+    fn daemon_status_view(&self) -> Element<'_, Message> {
+        match &self.daemon {
             DaemonLoadState::Loading => text("Daemon: loading…"),
             DaemonLoadState::Ready(snapshot) => text(format!("Daemon: {}", snapshot.status)),
             DaemonLoadState::Failed(error) => text(format!("Daemon unavailable: {error}")),
-        });
-
-        match &self.config {
-            Ok(document) => {
-                let config = &document.config;
-                body = body
-                    .push(text(format!("Config: {}", document.path.display())))
-                    .push(text(format!(
-                        "Source: {}",
-                        if document.from_disk {
-                            "user file"
-                        } else {
-                            "bundled default"
-                        }
-                    )))
-                    .push(text(format!(
-                        "Active scene: {}",
-                        config.scenes.active_scene
-                    )))
-                    .push(text(format!(
-                        "Active ASR provider: {}",
-                        config.asr.active_provider
-                    )))
-                    .push(text(format!(
-                        "Capture device: {}",
-                        config.global.capture_device
-                    )))
-                    .push(text(format!(
-                        "Language: {}",
-                        config.global.default_language
-                    )))
-                    .push(text(format!(
-                        "VAD: {} (threshold {:.2})",
-                        enabled_label(config.asr.vad.enabled),
-                        config.asr.vad.threshold
-                    )))
-                    .push(text(format!(
-                        "Output ducking: {} ({:.0}%)",
-                        enabled_label(config.global.duck_output_while_recording),
-                        config.global.duck_output_volume * 100.0
-                    )));
-            }
-            Err(error) => body = body.push(text(format!("Config error: {error}"))),
         }
+        .into()
+    }
 
-        scrollable(body).into()
+    fn operation_notice(&self) -> Option<Element<'_, Message>> {
+        match &self.operation {
+            OperationState::Idle => None,
+            OperationState::Running(message) => Some(text(*message).into()),
+            OperationState::Succeeded(message) => Some(text(format!("Success: {message}")).into()),
+            OperationState::Failed(message) => Some(text(format!("Error: {message}")).into()),
+        }
+    }
+
+    fn config_editor(&self, busy: bool) -> Element<'_, Message> {
+        match (&self.config, &self.draft) {
+            (Ok(document), Some(draft)) => Self::loaded_config_editor(document, draft, busy),
+            (Err(error), _) => text(format!("Config error: {error}")).into(),
+            (Ok(_), None) => text("Config draft is unavailable.").into(),
+        }
+    }
+
+    fn loaded_config_editor<'a>(
+        document: &'a ConfigDocument,
+        draft: &'a ConfigDraft,
+        busy: bool,
+    ) -> Element<'a, Message> {
+        column![
+            text(format!("Config: {}", document.path.display())),
+            text(format!(
+                "Source: {}",
+                if document.from_disk {
+                    "user file"
+                } else {
+                    "bundled default; Save creates the user file"
+                }
+            )),
+            text("General").size(22),
+            Self::general_config_editor(document, draft),
+            text("Audio and VAD").size(22),
+            Self::audio_vad_editor(draft),
+            Self::config_save_controls(document, draft, busy),
+        ]
+        .spacing(12)
+        .into()
+    }
+
+    fn general_config_editor<'a>(
+        document: &'a ConfigDocument,
+        draft: &'a ConfigDraft,
+    ) -> Element<'a, Message> {
+        let provider_options = document
+            .config
+            .asr
+            .providers
+            .iter()
+            .map(|provider| provider.id.clone())
+            .collect::<Vec<_>>();
+        let scene_options = document
+            .config
+            .scenes
+            .definitions
+            .iter()
+            .map(|scene| scene.id.clone())
+            .collect::<Vec<_>>();
+        column![
+            row![
+                text("Default language").width(180),
+                text_input("for example en-US or zh-CN", &draft.default_language)
+                    .on_input(Message::DefaultLanguageChanged)
+                    .width(Length::Fill),
+            ]
+            .spacing(12),
+            row![
+                text("Capture device").width(180),
+                text_input("PipeWire target", &draft.capture_device)
+                    .on_input(Message::CaptureDeviceChanged)
+                    .width(Length::Fill),
+            ]
+            .spacing(12),
+            row![
+                text("Active ASR provider").width(180),
+                pick_list(
+                    provider_options,
+                    Some(draft.active_provider.clone()),
+                    Message::ActiveProviderChanged,
+                )
+                .width(Length::Fill),
+            ]
+            .spacing(12),
+            row![
+                text("Active scene").width(180),
+                pick_list(
+                    scene_options,
+                    Some(draft.active_scene.clone()),
+                    Message::ActiveSceneChanged,
+                )
+                .width(Length::Fill),
+            ]
+            .spacing(12),
+        ]
+        .spacing(12)
+        .into()
+    }
+
+    fn audio_vad_editor(draft: &ConfigDraft) -> Element<'_, Message> {
+        column![
+            checkbox(draft.duck_output_while_recording)
+                .label("Duck output while recording")
+                .on_toggle(Message::DuckOutputChanged),
+            row![
+                text(format!(
+                    "Duck volume: {:.0}%",
+                    draft.duck_output_volume * 100.0
+                ))
+                .width(180),
+                slider(
+                    0.0_f32..=1.0_f32,
+                    draft.duck_output_volume,
+                    Message::DuckVolumeChanged,
+                )
+                .step(0.05_f32)
+                .width(Length::Fill),
+            ]
+            .spacing(12),
+            checkbox(draft.vad_enabled)
+                .label("Enable voice activity detection")
+                .on_toggle(Message::VadEnabledChanged),
+            row![
+                text(format!("VAD threshold: {:.2}", draft.vad_threshold)).width(180),
+                slider(
+                    0.05_f32..=0.95_f32,
+                    draft.vad_threshold,
+                    Message::VadThresholdChanged,
+                )
+                .step(0.05_f32)
+                .width(Length::Fill),
+            ]
+            .spacing(12),
+        ]
+        .spacing(12)
+        .into()
+    }
+
+    fn config_save_controls<'a>(
+        document: &'a ConfigDocument,
+        draft: &'a ConfigDraft,
+        busy: bool,
+    ) -> Element<'a, Message> {
+        let dirty = *draft != ConfigDraft::from_config(&document.config);
+        row![
+            button("Save configuration")
+                .on_press_maybe((dirty && !busy).then_some(Message::SaveConfig)),
+            button("Reset changes")
+                .on_press_maybe((dirty && !busy).then_some(Message::ResetConfigDraft)),
+            text(if dirty {
+                "Unsaved changes"
+            } else {
+                "Configuration is up to date"
+            }),
+        ]
+        .spacing(10)
+        .into()
     }
 
     fn resources_page(&self) -> Element<'_, Message> {
@@ -349,13 +711,7 @@ pub fn load_config_document(path: Option<&Path>) -> Result<ConfigDocument, Strin
 /// Queries daemon status and runtime diagnostics using the shared D-Bus contract.
 pub fn query_daemon_snapshot() -> Result<DaemonSnapshot, String> {
     let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
-    let proxy = zbus::blocking::Proxy::new(
-        &connection,
-        dbus::SERVICE_BUS_NAME,
-        dbus::SERVICE_OBJECT_PATH,
-        dbus::SERVICE_INTERFACE,
-    )
-    .map_err(|error| error.to_string())?;
+    let proxy = daemon_proxy(&connection)?;
     let status = proxy
         .call::<_, _, String>(dbus::method::GET_STATUS, &())
         .map_err(|error| error.to_string())?;
@@ -364,6 +720,128 @@ pub fn query_daemon_snapshot() -> Result<DaemonSnapshot, String> {
         .map_err(|error| error.to_string())?;
     let runtime = serde_json::from_str(&runtime_json).map_err(|error| error.to_string())?;
     Ok(DaemonSnapshot { status, runtime })
+}
+
+fn daemon_proxy(
+    connection: &zbus::blocking::Connection,
+) -> Result<zbus::blocking::Proxy<'_>, String> {
+    zbus::blocking::Proxy::new(
+        connection,
+        dbus::SERVICE_BUS_NAME,
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn ensure_config_save_allowed(snapshot: &DaemonSnapshot) -> Result<(), String> {
+    let active_session = snapshot.runtime["active_session"]
+        .as_bool()
+        .unwrap_or(false);
+    if snapshot.status != "idle" || active_session {
+        return Err(format!(
+            "Configuration cannot be saved while the daemon is `{}` or has an active session.",
+            snapshot.status
+        ));
+    }
+    Ok(())
+}
+
+fn persist_config_draft(
+    document: &ConfigDocument,
+    draft: &ConfigDraft,
+) -> Result<ConfigSaveOutcome, String> {
+    if document.from_disk {
+        if !document.path.exists() {
+            return Err(format!(
+                "Config {} disappeared; reload before saving.",
+                document.path.display()
+            ));
+        }
+        let current = VinputConfig::from_json_file(&document.path).map_err(|error| {
+            format!(
+                "Reload current config {} before saving: {error}",
+                document.path.display()
+            )
+        })?;
+        current.validate().map_err(|error| {
+            format!(
+                "Validate current config {} before saving: {error}",
+                document.path.display()
+            )
+        })?;
+        if current != document.config {
+            return Err(format!(
+                "Config {} changed on disk; reload instead of overwriting external changes.",
+                document.path.display()
+            ));
+        }
+    } else if document.path.exists() {
+        return Err(format!(
+            "Config {} was created after the GUI loaded; reload before saving.",
+            document.path.display()
+        ));
+    }
+
+    let mut updated = document.config.clone();
+    draft.apply_to(&mut updated);
+    updated
+        .validate()
+        .map_err(|error| format!("Validate edited configuration: {error}"))?;
+    let backup_path = document
+        .from_disk
+        .then(|| config_backup_path(&document.path));
+    let receipt = write_config_file(&updated, &document.path, backup_path.as_deref())
+        .map_err(|error| format!("Save configuration: {error}"))?;
+    Ok(ConfigSaveOutcome {
+        path: receipt.path,
+        backup_path: receipt.backup_path,
+        daemon_reload: "daemon reload not attempted".to_owned(),
+    })
+}
+
+fn save_config_with_daemon(
+    document: &ConfigDocument,
+    draft: &ConfigDraft,
+) -> Result<ConfigSaveOutcome, String> {
+    let daemon = query_daemon_snapshot();
+    if let Ok(snapshot) = &daemon {
+        ensure_config_save_allowed(snapshot)?;
+    }
+
+    let mut outcome = persist_config_draft(document, draft)?;
+    outcome.daemon_reload = match daemon {
+        Ok(_) => match reload_asr_backend() {
+            Ok(()) => "daemon ASR reload requested".to_owned(),
+            Err(error) => format!("config saved; daemon reload failed: {error}"),
+        },
+        Err(error) => format!("config saved; daemon reload skipped: {error}"),
+    };
+    Ok(outcome)
+}
+
+fn reload_asr_backend() -> Result<(), String> {
+    let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
+    let proxy = daemon_proxy(&connection)?;
+    proxy
+        .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
+        .map_err(|error| error.to_string())
+}
+
+fn run_recording_action(start: bool, scene: &str) -> Result<String, String> {
+    let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
+    let proxy = daemon_proxy(&connection)?;
+    if start {
+        proxy
+            .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+            .map_err(|error| error.to_string())?;
+        Ok("Recording started.".to_owned())
+    } else {
+        let _: String = proxy
+            .call(dbus::method::STOP_RECORDING, &scene)
+            .map_err(|error| error.to_string())?;
+        Ok("Recording stopped; the recognition result was delivered to the frontend.".to_owned())
+    }
 }
 
 /// Builds a redacted machine-readable snapshot for package and CI checks.
@@ -454,10 +932,6 @@ fn llm_adapter_rows(config: &VinputConfig) -> Vec<String> {
         .collect()
 }
 
-fn enabled_label(value: bool) -> &'static str {
-    if value { "enabled" } else { "disabled" }
-}
-
 /// Runs the native GUI application.
 pub fn run() -> iced::Result {
     iced::application(App::boot, App::update, App::view)
@@ -534,5 +1008,149 @@ mod tests {
         let loaded = load_config_document(Some(&path)).expect("load config");
         assert!(loaded.from_disk);
         assert_eq!(loaded.config.global.default_language, "zh-CN");
+    }
+
+    #[test]
+    fn config_draft_applies_every_editable_field() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        let provider = config
+            .asr
+            .providers
+            .last()
+            .expect("bundled provider")
+            .id
+            .clone();
+        let scene = config
+            .scenes
+            .definitions
+            .last()
+            .expect("bundled scene")
+            .id
+            .clone();
+        let mut draft = ConfigDraft::from_config(&config);
+        draft.default_language = "zh-CN".to_owned();
+        draft.capture_device = "test-source".to_owned();
+        draft.duck_output_while_recording = true;
+        draft.duck_output_volume = 0.4;
+        draft.vad_enabled = false;
+        draft.vad_threshold = 0.65;
+        draft.active_provider.clone_from(&provider);
+        draft.active_scene.clone_from(&scene);
+
+        draft.apply_to(&mut config);
+
+        config.validate().expect("validate edited config");
+        assert_eq!(config.global.default_language, "zh-CN");
+        assert_eq!(config.global.capture_device, "test-source");
+        assert!(config.global.duck_output_while_recording);
+        assert!((config.global.duck_output_volume - 0.4).abs() < f32::EPSILON);
+        assert!(!config.asr.vad.enabled);
+        assert!((config.asr.vad.threshold - 0.65).abs() < f32::EPSILON);
+        assert_eq!(config.asr.active_provider, provider);
+        assert_eq!(config.scenes.active_scene, scene);
+    }
+
+    #[test]
+    fn config_draft_creates_missing_user_file_without_backup() {
+        let directory = tempfile::tempdir().expect("create temp dir");
+        let path = directory.path().join("nested/config.json");
+        let config = VinputConfig::bundled_default().expect("bundled config");
+        let document = ConfigDocument {
+            path: path.clone(),
+            from_disk: false,
+            config,
+        };
+        let mut draft = ConfigDraft::from_config(&document.config);
+        draft.default_language = "zh-CN".to_owned();
+
+        let outcome = persist_config_draft(&document, &draft).expect("create user config");
+
+        assert_eq!(outcome.path, path);
+        assert_eq!(outcome.backup_path, None);
+        assert_eq!(
+            VinputConfig::from_json_file(&outcome.path)
+                .expect("load created config")
+                .global
+                .default_language,
+            "zh-CN"
+        );
+    }
+
+    #[test]
+    fn config_draft_replaces_existing_file_with_backup() {
+        let directory = tempfile::tempdir().expect("create temp dir");
+        let path = directory.path().join("config.json");
+        let config = VinputConfig::bundled_default().expect("bundled config");
+        write_config_file(&config, &path, None).expect("write original config");
+        let document = load_config_document(Some(&path)).expect("load original config");
+        let mut draft = ConfigDraft::from_config(&document.config);
+        draft.capture_device = "replacement-source".to_owned();
+
+        let outcome = persist_config_draft(&document, &draft).expect("replace user config");
+
+        let backup_path = config_backup_path(&path);
+        assert_eq!(outcome.backup_path.as_deref(), Some(backup_path.as_path()));
+        assert_eq!(
+            VinputConfig::from_json_file(&path)
+                .expect("load replaced config")
+                .global
+                .capture_device,
+            "replacement-source"
+        );
+        assert_eq!(
+            VinputConfig::from_json_file(&backup_path)
+                .expect("load backup config")
+                .global
+                .capture_device,
+            config.global.capture_device
+        );
+    }
+
+    #[test]
+    fn config_draft_rejects_external_changes_without_overwrite() {
+        let directory = tempfile::tempdir().expect("create temp dir");
+        let path = directory.path().join("config.json");
+        let config = VinputConfig::bundled_default().expect("bundled config");
+        write_config_file(&config, &path, None).expect("write original config");
+        let document = load_config_document(Some(&path)).expect("load original config");
+        let mut external = config.clone();
+        external.global.capture_device = "external-source".to_owned();
+        write_config_file(&external, &path, None).expect("write external update");
+        let mut draft = ConfigDraft::from_config(&document.config);
+        draft.capture_device = "gui-source".to_owned();
+
+        let error = persist_config_draft(&document, &draft)
+            .expect_err("external update must block GUI save");
+
+        assert!(error.contains("changed on disk"));
+        assert_eq!(
+            VinputConfig::from_json_file(&path)
+                .expect("load preserved external config")
+                .global
+                .capture_device,
+            "external-source"
+        );
+        assert!(!config_backup_path(&path).exists());
+    }
+
+    #[test]
+    fn config_save_guard_requires_idle_daemon_without_active_session() {
+        let idle = DaemonSnapshot {
+            status: "idle".to_owned(),
+            runtime: json!({"active_session": false}),
+        };
+        assert!(ensure_config_save_allowed(&idle).is_ok());
+
+        let recording = DaemonSnapshot {
+            status: "recording".to_owned(),
+            runtime: json!({"active_session": true}),
+        };
+        assert!(ensure_config_save_allowed(&recording).is_err());
+
+        let inconsistent = DaemonSnapshot {
+            status: "idle".to_owned(),
+            runtime: json!({"active_session": true}),
+        };
+        assert!(ensure_config_save_allowed(&inconsistent).is_err());
     }
 }
