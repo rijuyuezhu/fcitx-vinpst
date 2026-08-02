@@ -2,7 +2,10 @@
 
 mod common;
 
+use std::fs;
+
 use common::{assert_json_success, assert_stdout_success, vinput_command};
+use tempfile::NamedTempFile;
 use vinput_protocol::{RecognitionPayload, ServiceStatus, dbus};
 
 const RAW_PAYLOAD_JSON: &str = include_str!(concat!(
@@ -20,6 +23,15 @@ const SENTINEL_PAYLOAD_JSON: &str = include_str!(concat!(
 
 fn fixture_json(input: &str) -> &str {
     input.trim_end()
+}
+fn flatpak_info_fixture() -> NamedTempFile {
+    let file = NamedTempFile::new().expect("create flatpak info fixture");
+    fs::write(
+        file.path(),
+        "[Context]\nshared=network;ipc;\nsockets=wayland;pipewire;\nfilesystems=xdg-config/systemd;xdg-cache;\n",
+    )
+    .expect("write flatpak info fixture");
+    file
 }
 
 fn assert_daemon_owner_probe_plan(value: &serde_json::Value) {
@@ -548,6 +560,91 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
 }
 
 #[test]
+fn daemon_user_service_flatpak_dry_run_wraps_host_commands() {
+    let flatpak_info = flatpak_info_fixture();
+    let output = vinput_command()
+        .env("VINPUT_FLATPAK_INFO_PATH", flatpak_info.path())
+        .args(["daemon", "restart", "--dry-run", "--json"])
+        .output()
+        .expect("run sandboxed vinput daemon restart --dry-run --json");
+
+    let value = assert_json_success(output, "sandboxed daemon restart dry-run json");
+    assert_eq!(value["sandbox"]["kind"], "flatpak");
+    assert_eq!(value["sandbox"]["host_command"], true);
+    assert_eq!(value["tool"]["name"], "systemctl");
+    assert_eq!(value["tool"]["program"], "systemctl");
+    assert_eq!(value["host_wrapper"]["program"], "flatpak-spawn");
+    assert_eq!(
+        value["host_wrapper"]["env_override"],
+        "VINPUT_FLATPAK_SPAWN"
+    );
+    assert_eq!(value["host_wrapper"]["overridden"], false);
+    assert_eq!(
+        value["command_argv"],
+        serde_json::json!([
+            "flatpak-spawn",
+            "--host",
+            "systemctl",
+            "--user",
+            "restart",
+            "vinput-daemon.service"
+        ])
+    );
+}
+
+#[test]
+fn daemon_log_flatpak_dry_run_uses_host_flatpak_journal_filter() {
+    let flatpak_info = flatpak_info_fixture();
+    let output = vinput_command()
+        .env("VINPUT_FLATPAK_INFO_PATH", flatpak_info.path())
+        .args(["daemon", "log", "--lines", "42", "--dry-run", "--json"])
+        .output()
+        .expect("run sandboxed vinput daemon log --dry-run --json");
+
+    let value = assert_json_success(output, "sandboxed daemon log dry-run json");
+    assert_eq!(value["sandbox"]["kind"], "flatpak");
+    assert_eq!(value["tool"]["name"], "journalctl");
+    assert_eq!(
+        value["command_argv"],
+        serde_json::json!([
+            "flatpak-spawn",
+            "--host",
+            "journalctl",
+            "--user",
+            "-t",
+            "flatpak",
+            "--grep",
+            "vinput",
+            "-n",
+            "42"
+        ])
+    );
+}
+
+#[test]
+fn daemon_user_service_flatpak_real_command_preserves_tool_overrides() {
+    let flatpak_info = flatpak_info_fixture();
+    let output = vinput_command()
+        .env("VINPUT_FLATPAK_INFO_PATH", flatpak_info.path())
+        .env("VINPUT_FLATPAK_SPAWN", "/bin/echo")
+        .env("VINPUT_DAEMON_SYSTEMCTL", "/custom/systemctl")
+        .args(["daemon", "stop", "--json"])
+        .output()
+        .expect("run sandboxed vinput daemon stop --json");
+
+    let value = assert_json_success(output, "sandboxed daemon stop real json");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["tool"]["program"], "/custom/systemctl");
+    assert_eq!(value["tool"]["overridden"], true);
+    assert_eq!(value["host_wrapper"]["program"], "/bin/echo");
+    assert_eq!(value["host_wrapper"]["overridden"], true);
+    assert_eq!(
+        value["stdout"],
+        "--host /custom/systemctl --user stop vinput-daemon.service\n"
+    );
+}
+
+#[test]
 fn daemon_handoff_dry_run_pins_conditional_restart_and_verification() {
     let output = vinput_command()
         .args(["daemon", "handoff", "--dry-run", "--json"])
@@ -589,6 +686,34 @@ fn daemon_handoff_dry_run_pins_conditional_restart_and_verification() {
     assert_eq!(value["verification"]["required_after_restart"], true);
     assert_eq!(value["verification"]["requires_current_owner"], true);
     assert!(value["verification"]["attempts"].as_u64().unwrap() > 1);
+}
+#[test]
+fn daemon_handoff_flatpak_dry_run_wraps_all_systemd_commands() {
+    let flatpak_info = flatpak_info_fixture();
+    let output = vinput_command()
+        .env("VINPUT_FLATPAK_INFO_PATH", flatpak_info.path())
+        .args(["daemon", "handoff", "--dry-run", "--json"])
+        .output()
+        .expect("run sandboxed vinput daemon handoff --dry-run --json");
+
+    let value = assert_json_success(output, "sandboxed daemon handoff dry-run json");
+    for control in [
+        &value["service_control"],
+        &value["systemd_control"]["owner_probe"],
+        &value["systemd_control"]["reload"],
+        &value["systemd_control"]["restart"],
+    ] {
+        assert_eq!(control["sandbox"]["kind"], "flatpak");
+        assert_eq!(control["command_argv"][0], "flatpak-spawn");
+        assert_eq!(control["command_argv"][1], "--host");
+        assert_eq!(control["command_argv"][2], "systemctl");
+    }
+    assert_eq!(value["direct_control"]["program"], "kill");
+    assert_eq!(value["direct_control"]["sandbox"]["kind"], "flatpak");
+    assert_eq!(
+        value["direct_control"]["command_argv"],
+        serde_json::json!(["flatpak-spawn", "--host", "kill", "-TERM", "<owner-pid>"])
+    );
 }
 
 #[test]
