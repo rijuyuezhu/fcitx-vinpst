@@ -19,8 +19,9 @@ if [[ -n "${shellcheck_bin}" ]]; then
 fi
 
 mapfile -t python_scripts < <(find scripts -type f -name '*.py' -print | sort)
-python3 -m py_compile "${python_scripts[@]}"
+pycache_root="${repo_root}/target/tmp/scripts-lint-pycache"
+rm -rf "${pycache_root}"
+PYTHONPYCACHEPREFIX="${pycache_root}" python3 -m py_compile "${python_scripts[@]}"
 ruff check "${python_scripts[@]}"
 ruff format --check "${python_scripts[@]}"
 scripts/tests/source-layout-check.sh
-find scripts -type d -name __pycache__ -prune -exec rm -rf {} +

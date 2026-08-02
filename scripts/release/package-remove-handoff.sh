@@ -5,7 +5,11 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 activation_file="${VINPUT_REMOVE_ACTIVATION_FILE:-/usr/share/dbus-1/services/org.fcitx.Vinput.service}"
 runtime_root="${VINPUT_REMOVE_RUNTIME_ROOT:-/run/user}"
 vinput_binary="${VINPUT_REMOVE_VINPUT:-/usr/bin/vinput}"
-runuser_binary="${VINPUT_REMOVE_RUNUSER:-/usr/bin/runuser}"
+default_runuser_binary=/usr/bin/runuser
+if [[ ! -x "${default_runuser_binary}" && -x /usr/sbin/runuser ]]; then
+  default_runuser_binary=/usr/sbin/runuser
+fi
+runuser_binary="${VINPUT_REMOVE_RUNUSER:-${default_runuser_binary}}"
 env_binary="${VINPUT_REMOVE_ENV:-/usr/bin/env}"
 getent_binary="${VINPUT_REMOVE_GETENT:-/usr/bin/getent}"
 stat_binary="${VINPUT_REMOVE_STAT:-/usr/bin/stat}"

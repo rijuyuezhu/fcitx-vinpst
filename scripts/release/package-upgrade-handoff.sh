@@ -4,7 +4,11 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 runtime_root="${VINPUT_UPGRADE_RUNTIME_ROOT:-/run/user}"
 vinput_binary="${VINPUT_UPGRADE_VINPUT:-/usr/bin/vinput}"
-runuser_binary="${VINPUT_UPGRADE_RUNUSER:-/usr/bin/runuser}"
+default_runuser_binary=/usr/bin/runuser
+if [[ ! -x "${default_runuser_binary}" && -x /usr/sbin/runuser ]]; then
+  default_runuser_binary=/usr/sbin/runuser
+fi
+runuser_binary="${VINPUT_UPGRADE_RUNUSER:-${default_runuser_binary}}"
 env_binary="${VINPUT_UPGRADE_ENV:-/usr/bin/env}"
 getent_binary="${VINPUT_UPGRADE_GETENT:-/usr/bin/getent}"
 stat_binary="${VINPUT_UPGRADE_STAT:-/usr/bin/stat}"
