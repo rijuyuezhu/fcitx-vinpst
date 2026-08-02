@@ -12,6 +12,7 @@ mod prompt;
 pub use adapter_runtime::{
     AdapterProcessSpec, AdapterRuntimePaths, AdapterStopOutcome, StartedAdapterProcess,
     default_adapter_runtime_dir, start_adapter_process, stop_adapter_process,
+    stop_started_adapter_process,
 };
 pub use command::{
     AdapterRegistry, CommandTextAdapter, CommandTextProcessor, CommandTextRequest,

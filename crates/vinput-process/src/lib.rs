@@ -28,6 +28,15 @@ use nix::{
 /// Maximum bytes retained independently from command stdout and stderr.
 pub const MAX_COMMAND_OUTPUT_BYTES: usize = 1024 * 1024;
 
+/// Signal used for supervised helper process groups.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessGroupSignal {
+    /// Request graceful termination.
+    Terminate,
+    /// Force immediate termination.
+    Kill,
+}
+
 const OUTPUT_OK: u8 = 0;
 const STDOUT_TOO_LARGE: u8 = 1;
 const STDERR_TOO_LARGE: u8 = 2;
@@ -96,6 +105,108 @@ pub enum PipedCommandError {
     StderrReaderPanicked,
 }
 
+/// Configures a command so its child becomes leader of a new process group.
+pub fn configure_process_group(command: &mut Command) {
+    command.process_group(0);
+}
+
+/// Returns whether a process group currently exists.
+pub fn process_group_exists(process_group_id: u32) -> io::Result<bool> {
+    let raw_id = i32::try_from(process_group_id)
+        .map_err(|_| io::Error::other("process group id exceeds signed range"))?;
+    match killpg(Pid::from_raw(raw_id), None) {
+        Ok(()) | Err(nix::errno::Errno::EPERM) => Ok(true),
+        Err(nix::errno::Errno::ESRCH) => Ok(false),
+        Err(error) => Err(io::Error::from_raw_os_error(error as i32)),
+    }
+}
+
+/// Sends a signal to a supervised process group, falling back to its direct child.
+///
+/// The group is authoritative for commands created by [`configure_process_group`].
+/// The direct-child fallback covers a missing group without sending a second
+/// signal after a successful group operation. `NotFound` means both targets are
+/// absent.
+pub fn signal_process_group_and_child(
+    process_group_id: u32,
+    signal: ProcessGroupSignal,
+) -> io::Result<()> {
+    let raw_id = i32::try_from(process_group_id)
+        .map_err(|_| io::Error::other("process group id exceeds signed range"))?;
+    let process_group = Pid::from_raw(raw_id);
+    let signal = match signal {
+        ProcessGroupSignal::Terminate => Signal::SIGTERM,
+        ProcessGroupSignal::Kill => Signal::SIGKILL,
+    };
+    let group_error = match killpg(process_group, signal) {
+        Ok(()) => return Ok(()),
+        Err(error) => error,
+    };
+    let child_error = match kill(process_group, signal) {
+        Ok(()) => return Ok(()),
+        Err(error) => error,
+    };
+    let error = if group_error == nix::errno::Errno::ESRCH {
+        child_error
+    } else {
+        group_error
+    };
+    Err(io::Error::from_raw_os_error(error as i32))
+}
+
+/// Returns whether the direct child has exited, cleaning descendants before reap.
+///
+/// On Linux, `waitid(WNOWAIT | WNOHANG)` reserves the direct child's PID/PGID
+/// until descendants are killed and `Child::wait` performs the final reap.
+pub fn try_wait_child_and_cleanup(
+    child: &mut Child,
+) -> io::Result<Option<std::process::ExitStatus>> {
+    try_wait_direct_child_and_cleanup(child, child.id())
+}
+
+/// Gracefully terminates a tracked child process group, then force-kills it.
+pub fn terminate_child_process_group(
+    child: &mut Child,
+    graceful_timeout: Duration,
+    force_timeout: Duration,
+) -> io::Result<()> {
+    let process_group_id = child.id();
+    match signal_process_group_and_child(process_group_id, ProcessGroupSignal::Terminate) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    if wait_for_child_cleanup(child, graceful_timeout)? {
+        return Ok(());
+    }
+    match signal_process_group_and_child(process_group_id, ProcessGroupSignal::Kill) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    if wait_for_child_cleanup(child, force_timeout)? {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "process group did not exit after force kill",
+        ))
+    }
+}
+
+fn wait_for_child_cleanup(child: &mut Child, timeout: Duration) -> io::Result<bool> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if try_wait_child_and_cleanup(child)?.is_some() {
+            return Ok(true);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Ok(false);
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
 /// Runs one piped helper with process-group cleanup and bounded output capture.
 ///
 /// The watchdog, when configured, starts immediately after spawn, so the
@@ -108,8 +219,8 @@ pub fn run_piped_command(
     timeout_ms: Option<u64>,
     write_stdin: impl FnOnce(&mut ChildStdin) -> io::Result<()>,
 ) -> Result<PipedCommandOutput, PipedCommandError> {
+    configure_process_group(command);
     command
-        .process_group(0)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -274,7 +385,13 @@ fn wait_for_output(
     output_readers: OutputReaders,
 ) -> Result<Output, PipedCommandError> {
     let process_group_id = child.id();
-    let status = wait_for_direct_child_and_cleanup(&mut child, process_group_id);
+    let status = loop {
+        match try_wait_direct_child_and_cleanup(&mut child, process_group_id) {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => thread::sleep(Duration::from_millis(5)),
+            Err(error) => break Err(error),
+        }
+    };
     let stdout = output_readers.stdout.join();
     let stderr = output_readers.stderr.join();
     let timed_out = finish_watchdog(watchdog)?;
@@ -309,19 +426,20 @@ fn wait_for_output(
 }
 
 #[cfg(target_os = "linux")]
-fn wait_for_direct_child_and_cleanup(
+fn try_wait_direct_child_and_cleanup(
     child: &mut Child,
     process_group_id: u32,
-) -> io::Result<std::process::ExitStatus> {
+) -> io::Result<Option<std::process::ExitStatus>> {
     let raw_pid = i32::try_from(process_group_id)
         .map_err(|_| io::Error::other("child process id exceeds signed range"))?;
     let child_pid = Pid::from_raw(raw_pid);
     loop {
         match waitid(
             Id::Pid(child_pid),
-            WaitPidFlag::WEXITED | WaitPidFlag::WNOWAIT,
+            WaitPidFlag::WEXITED | WaitPidFlag::WNOWAIT | WaitPidFlag::WNOHANG,
         ) {
             Ok(WaitStatus::Exited(..) | WaitStatus::Signaled(..)) => break,
+            Ok(WaitStatus::StillAlive) => return Ok(None),
             Err(error) if error != Errno::EINTR => {
                 kill_process_group(process_group_id);
                 let _ = child.wait();
@@ -333,17 +451,19 @@ fn wait_for_direct_child_and_cleanup(
     // WNOWAIT keeps the direct child as a zombie, reserving its PID/PGID while
     // remaining descendants are terminated. Child::wait then performs the reap.
     kill_process_group(process_group_id);
-    child.wait()
+    child.wait().map(Some)
 }
 
 #[cfg(not(target_os = "linux"))]
-fn wait_for_direct_child_and_cleanup(
+fn try_wait_direct_child_and_cleanup(
     child: &mut Child,
     process_group_id: u32,
-) -> io::Result<std::process::ExitStatus> {
-    let status = child.wait();
-    kill_process_group(process_group_id);
-    status
+) -> io::Result<Option<std::process::ExitStatus>> {
+    let status = child.try_wait()?;
+    if status.is_some() {
+        kill_process_group(process_group_id);
+    }
+    Ok(status)
 }
 
 fn finish_watchdog(watchdog: Option<Watchdog>) -> Result<Option<u64>, PipedCommandError> {
@@ -362,11 +482,7 @@ fn finish_watchdog(watchdog: Option<Watchdog>) -> Result<Option<u64>, PipedComma
 }
 
 fn kill_process_group(process_group_id: u32) {
-    if let Ok(process_group_id) = i32::try_from(process_group_id) {
-        let process_group = Pid::from_raw(process_group_id);
-        let _ = killpg(process_group, Signal::SIGKILL);
-        let _ = kill(process_group, Signal::SIGKILL);
-    }
+    let _ = signal_process_group_and_child(process_group_id, ProcessGroupSignal::Kill);
 }
 
 #[cfg(test)]

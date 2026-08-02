@@ -77,10 +77,11 @@ impl Drop for RuntimeState {
             let _ = session.cancel();
         }
         let _ = self.audio_recorder.cancel_recording();
-        for (adapter_id, mut process) in self.adapter_processes.drain() {
-            let _ = process.child.kill();
-            let _ = process.child.wait();
-            let _ = self.adapter_runtime_paths.remove_pid(&adapter_id);
+        for (_adapter_id, mut process) in self.adapter_processes.drain() {
+            let _ = vinput_text::stop_started_adapter_process(
+                &mut process,
+                &self.adapter_runtime_paths,
+            );
         }
     }
 }

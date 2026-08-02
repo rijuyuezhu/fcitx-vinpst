@@ -34,6 +34,9 @@ pub enum TextError {
     /// Adapter runtime pid file was malformed.
     #[error("text adapter runtime pid file is invalid: {0}")]
     InvalidAdapterPid(String),
+    /// A fingerprinted pid file still identifies a live adapter process.
+    #[error("text adapter `{0}` is already running")]
+    AdapterAlreadyRunning(String),
     /// Command adapter helper returned an error or invalid response.
     #[error("text adapter failed: {0}")]
     AdapterFailed(String),

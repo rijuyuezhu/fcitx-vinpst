@@ -2,7 +2,7 @@
 
 use vinput_text::{
     AdapterProcessSpec, AdapterRuntimePaths, AdapterStopOutcome, start_adapter_process,
-    stop_adapter_process,
+    stop_adapter_process, stop_started_adapter_process,
 };
 
 use super::{RuntimeError, RuntimeState};
@@ -20,10 +20,12 @@ impl RuntimeState {
         let exited_adapter_ids: Vec<_> = self
             .adapter_processes
             .iter_mut()
-            .filter_map(|(adapter_id, process)| match process.child.try_wait() {
-                Ok(Some(_status)) => Some(adapter_id.clone()),
-                Ok(None) | Err(_) => None,
-            })
+            .filter_map(
+                |(adapter_id, process)| match process.try_wait_and_cleanup() {
+                    Ok(Some(_status)) => Some(adapter_id.clone()),
+                    Ok(None) | Err(_) => None,
+                },
+            )
             .collect();
         for adapter_id in &exited_adapter_ids {
             self.adapter_processes.remove(adapter_id);
@@ -47,8 +49,14 @@ impl RuntimeState {
             .find(|adapter| adapter.id == adapter_id)
             .ok_or_else(|| RuntimeError::TextAdapterNotConfigured(adapter_id.to_owned()))?;
         let spec = AdapterProcessSpec::from_config(adapter);
-        let process = start_adapter_process(&spec, &self.adapter_runtime_paths)
-            .map_err(RuntimeError::TextAdapterSupervisor)?;
+        let process = start_adapter_process(&spec, &self.adapter_runtime_paths).map_err(
+            |error| match error {
+                vinput_text::TextError::AdapterAlreadyRunning(adapter_id) => {
+                    RuntimeError::TextAdapterAlreadyRunning(adapter_id)
+                }
+                error => RuntimeError::TextAdapterSupervisor(error),
+            },
+        )?;
         let pid = process.pid;
         self.adapter_processes
             .insert(adapter_id.to_owned(), process);
@@ -68,14 +76,11 @@ impl RuntimeState {
                 adapter_id.to_owned(),
             ));
         }
-        let outcome = stop_adapter_process(adapter_id, &self.adapter_runtime_paths)
-            .map_err(RuntimeError::TextAdapterSupervisor)?;
         if let Some(mut process) = self.adapter_processes.remove(adapter_id) {
-            if matches!(outcome, AdapterStopOutcome::NotRunning) {
-                let _ = process.child.kill();
-            }
-            let _ = process.child.wait();
+            return stop_started_adapter_process(&mut process, &self.adapter_runtime_paths)
+                .map_err(RuntimeError::TextAdapterSupervisor);
         }
-        Ok(outcome)
+        stop_adapter_process(adapter_id, &self.adapter_runtime_paths)
+            .map_err(RuntimeError::TextAdapterSupervisor)
     }
 }
