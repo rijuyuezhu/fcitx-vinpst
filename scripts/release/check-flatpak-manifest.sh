@@ -154,6 +154,65 @@ assert sources[1]["dest-filename"] == "sherpa-onnx-LICENSE"
 assert sources[2]["dest-filename"] == "onnxruntime-LICENSE"
 PY
 
+cargo_source_dir="${work_dir}/cargo-sources"
+cargo_cache_dir="${work_dir}/cargo-cache/registry-cache"
+mkdir -p "${cargo_source_dir}" "${cargo_cache_dir}"
+python3 - "${cargo_source_dir}" "${cargo_cache_dir}" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+
+source_dir = Path(sys.argv[1])
+cache_dir = Path(sys.argv[2])
+sources = json.loads(Path("packaging/flatpak/cargo-sources.json").read_text())
+fixtures = []
+archives = [entry for entry in sources if entry.get("type") == "archive"][:2]
+for index, archive in enumerate(archives):
+    content = f"crate fixture {index}\n".encode()
+    digest = hashlib.sha256(content).hexdigest()
+    filename = Path(urlparse(archive["url"]).path).name
+    archive = dict(archive)
+    archive["sha256"] = digest
+    checksum = {
+        "type": "inline",
+        "contents": json.dumps(
+            {"package": digest, "files": {}},
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        "dest": archive["dest"],
+        "dest-filename": ".cargo-checksum.json",
+    }
+    (source_dir / filename).write_bytes(content)
+    (cache_dir / filename).write_bytes(content)
+    fixtures.extend([archive, checksum])
+fixtures.append(sources[-1])
+(source_dir / "cargo-sources.json").write_text(
+    json.dumps(fixtures), encoding="utf-8"
+)
+PY
+scripts/release/render-flatpak-manifest.py \
+  --source-dir "${repo_root}" \
+  --cargo-sources-manifest "${cargo_source_dir}/cargo-sources.json" \
+  --cargo-source-dir "${cargo_source_dir}" \
+  --output "${work_dir}/local-cargo-manifest.json"
+python3 - "${work_dir}/local-cargo-manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+sources = manifest["modules"][1]["sources"][1:]
+archives = [source for source in sources if source.get("type") == "archive"]
+assert len(archives) == 2
+assert all("path" in source and "url" not in source for source in archives)
+assert all(source["archive-type"] == "tar-gzip" for source in archives)
+assert len([source for source in sources if source.get("dest-filename") == ".cargo-checksum.json"]) == 2
+assert sources[-1]["dest-filename"] == "config.toml"
+PY
+
 expect_failure() {
   local label="$1"
   shift
@@ -197,6 +256,59 @@ expect_failure runtime-source-dir-symlink \
 grep -Fq 'must not be a symbolic link' \
   "${work_dir}/runtime-source-dir-symlink.stderr"
 
+cargo_archive="$(python3 - "${cargo_source_dir}/cargo-sources.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+
+sources = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+archive = next(source for source in sources if source.get("type") == "archive")
+print(Path(urlparse(archive["url"]).path).name)
+PY
+)"
+cp "${cargo_source_dir}/${cargo_archive}" \
+  "${cargo_source_dir}/${cargo_archive}.original"
+printf 'tampered\n' >>"${cargo_source_dir}/${cargo_archive}"
+expect_failure bad-cargo-source-digest \
+  scripts/release/render-flatpak-manifest.py \
+    --source-dir "${repo_root}" \
+    --cargo-sources-manifest "${cargo_source_dir}/cargo-sources.json" \
+    --cargo-source-dir "${cargo_source_dir}" \
+    --output "${work_dir}/bad-cargo-digest.json"
+grep -Fq 'Cargo source digest mismatch' \
+  "${work_dir}/bad-cargo-source-digest.stderr"
+mv "${cargo_source_dir}/${cargo_archive}.original" \
+  "${cargo_source_dir}/${cargo_archive}"
+
+cargo_source_link="${work_dir}/cargo-sources-link"
+ln -s "${cargo_source_dir}" "${cargo_source_link}"
+expect_failure cargo-source-dir-symlink \
+  scripts/release/render-flatpak-manifest.py \
+    --source-dir "${repo_root}" \
+    --cargo-sources-manifest "${cargo_source_dir}/cargo-sources.json" \
+    --cargo-source-dir "${cargo_source_link}" \
+    --output "${work_dir}/cargo-source-link.json"
+grep -Fq 'Cargo source directory must not be a symbolic link' \
+  "${work_dir}/cargo-source-dir-symlink.stderr"
+
+prefetched_cargo_dir="${work_dir}/prefetched-cargo-sources"
+scripts/release/prefetch-flatpak-cargo-sources.py \
+  --sources "${cargo_source_dir}/cargo-sources.json" \
+  --cache-dir "${cargo_cache_dir}" \
+  --output-dir "${prefetched_cargo_dir}" \
+  --jobs 2
+cmp "${cargo_source_dir}/${cargo_archive}" \
+  "${prefetched_cargo_dir}/${cargo_archive}"
+printf 'tampered\n' >>"${prefetched_cargo_dir}/${cargo_archive}"
+scripts/release/prefetch-flatpak-cargo-sources.py \
+  --sources "${cargo_source_dir}/cargo-sources.json" \
+  --cache-dir "${cargo_cache_dir}" \
+  --output-dir "${prefetched_cargo_dir}" \
+  --jobs 2
+cmp "${cargo_source_dir}/${cargo_archive}" \
+  "${prefetched_cargo_dir}/${cargo_archive}"
+
 expect_failure bad-source-digest \
   scripts/release/render-flatpak-manifest.py \
     --source-archive "${source_archive}" \
@@ -229,5 +341,19 @@ expect_failure git-cargo-source \
   scripts/release/generate-flatpak-cargo-sources.py \
     "${work_dir}/Cargo.lock" \
     --output "${work_dir}/git-sources.json"
+
+lock_file="${repo_root}/target/tmp/flatpak-package-smoke.lock"
+mkdir -p "$(dirname "${lock_file}")"
+(
+  flock -n 9
+  if scripts/release/run-flatpak-package-smoke.sh \
+    >"${work_dir}/concurrent-smoke.stdout" \
+    2>"${work_dir}/concurrent-smoke.stderr"; then
+    echo "expected concurrent Flatpak package smoke to fail" >&2
+    exit 1
+  fi
+  grep -Fq 'another Flatpak package smoke is already using' \
+    "${work_dir}/concurrent-smoke.stderr"
+) 9>"${lock_file}"
 
 printf 'Flatpak manifest metadata check passed\n'

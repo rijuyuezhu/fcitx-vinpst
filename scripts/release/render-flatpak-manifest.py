@@ -18,6 +18,10 @@ from runtime_bundles import load_runtime_bundle
 
 SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._+-]+$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+CRATE_URL_PATTERN = re.compile(
+    r"^https://static\.crates\.io/crates/[A-Za-z0-9_+.-]+/"
+    r"(?P<filename>[A-Za-z0-9_+.-]+\.crate)$"
+)
 APP_ID = "org.fcitx.Fcitx5.Addon.Vinput"
 PREFIX = "/app/addons/Vinput"
 
@@ -30,6 +34,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-sha256")
     parser.add_argument("--runtime-source-dir", type=Path)
     parser.add_argument("--runtime-manifest", type=Path)
+    parser.add_argument("--cargo-source-dir", type=Path)
+    parser.add_argument("--cargo-sources-manifest", type=Path)
     parser.add_argument("--runtime-bundle")
     parser.add_argument("--runtime-version", default="stable")
     parser.add_argument("--branch", default="stable")
@@ -58,15 +64,23 @@ def relative_source_path(source: Path, output: Path) -> str:
 
 def source_entry(args: argparse.Namespace) -> dict[str, str]:
     if args.source_dir is not None:
+        if args.source_dir.is_symlink():
+            raise ValueError(
+                f"Flatpak source directory must not be a symbolic link: {args.source_dir}"
+            )
         source = args.source_dir.resolve()
-        if not source.is_dir() or source.is_symlink():
+        if not source.is_dir():
             raise ValueError(
                 f"Flatpak source directory must be a regular directory: {source}"
             )
         return {"type": "dir", "path": relative_source_path(source, args.output)}
 
+    if args.source_archive.is_symlink():
+        raise ValueError(
+            f"Flatpak source archive must not be a symbolic link: {args.source_archive}"
+        )
     source = args.source_archive.resolve()
-    if not source.is_file() or source.is_symlink():
+    if not source.is_file():
         raise ValueError(f"Flatpak source archive must be a regular file: {source}")
     if not SHA256_PATTERN.fullmatch(args.source_sha256):
         raise ValueError("Flatpak source SHA-256 must be lowercase hexadecimal")
@@ -106,6 +120,63 @@ def local_runtime_source(
     if dest_filename is not None:
         entry["dest-filename"] = dest_filename
     return entry
+
+
+def cargo_archive_filename(source: dict[str, Any]) -> str:
+    url = source.get("url")
+    if not isinstance(url, str):
+        raise TypeError("Flatpak Cargo archive source must contain a URL")
+    match = CRATE_URL_PATTERN.fullmatch(url)
+    if match is None:
+        raise ValueError(f"unsupported Flatpak Cargo archive URL: {url!r}")
+    return match.group("filename")
+
+
+def localize_cargo_sources(
+    sources: list[dict[str, Any]], output: Path, cargo_source_dir: Path | None
+) -> list[dict[str, Any]]:
+    if cargo_source_dir is None:
+        return sources
+    if cargo_source_dir.is_symlink():
+        raise ValueError(
+            "Flatpak Cargo source directory must not be a symbolic link: "
+            f"{cargo_source_dir}"
+        )
+    source_dir = cargo_source_dir.resolve()
+    if not source_dir.is_dir():
+        raise ValueError(
+            f"Flatpak Cargo source directory must be a regular directory: {source_dir}"
+        )
+
+    localized: list[dict[str, Any]] = []
+    for source in sources:
+        if source.get("type") != "archive":
+            localized.append(source)
+            continue
+        expected_sha256 = source.get("sha256")
+        if not isinstance(expected_sha256, str) or not SHA256_PATTERN.fullmatch(
+            expected_sha256
+        ):
+            raise ValueError(
+                "Flatpak Cargo archive SHA-256 must be lowercase hexadecimal"
+            )
+        filename = cargo_archive_filename(source)
+        local_source = source_dir / filename
+        if not local_source.is_file() or local_source.is_symlink():
+            raise ValueError(
+                f"Flatpak Cargo source must be a regular file: {local_source}"
+            )
+        actual_sha256 = sha256_file(local_source)
+        if actual_sha256 != expected_sha256:
+            raise ValueError(
+                f"Flatpak Cargo source digest mismatch for {filename}: "
+                f"expected {expected_sha256}, got {actual_sha256}"
+            )
+        entry = dict(source)
+        del entry["url"]
+        entry["path"] = relative_source_path(local_source, output)
+        localized.append(entry)
+    return localized
 
 
 def checked_token(name: str, value: str) -> str:
@@ -266,11 +337,21 @@ def main() -> None:
     args = parse_args()
     repo_root = Path(__file__).resolve().parents[2]
     base = load_json(repo_root / "packaging/flatpak/manifest-base.json")
-    cargo_sources = load_json(repo_root / "packaging/flatpak/cargo-sources.json")
+    cargo_sources_manifest = (
+        args.cargo_sources_manifest.resolve()
+        if args.cargo_sources_manifest is not None
+        else repo_root / "packaging/flatpak/cargo-sources.json"
+    )
+    cargo_sources = load_json(cargo_sources_manifest)
     if not isinstance(base, dict) or base.get("app-id") != APP_ID:
         raise ValueError("Flatpak base manifest has an unexpected app ID")
     if not isinstance(cargo_sources, list) or not cargo_sources:
         raise ValueError("Flatpak Cargo source list must be non-empty")
+    if not all(isinstance(source, dict) for source in cargo_sources):
+        raise ValueError("Flatpak Cargo source entries must be objects")
+    cargo_sources = localize_cargo_sources(
+        cargo_sources, args.output, args.cargo_source_dir
+    )
     runtime_manifest = (
         args.runtime_manifest.resolve()
         if args.runtime_manifest is not None

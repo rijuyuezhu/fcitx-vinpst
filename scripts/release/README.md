@@ -34,12 +34,14 @@ promotes a verified release candidate. The Debian Docker matrix builds release
 1 and synthetic release 2 for Debian 12 and Ubuntu 24.04, performs real `dpkg`
 install/upgrade/removal transactions, and publishes only release 1. The Nix
 path evaluates the lock file and builds the immutable closure. The Flatpak path
-uses locked Fcitx/KDE/Rust/LLVM runtimes and Cargo/native sources. It prefetches
-the checked native runtime with bounded transport and exact SHA-256 verification,
-builds the product once, verifies a real extension install/update/remove
-transaction, and publishes only the revision-1 bundle; revision 2 changes only a
-test marker in the exported OSTree tree. Test keys and synthetic upgrade
-artifacts are never production release inputs.
+uses locked Fcitx/KDE/Rust/LLVM runtimes and Cargo/native sources. It materializes
+the checked native runtime and every crates.io archive outside Flatpak Builder,
+using bounded transport, concurrent Cargo downloads, host-cache reuse only after
+exact SHA-256 verification, and local manifest-relative sources. It then builds
+the product once, verifies a real extension install/update/remove transaction,
+and publishes only the revision-1 bundle; revision 2 changes only a test marker
+in the exported OSTree tree. Test keys and synthetic upgrade artifacts are never
+production release inputs.
 
 The package lifecycle contract installs three cooperating files:
 

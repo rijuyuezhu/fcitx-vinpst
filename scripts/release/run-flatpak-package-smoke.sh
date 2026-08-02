@@ -14,7 +14,7 @@ done
 cd "${repo_root}"
 
 image="${VINPUT_FLATPAK_BUILDER_IMAGE:-fcitx-vinput-rs-flatpak-builder:local}"
-for command in curl docker jq python3 sha256sum; do
+for command in curl docker flock jq python3 sha256sum; do
   command -v "${command}" >/dev/null || {
     echo "missing Flatpak package smoke host tool: ${command}" >&2
     exit 1
@@ -22,9 +22,17 @@ for command in curl docker jq python3 sha256sum; do
 done
 
 work_dir="${repo_root}/target/tmp/flatpak-package-smoke"
+lock_file="${repo_root}/target/tmp/flatpak-package-smoke.lock"
 source_archive="${work_dir}/fcitx-vinput-rs-source.tar.gz"
 runtime_source_dir="${work_dir}/runtime-sources"
+cargo_source_dir="${work_dir}/cargo-sources"
 container_id_file="${work_dir}/builder.cid"
+mkdir -p "$(dirname "${lock_file}")"
+exec 9>"${lock_file}"
+if ! flock -n 9; then
+  echo "another Flatpak package smoke is already using ${work_dir}" >&2
+  exit 1
+fi
 
 cleanup_container() {
   if [[ -s "${container_id_file}" ]]; then
@@ -61,6 +69,7 @@ rm -rf \
   "${container_id_file}"
 
 mkdir -p "${runtime_source_dir}"
+mkdir -p "${cargo_source_dir}"
 
 readarray -t runtime_bundle < <(
   PYTHONDONTWRITEBYTECODE=1 \
@@ -150,6 +159,18 @@ download_checked \
   "${runtime_source_dir}/onnxruntime-LICENSE" \
   "${onnxruntime_license_sha256}"
 
+cargo_cache_dir="${CARGO_HOME:-${HOME}/.cargo}/registry/cache"
+cargo_prefetch_args=(
+  --sources "${repo_root}/packaging/flatpak/cargo-sources.json"
+  --output-dir "${cargo_source_dir}"
+  --jobs "${VINPUT_FLATPAK_CARGO_DOWNLOAD_JOBS:-16}"
+  --attempts "${VINPUT_FLATPAK_CARGO_DOWNLOAD_ATTEMPTS:-5}"
+)
+if [[ -d "${cargo_cache_dir}" && ! -L "${cargo_cache_dir}" ]]; then
+  cargo_prefetch_args+=(--cache-dir "${cargo_cache_dir}")
+fi
+scripts/release/prefetch-flatpak-cargo-sources.py "${cargo_prefetch_args[@]}"
+
 curl --retry 10 --retry-all-errors --connect-timeout 30 --max-time 300 \
   --proto '=https' --tlsv1.2 -fsSL \
   https://dl.flathub.org/repo/flathub.flatpakrepo \
@@ -163,6 +184,7 @@ scripts/release/render-flatpak-manifest.py \
   --source-archive "${source_archive}" \
   --source-sha256 "${source_sha256}" \
   --runtime-source-dir "${runtime_source_dir}" \
+  --cargo-source-dir "${cargo_source_dir}" \
   --revision 1 \
   --output "${work_dir}/manifest.json"
 
