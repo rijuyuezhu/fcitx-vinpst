@@ -71,6 +71,25 @@ fn unique_adapter_runtime_dir(name: &str) -> std::path::PathBuf {
     ))
 }
 
+fn process_is_runnable(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/status")).is_ok_and(|status| {
+        status
+            .lines()
+            .find(|line| line.starts_with("State:"))
+            .is_none_or(|line| !line.contains("Z (zombie)") && !line.contains("X (dead)"))
+    })
+}
+
+fn wait_until_process_stops_running(pid: u32) {
+    for _ in 0..100 {
+        if !process_is_runnable(pid) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(!process_is_runnable(pid), "process {pid} remained runnable");
+}
+
 fn config_with_sleep_adapter(adapter_id: &str) -> VinputConfig {
     let mut config = VinputConfig::bundled_default().unwrap();
     config.llm.adapters.push(vinput_config::LlmAdapterConfig {
@@ -874,15 +893,22 @@ fn dropping_runtime_cleans_up_supervised_adapter() {
 }
 
 #[test]
-fn refresh_text_adapters_reaps_exited_processes() {
+fn refresh_text_adapters_reaps_exited_processes_and_descendants() {
     let runtime_dir = unique_adapter_runtime_dir("refresh-exited");
     let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let child_pid_path = runtime_dir.join("child.pid");
     let mut config = VinputConfig::bundled_default().unwrap();
     config.llm.adapters.push(vinput_config::LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
-        command: "true".to_owned(),
-        args: Vec::new(),
-        env: std::collections::HashMap::default(),
+        command: "/bin/sh".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            r#"sleep 30 & echo $! > "$CHILD_PID""#.to_owned(),
+        ],
+        env: std::collections::HashMap::from([(
+            "CHILD_PID".to_owned(),
+            child_pid_path.to_string_lossy().into_owned(),
+        )]),
         working_dir: None,
         extra: std::collections::HashMap::default(),
     });
@@ -892,6 +918,17 @@ fn refresh_text_adapters_reaps_exited_processes() {
 
     runtime.start_text_adapter("cmd-adapter").unwrap();
     assert!(pid_path.exists());
+    for _ in 0..100 {
+        if child_pid_path.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let child_pid = std::fs::read_to_string(&child_pid_path)
+        .unwrap()
+        .trim()
+        .parse::<u32>()
+        .unwrap();
 
     let mut exited = Vec::new();
     for _ in 0..20 {
@@ -906,6 +943,7 @@ fn refresh_text_adapters_reaps_exited_processes() {
     assert!(!runtime.is_text_adapter_running("cmd-adapter"));
     assert_eq!(runtime.text_adapter_pid("cmd-adapter"), None);
     assert!(!pid_path.exists());
+    wait_until_process_stops_running(child_pid);
     let _ = std::fs::remove_dir_all(runtime_dir);
 }
 
