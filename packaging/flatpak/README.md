@@ -27,7 +27,7 @@ Run the lightweight metadata gate with:
 scripts/release/check-flatpak-manifest.sh
 ```
 
-The complete release gate builds a minimal Debian 12 Flatpak Builder container, then uses the same privileged builder boundary and KDE 6.10/Fcitx SDK declared by the legacy release workflow. Because the locked remote is not enumerable, the gate installs the exact `org.kde.Platform//6.10` dependency before asking Flatpak Builder to install the Fcitx runtime and Rust SDK extension:
+The complete release gate first downloads the checked Sherpa archive and the two third-party license files outside Flatpak Builder with bounded connection, total-time, and low-speed limits. Every file must match the shared runtime manifest before the renderer replaces the network sources with local relative paths. This prevents Flatpak Builder's internal source fetcher from hanging indefinitely while preserving the exact source digests. The gate then builds a minimal Debian 12 Flatpak Builder container and uses the same privileged builder boundary and KDE 6.10/Fcitx SDK declared by the legacy release workflow. Because the locked remote is not enumerable, the gate installs the exact `org.kde.Platform//6.10` dependency before asking Flatpak Builder to install the Fcitx runtime plus Rust and LLVM SDK extensions:
 
 ```sh
 scripts/release/run-flatpak-package-smoke.sh
@@ -35,11 +35,14 @@ scripts/release/run-flatpak-package-smoke.sh
 
 That gate compiles the product once, installs revision 1, runs the packaged CLI/daemon/GUI self-check through the Fcitx Flatpak application, and creates the publication bundle from that exact commit. It then changes only a checked package-revision marker in the exported build tree, creates a synthetic revision-2 OSTree commit, performs a real update, and verifies that the commit and marker changed. Finally it removes the extension, installs the revision-1 bundle, proves the synthetic update did not enter the publication artifact, and removes it again. A rendered manifest without that build/install/update/bundle/remove transaction is not Flatpak release evidence.
 
-The outer gate cleans its isolated HOME, source cache, OSTree repository, and build tree on every release run. `VINPUT_FLATPAK_REUSE_HOME=1` is reserved for direct inner-gate retries while developing the recipe; it retains only the isolated runtime/source cache and is not used by the release workflow.
+The outer gate cleans its isolated HOME, Flatpak source cache, OSTree repository, and build tree on every release run. A checksum-valid host-side runtime source cache may be reused across retries; invalid or partial files are discarded before use. `VINPUT_FLATPAK_REUSE_HOME=1` is reserved for direct inner-gate retries while developing the recipe; it retains only the isolated Flatpak runtime/source cache and is not used by the release workflow.
 
 Optional transport overrides do not change the locked refs or checksums:
 
 - `VINPUT_FLATPAK_BUILDER_IMAGE` selects a prebuilt builder image, including the legacy `ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10` image;
 - `VINPUT_FLATPAK_APT_MIRROR` and `VINPUT_FLATPAK_APT_SECURITY_MIRROR` select Debian package mirrors for the local builder image;
 - `VINPUT_FLATPAK_REMOTE_URL` selects a Flathub OSTree mirror and is asserted after remote registration;
-- `VINPUT_FLATPAK_RETRY_ATTEMPTS` controls bounded dependency/source transaction retries.
+- `VINPUT_FLATPAK_RETRY_ATTEMPTS` controls bounded dependency/source transaction retries;
+- `VINPUT_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS` bounds each exact Flatpak runtime/SDK installation attempt;
+- `VINPUT_FLATPAK_BUILD_TIMEOUT_SECONDS` bounds each complete Flatpak Builder attempt;
+- `VINPUT_FLATPAK_TRANSACTION_TIMEOUT_SECONDS` bounds each extension install, update, bundle reinstall, and removal attempt.

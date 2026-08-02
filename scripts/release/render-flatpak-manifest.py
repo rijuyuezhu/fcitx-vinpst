@@ -28,6 +28,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-dir", type=Path)
     parser.add_argument("--source-archive", type=Path)
     parser.add_argument("--source-sha256")
+    parser.add_argument("--runtime-source-dir", type=Path)
+    parser.add_argument("--runtime-manifest", type=Path)
     parser.add_argument("--runtime-bundle")
     parser.add_argument("--runtime-version", default="stable")
     parser.add_argument("--branch", default="stable")
@@ -80,6 +82,32 @@ def source_entry(args: argparse.Namespace) -> dict[str, str]:
     }
 
 
+def local_runtime_source(
+    source: Path,
+    output: Path,
+    expected_sha256: str,
+    source_type: str,
+    *,
+    dest_filename: str | None = None,
+) -> dict[str, str]:
+    if not source.is_file() or source.is_symlink():
+        raise ValueError(f"Flatpak runtime source must be a regular file: {source}")
+    actual = sha256_file(source)
+    if actual != expected_sha256:
+        raise ValueError(
+            f"Flatpak runtime source digest mismatch for {source.name}: "
+            f"expected {expected_sha256}, got {actual}"
+        )
+    entry = {
+        "type": source_type,
+        "path": relative_source_path(source, output),
+        "sha256": actual,
+    }
+    if dest_filename is not None:
+        entry["dest-filename"] = dest_filename
+    return entry
+
+
 def checked_token(name: str, value: str) -> str:
     if not SAFE_TOKEN.fullmatch(value):
         raise ValueError(f"unsafe Flatpak {name}: {value!r}")
@@ -93,20 +121,14 @@ def load_json(path: Path) -> Any:
         raise ValueError(f"cannot read JSON {path}: {error}") from error
 
 
-def runtime_module(bundle: dict[str, Any]) -> dict[str, Any]:
+def runtime_module(
+    bundle: dict[str, Any], output: Path, runtime_source_dir: Path | None
+) -> dict[str, Any]:
     sherpa_version = bundle["sherpa_onnx_version"]
     archive = bundle["sherpa_onnx_archive"]
     onnxruntime_version = bundle["onnxruntime_version"]
-    return {
-        "name": "sherpa-onnx-runtime",
-        "buildsystem": "simple",
-        "build-commands": [
-            f"install -Dm755 lib/libsherpa-onnx-c-api.so {PREFIX}/lib/libsherpa-onnx-c-api.so",
-            f"install -Dm755 lib/libonnxruntime.so {PREFIX}/lib/libonnxruntime.so",
-            f"install -Dm644 sherpa-onnx-LICENSE {PREFIX}/share/licenses/fcitx-vinput-rs/sherpa-onnx-LICENSE",
-            f"install -Dm644 onnxruntime-LICENSE {PREFIX}/share/licenses/fcitx-vinput-rs/onnxruntime-LICENSE",
-        ],
-        "sources": [
+    if runtime_source_dir is None:
+        sources = [
             {
                 "type": "archive",
                 "url": (
@@ -133,7 +155,50 @@ def runtime_module(bundle: dict[str, Any]) -> dict[str, Any]:
                 "sha256": bundle["onnxruntime_license_sha256"],
                 "dest-filename": "onnxruntime-LICENSE",
             },
+        ]
+    else:
+        if runtime_source_dir.is_symlink():
+            raise ValueError(
+                "Flatpak runtime source directory must not be a symbolic link: "
+                f"{runtime_source_dir}"
+            )
+        source_dir = runtime_source_dir.resolve()
+        if not source_dir.is_dir():
+            raise ValueError(
+                f"Flatpak runtime source directory must be a regular directory: {source_dir}"
+            )
+        sources = [
+            local_runtime_source(
+                source_dir / archive,
+                output,
+                bundle["sherpa_onnx_sha256"],
+                "archive",
+            ),
+            local_runtime_source(
+                source_dir / "sherpa-onnx-LICENSE",
+                output,
+                bundle["sherpa_onnx_license_sha256"],
+                "file",
+                dest_filename="sherpa-onnx-LICENSE",
+            ),
+            local_runtime_source(
+                source_dir / "onnxruntime-LICENSE",
+                output,
+                bundle["onnxruntime_license_sha256"],
+                "file",
+                dest_filename="onnxruntime-LICENSE",
+            ),
+        ]
+    return {
+        "name": "sherpa-onnx-runtime",
+        "buildsystem": "simple",
+        "build-commands": [
+            f"install -Dm755 lib/libsherpa-onnx-c-api.so {PREFIX}/lib/libsherpa-onnx-c-api.so",
+            f"install -Dm755 lib/libonnxruntime.so {PREFIX}/lib/libonnxruntime.so",
+            f"install -Dm644 sherpa-onnx-LICENSE {PREFIX}/share/licenses/fcitx-vinput-rs/sherpa-onnx-LICENSE",
+            f"install -Dm644 onnxruntime-LICENSE {PREFIX}/share/licenses/fcitx-vinput-rs/onnxruntime-LICENSE",
         ],
+        "sources": sources,
     }
 
 
@@ -206,9 +271,12 @@ def main() -> None:
         raise ValueError("Flatpak base manifest has an unexpected app ID")
     if not isinstance(cargo_sources, list) or not cargo_sources:
         raise ValueError("Flatpak Cargo source list must be non-empty")
-    bundle = load_runtime_bundle(
-        repo_root / "packaging/arch/runtime-bundles.json", args.runtime_bundle
+    runtime_manifest = (
+        args.runtime_manifest.resolve()
+        if args.runtime_manifest is not None
+        else repo_root / "packaging/arch/runtime-bundles.json"
     )
+    bundle = load_runtime_bundle(runtime_manifest, args.runtime_bundle)
     if (
         bundle["package_arch"] != "x86_64"
         or bundle["rust_target"] != "x86_64-unknown-linux-gnu"
@@ -218,7 +286,7 @@ def main() -> None:
     base["runtime-version"] = checked_token("runtime version", args.runtime_version)
     base["branch"] = checked_token("branch", args.branch)
     base["modules"] = [
-        runtime_module(bundle),
+        runtime_module(bundle, args.output, args.runtime_source_dir),
         product_module(source_entry(args), cargo_sources, revision),
     ]
     output = json.dumps(base, indent=2, sort_keys=True) + "\n"

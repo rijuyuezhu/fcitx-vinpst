@@ -109,6 +109,51 @@ assert source["sha256"] == sys.argv[2]
 assert any("'2'" in command for command in manifest["modules"][1]["build-commands"])
 PY
 
+runtime_source_dir="${work_dir}/runtime-sources"
+mkdir -p "${runtime_source_dir}"
+python3 - "${runtime_source_dir}" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+source_dir = Path(sys.argv[1])
+manifest = json.loads(Path("packaging/arch/runtime-bundles.json").read_text())
+bundle = next(
+    entry for entry in manifest["bundles"] if entry["id"] == manifest["default_bundle"]
+)
+fixtures = {
+    bundle["sherpa_onnx_archive"]: b"archive fixture",
+    "sherpa-onnx-LICENSE": b"sherpa license fixture",
+    "onnxruntime-LICENSE": b"onnxruntime license fixture",
+}
+for name, content in fixtures.items():
+    (source_dir / name).write_bytes(content)
+digests = {name: hashlib.sha256(content).hexdigest() for name, content in fixtures.items()}
+bundle["sherpa_onnx_sha256"] = digests[bundle["sherpa_onnx_archive"]]
+bundle["sherpa_onnx_license_sha256"] = digests["sherpa-onnx-LICENSE"]
+bundle["onnxruntime_license_sha256"] = digests["onnxruntime-LICENSE"]
+manifest["bundles"] = [bundle]
+(source_dir / "runtime-bundles.json").write_text(json.dumps(manifest), encoding="utf-8")
+PY
+scripts/release/render-flatpak-manifest.py \
+  --source-dir "${repo_root}" \
+  --runtime-manifest "${runtime_source_dir}/runtime-bundles.json" \
+  --runtime-source-dir "${runtime_source_dir}" \
+  --output "${work_dir}/local-runtime-manifest.json"
+python3 - "${work_dir}/local-runtime-manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+sources = manifest["modules"][0]["sources"]
+assert all("path" in source and "url" not in source for source in sources)
+assert sources[0]["type"] == "archive"
+assert sources[1]["dest-filename"] == "sherpa-onnx-LICENSE"
+assert sources[2]["dest-filename"] == "onnxruntime-LICENSE"
+PY
+
 expect_failure() {
   local label="$1"
   shift
@@ -117,6 +162,40 @@ expect_failure() {
     exit 1
   fi
 }
+
+runtime_archive="$(python3 - "${runtime_source_dir}/runtime-bundles.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+print(manifest["bundles"][0]["sherpa_onnx_archive"])
+PY
+)"
+cp "${runtime_source_dir}/${runtime_archive}" \
+  "${runtime_source_dir}/${runtime_archive}.original"
+printf 'tampered\n' >>"${runtime_source_dir}/${runtime_archive}"
+expect_failure bad-runtime-source-digest \
+  scripts/release/render-flatpak-manifest.py \
+    --source-dir "${repo_root}" \
+    --runtime-manifest "${runtime_source_dir}/runtime-bundles.json" \
+    --runtime-source-dir "${runtime_source_dir}" \
+    --output "${work_dir}/bad-runtime-digest.json"
+grep -Fq 'runtime source digest mismatch' \
+  "${work_dir}/bad-runtime-source-digest.stderr"
+mv "${runtime_source_dir}/${runtime_archive}.original" \
+  "${runtime_source_dir}/${runtime_archive}"
+
+runtime_source_link="${work_dir}/runtime-sources-link"
+ln -s "${runtime_source_dir}" "${runtime_source_link}"
+expect_failure runtime-source-dir-symlink \
+  scripts/release/render-flatpak-manifest.py \
+    --source-dir "${repo_root}" \
+    --runtime-manifest "${runtime_source_dir}/runtime-bundles.json" \
+    --runtime-source-dir "${runtime_source_link}" \
+    --output "${work_dir}/runtime-source-link.json"
+grep -Fq 'must not be a symbolic link' \
+  "${work_dir}/runtime-source-dir-symlink.stderr"
 
 expect_failure bad-source-digest \
   scripts/release/render-flatpak-manifest.py \

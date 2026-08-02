@@ -14,7 +14,7 @@ done
 cd "${repo_root}"
 
 image="${VINPUT_FLATPAK_BUILDER_IMAGE:-fcitx-vinput-rs-flatpak-builder:local}"
-for command in curl docker jq sha256sum; do
+for command in curl docker jq python3 sha256sum; do
   command -v "${command}" >/dev/null || {
     echo "missing Flatpak package smoke host tool: ${command}" >&2
     exit 1
@@ -23,6 +23,7 @@ done
 
 work_dir="${repo_root}/target/tmp/flatpak-package-smoke"
 source_archive="${work_dir}/fcitx-vinput-rs-source.tar.gz"
+runtime_source_dir="${work_dir}/runtime-sources"
 container_id_file="${work_dir}/builder.cid"
 
 cleanup_container() {
@@ -59,6 +60,96 @@ rm -rf \
   "${work_dir}/flathub.flatpakrepo" \
   "${container_id_file}"
 
+mkdir -p "${runtime_source_dir}"
+
+readarray -t runtime_bundle < <(
+  PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="${repo_root}/scripts/release" \
+    python3 - <<'PY'
+from pathlib import Path
+
+from runtime_bundles import load_runtime_bundle
+
+bundle = load_runtime_bundle(Path("packaging/arch/runtime-bundles.json"), None)
+for field in (
+    "sherpa_onnx_version",
+    "sherpa_onnx_archive",
+    "sherpa_onnx_sha256",
+    "sherpa_onnx_license_sha256",
+    "onnxruntime_version",
+    "onnxruntime_license_sha256",
+):
+    print(bundle[field])
+PY
+)
+if [[ "${#runtime_bundle[@]}" -ne 6 ]]; then
+  echo "unexpected Flatpak runtime bundle metadata" >&2
+  exit 1
+fi
+sherpa_version="${runtime_bundle[0]}"
+sherpa_archive="${runtime_bundle[1]}"
+sherpa_sha256="${runtime_bundle[2]}"
+sherpa_license_sha256="${runtime_bundle[3]}"
+onnxruntime_version="${runtime_bundle[4]}"
+onnxruntime_license_sha256="${runtime_bundle[5]}"
+
+download_checked() {
+  local url="$1"
+  local destination="$2"
+  local expected_sha256="$3"
+  local actual_sha256
+  local attempt
+  local temporary="${destination}.partial"
+
+  if [[ -f "${destination}" ]]; then
+    actual_sha256="$(sha256sum "${destination}" | awk '{print $1}')"
+    if [[ "${actual_sha256}" == "${expected_sha256}" ]]; then
+      return 0
+    fi
+    rm -f "${destination}"
+  fi
+
+  for attempt in 1 2 3 4 5; do
+    rm -f "${temporary}"
+    if curl \
+      --retry 3 \
+      --retry-all-errors \
+      --retry-delay 2 \
+      --connect-timeout 30 \
+      --max-time 300 \
+      --speed-limit 32768 \
+      --speed-time 30 \
+      --proto '=https' \
+      --tlsv1.2 \
+      -fsSL "${url}" \
+      -o "${temporary}"; then
+      actual_sha256="$(sha256sum "${temporary}" | awk '{print $1}')"
+      if [[ "${actual_sha256}" == "${expected_sha256}" ]]; then
+        mv "${temporary}" "${destination}"
+        return 0
+      fi
+      echo "Flatpak runtime source digest mismatch from ${url}" >&2
+    fi
+    sleep "$((attempt * 5))"
+  done
+  rm -f "${temporary}"
+  echo "failed to download checked Flatpak runtime source: ${url}" >&2
+  return 1
+}
+
+download_checked \
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpa_version}/${sherpa_archive}" \
+  "${runtime_source_dir}/${sherpa_archive}" \
+  "${sherpa_sha256}"
+download_checked \
+  "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${sherpa_version}/LICENSE" \
+  "${runtime_source_dir}/sherpa-onnx-LICENSE" \
+  "${sherpa_license_sha256}"
+download_checked \
+  "https://raw.githubusercontent.com/microsoft/onnxruntime/v${onnxruntime_version}/LICENSE" \
+  "${runtime_source_dir}/onnxruntime-LICENSE" \
+  "${onnxruntime_license_sha256}"
+
 curl --retry 10 --retry-all-errors --connect-timeout 30 --max-time 300 \
   --proto '=https' --tlsv1.2 -fsSL \
   https://dl.flathub.org/repo/flathub.flatpakrepo \
@@ -71,6 +162,7 @@ source_sha256="$(sha256sum "${source_archive}" | awk '{print $1}')"
 scripts/release/render-flatpak-manifest.py \
   --source-archive "${source_archive}" \
   --source-sha256 "${source_sha256}" \
+  --runtime-source-dir "${runtime_source_dir}" \
   --revision 1 \
   --output "${work_dir}/manifest.json"
 
@@ -89,6 +181,9 @@ docker run --rm --privileged \
   --security-opt label=disable \
   --env "VINPUT_FLATPAK_REMOTE_URL=${VINPUT_FLATPAK_REMOTE_URL:-}" \
   --env "VINPUT_FLATPAK_RETRY_ATTEMPTS=${VINPUT_FLATPAK_RETRY_ATTEMPTS:-5}" \
+  --env "VINPUT_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS=${VINPUT_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS:-900}" \
+  --env "VINPUT_FLATPAK_BUILD_TIMEOUT_SECONDS=${VINPUT_FLATPAK_BUILD_TIMEOUT_SECONDS:-3600}" \
+  --env "VINPUT_FLATPAK_TRANSACTION_TIMEOUT_SECONDS=${VINPUT_FLATPAK_TRANSACTION_TIMEOUT_SECONDS:-600}" \
   --volume "${repo_root}:/workspace" \
   --workdir /workspace \
   --entrypoint /bin/bash \

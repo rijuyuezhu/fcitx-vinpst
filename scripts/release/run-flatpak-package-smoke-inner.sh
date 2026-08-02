@@ -13,13 +13,18 @@ host_id="org.fcitx.Fcitx5"
 branch="stable"
 platform_id="org.kde.Platform"
 platform_branch="6.10"
+sdk_id="org.kde.Sdk"
+sdk_branch="6.10"
+rust_extension_id="org.freedesktop.Sdk.Extension.rust-stable"
+llvm_extension_id="org.freedesktop.Sdk.Extension.llvm20"
+extension_branch="25.08"
 repo="${work_dir}/repo"
 build1="${work_dir}/build-1"
 state_dir="${work_dir}/state"
 bundle="${work_dir}/fcitx-vinput-rs.flatpak"
 home="${work_dir}/home"
 
-for command in flatpak flatpak-builder ostree; do
+for command in flatpak flatpak-builder ostree timeout; do
   command -v "${command}" >/dev/null || {
     echo "missing Flatpak package smoke tool: ${command}" >&2
     exit 1
@@ -81,13 +86,34 @@ retry_command() {
   done
 }
 
-retry_command flatpak install --user -y flathub \
-  "${platform_id}//${platform_branch}"
+retry_timed_command() {
+  local timeout_seconds="$1"
+  shift
+  retry_command timeout \
+    --foreground \
+    --signal=TERM \
+    --kill-after=30 \
+    "${timeout_seconds}" \
+    "$@"
+}
+
+dependency_timeout="${VINPUT_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS:-900}"
+build_timeout="${VINPUT_FLATPAK_BUILD_TIMEOUT_SECONDS:-3600}"
+transaction_timeout="${VINPUT_FLATPAK_TRANSACTION_TIMEOUT_SECONDS:-600}"
+for dependency in \
+  "${platform_id}//${platform_branch}" \
+  "${sdk_id}//${sdk_branch}" \
+  "${host_id}//${branch}" \
+  "${rust_extension_id}//${extension_branch}" \
+  "${llvm_extension_id}//${extension_branch}"; do
+  retry_timed_command "${dependency_timeout}" \
+    flatpak install --user -y flathub "${dependency}"
+done
 
 build_manifest() {
   local build_dir="$1"
   local manifest="$2"
-  retry_command flatpak-builder \
+  retry_timed_command "${build_timeout}" flatpak-builder \
     --user \
     --disable-rofiles-fuse \
     --force-clean \
@@ -141,8 +167,8 @@ verify_product() {
 build_manifest "${build1}" "${manifest}"
 flatpak remote-add --user --if-not-exists --no-gpg-verify \
   vinput-local "file://${repo}"
-retry_command flatpak install --user -y flathub "${host_id}//${branch}"
-retry_command flatpak install --user -y vinput-local "${app_id}//${branch}"
+retry_timed_command "${transaction_timeout}" \
+  flatpak install --user -y vinput-local "${app_id}//${branch}"
 first_commit="$(flatpak info --user --show-commit "${app_id}//${branch}")"
 test -n "${first_commit}"
 verify_revision 1
@@ -175,7 +201,7 @@ if [[ "${second_repo_commit}" == "${first_commit}" ]]; then
   echo "Flatpak update fixture did not create a distinct repository commit" >&2
   exit 1
 fi
-retry_command flatpak update --user -y \
+retry_timed_command "${transaction_timeout}" flatpak update --user -y \
   --commit="${second_repo_commit}" "${app_id}//${branch}"
 second_commit="$(flatpak info --user --show-commit "${app_id}//${branch}")"
 test -n "${second_commit}"
@@ -190,15 +216,18 @@ fi
 verify_revision 2
 verify_product
 
-flatpak uninstall --user -y "${app_id}//${branch}"
+retry_timed_command "${transaction_timeout}" \
+  flatpak uninstall --user -y "${app_id}//${branch}"
 if flatpak info --user "${app_id}//${branch}" >/dev/null 2>&1; then
   echo "Flatpak extension remained installed after uninstall" >&2
   exit 1
 fi
-retry_command flatpak install --user -y --bundle "${bundle}"
+retry_timed_command "${transaction_timeout}" \
+  flatpak install --user -y --bundle "${bundle}"
 verify_revision 1
 verify_product
-flatpak uninstall --user -y "${app_id}//${branch}"
+retry_timed_command "${transaction_timeout}" \
+  flatpak uninstall --user -y "${app_id}//${branch}"
 
 cat >"${work_dir}/summary.json" <<EOF
 {

@@ -17,7 +17,7 @@ RUN set -eux; \
           -e "s|https\?://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
           {} +; \
     fi; \
-    packages='bash ca-certificates curl flatpak flatpak-builder git jq ostree xz-utils'; \
+    packages='bash binutils bzip2 ca-certificates curl flatpak flatpak-builder git jq ostree xz-utils'; \
     apt_options='-o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60'; \
     apt-get ${apt_options} update; \
     downloaded=0; \
