@@ -34,7 +34,9 @@ def load_runtime_bundle(path: Path, requested_id: str | None) -> dict[str, str]:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise SystemExit(f"cannot read runtime bundle manifest {path}: {error}") from error
+        raise SystemExit(
+            f"cannot read runtime bundle manifest {path}: {error}"
+        ) from error
 
     if not isinstance(document, dict) or set(document) != {
         "schema_version",

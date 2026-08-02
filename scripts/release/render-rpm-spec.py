@@ -72,13 +72,9 @@ def main() -> None:
         "@VINPUT_SHERPA_ONNX_ARCHIVE@": runtime["sherpa_onnx_archive"],
         "@VINPUT_SHERPA_ONNX_ARCHIVE_ROOT@": runtime["sherpa_onnx_archive_root"],
         "@VINPUT_SHERPA_ONNX_SHA256@": runtime["sherpa_onnx_sha256"],
-        "@VINPUT_SHERPA_ONNX_LICENSE_SHA256@": runtime[
-            "sherpa_onnx_license_sha256"
-        ],
+        "@VINPUT_SHERPA_ONNX_LICENSE_SHA256@": runtime["sherpa_onnx_license_sha256"],
         "@VINPUT_ONNXRUNTIME_VERSION@": runtime["onnxruntime_version"],
-        "@VINPUT_ONNXRUNTIME_LICENSE_SHA256@": runtime[
-            "onnxruntime_license_sha256"
-        ],
+        "@VINPUT_ONNXRUNTIME_LICENSE_SHA256@": runtime["onnxruntime_license_sha256"],
     }
     rendered = args.template.read_text(encoding="utf-8")
     for placeholder, value in replacements.items():
