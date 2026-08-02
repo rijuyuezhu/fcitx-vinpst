@@ -8,14 +8,18 @@ license=('GPL-3.0-or-later' 'Apache-2.0' 'MIT')
 depends=(
   'coreutils'
   'fcitx5'
+  'fontconfig'
   'glib2'
   'glibc'
   'libgcc'
   'libpipewire'
   'libstdc++'
+  'libx11'
+  'libxkbcommon'
   'systemd'
   'systemd-libs'
   'util-linux'
+  'wayland'
 )
 makedepends=(
   'cargo'
@@ -68,7 +72,8 @@ build() {
 
   cargo build --frozen --release \
     -p vinput-cli --features pipewire-backend,sherpa-onnx-backend \
-    -p vinput-daemon --features pipewire-backend,sherpa-onnx-backend
+    -p vinput-daemon --features pipewire-backend,sherpa-onnx-backend \
+    -p vinput-gui
 
   cmake -S cpp/fcitx5-addon -B "${srcdir}/cmake-build" -G Ninja \
     -DBUILD_TESTING=OFF \
@@ -88,6 +93,8 @@ package() {
   install -Dm755 "${srcdir}/cargo-target/release/vinput" "${pkgdir}/usr/bin/vinput"
   install -Dm755 "${srcdir}/cargo-target/release/vinput-daemon" \
     "${pkgdir}/usr/bin/vinput-daemon"
+  install -Dm755 "${srcdir}/cargo-target/release/vinput-gui" \
+    "${pkgdir}/usr/bin/vinput-gui"
   install -Dm644 scripts/release/package-session-common.sh \
     "${pkgdir}/usr/lib/fcitx-vinput/package-session-common.sh"
   install -Dm755 scripts/release/package-upgrade-handoff.sh \
@@ -107,6 +114,14 @@ package() {
     "${pkgdir}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so"
 
   DESTDIR="${pkgdir}" cmake --install "${srcdir}/cmake-build"
+
+  install -Dm644 data/vinput-gui.desktop \
+    "${pkgdir}/usr/share/applications/vinput-gui.desktop"
+  local size
+  for size in 16 22 24 32 48 64 128 256 512; do
+    install -Dm644 "data/icons/hicolor/${size}x${size}/apps/vinput-gui.png" \
+      "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/vinput-gui.png"
+  done
 
   install -Dm644 data/default-config.json \
     "${pkgdir}/usr/share/fcitx-vinput/default-config.json"

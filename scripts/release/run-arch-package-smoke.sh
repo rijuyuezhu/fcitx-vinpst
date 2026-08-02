@@ -113,6 +113,7 @@ bsdtar -xf "${package_archive}" -C "${package_root}"
 required_files=(
   usr/bin/vinput
   usr/bin/vinput-daemon
+  usr/bin/vinput-gui
   usr/lib/fcitx-vinput/package-session-common.sh
   usr/lib/fcitx-vinput/package-upgrade-handoff
   usr/lib/fcitx-vinput/package-remove-handoff
@@ -120,8 +121,12 @@ required_files=(
   usr/lib/fcitx-vinput/libonnxruntime.so
   usr/lib/fcitx5/fcitx5-vinput.so
   usr/lib/systemd/user/vinput-daemon.service
+  usr/share/applications/vinput-gui.desktop
   usr/share/dbus-1/services/org.fcitx.Vinput.service
   usr/share/fcitx5/addon/vinput.conf
+  usr/share/icons/hicolor/128x128/apps/vinput-gui.png
+  usr/share/icons/hicolor/16x16/apps/vinput-gui.png
+  usr/share/icons/hicolor/512x512/apps/vinput-gui.png
   usr/share/fcitx-vinput/default-config.json
   usr/share/fcitx-vinput/vad/silero_vad.onnx
   usr/share/licenses/fcitx-vinput-rs/silero-vad-LICENSE
@@ -147,17 +152,28 @@ for binary in "${package_root}/usr/bin/vinput" "${package_root}/usr/bin/vinput-d
   grep -q "${package_root}/usr/bin/../lib/fcitx-vinput/libsherpa-onnx-c-api.so" \
     <<<"${linkage}"
 done
+gui_linkage="$(ldd "${package_root}/usr/bin/vinput-gui")"
+! grep -q 'not found' <<<"${gui_linkage}"
 ldd "${package_root}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so" |
   grep -q "${package_root}/usr/lib/fcitx-vinput/libonnxruntime.so"
 
 "${package_root}/usr/bin/vinput" --version | grep -q "${version}"
 "${package_root}/usr/bin/vinput-daemon" --help >/dev/null
+"${package_root}/usr/bin/vinput-gui" --version | grep -q "${version}"
 
 isolated_config="${stage_root}/empty-config"
 mkdir -p "${isolated_config}"
 XDG_CONFIG_HOME="${isolated_config}" \
   "${package_root}/usr/bin/vinput-daemon" --configured-backends print-config |
   jq -e '.active_provider == "sherpa-onnx" and .active_scene == "__raw__"' >/dev/null
+XDG_CONFIG_HOME="${isolated_config}" \
+  "${package_root}/usr/bin/vinput-gui" --check --offline |
+  jq -e '.ok and .application == "vinput-gui" and .daemon.skipped' >/dev/null
+
+grep -qx 'Exec=vinput-gui' \
+  "${package_root}/usr/share/applications/vinput-gui.desktop"
+grep -qx 'Icon=vinput-gui' \
+  "${package_root}/usr/share/applications/vinput-gui.desktop"
 
 grep -qx 'SystemdService=vinput-daemon.service' \
   "${package_root}/usr/share/dbus-1/services/org.fcitx.Vinput.service"

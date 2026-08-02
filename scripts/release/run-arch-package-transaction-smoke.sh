@@ -111,11 +111,13 @@ assert_package_files_present() {
   for path in \
     /usr/bin/vinput \
     /usr/bin/vinput-daemon \
+    /usr/bin/vinput-gui \
     /usr/lib/fcitx-vinput/package-session-common.sh \
     /usr/lib/fcitx-vinput/package-upgrade-handoff \
     /usr/lib/fcitx-vinput/package-remove-handoff \
     /usr/lib/fcitx5/fcitx5-vinput.so \
     /usr/lib/systemd/user/vinput-daemon.service \
+    /usr/share/applications/vinput-gui.desktop \
     /usr/share/dbus-1/services/org.fcitx.Vinput.service; do
     grep -qx "${package_name} ${path}" <<<"${listing}"
     test -e "${pacman_root}${path}"

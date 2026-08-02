@@ -114,6 +114,8 @@ assert_installed_version() {
   fakeroot pacman "${pacman_args[@]}" -Qkk fcitx-vinput-rs >/dev/null
   test -x "${pacman_root}/usr/bin/vinput"
   test -x "${pacman_root}/usr/bin/vinput-daemon"
+  test -x "${pacman_root}/usr/bin/vinput-gui"
+  test -f "${pacman_root}/usr/share/applications/vinput-gui.desktop"
   assert_user_config_unchanged
 }
 
