@@ -4,10 +4,11 @@ use iced::{
     Element, Length,
     widget::{button, column, row, scrollable, text, text_input},
 };
-use vinput_config::redact_url_for_diagnostics;
+use vinput_config::{AsrProviderKind, redact_url_for_diagnostics};
 
 use crate::{
-    App, Message, filtered_asr_rows, filtered_scene_rows, llm_adapter_rows, model_is_active,
+    App, Message, filtered_scene_rows, model_is_active,
+    script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
 
 impl App {
@@ -79,8 +80,30 @@ impl App {
         match &self.config {
             Ok(document) => {
                 body = body.push(text("ASR providers").size(22));
-                for provider in filtered_asr_rows(&document.config, &self.filter) {
-                    body = body.push(text(provider));
+                let filter = self.filter.to_ascii_lowercase();
+                for provider in &document.config.asr.providers {
+                    let kind = match provider.kind {
+                        AsrProviderKind::Local => "local",
+                        AsrProviderKind::Remote => "remote",
+                        AsrProviderKind::Command => "command",
+                    };
+                    let model = provider.model.as_deref().unwrap_or("unselected model");
+                    let label = format!("{} · {kind} · {model}", provider.id);
+                    if !label.to_ascii_lowercase().contains(&filter) {
+                        continue;
+                    }
+                    let active = provider.id == document.config.asr.active_provider;
+                    let managed = managed_provider_script_path(provider).is_some();
+                    body = body.push(
+                        row![
+                            text(label).width(Length::Fill),
+                            button("Remove").on_press_maybe(
+                                (!busy && managed && !active)
+                                    .then_some(Message::RemoveProvider(provider.id.clone())),
+                            ),
+                        ]
+                        .spacing(10),
+                    );
                 }
                 body = body.push(text("Scenes").size(22));
                 for scene in filtered_scene_rows(&document.config, &self.filter) {
@@ -125,8 +148,18 @@ impl App {
                 }
 
                 body = body.push(text("Adapters").size(22));
-                for adapter in llm_adapter_rows(&document.config) {
-                    body = body.push(text(adapter));
+                for adapter in &document.config.llm.adapters {
+                    let managed = managed_adapter_script_path(adapter).is_some();
+                    body = body.push(
+                        row![
+                            text(format!("{} · command adapter", adapter.id)).width(Length::Fill),
+                            button("Remove").on_press_maybe(
+                                (!busy && managed)
+                                    .then_some(Message::RemoveAdapter(adapter.id.clone())),
+                            ),
+                        ]
+                        .spacing(10),
+                    );
                 }
                 if document.config.llm.adapters.is_empty() {
                     body = body.push(text("No text adapters configured."));

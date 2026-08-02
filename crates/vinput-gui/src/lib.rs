@@ -13,7 +13,9 @@ use iced::{
     },
 };
 use serde_json::{Value, json};
-use vinput_config::{AsrProviderKind, VinputConfig, config_backup_path, write_config_file};
+#[cfg(test)]
+use vinput_config::AsrProviderKind;
+use vinput_config::{VinputConfig, config_backup_path, write_config_file};
 use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
@@ -23,6 +25,7 @@ mod page;
 mod resource_pages;
 mod script_install;
 mod script_management;
+mod script_removal;
 
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
@@ -232,6 +235,12 @@ pub enum Message {
         /// Typed worker outcome.
         outcome: ScriptInstallOutcome,
     },
+    /// Remove one inactive managed command ASR provider.
+    RemoveProvider(String),
+    /// Remove one managed text adapter.
+    RemoveAdapter(String),
+    /// Result of a provider or adapter removal.
+    ScriptRemoved(Result<String, String>),
 }
 
 impl App {
@@ -341,6 +350,13 @@ impl App {
                 operation_id,
                 outcome,
             } => return self.finish_script_install(operation_id, outcome),
+            Message::RemoveProvider(id) => {
+                return self.begin_script_remove(LiveScriptKind::AsrProvider, id);
+            }
+            Message::RemoveAdapter(id) => {
+                return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
+            }
+            Message::ScriptRemoved(result) => return self.finish_script_remove(result),
         }
         Task::none()
     }
@@ -1075,6 +1091,7 @@ fn daemon_poll_task() -> Task<Message> {
     )
 }
 
+#[cfg(test)]
 fn filtered_asr_rows(config: &VinputConfig, filter: &str) -> Vec<String> {
     let filter = filter.to_ascii_lowercase();
     config
@@ -1112,6 +1129,7 @@ fn filtered_scene_rows(config: &VinputConfig, filter: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn llm_adapter_rows(config: &VinputConfig) -> Vec<String> {
     config
         .llm

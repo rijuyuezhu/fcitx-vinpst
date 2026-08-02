@@ -2,7 +2,7 @@
 
 use std::{env, path::PathBuf, time::Duration};
 
-use vinput_config::VinputConfig;
+use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinputConfig};
 use vinput_registry::{
     LiveScriptKind, LiveScriptRegistry, RegistryOperationControl, RegistryOperationProgress,
     RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
@@ -242,6 +242,163 @@ pub(crate) const fn resource_label(kind: LiveScriptKind) -> &'static str {
     }
 }
 
+pub(crate) fn managed_provider_script_path(provider: &AsrProviderConfig) -> Option<PathBuf> {
+    (provider.kind == AsrProviderKind::Command)
+        .then(|| {
+            configured_managed_script_path(
+                LiveScriptKind::AsrProvider,
+                &provider.id,
+                &provider.args,
+            )
+        })
+        .flatten()
+}
+
+pub(crate) fn managed_adapter_script_path(adapter: &LlmAdapterConfig) -> Option<PathBuf> {
+    configured_managed_script_path(LiveScriptKind::LlmAdapter, &adapter.id, &adapter.args)
+}
+
+pub(crate) fn remove_managed_script_entry(
+    document: &ConfigDocument,
+    kind: LiveScriptKind,
+    id: &str,
+) -> Result<String, String> {
+    let root = default_script_root(kind)?;
+    remove_managed_script_entry_from_root(document, kind, id, &root)
+}
+
+fn remove_managed_script_entry_from_root(
+    document: &ConfigDocument,
+    kind: LiveScriptKind,
+    id: &str,
+    root: &std::path::Path,
+) -> Result<String, String> {
+    ensure_config_mutation_allowed(document)?;
+    let mut updated = document.config.clone();
+    let script_path = match kind {
+        LiveScriptKind::AsrProvider => {
+            let index = updated
+                .asr
+                .providers
+                .iter()
+                .position(|provider| provider.id == id)
+                .ok_or_else(|| format!("ASR provider `{id}` is not configured."))?;
+            let provider = &updated.asr.providers[index];
+            if provider.id == updated.asr.active_provider {
+                return Err(format!(
+                    "Active ASR provider `{id}` cannot be removed; select another provider first."
+                ));
+            }
+            let script_path = configured_managed_script_path_from_root(
+                LiveScriptKind::AsrProvider,
+                &provider.id,
+                &provider.args,
+                root,
+            )
+            .ok_or_else(|| {
+                format!(
+                    "ASR provider `{id}` is not a managed registry provider and cannot be removed from the GUI."
+                )
+            })?;
+            inspect_removable_script(&script_path)?;
+            updated.asr.providers.remove(index);
+            script_path
+        }
+        LiveScriptKind::LlmAdapter => {
+            let index = updated
+                .llm
+                .adapters
+                .iter()
+                .position(|adapter| adapter.id == id)
+                .ok_or_else(|| format!("Text adapter `{id}` is not configured."))?;
+            let adapter = &updated.llm.adapters[index];
+            let script_path = configured_managed_script_path_from_root(
+                LiveScriptKind::LlmAdapter,
+                &adapter.id,
+                &adapter.args,
+                root,
+            )
+            .ok_or_else(|| {
+                    format!(
+                        "Text adapter `{id}` is not a managed registry adapter and cannot be removed from the GUI."
+                    )
+                })?;
+            inspect_removable_script(&script_path)?;
+            updated.llm.adapters.remove(index);
+            script_path
+        }
+    };
+    updated
+        .validate()
+        .map_err(|error| format!("Validate configuration after removing {id}: {error}"))?;
+    let saved = save_updated_config_with_daemon(document, &updated)?;
+    let cleanup = cleanup_managed_script(&script_path);
+    let label = resource_label(kind);
+    Ok(match cleanup {
+        Ok(true) => format!(
+            "Removed {label} `{id}` and managed script {}; {}.",
+            script_path.display(),
+            saved.daemon_reload
+        ),
+        Ok(false) => format!(
+            "Removed {label} `{id}`; managed script was already absent; {}.",
+            saved.daemon_reload
+        ),
+        Err(error) => format!(
+            "Removed {label} `{id}` from config; managed script cleanup failed: {error}; {}.",
+            saved.daemon_reload
+        ),
+    })
+}
+
+fn configured_managed_script_path(
+    kind: LiveScriptKind,
+    id: &str,
+    args: &[String],
+) -> Option<PathBuf> {
+    let root = default_script_root(kind).ok()?;
+    configured_managed_script_path_from_root(kind, id, args, &root)
+}
+
+fn configured_managed_script_path_from_root(
+    kind: LiveScriptKind,
+    id: &str,
+    args: &[String],
+    root: &std::path::Path,
+) -> Option<PathBuf> {
+    let path = root.join(managed_script_relative_path(kind, id).ok()?);
+    let expected = path.to_string_lossy();
+    (args == [expected.as_ref()]).then_some(path)
+}
+
+fn inspect_removable_script(path: &std::path::Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => Err(format!(
+            "Refusing to remove managed script `{}` because it is a directory.",
+            path.display()
+        )),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "Inspect managed script `{}`: {error}",
+            path.display()
+        )),
+    }
+}
+
+fn cleanup_managed_script(path: &std::path::Path) -> Result<bool, String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::remove_dir(parent);
+            }
+            Ok(true)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("remove `{}`: {error}", path.display())),
+    }
+}
+
 const fn resource_title(kind: LiveScriptKind) -> &'static str {
     match kind {
         LiveScriptKind::AsrProvider => "ASR provider",
@@ -426,6 +583,175 @@ mod tests {
         assert_eq!(
             adapter.args,
             [root.join("fixture/command").display().to_string()]
+        );
+    }
+
+    #[test]
+    fn managed_provider_removal_updates_config_and_deletes_script() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let root = directory.path().join("providers");
+        let entry = LiveScriptEntry {
+            id: "provider.fixture.batch".to_owned(),
+            short_id: Some("fixture".to_owned()),
+            stream: false,
+            command: "python3".to_owned(),
+            script_urls: vec!["https://example.invalid/provider.py".to_owned()],
+            readme_url: None,
+            envs: Vec::new(),
+        };
+        let (config, _) = materialize_config(
+            &VinputConfig::bundled_default().expect("bundled config"),
+            LiveScriptKind::AsrProvider,
+            &entry,
+            &root.join("fixture/batch"),
+        )
+        .expect("materialize provider");
+        let document = ConfigDocument {
+            path: directory.path().join("config.json"),
+            from_disk: false,
+            config,
+        };
+        fs::create_dir_all(root.join("fixture")).expect("provider dir");
+        fs::write(root.join("fixture/batch"), b"provider").expect("provider script");
+
+        let summary = remove_managed_script_entry_from_root(
+            &document,
+            LiveScriptKind::AsrProvider,
+            &entry.id,
+            &root,
+        )
+        .expect("remove provider");
+
+        assert!(summary.contains("Removed ASR provider"));
+        assert!(!root.join("fixture/batch").exists());
+        let saved = VinputConfig::from_json_file(&document.path).expect("saved config");
+        assert!(
+            saved
+                .asr
+                .providers
+                .iter()
+                .all(|provider| provider.id != entry.id)
+        );
+    }
+
+    #[test]
+    fn active_managed_provider_removal_is_rejected_without_mutation() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let root = directory.path().join("providers");
+        let entry = LiveScriptEntry {
+            id: "provider.fixture.batch".to_owned(),
+            short_id: Some("fixture".to_owned()),
+            stream: false,
+            command: "python3".to_owned(),
+            script_urls: vec!["https://example.invalid/provider.py".to_owned()],
+            readme_url: None,
+            envs: Vec::new(),
+        };
+        let (mut config, _) = materialize_config(
+            &VinputConfig::bundled_default().expect("bundled config"),
+            LiveScriptKind::AsrProvider,
+            &entry,
+            &root.join("fixture/batch"),
+        )
+        .expect("materialize provider");
+        config.asr.active_provider.clone_from(&entry.id);
+        let document = ConfigDocument {
+            path: directory.path().join("config.json"),
+            from_disk: false,
+            config,
+        };
+        fs::create_dir_all(root.join("fixture")).expect("provider dir");
+        fs::write(root.join("fixture/batch"), b"provider").expect("provider script");
+
+        let error = remove_managed_script_entry_from_root(
+            &document,
+            LiveScriptKind::AsrProvider,
+            &entry.id,
+            &root,
+        )
+        .expect_err("active provider must be rejected");
+
+        assert!(error.contains("Active ASR provider"));
+        assert!(root.join("fixture/batch").exists());
+        assert!(!document.path.exists());
+    }
+
+    #[test]
+    fn user_defined_adapter_removal_is_rejected_without_mutation() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let root = directory.path().join("adapters");
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        config.llm.adapters.push(vinput_config::LlmAdapterConfig {
+            id: "adapter.user.command".to_owned(),
+            command: "python3".to_owned(),
+            args: vec!["/tmp/user-adapter.py".to_owned()],
+            env: std::collections::HashMap::default(),
+            working_dir: None,
+            extra: std::collections::HashMap::default(),
+        });
+        let document = ConfigDocument {
+            path: directory.path().join("config.json"),
+            from_disk: false,
+            config,
+        };
+
+        let error = remove_managed_script_entry_from_root(
+            &document,
+            LiveScriptKind::LlmAdapter,
+            "adapter.user.command",
+            &root,
+        )
+        .expect_err("user-defined adapter must be rejected");
+
+        assert!(error.contains("not a managed registry adapter"));
+        assert!(!document.path.exists());
+    }
+
+    #[test]
+    fn managed_adapter_removal_updates_config_and_deletes_script() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let root = directory.path().join("adapters");
+        let entry = LiveScriptEntry {
+            id: "adapter.fixture.command".to_owned(),
+            short_id: Some("fixture".to_owned()),
+            stream: false,
+            command: "python3".to_owned(),
+            script_urls: vec!["https://example.invalid/adapter.py".to_owned()],
+            readme_url: None,
+            envs: Vec::new(),
+        };
+        let (config, _) = materialize_config(
+            &VinputConfig::bundled_default().expect("bundled config"),
+            LiveScriptKind::LlmAdapter,
+            &entry,
+            &root.join("fixture/command"),
+        )
+        .expect("materialize adapter");
+        let document = ConfigDocument {
+            path: directory.path().join("config.json"),
+            from_disk: false,
+            config,
+        };
+        fs::create_dir_all(root.join("fixture")).expect("adapter dir");
+        fs::write(root.join("fixture/command"), b"adapter").expect("adapter script");
+
+        let summary = remove_managed_script_entry_from_root(
+            &document,
+            LiveScriptKind::LlmAdapter,
+            &entry.id,
+            &root,
+        )
+        .expect("remove adapter");
+
+        assert!(summary.contains("Removed text adapter"));
+        assert!(!root.join("fixture/command").exists());
+        let saved = VinputConfig::from_json_file(&document.path).expect("saved config");
+        assert!(
+            saved
+                .llm
+                .adapters
+                .iter()
+                .all(|adapter| adapter.id != entry.id)
         );
     }
 }
