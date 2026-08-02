@@ -4281,6 +4281,7 @@ dependencies = [
  "iced",
  "serde_json",
  "tempfile",
+ "tokio",
  "vinput-config",
  "vinput-protocol",
  "vinput-registry",

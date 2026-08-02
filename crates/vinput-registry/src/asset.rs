@@ -7,14 +7,18 @@
 //! user-facing install command.
 
 use std::{
-    fs, io,
+    fs,
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use thiserror::Error;
 
-use crate::{PlannedInstallAsset, RegistrySha256Error, verify_sha256_file};
+use crate::{
+    PlannedInstallAsset, RegistryOperationControl, RegistryOperationProgress, RegistrySha256Error,
+    verify_sha256_file,
+};
 
 /// A failed asset fetch attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +53,12 @@ pub struct StagedRegistryAsset {
 /// Registry asset staging errors.
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum RegistryAssetStagingError {
+    /// The caller requested cooperative cancellation.
+    #[error("registry asset staging cancelled for `{source_path}`")]
+    Cancelled {
+        /// Registry-relative source asset path.
+        source_path: String,
+    },
     /// The planned asset has no candidate URLs.
     #[error("planned asset `{source_path}` has no candidate urls")]
     NoAssetUrls {
@@ -97,6 +107,24 @@ pub enum RegistryAssetStagingError {
 pub trait RegistryAssetSource {
     /// Fetches one asset URL into the provided temporary destination path.
     fn fetch_asset(&self, url: &str, destination: &Path) -> Result<(), String>;
+
+    /// Fetches one asset with cooperative progress and cancellation.
+    fn fetch_asset_controlled(
+        &self,
+        url: &str,
+        destination: &Path,
+        _expected_size: Option<u64>,
+        control: &RegistryOperationControl,
+    ) -> Result<(), String> {
+        control
+            .check_cancelled()
+            .map_err(|error| error.to_string())?;
+        let result = self.fetch_asset(url, destination);
+        control
+            .check_cancelled()
+            .map_err(|error| error.to_string())?;
+        result
+    }
 }
 
 /// HTTP-backed registry asset source using reqwest's blocking client.
@@ -133,9 +161,30 @@ impl RegistryAssetSource for ReqwestRegistryAssetSource {
         let url = url.to_owned();
         let destination = destination.to_owned();
         let timeout = self.timeout;
-        std::thread::spawn(move || fetch_asset_blocking(&url, &destination, timeout))
-            .join()
-            .map_err(|_| "registry asset HTTP worker thread panicked".to_owned())?
+        let control = RegistryOperationControl::default();
+        std::thread::spawn(move || {
+            fetch_asset_blocking(&url, &destination, timeout, None, &control)
+        })
+        .join()
+        .map_err(|_| "registry asset HTTP worker thread panicked".to_owned())?
+    }
+
+    fn fetch_asset_controlled(
+        &self,
+        url: &str,
+        destination: &Path,
+        expected_size: Option<u64>,
+        control: &RegistryOperationControl,
+    ) -> Result<(), String> {
+        let url = url.to_owned();
+        let destination = destination.to_owned();
+        let timeout = self.timeout;
+        let control = control.clone();
+        std::thread::spawn(move || {
+            fetch_asset_blocking(&url, &destination, timeout, expected_size, &control)
+        })
+        .join()
+        .map_err(|_| "registry asset HTTP worker thread panicked".to_owned())?
     }
 }
 
@@ -149,7 +198,23 @@ pub fn stage_planned_asset(
     asset: &PlannedInstallAsset,
     output_path: impl AsRef<Path>,
 ) -> Result<StagedRegistryAsset, RegistryAssetStagingError> {
+    stage_planned_asset_controlled(
+        source,
+        asset,
+        output_path,
+        &RegistryOperationControl::default(),
+    )
+}
+
+/// Controlled companion to [`stage_planned_asset`].
+pub fn stage_planned_asset_controlled(
+    source: &impl RegistryAssetSource,
+    asset: &PlannedInstallAsset,
+    output_path: impl AsRef<Path>,
+    control: &RegistryOperationControl,
+) -> Result<StagedRegistryAsset, RegistryAssetStagingError> {
     let output_path = output_path.as_ref();
+    check_cancelled(control, asset)?;
     if asset.urls.is_empty() {
         return Err(RegistryAssetStagingError::NoAssetUrls {
             source_path: asset.source_path.clone(),
@@ -169,24 +234,44 @@ pub fn stage_planned_asset(
     let temp_path = staging_temp_path(output_path);
     let mut failures = Vec::new();
     for url in &asset.urls {
+        check_cancelled(control, asset)?;
         remove_file_if_exists(&temp_path);
-        match source.fetch_asset(url, &temp_path) {
+        control.report(RegistryOperationProgress::Downloading {
+            downloaded_bytes: 0,
+            total_bytes: asset.size_bytes,
+        });
+        match source.fetch_asset_controlled(url, &temp_path, asset.size_bytes, control) {
             Ok(()) => {
-                let checksum = verify_staged_checksum(asset, &temp_path)?;
-                fs::rename(&temp_path, output_path).map_err(|error| {
-                    remove_file_if_exists(&temp_path);
-                    RegistryAssetStagingError::Publish {
-                        path: display_path(output_path),
-                        message: sanitize_io_error(&error),
+                let staged = (|| {
+                    check_cancelled(control, asset)?;
+                    control.report(RegistryOperationProgress::VerifyingChecksum);
+                    let checksum = verify_staged_checksum(asset, &temp_path)?;
+                    check_cancelled(control, asset)?;
+                    fs::rename(&temp_path, output_path).map_err(|error| {
+                        RegistryAssetStagingError::Publish {
+                            path: display_path(output_path),
+                            message: sanitize_io_error(&error),
+                        }
+                    })?;
+                    Ok(StagedRegistryAsset {
+                        source_path: asset.source_path.clone(),
+                        path: output_path.to_owned(),
+                        checksum,
+                    })
+                })();
+                match staged {
+                    Ok(staged) => return Ok(staged),
+                    Err(error) => {
+                        remove_file_if_exists(&temp_path);
+                        return Err(error);
                     }
-                })?;
-                return Ok(StagedRegistryAsset {
-                    source_path: asset.source_path.clone(),
-                    path: output_path.to_owned(),
-                    checksum,
-                });
+                }
             }
             Err(message) => {
+                if control.is_cancelled() {
+                    remove_file_if_exists(&temp_path);
+                    return Err(cancelled_error(asset));
+                }
                 failures.push(RegistryAssetFetchFailure {
                     url: url.clone(),
                     message,
@@ -200,6 +285,21 @@ pub fn stage_planned_asset(
         source_path: asset.source_path.clone(),
         failures,
     })
+}
+
+fn check_cancelled(
+    control: &RegistryOperationControl,
+    asset: &PlannedInstallAsset,
+) -> Result<(), RegistryAssetStagingError> {
+    control
+        .check_cancelled()
+        .map_err(|_| cancelled_error(asset))
+}
+
+fn cancelled_error(asset: &PlannedInstallAsset) -> RegistryAssetStagingError {
+    RegistryAssetStagingError::Cancelled {
+        source_path: asset.source_path.clone(),
+    }
 }
 
 fn verify_staged_checksum(
@@ -224,7 +324,12 @@ fn fetch_asset_blocking(
     url: &str,
     destination: &Path,
     timeout: Option<Duration>,
+    expected_size: Option<u64>,
+    control: &RegistryOperationControl,
 ) -> Result<(), String> {
+    control
+        .check_cancelled()
+        .map_err(|error| error.to_string())?;
     let client = reqwest::blocking::Client::new();
     let mut request = client
         .get(url)
@@ -241,14 +346,45 @@ fn fetch_asset_blocking(
         return Err(format!("registry asset HTTP mirror returned HTTP {status}"));
     }
 
+    let total_bytes = expected_size.or_else(|| response.content_length());
+    control.report(RegistryOperationProgress::Downloading {
+        downloaded_bytes: 0,
+        total_bytes,
+    });
+
     let mut file = fs::File::create(destination).map_err(|error| {
         format!(
             "registry asset staging write failed: {}",
             sanitize_io_error(&error)
         )
     })?;
-    io::copy(&mut response, &mut file)
-        .map_err(|_| "registry asset HTTP response body read failed".to_owned())?;
+    let mut downloaded_bytes = 0_u64;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        control
+            .check_cancelled()
+            .map_err(|error| error.to_string())?;
+        let count = response
+            .read(&mut buffer)
+            .map_err(|_| "registry asset HTTP response body read failed".to_owned())?;
+        if count == 0 {
+            break;
+        }
+        file.write_all(&buffer[..count]).map_err(|error| {
+            format!(
+                "registry asset staging write failed: {}",
+                sanitize_io_error(&error)
+            )
+        })?;
+        downloaded_bytes = downloaded_bytes.saturating_add(count as u64);
+        control.report(RegistryOperationProgress::Downloading {
+            downloaded_bytes,
+            total_bytes,
+        });
+    }
+    control
+        .check_cancelled()
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 

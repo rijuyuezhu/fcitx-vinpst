@@ -7,11 +7,14 @@
 //! user-facing install commands.
 
 use std::{
-    fs, io,
+    fs,
+    io::{self, Read, Write},
     path::{Path, PathBuf},
 };
 
 use thiserror::Error;
+
+use crate::RegistryOperationControl;
 
 /// Result of materializing a staged registry tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +30,12 @@ pub struct MaterializedRegistryTree {
 /// Registry materialization errors.
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum RegistryMaterializeError {
+    /// The caller requested cooperative cancellation before publication completed.
+    #[error("registry materialization cancelled for `{target}`")]
+    Cancelled {
+        /// Final target path.
+        target: String,
+    },
     /// Source staging tree does not exist.
     #[error("staged tree `{path}` does not exist")]
     SourceMissing {
@@ -116,9 +125,23 @@ pub fn materialize_staged_tree(
     source_path: impl AsRef<Path>,
     target_path: impl AsRef<Path>,
 ) -> Result<MaterializedRegistryTree, RegistryMaterializeError> {
+    materialize_staged_tree_controlled(
+        source_path,
+        target_path,
+        &RegistryOperationControl::default(),
+    )
+}
+
+/// Controlled companion to [`materialize_staged_tree`].
+pub fn materialize_staged_tree_controlled(
+    source_path: impl AsRef<Path>,
+    target_path: impl AsRef<Path>,
+    control: &RegistryOperationControl,
+) -> Result<MaterializedRegistryTree, RegistryMaterializeError> {
     let source_path = source_path.as_ref();
     let target_path = target_path.as_ref();
 
+    check_cancelled(control, target_path)?;
     validate_materialize_paths(source_path, target_path)?;
     if let Some(parent) = target_path
         .parent()
@@ -134,6 +157,7 @@ pub fn materialize_staged_tree(
 
     let replaced_existing = target_path.exists();
     let backup_path = materialize_backup_path(target_path);
+    check_cancelled(control, target_path)?;
     if replaced_existing {
         fs::rename(target_path, &backup_path).map_err(|error| {
             RegistryMaterializeError::MoveExistingTarget {
@@ -144,21 +168,21 @@ pub fn materialize_staged_tree(
         })?;
     }
 
-    if let Err(error) = publish_staged_tree(source_path, target_path) {
-        let publish_message = sanitize_io_error(&error);
+    if let Err(error) = publish_staged_tree(source_path, target_path, control) {
+        let publish_message = error.message();
         if replaced_existing {
-            return rollback_existing_target(
-                source_path,
-                target_path,
-                &backup_path,
-                publish_message,
-            );
+            return match fs::rename(&backup_path, target_path) {
+                Ok(()) => Err(error.into_registry_error(source_path, target_path)),
+                Err(rollback_error) => Err(RegistryMaterializeError::RollbackFailed {
+                    staged: display_path(source_path),
+                    target: display_path(target_path),
+                    backup: display_path(&backup_path),
+                    publish_message,
+                    rollback_message: sanitize_io_error(&rollback_error),
+                }),
+            };
         }
-        return Err(RegistryMaterializeError::Publish {
-            staged: display_path(source_path),
-            target: display_path(target_path),
-            message: publish_message,
-        });
+        return Err(error.into_registry_error(source_path, target_path));
     }
 
     if replaced_existing {
@@ -177,54 +201,146 @@ pub fn materialize_staged_tree(
     })
 }
 
-fn publish_staged_tree(source_path: &Path, target_path: &Path) -> io::Result<()> {
+fn publish_staged_tree(
+    source_path: &Path,
+    target_path: &Path,
+    control: &RegistryOperationControl,
+) -> Result<(), PublishStagedTreeError> {
+    check_cancelled(control, target_path).map_err(|_| PublishStagedTreeError::Cancelled)?;
     match fs::rename(source_path, target_path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
-            publish_cross_device(source_path, target_path)
+            publish_cross_device(source_path, target_path, control)
         }
-        Err(error) => Err(error),
+        Err(error) => Err(PublishStagedTreeError::Io(error)),
     }
 }
 
-fn publish_cross_device(source_path: &Path, target_path: &Path) -> io::Result<()> {
+fn publish_cross_device(
+    source_path: &Path,
+    target_path: &Path,
+    control: &RegistryOperationControl,
+) -> Result<(), PublishStagedTreeError> {
     let publish_path = materialize_publish_path(target_path);
-    if let Err(error) = copy_directory_tree(source_path, &publish_path) {
+    if let Err(error) = copy_directory_tree(source_path, &publish_path, control) {
         remove_dir_if_exists(&publish_path);
         return Err(error);
     }
+    check_cancelled(control, target_path).map_err(|_| {
+        remove_dir_if_exists(&publish_path);
+        PublishStagedTreeError::Cancelled
+    })?;
     if let Err(error) = fs::rename(&publish_path, target_path) {
         remove_dir_if_exists(&publish_path);
-        return Err(error);
+        return Err(PublishStagedTreeError::Io(error));
     }
     remove_dir_if_exists(source_path);
     Ok(())
 }
 
-fn copy_directory_tree(source_path: &Path, target_path: &Path) -> io::Result<()> {
-    fs::create_dir(target_path)?;
-    for entry in fs::read_dir(source_path)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
+fn copy_directory_tree(
+    source_path: &Path,
+    target_path: &Path,
+    control: &RegistryOperationControl,
+) -> Result<(), PublishStagedTreeError> {
+    check_cancelled(control, target_path).map_err(|_| PublishStagedTreeError::Cancelled)?;
+    fs::create_dir(target_path).map_err(PublishStagedTreeError::Io)?;
+    for entry in fs::read_dir(source_path).map_err(PublishStagedTreeError::Io)? {
+        check_cancelled(control, target_path).map_err(|_| PublishStagedTreeError::Cancelled)?;
+        let entry = entry.map_err(PublishStagedTreeError::Io)?;
+        let file_type = entry.file_type().map_err(PublishStagedTreeError::Io)?;
         let source_entry = entry.path();
         let target_entry = target_path.join(entry.file_name());
         if file_type.is_dir() {
-            copy_directory_tree(&source_entry, &target_entry)?;
+            copy_directory_tree(&source_entry, &target_entry, control)?;
         } else if file_type.is_file() {
-            fs::copy(&source_entry, &target_entry)?;
+            copy_file(&source_entry, &target_entry, control)?;
         } else {
-            return Err(io::Error::new(
+            return Err(PublishStagedTreeError::Io(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "staged tree contains a non-file, non-directory entry",
-            ));
+            )));
         }
     }
-    fs::set_permissions(target_path, fs::metadata(source_path)?.permissions())?;
+    let permissions = fs::metadata(source_path)
+        .map_err(PublishStagedTreeError::Io)?
+        .permissions();
+    fs::set_permissions(target_path, permissions).map_err(PublishStagedTreeError::Io)?;
     Ok(())
+}
+
+fn copy_file(
+    source_path: &Path,
+    target_path: &Path,
+    control: &RegistryOperationControl,
+) -> Result<(), PublishStagedTreeError> {
+    let mut source = fs::File::open(source_path).map_err(PublishStagedTreeError::Io)?;
+    let mut target = fs::File::create(target_path).map_err(PublishStagedTreeError::Io)?;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        check_cancelled(control, target_path).map_err(|_| PublishStagedTreeError::Cancelled)?;
+        let count = source
+            .read(&mut buffer)
+            .map_err(PublishStagedTreeError::Io)?;
+        if count == 0 {
+            break;
+        }
+        target
+            .write_all(&buffer[..count])
+            .map_err(PublishStagedTreeError::Io)?;
+    }
+    let permissions = fs::metadata(source_path)
+        .map_err(PublishStagedTreeError::Io)?
+        .permissions();
+    fs::set_permissions(target_path, permissions).map_err(PublishStagedTreeError::Io)?;
+    Ok(())
+}
+
+#[derive(Debug)]
+enum PublishStagedTreeError {
+    Io(io::Error),
+    Cancelled,
+}
+
+impl PublishStagedTreeError {
+    fn message(&self) -> String {
+        match self {
+            Self::Io(error) => sanitize_io_error(error),
+            Self::Cancelled => "registry operation cancelled".to_owned(),
+        }
+    }
+
+    fn into_registry_error(
+        self,
+        source_path: &Path,
+        target_path: &Path,
+    ) -> RegistryMaterializeError {
+        match self {
+            Self::Io(error) => RegistryMaterializeError::Publish {
+                staged: display_path(source_path),
+                target: display_path(target_path),
+                message: sanitize_io_error(&error),
+            },
+            Self::Cancelled => RegistryMaterializeError::Cancelled {
+                target: display_path(target_path),
+            },
+        }
+    }
 }
 
 fn remove_dir_if_exists(path: &Path) {
     let _ = fs::remove_dir_all(path);
+}
+
+fn check_cancelled(
+    control: &RegistryOperationControl,
+    target_path: &Path,
+) -> Result<(), RegistryMaterializeError> {
+    control
+        .check_cancelled()
+        .map_err(|_| RegistryMaterializeError::Cancelled {
+            target: display_path(target_path),
+        })
 }
 
 fn validate_materialize_paths(
@@ -252,28 +368,6 @@ fn validate_materialize_paths(
         });
     }
     Ok(())
-}
-
-fn rollback_existing_target<T>(
-    source_path: &Path,
-    target_path: &Path,
-    backup_path: &Path,
-    publish_message: String,
-) -> Result<T, RegistryMaterializeError> {
-    match fs::rename(backup_path, target_path) {
-        Ok(()) => Err(RegistryMaterializeError::Publish {
-            staged: display_path(source_path),
-            target: display_path(target_path),
-            message: publish_message,
-        }),
-        Err(rollback_error) => Err(RegistryMaterializeError::RollbackFailed {
-            staged: display_path(source_path),
-            target: display_path(target_path),
-            backup: display_path(backup_path),
-            publish_message,
-            rollback_message: sanitize_io_error(&rollback_error),
-        }),
-    }
 }
 
 fn materialize_backup_path(target_path: &Path) -> PathBuf {

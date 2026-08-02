@@ -254,3 +254,28 @@ fn daemon_polling_serializes_refreshes_and_recovers() {
         DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
     );
 }
+
+#[test]
+fn model_install_cancel_completion_retains_exact_retry_selector() {
+    let (mut app, _) = App::boot();
+    let _ = app.update(Message::ModelSelectorChanged("fixture-short-id".to_owned()));
+
+    let first_task = app.update(Message::InstallModel);
+    assert_eq!(first_task.units(), 1);
+    assert!(app.model_install.is_active());
+
+    let _ = app.update(Message::CancelModelInstall);
+    let _ = app.update(Message::ModelInstalled {
+        operation_id: 1,
+        outcome: ModelInstallOutcome::Cancelled,
+    });
+    assert_eq!(
+        app.model_install.retry_selector().as_deref(),
+        Some("fixture-short-id")
+    );
+
+    let retry_task = app.update(Message::RetryModelInstall);
+    assert_eq!(retry_task.units(), 1);
+    assert!(app.model_install.is_active());
+    assert_eq!(app.model_selector, "fixture-short-id");
+}

@@ -15,8 +15,10 @@ use thiserror::Error;
 use crate::{
     ArchiveStagingError, AssetChecksumStatus, InstalledModelDisplayMetadata, LiveModelEntry,
     MaterializedRegistryTree, PlannedInstallAsset, RegistryAssetSource, RegistryAssetStagingError,
-    RegistryEntryKind, RegistryMaterializeError, StagedArchiveTree, StagedRegistryAsset,
-    stage_archive_by_format, stage_planned_asset,
+    RegistryEntryKind, RegistryMaterializeError, RegistryOperationControl,
+    RegistryOperationProgress, StagedArchiveTree, StagedRegistryAsset,
+    materialize_staged_tree_controlled, stage_archive_by_format_controlled,
+    stage_planned_asset_controlled,
 };
 
 /// Request for installing one live registry model into a managed model directory.
@@ -54,6 +56,12 @@ pub struct LiveModelInstallResult {
 /// Live model install orchestration errors.
 #[derive(Debug, Error)]
 pub enum LiveModelInstallError {
+    /// The caller requested cooperative cancellation.
+    #[error("live model install cancelled for `{id}`")]
+    Cancelled {
+        /// Live model id.
+        id: String,
+    },
     /// The live model has no `vinput_model` metadata to materialize.
     #[error("live model `{id}` has no vinput_model metadata")]
     MissingMetadata {
@@ -143,7 +151,18 @@ pub fn install_live_model(
     source: &impl RegistryAssetSource,
     request: &LiveModelInstallRequest<'_>,
 ) -> Result<LiveModelInstallResult, LiveModelInstallError> {
+    install_live_model_controlled(source, request, &RegistryOperationControl::default())
+}
+
+/// Controlled companion to [`install_live_model`].
+pub fn install_live_model_controlled(
+    source: &impl RegistryAssetSource,
+    request: &LiveModelInstallRequest<'_>,
+    control: &RegistryOperationControl,
+) -> Result<LiveModelInstallResult, LiveModelInstallError> {
     let model = request.model;
+    control.report(RegistryOperationProgress::Preparing);
+    check_cancelled(control, model)?;
     let mut metadata = model
         .vinput_model
         .as_ref()
@@ -159,12 +178,9 @@ pub fn install_live_model(
     let extract_dir = request.staging_dir.join("extract");
 
     let asset = live_model_planned_asset(model, archive_file_name);
-    let staged_asset = stage_planned_asset(source, &asset, &archive_path).map_err(|source| {
-        LiveModelInstallError::StageAsset {
-            id: model.id.clone(),
-            source: Box::new(source),
-        }
-    })?;
+    let staged_asset = stage_planned_asset_controlled(source, &asset, &archive_path, control)
+        .map_err(|source| map_asset_error(model, source))?;
+    check_cancelled(control, model)?;
     if extract_dir.exists() {
         fs::remove_dir_all(&extract_dir).map_err(|error| {
             LiveModelInstallError::ResetExtractDir {
@@ -175,12 +191,9 @@ pub fn install_live_model(
         })?;
     }
     let staged_archive =
-        stage_archive_by_format(&staged_asset.path, &extract_dir).map_err(|source| {
-            LiveModelInstallError::StageArchive {
-                id: model.id.clone(),
-                source: Box::new(source),
-            }
-        })?;
+        stage_archive_by_format_controlled(&staged_asset.path, &extract_dir, control)
+            .map_err(|source| map_archive_error(model, source))?;
+    check_cancelled(control, model)?;
 
     let materialize_source =
         select_materialize_source(&staged_archive.path).map_err(|message| {
@@ -190,6 +203,7 @@ pub fn install_live_model(
             }
         })?;
     let metadata_path_in_source = materialize_source.join("vinput-model.json");
+    control.report(RegistryOperationProgress::WritingMetadata);
     let metadata_json =
         serde_json::to_string_pretty(&metadata.to_raw_value().map_err(|error| {
             LiveModelInstallError::SerializeMetadata {
@@ -209,11 +223,12 @@ pub fn install_live_model(
         }
     })?;
 
-    let materialized = crate::materialize_staged_tree(&materialize_source, &request.model_dir)
-        .map_err(|source| LiveModelInstallError::Materialize {
-            id: model.id.clone(),
-            source: Box::new(source),
-        })?;
+    check_cancelled(control, model)?;
+    control.report(RegistryOperationProgress::Publishing);
+    let materialized =
+        materialize_staged_tree_controlled(&materialize_source, &request.model_dir, control)
+            .map_err(|source| map_materialize_error(model, source))?;
+    control.report(RegistryOperationProgress::Completed);
 
     Ok(LiveModelInstallResult {
         model_id: model.id.clone(),
@@ -224,6 +239,62 @@ pub fn install_live_model(
         metadata_path: request.model_dir.join("vinput-model.json"),
         materialized,
     })
+}
+
+fn check_cancelled(
+    control: &RegistryOperationControl,
+    model: &LiveModelEntry,
+) -> Result<(), LiveModelInstallError> {
+    control
+        .check_cancelled()
+        .map_err(|_| LiveModelInstallError::Cancelled {
+            id: model.id.clone(),
+        })
+}
+
+fn map_asset_error(
+    model: &LiveModelEntry,
+    source: RegistryAssetStagingError,
+) -> LiveModelInstallError {
+    if matches!(source, RegistryAssetStagingError::Cancelled { .. }) {
+        LiveModelInstallError::Cancelled {
+            id: model.id.clone(),
+        }
+    } else {
+        LiveModelInstallError::StageAsset {
+            id: model.id.clone(),
+            source: Box::new(source),
+        }
+    }
+}
+
+fn map_archive_error(model: &LiveModelEntry, source: ArchiveStagingError) -> LiveModelInstallError {
+    if matches!(source, ArchiveStagingError::Cancelled { .. }) {
+        LiveModelInstallError::Cancelled {
+            id: model.id.clone(),
+        }
+    } else {
+        LiveModelInstallError::StageArchive {
+            id: model.id.clone(),
+            source: Box::new(source),
+        }
+    }
+}
+
+fn map_materialize_error(
+    model: &LiveModelEntry,
+    source: RegistryMaterializeError,
+) -> LiveModelInstallError {
+    if matches!(source, RegistryMaterializeError::Cancelled { .. }) {
+        LiveModelInstallError::Cancelled {
+            id: model.id.clone(),
+        }
+    } else {
+        LiveModelInstallError::Materialize {
+            id: model.id.clone(),
+            source: Box::new(source),
+        }
+    }
 }
 
 fn live_model_planned_asset(

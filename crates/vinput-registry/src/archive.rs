@@ -16,6 +16,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::{RegistryOperationControl, RegistryOperationProgress};
+
 /// Minimal archive entry kind used by the extraction safety policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveEntryKind {
@@ -90,6 +92,12 @@ pub struct StagedArchiveTree {
 /// Archive staging errors.
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum ArchiveStagingError {
+    /// The caller requested cooperative cancellation.
+    #[error("archive staging cancelled for `{path}`")]
+    Cancelled {
+        /// Source archive path.
+        path: String,
+    },
     /// Archive file could not be opened.
     #[error("failed to open staged archive `{path}`: {message}")]
     OpenArchive {
@@ -237,11 +245,31 @@ pub fn stage_archive_by_format(
     archive_path: impl AsRef<Path>,
     output_root: impl AsRef<Path>,
 ) -> Result<StagedArchiveTree, ArchiveStagingError> {
+    stage_archive_by_format_controlled(
+        archive_path,
+        output_root,
+        &RegistryOperationControl::default(),
+    )
+}
+
+/// Controlled companion to [`stage_archive_by_format`].
+pub fn stage_archive_by_format_controlled(
+    archive_path: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    control: &RegistryOperationControl,
+) -> Result<StagedArchiveTree, ArchiveStagingError> {
     let archive_path = archive_path.as_ref();
+    check_cancelled(control, archive_path)?;
     match ArchiveFormat::from_path(archive_path) {
-        Some(ArchiveFormat::Tar) => stage_tar_archive(archive_path, output_root),
-        Some(ArchiveFormat::TarZst) => stage_tar_zst_archive(archive_path, output_root),
-        Some(ArchiveFormat::TarBz2) => stage_tar_bz2_archive(archive_path, output_root),
+        Some(ArchiveFormat::Tar) => {
+            stage_tar_archive_controlled(archive_path, output_root, control)
+        }
+        Some(ArchiveFormat::TarZst) => {
+            stage_tar_zst_archive_controlled(archive_path, output_root, control)
+        }
+        Some(ArchiveFormat::TarBz2) => {
+            stage_tar_bz2_archive_controlled(archive_path, output_root, control)
+        }
         None => Err(ArchiveStagingError::UnsupportedFormat {
             path: display_path(archive_path),
         }),
@@ -258,12 +286,25 @@ pub fn stage_tar_archive(
     archive_path: impl AsRef<Path>,
     output_root: impl AsRef<Path>,
 ) -> Result<StagedArchiveTree, ArchiveStagingError> {
+    stage_tar_archive_controlled(
+        archive_path,
+        output_root,
+        &RegistryOperationControl::default(),
+    )
+}
+
+fn stage_tar_archive_controlled(
+    archive_path: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    control: &RegistryOperationControl,
+) -> Result<StagedArchiveTree, ArchiveStagingError> {
     let archive_path = archive_path.as_ref();
+    check_cancelled(control, archive_path)?;
     let file = fs::File::open(archive_path).map_err(|error| ArchiveStagingError::OpenArchive {
         path: display_path(archive_path),
         message: sanitize_io_error(&error),
     })?;
-    stage_tar_reader(archive_path, output_root, file)
+    stage_tar_reader(archive_path, output_root, file, control)
 }
 
 /// Extracts an already-staged local zstd-compressed tar archive into a staged directory.
@@ -275,7 +316,20 @@ pub fn stage_tar_zst_archive(
     archive_path: impl AsRef<Path>,
     output_root: impl AsRef<Path>,
 ) -> Result<StagedArchiveTree, ArchiveStagingError> {
+    stage_tar_zst_archive_controlled(
+        archive_path,
+        output_root,
+        &RegistryOperationControl::default(),
+    )
+}
+
+fn stage_tar_zst_archive_controlled(
+    archive_path: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    control: &RegistryOperationControl,
+) -> Result<StagedArchiveTree, ArchiveStagingError> {
     let archive_path = archive_path.as_ref();
+    check_cancelled(control, archive_path)?;
     let file = fs::File::open(archive_path).map_err(|error| ArchiveStagingError::OpenArchive {
         path: display_path(archive_path),
         message: sanitize_io_error(&error),
@@ -286,7 +340,7 @@ pub fn stage_tar_zst_archive(
             message: sanitize_io_error(&error),
         }
     })?;
-    stage_tar_reader(archive_path, output_root, decoder)
+    stage_tar_reader(archive_path, output_root, decoder, control)
 }
 
 /// Extracts an already-staged local bzip2-compressed tar archive into a staged directory.
@@ -298,21 +352,36 @@ pub fn stage_tar_bz2_archive(
     archive_path: impl AsRef<Path>,
     output_root: impl AsRef<Path>,
 ) -> Result<StagedArchiveTree, ArchiveStagingError> {
+    stage_tar_bz2_archive_controlled(
+        archive_path,
+        output_root,
+        &RegistryOperationControl::default(),
+    )
+}
+
+fn stage_tar_bz2_archive_controlled(
+    archive_path: impl AsRef<Path>,
+    output_root: impl AsRef<Path>,
+    control: &RegistryOperationControl,
+) -> Result<StagedArchiveTree, ArchiveStagingError> {
     let archive_path = archive_path.as_ref();
+    check_cancelled(control, archive_path)?;
     let file = fs::File::open(archive_path).map_err(|error| ArchiveStagingError::OpenArchive {
         path: display_path(archive_path),
         message: sanitize_io_error(&error),
     })?;
     let decoder = bzip2::read::BzDecoder::new(file);
-    stage_tar_reader(archive_path, output_root, decoder)
+    stage_tar_reader(archive_path, output_root, decoder, control)
 }
 
 fn stage_tar_reader<R: io::Read>(
     archive_path: &Path,
     output_root: impl AsRef<Path>,
     reader: R,
+    control: &RegistryOperationControl,
 ) -> Result<StagedArchiveTree, ArchiveStagingError> {
     let output_root = output_root.as_ref();
+    check_cancelled(control, archive_path)?;
     if output_root.exists() {
         return Err(ArchiveStagingError::OutputExists {
             path: display_path(output_root),
@@ -336,9 +405,18 @@ fn stage_tar_reader<R: io::Read>(
         message: sanitize_io_error(&error),
     })?;
 
-    let result = extract_tar_archive_to_temp(archive_path, output_root, &temp_root, reader);
+    control.report(RegistryOperationProgress::Extracting {
+        processed_entries: 0,
+        extracted_bytes: 0,
+    });
+    let result =
+        extract_tar_archive_to_temp(archive_path, output_root, &temp_root, reader, control);
     match result {
         Ok((file_count, directory_count)) => {
+            if let Err(error) = check_cancelled(control, archive_path) {
+                remove_dir_if_exists(&temp_root);
+                return Err(error);
+            }
             fs::rename(&temp_root, output_root).map_err(|error| {
                 remove_dir_if_exists(&temp_root);
                 ArchiveStagingError::Publish {
@@ -365,6 +443,7 @@ fn extract_tar_archive_to_temp<R: io::Read>(
     output_root: &Path,
     temp_root: &Path,
     reader: R,
+    control: &RegistryOperationControl,
 ) -> Result<(usize, usize), ArchiveStagingError> {
     let mut archive = tar::Archive::new(reader);
     let entries = archive
@@ -376,7 +455,10 @@ fn extract_tar_archive_to_temp<R: io::Read>(
 
     let mut file_count = 0;
     let mut directory_count = 0;
+    let mut processed_entries = 0_u64;
+    let mut extracted_bytes = 0_u64;
     for entry in entries {
+        check_cancelled(control, archive_path)?;
         let mut entry = entry.map_err(|error| ArchiveStagingError::ReadArchive {
             path: display_path(archive_path),
             message: sanitize_io_error(&error),
@@ -426,12 +508,15 @@ fn extract_tar_archive_to_temp<R: io::Read>(
                         message: sanitize_io_error(&error),
                     }
                 })?;
-                io::copy(&mut entry, &mut output).map_err(|error| {
-                    ArchiveStagingError::CopyEntryFile {
-                        path: display_path(&target),
-                        message: sanitize_io_error(&error),
-                    }
-                })?;
+                extracted_bytes = copy_archive_entry_controlled(
+                    archive_path,
+                    &target,
+                    &mut entry,
+                    &mut output,
+                    control,
+                    processed_entries,
+                    extracted_bytes,
+                )?;
                 file_count += 1;
             }
             ArchiveEntryKind::Symlink | ArchiveEntryKind::Hardlink | ArchiveEntryKind::Other => {
@@ -441,9 +526,51 @@ fn extract_tar_archive_to_temp<R: io::Read>(
                 });
             }
         }
+        processed_entries = processed_entries.saturating_add(1);
+        control.report(RegistryOperationProgress::Extracting {
+            processed_entries,
+            extracted_bytes,
+        });
     }
 
     Ok((file_count, directory_count))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn copy_archive_entry_controlled<R: io::Read, W: io::Write>(
+    archive_path: &Path,
+    target: &Path,
+    input: &mut R,
+    output: &mut W,
+    control: &RegistryOperationControl,
+    processed_entries: u64,
+    mut extracted_bytes: u64,
+) -> Result<u64, ArchiveStagingError> {
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        check_cancelled(control, archive_path)?;
+        let count =
+            input
+                .read(&mut buffer)
+                .map_err(|error| ArchiveStagingError::CopyEntryFile {
+                    path: display_path(target),
+                    message: sanitize_io_error(&error),
+                })?;
+        if count == 0 {
+            return Ok(extracted_bytes);
+        }
+        output
+            .write_all(&buffer[..count])
+            .map_err(|error| ArchiveStagingError::CopyEntryFile {
+                path: display_path(target),
+                message: sanitize_io_error(&error),
+            })?;
+        extracted_bytes = extracted_bytes.saturating_add(count as u64);
+        control.report(RegistryOperationProgress::Extracting {
+            processed_entries,
+            extracted_bytes,
+        });
+    }
 }
 
 fn archive_entry_path<R: io::Read>(
@@ -547,6 +674,17 @@ fn archive_temp_path(output_root: &Path) -> PathBuf {
 
 fn remove_dir_if_exists(path: &Path) {
     let _ = fs::remove_dir_all(path);
+}
+
+fn check_cancelled(
+    control: &RegistryOperationControl,
+    archive_path: &Path,
+) -> Result<(), ArchiveStagingError> {
+    control
+        .check_cancelled()
+        .map_err(|_| ArchiveStagingError::Cancelled {
+            path: display_path(archive_path),
+        })
 }
 
 fn ascii_suffix_eq(value: &str, suffix: &str) -> bool {

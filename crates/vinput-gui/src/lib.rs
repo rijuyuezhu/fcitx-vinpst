@@ -20,41 +20,18 @@ use vinput_config::{
 use vinput_protocol::dbus;
 use vinput_registry::InstalledModelInfo;
 
+mod model_install;
 mod model_management;
+mod page;
 
+pub use model_install::ModelInstallOutcome;
+use model_install::ModelInstallState;
 pub use model_management::default_model_root;
-use model_management::{
-    install_registry_model, load_installed_models, model_is_active, remove_installed_model,
-};
+use model_management::{load_installed_models, model_is_active, remove_installed_model};
+pub use page::Page;
 
 /// Product display name.
 pub const APPLICATION_TITLE: &str = "Vinput Configuration";
-
-/// Main GUI pages matching the legacy management surface.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Page {
-    /// Daemon and audio controls.
-    Control,
-    /// ASR providers and scenes.
-    Resources,
-    /// LLM providers and adapters.
-    Llm,
-    /// Hotword file configuration.
-    Hotwords,
-}
-
-impl Page {
-    const ALL: [Self; 4] = [Self::Control, Self::Resources, Self::Llm, Self::Hotwords];
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Control => "Control",
-            Self::Resources => "Resources",
-            Self::Llm => "LLM",
-            Self::Hotwords => "Hotwords",
-        }
-    }
-}
 
 /// A validated config document loaded for the GUI.
 #[derive(Debug, Clone)]
@@ -147,7 +124,7 @@ enum DaemonLoadState {
 }
 
 /// GUI state.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct App {
     page: Page,
     filter: String,
@@ -157,6 +134,8 @@ pub struct App {
     daemon_refresh_in_flight: bool,
     operation: OperationState,
     model_selector: String,
+    model_install: ModelInstallState,
+    next_model_install_id: u64,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
 }
 
@@ -209,8 +188,19 @@ pub enum Message {
     ModelSelectorChanged(String),
     /// Install or update the selected live registry model.
     InstallModel,
+    /// Request cancellation of the active model installation.
+    CancelModelInstall,
+    /// Retry the last failed or cancelled model installation.
+    RetryModelInstall,
+    /// Refresh progress from the active model installation worker.
+    ModelInstallProgressTick,
     /// Result of a live registry model installation.
-    ModelInstalled(Result<String, String>),
+    ModelInstalled {
+        /// Operation generation used to reject stale completions.
+        operation_id: u64,
+        /// Typed worker outcome.
+        outcome: ModelInstallOutcome,
+    },
     /// Remove one inactive installed model directory.
     RemoveInstalledModel(PathBuf),
     /// Result of an installed model removal.
@@ -235,6 +225,8 @@ impl App {
                 daemon_refresh_in_flight: true,
                 operation: OperationState::Idle,
                 model_selector: String::new(),
+                model_install: ModelInstallState::default(),
+                next_model_install_id: 1,
                 installed_models: load_installed_models(),
             },
             daemon_refresh_task(),
@@ -292,10 +284,17 @@ impl App {
             Message::RecordingActionFinished(result) => return self.finish_recording(result),
             Message::ModelSelectorChanged(value) => self.model_selector = value,
             Message::InstallModel => return self.begin_model_install(),
+            Message::CancelModelInstall => self.model_install.cancel(),
+            Message::RetryModelInstall => return self.retry_model_install(),
+            Message::ModelInstallProgressTick => self.model_install.refresh_progress(),
             Message::RemoveInstalledModel(path) => return self.begin_model_remove(path),
-            Message::ModelInstalled(result) | Message::ModelRemoved(result) => {
-                return self.finish_model_operation(result);
+            Message::ModelInstalled {
+                operation_id,
+                outcome,
+            } => {
+                return self.finish_model_install(operation_id, outcome);
             }
+            Message::ModelRemoved(result) => return self.finish_model_remove(result),
         }
         Task::none()
     }
@@ -321,11 +320,18 @@ impl App {
 
     /// Polls daemon ownership without activating a missing service.
     pub fn subscription(&self) -> Subscription<Message> {
-        if self.daemon_refresh_in_flight {
-            Subscription::none()
-        } else {
-            iced::time::every(Duration::from_secs(2)).map(|_| Message::DaemonPollTick)
+        let mut subscriptions = Vec::new();
+        if !self.daemon_refresh_in_flight {
+            subscriptions
+                .push(iced::time::every(Duration::from_secs(2)).map(|_| Message::DaemonPollTick));
         }
+        if self.model_install.is_active() {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(100))
+                    .map(|_| Message::ModelInstallProgressTick),
+            );
+        }
+        Subscription::batch(subscriptions)
     }
 
     fn update_draft(&mut self, update: impl FnOnce(&mut ConfigDraft)) {
@@ -415,6 +421,18 @@ impl App {
 
     fn begin_model_install(&mut self) -> Task<Message> {
         let selector = self.model_selector.trim().to_owned();
+        self.begin_model_install_for(selector)
+    }
+
+    fn retry_model_install(&mut self) -> Task<Message> {
+        let Some(selector) = self.model_install.retry_selector() else {
+            return Task::none();
+        };
+        self.model_selector.clone_from(&selector);
+        self.begin_model_install_for(selector)
+    }
+
+    fn begin_model_install_for(&mut self, selector: String) -> Task<Message> {
         if selector.is_empty() {
             self.operation = OperationState::Failed(
                 "Enter a registry model id or short id before installing.".to_owned(),
@@ -425,12 +443,16 @@ impl App {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
         };
-        self.operation = OperationState::Running("Installing model…");
-        let config = document.config.clone();
-        Task::perform(
-            async move { install_registry_model(&config, &selector) },
-            Message::ModelInstalled,
-        )
+        if self.model_install.is_active() || matches!(self.operation, OperationState::Running(_)) {
+            return Task::none();
+        }
+        let operation_id = self.next_model_install_id;
+        self.next_model_install_id = self.next_model_install_id.wrapping_add(1).max(1);
+        let (state, task) =
+            ModelInstallState::start(document.config.clone(), selector, operation_id);
+        self.operation = OperationState::Idle;
+        self.model_install = state;
+        task
     }
 
     fn begin_model_remove(&mut self, target_path: PathBuf) -> Task<Message> {
@@ -446,7 +468,19 @@ impl App {
         )
     }
 
-    fn finish_model_operation(&mut self, result: Result<String, String>) -> Task<Message> {
+    fn finish_model_install(
+        &mut self,
+        operation_id: u64,
+        outcome: ModelInstallOutcome,
+    ) -> Task<Message> {
+        if !self.model_install.finish(operation_id, outcome) {
+            return Task::none();
+        }
+        self.installed_models = load_installed_models();
+        self.begin_daemon_refresh(false)
+    }
+
+    fn finish_model_remove(&mut self, result: Result<String, String>) -> Task<Message> {
         self.installed_models = load_installed_models();
         self.operation = match result {
             Ok(summary) => OperationState::Succeeded(summary),
@@ -497,7 +531,7 @@ impl App {
     }
 
     fn control_page(&self) -> Element<'_, Message> {
-        let busy = matches!(self.operation, OperationState::Running(_));
+        let busy = self.is_busy();
         let mut body = column![
             text("Control").size(30),
             self.control_actions(busy),
@@ -537,9 +571,13 @@ impl App {
         .into()
     }
 
+    fn is_busy(&self) -> bool {
+        matches!(self.operation, OperationState::Running(_)) || self.model_install.is_active()
+    }
+
     fn operation_notice(&self) -> Option<Element<'_, Message>> {
         match &self.operation {
-            OperationState::Idle => None,
+            OperationState::Idle => self.model_install.view(),
             OperationState::Running(message) => Some(text(*message).into()),
             OperationState::Succeeded(message) => Some(text(format!("Success: {message}")).into()),
             OperationState::Failed(message) => Some(text(format!("Error: {message}")).into()),
@@ -698,7 +736,7 @@ impl App {
     }
 
     fn resources_page(&self) -> Element<'_, Message> {
-        let busy = matches!(self.operation, OperationState::Running(_));
+        let busy = self.is_busy();
         let mut body = column![
             text("Resources").size(30),
             text_input("Filter providers and scenes", &self.filter)

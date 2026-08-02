@@ -8,10 +8,14 @@ use std::{
 
 use vinput_config::{AsrProviderKind, VinputConfig};
 use vinput_registry::{
-    InstalledModelInfo, LiveModelInstallRequest, LiveModelRegistry, ManagedModelRemoveRequest,
-    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
-    managed_model_dir_name, remove_managed_model, scan_installed_models,
+    InstalledModelInfo, LiveModelInstallError, LiveModelInstallRequest, LiveModelRegistry,
+    ManagedModelRemoveRequest, RegistryOperationControl, RegistryOperationProgress,
+    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
+    install_live_model_controlled, managed_model_dir_name, remove_managed_model,
+    scan_installed_models,
 };
+
+use crate::model_install::ModelInstallOutcome;
 
 /// Returns the managed ASR model root used by CLI and GUI workflows.
 pub fn default_model_root() -> Result<PathBuf, String> {
@@ -50,37 +54,74 @@ pub(crate) fn load_installed_models() -> Result<Vec<InstalledModelInfo>, String>
     scan_installed_models(&root).map_err(|error| error.to_string())
 }
 
-pub(crate) fn install_registry_model(
+pub(crate) fn install_registry_model_controlled(
     config: &VinputConfig,
     selector: &str,
-) -> Result<String, String> {
-    let registry = fetch_live_model_registry(config)?;
+    control: &RegistryOperationControl,
+) -> ModelInstallOutcome {
+    control.report(RegistryOperationProgress::ResolvingRegistry);
+    if control.is_cancelled() {
+        return ModelInstallOutcome::Cancelled;
+    }
+    let registry = match fetch_live_model_registry(config) {
+        Ok(registry) => registry,
+        Err(_) if control.is_cancelled() => return ModelInstallOutcome::Cancelled,
+        Err(error) => return ModelInstallOutcome::Failed(error),
+    };
+    if control.is_cancelled() {
+        return ModelInstallOutcome::Cancelled;
+    }
     let model = registry
         .model_by_id_or_short_id(selector)
-        .ok_or_else(|| format!("Unknown registry model id or short id `{selector}`."))?;
+        .ok_or_else(|| format!("Unknown registry model id or short id `{selector}`."));
+    let model = match model {
+        Ok(model) => model,
+        Err(error) => return ModelInstallOutcome::Failed(error),
+    };
     let model_name = managed_model_dir_name(model);
-    let model_dir = default_model_root()?.join(&model_name);
-    let staging_dir = default_model_staging_root()?.join(&model_name);
+    let model_dir = match default_model_root() {
+        Ok(root) => root.join(&model_name),
+        Err(error) => return ModelInstallOutcome::Failed(error),
+    };
+    let staging_dir = match default_model_staging_root() {
+        Ok(root) => root.join(&model_name),
+        Err(error) => return ModelInstallOutcome::Failed(error),
+    };
     let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(300));
-    let installed = install_live_model(
+    let installed = install_live_model_controlled(
         &source,
         &LiveModelInstallRequest {
             model,
             model_dir,
-            staging_dir,
+            staging_dir: staging_dir.clone(),
             display: Some(model.installed_display_metadata(&config.global.default_language, None)),
         },
-    )
-    .map_err(|error| format!("Model installation failed: {error}"))?;
+        control,
+    );
+    let installed = match installed {
+        Ok(installed) => installed,
+        Err(LiveModelInstallError::Cancelled { .. }) => {
+            remove_staging_dir(&staging_dir);
+            return ModelInstallOutcome::Cancelled;
+        }
+        Err(error) => {
+            remove_staging_dir(&staging_dir);
+            return ModelInstallOutcome::Failed(format!("Model installation failed: {error}"));
+        }
+    };
     let checksum = if installed.checksum_verified() {
         "checksum verified"
     } else {
         "registry provided no checksum"
     };
-    Ok(format!(
+    ModelInstallOutcome::Installed(format!(
         "Installed {} into managed model `{model_name}` ({checksum}).",
         model.resolved_title(None)
     ))
+}
+
+fn remove_staging_dir(path: &Path) {
+    let _ = std::fs::remove_dir_all(path);
 }
 
 fn fetch_live_model_registry(config: &VinputConfig) -> Result<LiveModelRegistry, String> {

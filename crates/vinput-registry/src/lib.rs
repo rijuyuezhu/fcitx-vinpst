@@ -16,6 +16,7 @@ mod installed;
 mod live;
 mod managed;
 mod materialize;
+mod operation;
 mod plan;
 mod schema;
 mod script;
@@ -23,12 +24,13 @@ mod staging;
 
 pub use archive::{
     ArchiveEntryKind, ArchiveFormat, ArchiveSafetyError, ArchiveStagingError, StagedArchiveTree,
-    checked_archive_entry_target, stage_archive_by_format, stage_tar_archive,
-    stage_tar_bz2_archive, stage_tar_zst_archive,
+    checked_archive_entry_target, stage_archive_by_format, stage_archive_by_format_controlled,
+    stage_tar_archive, stage_tar_bz2_archive, stage_tar_zst_archive,
 };
 pub use asset::{
     AssetChecksumStatus, RegistryAssetFetchFailure, RegistryAssetSource, RegistryAssetStagingError,
     ReqwestRegistryAssetSource, StagedRegistryAsset, stage_planned_asset,
+    stage_planned_asset_controlled,
 };
 pub use cache::{
     RegistryCacheError, RegistryCachedFetchError, RegistryTextCache,
@@ -44,6 +46,7 @@ pub use fetch::{
 };
 pub use install::{
     LiveModelInstallError, LiveModelInstallRequest, LiveModelInstallResult, install_live_model,
+    install_live_model_controlled,
 };
 pub use installed::{
     INSTALLED_MODEL_METADATA_FILE, InstalledModelError, InstalledModelInfo,
@@ -61,6 +64,10 @@ pub use managed::{
 };
 pub use materialize::{
     MaterializedRegistryTree, RegistryMaterializeError, materialize_staged_tree,
+    materialize_staged_tree_controlled,
+};
+pub use operation::{
+    RegistryOperationCancelled, RegistryOperationControl, RegistryOperationProgress,
 };
 pub use plan::{
     AssetPlanSummary, ChecksumPolicy, InstallPlan, InstallPlanSummary, PlannedAsset,
