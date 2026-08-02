@@ -78,8 +78,8 @@ pub use script::{
     AsrProviderMaterialization, AsrProviderMaterializationError, LiveScriptEntry,
     LiveScriptEnvSpec, LiveScriptInstallError, LiveScriptInstallResult, LiveScriptKind,
     LiveScriptRegistry, LiveScriptRegistryError, LlmAdapterMaterialization,
-    LlmAdapterMaterializationError, install_live_script, managed_script_relative_path,
-    materialize_asr_provider, materialize_llm_adapter,
+    LlmAdapterMaterializationError, install_live_script, install_live_script_controlled,
+    managed_script_relative_path, materialize_asr_provider, materialize_llm_adapter,
 };
 pub use staging::{
     ArchiveStagingPathError, ArchiveStagingPaths, plan_archive_staging_paths,

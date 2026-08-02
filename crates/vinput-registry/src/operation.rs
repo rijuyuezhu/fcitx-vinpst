@@ -37,6 +37,8 @@ pub enum RegistryOperationProgress {
     WritingMetadata,
     /// Atomically publishing the prepared tree into managed storage.
     Publishing,
+    /// Persisting the validated configuration that references an installed resource.
+    UpdatingConfiguration,
     /// The operation completed successfully.
     Completed,
 }

@@ -226,6 +226,7 @@ fn progress_label(progress: &RegistryOperationProgress) -> String {
         ),
         RegistryOperationProgress::WritingMetadata => "Writing model metadata…".to_owned(),
         RegistryOperationProgress::Publishing => "Publishing model atomically…".to_owned(),
+        RegistryOperationProgress::UpdatingConfiguration => "Updating configuration…".to_owned(),
         RegistryOperationProgress::Completed => "Model installation completed.".to_owned(),
     }
 }

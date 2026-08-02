@@ -14,7 +14,8 @@ use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig};
 use crate::live::LiveRegistryI18n;
 use crate::{
     AssetChecksumStatus, ChecksumPolicy, PlannedInstallAsset, RegistryAssetSource,
-    RegistryAssetStagingError, RegistryEntryKind, StagedRegistryAsset, stage_planned_asset,
+    RegistryAssetStagingError, RegistryEntryKind, RegistryOperationControl, StagedRegistryAsset,
+    stage_planned_asset_controlled,
 };
 
 /// Registry category for one managed script.
@@ -285,6 +286,23 @@ pub fn install_live_script(
     entry: &LiveScriptEntry,
     script_root: impl AsRef<Path>,
 ) -> Result<LiveScriptInstallResult, LiveScriptInstallError> {
+    install_live_script_controlled(
+        source,
+        kind,
+        entry,
+        script_root,
+        &RegistryOperationControl::default(),
+    )
+}
+
+/// Controlled companion to [`install_live_script`].
+pub fn install_live_script_controlled(
+    source: &impl RegistryAssetSource,
+    kind: LiveScriptKind,
+    entry: &LiveScriptEntry,
+    script_root: impl AsRef<Path>,
+    control: &RegistryOperationControl,
+) -> Result<LiveScriptInstallResult, LiveScriptInstallError> {
     validate_script_entry(entry, kind)?;
     let relative_path = managed_script_relative_path(kind, &entry.id)?;
     let output_path = script_root.as_ref().join(&relative_path);
@@ -298,7 +316,7 @@ pub fn install_live_script(
         size_bytes: None,
         checksum_policy: ChecksumPolicy::Missing,
     };
-    let staged = stage_planned_asset(source, &asset, &output_path)?;
+    let staged = stage_planned_asset_controlled(source, &asset, &output_path, control)?;
     if let Err(error) = mark_executable(&staged.path) {
         let _ = fs::remove_file(&staged.path);
         return Err(LiveScriptInstallError::Permissions {

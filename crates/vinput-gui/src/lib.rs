@@ -13,22 +13,24 @@ use iced::{
     },
 };
 use serde_json::{Value, json};
-use vinput_config::{
-    AsrProviderKind, VinputConfig, config_backup_path, redact_url_for_diagnostics,
-    write_config_file,
-};
+use vinput_config::{AsrProviderKind, VinputConfig, config_backup_path, write_config_file};
 use vinput_protocol::dbus;
-use vinput_registry::InstalledModelInfo;
+use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
 mod model_install;
 mod model_management;
 mod page;
+mod resource_pages;
+mod script_install;
+mod script_management;
 
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
 pub use model_management::default_model_root;
 use model_management::{load_installed_models, model_is_active, remove_installed_model};
 pub use page::Page;
+pub use script_install::ScriptInstallOutcome;
+use script_install::ScriptInstallState;
 
 /// Product display name.
 pub const APPLICATION_TITLE: &str = "Vinput Configuration";
@@ -136,6 +138,10 @@ pub struct App {
     model_selector: String,
     model_install: ModelInstallState,
     next_model_install_id: u64,
+    provider_selector: String,
+    adapter_selector: String,
+    script_install: ScriptInstallState,
+    next_script_install_id: u64,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
 }
 
@@ -205,6 +211,27 @@ pub enum Message {
     RemoveInstalledModel(PathBuf),
     /// Result of an installed model removal.
     ModelRemoved(Result<String, String>),
+    /// Update the live registry ASR provider id or short id to install.
+    ProviderSelectorChanged(String),
+    /// Update the live registry text adapter id or short id to install.
+    AdapterSelectorChanged(String),
+    /// Install or update the selected command ASR provider.
+    InstallProvider,
+    /// Install or update the selected text adapter.
+    InstallAdapter,
+    /// Request cancellation of the active provider or adapter installation.
+    CancelScriptInstall,
+    /// Retry the last failed or cancelled provider or adapter installation.
+    RetryScriptInstall,
+    /// Refresh progress from the active provider or adapter worker.
+    ScriptInstallProgressTick,
+    /// Result of a live provider or adapter installation.
+    ScriptInstalled {
+        /// Operation generation used to reject stale completions.
+        operation_id: u64,
+        /// Typed worker outcome.
+        outcome: ScriptInstallOutcome,
+    },
 }
 
 impl App {
@@ -227,6 +254,10 @@ impl App {
                 model_selector: String::new(),
                 model_install: ModelInstallState::default(),
                 next_model_install_id: 1,
+                provider_selector: String::new(),
+                adapter_selector: String::new(),
+                script_install: ScriptInstallState::default(),
+                next_script_install_id: 1,
                 installed_models: load_installed_models(),
             },
             daemon_refresh_task(),
@@ -295,6 +326,21 @@ impl App {
                 return self.finish_model_install(operation_id, outcome);
             }
             Message::ModelRemoved(result) => return self.finish_model_remove(result),
+            Message::ProviderSelectorChanged(value) => self.provider_selector = value,
+            Message::AdapterSelectorChanged(value) => self.adapter_selector = value,
+            Message::InstallProvider => {
+                return self.begin_script_install(LiveScriptKind::AsrProvider);
+            }
+            Message::InstallAdapter => {
+                return self.begin_script_install(LiveScriptKind::LlmAdapter);
+            }
+            Message::CancelScriptInstall => self.script_install.cancel(),
+            Message::RetryScriptInstall => return self.retry_script_install(),
+            Message::ScriptInstallProgressTick => self.script_install.refresh_progress(),
+            Message::ScriptInstalled {
+                operation_id,
+                outcome,
+            } => return self.finish_script_install(operation_id, outcome),
         }
         Task::none()
     }
@@ -329,6 +375,12 @@ impl App {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
                     .map(|_| Message::ModelInstallProgressTick),
+            );
+        }
+        if self.script_install.is_active() {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(100))
+                    .map(|_| Message::ScriptInstallProgressTick),
             );
         }
         Subscription::batch(subscriptions)
@@ -572,12 +624,17 @@ impl App {
     }
 
     fn is_busy(&self) -> bool {
-        matches!(self.operation, OperationState::Running(_)) || self.model_install.is_active()
+        matches!(self.operation, OperationState::Running(_))
+            || self.model_install.is_active()
+            || self.script_install.is_active()
     }
 
     fn operation_notice(&self) -> Option<Element<'_, Message>> {
         match &self.operation {
-            OperationState::Idle => self.model_install.view(),
+            OperationState::Idle => self
+                .model_install
+                .view()
+                .or_else(|| self.script_install.view()),
             OperationState::Running(message) => Some(text(*message).into()),
             OperationState::Succeeded(message) => Some(text(format!("Success: {message}")).into()),
             OperationState::Failed(message) => Some(text(format!("Error: {message}")).into()),
@@ -734,141 +791,6 @@ impl App {
         .spacing(10)
         .into()
     }
-
-    fn resources_page(&self) -> Element<'_, Message> {
-        let busy = self.is_busy();
-        let mut body = column![
-            text("Resources").size(30),
-            text_input("Filter providers and scenes", &self.filter)
-                .on_input(Message::FilterChanged),
-            text("Managed ASR models").size(22),
-            row![
-                text_input("Registry model id or short id", &self.model_selector)
-                    .on_input(Message::ModelSelectorChanged)
-                    .width(Length::Fill),
-                button("Install or update").on_press_maybe(
-                    (!busy && !self.model_selector.trim().is_empty())
-                        .then_some(Message::InstallModel),
-                ),
-            ]
-            .spacing(10),
-        ]
-        .spacing(12);
-
-        if let Some(notice) = self.operation_notice() {
-            body = body.push(notice);
-        }
-
-        match &self.installed_models {
-            Ok(models) if models.is_empty() => {
-                body = body.push(text("No managed ASR models installed."));
-            }
-            Ok(models) => {
-                for model in models {
-                    let active = self
-                        .config
-                        .as_ref()
-                        .is_ok_and(|document| model_is_active(&document.config, &model.model_dir));
-                    let title = model
-                        .display_title(&[])
-                        .unwrap_or_else(|| model.stable_model_id());
-                    let directory = model
-                        .model_dir
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("managed-model");
-                    let marker = if active { "active" } else { "inactive" };
-                    body = body.push(
-                        row![
-                            text(format!(
-                                "{title} · {directory} · {} files · {marker}",
-                                model.file_count
-                            ))
-                            .width(Length::Fill),
-                            button("Remove").on_press_maybe((!busy && !active).then_some(
-                                Message::RemoveInstalledModel(model.model_dir.clone(),)
-                            ),),
-                        ]
-                        .spacing(10),
-                    );
-                }
-            }
-            Err(error) => {
-                body = body.push(text(format!("Installed model scan failed: {error}")));
-            }
-        }
-
-        match &self.config {
-            Ok(document) => {
-                body = body.push(text("ASR providers").size(22));
-                for provider in filtered_asr_rows(&document.config, &self.filter) {
-                    body = body.push(text(provider));
-                }
-                body = body.push(text("Scenes").size(22));
-                for scene in filtered_scene_rows(&document.config, &self.filter) {
-                    body = body.push(text(scene));
-                }
-            }
-            Err(error) => body = body.push(text(format!("Config error: {error}"))),
-        }
-
-        scrollable(body).into()
-    }
-
-    fn llm_page(&self) -> Element<'_, Message> {
-        let mut body = column![text("LLM").size(30)].spacing(12);
-        match &self.config {
-            Ok(document) => {
-                body = body.push(text("Providers").size(22));
-                for provider in &document.config.llm.providers {
-                    let endpoint = if provider.base_url.is_empty() {
-                        "adapter/local".to_owned()
-                    } else {
-                        redact_url_for_diagnostics(&provider.base_url)
-                    };
-                    body = body.push(text(format!(
-                        "{} · {} · {}",
-                        provider.id,
-                        provider.model.as_deref().unwrap_or("default model"),
-                        endpoint
-                    )));
-                }
-                if document.config.llm.providers.is_empty() {
-                    body = body.push(text("No LLM providers configured."));
-                }
-
-                body = body.push(text("Adapters").size(22));
-                for adapter in llm_adapter_rows(&document.config) {
-                    body = body.push(text(adapter));
-                }
-                if document.config.llm.adapters.is_empty() {
-                    body = body.push(text("No text adapters configured."));
-                }
-            }
-            Err(error) => body = body.push(text(format!("Config error: {error}"))),
-        }
-        scrollable(body).into()
-    }
-
-    fn hotwords_page(&self) -> Element<'_, Message> {
-        let mut body = column![text("Hotwords").size(30)].spacing(12);
-        match &self.config {
-            Ok(document) => {
-                let mut count = 0;
-                for provider in &document.config.asr.providers {
-                    if let Some(path) = provider.hotwords_file.as_deref() {
-                        count += 1;
-                        body = body.push(text(format!("{} · {path}", provider.id)));
-                    }
-                }
-                if count == 0 {
-                    body = body.push(text("No hotword files configured."));
-                }
-            }
-            Err(error) => body = body.push(text(format!("Config error: {error}"))),
-        }
-        scrollable(body).into()
-    }
 }
 
 /// Returns the default user config path.
@@ -980,10 +902,24 @@ fn ensure_config_save_allowed(snapshot: &DaemonSnapshot) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn persist_config_draft(
     document: &ConfigDocument,
     draft: &ConfigDraft,
 ) -> Result<ConfigSaveOutcome, String> {
+    let mut updated = document.config.clone();
+    draft.apply_to(&mut updated);
+    persist_updated_config(document, &updated)
+}
+
+pub(crate) fn ensure_config_mutation_allowed(document: &ConfigDocument) -> Result<(), String> {
+    if let Ok(snapshot) = query_daemon_snapshot() {
+        ensure_config_save_allowed(&snapshot)?;
+    }
+    ensure_config_document_current(document)
+}
+
+fn ensure_config_document_current(document: &ConfigDocument) -> Result<(), String> {
     if document.from_disk {
         if !document.path.exists() {
             return Err(format!(
@@ -1015,16 +951,21 @@ fn persist_config_draft(
             document.path.display()
         ));
     }
+    Ok(())
+}
 
-    let mut updated = document.config.clone();
-    draft.apply_to(&mut updated);
+pub(crate) fn persist_updated_config(
+    document: &ConfigDocument,
+    updated: &VinputConfig,
+) -> Result<ConfigSaveOutcome, String> {
+    ensure_config_document_current(document)?;
     updated
         .validate()
         .map_err(|error| format!("Validate edited configuration: {error}"))?;
     let backup_path = document
         .from_disk
         .then(|| config_backup_path(&document.path));
-    let receipt = write_config_file(&updated, &document.path, backup_path.as_deref())
+    let receipt = write_config_file(updated, &document.path, backup_path.as_deref())
         .map_err(|error| format!("Save configuration: {error}"))?;
     Ok(ConfigSaveOutcome {
         path: receipt.path,
@@ -1033,16 +974,15 @@ fn persist_config_draft(
     })
 }
 
-fn save_config_with_daemon(
+pub(crate) fn save_updated_config_with_daemon(
     document: &ConfigDocument,
-    draft: &ConfigDraft,
+    updated: &VinputConfig,
 ) -> Result<ConfigSaveOutcome, String> {
     let daemon = query_daemon_snapshot();
     if let Ok(snapshot) = &daemon {
         ensure_config_save_allowed(snapshot)?;
     }
-
-    let mut outcome = persist_config_draft(document, draft)?;
+    let mut outcome = persist_updated_config(document, updated)?;
     outcome.daemon_reload = match daemon {
         Ok(_) => match reload_asr_backend() {
             Ok(()) => "daemon ASR reload requested".to_owned(),
@@ -1051,6 +991,15 @@ fn save_config_with_daemon(
         Err(error) => format!("config saved; daemon reload skipped: {error}"),
     };
     Ok(outcome)
+}
+
+fn save_config_with_daemon(
+    document: &ConfigDocument,
+    draft: &ConfigDraft,
+) -> Result<ConfigSaveOutcome, String> {
+    let mut updated = document.config.clone();
+    draft.apply_to(&mut updated);
+    save_updated_config_with_daemon(document, &updated)
 }
 
 fn reload_asr_backend() -> Result<(), String> {
