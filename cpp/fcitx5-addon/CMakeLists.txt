@@ -26,20 +26,23 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 
 function(vinput_bridge_install_dir output value fallback)
-  if(NOT "${value}" STREQUAL "")
-    if(IS_ABSOLUTE "${value}")
-      file(RELATIVE_PATH prefix_relative_value "${CMAKE_INSTALL_PREFIX}" "${value}")
+  if(NOT "${${output}}" STREQUAL "")
+    set(candidate "${${output}}")
+  elseif(NOT "${value}" STREQUAL "")
+    set(candidate "${value}")
+  else()
+    set(candidate "${fallback}")
+  endif()
+  if(IS_ABSOLUTE "${candidate}")
+      file(RELATIVE_PATH prefix_relative_value "${CMAKE_INSTALL_PREFIX}" "${candidate}")
       if(NOT prefix_relative_value MATCHES "^\\.\\.($|/)")
         set(${output} "${prefix_relative_value}" PARENT_SCOPE)
       else()
-        file(RELATIVE_PATH root_relative_value "/" "${value}")
+        file(RELATIVE_PATH root_relative_value "/" "${candidate}")
         set(${output} "${root_relative_value}" PARENT_SCOPE)
       endif()
-    else()
-      set(${output} "${value}" PARENT_SCOPE)
-    endif()
   else()
-    set(${output} "${fallback}" PARENT_SCOPE)
+    set(${output} "${candidate}" PARENT_SCOPE)
   endif()
 endfunction()
 
@@ -89,7 +92,9 @@ if(NOT "${VINPUT_DAEMON_ARGS}" STREQUAL "")
 endif()
 set(VINPUT_DBUS_SYSTEMD_SERVICE_LINE "")
 if(VINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE)
-  pkg_get_variable(VINPUT_SYSTEMD_USER_UNIT_DIR systemd systemduserunitdir)
+  if("${VINPUT_SYSTEMD_USER_UNIT_DIR}" STREQUAL "")
+    pkg_get_variable(VINPUT_SYSTEMD_USER_UNIT_DIR systemd systemduserunitdir)
+  endif()
   if("${VINPUT_SYSTEMD_USER_UNIT_DIR}" STREQUAL "")
     set(VINPUT_SYSTEMD_USER_UNIT_DIR "${CMAKE_INSTALL_LIBDIR}/systemd/user")
   endif()
@@ -206,7 +211,7 @@ if(Fcitx5Core_FOUND)
   )
   vinput_bridge_apply_warnings(fcitx5_vinput_addon)
 
-
+  if(BUILD_TESTING AND VINPUT_FCITX_BRIDGE_ENABLE_TESTS)
   add_executable(
     vinput_fcitx_bridge_daemon_signal_monitor_smoke
     tests/fcitx_daemon_signal_monitor_smoke.cpp
@@ -468,6 +473,7 @@ if(Fcitx5Core_FOUND)
       Fcitx5::Module::Notifications
   )
   vinput_bridge_apply_warnings(vinput_fcitx_native_addon_dbus_smoke)
+  endif()
 
   vinput_bridge_install_dir(
     VINPUT_FCITX_MODULE_INSTALL_DIR
@@ -492,13 +498,11 @@ if(Fcitx5Core_FOUND)
     )
   endif()
   if(VINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE)
-    if(IS_ABSOLUTE "${VINPUT_SYSTEMD_USER_UNIT_DIR}")
-      set(VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
-          "${VINPUT_SYSTEMD_USER_UNIT_DIR}")
-    else()
-      set(VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
-          "${CMAKE_INSTALL_LIBDIR}/systemd/user")
-    endif()
+    vinput_bridge_install_dir(
+      VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
+      "${VINPUT_SYSTEMD_USER_UNIT_DIR}"
+      "${CMAKE_INSTALL_LIBDIR}/systemd/user"
+    )
     install(
       FILES "${CMAKE_CURRENT_BINARY_DIR}/vinput-daemon.service"
       DESTINATION "${VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR}"
