@@ -13,6 +13,8 @@ use super::{
     },
 };
 
+use crate::sandbox;
+
 pub(super) fn print_daemon_handoff(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
     let command = daemon_user_service_command("restart", None)?;
     let output = if dry_run {
@@ -33,7 +35,7 @@ fn daemon_handoff_dry_run_json(command: &UserServiceCommand) -> serde_json::Valu
         .expect("internal systemd MainPID command must be valid");
     let service_reload = daemon_user_service_command("daemon-reload", None)
         .expect("internal systemd daemon-reload command must be valid");
-    let kill_program = std::env::var("VINPUT_DAEMON_KILL").unwrap_or_else(|_| "kill".to_owned());
+    let direct_signal = direct_daemon_signal_command("<owner-pid>");
     serde_json::json!({
         "ok": true,
         "dry_run": true,
@@ -53,7 +55,11 @@ fn daemon_handoff_dry_run_json(command: &UserServiceCommand) -> serde_json::Valu
             "restart": daemon_user_service_dry_run_json("restart", command),
         },
         "direct_control": {
-            "program": kill_program,
+            "program": direct_signal.target_program(),
+            "command": direct_signal.display(),
+            "command_argv": direct_signal.argv(),
+            "sandbox": sandbox::sandbox_json(direct_signal.is_host_wrapped()),
+            "host_wrapper": direct_signal.host_wrapper_program().map(sandbox::host_wrapper_json),
             "signal": "TERM",
             "guards": [
                 "owner-is-idle",
@@ -543,11 +549,15 @@ pub(super) fn reload_dbus_activation_config() -> serde_json::Value {
     }
 }
 
+fn direct_daemon_signal_command(pid: &str) -> UserServiceCommand {
+    let target_program = std::env::var("VINPUT_DAEMON_KILL").unwrap_or_else(|_| "kill".to_owned());
+    let target_args = vec!["-TERM".to_owned(), pid.to_owned()];
+    let (program, args) = sandbox::wrap_host_command(target_program, target_args);
+    UserServiceCommand { program, args }
+}
+
 pub(super) fn signal_direct_daemon_owner(pid: u32) -> serde_json::Value {
-    let command = UserServiceCommand {
-        program: std::env::var("VINPUT_DAEMON_KILL").unwrap_or_else(|_| "kill".to_owned()),
-        args: vec!["-TERM".to_owned(), pid.to_string()],
-    };
+    let command = direct_daemon_signal_command(&pid.to_string());
     match ProcessCommand::new(&command.program)
         .args(&command.args)
         .output()
@@ -556,6 +566,9 @@ pub(super) fn signal_direct_daemon_owner(pid: u32) -> serde_json::Value {
             "ok": output.status.success(),
             "pid": pid,
             "signal": "TERM",
+            "tool_program": command.target_program(),
+            "sandbox": sandbox::sandbox_json(command.is_host_wrapped()),
+            "host_wrapper": command.host_wrapper_program().map(sandbox::host_wrapper_json),
             "command": command.display(),
             "command_argv": command.argv(),
             "exit_status": output.status.code(),
@@ -566,6 +579,9 @@ pub(super) fn signal_direct_daemon_owner(pid: u32) -> serde_json::Value {
             "ok": false,
             "pid": pid,
             "signal": "TERM",
+            "tool_program": command.target_program(),
+            "sandbox": sandbox::sandbox_json(command.is_host_wrapped()),
+            "host_wrapper": command.host_wrapper_program().map(sandbox::host_wrapper_json),
             "command": command.display(),
             "command_argv": command.argv(),
             "exit_status": null,

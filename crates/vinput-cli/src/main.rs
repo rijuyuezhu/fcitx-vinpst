@@ -12,6 +12,7 @@ mod output;
 mod paths;
 mod recording_control;
 mod registry_support;
+mod sandbox;
 
 use std::{
     collections::BTreeMap,
