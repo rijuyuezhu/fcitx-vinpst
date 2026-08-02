@@ -6,12 +6,14 @@
 
 The first Iced 0.14 implementation is part of the workspace and provides four legacy-aligned top-level pages:
 
-- **Control** shows daemon status plus the validated active scene/provider, capture target, language, VAD, and output-ducking settings.
+- **Control** shows daemon status, starts/stops normal recording, and edits the active scene/provider, capture target, language, VAD, and output-ducking settings.
 - **Resources** lists and filters typed ASR providers and scenes.
 - **LLM** lists providers with redacted endpoints and lists command adapters without exposing API keys.
 - **Hotwords** lists provider hotword files.
 
-The application reads `VinputConfig` directly, validates an explicit or discovered user config, and falls back to the bundled default only when the user file is absent. Daemon state is queried through the shared `vinput-protocol` D-Bus constants and typed zbus calls to `GetStatus` and `GetRuntimeStatus`; the GUI does not parse CLI output.
+The application reads `VinputConfig` directly, validates an explicit or discovered user config, and falls back to the bundled default only when the user file is absent. GUI and CLI config mutations share the `vinput-config` persistence API: validation precedes any filesystem mutation, an existing file receives an adjacent `.bak`, the replacement is written and synchronized beside the destination, and rename publishes it atomically. The GUI refuses to overwrite a file changed after loading and refuses a save while a reachable daemon is non-idle or reports an active session. A missing daemon does not block an otherwise valid offline config save; the result explicitly reports that reload was skipped.
+
+Daemon state and actions use the shared `vinput-protocol` D-Bus constants and typed zbus calls. Status uses `GetStatus` and `GetRuntimeStatus`, save requests `ReloadAsrBackend`, and recording controls use `StartRecording`/`StopRecording`; the GUI does not parse CLI output or launch the CLI as a helper.
 
 `vinput-gui --check --offline` produces a redacted machine-readable snapshot without opening a window or requiring a session bus. Packaging uses this mode to verify the installed binary, typed config loading, page inventory, and secret-safe diagnostics. `--check` without `--offline` additionally probes the live daemon.
 
@@ -38,14 +40,16 @@ The initial spike has proven:
 4. Wayland/X11-capable compilation with software rendering;
 5. headless CI/package checking and Arch package integration.
 
+The first mutation slice additionally proves typed form state, dirty/reset handling, first-file creation, backup-preserving replacement, external-change conflict rejection, active-session save guards, daemon reload reporting, and direct recording actions.
+
 ## Remaining parity
 
 The next GUI slices are:
 
-1. typed editable forms for global/audio/VAD settings and atomic save/reload;
-2. provider, model, scene, LLM, adapter, and hotword lifecycle actions;
-3. recording controls plus daemon owner-change subscriptions and reconnect;
-4. download/install progress, cancellation, retry, and error presentation;
+1. provider, model, scene, LLM, adapter, and hotword lifecycle actions beyond active provider/scene selection;
+2. daemon owner-change subscriptions, reconnect, and operation-state reconciliation;
+3. download/install progress, cancellation, retry, and error presentation;
+4. command-mode recording and selected-text integration;
 5. zh_CN UI localization, accessibility review, keyboard navigation, clipboard, and desktop notification validation;
 6. real Wayland/X11 launch and interaction gates, startup/package-size measurements, and visual regression coverage for stable layouts.
 

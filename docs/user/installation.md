@@ -82,7 +82,7 @@ The packaged management GUI can be started from the desktop application menu as 
 vinput-gui
 ```
 
-The current GUI baseline displays daemon/config state and the configured ASR, scene, LLM, adapter, and hotword resources. Configuration mutations and resource lifecycle actions still use the `vinput` CLI in this release. A display-independent package self-check is available as `vinput-gui --check --offline`; it validates typed config loading without contacting D-Bus.
+The current GUI displays daemon/config state and the configured ASR, scene, LLM, adapter, and hotword resources. Its Control page can edit the default language, capture target, active ASR provider, active scene, output ducking, and VAD settings, then validate and atomically save the user config. Existing files receive an adjacent `.bak`; a file changed after the GUI loaded is not overwritten. Saving is refused while a reachable daemon is recording or reports an active session. The same page starts and stops normal recording through D-Bus. Provider/model installation, adapter lifecycle, and other resource mutations still use the `vinput` CLI in this release. A display-independent package self-check is available as `vinput-gui --check --offline`; it validates typed config loading without contacting D-Bus.
 
 ## 4. Install and select an ASR model
 
