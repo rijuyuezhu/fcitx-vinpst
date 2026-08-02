@@ -127,6 +127,8 @@ package() {
     "${pkgdir}/usr/share/fcitx-vinput/default-config.json"
   install -Dm644 data/vad/silero_vad.onnx \
     "${pkgdir}/usr/share/fcitx-vinput/vad/silero_vad.onnx"
+  install -Dm644 LICENSE \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 data/vad/LICENSE \
     "${pkgdir}/usr/share/licenses/${pkgname}/silero-vad-LICENSE"
   install -Dm644 "${srcdir}/sherpa-onnx-LICENSE-${_sherpa_onnx_ver}" \

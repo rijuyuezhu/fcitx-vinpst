@@ -75,14 +75,7 @@ cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  ${source_cache
 2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c  ${source_cache}/onnxruntime-LICENSE-1.24.4
 EOF
 
-tar \
-  --exclude=.git \
-  --exclude=target \
-  --exclude='__pycache__' \
-  --exclude='*.py[co]' \
-  --transform "s,^,${source_dir}/," \
-  -czf "${source_archive}" \
-  .
+scripts/release/create-source-archive.sh "${source_archive}" "${version}" >/dev/null
 source_sha256="$(sha256sum "${source_archive}" | awk '{print $1}')"
 
 render_spec() {
@@ -170,6 +163,7 @@ required_files=(
   usr/share/icons/hicolor/512x512/apps/vinput-gui.png
   usr/share/fcitx-vinput/default-config.json
   usr/share/fcitx-vinput/vad/silero_vad.onnx
+  usr/share/licenses/fcitx-vinput-rs/LICENSE
   usr/share/licenses/fcitx-vinput-rs/silero-vad-LICENSE
   usr/share/licenses/fcitx-vinput-rs/sherpa-onnx-LICENSE
   usr/share/licenses/fcitx-vinput-rs/onnxruntime-LICENSE

@@ -123,6 +123,8 @@ install -Dm644 data/default-config.json \
   "%{buildroot}%{_datadir}/fcitx-vinput/default-config.json"
 install -Dm644 data/vad/silero_vad.onnx \
   "%{buildroot}%{_datadir}/fcitx-vinput/vad/silero_vad.onnx"
+install -Dm644 LICENSE \
+  "%{buildroot}%{_licensedir}/%{name}/LICENSE"
 install -Dm644 data/vad/LICENSE \
   "%{buildroot}%{_licensedir}/%{name}/silero-vad-LICENSE"
 install -Dm644 "%{SOURCE2}" \

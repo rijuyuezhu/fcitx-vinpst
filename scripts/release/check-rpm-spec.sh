@@ -49,6 +49,9 @@ grep -Fq "/usr/lib/fcitx-vinput/package-upgrade-handoff" \
   "${check_root}/expanded.spec"
 grep -Fq "/usr/lib/fcitx-vinput/package-remove-handoff" \
   "${check_root}/expanded.spec"
+grep -Fq 'install -Dm644 LICENSE' "${check_root}/expanded.spec"
+grep -Fq '/usr/share/licenses/fcitx-vinput-rs/LICENSE' \
+  "${check_root}/expanded.spec"
 grep -Fq '%post -p /bin/bash' "${spec}"
 grep -Fq '%preun -p /bin/bash' "${spec}"
 grep -Fq '%postun -p /bin/bash' "${spec}"
