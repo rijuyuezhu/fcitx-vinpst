@@ -7,7 +7,9 @@
 #include <fcitx-utils/dbus/message.h>
 
 #include <tuple>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace vinput_fcitx_bridge {
 namespace {
@@ -18,6 +20,27 @@ constexpr std::string_view kDbusPath = "/org/freedesktop/DBus";
 constexpr std::string_view kDbusInterface = "org.freedesktop.DBus";
 constexpr std::string_view kNameOwnerChanged = "NameOwnerChanged";
 
+template <typename Rule = fcitx::dbus::MatchRule>
+Rule SignalMatchRule(std::string service, std::string path, std::string interface,
+                     std::string name,
+                     std::vector<std::string> argument_match = {}) {
+  if constexpr (std::is_constructible_v<
+                    Rule, fcitx::dbus::MessageType, std::string, std::string,
+                    std::string, std::string, std::string,
+                    std::vector<std::string>>) {
+    return Rule{fcitx::dbus::MessageType::Signal,
+                std::move(service),
+                {},
+                std::move(path),
+                std::move(interface),
+                std::move(name),
+                std::move(argument_match)};
+  } else {
+    return Rule{std::move(service), std::move(path), std::move(interface),
+                std::move(name), std::move(argument_match)};
+  }
+}
+
 std::unique_ptr<fcitx::dbus::Slot>
 AddStringSignalMatch(fcitx::dbus::Bus *bus, std::string_view signal,
                      const std::function<bool(const fcitx::dbus::Message &)> &accept,
@@ -25,12 +48,9 @@ AddStringSignalMatch(fcitx::dbus::Bus *bus, std::string_view signal,
   if (!callback) {
     return nullptr;
   }
-  const fcitx::dbus::MatchRule rule{fcitx::dbus::MessageType::Signal,
-                                    {},
-                                    {},
-                                    std::string(dbus::kServiceObjectPath),
+  const auto rule = SignalMatchRule({}, std::string(dbus::kServiceObjectPath),
                                     std::string(dbus::kServiceInterface),
-                                    std::string(signal)};
+                                    std::string(signal));
   return bus->addMatch(rule, [accept, callback](fcitx::dbus::Message &message) {
     if (!accept(message)) {
       return true;
@@ -99,13 +119,10 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
     return;
   }
 
-  const fcitx::dbus::MatchRule owner_change_rule{fcitx::dbus::MessageType::Signal,
-                                                 std::string(kDbusService),
-                                                 {},
-                                                 std::string(kDbusPath),
-                                                 std::string(kDbusInterface),
-                                                 std::string(kNameOwnerChanged),
-                                                 {std::string(dbus::kServiceBusName)}};
+  const auto owner_change_rule = SignalMatchRule(
+      std::string(kDbusService), std::string(kDbusPath),
+      std::string(kDbusInterface), std::string(kNameOwnerChanged),
+      {std::string(dbus::kServiceBusName)});
   owner_change_slot_ =
       bus->addMatch(owner_change_rule, [this](fcitx::dbus::Message &message) {
         std::tuple<std::string, std::string, std::string> owners;
@@ -125,13 +142,10 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
   if (!callbacks_.notification) {
     return;
   }
-  const fcitx::dbus::MatchRule notification_rule{
-      fcitx::dbus::MessageType::Signal,
-      {},
-      {},
-      std::string(dbus::kServiceObjectPath),
+  const auto notification_rule = SignalMatchRule(
+      {}, std::string(dbus::kServiceObjectPath),
       std::string(dbus::kServiceInterface),
-      std::string(dbus::kSignalDaemonNotification)};
+      std::string(dbus::kSignalDaemonNotification));
   notification_slot_ =
       bus->addMatch(notification_rule, [this](fcitx::dbus::Message &message) {
         if (!AcceptSignal(message)) {

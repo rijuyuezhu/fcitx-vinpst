@@ -162,14 +162,18 @@ std::string EffectiveAsrLabel(const AsrDisplayMenuStateSnapshot &state) {
     label = FrontendText("unavailable");
   }
   if (state.reload_in_progress && !state.target_provider_id.empty()) {
-    label += " | " + FrontendText("Loading: ") + state.target_provider_id;
+    label += " | ";
+    label += FrontendText("Loading: ");
+    label += state.target_provider_id;
     if (!state.target_model_id.empty()) {
-      label += "/" + AsrDisplayTitleFor(state.target_provider_id, state.target_model_id,
-                                        state);
+      label += "/";
+      label += AsrDisplayTitleFor(state.target_provider_id, state.target_model_id, state);
     }
   }
   if (!state.last_error.empty()) {
-    label += " | " + FrontendText("Error: ") + state.last_error;
+    label += " | ";
+    label += FrontendText("Error: ");
+    label += state.last_error;
   }
   return label;
 }
