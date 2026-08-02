@@ -36,10 +36,11 @@ addon-build:
 addon-fcitx-build:
     VINPUT_ADDON_REQUIRE_FCITX=1 VINPUT_ADDON_BUILD_DIR=target/cpp/fcitx5-addon-fcitx scripts/tests/addon-build.sh
 
-# Validate lightweight Arch/release metadata and trust boundaries.
+# Validate lightweight Arch/RPM/release metadata and trust boundaries.
 package-check:
     scripts/release/check-arch-install-script.sh
     scripts/release/check-arch-pkgbuild.sh
+    scripts/release/check-rpm-spec.sh
     scripts/release/check-release-manifest.sh
     scripts/release/check-release-signature.sh
     scripts/release/check-arch-release-candidate.sh
@@ -47,6 +48,10 @@ package-check:
 # Build and validate the complete Arch package/repository/release pipeline.
 package-smoke:
     scripts/release/run-arch-package-smoke.sh
+
+# Build and validate the RPM package plus isolated install/upgrade/removal transactions.
+rpm-package-smoke:
+    scripts/release/run-rpm-package-smoke.sh
 
 # Install the local per-user IME profile.
 install-user:

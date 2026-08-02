@@ -7,6 +7,7 @@ Lightweight checks, also exposed through `just package-check`:
 ```sh
 scripts/release/check-arch-install-script.sh
 scripts/release/check-arch-pkgbuild.sh
+scripts/release/check-rpm-spec.sh
 scripts/release/check-release-manifest.sh
 scripts/release/check-release-signature.sh
 scripts/release/check-arch-release-candidate.sh
@@ -16,6 +17,7 @@ The complete release gate is:
 
 ```sh
 scripts/release/run-arch-package-smoke.sh
+scripts/release/run-rpm-package-smoke.sh
 ```
 
 It builds the checked runtime bundle, package and synthetic upgrade archive,

@@ -17,6 +17,7 @@ scripts/tests/niri-live-argument-smoke.sh
 
 scripts/release/check-arch-install-script.sh
 scripts/release/check-arch-pkgbuild.sh
+scripts/release/check-rpm-spec.sh
 scripts/release/check-release-manifest.sh
 scripts/release/check-release-signature.sh
 scripts/release/check-arch-release-candidate.sh
