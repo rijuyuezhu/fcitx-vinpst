@@ -3,7 +3,10 @@
 
 import argparse
 import re
+import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True
 
 from runtime_bundles import load_runtime_bundle
 
