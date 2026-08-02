@@ -3,6 +3,7 @@
 use std::{
     env,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use iced::{
@@ -17,6 +18,11 @@ use vinput_config::{
     write_config_file,
 };
 use vinput_protocol::dbus;
+use vinput_registry::{
+    InstalledModelInfo, LiveModelInstallRequest, LiveModelRegistry, ManagedModelRemoveRequest,
+    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model,
+    managed_model_dir_name, remove_managed_model, scan_installed_models,
+};
 
 /// Product display name.
 pub const APPLICATION_TITLE: &str = "Vinput Configuration";
@@ -146,6 +152,8 @@ pub struct App {
     draft: Option<ConfigDraft>,
     daemon: DaemonLoadState,
     operation: OperationState,
+    model_selector: String,
+    installed_models: Result<Vec<InstalledModelInfo>, String>,
 }
 
 /// GUI messages.
@@ -189,6 +197,16 @@ pub enum Message {
     StopRecording,
     /// Result of an asynchronous recording action.
     RecordingActionFinished(Result<String, String>),
+    /// Update the live registry model id or short id to install.
+    ModelSelectorChanged(String),
+    /// Install or update the selected live registry model.
+    InstallModel,
+    /// Result of a live registry model installation.
+    ModelInstalled(Result<String, String>),
+    /// Remove one inactive installed model directory.
+    RemoveInstalledModel(PathBuf),
+    /// Result of an installed model removal.
+    ModelRemoved(Result<String, String>),
 }
 
 impl App {
@@ -207,6 +225,8 @@ impl App {
                 draft,
                 daemon: DaemonLoadState::Loading,
                 operation: OperationState::Idle,
+                model_selector: String::new(),
+                installed_models: load_installed_models(),
             },
             daemon_refresh_task(),
         )
@@ -258,6 +278,12 @@ impl App {
             Message::StartRecording => return self.begin_recording(true),
             Message::StopRecording => return self.begin_recording(false),
             Message::RecordingActionFinished(result) => return self.finish_recording(result),
+            Message::ModelSelectorChanged(value) => self.model_selector = value,
+            Message::InstallModel => return self.begin_model_install(),
+            Message::RemoveInstalledModel(path) => return self.begin_model_remove(path),
+            Message::ModelInstalled(result) | Message::ModelRemoved(result) => {
+                return self.finish_model_operation(result);
+            }
         }
         Task::none()
     }
@@ -275,6 +301,7 @@ impl App {
             .ok()
             .map(|document| document.path.clone());
         self.replace_config(load_config_document(path.as_deref()));
+        self.installed_models = load_installed_models();
         self.operation = OperationState::Idle;
     }
 
@@ -339,6 +366,48 @@ impl App {
     }
 
     fn finish_recording(&mut self, result: Result<String, String>) -> Task<Message> {
+        self.operation = match result {
+            Ok(summary) => OperationState::Succeeded(summary),
+            Err(error) => OperationState::Failed(error),
+        };
+        daemon_refresh_task()
+    }
+
+    fn begin_model_install(&mut self) -> Task<Message> {
+        let selector = self.model_selector.trim().to_owned();
+        if selector.is_empty() {
+            self.operation = OperationState::Failed(
+                "Enter a registry model id or short id before installing.".to_owned(),
+            );
+            return Task::none();
+        }
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        self.operation = OperationState::Running("Installing model…");
+        let config = document.config.clone();
+        Task::perform(
+            async move { install_registry_model(&config, &selector) },
+            Message::ModelInstalled,
+        )
+    }
+
+    fn begin_model_remove(&mut self, target_path: PathBuf) -> Task<Message> {
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        self.operation = OperationState::Running("Removing model…");
+        let config = document.config.clone();
+        Task::perform(
+            async move { remove_installed_model(&config, &target_path) },
+            Message::ModelRemoved,
+        )
+    }
+
+    fn finish_model_operation(&mut self, result: Result<String, String>) -> Task<Message> {
+        self.installed_models = load_installed_models();
         self.operation = match result {
             Ok(summary) => OperationState::Succeeded(summary),
             Err(error) => OperationState::Failed(error),
@@ -589,12 +658,67 @@ impl App {
     }
 
     fn resources_page(&self) -> Element<'_, Message> {
+        let busy = matches!(self.operation, OperationState::Running(_));
         let mut body = column![
             text("Resources").size(30),
             text_input("Filter providers and scenes", &self.filter)
                 .on_input(Message::FilterChanged),
+            text("Managed ASR models").size(22),
+            row![
+                text_input("Registry model id or short id", &self.model_selector)
+                    .on_input(Message::ModelSelectorChanged)
+                    .width(Length::Fill),
+                button("Install or update").on_press_maybe(
+                    (!busy && !self.model_selector.trim().is_empty())
+                        .then_some(Message::InstallModel),
+                ),
+            ]
+            .spacing(10),
         ]
         .spacing(12);
+
+        if let Some(notice) = self.operation_notice() {
+            body = body.push(notice);
+        }
+
+        match &self.installed_models {
+            Ok(models) if models.is_empty() => {
+                body = body.push(text("No managed ASR models installed."));
+            }
+            Ok(models) => {
+                for model in models {
+                    let active = self
+                        .config
+                        .as_ref()
+                        .is_ok_and(|document| model_is_active(&document.config, &model.model_dir));
+                    let title = model
+                        .display_title(&[])
+                        .unwrap_or_else(|| model.stable_model_id());
+                    let directory = model
+                        .model_dir
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("managed-model");
+                    let marker = if active { "active" } else { "inactive" };
+                    body = body.push(
+                        row![
+                            text(format!(
+                                "{title} · {directory} · {} files · {marker}",
+                                model.file_count
+                            ))
+                            .width(Length::Fill),
+                            button("Remove").on_press_maybe((!busy && !active).then_some(
+                                Message::RemoveInstalledModel(model.model_dir.clone(),)
+                            ),),
+                        ]
+                        .spacing(10),
+                    );
+                }
+            }
+            Err(error) => {
+                body = body.push(text(format!("Installed model scan failed: {error}")));
+            }
+        }
 
         match &self.config {
             Ok(document) => {
@@ -681,6 +805,139 @@ pub fn default_config_path() -> Result<PathBuf, String> {
         }
     };
     Ok(config_home.join("fcitx-vinput").join("config.json"))
+}
+
+/// Returns the managed ASR model root used by CLI and GUI workflows.
+pub fn default_model_root() -> Result<PathBuf, String> {
+    Ok(user_data_home()?.join("fcitx-vinput").join("models"))
+}
+
+fn default_model_staging_root() -> Result<PathBuf, String> {
+    Ok(user_cache_home()?
+        .join("fcitx-vinput")
+        .join("model-install"))
+}
+
+fn user_data_home() -> Result<PathBuf, String> {
+    match env::var_os("XDG_DATA_HOME") {
+        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
+        _ => Ok(user_home()?.join(".local/share")),
+    }
+}
+
+fn user_cache_home() -> Result<PathBuf, String> {
+    match env::var_os("XDG_CACHE_HOME") {
+        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
+        _ => Ok(user_home()?.join(".cache")),
+    }
+}
+
+fn user_home() -> Result<PathBuf, String> {
+    env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| "HOME is required to locate managed model storage".to_owned())
+}
+
+fn load_installed_models() -> Result<Vec<InstalledModelInfo>, String> {
+    let root = default_model_root()?;
+    scan_installed_models(&root).map_err(|error| error.to_string())
+}
+
+fn install_registry_model(config: &VinputConfig, selector: &str) -> Result<String, String> {
+    let registry = fetch_live_model_registry(config)?;
+    let model = registry
+        .model_by_id_or_short_id(selector)
+        .ok_or_else(|| format!("Unknown registry model id or short id `{selector}`."))?;
+    let model_name = managed_model_dir_name(model);
+    let model_dir = default_model_root()?.join(&model_name);
+    let staging_dir = default_model_staging_root()?.join(&model_name);
+    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(300));
+    let installed = install_live_model(
+        &source,
+        &LiveModelInstallRequest {
+            model,
+            model_dir,
+            staging_dir,
+            display: Some(model.installed_display_metadata(&config.global.default_language, None)),
+        },
+    )
+    .map_err(|error| format!("Model installation failed: {error}"))?;
+    let checksum = if installed.checksum_verified() {
+        "checksum verified"
+    } else {
+        "registry provided no checksum"
+    };
+    Ok(format!(
+        "Installed {} into managed model `{model_name}` ({checksum}).",
+        model.resolved_title(None)
+    ))
+}
+
+fn fetch_live_model_registry(config: &VinputConfig) -> Result<LiveModelRegistry, String> {
+    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    fetch_live_model_registry_from(config, &source)
+}
+
+fn fetch_live_model_registry_from(
+    config: &VinputConfig,
+    source: &impl RegistryTextSource,
+) -> Result<LiveModelRegistry, String> {
+    let urls = config
+        .registry
+        .base_urls
+        .iter()
+        .map(|base| format!("{}/registry/models.json", base.trim_end_matches('/')))
+        .collect::<Vec<_>>();
+    if urls.is_empty() {
+        return Err("No registry mirrors are configured.".to_owned());
+    }
+    let mut failure_count = 0;
+    for url in &urls {
+        match source.fetch_registry_text(url) {
+            Ok(text) => {
+                return LiveModelRegistry::from_json_str(&text)
+                    .map_err(|error| format!("Registry model catalog is invalid: {error}"));
+            }
+            Err(_) => failure_count += 1,
+        }
+    }
+    Err(format!(
+        "All {failure_count} configured registry mirrors failed."
+    ))
+}
+
+fn remove_installed_model(config: &VinputConfig, target_path: &Path) -> Result<String, String> {
+    let model_root = default_model_root()?;
+    let active_model_paths = config
+        .asr
+        .providers
+        .iter()
+        .filter(|provider| provider.kind == AsrProviderKind::Local)
+        .filter_map(|provider| provider.model.as_deref())
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    remove_managed_model(&ManagedModelRemoveRequest {
+        model_root: &model_root,
+        target_path,
+        active_model_paths: &active_model_paths,
+    })
+    .map_err(|error| error.to_string())?;
+    let directory = target_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("managed model");
+    Ok(format!("Removed inactive managed model `{directory}`."))
+}
+
+fn model_is_active(config: &VinputConfig, model_dir: &Path) -> bool {
+    config.asr.providers.iter().any(|provider| {
+        provider.kind == AsrProviderKind::Local
+            && provider
+                .model
+                .as_deref()
+                .is_some_and(|model| Path::new(model) == model_dir)
+    })
 }
 
 /// Loads and validates a config document, falling back to the bundled default if absent.
@@ -947,6 +1204,20 @@ mod tests {
 
     use super::*;
 
+    #[derive(Default)]
+    struct StubRegistryTextSource {
+        responses: HashMap<String, Result<String, String>>,
+    }
+
+    impl RegistryTextSource for StubRegistryTextSource {
+        fn fetch_registry_text(&self, url: &str) -> Result<String, String> {
+            self.responses
+                .get(url)
+                .cloned()
+                .unwrap_or_else(|| Err("missing fixture".to_owned()))
+        }
+    }
+
     #[test]
     fn bundled_snapshot_is_redacted_and_has_legacy_pages() {
         let snapshot = headless_snapshot(Some(Path::new("/missing/config.json")), false)
@@ -973,6 +1244,60 @@ mod tests {
                 .iter()
                 .any(|row| row.contains("__raw__"))
         );
+    }
+
+    #[test]
+    fn registry_model_fetch_uses_mirror_fallback_without_leaking_urls() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        let first = "https://user:super-secret@first.invalid".to_owned();
+        let second = "https://second.invalid".to_owned();
+        config.registry.base_urls = vec![first.clone(), second.clone()];
+        let model_json = json!({
+            "version": 1,
+            "items": [{
+                "id": "model.test.fixture",
+                "short_id": "fixture",
+                "urls": ["https://assets.invalid/fixture.tar.zst"]
+            }]
+        })
+        .to_string();
+        let source = StubRegistryTextSource {
+            responses: HashMap::from([
+                (
+                    format!("{first}/registry/models.json"),
+                    Err("connection failed".to_owned()),
+                ),
+                (format!("{second}/registry/models.json"), Ok(model_json)),
+            ]),
+        };
+
+        let registry = fetch_live_model_registry_from(&config, &source).expect("mirror fallback");
+        assert!(registry.model_by_id_or_short_id("fixture").is_some());
+
+        let failed = StubRegistryTextSource::default();
+        let error =
+            fetch_live_model_registry_from(&config, &failed).expect_err("all mirrors should fail");
+        assert_eq!(error, "All 2 configured registry mirrors failed.");
+        assert!(!error.contains("super-secret"));
+        assert!(!error.contains("first.invalid"));
+    }
+
+    #[test]
+    fn active_model_detection_matches_only_local_provider_paths() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        let model_dir = PathBuf::from("/managed/models/active");
+        let provider = config
+            .asr
+            .providers
+            .iter_mut()
+            .find(|provider| provider.kind == AsrProviderKind::Local)
+            .expect("local provider");
+        provider.model = Some(model_dir.to_string_lossy().into_owned());
+        assert!(model_is_active(&config, &model_dir));
+        assert!(!model_is_active(
+            &config,
+            Path::new("/managed/models/inactive")
+        ));
     }
 
     #[test]

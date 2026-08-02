@@ -4283,6 +4283,7 @@ dependencies = [
  "tempfile",
  "vinput-config",
  "vinput-protocol",
+ "vinput-registry",
  "zbus",
 ]
 
