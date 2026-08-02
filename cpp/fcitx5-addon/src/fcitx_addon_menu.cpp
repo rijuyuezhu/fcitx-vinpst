@@ -167,7 +167,8 @@ std::string EffectiveAsrLabel(const AsrDisplayMenuStateSnapshot &state) {
     label += state.target_provider_id;
     if (!state.target_model_id.empty()) {
       label += "/";
-      label += AsrDisplayTitleFor(state.target_provider_id, state.target_model_id, state);
+      label +=
+          AsrDisplayTitleFor(state.target_provider_id, state.target_model_id, state);
     }
   }
   if (!state.last_error.empty()) {
