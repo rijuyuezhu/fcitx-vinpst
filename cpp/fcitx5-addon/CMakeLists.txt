@@ -498,11 +498,8 @@ if(Fcitx5Core_FOUND)
     )
   endif()
   if(VINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE)
-    vinput_bridge_install_dir(
-      VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
-      "${VINPUT_SYSTEMD_USER_UNIT_DIR}"
-      "${CMAKE_INSTALL_LIBDIR}/systemd/user"
-    )
+    set(VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR
+        "${VINPUT_SYSTEMD_USER_UNIT_DIR}")
     install(
       FILES "${CMAKE_CURRENT_BINARY_DIR}/vinput-daemon.service"
       DESTINATION "${VINPUT_SYSTEMD_USER_UNIT_INSTALL_DIR}"
