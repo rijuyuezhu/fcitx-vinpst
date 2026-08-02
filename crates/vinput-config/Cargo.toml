@@ -19,3 +19,4 @@ vinput-protocol = { path = "../vinput-protocol" }
 
 [dev-dependencies]
 insta.workspace = true
+tempfile.workspace = true

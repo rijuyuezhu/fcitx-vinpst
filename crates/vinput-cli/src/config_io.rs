@@ -4,26 +4,19 @@ use std::{
 };
 
 use anyhow::Context;
-use vinput_config::VinputConfig;
+use vinput_config::{
+    VinputConfig, config_backup_path as shared_config_backup_path, write_config_file,
+};
 
 use crate::{ConfigExample, config_example_contents, paths::default_config_path};
 
 pub(crate) fn config_backup_path(config_path: &Path) -> PathBuf {
-    let mut backup = config_path.as_os_str().to_os_string();
-    backup.push(".bak");
-    PathBuf::from(backup)
+    shared_config_backup_path(config_path)
 }
 
 pub(crate) fn write_config_output(config: &VinputConfig, output_path: &Path) -> anyhow::Result<()> {
-    if let Some(parent) = output_path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create config output directory `{}`", parent.display()))?;
-    }
-    let contents = serde_json::to_string_pretty(config).context("serialize updated config")?;
-    write_file_atomically(output_path, &format!("{contents}\n"))
+    write_config_file(config, output_path, None)
+        .map(|_| ())
         .with_context(|| format!("write updated config `{}`", output_path.display()))
 }
 
@@ -32,14 +25,9 @@ pub(crate) fn write_config_in_place(
     config_path: &Path,
     backup_path: &Path,
 ) -> anyhow::Result<()> {
-    fs::copy(config_path, backup_path).with_context(|| {
-        format!(
-            "backup config `{}` to `{}`",
-            config_path.display(),
-            backup_path.display()
-        )
-    })?;
-    write_config_output(config, config_path)
+    write_config_file(config, config_path, Some(backup_path))
+        .map(|_| ())
+        .with_context(|| format!("write updated config `{}`", config_path.display()))
 }
 
 pub(crate) fn write_file_atomically(path: &Path, contents: &str) -> anyhow::Result<()> {
