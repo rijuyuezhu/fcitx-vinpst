@@ -15,7 +15,7 @@ This directory contains tracked architecture and compatibility contracts for the
    - [`text-contract.md`](text-contract.md): text post-processing, prompt/context cache, command adapters, and OpenAI-compatible seams.
    - [`remote-text-contract.md`](remote-text-contract.md): remote input settings, authentication, protocol state, HTTP/WebSocket runtime, daemon-owned lifecycle, and remaining endpoint/live-validation boundary.
    - [`packaging-contract.md`](packaging-contract.md): Arch package identity, runtime contents, private native-library policy, activation, and release validation.
-   - [`gui-contract.md`](gui-contract.md): future Rust GUI boundary, provisional toolkit choice, and spike acceptance criteria.
+   - [`gui-contract.md`](gui-contract.md): implemented Rust/Iced management baseline, packaging contract, and remaining parity criteria.
 3. [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), for current parity baseline.
 4. [`../migration/e2e-capability-matrix.md`](../migration/e2e-capability-matrix.md), for detailed native runtime/frontend/user-flow parity gaps.
 5. [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md), for active migration direction.

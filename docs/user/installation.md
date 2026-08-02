@@ -49,9 +49,9 @@ Finish any active recording before installation, upgrade, or removal. Pacman may
 
 The package installs:
 
-- `vinput` and `vinput-daemon`;
+- `vinput`, `vinput-daemon`, and the Rust `vinput-gui` management application;
 - the retained Fcitx5 addon and metadata;
-- D-Bus activation metadata and a systemd user service;
+- D-Bus activation metadata, a systemd user service, and the GUI desktop entry/icons;
 - English fallback and zh_CN translations;
 - the checked native sherpa-onnx and ONNX Runtime libraries under `/usr/lib/fcitx-vinput`;
 - the packaged reference configuration and VAD asset.
@@ -75,6 +75,14 @@ vinput config validate "$config" --summary-only
 ```
 
 `vinput init` is idempotent and does not overwrite an existing config unless `--force` is passed. Do not use `--force` during ordinary upgrades.
+
+The packaged management GUI can be started from the desktop application menu as **Vinput Configuration** or from a terminal:
+
+```sh
+vinput-gui
+```
+
+The current GUI baseline displays daemon/config state and the configured ASR, scene, LLM, adapter, and hotword resources. Configuration mutations and resource lifecycle actions still use the `vinput` CLI in this release. A display-independent package self-check is available as `vinput-gui --check --offline`; it validates typed config loading without contacting D-Bus.
 
 ## 4. Install and select an ASR model
 

@@ -1,51 +1,59 @@
 # Rust GUI contract
 
-This document defines the boundary for a future standalone management GUI. The GUI is deferred; this contract prevents a second C++ application from becoming part of the rewrite.
+`vinput-gui` is the standalone Rust management application. It replaces the legacy Qt/C++ management application without expanding the retained C++ boundary beyond the thin Fcitx addon.
 
-## Direction
+## Implemented baseline
 
-- Implement the GUI in Rust as a future `vinput-gui` crate.
-- Do not port or retain the legacy Qt/C++ GUI as a product component.
+The first Iced 0.14 implementation is part of the workspace and provides four legacy-aligned top-level pages:
+
+- **Control** shows daemon status plus the validated active scene/provider, capture target, language, VAD, and output-ducking settings.
+- **Resources** lists and filters typed ASR providers and scenes.
+- **LLM** lists providers with redacted endpoints and lists command adapters without exposing API keys.
+- **Hotwords** lists provider hotword files.
+
+The application reads `VinputConfig` directly, validates an explicit or discovered user config, and falls back to the bundled default only when the user file is absent. Daemon state is queried through the shared `vinput-protocol` D-Bus constants and typed zbus calls to `GetStatus` and `GetRuntimeStatus`; the GUI does not parse CLI output.
+
+`vinput-gui --check --offline` produces a redacted machine-readable snapshot without opening a window or requiring a session bus. Packaging uses this mode to verify the installed binary, typed config loading, page inventory, and secret-safe diagnostics. `--check` without `--offline` additionally probes the live daemon.
+
+The Arch package installs the GUI binary, desktop entry, and hicolor icons. This is a runnable product baseline, but it is not yet full legacy GUI parity.
+
+## Boundary rules
+
+- Keep GUI code in Rust. Do not port or retain the legacy Qt/C++ GUI as a product component.
 - Keep the existing C++ code limited to the thin Fcitx addon boundary.
 - Reuse typed config, registry, protocol, and diagnostic APIs. Runtime operations must use D-Bus or shared Rust libraries, not parsed CLI text.
-- Keep GUI introduction behind a separate milestone after the CLI/daemon, desktop, and release paths are stable.
+- Never display API keys, authorization headers, raw prompts, or unredacted provider credentials.
+- Config mutations must use the same validation, atomic-write, backup, and active-session guards as the CLI/daemon paths.
+- Long-running resource operations must expose progress, cancellation, and a final typed result; closing the window must not orphan helper processes.
 
 ## Toolkit choice
 
-Use `iced` for the first implementation spike and as the default toolkit unless the spike finds a blocking Linux desktop issue. Use the current stable iced release when GUI work begins instead of pinning the design to an older release solely to preserve the current toolchain.
+Iced 0.14 is the current implementation toolkit. The application uses its typed state/message/update/view model, asynchronous tasks, native Wayland/X11 backends, and software renderer. `gtk4-rs` remains the fallback only if live desktop validation finds a blocking accessibility, input-method, or platform-integration defect that cannot be solved in Iced.
 
-Reasons:
+The initial spike has proven:
 
-- it is a Rust GUI framework with a typed state/message/update/view model that fits daemon and D-Bus events;
-- it supports Linux, Wayland/X11, asynchronous tasks, native windows, and software or GPU renderers;
-- it avoids adding a second C++ application boundary;
-- the project may raise `rust-version` when required by iced or its ecosystem, provided the new version is stable, documented, and used by CI and packaging.
+1. typed D-Bus status queries and explicit refresh;
+2. typed validated config loading and redacted display;
+3. long-list filtering for providers and scenes;
+4. Wayland/X11-capable compilation with software rendering;
+5. headless CI/package checking and Arch package integration.
 
-The choice remains provisional because iced describes itself as experimental. Before adding `vinput-gui` to the workspace, build a small spike that proves:
+## Remaining parity
 
-1. D-Bus status subscriptions and reconnect after daemon owner changes;
-2. editable model/provider/scene/device forms backed by typed values;
-3. long lists, filtering, progress, cancellation, and error presentation;
-4. zh_CN input, rendering, accessibility, clipboard, and desktop notifications under Wayland;
-5. package size, startup time, software-renderer fallback, and Arch packaging.
+The next GUI slices are:
 
-## Alternatives
+1. typed editable forms for global/audio/VAD settings and atomic save/reload;
+2. provider, model, scene, LLM, adapter, and hotword lifecycle actions;
+3. recording controls plus daemon owner-change subscriptions and reconnect;
+4. download/install progress, cancellation, retry, and error presentation;
+5. zh_CN UI localization, accessibility review, keyboard navigation, clipboard, and desktop notification validation;
+6. real Wayland/X11 launch and interaction gates, startup/package-size measurements, and visual regression coverage for stable layouts.
 
-- `gtk4-rs` is the fallback when native Linux integration, accessibility, or input-method behavior is materially better. GUI code would still be Rust, but the application would depend on the GTK C runtime and platform development packages.
-- Slint is not the initial choice because it introduces a separate UI language and licensing decision.
-- egui/eframe is not the initial choice because its immediate-mode model is a weaker fit for a conventional settings and resource-management application.
+Until those slices are complete, documentation must call the GUI a management baseline rather than a full replacement.
 
 ## Testing rules
 
-- Test state transitions, typed request construction, D-Bus behavior, and rendered user outcomes.
+- Test state transitions, typed request construction, D-Bus behavior, redaction, config validation, and rendered user outcomes.
+- Keep a display-independent check that packaging can run without D-Bus.
 - Do not add tests that assert source declarations, widget implementation names, exact documentation wording, docstrings, or toolkit-generated source text.
-- Keep screenshot tests limited to stable, user-visible layout regressions; do not use them as substitutes for interaction tests.
-
-## Research baseline
-
-Reviewed 2026-07-31 against the official project documentation. The current stable iced release is 0.14.0; re-check the stable release and its Rust requirement when the GUI spike begins.
-
-- iced book and release metadata: <https://book.iced.rs/> and <https://docs.rs/iced/latest/iced/>
-- gtk4-rs documentation: <https://gtk-rs.org/gtk4-rs/stable/latest/docs/gtk4/>
-- Slint documentation and release metadata: <https://docs.slint.dev/latest/docs/slint/> and <https://docs.rs/slint/1.17.1/slint/>
-- egui/eframe documentation: <https://docs.rs/egui/latest/egui/> and <https://docs.rs/eframe/latest/eframe/>
+- Keep screenshot tests limited to stable user-visible layout regressions; do not use them as substitutes for interaction tests.
