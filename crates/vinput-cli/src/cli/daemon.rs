@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Subcommand;
 
 /// Daemon-related commands backed by the D-Bus service contract.
@@ -51,6 +53,22 @@ pub(crate) enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Install or refresh the per-user daemon service, rewriting it for Flatpak when detected.
+    InstallService {
+        /// Read an explicit service template instead of the packaged default.
+        #[arg(long)]
+        template: Option<PathBuf>,
+        /// Write an explicit user-service path instead of the XDG default.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Print the rendered service without writing or reloading systemd.
+        #[arg(long)]
+        dry_run: bool,
+        /// Print machine-readable JSON instead of text output.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Stop the user daemon service.
     Stop {
         /// Print the stop plan without mutating user services.

@@ -2,7 +2,7 @@ use crate::{
     AsrBackendFactory, AsrTimeoutProbe, ConfigExample, Context, Path, PathBuf, ServiceStatus,
     SherpaOnnxVadProbe, VinputConfig, audio_devices_json, config_example_contents,
     config_summary_json, daemon_owner_probe_plan_json, dbus, default_cache_root,
-    default_config_path, default_model_root, fs, load_config_file, quote_exec_arg,
+    default_config_path, default_model_root, fs, load_config_file, quote_exec_arg, sandbox,
     user_activation_service_path, user_data_home, user_home, write_file_atomically,
 };
 
@@ -292,6 +292,7 @@ pub(crate) fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> 
             "next_steps": activation_service_status_next_steps(),
         }),
     };
+    let sandbox_report = sandbox::permission_report_json();
     let summary = serde_json::json!({
         "ok": true,
         "config_path": config_path.map(|path| path.to_string_lossy().into_owned()),
@@ -301,6 +302,7 @@ pub(crate) fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> 
         "asr_timeout": timeout,
         "audio": audio,
         "activation_service": activation_service,
+        "sandbox": sandbox_report,
         "fcitx_addon": user_fcitx_addon_json(),
         "daemon_owner_probe": daemon_owner_probe_plan_json(),
         "next_steps": doctor_next_steps(&config, &vad, &timeout),

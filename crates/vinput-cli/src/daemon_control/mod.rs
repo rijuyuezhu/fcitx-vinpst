@@ -1,5 +1,6 @@
 mod asr;
 mod handoff;
+mod install_service;
 mod removal;
 mod service;
 mod status;
@@ -8,6 +9,7 @@ mod tests;
 
 use asr::print_daemon_reload_asr_plan;
 use handoff::print_daemon_handoff;
+use install_service::print_daemon_install_service;
 use removal::print_daemon_prepare_remove;
 use service::{print_daemon_start, print_daemon_user_service_plan};
 use status::print_daemon_status;
@@ -37,6 +39,12 @@ pub(crate) fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<(
             json,
         } => print_daemon_prepare_remove(*dry_run, *preflight, *json),
         DaemonCommand::ReloadAsr { dry_run, json } => print_daemon_reload_asr_plan(*dry_run, *json),
+        DaemonCommand::InstallService {
+            template,
+            output,
+            dry_run,
+            json,
+        } => print_daemon_install_service(template.as_deref(), output.as_deref(), *dry_run, *json),
         DaemonCommand::Stop { dry_run, json } => {
             print_daemon_user_service_plan("stop", None, *dry_run, *json)
         }

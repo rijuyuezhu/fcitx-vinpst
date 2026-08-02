@@ -276,6 +276,7 @@ pub(crate) fn force_json_output(command: &mut Command) {
             | DaemonCommand::Handoff { json, .. }
             | DaemonCommand::PrepareRemove { json, .. }
             | DaemonCommand::ReloadAsr { json, .. }
+            | DaemonCommand::InstallService { json, .. }
             | DaemonCommand::Stop { json, .. }
             | DaemonCommand::Restart { json, .. }
             | DaemonCommand::Log { json, .. } => *json = true,

@@ -560,6 +560,104 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
 }
 
 #[test]
+fn doctor_reports_missing_flatpak_permissions() {
+    let flatpak_info = NamedTempFile::new().expect("create partial flatpak info");
+    fs::write(
+        flatpak_info.path(),
+        "[Context]\nsockets=wayland;\nfilesystems=xdg-cache;\n",
+    )
+    .expect("write partial flatpak info");
+    let output = vinput_command()
+        .env("VINPUT_FLATPAK_INFO_PATH", flatpak_info.path())
+        .args(["doctor"])
+        .output()
+        .expect("run sandboxed vinput doctor");
+
+    let value = assert_json_success(output, "sandboxed doctor");
+    assert_eq!(value["sandbox"]["detected"], true);
+    assert_eq!(
+        value["sandbox"]["missing_permissions"],
+        serde_json::json!(["socket:pipewire", "filesystem:xdg-config/systemd"])
+    );
+}
+
+#[test]
+fn daemon_install_service_flatpak_dry_run_rewrites_template() {
+    let flatpak_info = flatpak_info_fixture();
+    let root = tempfile::tempdir().expect("create install-service temp dir");
+    let template = root.path().join("vinput-daemon.service");
+    let output_path = root.path().join("user/vinput-daemon.service");
+    fs::write(
+        &template,
+        "[Service]\nExecStart=/usr/bin/vinput-daemon --dbus --configured-backends\n",
+    )
+    .expect("write service template");
+    let output = vinput_command()
+        .env("VINPUT_FLATPAK_INFO_PATH", flatpak_info.path())
+        .args([
+            "daemon",
+            "install-service",
+            "--template",
+            template.to_str().unwrap(),
+            "--output",
+            output_path.to_str().unwrap(),
+            "--dry-run",
+            "--json",
+        ])
+        .output()
+        .expect("run sandboxed install-service dry-run");
+
+    let value = assert_json_success(output, "sandboxed install-service dry-run");
+    assert_eq!(value["rewritten_for_flatpak"], true);
+    assert_eq!(value["wrote_service"], false);
+    assert!(!output_path.exists());
+    let rendered = value["rendered_service"].as_str().unwrap();
+    assert!(rendered.contains(
+        "ExecStart=flatpak run --command=/app/addons/Vinput/bin/vinput-daemon org.fcitx.Fcitx5 --dbus --configured-backends"
+    ));
+    assert!(rendered.contains("ExecStop=pkill -INT vinput-daemon"));
+}
+
+#[test]
+fn daemon_install_service_writes_and_reloads_user_systemd() {
+    let root = tempfile::tempdir().expect("create install-service temp dir");
+    let template = root.path().join("vinput-daemon.service");
+    let output_path = root.path().join("user/vinput-daemon.service");
+    let template_contents =
+        "[Service]\nExecStart=/usr/bin/vinput-daemon --dbus --configured-backends\n";
+    fs::write(&template, template_contents).expect("write service template");
+
+    let output = vinput_command()
+        .env(
+            "VINPUT_FLATPAK_INFO_PATH",
+            root.path().join("not-a-flatpak-info"),
+        )
+        .env("VINPUT_DAEMON_SYSTEMCTL", "/bin/echo")
+        .args([
+            "daemon",
+            "install-service",
+            "--template",
+            template.to_str().unwrap(),
+            "--output",
+            output_path.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .expect("install native user service");
+
+    let value = assert_json_success(output, "native install-service");
+    assert_eq!(value["rewritten_for_flatpak"], false);
+    assert_eq!(value["wrote_service"], true);
+    assert_eq!(value["rendered_service"], serde_json::Value::Null);
+    assert_eq!(value["daemon_reload"]["ok"], true);
+    assert_eq!(value["daemon_reload"]["stdout"], "--user daemon-reload\n");
+    assert_eq!(
+        fs::read_to_string(&output_path).expect("read installed service"),
+        template_contents
+    );
+}
+
+#[test]
 fn daemon_user_service_flatpak_dry_run_wraps_host_commands() {
     let flatpak_info = flatpak_info_fixture();
     let output = vinput_command()
