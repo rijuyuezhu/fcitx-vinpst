@@ -14,6 +14,7 @@ mod fetch;
 mod install;
 mod installed;
 mod live;
+mod managed;
 mod materialize;
 mod plan;
 mod schema;
@@ -52,6 +53,11 @@ pub use live::{
     InstalledModelDisplayMetadata, LiveModelEntry, LiveModelFamily, LiveModelRegistry,
     LiveRegistryI18n, LiveVinputModelMetadata, detect_preferred_registry_locale,
     normalize_registry_locale, select_preferred_registry_locale,
+};
+pub use managed::{
+    ManagedModelRemoveError, ManagedModelRemoveRequest, ManagedModelRemoveResult,
+    managed_model_dir_name, remove_managed_model, safe_path_component,
+    validate_managed_model_target,
 };
 pub use materialize::{
     MaterializedRegistryTree, RegistryMaterializeError, materialize_staged_tree,

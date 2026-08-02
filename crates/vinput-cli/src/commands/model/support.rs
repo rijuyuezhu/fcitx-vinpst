@@ -1,37 +1,11 @@
 use super::LiveModelEntry;
 
 pub(super) fn managed_model_dir_name(model: &LiveModelEntry) -> String {
-    let preferred = model
-        .short_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(&model.id);
-    safe_path_component(preferred)
+    vinput_registry::managed_model_dir_name(model)
 }
 
 pub(super) fn safe_path_component(value: &str) -> String {
-    let mut component = value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>();
-    while component.starts_with('.') {
-        component.remove(0);
-    }
-    while component.ends_with('.') {
-        component.pop();
-    }
-    if component.is_empty() {
-        "model".to_owned()
-    } else {
-        component
-    }
+    vinput_registry::safe_path_component(value)
 }
 
 pub(super) fn optional_str(value: Option<&str>) -> &str {

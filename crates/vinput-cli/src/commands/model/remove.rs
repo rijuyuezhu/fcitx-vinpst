@@ -6,6 +6,9 @@ use super::{
     catalog::load_live_model_catalog,
     support::{managed_model_dir_name, safe_path_component},
 };
+use vinput_registry::{
+    ManagedModelRemoveRequest, remove_managed_model, validate_managed_model_target,
+};
 
 pub(super) fn print_model_remove_plan(request: ModelRemoveRequest<'_>) -> anyhow::Result<()> {
     if request.dry_run && request.yes {
@@ -49,7 +52,7 @@ fn build_model_remove_plan(
         request.locale,
         model_root,
     )?;
-    ensure_managed_remove_target(model_root, &resolution.target_path)?;
+    validate_managed_model_target(model_root, &resolution.target_path)?;
     let metadata = fs::metadata(&resolution.target_path);
     let (exists, is_dir) = match metadata {
         Ok(metadata) => (true, metadata.is_dir()),
@@ -93,8 +96,12 @@ fn remove_managed_model_dir(
         );
     }
     ensure_model_not_active(&plan.target_path, config_path)?;
-    fs::remove_dir_all(&plan.target_path)
-        .with_context(|| format!("remove model directory `{}`", plan.target_path.display()))
+    remove_managed_model(&ManagedModelRemoveRequest {
+        model_root: &plan.model_root,
+        target_path: &plan.target_path,
+        active_model_paths: &[],
+    })?;
+    Ok(())
 }
 
 fn ensure_model_not_active(
@@ -166,36 +173,6 @@ fn resolve_model_remove_target(
         resolved_short_id: None,
         resolved_title: None,
     })
-}
-
-fn ensure_managed_remove_target(model_root: &Path, target_path: &Path) -> anyhow::Result<()> {
-    let relative = target_path.strip_prefix(model_root).with_context(|| {
-        format!(
-            "refusing to remove `{}` because it is outside model root `{}`",
-            target_path.display(),
-            model_root.display()
-        )
-    })?;
-    if relative.as_os_str().is_empty() {
-        anyhow::bail!(
-            "refusing to remove model root `{}`; select a managed model directory",
-            model_root.display()
-        );
-    }
-    for component in relative.components() {
-        if matches!(
-            component,
-            std::path::Component::ParentDir
-                | std::path::Component::RootDir
-                | std::path::Component::Prefix(_)
-        ) {
-            anyhow::bail!(
-                "refusing unsafe model remove target `{}`",
-                target_path.display()
-            );
-        }
-    }
-    Ok(())
 }
 
 fn model_remove_plan_json(plan: &ModelRemovePlan) -> serde_json::Value {
