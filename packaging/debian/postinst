@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+configure)
+  if [[ -n "${2:-}" && -x /usr/lib/fcitx-vinput/package-upgrade-handoff ]]; then
+    /usr/lib/fcitx-vinput/package-upgrade-handoff
+  fi
+  printf '%s\n' \
+    'fcitx-vinput-rs is installed.' \
+    'Enable the daemon in each desktop session with:' \
+    '  systemctl --user enable --now vinput-daemon.service' \
+    'Reload Fcitx5 so the addon is discovered:' \
+    '  fcitx5 -r'
+  ;;
+esac

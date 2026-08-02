@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "remove" && -x /usr/lib/fcitx-vinput/package-remove-handoff ]]; then
+  /usr/lib/fcitx-vinput/package-remove-handoff
+fi

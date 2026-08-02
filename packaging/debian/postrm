@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+remove | purge)
+  printf '%s\n' \
+    'fcitx-vinput-rs was removed.' \
+    'User configuration, models, and cache were intentionally preserved.' \
+    'Reload Fcitx5 to unload the removed addon:' \
+    '  fcitx5 -r'
+  ;;
+esac
