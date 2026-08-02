@@ -92,10 +92,46 @@ jobs:
           path: dist/${{ matrix.distribution }}/*.deb
           if-no-files-found: error
 
+  flatpak-package:
+    needs:
+      - source-archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and transaction-test Flatpak extension
+        shell: bash
+        run: scripts/release/run-flatpak-package-smoke.sh
+      - name: Select publication bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.source-archive.outputs.version }}'
+          summary=target/tmp/flatpak-package-smoke/summary.json
+          bundle=target/tmp/flatpak-package-smoke/fcitx-vinput-rs.flatpak
+          test -s "${summary}"
+          test -s "${bundle}"
+          first_commit="$(jq -r '.first_commit' "${summary}")"
+          second_commit="$(jq -r '.second_commit' "${summary}")"
+          bundle_commit="$(jq -r '.bundle_commit' "${summary}")"
+          test -n "${first_commit}"
+          test -n "${second_commit}"
+          test "${first_commit}" != "${second_commit}"
+          test "${bundle_commit}" = "${first_commit}"
+          mkdir -p dist/flatpak
+          cp "${bundle}" \
+            "dist/flatpak/fcitx-vinput-rs-${version}-x86_64.flatpak"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-flatpak
+          path: dist/flatpak/*.flatpak
+          if-no-files-found: error
+
   release-bundle:
     needs:
       - source-archive
       - deb-packages
+      - flatpak-package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -113,7 +149,13 @@ jobs:
             -name 'fcitx-vinput-rs_*-1_debian12_amd64.deb' -print -quit)"
           ubuntu_package="$(find release-inputs/release-deb-ubuntu24.04 -type f \
             -name 'fcitx-vinput-rs_*-1_ubuntu24.04_amd64.deb' -print -quit)"
-          for artifact in "${source_archive}" "${debian_package}" "${ubuntu_package}"; do
+          flatpak_bundle="$(find release-inputs/release-flatpak -type f \
+            -name "fcitx-vinput-rs-${version}-x86_64.flatpak" -print -quit)"
+          for artifact in \
+            "${source_archive}" \
+            "${debian_package}" \
+            "${ubuntu_package}" \
+            "${flatpak_bundle}"; do
             test -f "${artifact}"
           done
           if find release-inputs -type f -name '*-2_*.deb' -print -quit | grep -q .; then
@@ -127,7 +169,8 @@ jobs:
             --output-dir "dist/fcitx-vinput-rs-${version}-release" \
             --artifact "source-archive=${source_archive}" \
             --artifact "deb-debian12=${debian_package}" \
-            --artifact "deb-ubuntu24.04=${ubuntu_package}"
+            --artifact "deb-ubuntu24.04=${ubuntu_package}" \
+            --artifact "flatpak-x86_64=${flatpak_bundle}"
           scripts/release/release_manifest.py verify \
             "dist/fcitx-vinput-rs-${version}-release"
       - uses: actions/upload-artifact@v4

@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if (($# != 2)); then
+  echo "usage: run-flatpak-package-smoke-inner.sh MANIFEST WORK_DIR" >&2
+  exit 2
+fi
+
+manifest="$1"
+work_dir="$2"
+app_id="org.fcitx.Fcitx5.Addon.Vinput"
+host_id="org.fcitx.Fcitx5"
+branch="stable"
+platform_id="org.kde.Platform"
+platform_branch="6.10"
+repo="${work_dir}/repo"
+build1="${work_dir}/build-1"
+state_dir="${work_dir}/state"
+bundle="${work_dir}/fcitx-vinput-rs.flatpak"
+home="${work_dir}/home"
+
+for command in flatpak flatpak-builder ostree; do
+  command -v "${command}" >/dev/null || {
+    echo "missing Flatpak package smoke tool: ${command}" >&2
+    exit 1
+  }
+done
+test -f "${manifest}" || {
+  echo "missing rendered Flatpak manifest: ${manifest}" >&2
+  exit 1
+}
+
+rm -rf "${repo}" "${build1}" "${bundle}"
+if [[ "${VINPUT_FLATPAK_REUSE_HOME:-0}" != "1" ]]; then
+  rm -rf "${state_dir}" "${home}"
+fi
+mkdir -p "${repo}" "${state_dir}" "${home}"
+export HOME="${home}"
+export XDG_CACHE_HOME="${home}/.cache"
+export XDG_CONFIG_HOME="${home}/.config"
+export XDG_DATA_HOME="${home}/.local/share"
+mkdir -p "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}" "${XDG_DATA_HOME}"
+
+flatpak uninstall --user -y "${app_id}//${branch}" >/dev/null 2>&1 || true
+flatpak remote-delete --user --force vinput-local >/dev/null 2>&1 || true
+
+flathub_repo="${work_dir}/flathub.flatpakrepo"
+test -s "${flathub_repo}" || {
+  echo "missing downloaded Flathub repository descriptor: ${flathub_repo}" >&2
+  exit 1
+}
+if [[ -n "${VINPUT_FLATPAK_REMOTE_URL:-}" ]]; then
+  sed -i "s|^Url=.*|Url=${VINPUT_FLATPAK_REMOTE_URL}|" "${flathub_repo}"
+fi
+flatpak remote-add --user --if-not-exists --no-enumerate --no-follow_redirect \
+  --from flathub "${flathub_repo}"
+if [[ -n "${VINPUT_FLATPAK_REMOTE_URL:-}" ]]; then
+  flatpak remote-modify --user --url="${VINPUT_FLATPAK_REMOTE_URL}" \
+    --no-follow-redirect flathub
+  actual_remote_url="$(flatpak remotes --user --columns=name,url \
+    | awk -F '\t' '$1 == "flathub" { print $2 }')"
+  [[ "${actual_remote_url}" == "${VINPUT_FLATPAK_REMOTE_URL}" ]] || {
+    echo "Flatpak remote URL mismatch: expected ${VINPUT_FLATPAK_REMOTE_URL}, got ${actual_remote_url}" >&2
+    exit 1
+  }
+fi
+
+retry_command() {
+  local attempt
+  local max_attempts="${VINPUT_FLATPAK_RETRY_ATTEMPTS:-5}"
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if "$@"; then
+      return 0
+    fi
+    if ((attempt == max_attempts)); then
+      echo "command failed after ${max_attempts} attempts: $*" >&2
+      return 1
+    fi
+    echo "command failed (attempt ${attempt}/${max_attempts}); retrying: $*" >&2
+    sleep "$((attempt * 5))"
+  done
+}
+
+retry_command flatpak install --user -y flathub \
+  "${platform_id}//${platform_branch}"
+
+build_manifest() {
+  local build_dir="$1"
+  local manifest="$2"
+  retry_command flatpak-builder \
+    --user \
+    --disable-rofiles-fuse \
+    --force-clean \
+    --state-dir="${state_dir}" \
+    --install-deps-from=flathub \
+    --repo="${repo}" \
+    "${build_dir}" \
+    "${manifest}"
+  ostree summary --repo="${repo}" --update
+}
+
+run_in_host_app() {
+  flatpak run --user --command=sh "${host_id}" -lc "$1"
+}
+
+verify_revision() {
+  local expected="$1"
+  local revision
+  revision="$(run_in_host_app \
+    'cat /app/addons/Vinput/share/fcitx-vinput/package-revision')"
+  [[ "${revision}" == "${expected}" ]] || {
+    echo "Flatpak extension revision mismatch: expected ${expected}, got ${revision}" >&2
+    exit 1
+  }
+}
+
+verify_product() {
+  run_in_host_app '
+    set -eu
+    test -x /app/addons/Vinput/bin/vinput
+    test -x /app/addons/Vinput/bin/vinput-daemon
+    test -x /app/addons/Vinput/bin/vinput-gui
+    test -f /app/addons/Vinput/lib/fcitx5/fcitx5-vinput.so
+    test -f /app/addons/Vinput/lib/libsherpa-onnx-c-api.so
+    test -f /app/addons/Vinput/lib/libonnxruntime.so
+    test -f /app/addons/Vinput/share/fcitx5/addon/vinput.conf
+    test -f /app/addons/Vinput/share/systemd/user/vinput-daemon.service
+    test -f /app/addons/Vinput/share/dbus-1/services/org.fcitx.Vinput.service
+    test -f /app/addons/Vinput/share/applications/vinput-gui.desktop
+    test -f /app/addons/Vinput/share/fcitx-vinput/vad/silero_vad.onnx
+    test -f /app/addons/Vinput/share/licenses/fcitx-vinput-rs/LICENSE
+    grep -Fq /app/addons/Vinput/bin/vinput-daemon \
+      /app/addons/Vinput/share/systemd/user/vinput-daemon.service
+    /app/addons/Vinput/bin/vinput --version
+    /app/addons/Vinput/bin/vinput-daemon --version
+    /app/addons/Vinput/bin/vinput-gui --version
+    /app/addons/Vinput/bin/vinput-gui --check --offline
+  '
+}
+
+build_manifest "${build1}" "${manifest}"
+flatpak remote-add --user --if-not-exists --no-gpg-verify \
+  vinput-local "file://${repo}"
+retry_command flatpak install --user -y flathub "${host_id}//${branch}"
+retry_command flatpak install --user -y vinput-local "${app_id}//${branch}"
+first_commit="$(flatpak info --user --show-commit "${app_id}//${branch}")"
+test -n "${first_commit}"
+verify_revision 1
+verify_product
+
+ref="$(ostree refs --repo="${repo}" | grep -E "^runtime/${app_id}/[^/]+/${branch}$" | head -n1)"
+test -n "${ref}" || {
+  echo "Flatpak repository does not contain the extension runtime ref" >&2
+  ostree refs --repo="${repo}" >&2
+  exit 1
+}
+architecture="$(cut -d/ -f3 <<<"${ref}")"
+flatpak build-bundle --runtime \
+  "${repo}" "${bundle}" "${app_id}" "${branch}"
+test -s "${bundle}"
+
+revision_marker="${build1}/files/share/fcitx-vinput/package-revision"
+test -f "${revision_marker}" || {
+  echo "Flatpak build tree is missing the revision marker: ${revision_marker}" >&2
+  exit 1
+}
+chmod u+w "${revision_marker}"
+printf '2\n' >"${revision_marker}"
+flatpak build-export --runtime --no-update-summary \
+  --subject="Synthetic update fixture" \
+  "${repo}" "${build1}" "${branch}"
+ostree summary --repo="${repo}" --update
+second_repo_commit="$(ostree rev-parse --repo="${repo}" "${ref}")"
+if [[ "${second_repo_commit}" == "${first_commit}" ]]; then
+  echo "Flatpak update fixture did not create a distinct repository commit" >&2
+  exit 1
+fi
+retry_command flatpak update --user -y \
+  --commit="${second_repo_commit}" "${app_id}//${branch}"
+second_commit="$(flatpak info --user --show-commit "${app_id}//${branch}")"
+test -n "${second_commit}"
+if [[ "${first_commit}" == "${second_commit}" ]]; then
+  echo "Flatpak update did not change the installed OSTree commit" >&2
+  exit 1
+fi
+if [[ "${second_commit}" != "${second_repo_commit}" ]]; then
+  echo "Flatpak update installed ${second_commit}, expected ${second_repo_commit}" >&2
+  exit 1
+fi
+verify_revision 2
+verify_product
+
+flatpak uninstall --user -y "${app_id}//${branch}"
+if flatpak info --user "${app_id}//${branch}" >/dev/null 2>&1; then
+  echo "Flatpak extension remained installed after uninstall" >&2
+  exit 1
+fi
+retry_command flatpak install --user -y --bundle "${bundle}"
+verify_revision 1
+verify_product
+flatpak uninstall --user -y "${app_id}//${branch}"
+
+cat >"${work_dir}/summary.json" <<EOF
+{
+  "app_id": "${app_id}",
+  "architecture": "${architecture}",
+  "branch": "${branch}",
+  "bundle": "${bundle}",
+  "bundle_commit": "${first_commit}",
+  "first_commit": "${first_commit}",
+  "second_commit": "${second_commit}"
+}
+EOF
+
+printf 'Flatpak package build and transaction smoke passed: %s\n' "${bundle}"

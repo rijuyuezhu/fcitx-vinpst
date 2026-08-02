@@ -41,6 +41,7 @@ package-check:
     scripts/release/check-arch-install-script.sh
     scripts/release/check-arch-pkgbuild.sh
     scripts/release/check-deb-package.sh
+    scripts/release/check-flatpak-manifest.sh
     scripts/release/check-nix-flake.sh
     scripts/release/check-rpm-spec.sh
     scripts/release/check-source-archive.sh
@@ -55,6 +56,10 @@ package-smoke:
 # Build and validate both Debian release targets in Docker.
 deb-package-smoke:
     scripts/release/run-deb-package-smoke.sh
+
+# Build and validate the Fcitx Flatpak extension transaction.
+flatpak-package-smoke:
+    scripts/release/run-flatpak-package-smoke.sh
 
 # Build and validate the locked Nix package closure.
 nix-package-smoke:

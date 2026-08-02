@@ -18,6 +18,7 @@ scripts/tests/niri-live-argument-smoke.sh
 scripts/release/check-arch-install-script.sh
 scripts/release/check-arch-pkgbuild.sh
 scripts/release/check-deb-package.sh
+scripts/release/check-flatpak-manifest.sh
 scripts/release/check-nix-flake.sh
 scripts/release/check-rpm-spec.sh
 scripts/release/check-source-archive.sh

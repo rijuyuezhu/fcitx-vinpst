@@ -1,0 +1,33 @@
+{
+  "app-id": "org.fcitx.Fcitx5.Addon.Vinput",
+  "branch": "stable",
+  "runtime": "org.fcitx.Fcitx5",
+  "runtime-version": "stable",
+  "sdk": "org.kde.Sdk//6.10",
+  "sdk-extensions": [
+    "org.freedesktop.Sdk.Extension.rust-stable",
+    "org.freedesktop.Sdk.Extension.llvm20"
+  ],
+  "build-extension": true,
+  "separate-locales": false,
+  "build-options": {
+    "prefix": "/app/addons/Vinput",
+    "prepend-path": "/usr/lib/sdk/rust-stable/bin",
+    "prepend-pkg-config-path": "/app/addons/Vinput/lib/pkgconfig",
+    "env": {
+      "LIBCLANG_PATH": "/usr/lib/sdk/llvm20/lib",
+      "BINDGEN_EXTRA_CLANG_ARGS": "-isystem /usr/lib/sdk/llvm20/lib/clang/20/include",
+      "RUSTFLAGS": "-C link-arg=-Wl,-rpath,$ORIGIN/../lib"
+    },
+    "no-debuginfo": true,
+    "strip": true
+  },
+  "cleanup": [
+    "/include",
+    "*.la",
+    "*.a",
+    "/lib/cmake",
+    "/lib/pkgconfig"
+  ],
+  "modules": []
+}
