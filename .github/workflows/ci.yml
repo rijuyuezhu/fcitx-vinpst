@@ -38,3 +38,31 @@ jobs:
         run: scripts/tests/cpp/run-cpp-dbus-adapter-lifecycle-smoke.sh
       - name: Run optional PipeWire checks
         run: scripts/tests/pipewire-check.sh
+
+  deb-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:12
+            distribution: debian12
+          - image: ubuntu:24.04
+            distribution: ubuntu24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and transaction-test Debian package
+        run: |
+          scripts/release/run-deb-package-smoke.sh \
+            --image '${{ matrix.image }}' \
+            --distribution '${{ matrix.distribution }}'
+
+  nix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: DeterminateSystems/nix-installer-action@v18
+      - name: Build and inspect locked Nix package
+        run: scripts/release/run-nix-package-smoke.sh

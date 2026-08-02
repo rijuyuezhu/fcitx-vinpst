@@ -1,0 +1,166 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-archive:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - id: metadata
+        name: Resolve release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "vinput-cli") | .version')"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [[ "${tag_version}" != "${version}" ]]; then
+              echo "tag version ${tag_version} does not match workspace ${version}" >&2
+              exit 1
+            fi
+          fi
+          echo "version=${version}" >>"${GITHUB_OUTPUT}"
+      - name: Create source archive
+        shell: bash
+        run: |
+          mkdir -p dist
+          scripts/release/create-source-archive.sh \
+            "dist/fcitx-vinput-rs-${{ steps.metadata.outputs.version }}.tar.gz" \
+            "${{ steps.metadata.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-archive
+          path: dist/fcitx-vinput-rs-${{ steps.metadata.outputs.version }}.tar.gz
+          if-no-files-found: error
+
+  deb-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:12
+            distribution: debian12
+          - image: ubuntu:24.04
+            distribution: ubuntu24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and transaction-test package
+        shell: bash
+        run: |
+          scripts/release/run-deb-package-smoke.sh \
+            --image '${{ matrix.image }}' \
+            --distribution '${{ matrix.distribution }}'
+      - name: Select publication package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/${{ matrix.distribution }}"
+          package="$(find "target/tmp/deb-package-smoke/${{ matrix.distribution }}" \
+            -maxdepth 1 -type f \
+            -name 'fcitx-vinput-rs_*-1_${{ matrix.distribution }}_amd64.deb' \
+            -print -quit)"
+          test -n "${package}"
+          cp "${package}" "dist/${{ matrix.distribution }}/"
+          if find "dist/${{ matrix.distribution }}" -type f -name '*-2_*.deb' \
+            -print -quit | grep -q .; then
+            echo "synthetic upgrade package entered publication selection" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-deb-${{ matrix.distribution }}
+          path: dist/${{ matrix.distribution }}/*.deb
+          if-no-files-found: error
+
+  release-bundle:
+    needs:
+      - source-archive
+      - deb-packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-inputs
+      - name: Assemble checked release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.source-archive.outputs.version }}'
+          source_archive="$(find release-inputs/source-archive -type f \
+            -name "fcitx-vinput-rs-${version}.tar.gz" -print -quit)"
+          debian_package="$(find release-inputs/release-deb-debian12 -type f \
+            -name 'fcitx-vinput-rs_*-1_debian12_amd64.deb' -print -quit)"
+          ubuntu_package="$(find release-inputs/release-deb-ubuntu24.04 -type f \
+            -name 'fcitx-vinput-rs_*-1_ubuntu24.04_amd64.deb' -print -quit)"
+          for artifact in "${source_archive}" "${debian_package}" "${ubuntu_package}"; do
+            test -f "${artifact}"
+          done
+          if find release-inputs -type f -name '*-2_*.deb' -print -quit | grep -q .; then
+            echo "release inputs contain a synthetic upgrade package" >&2
+            exit 1
+          fi
+          scripts/release/release_manifest.py assemble \
+            --package-name fcitx-vinput-rs \
+            --version "${version}" \
+            --architecture amd64 \
+            --output-dir "dist/fcitx-vinput-rs-${version}-release" \
+            --artifact "source-archive=${source_archive}" \
+            --artifact "deb-debian12=${debian_package}" \
+            --artifact "deb-ubuntu24.04=${ubuntu_package}"
+          scripts/release/release_manifest.py verify \
+            "dist/fcitx-vinput-rs-${version}-release"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checked-release-bundle
+          path: dist/fcitx-vinput-rs-${{ needs.source-archive.outputs.version }}-release/*
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - source-archive
+      - release-bundle
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: checked-release-bundle
+          path: release
+      - name: Publish checked artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "${GITHUB_REF_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
+            gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GH_REPO}" \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes
+          fi
+          gh release upload "${GITHUB_REF_NAME}" \
+            --repo "${GH_REPO}" \
+            release/* \
+            --clobber
