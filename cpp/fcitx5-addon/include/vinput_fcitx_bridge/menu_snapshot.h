@@ -15,6 +15,11 @@ struct SceneStateItem {
   std::string label;
 };
 
+struct SceneState {
+  std::string active_scene_id;
+  std::size_t item_count = 0;
+};
+
 class SceneStateSnapshot {
 public:
   SceneStateSnapshot() = default;
@@ -29,9 +34,7 @@ public:
   bool valid() const;
   bool Add(std::string_view id, std::string_view label);
   bool SetActive(std::string_view active_scene_id);
-  std::string active_scene_id() const;
-  std::string active_label() const;
-  std::size_t size() const;
+  std::optional<SceneState> state() const;
   std::optional<SceneStateItem> item(std::size_t index) const;
   const ::VinputFcitxSceneSnapshot *raw_handle() const;
 
@@ -55,6 +58,18 @@ struct AsrDisplayMenuPresentation {
   bool loading = false;
 };
 
+struct AsrDisplayMenuState {
+  std::string target_provider_id;
+  std::string target_model_id;
+  std::string effective_provider_id;
+  std::string effective_model_id;
+  std::string last_error;
+  std::string effective_base_label;
+  std::string target_base_label;
+  bool reload_in_progress = false;
+  std::size_t item_count = 0;
+};
+
 class AsrDisplayMenuStateSnapshot {
 public:
   AsrDisplayMenuStateSnapshot() = default;
@@ -74,15 +89,7 @@ public:
   bool Add(std::string_view provider_id, std::string_view kind,
            std::string_view item_id, std::string_view display_title,
            std::string_view model_value);
-  std::string target_provider_id() const;
-  std::string target_model_id() const;
-  std::string effective_provider_id() const;
-  std::string effective_model_id() const;
-  bool reload_in_progress() const;
-  std::string last_error() const;
-  std::string effective_base_label() const;
-  std::string target_base_label() const;
-  std::size_t size() const;
+  std::optional<AsrDisplayMenuState> state() const;
   std::optional<AsrDisplayMenuPresentation> presentation(std::size_t index) const;
   std::optional<AsrDisplayMenuItem> item(std::size_t index) const;
   const ::VinputFcitxAsrDisplaySnapshot *raw_handle() const;

@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-struct VinputFcitxFrontendState;
+struct VinputFcitxFrontendController;
 
 namespace vinput_fcitx_bridge {
 
@@ -59,9 +59,8 @@ private:
   BridgeOutcome StartCommandWithScene(DaemonClient *client,
                                       std::string_view selected_text,
                                       std::optional<std::string_view> scene_id);
-  std::optional<std::string> ActiveSceneId() const;
 
-  ::VinputFcitxFrontendState *state_ = nullptr;
+  ::VinputFcitxFrontendController *controller_ = nullptr;
 };
 
 } // namespace vinput_fcitx_bridge

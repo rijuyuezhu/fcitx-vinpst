@@ -1,7 +1,6 @@
 #include "vinput_fcitx_ffi.h"
 
 #include <cassert>
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -9,26 +8,20 @@
 
 namespace {
 
-struct CommitPlanDeleter {
-  void operator()(VinputFcitxCommitPlan *plan) const {
-    vinput_fcitx_commit_plan_free(plan);
+struct OutcomeDeleter {
+  void operator()(VinputFcitxFrontendOutcome *outcome) const {
+    vinput_fcitx_frontend_outcome_free(outcome);
   }
 };
 
-using CommitPlanPtr = std::unique_ptr<VinputFcitxCommitPlan, CommitPlanDeleter>;
+using OutcomePtr = std::unique_ptr<VinputFcitxFrontendOutcome, OutcomeDeleter>;
 
-std::string CopyBytes(const std::uint8_t *data, std::size_t size) {
-  if (size == 0) {
+std::string CopyText(VinputFcitxStringView view) {
+  if (view.len == 0) {
     return {};
   }
-  assert(data != nullptr);
-  return {reinterpret_cast<const char *>(data), size};
-}
-
-CommitPlanPtr MakePlan(std::string_view json, bool command_mode) {
-  return CommitPlanPtr(
-      vinput_fcitx_commit_plan_new(reinterpret_cast<const std::uint8_t *>(json.data()),
-                                   json.size(), command_mode ? 1U : 0U));
+  assert(view.data != nullptr);
+  return {reinterpret_cast<const char *>(view.data), view.len};
 }
 
 } // namespace
@@ -36,18 +29,20 @@ CommitPlanPtr MakePlan(std::string_view json, bool command_mode) {
 int main() {
   constexpr std::string_view json =
       R"({"commit_text":"selected","candidates":[{"text":"selected","source":"raw"},{"text":"command","source":"asr"}]})";
-  const auto plan = MakePlan(json, true);
+  const OutcomePtr outcome(vinput_fcitx_frontend_outcome_from_payload(
+      reinterpret_cast<const std::uint8_t *>(json.data()), json.size(), 1U));
+  assert(outcome != nullptr);
 
-  assert(plan != nullptr);
-  assert(vinput_fcitx_commit_plan_show_candidate_menu(plan.get()) == 1U);
-  assert(CopyBytes(vinput_fcitx_commit_plan_text_data(plan.get()),
-                   vinput_fcitx_commit_plan_text_len(plan.get())) == "selected");
-  assert(vinput_fcitx_commit_plan_candidate_count(plan.get()) == 2U);
-  assert(CopyBytes(vinput_fcitx_commit_plan_candidate_text_data(plan.get(), 1),
-                   vinput_fcitx_commit_plan_candidate_text_len(plan.get(), 1)) ==
-         "command");
-  assert(vinput_fcitx_commit_plan_candidate_source(plan.get(), 1) ==
-         VINPUT_FCITX_CANDIDATE_SOURCE_ASR);
+  VinputFcitxFrontendOutcomeView view{};
+  assert(vinput_fcitx_frontend_outcome_view(outcome.get(), &view) == 1U);
+  assert(view.kind == VINPUT_FCITX_FRONTEND_OUTCOME_CANDIDATE_MENU);
+  assert(view.command_mode == 1U);
+  assert(CopyText(view.commit_text) == "selected");
+  assert(view.candidate_count == 2U);
 
+  VinputFcitxCandidateView candidate{};
+  assert(vinput_fcitx_frontend_outcome_candidate(outcome.get(), 1, &candidate) == 1U);
+  assert(CopyText(candidate.text) == "command");
+  assert(candidate.source == VINPUT_FCITX_CANDIDATE_SOURCE_ASR);
   return 0;
 }

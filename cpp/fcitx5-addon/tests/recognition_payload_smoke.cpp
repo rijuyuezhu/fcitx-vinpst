@@ -1,221 +1,55 @@
 #include "vinput_fcitx_bridge/recognition_payload.h"
 
-#include <cassert>
-#include <string>
+#include "vinput_fcitx_ffi.h"
 
-using vinput_fcitx_bridge::CandidateSource;
-using vinput_fcitx_bridge::CandidateSourceFromWire;
-using vinput_fcitx_bridge::MakeCommitPlan;
-using vinput_fcitx_bridge::ParseRecognitionPayload;
-using vinput_fcitx_bridge::ShouldShowCandidateMenu;
-using vinput_fcitx_bridge::ToWireString;
+#include <cassert>
+#include <cstdint>
+#include <memory>
+#include <string_view>
+
+namespace {
+
+struct OutcomeDeleter {
+  void operator()(VinputFcitxFrontendOutcome *outcome) const {
+    vinput_fcitx_frontend_outcome_free(outcome);
+  }
+};
+
+using OutcomePtr = std::unique_ptr<VinputFcitxFrontendOutcome, OutcomeDeleter>;
+
+OutcomePtr MakeOutcome(std::string_view json, bool command_mode) {
+  return OutcomePtr(vinput_fcitx_frontend_outcome_from_payload(
+      reinterpret_cast<const std::uint8_t *>(json.data()), json.size(),
+      command_mode ? 1U : 0U));
+}
+
+} // namespace
 
 int main() {
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"hello","candidates":[{"text":"hello","source":"raw"}]})");
-    assert(payload.commit_text == "hello");
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].text == "hello");
-    assert(payload.candidates[0].source == CandidateSource::Raw);
-    assert(!ShouldShowCandidateMenu(payload));
-  }
+  using vinput_fcitx_bridge::CandidateSource;
+  using vinput_fcitx_bridge::CopyFrontendOutcome;
 
-  {
-    const auto payload =
-        ParseRecognitionPayload(R"({"candidates":[{"text":"first","source":"asr"}]})");
-    assert(payload.commit_text == "first");
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].source == CandidateSource::Asr);
-    assert(!ShouldShowCandidateMenu(payload));
-  }
+  const auto normalized =
+      MakeOutcome(R"({"candidates":[{"text":"first","source":"asr"}]})", false);
+  const auto normalized_view = CopyFrontendOutcome(normalized.get());
+  assert(normalized_view.has_value());
+  assert(normalized_view->payload.commit_text == "first");
+  assert(normalized_view->payload.candidates.size() == 1);
+  assert(normalized_view->payload.candidates[0].source == CandidateSource::Asr);
 
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"line\n\u4F60\u597D","candidates":[]})");
-    assert(payload.commit_text == std::string("line\n你好"));
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].source == CandidateSource::Raw);
-    assert(payload.candidates[0].text == std::string("line\n你好"));
-  }
+  const auto candidates = MakeOutcome(
+      R"({"commit_text":"selected","candidates":[{"text":"selected","source":"raw"},{"text":"changed","source":"asr"}]})",
+      true);
+  const auto candidate_view = CopyFrontendOutcome(candidates.get());
+  assert(candidate_view.has_value());
+  assert(candidate_view->kind == VINPUT_FCITX_FRONTEND_OUTCOME_CANDIDATE_MENU);
+  assert(candidate_view->command_mode);
+  assert(candidate_view->payload.candidates.size() == 2);
 
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"emoji \uD83D\uDE00","candidates":[]})");
-    assert(payload.commit_text == std::string("emoji \xF0\x9F\x98\x80"));
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].text == std::string("emoji \xF0\x9F\x98\x80"));
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"kept","debug":true,"disabled":false,"optional":null,"score":-1.25e+2,"candidates":[]})");
-    assert(payload.commit_text == "kept");
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].source == CandidateSource::Raw);
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"kept","extra":{"nested" : true, "items" : [null, 1]},"candidates":[]})");
-    assert(payload.commit_text == "kept");
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].source == CandidateSource::Raw);
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"bad","debug":bogus,"candidates":[]})");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  {
-    const auto payload =
-        ParseRecognitionPayload(R"({"commit_text":"bad","debug":01,"candidates":[]})");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"bad","debug":trueish,"candidates":[]})");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  {
-    const auto plan = MakeCommitPlan(
-        R"({"commit_text":"polished 1","candidates":[{"text":"raw transcript","source":"raw"},{"text":"polished 1","source":"llm"},{"text":"polished 2","source":"llm"}]})");
-    assert(plan.payload.commit_text == "polished 1");
-    assert(plan.show_candidate_menu);
-  }
-
-  {
-    const auto plan = MakeCommitPlan(
-        R"({"commit_text":"polished","candidates":[{"text":"raw transcript","source":"raw"},{"text":"asr command","source":"asr"},{"text":"polished","source":"llm"}]})");
-    assert(plan.payload.commit_text == "polished");
-    assert(plan.payload.candidates.size() == 3);
-    assert(!plan.show_candidate_menu);
-  }
-
-  {
-    const auto plan = MakeCommitPlan(
-        R"({"commit_text":"single polished","candidates":[{"text":"single polished","source":"llm"}]})");
-    assert(plan.payload.commit_text == "single polished");
-    assert(plan.payload.candidates.size() == 1);
-    assert(plan.payload.candidates[0].source == CandidateSource::Llm);
-    assert(!plan.show_candidate_menu);
-  }
-
-  {
-    const auto plan = MakeCommitPlan(
-        R"({"commit_text":"asr text","candidates":[{"text":"raw transcript","source":"raw"},{"text":"asr text","source":"asr"}]})");
-    assert(plan.payload.commit_text == "asr text");
-    assert(plan.payload.candidates.size() == 2);
-    assert(!plan.show_candidate_menu);
-  }
-
-  {
-    const auto plan = MakeCommitPlan(
-        R"({"commit_text":"selected text","candidates":[{"text":"selected text","source":"raw"},{"text":"asr command","source":"asr"}]})",
-        true);
-    assert(plan.payload.commit_text == "selected text");
-    assert(plan.payload.candidates.size() == 2);
-    assert(plan.show_candidate_menu);
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"fallback","candidates":[{"text":"fallback","source":"future"}]})");
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].source == CandidateSource::Raw);
-  }
-
-  {
-    const auto plan =
-        MakeCommitPlan(R"({"candidates":[{"text":"","source":"cancel"}]})");
-    assert(plan.payload.commit_text.empty());
-    assert(plan.payload.candidates.size() == 1);
-    assert(plan.payload.candidates[0].source == CandidateSource::Cancel);
-    assert(!plan.show_candidate_menu);
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"commit_text":"kept","trace":{"id":"42","tags":["new",null,true]},"candidates":[{"text":"kept","source":"llm","rank":1,"metadata":{"stable":true},"tags":["new"]}],"extra":[{"ignored":null}]})");
-    assert(payload.commit_text == "kept");
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].text == "kept");
-    assert(payload.candidates[0].source == CandidateSource::Llm);
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"({"candidates":[{"text":"","source":"raw"},{"text":"kept","source":"asr"}]})");
-    assert(payload.commit_text == "kept");
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].text == "kept");
-    assert(payload.candidates[0].source == CandidateSource::Asr);
-  }
-
-  {
-    const auto payload =
-        ParseRecognitionPayload(R"({"commit_text":"bad \uD83D","candidates":[]})");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  {
-    const auto payload =
-        ParseRecognitionPayload(R"({"commit_text":"bad \uDE00","candidates":[]})");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload(
-        R"json({"commit_text":"kept","candidates":[]}) trailing)json");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  {
-    const auto payload =
-        ParseRecognitionPayload("{\"commit_text\":\"kept\",\"candidates\":[]}\n\t  ");
-    assert(payload.commit_text == "kept");
-    assert(payload.candidates.size() == 1);
-    assert(payload.candidates[0].source == CandidateSource::Raw);
-  }
-
-  {
-    const auto payload =
-        ParseRecognitionPayload("{\"commit_text\":\"bad\ntext\",\"candidates\":[]}");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  {
-    const auto payload =
-        ParseRecognitionPayload("{\"commit_text\":\"bad\\qescape\",\"candidates\":[]}");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  {
-    const auto payload = ParseRecognitionPayload("not json");
-    assert(payload.commit_text.empty());
-    assert(payload.candidates.empty());
-  }
-
-  assert(ToWireString(CandidateSource::Raw) == "raw");
-  assert(ToWireString(CandidateSource::Llm) == "llm");
-  assert(ToWireString(CandidateSource::Asr) == "asr");
-  assert(ToWireString(CandidateSource::Cancel) == "cancel");
-  assert(CandidateSourceFromWire("raw") == CandidateSource::Raw);
-  assert(CandidateSourceFromWire("llm") == CandidateSource::Llm);
-  assert(CandidateSourceFromWire("asr") == CandidateSource::Asr);
-  assert(CandidateSourceFromWire("cancel") == CandidateSource::Cancel);
-  assert(CandidateSourceFromWire("future") == CandidateSource::Raw);
+  const auto invalid = MakeOutcome("not json", false);
+  const auto invalid_view = CopyFrontendOutcome(invalid.get());
+  assert(invalid_view.has_value());
+  assert(invalid_view->kind == VINPUT_FCITX_FRONTEND_OUTCOME_CLEAR);
+  assert(invalid_view->payload.commit_text.empty());
   return 0;
 }

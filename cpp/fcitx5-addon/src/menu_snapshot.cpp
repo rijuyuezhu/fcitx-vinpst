@@ -9,14 +9,13 @@ namespace vinput_fcitx_bridge {
 namespace {
 
 const std::uint8_t *Bytes(std::string_view value) {
-  return reinterpret_cast<const std::uint8_t *>(value.data());
+  return value.empty() ? nullptr : reinterpret_cast<const std::uint8_t *>(value.data());
 }
 
-std::string CopyBytes(const std::uint8_t *data, std::size_t size) {
-  if (data == nullptr || size == 0) {
-    return {};
-  }
-  return std::string(reinterpret_cast<const char *>(data), size);
+std::string CopyText(VinputFcitxStringView view) {
+  return view.data == nullptr || view.len == 0
+             ? std::string{}
+             : std::string(reinterpret_cast<const char *>(view.data), view.len);
 }
 
 } // namespace
@@ -54,29 +53,20 @@ bool SceneStateSnapshot::SetActive(std::string_view active_scene_id) {
                                                 active_scene_id.size()) != 0;
 }
 
-std::string SceneStateSnapshot::active_scene_id() const {
-  return CopyBytes(vinput_fcitx_scene_snapshot_active_id_data(snapshot_),
-                   vinput_fcitx_scene_snapshot_active_id_len(snapshot_));
-}
-
-std::string SceneStateSnapshot::active_label() const {
-  return CopyBytes(vinput_fcitx_scene_snapshot_active_label_data(snapshot_),
-                   vinput_fcitx_scene_snapshot_active_label_len(snapshot_));
-}
-
-std::size_t SceneStateSnapshot::size() const {
-  return vinput_fcitx_scene_snapshot_item_count(snapshot_);
+std::optional<SceneState> SceneStateSnapshot::state() const {
+  VinputFcitxSceneSnapshotView view{};
+  if (vinput_fcitx_scene_snapshot_view(snapshot_, &view) == 0) {
+    return std::nullopt;
+  }
+  return SceneState{CopyText(view.active_scene_id), view.item_count};
 }
 
 std::optional<SceneStateItem> SceneStateSnapshot::item(std::size_t index) const {
-  if (index >= size()) {
+  VinputFcitxSceneSnapshotItemView view{};
+  if (vinput_fcitx_scene_snapshot_item_view(snapshot_, index, &view) == 0) {
     return std::nullopt;
   }
-  return SceneStateItem{
-      CopyBytes(vinput_fcitx_scene_snapshot_item_id_data(snapshot_, index),
-                vinput_fcitx_scene_snapshot_item_id_len(snapshot_, index)),
-      CopyBytes(vinput_fcitx_scene_snapshot_item_label_data(snapshot_, index),
-                vinput_fcitx_scene_snapshot_item_label_len(snapshot_, index))};
+  return SceneStateItem{CopyText(view.id), CopyText(view.label)};
 }
 
 const ::VinputFcitxSceneSnapshot *SceneStateSnapshot::raw_handle() const {
@@ -125,86 +115,42 @@ bool AsrDisplayMenuStateSnapshot::Add(std::string_view provider_id,
              display_title.size(), Bytes(model_value), model_value.size()) != 0;
 }
 
-std::string AsrDisplayMenuStateSnapshot::target_provider_id() const {
-  return CopyBytes(vinput_fcitx_asr_display_snapshot_target_provider_data(snapshot_),
-                   vinput_fcitx_asr_display_snapshot_target_provider_len(snapshot_));
-}
-
-std::string AsrDisplayMenuStateSnapshot::target_model_id() const {
-  return CopyBytes(vinput_fcitx_asr_display_snapshot_target_model_data(snapshot_),
-                   vinput_fcitx_asr_display_snapshot_target_model_len(snapshot_));
-}
-
-std::string AsrDisplayMenuStateSnapshot::effective_provider_id() const {
-  return CopyBytes(vinput_fcitx_asr_display_snapshot_effective_provider_data(snapshot_),
-                   vinput_fcitx_asr_display_snapshot_effective_provider_len(snapshot_));
-}
-
-std::string AsrDisplayMenuStateSnapshot::effective_model_id() const {
-  return CopyBytes(vinput_fcitx_asr_display_snapshot_effective_model_data(snapshot_),
-                   vinput_fcitx_asr_display_snapshot_effective_model_len(snapshot_));
-}
-
-bool AsrDisplayMenuStateSnapshot::reload_in_progress() const {
-  return vinput_fcitx_asr_display_snapshot_reload_in_progress(snapshot_) != 0;
-}
-
-std::string AsrDisplayMenuStateSnapshot::last_error() const {
-  return CopyBytes(vinput_fcitx_asr_display_snapshot_last_error_data(snapshot_),
-                   vinput_fcitx_asr_display_snapshot_last_error_len(snapshot_));
-}
-
-std::string AsrDisplayMenuStateSnapshot::effective_base_label() const {
-  return CopyBytes(
-      vinput_fcitx_asr_display_snapshot_effective_base_label_data(snapshot_),
-      vinput_fcitx_asr_display_snapshot_effective_base_label_len(snapshot_));
-}
-
-std::string AsrDisplayMenuStateSnapshot::target_base_label() const {
-  return CopyBytes(vinput_fcitx_asr_display_snapshot_target_base_label_data(snapshot_),
-                   vinput_fcitx_asr_display_snapshot_target_base_label_len(snapshot_));
-}
-
-std::size_t AsrDisplayMenuStateSnapshot::size() const {
-  return vinput_fcitx_asr_display_snapshot_item_count(snapshot_);
+std::optional<AsrDisplayMenuState> AsrDisplayMenuStateSnapshot::state() const {
+  VinputFcitxAsrDisplaySnapshotView view{};
+  if (vinput_fcitx_asr_display_snapshot_view(snapshot_, &view) == 0) {
+    return std::nullopt;
+  }
+  return AsrDisplayMenuState{CopyText(view.target_provider_id),
+                             CopyText(view.target_model_id),
+                             CopyText(view.effective_provider_id),
+                             CopyText(view.effective_model_id),
+                             CopyText(view.last_error),
+                             CopyText(view.effective_base_label),
+                             CopyText(view.target_base_label),
+                             view.reload_in_progress != 0,
+                             view.item_count};
 }
 
 std::optional<AsrDisplayMenuPresentation>
 AsrDisplayMenuStateSnapshot::presentation(std::size_t index) const {
-  if (index >= size()) {
+  VinputFcitxAsrDisplaySnapshotItemView view{};
+  if (vinput_fcitx_asr_display_snapshot_item_view(snapshot_, index, &view) == 0) {
     return std::nullopt;
   }
-  return AsrDisplayMenuPresentation{
-      CopyBytes(vinput_fcitx_asr_display_snapshot_item_kind_data(snapshot_, index),
-                vinput_fcitx_asr_display_snapshot_item_kind_len(snapshot_, index)),
-      CopyBytes(
-          vinput_fcitx_asr_display_snapshot_item_base_label_data(snapshot_, index),
-          vinput_fcitx_asr_display_snapshot_item_base_label_len(snapshot_, index)),
-      vinput_fcitx_asr_display_snapshot_item_is_loading(snapshot_, index) != 0};
+  return AsrDisplayMenuPresentation{CopyText(view.kind), CopyText(view.base_label),
+                                    view.is_loading != 0};
 }
 
 std::optional<AsrDisplayMenuItem>
 AsrDisplayMenuStateSnapshot::item(std::size_t index) const {
-  if (index >= size()) {
+  VinputFcitxAsrDisplaySnapshotItemView view{};
+  if (vinput_fcitx_asr_display_snapshot_item_view(snapshot_, index, &view) == 0) {
     return std::nullopt;
   }
-  return AsrDisplayMenuItem{
-      CopyBytes(vinput_fcitx_asr_display_snapshot_item_provider_data(snapshot_, index),
-                vinput_fcitx_asr_display_snapshot_item_provider_len(snapshot_, index)),
-      CopyBytes(vinput_fcitx_asr_display_snapshot_item_kind_data(snapshot_, index),
-                vinput_fcitx_asr_display_snapshot_item_kind_len(snapshot_, index)),
-      CopyBytes(vinput_fcitx_asr_display_snapshot_item_id_data(snapshot_, index),
-                vinput_fcitx_asr_display_snapshot_item_id_len(snapshot_, index)),
-      CopyBytes(
-          vinput_fcitx_asr_display_snapshot_item_display_title_data(snapshot_, index),
-          vinput_fcitx_asr_display_snapshot_item_display_title_len(snapshot_, index)),
-      CopyBytes(
-          vinput_fcitx_asr_display_snapshot_item_model_value_data(snapshot_, index),
-          vinput_fcitx_asr_display_snapshot_item_model_value_len(snapshot_, index)),
-      CopyBytes(
-          vinput_fcitx_asr_display_snapshot_item_base_label_data(snapshot_, index),
-          vinput_fcitx_asr_display_snapshot_item_base_label_len(snapshot_, index)),
-      vinput_fcitx_asr_display_snapshot_item_is_loading(snapshot_, index) != 0};
+  return AsrDisplayMenuItem{CopyText(view.provider_id), CopyText(view.kind),
+                            CopyText(view.item_id),     CopyText(view.display_title),
+                            CopyText(view.model_value), CopyText(view.base_label),
+                            view.is_loading != 0};
 }
 
 const ::VinputFcitxAsrDisplaySnapshot *AsrDisplayMenuStateSnapshot::raw_handle() const {

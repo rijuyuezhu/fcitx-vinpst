@@ -58,6 +58,11 @@ struct MenuKeyDecision {
   std::int64_t value = 0;
 };
 
+struct MenuFilterView {
+  bool active = false;
+  std::string query;
+};
+
 class MenuFilterState {
 public:
   MenuFilterState();
@@ -69,15 +74,7 @@ public:
   MenuFilterState &operator=(MenuFilterState &&) = delete;
 
   void Reset();
-  void Activate();
-  void ClearAndDeactivate();
-  void Backspace();
-  void DeleteLastWord();
-  void AppendText(std::string_view text);
-
-  bool active() const;
-  std::string query() const;
-  bool Matches(std::string_view search_text) const;
+  std::optional<MenuFilterView> view() const;
   std::string DecorateTitle(std::string_view base_title) const;
   std::optional<MenuKeyDecision> HandleKey(bool release, const MenuSemanticKey &key,
                                            bool cursor_available, int current_selection,

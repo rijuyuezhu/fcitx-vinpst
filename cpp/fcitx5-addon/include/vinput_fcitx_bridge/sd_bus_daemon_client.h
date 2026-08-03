@@ -6,54 +6,10 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <vector>
 
 struct sd_bus;
 
 namespace vinput_fcitx_bridge {
-
-struct AsrBackendStateSnapshot {
-  std::string target_provider_id;
-  std::string target_model_id;
-  std::string effective_provider_id;
-  std::string effective_model_id;
-  std::string last_error;
-  bool reload_in_progress = false;
-  bool has_effective_backend = false;
-  std::vector<std::string> remote_endpoints;
-};
-
-struct AsrMenuProviderItem {
-  std::string id;
-  std::string kind;
-  std::string model;
-};
-
-struct AsrMenuStateSnapshot {
-  std::string target_provider_id;
-  std::string effective_provider_id;
-  std::string effective_model_id;
-  bool reload_in_progress = false;
-  std::string last_error;
-  std::vector<AsrMenuProviderItem> providers;
-};
-
-struct AsrTargetMenuItem {
-  std::string provider_id;
-  std::string kind;
-  std::string item_id;
-  std::string model_value;
-};
-
-struct AsrTargetMenuStateSnapshot {
-  std::string target_provider_id;
-  std::string target_model_id;
-  std::string effective_provider_id;
-  std::string effective_model_id;
-  bool reload_in_progress = false;
-  std::string last_error;
-  std::vector<AsrTargetMenuItem> targets;
-};
 
 class SdBusDaemonClient final : public DaemonClient {
 public:
@@ -72,15 +28,11 @@ public:
                      std::string *error) override;
   bool GetStatus(std::string *status, std::string *error);
 
-  // Rust-only diagnostic extensions; not used by the frontend bridge hot path.
-  bool GetAsrBackendState(AsrBackendStateSnapshot *state, std::string *error);
   bool GetSceneState(SceneStateSnapshot *state, std::string *error);
   bool SetActiveScene(std::string_view scene_id, bool *persisted, std::string *error);
-  bool GetAsrMenuState(AsrMenuStateSnapshot *state, std::string *error);
+  bool GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state, std::string *error);
   bool SetActiveAsrProvider(std::string_view provider_id, bool *persisted,
                             std::string *error);
-  bool GetAsrTargetMenuState(AsrTargetMenuStateSnapshot *state, std::string *error);
-  bool GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state, std::string *error);
   bool SetActiveAsrTarget(std::string_view provider_id, std::string_view model_value,
                           bool *persisted, std::string *error);
   bool GetTextAdapterState(std::string *state_json, std::string *error);

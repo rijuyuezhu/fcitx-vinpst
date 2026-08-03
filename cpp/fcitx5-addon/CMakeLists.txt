@@ -615,6 +615,8 @@ if(BUILD_TESTING AND VINPUT_FCITX_BRIDGE_ENABLE_TESTS)
     vinput_fcitx_bridge_recognition_payload_smoke
     tests/recognition_payload_smoke.cpp
   )
+  target_link_libraries(vinput_fcitx_bridge_recognition_payload_smoke
+                        PRIVATE vinput_fcitx_rust_ffi)
   vinput_bridge_smoke_test(
     vinput_fcitx_bridge_frontend_smoke
     tests/frontend_bridge_smoke.cpp

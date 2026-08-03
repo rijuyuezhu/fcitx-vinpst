@@ -11,10 +11,7 @@
 #include <string_view>
 #include <thread>
 
-using vinput_fcitx_bridge::AsrBackendStateSnapshot;
 using vinput_fcitx_bridge::AsrDisplayMenuStateSnapshot;
-using vinput_fcitx_bridge::AsrMenuStateSnapshot;
-using vinput_fcitx_bridge::AsrTargetMenuStateSnapshot;
 using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FrontendBridge;
 using vinput_fcitx_bridge::kDefaultCommandSceneId;
@@ -86,31 +83,30 @@ bool ExpectRuntimeStatus(SdBusDaemonClient *client, std::string_view expected,
 }
 
 bool ExpectConfiguredDiagnostics(SdBusDaemonClient *client, std::string *error) {
-  AsrBackendStateSnapshot asr_state;
-  if (!client->GetAsrBackendState(&asr_state, error)) {
+  AsrDisplayMenuStateSnapshot snapshot;
+  if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
     return false;
   }
-  if (asr_state.target_provider_id.empty()) {
+  const auto asr_state = snapshot.state();
+  if (!asr_state.has_value() || asr_state->target_provider_id.empty()) {
     if (error != nullptr) {
-      *error = "ASR backend state did not include a target provider";
+      *error = "ASR display state did not include a target provider";
     }
     return false;
   }
 
   const auto expected_asr_provider =
       OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER");
-  if (!expected_asr_provider.empty()) {
-    if (asr_state.target_provider_id != expected_asr_provider ||
-        asr_state.effective_provider_id != expected_asr_provider ||
-        !asr_state.has_effective_backend) {
-      if (error != nullptr) {
-        *error = "ASR backend state did not match configured provider: target=";
-        *error += asr_state.target_provider_id;
-        *error += " effective=";
-        *error += asr_state.effective_provider_id;
-      }
-      return false;
+  if (!expected_asr_provider.empty() &&
+      (asr_state->target_provider_id != expected_asr_provider ||
+       asr_state->effective_provider_id != expected_asr_provider)) {
+    if (error != nullptr) {
+      *error = "ASR display state did not match configured provider: target=";
+      *error += asr_state->target_provider_id;
+      *error += " effective=";
+      *error += asr_state->effective_provider_id;
     }
+    return false;
   }
 
   std::string text_adapter_state_json;
@@ -157,16 +153,20 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   if (expected_active_scene.empty()) {
     expected_active_scene = kDefaultNormalSceneId;
   }
+  const auto scene_state = state.state();
+  if (!scene_state.has_value()) {
+    return false;
+  }
   bool exposes_expected_scene = false;
-  for (std::size_t index = 0; index < state.size(); ++index) {
+  for (std::size_t index = 0; index < scene_state->item_count; ++index) {
     const auto scene = state.item(index);
     if (scene.has_value() && scene->id == expected_active_scene) {
       exposes_expected_scene = true;
       break;
     }
   }
-  if (state.active_scene_id() != expected_active_scene || state.size() < 2 ||
-      !exposes_expected_scene) {
+  if (scene_state->active_scene_id != expected_active_scene ||
+      scene_state->item_count < 2 || !exposes_expected_scene) {
     if (error != nullptr) {
       *error = "scene state did not expose expected active scene and menu items: ";
       *error += expected_active_scene;
@@ -186,8 +186,12 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
     }
     return false;
   }
-  if (!client->GetSceneState(&state, error) ||
-      state.active_scene_id() != "__command__") {
+  if (!client->GetSceneState(&state, error)) {
+    return false;
+  }
+  const auto command_scene_state = state.state();
+  if (!command_scene_state.has_value() ||
+      command_scene_state->active_scene_id != "__command__") {
     if (error != nullptr && error->empty()) {
       *error = "scene state did not reflect selected command scene";
     }
@@ -197,14 +201,15 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
 }
 
 bool ExpectAsrMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
-  AsrMenuStateSnapshot state;
-  if (!client->GetAsrMenuState(&state, error)) {
+  AsrDisplayMenuStateSnapshot snapshot;
+  if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
     return false;
   }
-  if (state.target_provider_id.empty() || state.effective_provider_id.empty() ||
-      state.providers.empty()) {
+  auto state = snapshot.state();
+  if (!state.has_value() || state->target_provider_id.empty() ||
+      state->effective_provider_id.empty() || state->item_count == 0) {
     if (error != nullptr) {
-      *error = "ASR menu state did not expose target, effective, and providers";
+      *error = "ASR display state did not expose target, effective, and providers";
     }
     return false;
   }
@@ -215,12 +220,14 @@ bool ExpectAsrMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
     return true;
   }
   bool found = false;
-  for (const auto &provider : state.providers) {
-    found = found || provider.id == switch_provider;
+  for (std::size_t index = 0; index < state->item_count; ++index) {
+    const auto target = snapshot.item(index);
+    found = found || (target.has_value() && target->provider_id == switch_provider);
   }
   if (!found) {
     if (error != nullptr) {
-      *error = "ASR menu state missing requested switch provider: " + switch_provider;
+      *error =
+          "ASR display state missing requested switch provider: " + switch_provider;
     }
     return false;
   }
@@ -239,15 +246,19 @@ bool ExpectAsrMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
   }
 
   for (int attempt = 0; attempt < 200; ++attempt) {
-    if (!client->GetAsrMenuState(&state, error)) {
+    if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
       return false;
     }
-    if (!state.reload_in_progress && state.effective_provider_id == switch_provider) {
-      return state.last_error.empty();
+    state = snapshot.state();
+    if (!state.has_value()) {
+      return false;
     }
-    if (!state.reload_in_progress && !state.last_error.empty()) {
+    if (!state->reload_in_progress && state->effective_provider_id == switch_provider) {
+      return state->last_error.empty();
+    }
+    if (!state->reload_in_progress && !state->last_error.empty()) {
       if (error != nullptr) {
-        *error = "ASR provider reload failed: " + state.last_error;
+        *error = "ASR provider reload failed: " + state->last_error;
       }
       return false;
     }
@@ -260,14 +271,15 @@ bool ExpectAsrMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
 }
 
 bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
-  AsrTargetMenuStateSnapshot state;
-  if (!client->GetAsrTargetMenuState(&state, error)) {
+  AsrDisplayMenuStateSnapshot snapshot;
+  if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
     return false;
   }
-  if (state.target_provider_id.empty() || state.effective_provider_id.empty() ||
-      state.targets.empty()) {
+  auto state = snapshot.state();
+  if (!state.has_value() || state->target_provider_id.empty() ||
+      state->effective_provider_id.empty() || state->item_count == 0) {
     if (error != nullptr) {
-      *error = "ASR target menu state did not expose target, effective, and rows";
+      *error = "ASR display state did not expose target, effective, and rows";
     }
     return false;
   }
@@ -286,14 +298,15 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
     return false;
   }
   bool found = false;
-  for (const auto &target : state.targets) {
-    found = found || (target.provider_id == switch_provider &&
-                      target.model_value == switch_model);
+  for (std::size_t index = 0; index < state->item_count; ++index) {
+    const auto item = snapshot.item(index);
+    found = found || (item.has_value() && item->provider_id == switch_provider &&
+                      item->model_value == switch_model);
   }
   if (!found) {
     if (error != nullptr) {
-      *error = "ASR target menu state missing requested target: " + switch_provider +
-               "/" + switch_model;
+      *error = "ASR display state missing requested target: " + switch_provider + "/" +
+               switch_model;
     }
     return false;
   }
@@ -312,17 +325,21 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
   }
 
   for (int attempt = 0; attempt < 200; ++attempt) {
-    if (!client->GetAsrTargetMenuState(&state, error)) {
+    if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
       return false;
     }
-    if (!state.reload_in_progress && state.target_provider_id == switch_provider &&
-        state.target_model_id == switch_model &&
-        state.effective_provider_id == switch_provider) {
-      return state.last_error.empty();
+    state = snapshot.state();
+    if (!state.has_value()) {
+      return false;
     }
-    if (!state.reload_in_progress && !state.last_error.empty()) {
+    if (!state->reload_in_progress && state->target_provider_id == switch_provider &&
+        state->target_model_id == switch_model &&
+        state->effective_provider_id == switch_provider) {
+      return state->last_error.empty();
+    }
+    if (!state->reload_in_progress && !state->last_error.empty()) {
       if (error != nullptr) {
-        *error = "ASR target reload failed: " + state.last_error;
+        *error = "ASR target reload failed: " + state->last_error;
       }
       return false;
     }
@@ -340,8 +357,9 @@ bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
   if (!client->GetAsrDisplayMenuState(&state, error)) {
     return false;
   }
-  if (state.target_provider_id().empty() || state.effective_provider_id().empty() ||
-      state.size() == 0) {
+  const auto display_state = state.state();
+  if (!display_state.has_value() || display_state->target_provider_id.empty() ||
+      display_state->effective_provider_id.empty() || display_state->item_count == 0) {
     if (error != nullptr) {
       *error = "ASR display menu state did not expose target, effective, and rows";
     }
@@ -368,7 +386,7 @@ bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
     return false;
   }
 
-  for (std::size_t index = 0; index < state.size(); ++index) {
+  for (std::size_t index = 0; index < display_state->item_count; ++index) {
     const auto target = state.item(index);
     if (target.has_value() && target->provider_id == expected_provider &&
         target->model_value == expected_model && target->item_id == expected_id &&

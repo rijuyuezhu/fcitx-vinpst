@@ -1,13 +1,20 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
+
+struct VinputFcitxFrontendOutcome;
 
 namespace vinput_fcitx_bridge {
 
-enum class CandidateSource : std::uint8_t { Raw, Llm, Asr, Cancel };
+enum class CandidateSource {
+  Raw,
+  Llm,
+  Asr,
+  Cancel,
+};
 
 struct Candidate {
   std::string text;
@@ -19,16 +26,14 @@ struct RecognitionPayload {
   std::vector<Candidate> candidates;
 };
 
-struct CommitPlan {
+struct FrontendOutcomeSnapshot {
+  std::uint8_t kind = 0;
+  std::string text;
   RecognitionPayload payload;
-  bool show_candidate_menu = false;
+  bool command_mode = false;
 };
 
-std::string_view ToWireString(CandidateSource source);
-CandidateSource CandidateSourceFromWire(std::string_view source);
-RecognitionPayload ParseRecognitionPayload(std::string_view json);
-bool ShouldShowCandidateMenu(const RecognitionPayload &payload,
-                             bool command_mode = false);
-CommitPlan MakeCommitPlan(std::string_view json, bool command_mode = false);
+std::optional<FrontendOutcomeSnapshot>
+CopyFrontendOutcome(const ::VinputFcitxFrontendOutcome *outcome);
 
 } // namespace vinput_fcitx_bridge

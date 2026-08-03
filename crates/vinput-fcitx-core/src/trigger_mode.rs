@@ -53,6 +53,51 @@ pub enum TriggerAction {
     ScheduleStop = 8,
 }
 
+/// One external event accepted by the trigger controller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TriggerEvent {
+    /// Change the configured trigger mode.
+    SetMode(TriggerMode),
+    /// Handle a trigger press.
+    Press {
+        /// Normal or command trigger.
+        kind: TriggerKind,
+        /// Monotonic press timestamp.
+        now_ns: i64,
+        /// Whether recording was already active.
+        recording: bool,
+    },
+    /// Handle a trigger release.
+    Release {
+        /// Monotonic release timestamp.
+        now_ns: i64,
+        /// Whether this release matches the active trigger key.
+        active_release: bool,
+    },
+    /// Fire the delayed hold-start timer.
+    FirePendingStart,
+    /// Fire the delayed release-tail stop timer.
+    FirePendingStop,
+    /// Reconcile a recording-start attempt.
+    ConfirmStart {
+        /// Whether recording actually started.
+        recording_started: bool,
+    },
+    /// Clear trigger ownership after recording stops.
+    RecordingStopped,
+}
+
+/// Stable summary of trigger controller state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TriggerStateView {
+    /// Configured trigger mode.
+    pub mode: TriggerMode,
+    /// Whether a delayed hold start is pending.
+    pub has_pending_start: bool,
+    /// Whether a trigger owns the active recording.
+    pub has_active_trigger: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TriggerPress {
     kind: TriggerKind,
@@ -210,6 +255,45 @@ impl TriggerModeState {
     pub const fn has_active_trigger(&self) -> bool {
         self.active_trigger.is_some()
     }
+
+    /// Applies one external event and returns the requested effect.
+    pub fn dispatch(&mut self, event: TriggerEvent) -> TriggerAction {
+        match event {
+            TriggerEvent::SetMode(mode) => {
+                self.set_mode(mode);
+                TriggerAction::None
+            }
+            TriggerEvent::Press {
+                kind,
+                now_ns,
+                recording,
+            } => self.on_press(kind, now_ns, recording),
+            TriggerEvent::Release {
+                now_ns,
+                active_release,
+            } => self.on_release(now_ns, active_release),
+            TriggerEvent::FirePendingStart => self.fire_pending_start(),
+            TriggerEvent::FirePendingStop => self.fire_pending_stop(),
+            TriggerEvent::ConfirmStart { recording_started } => {
+                self.confirm_start(recording_started);
+                TriggerAction::None
+            }
+            TriggerEvent::RecordingStopped => {
+                self.recording_stopped();
+                TriggerAction::None
+            }
+        }
+    }
+
+    /// Returns a compact stable state summary.
+    #[must_use]
+    pub const fn view(&self) -> TriggerStateView {
+        TriggerStateView {
+            mode: self.mode(),
+            has_pending_start: self.has_pending_start(),
+            has_active_trigger: self.has_active_trigger(),
+        }
+    }
 }
 
 impl Default for TriggerModeState {
@@ -235,7 +319,8 @@ const fn schedule_start_action(kind: TriggerKind) -> TriggerAction {
 #[cfg(test)]
 mod tests {
     use super::{
-        TRIGGER_HOLD_THRESHOLD_NS, TriggerAction, TriggerKind, TriggerMode, TriggerModeState,
+        TRIGGER_HOLD_THRESHOLD_NS, TriggerAction, TriggerEvent, TriggerKind, TriggerMode,
+        TriggerModeState, TriggerStateView,
     };
 
     const MS: i64 = 1_000_000;
@@ -342,5 +427,47 @@ mod tests {
             state.on_press(TriggerKind::Normal, 200 * MS, true),
             TriggerAction::StopActive
         );
+    }
+
+    #[test]
+    fn dispatches_external_events_and_exposes_compact_view() {
+        let mut state = TriggerModeState::new(TriggerMode::Hold);
+        assert_eq!(
+            state.dispatch(TriggerEvent::Press {
+                kind: TriggerKind::Command,
+                now_ns: 0,
+                recording: false,
+            }),
+            TriggerAction::ScheduleCommandStart
+        );
+        assert_eq!(
+            state.view(),
+            TriggerStateView {
+                mode: TriggerMode::Hold,
+                has_pending_start: true,
+                has_active_trigger: false,
+            }
+        );
+        assert_eq!(
+            state.dispatch(TriggerEvent::FirePendingStart),
+            TriggerAction::StartCommand
+        );
+        assert_eq!(
+            state.dispatch(TriggerEvent::ConfirmStart {
+                recording_started: true,
+            }),
+            TriggerAction::None
+        );
+        assert!(state.view().has_active_trigger);
+        assert_eq!(
+            state.dispatch(TriggerEvent::SetMode(TriggerMode::Both)),
+            TriggerAction::None
+        );
+        assert_eq!(state.view().mode, TriggerMode::Both);
+        assert_eq!(
+            state.dispatch(TriggerEvent::RecordingStopped),
+            TriggerAction::None
+        );
+        assert!(!state.view().has_active_trigger);
     }
 }

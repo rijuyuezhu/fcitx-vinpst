@@ -4,6 +4,7 @@
 #include "vinput_fcitx_bridge/fcitx_daemon_signal_monitor.h"
 #include "vinput_fcitx_bridge/fcitx_key_trigger.h"
 #include "vinput_fcitx_bridge/fcitx_menu_filter.h"
+#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 #include "vinput_fcitx_bridge/fcitx_notifications.h"
 #include "vinput_fcitx_bridge/fcitx_outcome.h"
 #include "vinput_fcitx_bridge/fcitx_trigger_mode.h"
@@ -74,13 +75,12 @@ private:
   void HideSceneMenu();
   bool RefreshSceneState(std::string *error);
   bool HandleSceneMenuKeyEvent(fcitx::KeyEvent &event);
-  void SelectScene(std::size_t index, fcitx::InputContext *ic);
   void ShowAsrMenu(fcitx::InputContext *ic);
   void RebuildAsrMenu(int page = 0);
   void HideAsrMenu();
   bool RefreshAsrMenuState(std::string *error);
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
-  void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
+  void ExecuteMenuControl(const ProjectedMenuControl &control, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
   void SetupDaemonSignalMonitor();
   void SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus);
@@ -106,14 +106,14 @@ private:
   mutable std::unique_ptr<VinputFrontendConfig> frontend_config_;
   SceneStateSnapshot scene_state_;
   MenuFilterState scene_menu_filter_;
-  std::vector<std::size_t> scene_menu_indices_;
+  std::vector<ProjectedMenuControl> scene_menu_controls_;
   int scene_menu_page_ = 0;
   std::string active_scene_id_{kDefaultNormalSceneId};
   fcitx::InputContext *scene_menu_ic_ = nullptr;
   bool scene_menu_visible_ = false;
   AsrDisplayMenuStateSnapshot asr_menu_state_;
   MenuFilterState asr_menu_filter_;
-  std::vector<std::size_t> asr_menu_indices_;
+  std::vector<ProjectedMenuControl> asr_menu_controls_;
   int asr_menu_page_ = 0;
   fcitx::InputContext *asr_menu_ic_ = nullptr;
   bool asr_menu_visible_ = false;

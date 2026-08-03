@@ -56,14 +56,14 @@ static_assert(static_cast<std::uint8_t>(MenuKeyAction::Select) ==
 static_assert(kMenuPageSize == VINPUT_FCITX_MENU_PAGE_SIZE);
 
 const std::uint8_t *Bytes(std::string_view value) {
-  return reinterpret_cast<const std::uint8_t *>(value.data());
+  return value.empty() ? nullptr : reinterpret_cast<const std::uint8_t *>(value.data());
 }
 
-std::string CopyBytes(const std::uint8_t *data, std::size_t size) {
-  if (data == nullptr || size == 0) {
+std::string CopyText(VinputFcitxStringView view) {
+  if (view.data == nullptr || view.len == 0) {
     return {};
   }
-  return std::string(reinterpret_cast<const char *>(data), size);
+  return {reinterpret_cast<const char *>(view.data), view.len};
 }
 
 bool HasNoModifiers(const fcitx::Key &key) {
@@ -120,68 +120,40 @@ void MenuFilterState::Reset() {
   static_cast<void>(vinput_fcitx_menu_filter_state_reset(state_));
 }
 
-void MenuFilterState::Activate() {
-  static_cast<void>(vinput_fcitx_menu_filter_state_activate(state_));
-}
-
-void MenuFilterState::ClearAndDeactivate() {
-  static_cast<void>(vinput_fcitx_menu_filter_state_clear_and_deactivate(state_));
-}
-
-void MenuFilterState::Backspace() {
-  static_cast<void>(vinput_fcitx_menu_filter_state_backspace(state_));
-}
-
-void MenuFilterState::DeleteLastWord() {
-  static_cast<void>(vinput_fcitx_menu_filter_state_delete_last_word(state_));
-}
-
-void MenuFilterState::AppendText(std::string_view text) {
-  static_cast<void>(
-      vinput_fcitx_menu_filter_state_append_text(state_, Bytes(text), text.size()));
-}
-
-bool MenuFilterState::active() const {
-  return vinput_fcitx_menu_filter_state_active(state_) != 0;
-}
-
-std::string MenuFilterState::query() const {
-  return CopyBytes(vinput_fcitx_menu_filter_state_query_data(state_),
-                   vinput_fcitx_menu_filter_state_query_len(state_));
-}
-
-bool MenuFilterState::Matches(std::string_view search_text) const {
-  return vinput_fcitx_menu_filter_state_matches(state_, Bytes(search_text),
-                                                search_text.size()) != 0;
+std::optional<MenuFilterView> MenuFilterState::view() const {
+  VinputFcitxMenuFilterView view{};
+  if (vinput_fcitx_menu_filter_state_view(state_, &view) == 0) {
+    return std::nullopt;
+  }
+  return MenuFilterView{view.active != 0, CopyText(view.query)};
 }
 
 std::string MenuFilterState::DecorateTitle(std::string_view base_title) const {
+  VinputFcitxStringView title{};
   if (vinput_fcitx_menu_filter_state_decorate_title(state_, Bytes(base_title),
-                                                    base_title.size()) == 0) {
+                                                    base_title.size(), &title) == 0) {
     return std::string(base_title);
   }
-  return CopyBytes(vinput_fcitx_menu_filter_state_decorated_title_data(state_),
-                   vinput_fcitx_menu_filter_state_decorated_title_len(state_));
+  return CopyText(title);
 }
 
 std::optional<MenuKeyDecision>
 MenuFilterState::HandleKey(bool release, const MenuSemanticKey &key,
                            bool cursor_available, int current_selection,
                            int current_page, std::size_t visible_item_count) {
-  std::uint8_t action = VINPUT_FCITX_MENU_ACTION_PASS;
-  std::int64_t value = 0;
+  VinputFcitxMenuKeyDecisionView decision{};
   if (vinput_fcitx_menu_filter_state_handle_key(
           state_, static_cast<std::uint8_t>(release),
           static_cast<std::uint8_t>(key.kind), key.value, Bytes(key.text),
           key.text.size(), static_cast<std::uint8_t>(cursor_available),
-          current_selection, current_page, visible_item_count, &action, &value) == 0) {
+          current_selection, current_page, visible_item_count, &decision) == 0) {
     return std::nullopt;
   }
-  const auto decoded = ActionFromWire(action);
-  if (!decoded.has_value()) {
+  const auto action = ActionFromWire(decision.action);
+  if (!action.has_value()) {
     return std::nullopt;
   }
-  return MenuKeyDecision{*decoded, value};
+  return MenuKeyDecision{*action, decision.value};
 }
 
 void SetMenuCandidatePage(fcitx::CommonCandidateList &candidates, int requested_page) {

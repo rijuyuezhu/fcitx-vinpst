@@ -140,151 +140,6 @@ bool ReadSceneStateReply(sd_bus_message *message, SceneStateSnapshot *state,
   return true;
 }
 
-bool ReadAsrMenuStateReply(sd_bus_message *message, AsrMenuStateSnapshot *state,
-                           std::string *error) {
-  const char *target_provider_id = nullptr;
-  const char *effective_provider_id = nullptr;
-  const char *effective_model_id = nullptr;
-  int reload_in_progress = 0;
-  const char *last_error = nullptr;
-  int result =
-      sd_bus_message_read(message, "sssbs", &target_provider_id, &effective_provider_id,
-                          &effective_model_id, &reload_in_progress, &last_error);
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "read ASR menu state", result, bus_error);
-    return false;
-  }
-
-  result = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "(sss)");
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "enter ASR provider array", result, bus_error);
-    return false;
-  }
-  std::vector<AsrMenuProviderItem> providers;
-  for (;;) {
-    result = sd_bus_message_enter_container(message, SD_BUS_TYPE_STRUCT, "sss");
-    if (result < 0) {
-      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-      SetSdBusError(error, "enter ASR provider item", result, bus_error);
-      return false;
-    }
-    if (result == 0) {
-      break;
-    }
-    const char *id = nullptr;
-    const char *kind = nullptr;
-    const char *model = nullptr;
-    result = sd_bus_message_read(message, "sss", &id, &kind, &model);
-    if (result < 0) {
-      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-      SetSdBusError(error, "read ASR provider item", result, bus_error);
-      return false;
-    }
-    result = sd_bus_message_exit_container(message);
-    if (result < 0) {
-      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-      SetSdBusError(error, "exit ASR provider item", result, bus_error);
-      return false;
-    }
-    providers.push_back(AsrMenuProviderItem{id != nullptr ? id : "",
-                                            kind != nullptr ? kind : "",
-                                            model != nullptr ? model : ""});
-  }
-  result = sd_bus_message_exit_container(message);
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "exit ASR provider array", result, bus_error);
-    return false;
-  }
-  if (state != nullptr) {
-    state->target_provider_id = target_provider_id != nullptr ? target_provider_id : "";
-    state->effective_provider_id =
-        effective_provider_id != nullptr ? effective_provider_id : "";
-    state->effective_model_id = effective_model_id != nullptr ? effective_model_id : "";
-    state->reload_in_progress = reload_in_progress != 0;
-    state->last_error = last_error != nullptr ? last_error : "";
-    state->providers = std::move(providers);
-  }
-  return true;
-}
-
-bool ReadAsrTargetMenuStateReply(sd_bus_message *message,
-                                 AsrTargetMenuStateSnapshot *state,
-                                 std::string *error) {
-  const char *target_provider_id = nullptr;
-  const char *target_model_id = nullptr;
-  const char *effective_provider_id = nullptr;
-  const char *effective_model_id = nullptr;
-  int reload_in_progress = 0;
-  const char *last_error = nullptr;
-  int result = sd_bus_message_read(
-      message, "ssssbs", &target_provider_id, &target_model_id, &effective_provider_id,
-      &effective_model_id, &reload_in_progress, &last_error);
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "read ASR target menu state", result, bus_error);
-    return false;
-  }
-
-  result = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "(ssss)");
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "enter ASR target array", result, bus_error);
-    return false;
-  }
-  std::vector<AsrTargetMenuItem> targets;
-  for (;;) {
-    result = sd_bus_message_enter_container(message, SD_BUS_TYPE_STRUCT, "ssss");
-    if (result < 0) {
-      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-      SetSdBusError(error, "enter ASR target item", result, bus_error);
-      return false;
-    }
-    if (result == 0) {
-      break;
-    }
-    const char *provider_id = nullptr;
-    const char *kind = nullptr;
-    const char *item_id = nullptr;
-    const char *model_value = nullptr;
-    result = sd_bus_message_read(message, "ssss", &provider_id, &kind, &item_id,
-                                 &model_value);
-    if (result < 0) {
-      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-      SetSdBusError(error, "read ASR target item", result, bus_error);
-      return false;
-    }
-    result = sd_bus_message_exit_container(message);
-    if (result < 0) {
-      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-      SetSdBusError(error, "exit ASR target item", result, bus_error);
-      return false;
-    }
-    targets.push_back(AsrTargetMenuItem{
-        provider_id != nullptr ? provider_id : "", kind != nullptr ? kind : "",
-        item_id != nullptr ? item_id : "", model_value != nullptr ? model_value : ""});
-  }
-  result = sd_bus_message_exit_container(message);
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "exit ASR target array", result, bus_error);
-    return false;
-  }
-  if (state != nullptr) {
-    state->target_provider_id = target_provider_id != nullptr ? target_provider_id : "";
-    state->target_model_id = target_model_id != nullptr ? target_model_id : "";
-    state->effective_provider_id =
-        effective_provider_id != nullptr ? effective_provider_id : "";
-    state->effective_model_id = effective_model_id != nullptr ? effective_model_id : "";
-    state->reload_in_progress = reload_in_progress != 0;
-    state->last_error = last_error != nullptr ? last_error : "";
-    state->targets = std::move(targets);
-  }
-  return true;
-}
-
 bool ReadAsrDisplayMenuStateReply(sd_bus_message *message,
                                   AsrDisplayMenuStateSnapshot *state,
                                   std::string *error) {
@@ -367,67 +222,6 @@ bool ReadAsrDisplayMenuStateReply(sd_bus_message *message,
   }
   if (state != nullptr) {
     *state = std::move(snapshot);
-  }
-  return true;
-}
-
-bool ReadAsrBackendStateReply(sd_bus_message *message, AsrBackendStateSnapshot *state,
-                              std::string *error) {
-  const char *target_provider_id = nullptr;
-  const char *target_model_id = nullptr;
-  const char *effective_provider_id = nullptr;
-  const char *effective_model_id = nullptr;
-  const char *last_error = nullptr;
-  int reload_in_progress = 0;
-  int has_effective_backend = 0;
-  int result = sd_bus_message_read(
-      message, "sssssbb", &target_provider_id, &target_model_id, &effective_provider_id,
-      &effective_model_id, &last_error, &reload_in_progress, &has_effective_backend);
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "read ASR backend state reply", result, bus_error);
-    return false;
-  }
-
-  result = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "s");
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "enter ASR remote endpoints", result, bus_error);
-    return false;
-  }
-
-  std::vector<std::string> remote_endpoints;
-  for (;;) {
-    const char *endpoint = nullptr;
-    result = sd_bus_message_read(message, "s", &endpoint);
-    if (result < 0) {
-      sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-      SetSdBusError(error, "read ASR remote endpoint", result, bus_error);
-      return false;
-    }
-    if (result == 0) {
-      break;
-    }
-    remote_endpoints.emplace_back(endpoint != nullptr ? endpoint : "");
-  }
-
-  result = sd_bus_message_exit_container(message);
-  if (result < 0) {
-    sd_bus_error bus_error = SD_BUS_ERROR_NULL;
-    SetSdBusError(error, "exit ASR remote endpoints", result, bus_error);
-    return false;
-  }
-
-  if (state != nullptr) {
-    state->target_provider_id = target_provider_id != nullptr ? target_provider_id : "";
-    state->target_model_id = target_model_id != nullptr ? target_model_id : "";
-    state->effective_provider_id =
-        effective_provider_id != nullptr ? effective_provider_id : "";
-    state->effective_model_id = effective_model_id != nullptr ? effective_model_id : "";
-    state->last_error = last_error != nullptr ? last_error : "";
-    state->reload_in_progress = reload_in_progress != 0;
-    state->has_effective_backend = has_effective_backend != 0;
-    state->remote_endpoints = std::move(remote_endpoints);
   }
   return true;
 }
@@ -526,19 +320,6 @@ bool SdBusDaemonClient::GetStatus(std::string *status, std::string *error) {
   return CallStringReply(dbus::kMethodGetStatus, status, error);
 }
 
-bool SdBusDaemonClient::GetAsrBackendState(AsrBackendStateSnapshot *state,
-                                           std::string *error) {
-  sd_bus_message *message = nullptr;
-  if (!CallMethod(bus_, dbus::kMethodGetAsrBackendState, "", nullptr, &message,
-                  error)) {
-    return false;
-  }
-
-  const bool ok = ReadAsrBackendStateReply(message, state, error);
-  UnrefMessage(message);
-  return ok;
-}
-
 bool SdBusDaemonClient::GetSceneState(SceneStateSnapshot *state, std::string *error) {
   sd_bus_message *message = nullptr;
   if (!CallMethod(bus_, dbus::kMethodGetSceneState, "", nullptr, &message, error)) {
@@ -555,33 +336,10 @@ bool SdBusDaemonClient::SetActiveScene(std::string_view scene_id, bool *persiste
                                  error);
 }
 
-bool SdBusDaemonClient::GetAsrMenuState(AsrMenuStateSnapshot *state,
-                                        std::string *error) {
-  sd_bus_message *message = nullptr;
-  if (!CallMethod(bus_, dbus::kMethodGetAsrMenuState, "", nullptr, &message, error)) {
-    return false;
-  }
-  const bool ok = ReadAsrMenuStateReply(message, state, error);
-  UnrefMessage(message);
-  return ok;
-}
-
 bool SdBusDaemonClient::SetActiveAsrProvider(std::string_view provider_id,
                                              bool *persisted, std::string *error) {
   return CallBoolReplyWithString(dbus::kMethodSetActiveAsrProvider, provider_id,
                                  persisted, error);
-}
-
-bool SdBusDaemonClient::GetAsrTargetMenuState(AsrTargetMenuStateSnapshot *state,
-                                              std::string *error) {
-  sd_bus_message *message = nullptr;
-  if (!CallMethod(bus_, dbus::kMethodGetAsrTargetMenuState, "", nullptr, &message,
-                  error)) {
-    return false;
-  }
-  const bool ok = ReadAsrTargetMenuStateReply(message, state, error);
-  UnrefMessage(message);
-  return ok;
 }
 
 bool SdBusDaemonClient::GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state,
