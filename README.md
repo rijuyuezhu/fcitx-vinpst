@@ -59,4 +59,4 @@ cargo run -p vinput-gui -- --check --offline
 
 ## License
 
-GPL-3.0-only. See [`LICENSE`](LICENSE).
+GPL-3.0-or-later. See [`LICENSE`](LICENSE).
