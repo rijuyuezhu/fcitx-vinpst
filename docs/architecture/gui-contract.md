@@ -8,7 +8,7 @@ The first Iced 0.14 implementation is part of the workspace and provides four le
 
 - **Control** shows daemon status, starts/stops normal recording, and edits the active scene/provider, capture target, language, VAD, and output-ducking settings.
 - **Resources** lists and filters typed ASR providers and scenes, creates and edits validated scene definitions, selects the active scene, removes only inactive scenes, installs or updates live-registry ASR models by ID/short ID, scans managed installed models, removes inactive managed model directories, and exposes selectable secret-safe model/provider detail panels.
-- **LLM** lists providers with redacted endpoints, lists command adapters without exposing API keys, and exposes selectable provider/adapter details built only from redacted typed summaries and configuration counts.
+- **LLM** lists providers with redacted endpoints, adds and edits typed OpenAI-compatible provider definitions through secure API-key inputs, removes only providers whose deletion leaves the full config valid, lists command adapters without exposing API keys, and exposes selectable provider/adapter details built only from redacted typed summaries and configuration counts.
 - **Hotwords** lists provider hotword files.
 
 The application reads `VinputConfig` directly, validates an explicit or discovered user config, and falls back to the bundled default only when the user file is absent. GUI and CLI config mutations share the `vinput-config` persistence API: validation precedes any filesystem mutation, an existing file receives an adjacent `.bak`, the replacement is written and synchronized beside the destination, and rename publishes it atomically. The GUI refuses to overwrite a file changed after loading and refuses a save while a reachable daemon is non-idle or reports an active session. A missing daemon does not block an otherwise valid offline config save; the result explicitly reports that reload was skipped.
@@ -46,7 +46,7 @@ The first mutation slice additionally proves typed form state, dirty/reset handl
 
 The next GUI slices are:
 
-1. LLM/hotword lifecycle actions plus model/provider/adapter selection and mutation flows;
+1. LLM provider connectivity testing and selection flows, hotword lifecycle actions, and remaining model/provider/adapter selection flows;
 2. additional resource-specific error taxonomy beyond the completed published-script recovery path;
 3. command-mode recording and selected-text integration;
 4. zh_CN UI localization, accessibility review, keyboard navigation, clipboard, and desktop notification validation;
