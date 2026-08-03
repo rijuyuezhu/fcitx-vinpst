@@ -210,7 +210,7 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
 }
 
 #[test]
-fn daemon_poll_state_distinguishes_owner_loss_and_recovery() {
+fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
@@ -230,25 +230,83 @@ fn daemon_poll_state_distinguishes_owner_loss_and_recovery() {
 }
 
 #[test]
-fn daemon_polling_serializes_refreshes_and_recovers() {
+fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
     let (mut app, _) = App::boot();
-    assert!(app.daemon_refresh_in_flight);
+    assert_eq!(app.active_daemon_refresh_id, Some(1));
 
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
     };
-    let _ = app.update(Message::DaemonLoaded(Ok(snapshot.clone())));
-    assert!(!app.daemon_refresh_in_flight);
+    let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Connected {
+        owned: true,
+    }));
+    assert_eq!(task.units(), 1);
+    assert_eq!(app.daemon_owner_monitor, DaemonOwnerMonitorState::Ready);
+    assert_eq!(app.active_daemon_refresh_id, Some(2));
+
+    let _ = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Changed {
+        owned: false,
+    }));
+    assert_eq!(app.active_daemon_refresh_id, None);
+    assert_eq!(
+        app.daemon,
+        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
+    );
+
+    let _ = app.update(Message::DaemonLoaded {
+        operation_id: 1,
+        result: Ok(snapshot.clone()),
+    });
+    let _ = app.update(Message::DaemonLoaded {
+        operation_id: 2,
+        result: Ok(snapshot.clone()),
+    });
+    assert!(matches!(app.daemon, DaemonLoadState::Failed(_)));
+
+    let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Changed {
+        owned: true,
+    }));
+    assert_eq!(task.units(), 1);
+    assert_eq!(app.active_daemon_refresh_id, Some(3));
+    let _ = app.update(Message::DaemonLoaded {
+        operation_id: 3,
+        result: Ok(snapshot.clone()),
+    });
+    assert_eq!(app.active_daemon_refresh_id, None);
     assert_eq!(app.daemon, DaemonLoadState::Ready(snapshot));
+}
 
-    let _ = app.update(Message::DaemonPollTick);
-    assert!(app.daemon_refresh_in_flight);
-    let _ = app.update(Message::DaemonPollTick);
-    assert!(app.daemon_refresh_in_flight);
+#[test]
+fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
+    let (mut app, _) = App::boot();
+    let snapshot = DaemonSnapshot {
+        status: "idle".to_owned(),
+        runtime: json!({"active_session": false}),
+    };
+    let _ = app.update(Message::DaemonLoaded {
+        operation_id: 1,
+        result: Ok(snapshot.clone()),
+    });
 
-    let _ = app.update(Message::DaemonPolled(Ok(None)));
-    assert!(!app.daemon_refresh_in_flight);
+    let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Failed(
+        "session bus signal stream failed".to_owned(),
+    )));
+    assert_eq!(task.units(), 1);
+    assert!(matches!(
+        app.daemon_owner_monitor,
+        DaemonOwnerMonitorState::Failed(_)
+    ));
+    assert_eq!(app.daemon, DaemonLoadState::Ready(snapshot));
+    assert_eq!(app.active_daemon_refresh_id, Some(2));
+
+    let task = app.update(Message::DaemonFallbackPollTick);
+    assert_eq!(task.units(), 0);
+    let _ = app.update(Message::DaemonFallbackPolled {
+        operation_id: 2,
+        result: Ok(None),
+    });
+    assert_eq!(app.active_daemon_refresh_id, None);
     assert_eq!(
         app.daemon,
         DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())

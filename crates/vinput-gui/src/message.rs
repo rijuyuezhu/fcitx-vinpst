@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use crate::{
-    ConfigSaveOutcome, DaemonSnapshot, ModelInstallOutcome, Page, ScriptInstallOutcome,
-    ScriptPreparationResult, SecretInput,
+    ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot, ModelInstallOutcome, Page,
+    ScriptInstallOutcome, ScriptPreparationResult, SecretInput,
 };
 
 /// GUI messages.
@@ -17,11 +17,23 @@ pub enum Message {
     /// Refresh daemon state over D-Bus.
     RefreshDaemon,
     /// Result of an asynchronous daemon refresh.
-    DaemonLoaded(Result<DaemonSnapshot, String>),
-    /// Periodic non-activating daemon-owner poll.
-    DaemonPollTick,
-    /// Result of a periodic non-activating daemon-owner poll.
-    DaemonPolled(Result<Option<DaemonSnapshot>, String>),
+    DaemonLoaded {
+        /// Refresh generation used to reject stale owner snapshots.
+        operation_id: u64,
+        /// Typed daemon snapshot outcome.
+        result: Result<DaemonSnapshot, String>,
+    },
+    /// Low-frequency non-activating poll used only while owner signals are unavailable.
+    DaemonFallbackPollTick,
+    /// Result of a low-frequency non-activating owner fallback poll.
+    DaemonFallbackPolled {
+        /// Refresh generation used to reject stale poll results.
+        operation_id: u64,
+        /// Optional snapshot when the well-known name has an owner.
+        result: Result<Option<DaemonSnapshot>, String>,
+    },
+    /// Signal-monitor lifecycle or daemon owner transition.
+    DaemonOwnerEvent(DaemonOwnerEvent),
     /// Reload config from disk.
     ReloadConfig,
     /// Update the default recognition language draft.

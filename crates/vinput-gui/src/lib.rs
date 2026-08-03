@@ -19,6 +19,7 @@ use vinput_config::{VinputConfig, config_backup_path, write_config_file};
 use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
+mod daemon_owner_monitor;
 mod message;
 mod model_install;
 mod model_management;
@@ -31,6 +32,8 @@ mod script_management;
 mod script_recovery;
 mod script_removal;
 
+pub use daemon_owner_monitor::DaemonOwnerEvent;
+use daemon_owner_monitor::DaemonOwnerMonitorState;
 pub use message::Message;
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
@@ -142,7 +145,9 @@ pub struct App {
     config: Result<ConfigDocument, String>,
     draft: Option<ConfigDraft>,
     daemon: DaemonLoadState,
-    daemon_refresh_in_flight: bool,
+    active_daemon_refresh_id: Option<u64>,
+    next_daemon_refresh_id: u64,
+    daemon_owner_monitor: DaemonOwnerMonitorState,
     operation: OperationState,
     model_selector: String,
     model_install: ModelInstallState,
@@ -163,27 +168,28 @@ impl App {
             .as_ref()
             .ok()
             .map(|document| ConfigDraft::from_config(&document.config));
-        (
-            Self {
-                page: Page::Control,
-                filter: String::new(),
-                config,
-                draft,
-                daemon: DaemonLoadState::Loading,
-                daemon_refresh_in_flight: true,
-                operation: OperationState::Idle,
-                model_selector: String::new(),
-                model_install: ModelInstallState::default(),
-                next_model_install_id: 1,
-                provider_selector: String::new(),
-                adapter_selector: String::new(),
-                script_install: ScriptInstallState::default(),
-                next_script_install_id: 1,
-                installed_models: load_installed_models(),
-                selected_resource: None,
-            },
-            daemon_refresh_task(),
-        )
+        let mut app = Self {
+            page: Page::Control,
+            filter: String::new(),
+            config,
+            draft,
+            daemon: DaemonLoadState::Loading,
+            active_daemon_refresh_id: None,
+            next_daemon_refresh_id: 1,
+            daemon_owner_monitor: DaemonOwnerMonitorState::Connecting,
+            operation: OperationState::Idle,
+            model_selector: String::new(),
+            model_install: ModelInstallState::default(),
+            next_model_install_id: 1,
+            provider_selector: String::new(),
+            adapter_selector: String::new(),
+            script_install: ScriptInstallState::default(),
+            next_script_install_id: 1,
+            installed_models: load_installed_models(),
+            selected_resource: None,
+        };
+        let task = app.begin_daemon_refresh(true);
+        (app, task)
     }
 
     /// Applies a GUI message.
@@ -192,18 +198,16 @@ impl App {
             Message::SelectPage(page) => self.select_page(page),
             Message::FilterChanged(filter) => self.filter = filter,
             Message::RefreshDaemon => return self.begin_daemon_refresh(true),
-            Message::DaemonLoaded(result) => {
-                self.daemon_refresh_in_flight = false;
-                self.daemon = match result {
-                    Ok(snapshot) => DaemonLoadState::Ready(snapshot),
-                    Err(error) => DaemonLoadState::Failed(error),
-                };
-            }
-            Message::DaemonPollTick => return self.begin_daemon_poll(),
-            Message::DaemonPolled(result) => {
-                self.daemon_refresh_in_flight = false;
-                self.daemon = daemon_state_from_poll(result);
-            }
+            Message::DaemonLoaded {
+                operation_id,
+                result,
+            } => self.finish_daemon_refresh(operation_id, result),
+            Message::DaemonFallbackPollTick => return self.begin_daemon_fallback_poll(),
+            Message::DaemonFallbackPolled {
+                operation_id,
+                result,
+            } => self.finish_daemon_fallback_poll(operation_id, result),
+            Message::DaemonOwnerEvent(event) => return self.handle_daemon_owner_event(event),
             Message::ReloadConfig => self.reload_config(),
             Message::DefaultLanguageChanged(value) => self.update_draft(|draft| {
                 draft.default_language = value;
@@ -294,32 +298,9 @@ impl App {
         self.selected_resource = None;
     }
 
-    fn begin_daemon_refresh(&mut self, show_loading: bool) -> Task<Message> {
-        if self.daemon_refresh_in_flight {
-            return Task::none();
-        }
-        self.daemon_refresh_in_flight = true;
-        if show_loading {
-            self.daemon = DaemonLoadState::Loading;
-        }
-        daemon_refresh_task()
-    }
-
-    fn begin_daemon_poll(&mut self) -> Task<Message> {
-        if self.daemon_refresh_in_flight {
-            return Task::none();
-        }
-        self.daemon_refresh_in_flight = true;
-        daemon_poll_task()
-    }
-
-    /// Polls daemon ownership without activating a missing service.
+    /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
     pub fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = Vec::new();
-        if !self.daemon_refresh_in_flight {
-            subscriptions
-                .push(iced::time::every(Duration::from_secs(2)).map(|_| Message::DaemonPollTick));
-        }
+        let mut subscriptions = self.daemon_reconciliation_subscriptions();
         if self.model_install.is_active() {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
@@ -564,12 +545,23 @@ impl App {
     }
 
     fn daemon_status_view(&self) -> Element<'_, Message> {
-        match &self.daemon {
+        let daemon = match &self.daemon {
             DaemonLoadState::Loading => text("Daemon: loading…"),
             DaemonLoadState::Ready(snapshot) => text(format!("Daemon: {}", snapshot.status)),
             DaemonLoadState::Failed(error) => text(format!("Daemon unavailable: {error}")),
-        }
-        .into()
+        };
+        let monitor = match &self.daemon_owner_monitor {
+            DaemonOwnerMonitorState::Connecting => {
+                "Owner monitoring: connecting to D-Bus signals…".to_owned()
+            }
+            DaemonOwnerMonitorState::Ready => {
+                "Owner monitoring: signal-driven reconciliation active.".to_owned()
+            }
+            DaemonOwnerMonitorState::Failed(error) => format!(
+                "Owner monitoring degraded; using a 30-second non-activating fallback: {error}"
+            ),
+        };
+        column![daemon, text(monitor)].spacing(5).into()
     }
 
     fn is_busy(&self) -> bool {
@@ -1011,17 +1003,6 @@ pub fn headless_snapshot(path: Option<&Path>, probe_daemon: bool) -> Result<Valu
         "daemon": daemon,
         "pages": Page::ALL.map(Page::label),
     }))
-}
-
-fn daemon_refresh_task() -> Task<Message> {
-    Task::perform(async { query_daemon_snapshot() }, Message::DaemonLoaded)
-}
-
-fn daemon_poll_task() -> Task<Message> {
-    Task::perform(
-        async { query_daemon_snapshot_if_owned() },
-        Message::DaemonPolled,
-    )
 }
 
 #[cfg(test)]
