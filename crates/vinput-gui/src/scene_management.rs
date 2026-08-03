@@ -427,6 +427,7 @@ fn scene_editor_view(editor: &SceneEditorState, busy: bool) -> Element<'_, Messa
             "stable unique id",
             &editor.id,
             SceneEditorField::Id,
+            busy,
         )
     };
     column![
@@ -437,42 +438,49 @@ fn scene_editor_view(editor: &SceneEditorState, busy: bool) -> Element<'_, Messa
             "display label",
             &editor.label,
             SceneEditorField::Label,
+            busy,
         ),
         labeled_input(
             "Prompt",
             "optional prompt template",
             &editor.prompt,
             SceneEditorField::Prompt,
+            busy,
         ),
         labeled_input(
             "LLM provider",
             "optional configured provider id",
             &editor.provider_id,
             SceneEditorField::ProviderId,
+            busy,
         ),
         labeled_input(
             "Model override",
             "optional model id",
             &editor.model,
             SceneEditorField::Model,
+            busy,
         ),
         labeled_input(
             "Candidate count",
             "0 to 32",
             &editor.candidate_count,
             SceneEditorField::CandidateCount,
+            busy,
         ),
         labeled_input(
             "Timeout (ms)",
             "blank uses the legacy default",
             &editor.timeout_ms,
             SceneEditorField::TimeoutMs,
+            busy,
         ),
         labeled_input(
             "Context lines",
             "0 to 32",
             &editor.context_lines,
             SceneEditorField::ContextLines,
+            busy,
         ),
         row![
             button(editor.action_label())
@@ -491,11 +499,14 @@ fn labeled_input<'a>(
     placeholder: &'static str,
     value: &'a str,
     field: SceneEditorField,
+    busy: bool,
 ) -> Element<'a, Message> {
     row![
         text(label).width(160),
         text_input(placeholder, value)
-            .on_input(move |value| { Message::Scene(SceneMessage::EditorChanged { field, value }) })
+            .on_input_maybe((!busy).then_some(move |value| {
+                Message::Scene(SceneMessage::EditorChanged { field, value })
+            }))
             .width(Length::Fill),
     ]
     .spacing(10)

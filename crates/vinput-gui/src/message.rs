@@ -149,3 +149,32 @@ pub enum Message {
     /// Result of a provider or adapter removal.
     ScriptRemoved(Result<String, String>),
 }
+
+impl Message {
+    pub(crate) fn blocked_while_busy(&self) -> bool {
+        matches!(
+            self,
+            Self::SelectPage(_)
+                | Self::ReloadConfig
+                | Self::DefaultLanguageChanged(_)
+                | Self::CaptureDeviceChanged(_)
+                | Self::DuckOutputChanged(_)
+                | Self::DuckVolumeChanged(_)
+                | Self::VadEnabledChanged(_)
+                | Self::VadThresholdChanged(_)
+                | Self::ActiveProviderChanged(_)
+                | Self::ActiveSceneChanged(_)
+                | Self::ResetConfigDraft
+                | Self::SaveConfig
+                | Self::Scene(
+                    SceneMessage::BeginAdd
+                        | SceneMessage::BeginEdit(_)
+                        | SceneMessage::EditorChanged { .. }
+                        | SceneMessage::CancelEdit
+                        | SceneMessage::Save
+                        | SceneMessage::Use(_)
+                        | SceneMessage::Remove(_)
+                )
+        )
+    }
+}

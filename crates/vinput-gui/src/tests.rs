@@ -106,6 +106,57 @@ fn config_draft_applies_every_editable_field() {
 }
 
 #[test]
+fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    app.config = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-in-flight-config.json"),
+        from_disk: false,
+        config: config.clone(),
+    });
+    app.draft = Some(ConfigDraft::from_config(&config));
+    app.page = Page::Resources;
+    app.begin_add_scene();
+    let editor_before = format!("{:?}", app.scene_editor);
+    let language_before = app
+        .draft
+        .as_ref()
+        .expect("config draft")
+        .default_language
+        .clone();
+    app.operation = OperationState::Running("Saving scene…");
+
+    drop(app.update(Message::DefaultLanguageChanged("zh-CN".to_owned())));
+    drop(app.update(Message::SelectPage(Page::Control)));
+    drop(app.update(Message::ReloadConfig));
+    drop(app.update(Message::Scene(SceneMessage::EditorChanged {
+        field: SceneEditorField::Label,
+        value: "late editor change".to_owned(),
+    })));
+
+    assert_eq!(app.page, Page::Resources);
+    assert_eq!(
+        app.draft
+            .as_ref()
+            .expect("preserved config draft")
+            .default_language,
+        language_before
+    );
+    assert_eq!(format!("{:?}", app.scene_editor), editor_before);
+
+    drop(
+        app.update(Message::Scene(SceneMessage::MutationFinished(Err(
+            "fixture completion".to_owned(),
+        )))),
+    );
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error == "fixture completion"
+    ));
+}
+
+#[test]
 fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
     let config = VinputConfig::bundled_default().expect("bundled config");
     let document = ConfigDocument {
