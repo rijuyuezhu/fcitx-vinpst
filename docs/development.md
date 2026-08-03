@@ -7,14 +7,16 @@ This file defines repository workflow, validation tiers, and commit style. Progr
 Keep the workspace split by responsibility:
 
 - `vinput-protocol`: public D-Bus and JSON wire contracts.
-- `vinput-config`: typed config, defaults, normalization, validation, and shared diagnostic redaction.
+- `vinput-config`: typed config, defaults, normalization, validation, persistence, and shared diagnostic redaction.
 - `vinput-http`: shared provider HTTP client construction, bounded additional-CA loading, and URL-free transport error categories.
+- `vinput-process`: shared Unix process-group supervision, deadlines, descendant cleanup, and bounded output capture.
 - `vinput-audio`: PCM types, pure processing, recorder traits, and audio backends.
-- `vinput-asr`: ASR traits, sessions, command backends, and native backends.
+- `vinput-asr`: ASR traits, sessions, command backends, remote backends, and native backends.
 - `vinput-text`: prompts, context cache, text adapters, and provider transports.
-- `vinput-registry`: registry schemas, safe downloads, extraction, and installation.
+- `vinput-registry`: registry schemas, safe downloads, extraction, and managed publication.
 - `vinput-daemon`: runtime orchestration and D-Bus service facade.
 - `vinput-cli`: user-facing commands and diagnostics over library crates.
+- `vinput-gui`: the standalone Rust/Iced management application over shared typed APIs.
 
 The retained C++ frontend owns Fcitx API integration, menus, preedit/commit presentation, selected-text handling, notifications, and the bus bridge. Backend state and processing belong in Rust.
 

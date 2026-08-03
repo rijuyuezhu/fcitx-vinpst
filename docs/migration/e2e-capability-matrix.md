@@ -1,6 +1,6 @@
 # E2E capability matrix
 
-Reviewed: 2026-07-31
+Reviewed: 2026-08-03
 
 This matrix describes user-visible parity and the evidence level for each path. Status labels are:
 
@@ -12,9 +12,9 @@ This matrix describes user-visible parity and the evidence level for each path. 
 
 ## Evidence baseline
 
-- Rust implementation reviewed on the current branch through the checked Arch release pipeline, Debian 12/Ubuntu 24.04 Docker package transactions, locked Nix build, and RPM-family build/transaction baseline.
+- Rust implementation reviewed on `main` through `9d31f70`, including the packaged GUI resource lifecycle, the checked Arch release pipeline, Debian 12/Ubuntu 24.04 Docker package transactions, locked Nix build, RPM-family and Flatpak transaction baselines, and hardened long-lived adapter process supervision.
 - Legacy reference is `/workspace/fcitx5-vinput`.
-- `cargo test --workspace --all-targets`, D-Bus integration, and retained-addon tests pass at the reviewed baseline.
+- `cargo test --workspace --all-targets`, D-Bus integration, retained-addon tests, and the full CI matrix pass at the reviewed baseline.
 - Native registry models are validated by model-specific local WAV smokes.
 - `sherpa-native-live` installation is validated in temporary HOME environments with a copied `libsherpa-onnx` and `libonnxruntime` bundle, wrapper activation through `vinput-daemon-with-vinput-env.sh`, and `scripts/tests/install/run-user-ime-sherpa-native-activation-smoke.sh`. `sherpa-native-command-live` adds a checked local command adapter and has its own temporary-HOME install smoke.
 
@@ -75,7 +75,7 @@ Current CLI gaps are not command-group gaps. Flatpak host-command routing, permi
 | Native online ASR | deterministic | online transducer and Zipformer2 CTC, 200 ms warmup, partial-before-stop |
 | Offline VAD | deterministic | tracked Silero model, legacy controls, fallback and diagnostics |
 | Text postprocess | live-proven for local adapter and loopback OpenAI-compatible provider | deterministic command/OpenAI paths plus real F10 HTTP request, candidate selection, deletion, commit, and restoration; third-party cloud behavior remains |
-| Adapter supervision | deterministic | fingerprinted mode-0600 PID records, fail-closed legacy PID cleanup, duplicate/stale start handling, whole-process-group TERM/KILL escalation, descendant cleanup on stop/drop/refresh, and D-Bus control |
+| Adapter supervision | deterministic | runtime-directory creation before spawn; fingerprinted mode-0600 PID records; fail-closed legacy PID cleanup; duplicate/stale start handling; whole-process-group TERM/KILL escalation; zombie-aware Linux cleanup that still waits for live descendants; failure-path worker cleanup; and D-Bus control |
 | Notifications and recovery | live-proven for retained local cases | focus handoff keeps partials/final commit on the originating context; verified daemon loss surfaces an unavailable preedit with zero commit; information notifications are observed from the current Fcitx PID; daemon reload failure produces a matching 5-second error notification while preserving the old backend; same-provider reload and model switching are followed by successful recognition | Broader notification categories and cross-provider recovery |
 | Remote text service | partial | active-provider settings, API-key/loopback policy, single input/output ownership, debounce/finalize transitions, OpenAI Realtime-compatible event shapes, Axum `/health`/browser/`/ws`/`/v1/realtime` runtime, standalone diagnostics command, normal D-Bus daemon startup/provider-selection/reload ownership, bind-failure cleanup, `SIGTERM` shutdown, redacted LAN endpoint diagnostics, local-socket tests, private-session process smoke, a real sandboxed Chromium same-host LAN page/WebSocket path, and a fail-closed external-device challenge collector requiring explicit physical-device confirmation | Successful collector proof from another physical network device |
 

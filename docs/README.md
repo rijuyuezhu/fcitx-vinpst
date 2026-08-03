@@ -1,10 +1,10 @@
 # Documentation map
 
-The tracked documentation is split by purpose. Read only the source needed for the task; do not copy status text between files.
+The tracked documentation is split by purpose. Read only the source needed for the task; do not copy status text between files. The root [`README.md`](../README.md) is a concise project landing page, not a second migration report.
 
 ## User documentation
 
-External users installing the Arch package should start with [`user/installation.md`](user/installation.md).
+External users following the currently supported Arch package path should start with [`user/installation.md`](user/installation.md).
 
 ## Required developer reading order
 

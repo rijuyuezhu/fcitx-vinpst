@@ -16,14 +16,14 @@ fcitx-vinput-rs/
     vinput-registry     # registry metadata, download, safe extraction, materialization
     vinput-daemon       # async runtime, D-Bus service, orchestration actors
     vinput-cli          # clap CLI over protocol/config/daemon APIs
-    vinput-gui          # future Rust management GUI over typed crates and D-Bus
+    vinput-gui          # Rust/Iced management GUI over typed crates and D-Bus
   cpp/
     fcitx5-addon        # retained thin AddonInstance frontend bridge
   data/
   docs/
 ```
 
-The current workspace already has the pure protocol/config/process/audio/ASR/text/registry crates plus `vinput-daemon` and `vinput-cli`. Backend implementations can keep landing behind those seams without changing the top-level crate boundaries.
+The current workspace implements all listed Rust crates, including the packaged GUI baseline. Backend and management features should keep landing behind these seams without changing the top-level boundaries or expanding the retained C++ component.
 
 ## Runtime actors
 
@@ -117,7 +117,7 @@ Do not replace the Fcitx5 addon with a Rust addon until mature Rust bindings and
    - Port registry parsing/download with safe extraction tests.
    - Rebuild CLI commands against typed crates.
    - Reduce C++ addon to Fcitx API, menus, preedit, and D-Bus bridge.
-   - Implement any future standalone management GUI in Rust as `vinput-gui`; do not port the legacy Qt GUI into C++.
+   - Continue the standalone management GUI in Rust as `vinput-gui`; do not port or restore the legacy Qt GUI in C++.
    - Keep GUI state and mutations behind typed library/D-Bus APIs instead of invoking CLI text interfaces.
 
 ## What not to port mechanically

@@ -1,5 +1,7 @@
 # E2E replication plan
 
+Reviewed: 2026-08-03
+
 This is the active execution plan. Status belongs in [`function-gap-audit.md`](function-gap-audit.md); subsystem detail belongs in [`e2e-capability-matrix.md`](e2e-capability-matrix.md).
 
 ## Product target
@@ -85,8 +87,9 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 
 ## Work selection rules
 
-- Prefer work that directly moves M4.
-- Keep mock, file-input, session-bus, and temporary-HOME checks green.
+- Prefer work that directly advances M7, the Rust management GUI baseline.
+- Treat M4 desktop and M6 release work as regression maintenance unless a blocking issue or explicit user request requires new expansion.
+- Keep mock, file-input, session-bus, temporary-HOME, desktop, and package evidence green.
 - Do not call deterministic evidence live proof.
 - Keep real-profile mutation explicit and opt-in.
 - Preserve public wire and frontend contracts.

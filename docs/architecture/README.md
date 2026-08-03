@@ -8,14 +8,14 @@ This directory contains tracked architecture and compatibility contracts for the
 2. Subsystem contract for the area being changed:
    - [`dbus-service.md`](dbus-service.md): legacy D-Bus service facade, diagnostic extension, and compatibility rules.
    - [`config-contract.md`](config-contract.md): default config fixture, parsing, validation, and diagnostics behavior.
-   - [`process-contract.md`](process-contract.md): shared command-helper process groups, deadlines, descendant cleanup, and bounded output capture.
+   - [`process-contract.md`](process-contract.md): shared command-helper process groups, deadlines, descendant cleanup, zombie-aware liveness, and bounded output capture.
    - [`registry-contract.md`](registry-contract.md): registry metadata, dry-run planning, and sample fixture contracts.
    - [`asr-contract.md`](asr-contract.md): ASR backend/session seams, command ASR behavior, and diagnostics.
    - [`audio-contract.md`](audio-contract.md): PCM layout, WAV/raw byte policy, recorder lifecycle, and PipeWire scaffold.
    - [`text-contract.md`](text-contract.md): text post-processing, prompt/context cache, command adapters, and OpenAI-compatible seams.
    - [`remote-text-contract.md`](remote-text-contract.md): remote input settings, authentication, protocol state, HTTP/WebSocket runtime, daemon-owned lifecycle, and remaining endpoint/live-validation boundary.
-   - [`packaging-contract.md`](packaging-contract.md): Arch package identity, runtime contents, private native-library policy, activation, and release validation.
-   - [`gui-contract.md`](gui-contract.md): implemented Rust/Iced management baseline, packaging contract, and remaining parity criteria.
+   - [`packaging-contract.md`](packaging-contract.md): package identity, runtime contents, private native-library policy, lifecycle handoff, transaction evidence, and release validation.
+   - [`gui-contract.md`](gui-contract.md): implemented Rust/Iced management baseline, package integration, and remaining parity criteria.
 3. [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), for current parity baseline.
 4. [`../migration/e2e-capability-matrix.md`](../migration/e2e-capability-matrix.md), for detailed native runtime/frontend/user-flow parity gaps.
 5. [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md), for active migration direction.
