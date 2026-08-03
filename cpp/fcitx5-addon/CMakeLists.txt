@@ -146,7 +146,9 @@ target_include_directories(vinput_fcitx_bridge_core
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_link_libraries(vinput_fcitx_bridge_core PRIVATE vinput_fcitx_rust_ffi)
+# The public bridge headers use opaque types and deleters from the canonical
+# Rust FFI header, so consumers need its include and link interface.
+target_link_libraries(vinput_fcitx_bridge_core PUBLIC vinput_fcitx_rust_ffi)
 target_compile_features(vinput_fcitx_bridge_core PUBLIC cxx_std_20)
 set_target_properties(vinput_fcitx_bridge_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 vinput_bridge_apply_warnings(vinput_fcitx_bridge_core)

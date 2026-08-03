@@ -2,16 +2,11 @@
 
 #include "vinput_fcitx_bridge/frontend_presentation.h"
 #include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <cstdint>
 #include <string>
 #include <string_view>
-
-struct VinputFcitxDaemonClient;
-struct VinputFcitxFrontendController;
-
-extern "C" void
-vinput_fcitx_frontend_controller_free(VinputFcitxFrontendController *controller);
 
 namespace vinput_fcitx_bridge {
 

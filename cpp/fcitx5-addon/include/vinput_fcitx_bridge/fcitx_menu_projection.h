@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -8,19 +9,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-
-struct VinputFcitxMenuProjection;
-struct VinputFcitxAsrMenuController;
-struct VinputFcitxSceneMenuController;
-
-extern "C" void
-vinput_fcitx_menu_projection_free(VinputFcitxMenuProjection *projection);
-extern "C" VinputFcitxAsrMenuController *vinput_fcitx_asr_menu_controller_new();
-extern "C" void
-vinput_fcitx_asr_menu_controller_free(VinputFcitxAsrMenuController *controller);
-extern "C" VinputFcitxSceneMenuController *vinput_fcitx_scene_menu_controller_new();
-extern "C" void
-vinput_fcitx_scene_menu_controller_free(VinputFcitxSceneMenuController *controller);
 
 namespace vinput_fcitx_bridge {
 

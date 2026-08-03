@@ -2,16 +2,13 @@
 
 #include "vinput_fcitx_bridge/fcitx_config.h"
 #include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <chrono>
 #include <cstdint>
 #include <optional>
 
 #include <fcitx-utils/key.h>
-
-struct VinputFcitxTriggerState;
-
-extern "C" void vinput_fcitx_trigger_state_free(VinputFcitxTriggerState *state);
 
 namespace vinput_fcitx_bridge {
 

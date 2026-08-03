@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -10,10 +11,6 @@
 #include <utility>
 
 #include <fcitx-utils/key.h>
-
-struct VinputFcitxMenuSession;
-
-extern "C" void vinput_fcitx_menu_session_free(VinputFcitxMenuSession *session);
 
 namespace vinput_fcitx_bridge {
 
