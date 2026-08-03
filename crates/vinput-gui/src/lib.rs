@@ -24,6 +24,7 @@ mod model_install;
 mod model_management;
 mod page;
 mod provider_script_edit;
+mod resource_details;
 mod resource_pages;
 mod script_install;
 mod script_management;
@@ -36,6 +37,7 @@ use model_install::ModelInstallState;
 pub use model_management::default_model_root;
 use model_management::{load_installed_models, model_is_active, remove_installed_model};
 pub use page::Page;
+use resource_details::ResourceSelection;
 use script_install::ScriptInstallState;
 pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretInput};
 
@@ -150,6 +152,7 @@ pub struct App {
     script_install: ScriptInstallState,
     next_script_install_id: u64,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
+    selected_resource: Option<ResourceSelection>,
 }
 
 impl App {
@@ -177,6 +180,7 @@ impl App {
                 script_install: ScriptInstallState::default(),
                 next_script_install_id: 1,
                 installed_models: load_installed_models(),
+                selected_resource: None,
             },
             daemon_refresh_task(),
         )
@@ -185,7 +189,7 @@ impl App {
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::SelectPage(page) => self.page = page,
+            Message::SelectPage(page) => self.select_page(page),
             Message::FilterChanged(filter) => self.filter = filter,
             Message::RefreshDaemon => return self.begin_daemon_refresh(true),
             Message::DaemonLoaded(result) => {
@@ -240,10 +244,13 @@ impl App {
             Message::ModelInstalled {
                 operation_id,
                 outcome,
-            } => {
-                return self.finish_model_install(operation_id, outcome);
-            }
+            } => return self.finish_model_install(operation_id, outcome),
             Message::ModelRemoved(result) => return self.finish_model_remove(result),
+            Message::SelectInstalledModelDetail(path) => self.select_installed_model_detail(path),
+            Message::SelectAsrProviderDetail(id) => self.select_asr_provider_detail(id),
+            Message::SelectLlmProviderDetail(id) => self.select_llm_provider_detail(id),
+            Message::SelectLlmAdapterDetail(id) => self.select_llm_adapter_detail(id),
+            Message::ClearResourceDetail => self.clear_resource_detail(),
             Message::ProviderSelectorChanged(value) => self.provider_selector = value,
             Message::AdapterSelectorChanged(value) => self.adapter_selector = value,
             Message::InstallProvider => {
@@ -280,6 +287,11 @@ impl App {
             Message::ScriptRemoved(result) => return self.finish_script_remove(result),
         }
         Task::none()
+    }
+
+    fn select_page(&mut self, page: Page) {
+        self.page = page;
+        self.selected_resource = None;
     }
 
     fn begin_daemon_refresh(&mut self, show_loading: bool) -> Task<Message> {

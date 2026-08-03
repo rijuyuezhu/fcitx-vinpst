@@ -73,6 +73,16 @@ pub enum Message {
     RemoveInstalledModel(PathBuf),
     /// Result of an installed model removal.
     ModelRemoved(Result<String, String>),
+    /// Show typed details for one installed model.
+    SelectInstalledModelDetail(PathBuf),
+    /// Show typed details for one ASR provider.
+    SelectAsrProviderDetail(String),
+    /// Show typed details for one LLM provider.
+    SelectLlmProviderDetail(String),
+    /// Show typed details for one text adapter.
+    SelectLlmAdapterDetail(String),
+    /// Close the current resource detail panel.
+    ClearResourceDetail,
     /// Update the live registry ASR provider id or short id to install.
     ProviderSelectorChanged(String),
     /// Update the live registry text adapter id or short id to install.
