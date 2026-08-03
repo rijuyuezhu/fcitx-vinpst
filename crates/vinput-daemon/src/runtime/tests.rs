@@ -893,6 +893,62 @@ fn dropping_runtime_cleans_up_supervised_adapter() {
 }
 
 #[test]
+fn configured_reload_stops_adapter_removed_from_config() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-removal");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let config = config_with_sleep_adapter("cmd-adapter");
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    assert!(process_is_runnable(pid));
+    assert!(pid_path.exists());
+
+    let mut updated = config;
+    updated.llm.adapters.clear();
+    updated.validate().unwrap();
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
+
+    assert!(!runtime.is_text_adapter_running("cmd-adapter"));
+    assert_eq!(runtime.text_adapter_pid("cmd-adapter"), None);
+    assert_eq!(
+        runtime
+            .configured_text_adapter_state_for_runtime()
+            .adapter_count,
+        0
+    );
+    assert!(!pid_path.exists());
+    wait_until_process_stops_running(pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn configured_reload_stops_adapter_whose_definition_changed() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-update");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let config = config_with_sleep_adapter("cmd-adapter");
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    let mut updated = config;
+    updated.llm.adapters[0].args = vec!["60".to_owned()];
+    updated.validate().unwrap();
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
+
+    assert!(!runtime.is_text_adapter_running("cmd-adapter"));
+    assert!(!pid_path.exists());
+    wait_until_process_stops_running(pid);
+    assert_eq!(
+        runtime.configured_text_adapter_state_for_runtime().adapters[0].args_count,
+        1
+    );
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
 fn refresh_text_adapters_reaps_exited_processes_and_descendants() {
     let runtime_dir = unique_adapter_runtime_dir("refresh-exited");
     let pid_path = runtime_dir.join("cmd-adapter.pid");
@@ -992,7 +1048,11 @@ fn background_asr_reload_reports_pending_and_physical_preparation() {
     )
     .unwrap();
 
-    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    assert!(
+        runtime
+            .queue_configured_asr_reload(config_with_mock_asr())
+            .unwrap()
+    );
     let pending = runtime.asr_backend_state();
     assert!(pending.reload_in_progress);
     assert_eq!(pending.target_provider_id, "mock");
@@ -1024,7 +1084,11 @@ fn background_asr_reload_discards_stale_prepared_generation() {
     )
     .unwrap();
 
-    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    assert!(
+        runtime
+            .queue_configured_asr_reload(config_with_mock_asr())
+            .unwrap()
+    );
     let AsrReloadWorkerStep::Prepare(first) = runtime.next_asr_reload_worker_step() else {
         panic!("first queued reload should enter preparation");
     };
@@ -1032,7 +1096,7 @@ fn background_asr_reload_discards_stale_prepared_generation() {
 
     let mut latest = config_with_mock_asr();
     latest.global.default_language = "en-US".to_owned();
-    assert!(!runtime.queue_configured_asr_reload(latest));
+    assert!(!runtime.queue_configured_asr_reload(latest).unwrap());
     runtime.complete_prepared_asr_reload(first);
     let stale = runtime.asr_backend_state();
     assert_eq!(stale.effective_model_id, "mock-buffered");
@@ -1056,14 +1120,18 @@ fn background_asr_reload_failure_notifies_only_for_current_generation() {
     )
     .unwrap();
 
-    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    assert!(
+        runtime
+            .queue_configured_asr_reload(config_with_mock_asr())
+            .unwrap()
+    );
     let AsrReloadWorkerStep::Prepare(first) = runtime.next_asr_reload_worker_step() else {
         panic!("first queued reload should enter preparation");
     };
 
     let mut latest = config_with_mock_asr();
     latest.global.default_language = "en-US".to_owned();
-    assert!(!runtime.queue_configured_asr_reload(latest));
+    assert!(!runtime.queue_configured_asr_reload(latest).unwrap());
     let error = RuntimeError::BackgroundTask("stale failure".to_owned());
     assert!(
         runtime
@@ -1219,7 +1287,7 @@ fn queued_configured_reload_updates_idle_runtime_config_and_text_policy() {
     });
     updated.validate().unwrap();
 
-    assert!(runtime.queue_configured_asr_reload(updated));
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
     assert_eq!(runtime.scene_state().0, "reload-scene");
     assert_eq!(runtime.capture_device(), "virtual.source");
 
@@ -1238,7 +1306,7 @@ fn queued_configured_reload_defers_scene_changes_until_busy_runtime_is_idle() {
     updated.scenes.active_scene = vinput_config::COMMAND_SCENE_ID.to_owned();
     updated.validate().unwrap();
 
-    assert!(runtime.queue_configured_asr_reload(updated));
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
     assert_eq!(runtime.scene_state().0, vinput_config::RAW_SCENE_ID);
     runtime.stop_recording(None).unwrap();
     assert!(matches!(

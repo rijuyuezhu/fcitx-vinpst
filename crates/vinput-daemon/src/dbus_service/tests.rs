@@ -665,6 +665,60 @@ async fn dbus_facade_supervises_configured_adapter() {
 }
 
 #[tokio::test]
+async fn dbus_facade_reload_stops_adapter_removed_from_config_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let runtime_dir = unique_adapter_runtime_dir("dbus-reload-removal");
+    let pid_path = runtime_dir.join("mock-adapter.pid");
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.asr.active_provider = "mock".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: None,
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    config.llm.adapters.push(LlmAdapterConfig {
+        id: "mock-adapter".to_owned(),
+        command: "sleep".to_owned(),
+        args: vec!["30".to_owned()],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    });
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(vinput_text::AdapterRuntimePaths::new(runtime_dir.clone()));
+    runtime.set_config_path(Some(config_path.clone()));
+    let service = VinputDbusService::new(runtime);
+
+    service.start_adapter("mock-adapter").await.unwrap();
+    assert!(pid_path.exists());
+
+    config.llm.adapters.clear();
+    config.validate().unwrap();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    service.reload_asr_backend().await.unwrap();
+
+    assert!(!pid_path.exists());
+    let state_json = service.get_text_adapter_state().await.unwrap();
+    let state: TextAdapterState = serde_json::from_str(&state_json).unwrap();
+    assert_eq!(state.adapter_count, 0);
+    let stop_error = service
+        .stop_adapter("mock-adapter")
+        .await
+        .expect_err("removed adapter must no longer be configured");
+    assert!(stop_error.to_string().contains("is not configured"));
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[tokio::test]
 async fn dbus_facade_returns_text_adapter_state_json() {
     let mut config = VinputConfig::bundled_default().unwrap();
     config.llm.adapters.push(LlmAdapterConfig {

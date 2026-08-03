@@ -201,6 +201,17 @@ impl VinputDbusService {
                     tokio::time::sleep(ASR_RELOAD_POLL_INTERVAL).await;
                 }
                 AsrReloadWorkerStep::Stop => return,
+                AsrReloadWorkerStep::Failed { generation, error } => {
+                    let notification = self
+                        .runtime
+                        .lock()
+                        .await
+                        .fail_prepared_asr_reload(generation, &error);
+                    if let Some(message) = notification {
+                        self.emit_asr_reload_failure(&message).await;
+                    }
+                    return;
+                }
                 AsrReloadWorkerStep::Prepare(request) => {
                     let generation = request.generation();
                     let result = tokio::task::spawn_blocking(move || request.prepare()).await;
@@ -266,7 +277,8 @@ impl VinputDbusService {
             .runtime
             .lock()
             .await
-            .queue_configured_asr_reload(config);
+            .queue_configured_asr_reload(config)
+            .map_err(|error| Self::map_runtime_error(&error))?;
         if should_spawn_worker {
             let service = self.clone();
             tokio::spawn(async move {

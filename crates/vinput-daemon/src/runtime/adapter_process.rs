@@ -8,6 +8,39 @@ use vinput_text::{
 use super::{RuntimeError, RuntimeState};
 
 impl RuntimeState {
+    /// Stops supervised adapters whose definitions will disappear or change.
+    ///
+    /// The current config remains published when any safe stop fails, so the
+    /// process stays diagnosable and can still be targeted by `StopAdapter`.
+    pub(super) fn stop_reconfigured_text_adapters(
+        &mut self,
+        next_config: &vinput_config::VinputConfig,
+    ) -> Result<(), RuntimeError> {
+        let stale_adapter_ids = self
+            .config
+            .llm
+            .adapters
+            .iter()
+            .filter(|current| !next_config.llm.adapters.iter().any(|next| next == *current))
+            .map(|adapter| adapter.id.clone())
+            .collect::<Vec<_>>();
+
+        for adapter_id in stale_adapter_ids {
+            if let Some(mut process) = self.adapter_processes.remove(&adapter_id) {
+                if let Err(error) =
+                    stop_started_adapter_process(&mut process, &self.adapter_runtime_paths)
+                {
+                    self.adapter_processes.insert(adapter_id, process);
+                    return Err(RuntimeError::TextAdapterSupervisor(error));
+                }
+            } else {
+                stop_adapter_process(&adapter_id, &self.adapter_runtime_paths)
+                    .map_err(RuntimeError::TextAdapterSupervisor)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Overrides adapter runtime paths for tests or embedded callers.
     #[must_use]
     pub fn with_adapter_runtime_paths(mut self, paths: AdapterRuntimePaths) -> Self {
