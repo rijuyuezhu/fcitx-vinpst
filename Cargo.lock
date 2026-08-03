@@ -4312,6 +4312,7 @@ dependencies = [
  "vinput-config",
  "vinput-protocol",
  "vinput-registry",
+ "vinput-text",
  "zbus",
 ]
 

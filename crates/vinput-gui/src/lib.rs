@@ -39,7 +39,7 @@ pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
 use llm_provider_management::LlmProviderEditorState;
 pub use llm_provider_management::{
-    LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome,
+    LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome, LlmProviderTestOutcome,
 };
 pub use message::Message;
 pub use model_install::ModelInstallOutcome;
@@ -173,6 +173,7 @@ pub struct App {
     selected_resource: Option<ResourceSelection>,
     scene_editor: Option<SceneEditorState>,
     llm_provider_editor: Option<LlmProviderEditorState>,
+    llm_provider_test_text: SecretInput,
 }
 
 impl App {
@@ -204,6 +205,7 @@ impl App {
             selected_resource: None,
             scene_editor: None,
             llm_provider_editor: None,
+            llm_provider_test_text: SecretInput::new("Connectivity test".to_owned()),
         };
         let task = app.begin_daemon_refresh(true);
         (app, task)

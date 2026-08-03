@@ -6,7 +6,11 @@ use iced::{
     Element, Length, Task,
     widget::{button, column, row, text, text_input},
 };
-use vinput_config::{LlmProviderConfig, VinputConfig, redact_url_for_diagnostics};
+use vinput_config::{LlmProviderConfig, SceneDefinition, VinputConfig, redact_url_for_diagnostics};
+use vinput_text::{
+    OpenAiCompatibleChatTransport, OpenAiCompatibleTextAdapter,
+    ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,
+};
 
 use crate::{
     App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, SecretInput,
@@ -37,6 +41,12 @@ pub enum LlmProviderMessage {
     BeginEdit(String),
     /// Remove one configured provider when the full config remains valid.
     Remove(String),
+    /// Update the connectivity-test input without exposing it through `Debug`.
+    TestInputChanged(SecretInput),
+    /// Test one configured OpenAI-compatible provider.
+    Test(String),
+    /// Result of one asynchronous provider test.
+    TestFinished(Result<LlmProviderTestOutcome, String>),
     /// Update one field without exposing the entered value through `Debug`.
     EditorChanged {
         /// Typed field being edited.
@@ -61,6 +71,15 @@ pub struct LlmProviderMutationOutcome {
     pub save: ConfigSaveOutcome,
     /// Secret-free user-facing mutation summary.
     pub summary: String,
+}
+
+/// Secret-free result of one LLM provider connectivity test.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmProviderTestOutcome {
+    /// Stable configured provider id.
+    pub provider_id: String,
+    /// Number of parsed response candidates.
+    pub candidate_count: usize,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -211,6 +230,13 @@ impl App {
             LlmProviderMessage::BeginAdd => self.begin_add_llm_provider(),
             LlmProviderMessage::BeginEdit(id) => self.begin_edit_llm_provider(&id),
             LlmProviderMessage::Remove(id) => return self.begin_llm_provider_remove(&id),
+            LlmProviderMessage::TestInputChanged(value) => {
+                self.llm_provider_test_text = value;
+            }
+            LlmProviderMessage::Test(id) => return self.begin_llm_provider_test(&id),
+            LlmProviderMessage::TestFinished(result) => {
+                return self.finish_llm_provider_test(result);
+            }
             LlmProviderMessage::EditorChanged { field, value } => {
                 self.update_llm_provider_editor(field, value);
             }
@@ -279,6 +305,67 @@ impl App {
             updated,
             format!("Removed LLM provider `{provider_id}`."),
         )
+    }
+
+    fn begin_llm_provider_test(&mut self, provider_id: &str) -> Task<Message> {
+        if self.is_busy() || self.llm_provider_editor.is_some() {
+            return Task::none();
+        }
+        let test_text = self.llm_provider_test_text.as_str().trim().to_owned();
+        if test_text.is_empty() {
+            self.operation = OperationState::Failed(
+                "LLM provider connectivity-test input cannot be empty.".to_owned(),
+            );
+            return Task::none();
+        }
+        let Some(provider) = self
+            .config
+            .as_ref()
+            .ok()
+            .and_then(|document| {
+                document
+                    .config
+                    .llm
+                    .providers
+                    .iter()
+                    .find(|provider| provider.id == provider_id)
+            })
+            .cloned()
+        else {
+            self.operation = OperationState::Failed(format!(
+                "LLM provider `{provider_id}` is no longer configured."
+            ));
+            return Task::none();
+        };
+
+        self.operation = OperationState::Running("Testing LLM provider…");
+        Task::perform(
+            async move {
+                match tokio::task::spawn_blocking(move || test_llm_provider(provider, &test_text))
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(error) => Err(format!("LLM provider test worker failed: {error}")),
+                }
+            },
+            |result| Message::LlmProvider(LlmProviderMessage::TestFinished(result)),
+        )
+    }
+
+    fn finish_llm_provider_test(
+        &mut self,
+        result: Result<LlmProviderTestOutcome, String>,
+    ) -> Task<Message> {
+        match result {
+            Ok(outcome) => {
+                self.operation = OperationState::Succeeded(format!(
+                    "LLM provider `{}` returned {} candidate(s).",
+                    outcome.provider_id, outcome.candidate_count
+                ));
+            }
+            Err(error) => self.operation = OperationState::Failed(error),
+        }
+        Task::none()
     }
 
     fn update_llm_provider_editor(&mut self, field: LlmProviderEditorField, value: SecretInput) {
@@ -381,6 +468,7 @@ impl App {
 
     pub(super) fn llm_provider_management_view(&self, busy: bool) -> Element<'_, Message> {
         let editor_open = self.llm_provider_editor.is_some();
+        let test_input_enabled = !busy && !editor_open;
         let mut body = column![
             row![
                 text("Providers").size(22).width(Length::Fill),
@@ -388,6 +476,20 @@ impl App {
                     (!busy && !editor_open)
                         .then_some(Message::LlmProvider(LlmProviderMessage::BeginAdd)),
                 ),
+            ]
+            .spacing(10),
+            row![
+                text("Test input").width(160),
+                text_input(
+                    "short connectivity-test text",
+                    self.llm_provider_test_text.as_str()
+                )
+                .on_input_maybe(test_input_enabled.then_some(|value| {
+                    Message::LlmProvider(LlmProviderMessage::TestInputChanged(SecretInput::new(
+                        value,
+                    )))
+                }))
+                .width(Length::Fill),
             ]
             .spacing(10),
         ]
@@ -410,6 +512,7 @@ impl App {
                         ),
                         &provider.id,
                         !busy && !editor_open,
+                        !self.llm_provider_test_text.as_str().trim().is_empty(),
                     ));
                 }
                 if document.config.llm.providers.is_empty() {
@@ -430,10 +533,14 @@ fn llm_provider_row(
     label: String,
     provider_id: &str,
     controls_enabled: bool,
+    test_input_present: bool,
 ) -> Element<'static, Message> {
     row![
         text(label).width(Length::Fill),
         button("Details").on_press(Message::SelectLlmProviderDetail(provider_id.to_owned())),
+        button("Test").on_press_maybe((controls_enabled && test_input_present).then_some(
+            Message::LlmProvider(LlmProviderMessage::Test(provider_id.to_owned()),)
+        ),),
         button("Edit").on_press_maybe(controls_enabled.then_some(Message::LlmProvider(
             LlmProviderMessage::BeginEdit(provider_id.to_owned())
         ))),
@@ -572,6 +679,53 @@ fn edit_llm_provider(
     validate_llm_provider_update(updated)
 }
 
+fn llm_provider_test_scene(provider: &LlmProviderConfig) -> SceneDefinition {
+    SceneDefinition {
+        id: "__llm_test__".to_owned(),
+        label: "LLM Test".to_owned(),
+        prompt: Some(
+            "Return a JSON object with a candidates array containing one short connectivity result."
+                .to_owned(),
+        ),
+        provider_id: Some(provider.id.clone()),
+        model: provider.model.clone(),
+        candidate_count: 1,
+        timeout_ms: None,
+        context_lines: 0,
+    }
+}
+
+fn test_llm_provider(
+    provider: LlmProviderConfig,
+    test_text: &str,
+) -> Result<LlmProviderTestOutcome, String> {
+    test_llm_provider_with_transport(
+        provider,
+        test_text,
+        ReqwestOpenAiCompatibleChatTransport::new(),
+    )
+}
+
+fn test_llm_provider_with_transport<T: OpenAiCompatibleChatTransport>(
+    provider: LlmProviderConfig,
+    test_text: &str,
+    transport: T,
+) -> Result<LlmProviderTestOutcome, String> {
+    let scene = llm_provider_test_scene(&provider);
+    let request = TextRequest {
+        raw_text: test_text,
+        scene: &scene,
+        selected_text: None,
+    };
+    let payload = OpenAiCompatibleTextAdapter::new(provider.clone(), transport)
+        .finish(&request)
+        .map_err(|error| format!("Test LLM provider `{}`: {error}", provider.id))?;
+    Ok(LlmProviderTestOutcome {
+        provider_id: provider.id,
+        candidate_count: payload.candidates.len(),
+    })
+}
+
 fn remove_llm_provider(config: &VinputConfig, provider_id: &str) -> Result<VinputConfig, String> {
     let mut updated = config.clone();
     let before = updated.llm.providers.len();
@@ -601,9 +755,53 @@ fn optional_trimmed(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
+
+    use vinput_text::{OpenAiCompatibleChatRequest, TextError};
 
     use super::*;
+
+    #[derive(Debug, Clone)]
+    struct StaticTransport {
+        response_body: String,
+        seen_request: Arc<Mutex<Option<OpenAiCompatibleChatRequest>>>,
+        seen_timeout_ms: Arc<Mutex<Option<u64>>>,
+    }
+
+    impl StaticTransport {
+        fn one_candidate() -> Self {
+            Self {
+                response_body: serde_json::json!({
+                    "choices": [{
+                        "message": {
+                            "content": serde_json::json!({
+                                "candidates": ["connected"]
+                            })
+                            .to_string()
+                        }
+                    }]
+                })
+                .to_string(),
+                seen_request: Arc::new(Mutex::new(None)),
+                seen_timeout_ms: Arc::new(Mutex::new(None)),
+            }
+        }
+    }
+
+    impl OpenAiCompatibleChatTransport for StaticTransport {
+        fn send(
+            &self,
+            request: &OpenAiCompatibleChatRequest,
+            timeout_ms: Option<u64>,
+        ) -> Result<String, TextError> {
+            *self.seen_request.lock().expect("request lock") = Some(request.clone());
+            *self.seen_timeout_ms.lock().expect("timeout lock") = timeout_ms;
+            Ok(self.response_body.clone())
+        }
+    }
 
     fn provider(id: &str) -> LlmProviderConfig {
         LlmProviderConfig {
@@ -731,6 +929,49 @@ mod tests {
         config.scenes.definitions[0].provider_id = Some("cloud".to_owned());
         let error = remove_llm_provider(&config, "cloud").expect_err("reject referenced provider");
         assert!(error.contains("cloud"));
+    }
+
+    #[test]
+    fn connectivity_test_uses_production_request_contract_and_redacted_outcome() {
+        let transport = StaticTransport::one_candidate();
+        let request_capture = Arc::clone(&transport.seen_request);
+        let timeout_capture = Arc::clone(&transport.seen_timeout_ms);
+        let outcome = test_llm_provider_with_transport(
+            provider("cloud"),
+            "sensitive connectivity input",
+            transport,
+        )
+        .expect("connectivity test");
+
+        assert_eq!(outcome.provider_id, "cloud");
+        assert_eq!(outcome.candidate_count, 1);
+        assert_eq!(*timeout_capture.lock().expect("timeout lock"), Some(4000));
+        let request = request_capture
+            .lock()
+            .expect("request lock")
+            .clone()
+            .expect("captured request");
+        assert_eq!(
+            request.url,
+            "https://user:secret@example.invalid/v1/chat/completions?key=hidden"
+        );
+        assert!(
+            request
+                .body
+                .to_string()
+                .contains("sensitive connectivity input")
+        );
+        let debug = format!("{outcome:?}");
+        assert!(!debug.contains("sensitive connectivity input"));
+        assert!(!debug.contains("api-secret"));
+    }
+
+    #[test]
+    fn connectivity_input_message_debug_is_redacted() {
+        let message = LlmProviderMessage::TestInputChanged(SecretInput::new(
+            "sensitive connectivity input".to_owned(),
+        ));
+        assert!(!format!("{message:?}").contains("sensitive connectivity input"));
     }
 
     #[test]
