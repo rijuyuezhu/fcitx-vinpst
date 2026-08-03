@@ -31,9 +31,18 @@ VINPUT_REMOVE_ROOT="${root}" \
   timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
 root="${VINPUT_REMOVE_ROOT}"
 uid="$(id -u)"
-runtime_root="${root}/run/user"
+runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinput-remove-runtime.XXXXXX")"
 runtime_dir="${runtime_root}/${uid}"
 activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinput.service"
+daemon_pid=""
+cleanup() {
+  if [[ -n "${daemon_pid}" ]]; then
+    kill "${daemon_pid}" 2>/dev/null || true
+    wait "${daemon_pid}" 2>/dev/null || true
+  fi
+  rm -rf "${runtime_root}"
+}
+trap cleanup EXIT
 mkdir -p "${runtime_dir}" "${root}/config"
 bus_path="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"
 bus_path="${bus_path%%,*}"
@@ -85,11 +94,6 @@ chmod +x "${root}/runuser" "${root}/systemctl"
 
 XDG_CONFIG_HOME="${root}/config" target/debug/vinput-daemon --dbus >"${root}/daemon.log" 2>&1 &
 daemon_pid=$!
-cleanup() {
-  kill "${daemon_pid}" 2>/dev/null || true
-  wait "${daemon_pid}" 2>/dev/null || true
-}
-trap cleanup EXIT
 for _ in $(seq 1 100); do
   if gdbus call --session \
     --dest org.freedesktop.DBus \
@@ -152,9 +156,22 @@ VINPUT_REMOVE_ROOT="${busy_root}" \
   timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
 root="${VINPUT_REMOVE_ROOT}"
 uid="$(id -u)"
-runtime_root="${root}/run/user"
+runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinput-remove-busy-runtime.XXXXXX")"
 runtime_dir="${runtime_root}/${uid}"
 activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinput.service"
+daemon_pid=""
+cleanup() {
+  if [[ -n "${daemon_pid}" ]]; then
+    gdbus call --session \
+      --dest org.fcitx.Vinput \
+      --object-path /org/fcitx/Vinput \
+      --method org.fcitx.Vinput.Service.StopRecording "" >/dev/null 2>&1 || true
+    kill "${daemon_pid}" 2>/dev/null || true
+    wait "${daemon_pid}" 2>/dev/null || true
+  fi
+  rm -rf "${runtime_root}"
+}
+trap cleanup EXIT
 mkdir -p "${runtime_dir}" "${root}/config"
 bus_path="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"
 bus_path="${bus_path%%,*}"
@@ -196,15 +213,6 @@ chmod +x "${root}/runuser" "${root}/systemctl" "${root}/must-not-kill"
 
 XDG_CONFIG_HOME="${root}/config" target/debug/vinput-daemon --dbus >"${root}/daemon.log" 2>&1 &
 daemon_pid=$!
-cleanup() {
-  gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method org.fcitx.Vinput.Service.StopRecording "" >/dev/null 2>&1 || true
-  kill "${daemon_pid}" 2>/dev/null || true
-  wait "${daemon_pid}" 2>/dev/null || true
-}
-trap cleanup EXIT
 for _ in $(seq 1 100); do
   if gdbus call --session \
     --dest org.freedesktop.DBus \
