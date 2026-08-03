@@ -19,6 +19,7 @@ use vinput_config::{VinputConfig, config_backup_path, write_config_file};
 use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
+mod message;
 mod model_install;
 mod model_management;
 mod page;
@@ -27,13 +28,14 @@ mod script_install;
 mod script_management;
 mod script_removal;
 
+pub use message::Message;
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
 pub use model_management::default_model_root;
 use model_management::{load_installed_models, model_is_active, remove_installed_model};
 pub use page::Page;
-pub use script_install::ScriptInstallOutcome;
 use script_install::ScriptInstallState;
+pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretInput};
 
 /// Product display name.
 pub const APPLICATION_TITLE: &str = "Vinput Configuration";
@@ -148,101 +150,6 @@ pub struct App {
     installed_models: Result<Vec<InstalledModelInfo>, String>,
 }
 
-/// GUI messages.
-#[derive(Debug, Clone)]
-pub enum Message {
-    /// Select a main page.
-    SelectPage(Page),
-    /// Update the current resource filter.
-    FilterChanged(String),
-    /// Refresh daemon state over D-Bus.
-    RefreshDaemon,
-    /// Result of an asynchronous daemon refresh.
-    DaemonLoaded(Result<DaemonSnapshot, String>),
-    /// Periodic non-activating daemon-owner poll.
-    DaemonPollTick,
-    /// Result of a periodic non-activating daemon-owner poll.
-    DaemonPolled(Result<Option<DaemonSnapshot>, String>),
-    /// Reload config from disk.
-    ReloadConfig,
-    /// Update the default recognition language draft.
-    DefaultLanguageChanged(String),
-    /// Update the capture target draft.
-    CaptureDeviceChanged(String),
-    /// Toggle output ducking in the draft.
-    DuckOutputChanged(bool),
-    /// Update the output ducking volume in the draft.
-    DuckVolumeChanged(f32),
-    /// Toggle VAD in the draft.
-    VadEnabledChanged(bool),
-    /// Update the VAD threshold in the draft.
-    VadThresholdChanged(f32),
-    /// Select the active ASR provider in the draft.
-    ActiveProviderChanged(String),
-    /// Select the active scene in the draft.
-    ActiveSceneChanged(String),
-    /// Restore editable fields from the loaded config.
-    ResetConfigDraft,
-    /// Validate, back up, and atomically save the config draft.
-    SaveConfig,
-    /// Result of an asynchronous config save.
-    ConfigSaved(Result<ConfigSaveOutcome, String>),
-    /// Start normal recording over D-Bus.
-    StartRecording,
-    /// Stop recording over D-Bus.
-    StopRecording,
-    /// Result of an asynchronous recording action.
-    RecordingActionFinished(Result<String, String>),
-    /// Update the live registry model id or short id to install.
-    ModelSelectorChanged(String),
-    /// Install or update the selected live registry model.
-    InstallModel,
-    /// Request cancellation of the active model installation.
-    CancelModelInstall,
-    /// Retry the last failed or cancelled model installation.
-    RetryModelInstall,
-    /// Refresh progress from the active model installation worker.
-    ModelInstallProgressTick,
-    /// Result of a live registry model installation.
-    ModelInstalled {
-        /// Operation generation used to reject stale completions.
-        operation_id: u64,
-        /// Typed worker outcome.
-        outcome: ModelInstallOutcome,
-    },
-    /// Remove one inactive installed model directory.
-    RemoveInstalledModel(PathBuf),
-    /// Result of an installed model removal.
-    ModelRemoved(Result<String, String>),
-    /// Update the live registry ASR provider id or short id to install.
-    ProviderSelectorChanged(String),
-    /// Update the live registry text adapter id or short id to install.
-    AdapterSelectorChanged(String),
-    /// Install or update the selected command ASR provider.
-    InstallProvider,
-    /// Install or update the selected text adapter.
-    InstallAdapter,
-    /// Request cancellation of the active provider or adapter installation.
-    CancelScriptInstall,
-    /// Retry the last failed or cancelled provider or adapter installation.
-    RetryScriptInstall,
-    /// Refresh progress from the active provider or adapter worker.
-    ScriptInstallProgressTick,
-    /// Result of a live provider or adapter installation.
-    ScriptInstalled {
-        /// Operation generation used to reject stale completions.
-        operation_id: u64,
-        /// Typed worker outcome.
-        outcome: ScriptInstallOutcome,
-    },
-    /// Remove one inactive managed command ASR provider.
-    RemoveProvider(String),
-    /// Remove one managed text adapter.
-    RemoveAdapter(String),
-    /// Result of a provider or adapter removal.
-    ScriptRemoved(Result<String, String>),
-}
-
 impl App {
     /// Creates the initial GUI state and starts a daemon refresh.
     pub fn boot() -> (Self, Task<Message>) {
@@ -343,6 +250,14 @@ impl App {
             Message::InstallAdapter => {
                 return self.begin_script_install(LiveScriptKind::LlmAdapter);
             }
+            Message::ScriptPrepared {
+                operation_id,
+                outcome,
+            } => return self.finish_script_preparation(operation_id, outcome.into_inner()),
+            Message::ScriptEnvironmentChanged { name, value } => {
+                self.update_script_environment(&name, value);
+            }
+            Message::ConfirmScriptInstall => return self.confirm_script_install(),
             Message::CancelScriptInstall => self.script_install.cancel(),
             Message::RetryScriptInstall => return self.retry_script_install(),
             Message::ScriptInstallProgressTick => self.script_install.refresh_progress(),
@@ -393,7 +308,7 @@ impl App {
                     .map(|_| Message::ModelInstallProgressTick),
             );
         }
-        if self.script_install.is_active() {
+        if self.script_install.has_worker() {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
                     .map(|_| Message::ScriptInstallProgressTick),
@@ -642,7 +557,7 @@ impl App {
     fn is_busy(&self) -> bool {
         matches!(self.operation, OperationState::Running(_))
             || self.model_install.is_active()
-            || self.script_install.is_active()
+            || self.script_install.blocks_operations()
     }
 
     fn operation_notice(&self) -> Option<Element<'_, Message>> {

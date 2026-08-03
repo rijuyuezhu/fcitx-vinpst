@@ -1,17 +1,175 @@
-//! GUI state and task ownership for cancellable provider and adapter installation.
+//! GUI state and task ownership for provider and adapter installation.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+};
 
 use iced::{
     Element, Length, Task,
     widget::{button, column, progress_bar, row, text, text_input},
 };
-use vinput_registry::{LiveScriptKind, RegistryOperationControl, RegistryOperationProgress};
+use vinput_registry::{
+    LiveScriptEntry, LiveScriptKind, RegistryOperationControl, RegistryOperationProgress,
+};
 
 use crate::{
     App, ConfigDocument, Message, OperationState, load_config_document,
-    script_management::install_registry_script_controlled, script_management::resource_label,
+    script_management::{
+        install_registry_script_controlled, prepare_registry_script_controlled, resource_label,
+    },
 };
+
+/// A user-entered value whose debug representation is always redacted.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SecretInput(String);
+
+impl SecretInput {
+    pub(crate) fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    pub(crate) fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+impl fmt::Debug for SecretInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<redacted>")
+    }
+}
+
+/// One registry-declared environment value collected before installation.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ScriptEnvironmentValue {
+    pub(crate) name: String,
+    pub(crate) required: bool,
+    pub(crate) value: String,
+}
+
+impl fmt::Debug for ScriptEnvironmentValue {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ScriptEnvironmentValue")
+            .field("name", &self.name)
+            .field("required", &self.required)
+            .field("value", &"<redacted>")
+            .finish()
+    }
+}
+
+/// A resolved provider or adapter installation request.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct ScriptInstallPlan {
+    pub(crate) kind: LiveScriptKind,
+    pub(crate) selector: String,
+    pub(crate) entry: LiveScriptEntry,
+    pub(crate) script_root: std::path::PathBuf,
+    pub(crate) script_path: std::path::PathBuf,
+    pub(crate) environment: Vec<ScriptEnvironmentValue>,
+}
+
+impl fmt::Debug for ScriptInstallPlan {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ScriptInstallPlan")
+            .field("kind", &self.kind)
+            .field("selector", &self.selector)
+            .field("entry_id", &self.entry.id)
+            .field("script_root", &self.script_root)
+            .field("script_path", &self.script_path)
+            .field("environment", &self.environment)
+            .finish()
+    }
+}
+
+impl ScriptInstallPlan {
+    pub(crate) fn missing_required_environment(&self) -> Option<&str> {
+        self.environment
+            .iter()
+            .find(|value| value.required && value.value.trim().is_empty())
+            .map(|value| value.name.as_str())
+    }
+
+    fn set_environment(&mut self, name: &str, value: String) {
+        if let Some(environment) = self
+            .environment
+            .iter_mut()
+            .find(|environment| environment.name == name)
+        {
+            environment.value = value;
+        }
+    }
+
+    fn view(&self) -> Element<'_, Message> {
+        let mut body = column![
+            text(format!(
+                "Configure {} `{}` before installation",
+                resource_label(self.kind),
+                self.entry.id
+            ))
+            .size(18),
+            text("Values are stored in the user configuration and hidden in diagnostics."),
+        ]
+        .spacing(8);
+
+        for environment in &self.environment {
+            let name = environment.name.clone();
+            let requirement = if environment.required {
+                "required"
+            } else {
+                "optional"
+            };
+            body = body.push(
+                column![
+                    text(format!("{} ({requirement})", environment.name)),
+                    text_input("Enter environment value", &environment.value)
+                        .secure(true)
+                        .on_input(move |value| Message::ScriptEnvironmentChanged {
+                            name: name.clone(),
+                            value: SecretInput::new(value),
+                        })
+                        .width(Length::Fill),
+                ]
+                .spacing(4),
+            );
+        }
+
+        let can_install = self.missing_required_environment().is_none();
+        body.push(
+            row![
+                button("Install or update")
+                    .on_press_maybe(can_install.then_some(Message::ConfirmScriptInstall)),
+                button("Cancel").on_press(Message::CancelScriptInstall),
+            ]
+            .spacing(10),
+        )
+        .into()
+    }
+}
+
+/// Result of resolving a provider or adapter registry entry before installation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ScriptPrepareOutcome {
+    Prepared(Box<ScriptInstallPlan>),
+    Cancelled,
+    Failed(String),
+}
+
+/// Opaque, debug-safe result carried by the public GUI message type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptPreparationResult(ScriptPrepareOutcome);
+
+impl ScriptPreparationResult {
+    fn new(outcome: ScriptPrepareOutcome) -> Self {
+        Self(outcome)
+    }
+
+    pub(crate) fn into_inner(self) -> ScriptPrepareOutcome {
+        self.0
+    }
+}
 
 /// Final typed outcome of a GUI provider or adapter installation worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,28 +182,51 @@ pub enum ScriptInstallOutcome {
     Failed(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ScriptRetryRequest {
+    Prepare {
+        kind: LiveScriptKind,
+        selector: String,
+    },
+    Install(Box<ScriptInstallPlan>),
+}
+
 #[derive(Debug, Default)]
 pub(crate) enum ScriptInstallState {
     #[default]
     Idle,
-    Active(ActiveScriptInstall),
+    Preparing(ActiveScriptPreparation),
+    AwaitingEnvironment(Box<ScriptInstallPlan>),
+    Active(Box<ActiveScriptInstall>),
     Succeeded(String),
     Cancelled {
-        kind: LiveScriptKind,
-        selector: String,
+        retry: ScriptRetryRequest,
     },
     Failed {
-        kind: LiveScriptKind,
-        selector: String,
+        retry: ScriptRetryRequest,
         error: String,
     },
 }
 
 #[derive(Debug)]
-pub(crate) struct ActiveScriptInstall {
+pub(crate) struct ActiveScriptPreparation {
     operation_id: u64,
     kind: LiveScriptKind,
     selector: String,
+    control: RegistryOperationControl,
+    cancelling: bool,
+}
+
+impl Drop for ActiveScriptPreparation {
+    fn drop(&mut self) {
+        self.control.cancel();
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ActiveScriptInstall {
+    operation_id: u64,
+    plan: ScriptInstallPlan,
     control: RegistryOperationControl,
     shared_progress: Arc<Mutex<RegistryOperationProgress>>,
     progress: RegistryOperationProgress,
@@ -59,17 +240,66 @@ impl Drop for ActiveScriptInstall {
 }
 
 impl ScriptInstallState {
-    pub(crate) fn is_active(&self) -> bool {
-        matches!(self, Self::Active(_))
+    pub(crate) fn has_worker(&self) -> bool {
+        matches!(self, Self::Preparing(_) | Self::Active(_))
     }
 
-    pub(crate) fn start(
+    pub(crate) fn blocks_operations(&self) -> bool {
+        matches!(
+            self,
+            Self::Preparing(_) | Self::AwaitingEnvironment(_) | Self::Active(_)
+        )
+    }
+
+    pub(crate) fn start_preparation(
         document: ConfigDocument,
         kind: LiveScriptKind,
         selector: String,
         operation_id: u64,
     ) -> (Self, Task<Message>) {
-        let initial_progress = RegistryOperationProgress::ResolvingRegistry;
+        let control = RegistryOperationControl::default();
+        let worker_control = control.clone();
+        let worker_selector = selector.clone();
+        let task = Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    prepare_registry_script_controlled(
+                        &document,
+                        kind,
+                        &worker_selector,
+                        &worker_control,
+                    )
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    ScriptPrepareOutcome::Failed(
+                        "Script preparation worker stopped unexpectedly.".to_owned(),
+                    )
+                })
+            },
+            move |outcome| Message::ScriptPrepared {
+                operation_id,
+                outcome: ScriptPreparationResult::new(outcome),
+            },
+        );
+        (
+            Self::Preparing(ActiveScriptPreparation {
+                operation_id,
+                kind,
+                selector,
+                control,
+                cancelling: false,
+            }),
+            task,
+        )
+    }
+
+    pub(crate) fn start_install(
+        document: ConfigDocument,
+        plan: ScriptInstallPlan,
+        operation_id: u64,
+    ) -> (Self, Task<Message>) {
+        let initial_progress = RegistryOperationProgress::Preparing;
         let shared_progress = Arc::new(Mutex::new(initial_progress.clone()));
         let reported = Arc::clone(&shared_progress);
         let control = RegistryOperationControl::new(move |progress| {
@@ -78,16 +308,11 @@ impl ScriptInstallState {
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = progress;
         });
         let worker_control = control.clone();
-        let worker_selector = selector.clone();
+        let worker_plan = plan.clone();
         let task = Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    install_registry_script_controlled(
-                        &document,
-                        kind,
-                        &worker_selector,
-                        &worker_control,
-                    )
+                    install_registry_script_controlled(&document, &worker_plan, &worker_control)
                 })
                 .await
                 .unwrap_or_else(|_| {
@@ -102,23 +327,33 @@ impl ScriptInstallState {
             },
         );
         (
-            Self::Active(ActiveScriptInstall {
+            Self::Active(Box::new(ActiveScriptInstall {
                 operation_id,
-                kind,
-                selector,
+                plan,
                 control,
                 shared_progress,
                 progress: initial_progress,
                 cancelling: false,
-            }),
+            })),
             task,
         )
     }
 
     pub(crate) fn cancel(&mut self) {
-        if let Self::Active(active) = self {
-            active.control.cancel();
-            active.cancelling = true;
+        match self {
+            Self::Preparing(active) => {
+                active.control.cancel();
+                active.cancelling = true;
+            }
+            Self::AwaitingEnvironment(plan) => {
+                let retry = ScriptRetryRequest::Install(plan.clone());
+                *self = Self::Cancelled { retry };
+            }
+            Self::Active(active) => {
+                active.control.cancel();
+                active.cancelling = true;
+            }
+            Self::Idle | Self::Succeeded(_) | Self::Cancelled { .. } | Self::Failed { .. } => {}
         }
     }
 
@@ -132,42 +367,103 @@ impl ScriptInstallState {
         }
     }
 
-    pub(crate) fn finish(&mut self, operation_id: u64, outcome: ScriptInstallOutcome) -> bool {
+    pub(crate) fn finish_preparation(
+        &mut self,
+        operation_id: u64,
+        outcome: ScriptPrepareOutcome,
+    ) -> bool {
         let (kind, selector) = match self {
-            Self::Active(active) if active.operation_id == operation_id => {
+            Self::Preparing(active) if active.operation_id == operation_id => {
                 (active.kind, active.selector.clone())
             }
             _ => return false,
         };
         *self = match outcome {
-            ScriptInstallOutcome::Installed(summary) => Self::Succeeded(summary),
-            ScriptInstallOutcome::Cancelled => Self::Cancelled { kind, selector },
-            ScriptInstallOutcome::Failed(error) => Self::Failed {
-                kind,
-                selector,
+            ScriptPrepareOutcome::Prepared(plan) => Self::AwaitingEnvironment(plan),
+            ScriptPrepareOutcome::Cancelled => Self::Cancelled {
+                retry: ScriptRetryRequest::Prepare { kind, selector },
+            },
+            ScriptPrepareOutcome::Failed(error) => Self::Failed {
+                retry: ScriptRetryRequest::Prepare { kind, selector },
                 error,
             },
         };
         true
     }
 
-    pub(crate) fn retry_request(&self) -> Option<(LiveScriptKind, String)> {
+    pub(crate) fn take_plan_without_environment(&mut self) -> Option<ScriptInstallPlan> {
+        let Self::AwaitingEnvironment(plan) = self else {
+            return None;
+        };
+        if !plan.environment.is_empty() {
+            return None;
+        }
+        let plan = (**plan).clone();
+        *self = Self::Idle;
+        Some(plan)
+    }
+
+    pub(crate) fn update_environment(&mut self, name: &str, value: String) {
+        if let Self::AwaitingEnvironment(plan) = self {
+            plan.set_environment(name, value);
+        }
+    }
+
+    pub(crate) fn confirmed_plan(&self) -> Result<Option<ScriptInstallPlan>, String> {
+        let Self::AwaitingEnvironment(plan) = self else {
+            return Ok(None);
+        };
+        if let Some(name) = plan.missing_required_environment() {
+            return Err(format!(
+                "Enter a value for required environment variable `{name}` before installing."
+            ));
+        }
+        Ok(Some((**plan).clone()))
+    }
+
+    pub(crate) fn finish_install(
+        &mut self,
+        operation_id: u64,
+        outcome: ScriptInstallOutcome,
+    ) -> bool {
+        let plan = match self {
+            Self::Active(active) if active.operation_id == operation_id => active.plan.clone(),
+            _ => return false,
+        };
+        *self = match outcome {
+            ScriptInstallOutcome::Installed(summary) => Self::Succeeded(summary),
+            ScriptInstallOutcome::Cancelled => Self::Cancelled {
+                retry: ScriptRetryRequest::Install(Box::new(plan)),
+            },
+            ScriptInstallOutcome::Failed(error) => Self::Failed {
+                retry: ScriptRetryRequest::Install(Box::new(plan)),
+                error,
+            },
+        };
+        true
+    }
+
+    fn retry_request(&self) -> Option<ScriptRetryRequest> {
         match self {
-            Self::Cancelled { kind, selector } | Self::Failed { kind, selector, .. } => {
-                Some((*kind, selector.clone()))
-            }
-            Self::Idle | Self::Active(_) | Self::Succeeded(_) => None,
+            Self::Cancelled { retry } | Self::Failed { retry, .. } => Some(retry.clone()),
+            Self::Idle
+            | Self::Preparing(_)
+            | Self::AwaitingEnvironment(_)
+            | Self::Active(_)
+            | Self::Succeeded(_) => None,
         }
     }
 
     pub(crate) fn view(&self) -> Option<Element<'_, Message>> {
         match self {
             Self::Idle => None,
+            Self::Preparing(active) => Some(active.view()),
+            Self::AwaitingEnvironment(plan) => Some(plan.view()),
             Self::Active(active) => Some(active.view()),
             Self::Succeeded(summary) => Some(text(format!("Success: {summary}")).into()),
-            Self::Cancelled { kind, .. } => Some(
+            Self::Cancelled { .. } => Some(
                 row![
-                    text(format!("{} installation cancelled.", resource_label(*kind))),
+                    text("Script installation cancelled."),
                     button("Retry").on_press(Message::RetryScriptInstall),
                 ]
                 .spacing(10)
@@ -192,21 +488,26 @@ impl App {
             LiveScriptKind::LlmAdapter => self.adapter_selector.trim(),
         }
         .to_owned();
-        self.begin_script_install_for(kind, selector)
+        self.begin_script_preparation_for(kind, selector)
     }
 
     pub(crate) fn retry_script_install(&mut self) -> Task<Message> {
-        let Some((kind, selector)) = self.script_install.retry_request() else {
+        let Some(retry) = self.script_install.retry_request() else {
             return Task::none();
         };
-        match kind {
-            LiveScriptKind::AsrProvider => self.provider_selector.clone_from(&selector),
-            LiveScriptKind::LlmAdapter => self.adapter_selector.clone_from(&selector),
+        match retry {
+            ScriptRetryRequest::Prepare { kind, selector } => {
+                match kind {
+                    LiveScriptKind::AsrProvider => self.provider_selector.clone_from(&selector),
+                    LiveScriptKind::LlmAdapter => self.adapter_selector.clone_from(&selector),
+                }
+                self.begin_script_preparation_for(kind, selector)
+            }
+            ScriptRetryRequest::Install(plan) => self.begin_resolved_script_install(*plan),
         }
-        self.begin_script_install_for(kind, selector)
     }
 
-    fn begin_script_install_for(
+    fn begin_script_preparation_for(
         &mut self,
         kind: LiveScriptKind,
         selector: String,
@@ -222,16 +523,81 @@ impl App {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
         };
+        let document = document.clone();
         if self.is_busy() {
             return Task::none();
         }
-        let operation_id = self.next_script_install_id;
-        self.next_script_install_id = self.next_script_install_id.wrapping_add(1).max(1);
+        let operation_id = self.next_script_operation_id();
         let (state, task) =
-            ScriptInstallState::start(document.clone(), kind, selector, operation_id);
+            ScriptInstallState::start_preparation(document, kind, selector, operation_id);
         self.operation = OperationState::Idle;
         self.script_install = state;
         task
+    }
+
+    pub(crate) fn finish_script_preparation(
+        &mut self,
+        operation_id: u64,
+        outcome: ScriptPrepareOutcome,
+    ) -> Task<Message> {
+        if !self
+            .script_install
+            .finish_preparation(operation_id, outcome)
+        {
+            return Task::none();
+        }
+        let Some(plan) = self.script_install.take_plan_without_environment() else {
+            return Task::none();
+        };
+        self.begin_resolved_script_install(plan)
+    }
+
+    pub(crate) fn update_script_environment(&mut self, name: &str, value: SecretInput) {
+        self.script_install
+            .update_environment(name, value.into_inner());
+    }
+
+    pub(crate) fn confirm_script_install(&mut self) -> Task<Message> {
+        match self.script_install.confirmed_plan() {
+            Ok(Some(plan)) => self.begin_resolved_script_install(plan),
+            Ok(None) => Task::none(),
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                Task::none()
+            }
+        }
+    }
+
+    fn begin_resolved_script_install(&mut self, plan: ScriptInstallPlan) -> Task<Message> {
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        let document = document.clone();
+        if matches!(
+            self.script_install,
+            ScriptInstallState::Preparing(_) | ScriptInstallState::Active(_)
+        ) {
+            return Task::none();
+        }
+        if let Some(name) = plan.missing_required_environment() {
+            self.operation = OperationState::Failed(format!(
+                "Enter a value for required environment variable `{name}` before installing."
+            ));
+            self.script_install = ScriptInstallState::AwaitingEnvironment(Box::new(plan));
+            return Task::none();
+        }
+        let operation_id = self.next_script_operation_id();
+        let (state, task) = ScriptInstallState::start_install(document, plan, operation_id);
+        self.operation = OperationState::Idle;
+        self.script_install = state;
+        task
+    }
+
+    fn next_script_operation_id(&mut self) -> u64 {
+        let operation_id = self.next_script_install_id;
+        self.next_script_install_id = self.next_script_install_id.wrapping_add(1).max(1);
+        operation_id
     }
 
     pub(crate) fn finish_script_install(
@@ -239,7 +605,7 @@ impl App {
         operation_id: u64,
         outcome: ScriptInstallOutcome,
     ) -> Task<Message> {
-        if !self.script_install.finish(operation_id, outcome) {
+        if !self.script_install.finish_install(operation_id, outcome) {
             return Task::none();
         }
         if matches!(self.script_install, ScriptInstallState::Succeeded(_)) {
@@ -254,10 +620,15 @@ impl App {
     }
 
     pub(crate) fn provider_install_controls(&self, busy: bool) -> Element<'_, Message> {
+        let input = text_input("Registry provider id or short id", &self.provider_selector)
+            .width(Length::Fill);
+        let input = if busy {
+            input
+        } else {
+            input.on_input(Message::ProviderSelectorChanged)
+        };
         row![
-            text_input("Registry provider id or short id", &self.provider_selector)
-                .on_input(Message::ProviderSelectorChanged)
-                .width(Length::Fill),
+            input,
             button("Install or update").on_press_maybe(
                 (!busy && !self.provider_selector.trim().is_empty())
                     .then_some(Message::InstallProvider),
@@ -268,10 +639,15 @@ impl App {
     }
 
     pub(crate) fn adapter_install_controls(&self, busy: bool) -> Element<'_, Message> {
+        let input = text_input("Registry adapter id or short id", &self.adapter_selector)
+            .width(Length::Fill);
+        let input = if busy {
+            input
+        } else {
+            input.on_input(Message::AdapterSelectorChanged)
+        };
         row![
-            text_input("Registry adapter id or short id", &self.adapter_selector)
-                .on_input(Message::AdapterSelectorChanged)
-                .width(Length::Fill),
+            input,
             button("Install or update").on_press_maybe(
                 (!busy && !self.adapter_selector.trim().is_empty())
                     .then_some(Message::InstallAdapter),
@@ -282,9 +658,29 @@ impl App {
     }
 }
 
+impl ActiveScriptPreparation {
+    fn view(&self) -> Element<'_, Message> {
+        row![
+            text(format!(
+                "Resolving {} catalog for `{}`…",
+                resource_label(self.kind),
+                self.selector
+            )),
+            button(if self.cancelling {
+                "Cancelling…"
+            } else {
+                "Cancel"
+            })
+            .on_press_maybe((!self.cancelling).then_some(Message::CancelScriptInstall)),
+        ]
+        .spacing(10)
+        .into()
+    }
+}
+
 impl ActiveScriptInstall {
     fn view(&self) -> Element<'_, Message> {
-        let mut body = column![text(progress_label(self.kind, &self.progress))].spacing(8);
+        let mut body = column![text(progress_label(self.plan.kind, &self.progress))].spacing(8);
         if let RegistryOperationProgress::Downloading {
             downloaded_bytes,
             total_bytes: Some(total_bytes),
@@ -352,27 +748,121 @@ fn progress_label(kind: LiveScriptKind, progress: &RegistryOperationProgress) ->
 mod tests {
     use super::*;
 
+    fn plan(environment: Vec<ScriptEnvironmentValue>) -> ScriptInstallPlan {
+        ScriptInstallPlan {
+            kind: LiveScriptKind::AsrProvider,
+            selector: "fixture".to_owned(),
+            entry: LiveScriptEntry {
+                id: "provider.fixture.batch".to_owned(),
+                short_id: Some("fixture".to_owned()),
+                stream: false,
+                command: "python3".to_owned(),
+                script_urls: vec!["https://example.invalid/provider.py".to_owned()],
+                readme_url: None,
+                envs: Vec::new(),
+            },
+            script_root: "/tmp/providers".into(),
+            script_path: "/tmp/providers/fixture/batch".into(),
+            environment,
+        }
+    }
+
     #[test]
-    fn stale_completion_does_not_replace_active_script_operation() {
+    fn stale_preparation_does_not_replace_active_operation() {
         let document = ConfigDocument {
             path: "/tmp/config.json".into(),
             from_disk: false,
             config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
         };
-        let (mut state, _) = ScriptInstallState::start(
+        let (mut state, _) = ScriptInstallState::start_preparation(
             document,
             LiveScriptKind::AsrProvider,
             "fixture".to_owned(),
             12,
         );
 
-        assert!(!state.finish(11, ScriptInstallOutcome::Cancelled));
-        assert!(state.is_active());
-        assert!(state.finish(12, ScriptInstallOutcome::Cancelled));
-        assert_eq!(
+        assert!(!state.finish_preparation(11, ScriptPrepareOutcome::Cancelled));
+        assert!(state.has_worker());
+        assert!(state.finish_preparation(12, ScriptPrepareOutcome::Cancelled));
+        assert!(matches!(
             state.retry_request(),
-            Some((LiveScriptKind::AsrProvider, "fixture".to_owned()))
-        );
+            Some(ScriptRetryRequest::Prepare { .. })
+        ));
+    }
+
+    #[test]
+    fn required_environment_blocks_confirmation_until_entered() {
+        let mut state =
+            ScriptInstallState::AwaitingEnvironment(Box::new(plan(vec![ScriptEnvironmentValue {
+                name: "TOKEN".to_owned(),
+                required: true,
+                value: String::new(),
+            }])));
+
+        assert!(state.confirmed_plan().is_err());
+        state.update_environment("TOKEN", "super-secret".to_owned());
+        let confirmed = state
+            .confirmed_plan()
+            .expect("valid environment")
+            .expect("pending plan");
+        assert_eq!(confirmed.environment[0].value, "super-secret");
+    }
+
+    #[test]
+    fn failed_install_retry_preserves_environment_without_debug_exposure() {
+        let document = ConfigDocument {
+            path: "/tmp/config.json".into(),
+            from_disk: false,
+            config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
+        };
+        let install_plan = plan(vec![ScriptEnvironmentValue {
+            name: "TOKEN".to_owned(),
+            required: true,
+            value: "super-secret".to_owned(),
+        }]);
+        let (mut state, _) = ScriptInstallState::start_install(document, install_plan, 13);
+
+        assert!(state.finish_install(
+            13,
+            ScriptInstallOutcome::Failed("fixture failure".to_owned())
+        ));
+        let debug = format!("{state:?}");
+        assert!(!debug.contains("super-secret"));
+        assert!(debug.contains("TOKEN"));
+        assert!(matches!(
+            state.retry_request(),
+            Some(ScriptRetryRequest::Install(_))
+        ));
+    }
+
+    #[test]
+    fn stale_install_completion_does_not_replace_active_operation() {
+        let document = ConfigDocument {
+            path: "/tmp/config.json".into(),
+            from_disk: false,
+            config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
+        };
+        let (mut state, _) = ScriptInstallState::start_install(document, plan(Vec::new()), 15);
+
+        assert!(!state.finish_install(14, ScriptInstallOutcome::Cancelled));
+        assert!(state.has_worker());
+        assert!(state.finish_install(15, ScriptInstallOutcome::Cancelled));
+        assert!(matches!(
+            state.retry_request(),
+            Some(ScriptRetryRequest::Install(_))
+        ));
+    }
+
+    #[test]
+    fn environment_message_debug_never_exposes_entered_value() {
+        let message = Message::ScriptEnvironmentChanged {
+            name: "TOKEN".to_owned(),
+            value: SecretInput::new("super-secret".to_owned()),
+        };
+
+        let debug = format!("{message:?}");
+        assert!(debug.contains("TOKEN"));
+        assert!(!debug.contains("super-secret"));
     }
 
     #[test]
@@ -382,12 +872,7 @@ mod tests {
             from_disk: false,
             config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
         };
-        let (state, _) = ScriptInstallState::start(
-            document,
-            LiveScriptKind::LlmAdapter,
-            "fixture".to_owned(),
-            13,
-        );
+        let (state, _) = ScriptInstallState::start_install(document, plan(Vec::new()), 14);
         let control = match &state {
             ScriptInstallState::Active(active) => active.control.clone(),
             _ => panic!("active script install state"),
@@ -396,5 +881,11 @@ mod tests {
         drop(state);
 
         assert!(control.is_cancelled());
+    }
+
+    #[test]
+    fn secret_input_debug_is_redacted() {
+        let input = SecretInput::new("super-secret".to_owned());
+        assert_eq!(format!("{input:?}"), "<redacted>");
     }
 }
