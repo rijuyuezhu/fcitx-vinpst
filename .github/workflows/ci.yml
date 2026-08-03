@@ -21,8 +21,13 @@ jobs:
         run: |
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update
-          sudo apt-get install -y dbus libpipewire-0.3-dev libspa-0.2-dev libclang-dev clang pkg-config cmake g++ clang-format clang-tidy gettext locales jq gnupg makepkg pacman-package-manager libarchive-tools zstd libsystemd-dev libfcitx5core-dev fcitx5-modules-dev libgtk-3-dev qt6-base-dev
+          sudo apt-get install -y dbus libpipewire-0.3-dev libspa-0.2-dev libclang-dev clang pkg-config cmake g++ clang-format clang-tidy gettext locales jq gnupg makepkg pacman-package-manager libarchive-tools zstd libsystemd-dev libfcitx5core-dev fcitx5-modules-dev libgtk-3-dev qt6-base-dev python3-venv
           sudo locale-gen zh_CN.UTF-8
+      - name: Ensure Python lint tools
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/ruff"
+          "${RUNNER_TEMP}/ruff/bin/pip" install --disable-pip-version-check ruff==0.16.1
+          echo "${RUNNER_TEMP}/ruff/bin" >> "${GITHUB_PATH}"
       - name: Ensure just
         run: |
           if ! command -v just >/dev/null 2>&1; then
