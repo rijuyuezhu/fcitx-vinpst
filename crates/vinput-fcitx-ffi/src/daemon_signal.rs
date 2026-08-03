@@ -1,10 +1,14 @@
 //! Borrowed C views over pure daemon-signal presentation decisions.
 
-use std::ptr;
+use std::{
+    panic::{AssertUnwindSafe, catch_unwind},
+    ptr,
+};
 
 use vinput_fcitx_core::{
-    DaemonControlContext, DaemonControlEvent, DaemonControlPlan, DaemonNotificationKind,
-    DaemonStatusPreedit, plan_daemon_control, plan_daemon_notification, plan_daemon_status_preedit,
+    DaemonControlContext, DaemonControlEvent, DaemonControlPlan, DaemonLiveState,
+    DaemonNotificationKind, DaemonStatusPreedit, plan_daemon_control, plan_daemon_notification,
+    plan_daemon_status_preedit,
 };
 
 use crate::frontend::VinputFcitxStringView;
@@ -19,6 +23,11 @@ pub struct VinputFcitxDaemonSignalPlanView {
     pub translate: u8,
     /// Borrowed daemon text or gettext message id.
     pub text: VinputFcitxStringView,
+}
+
+/// Opaque Rust-owned live daemon presentation state.
+pub struct VinputFcitxDaemonLiveState {
+    state: DaemonLiveState,
 }
 
 const SIGNAL_PLAN_CLEAR: u8 = 0;
@@ -60,6 +69,34 @@ fn string_view(value: &str) -> VinputFcitxStringView {
         },
         len: value.len(),
     }
+}
+
+fn write_status_preedit(
+    preedit: DaemonStatusPreedit<'_>,
+    view_out: *mut VinputFcitxDaemonSignalPlanView,
+) -> u8 {
+    if view_out.is_null() {
+        return 0;
+    }
+    let (kind, translate, text) = match preedit {
+        DaemonStatusPreedit::Clear => (SIGNAL_PLAN_CLEAR, false, ""),
+        DaemonStatusPreedit::Partial(text) => (SIGNAL_PLAN_PARTIAL, false, text),
+        DaemonStatusPreedit::Recording => (SIGNAL_PLAN_RECORDING, true, "... Recording ..."),
+        DaemonStatusPreedit::Commanding => (SIGNAL_PLAN_COMMANDING, true, "... Commanding ..."),
+        DaemonStatusPreedit::Recognizing => (SIGNAL_PLAN_RECOGNIZING, true, "... Recognizing ..."),
+        DaemonStatusPreedit::Postprocessing => {
+            (SIGNAL_PLAN_POSTPROCESSING, true, "... Postprocessing ...")
+        }
+    };
+    // SAFETY: The caller guarantees a writable output pointer.
+    unsafe {
+        view_out.write(VinputFcitxDaemonSignalPlanView {
+            kind,
+            translate: u8::from(translate),
+            text: string_view(text),
+        });
+    }
+    1
 }
 
 fn control_plan_value(plan: DaemonControlPlan) -> u8 {
@@ -116,6 +153,153 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_control_plan(
     ))
 }
 
+/// Allocates empty Rust-owned live daemon presentation state.
+#[unsafe(no_mangle)]
+pub extern "C" fn vinput_fcitx_daemon_live_state_new() -> *mut VinputFcitxDaemonLiveState {
+    catch_unwind(|| {
+        Box::into_raw(Box::new(VinputFcitxDaemonLiveState {
+            state: DaemonLiveState::default(),
+        }))
+    })
+    .unwrap_or(ptr::null_mut())
+}
+
+/// Releases Rust-owned live daemon presentation state.
+///
+/// # Safety
+///
+/// A non-null pointer must be a live handle returned by this crate.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_free(
+    state: *mut VinputFcitxDaemonLiveState,
+) {
+    if !state.is_null() {
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            // SAFETY: Forwarded from this function's caller contract.
+            drop(unsafe { Box::from_raw(state) });
+        }));
+    }
+}
+
+/// Clears all live status and partial-recognition state.
+///
+/// # Safety
+///
+/// `state` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_reset(
+    state: *mut VinputFcitxDaemonLiveState,
+) -> u8 {
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return 0;
+    };
+    state.state.reset();
+    1
+}
+
+/// Starts a new daemon status presentation and stores its command mode.
+///
+/// # Safety
+///
+/// `state` must be live and status bytes readable for the duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_begin_status(
+    state: *mut VinputFcitxDaemonLiveState,
+    status_data: *const u8,
+    status_len: usize,
+    command_mode: u8,
+) -> u8 {
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return 0;
+    };
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(status) = (unsafe { text_input(status_data, status_len) }) else {
+        return 0;
+    };
+    state.state.begin_status(status, command_mode != 0);
+    1
+}
+
+/// Replaces the current daemon status without changing mode or partial state.
+///
+/// # Safety
+///
+/// `state` must be live and status bytes readable for the duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_update_status(
+    state: *mut VinputFcitxDaemonLiveState,
+    status_data: *const u8,
+    status_len: usize,
+) -> u8 {
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return 0;
+    };
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(status) = (unsafe { text_input(status_data, status_len) }) else {
+        return 0;
+    };
+    state.state.update_status(status);
+    1
+}
+
+/// Stores one distinct live partial while local recording is active.
+///
+/// Returns one only when the visible partial changed.
+///
+/// # Safety
+///
+/// `state` must be live and partial bytes readable for the duration of the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_update_partial(
+    state: *mut VinputFcitxDaemonLiveState,
+    partial_data: *const u8,
+    partial_len: usize,
+    recording: u8,
+) -> u8 {
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return 0;
+    };
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(partial) = (unsafe { text_input(partial_data, partial_len) }) else {
+        return 0;
+    };
+    u8::from(state.state.update_partial(partial, recording != 0))
+}
+
+/// Borrows the semantic preedit for the current live state.
+///
+/// # Safety
+///
+/// `state` must be live and `view_out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_preedit_plan(
+    state: *const VinputFcitxDaemonLiveState,
+    view_out: *mut VinputFcitxDaemonSignalPlanView,
+) -> u8 {
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return 0;
+    };
+    write_status_preedit(state.state.preedit(), view_out)
+}
+
+/// Returns whether the current live presentation is command mode.
+///
+/// # Safety
+///
+/// `state` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_command_mode(
+    state: *const VinputFcitxDaemonLiveState,
+) -> u8 {
+    // SAFETY: Forwarded from this function's caller contract.
+    unsafe { state.as_ref() }.map_or(0, |state| u8::from(state.state.command_mode()))
+}
+
 /// Plans one status/partial preedit update.
 ///
 /// # Safety
@@ -141,28 +325,10 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_status_preedit_plan(
     let Some(partial) = (unsafe { text_input(partial_data, partial_len) }) else {
         return 0;
     };
-    let (kind, translate, text) =
-        match plan_daemon_status_preedit(status, command_mode != 0, partial) {
-            DaemonStatusPreedit::Clear => (SIGNAL_PLAN_CLEAR, false, ""),
-            DaemonStatusPreedit::Partial(text) => (SIGNAL_PLAN_PARTIAL, false, text),
-            DaemonStatusPreedit::Recording => (SIGNAL_PLAN_RECORDING, true, "... Recording ..."),
-            DaemonStatusPreedit::Commanding => (SIGNAL_PLAN_COMMANDING, true, "... Commanding ..."),
-            DaemonStatusPreedit::Recognizing => {
-                (SIGNAL_PLAN_RECOGNIZING, true, "... Recognizing ...")
-            }
-            DaemonStatusPreedit::Postprocessing => {
-                (SIGNAL_PLAN_POSTPROCESSING, true, "... Postprocessing ...")
-            }
-        };
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe {
-        view_out.write(VinputFcitxDaemonSignalPlanView {
-            kind,
-            translate: u8::from(translate),
-            text: string_view(text),
-        });
-    }
-    1
+    write_status_preedit(
+        plan_daemon_status_preedit(status, command_mode != 0, partial),
+        view_out,
+    )
 }
 
 /// Plans one structured daemon notification.
@@ -230,9 +396,14 @@ mod tests {
         CONTROL_EVENT_STATUS_CHANGED, CONTROL_PLAN_ADOPT_AND_STOP_NORMAL,
         CONTROL_PLAN_CLEAR_REMOTE_STATUS, CONTROL_PLAN_PRESENT_REMOTE_STATUS,
         CONTROL_PLAN_RESET_LOCAL_RECORDING, CONTROL_PLAN_RESET_UNAVAILABLE,
-        CONTROL_PLAN_UPDATE_LOCAL_PREEDIT, SIGNAL_PLAN_COMMANDING, SIGNAL_PLAN_NOTIFICATION_ERROR,
-        SIGNAL_PLAN_NOTIFICATION_INFO, SIGNAL_PLAN_PARTIAL, VinputFcitxDaemonSignalPlanView,
-        vinput_fcitx_daemon_control_plan, vinput_fcitx_daemon_notification_plan,
+        CONTROL_PLAN_UPDATE_LOCAL_PREEDIT, SIGNAL_PLAN_CLEAR, SIGNAL_PLAN_COMMANDING,
+        SIGNAL_PLAN_NOTIFICATION_ERROR, SIGNAL_PLAN_NOTIFICATION_INFO, SIGNAL_PLAN_PARTIAL,
+        VinputFcitxDaemonSignalPlanView, vinput_fcitx_daemon_control_plan,
+        vinput_fcitx_daemon_live_state_begin_status, vinput_fcitx_daemon_live_state_command_mode,
+        vinput_fcitx_daemon_live_state_free, vinput_fcitx_daemon_live_state_new,
+        vinput_fcitx_daemon_live_state_preedit_plan, vinput_fcitx_daemon_live_state_reset,
+        vinput_fcitx_daemon_live_state_update_partial,
+        vinput_fcitx_daemon_live_state_update_status, vinput_fcitx_daemon_notification_plan,
         vinput_fcitx_daemon_status_preedit_plan,
     };
     use crate::frontend::VinputFcitxStringView;
@@ -289,6 +460,62 @@ mod tests {
             assert_eq!(view.kind, SIGNAL_PLAN_PARTIAL);
             assert_eq!(view.translate, 0);
             assert_eq!(bytes(view.text), b"partial");
+        }
+    }
+
+    #[test]
+    fn owns_live_status_partial_and_deduplication() {
+        // SAFETY: The state handle is live for all calls and freed exactly once.
+        unsafe {
+            let state = vinput_fcitx_daemon_live_state_new();
+            assert!(!state.is_null());
+            let mut view = empty_view();
+
+            assert_eq!(
+                vinput_fcitx_daemon_live_state_begin_status(state, b"recording".as_ptr(), 9, 1,),
+                1,
+            );
+            assert_eq!(vinput_fcitx_daemon_live_state_command_mode(state), 1);
+            assert_eq!(
+                vinput_fcitx_daemon_live_state_preedit_plan(state, &raw mut view),
+                1,
+            );
+            assert_eq!(view.kind, SIGNAL_PLAN_COMMANDING);
+
+            assert_eq!(
+                vinput_fcitx_daemon_live_state_update_partial(state, b"partial".as_ptr(), 7, 1,),
+                1,
+            );
+            assert_eq!(
+                vinput_fcitx_daemon_live_state_update_partial(state, b"partial".as_ptr(), 7, 1,),
+                0,
+            );
+            assert_eq!(
+                vinput_fcitx_daemon_live_state_preedit_plan(state, &raw mut view),
+                1,
+            );
+            assert_eq!(view.kind, SIGNAL_PLAN_PARTIAL);
+            assert_eq!(bytes(view.text), b"partial");
+
+            assert_eq!(
+                vinput_fcitx_daemon_live_state_update_status(state, b"postprocessing".as_ptr(), 14,),
+                1,
+            );
+            assert_eq!(vinput_fcitx_daemon_live_state_command_mode(state), 1);
+            assert_eq!(
+                vinput_fcitx_daemon_live_state_preedit_plan(state, &raw mut view),
+                1,
+            );
+            assert_eq!(view.kind, SIGNAL_PLAN_PARTIAL);
+
+            assert_eq!(vinput_fcitx_daemon_live_state_reset(state), 1);
+            assert_eq!(vinput_fcitx_daemon_live_state_command_mode(state), 0);
+            assert_eq!(
+                vinput_fcitx_daemon_live_state_preedit_plan(state, &raw mut view),
+                1,
+            );
+            assert_eq!(view.kind, SIGNAL_PLAN_CLEAR);
+            vinput_fcitx_daemon_live_state_free(state);
         }
     }
 

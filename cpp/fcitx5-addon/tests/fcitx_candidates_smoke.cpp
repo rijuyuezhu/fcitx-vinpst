@@ -4,40 +4,60 @@
 #include <fcitx/text.h>
 
 #include <cassert>
+#include <memory>
 #include <vector>
 
 using vinput_fcitx_bridge::BuildResultCandidateList;
-using vinput_fcitx_bridge::Candidate;
-using vinput_fcitx_bridge::CandidateSource;
-using vinput_fcitx_bridge::RecognitionPayload;
+using vinput_fcitx_bridge::CandidatePresentation;
+using vinput_fcitx_bridge::PresentedCandidate;
 using vinput_fcitx_bridge::ResultCandidateMenuTitle;
 
 namespace {
 
-void IgnoreSelection(fcitx::InputContext *, const Candidate &) {}
+void IgnoreSelection(fcitx::InputContext *, const PresentedCandidate &) {}
+
+PresentedCandidate Row(std::string text, std::string comment, bool commit = true) {
+  return PresentedCandidate{std::move(text), std::move(comment), commit};
+}
+
+CandidatePresentation Rows(std::vector<PresentedCandidate> rows,
+                           std::size_t cursor_index = 0) {
+  auto shared_rows =
+      std::make_shared<const std::vector<PresentedCandidate>>(std::move(rows));
+  return CandidatePresentation{
+      .candidate_count = shared_rows->size(),
+      .cursor_index = cursor_index,
+      .candidate_at =
+          [shared_rows](std::size_t index) -> std::optional<PresentedCandidate> {
+        if (index >= shared_rows->size()) {
+          return std::nullopt;
+        }
+        return (*shared_rows)[index];
+      },
+  };
+}
 
 } // namespace
 
 int main() {
-  RecognitionPayload empty;
-  assert(BuildResultCandidateList(empty, IgnoreSelection) == nullptr);
+  assert(BuildResultCandidateList(Rows({}), IgnoreSelection) == nullptr);
 
   assert(ResultCandidateMenuTitle(0) == "Choose Result (0)");
   assert(ResultCandidateMenuTitle(1) == "Choose Result (1)");
   assert(ResultCandidateMenuTitle(3) == "Choose Result (3)");
 
-  RecognitionPayload payload;
-  payload.commit_text = "polished 2";
-  payload.candidates = {
-      Candidate{"raw transcript", CandidateSource::Raw},
-      Candidate{"polished 1", CandidateSource::Llm},
-      Candidate{"polished 2", CandidateSource::Llm},
-  };
+  auto payload = Rows(
+      {
+          Row("raw transcript", "Original"),
+          Row("polished 1", "1"),
+          Row("polished 2", "2"),
+      },
+      2);
 
-  std::vector<Candidate> selected_candidates;
+  std::vector<PresentedCandidate> selected_candidates;
   auto candidates = BuildResultCandidateList(
       payload, [&selected_candidates](fcitx::InputContext *input_context,
-                                      const Candidate &candidate) {
+                                      const PresentedCandidate &candidate) {
         assert(input_context == nullptr);
         selected_candidates.push_back(candidate);
       });
@@ -51,61 +71,32 @@ int main() {
 #ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
   assert(candidates->candidateFromAll(0).comment().toString() == "Original");
   assert(candidates->candidateFromAll(1).comment().toString() == "1");
-#endif
-  assert(candidates->candidateFromAll(2).text().toString() == "polished 2");
-#ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
   assert(candidates->candidateFromAll(2).comment().toString() == "2");
 #endif
 
   candidates->candidateFromAll(1).select(nullptr);
   assert(selected_candidates.size() == 1);
   assert(selected_candidates[0].text == "polished 1");
-  assert(selected_candidates[0].source == CandidateSource::Llm);
+  assert(selected_candidates[0].comment == "1");
+  assert(selected_candidates[0].commit);
 
-  RecognitionPayload asr_payload;
-  asr_payload.commit_text = "asr choice";
-  asr_payload.candidates = {Candidate{"asr choice", CandidateSource::Asr}};
-  auto asr_candidates = BuildResultCandidateList(asr_payload, IgnoreSelection);
+  auto asr_candidates = BuildResultCandidateList(
+      Rows({Row("asr choice", "Voice Command")}), IgnoreSelection);
   assert(asr_candidates != nullptr);
 #ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
   assert(asr_candidates->candidateFromAll(0).comment().toString() == "Voice Command");
 #endif
 
-  RecognitionPayload mixed_payload;
-  mixed_payload.commit_text = "second polished";
-  mixed_payload.candidates = {
-      Candidate{"raw transcript", CandidateSource::Raw},
-      Candidate{"asr transcript", CandidateSource::Asr},
-      Candidate{"first polished", CandidateSource::Llm},
-      Candidate{"second polished", CandidateSource::Llm},
-  };
-  auto mixed_candidates = BuildResultCandidateList(mixed_payload, IgnoreSelection);
-  assert(mixed_candidates != nullptr);
-  assert(mixed_candidates->globalCursorIndex() == 3);
-#ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
-  assert(mixed_candidates->candidateFromAll(0).comment().toString() == "Original");
-  assert(mixed_candidates->candidateFromAll(1).comment().toString() == "Voice Command");
-  assert(mixed_candidates->candidateFromAll(2).comment().toString() == "1");
-  assert(mixed_candidates->candidateFromAll(3).comment().toString() == "2");
-#endif
+  auto fallback_candidates = BuildResultCandidateList(
+      Rows({Row("raw transcript", "Original"), Row("polished", "1")}, 99),
+      IgnoreSelection);
+  assert(fallback_candidates != nullptr);
+  assert(fallback_candidates->globalCursorIndex() == 0);
 
-  RecognitionPayload missing_commit_payload;
-  missing_commit_payload.commit_text = "not present";
-  missing_commit_payload.candidates = {
-      Candidate{"raw transcript", CandidateSource::Raw},
-      Candidate{"polished", CandidateSource::Llm},
-  };
-  auto missing_commit_candidates =
-      BuildResultCandidateList(missing_commit_payload, IgnoreSelection);
-  assert(missing_commit_candidates != nullptr);
-  assert(missing_commit_candidates->totalSize() == 2);
-  assert(missing_commit_candidates->globalCursorIndex() == 0);
-
-  RecognitionPayload cancel_payload;
-  cancel_payload.candidates = {Candidate{"", CandidateSource::Cancel}};
   auto cancel_candidates = BuildResultCandidateList(
-      cancel_payload, [&selected_candidates](fcitx::InputContext *input_context,
-                                             const Candidate &candidate) {
+      Rows({Row("", "Cancel", false)}),
+      [&selected_candidates](fcitx::InputContext *input_context,
+                             const PresentedCandidate &candidate) {
         assert(input_context == nullptr);
         selected_candidates.push_back(candidate);
       });
@@ -118,19 +109,19 @@ int main() {
   cancel_candidates->candidateFromAll(0).select(nullptr);
   assert(selected_candidates.size() == 2);
   assert(selected_candidates[1].text.empty());
-  assert(selected_candidates[1].source == CandidateSource::Cancel);
+  assert(!selected_candidates[1].commit);
 
-  RecognitionPayload paged_payload;
-  paged_payload.commit_text = "choice 6";
-  paged_payload.candidates = {
-      Candidate{"choice 1", CandidateSource::Llm},
-      Candidate{"choice 2", CandidateSource::Llm},
-      Candidate{"choice 3", CandidateSource::Llm},
-      Candidate{"choice 4", CandidateSource::Llm},
-      Candidate{"choice 5", CandidateSource::Llm},
-      Candidate{"choice 6", CandidateSource::Llm},
-  };
-  auto paged_candidates = BuildResultCandidateList(paged_payload, IgnoreSelection);
+  auto paged_candidates = BuildResultCandidateList(Rows(
+                                                       {
+                                                           Row("choice 1", "1"),
+                                                           Row("choice 2", "2"),
+                                                           Row("choice 3", "3"),
+                                                           Row("choice 4", "4"),
+                                                           Row("choice 5", "5"),
+                                                           Row("choice 6", "6"),
+                                                       },
+                                                       5),
+                                                   IgnoreSelection);
   assert(paged_candidates != nullptr);
   assert(ResultCandidateMenuTitle(paged_candidates->totalSize()) ==
          "Choose Result (6)");

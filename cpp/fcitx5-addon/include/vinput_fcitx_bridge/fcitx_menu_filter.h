@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vinput_fcitx_bridge/rust_handle.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -10,6 +12,8 @@
 #include <fcitx-utils/key.h>
 
 struct VinputFcitxMenuFilterState;
+
+extern "C" void vinput_fcitx_menu_filter_state_free(VinputFcitxMenuFilterState *state);
 
 namespace vinput_fcitx_bridge {
 
@@ -61,7 +65,7 @@ struct MenuKeyDecision {
 class MenuFilterState {
 public:
   MenuFilterState();
-  ~MenuFilterState();
+  ~MenuFilterState() = default;
 
   MenuFilterState(const MenuFilterState &) = delete;
   MenuFilterState &operator=(const MenuFilterState &) = delete;
@@ -70,7 +74,7 @@ public:
 
   void Reset();
   std::optional<bool> active() const;
-  std::string DecorateTitle(std::string_view base_title) const;
+  std::string DecorateTitle(std::string_view base_title);
   std::optional<MenuKeyDecision> HandleKey(bool release, const MenuSemanticKey &key,
                                            bool cursor_available, int current_selection,
                                            int current_page,
@@ -78,7 +82,10 @@ public:
   const ::VinputFcitxMenuFilterState *raw_handle() const;
 
 private:
-  ::VinputFcitxMenuFilterState *state_ = nullptr;
+  using StateHandle = RustOwnedHandle<::VinputFcitxMenuFilterState,
+                                      vinput_fcitx_menu_filter_state_free>;
+
+  StateHandle state_;
 };
 
 MenuSemanticKey ClassifyMenuKey(const fcitx::Key &key, bool passive, bool filter_active,

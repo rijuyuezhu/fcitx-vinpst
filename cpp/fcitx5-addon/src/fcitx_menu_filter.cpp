@@ -1,5 +1,6 @@
 #include "vinput_fcitx_bridge/fcitx_menu_filter.h"
 #include "vinput_fcitx_bridge/fcitx_menu_paging.h"
+#include "vinput_fcitx_bridge/rust_string.h"
 
 #include "vinput_fcitx_ffi.h"
 
@@ -55,17 +56,6 @@ static_assert(static_cast<std::uint8_t>(MenuKeyAction::Select) ==
               VINPUT_FCITX_MENU_ACTION_SELECT);
 static_assert(kMenuPageSize == VINPUT_FCITX_MENU_PAGE_SIZE);
 
-const std::uint8_t *Bytes(std::string_view value) {
-  return value.empty() ? nullptr : reinterpret_cast<const std::uint8_t *>(value.data());
-}
-
-std::string CopyText(VinputFcitxStringView view) {
-  if (view.data == nullptr || view.len == 0) {
-    return {};
-  }
-  return {reinterpret_cast<const char *>(view.data), view.len};
-}
-
 bool HasNoModifiers(const fcitx::Key &key) {
   return key.normalize().states() == fcitx::KeyStates();
 }
@@ -110,31 +100,29 @@ bool IsMenuEnterKey(const fcitx::Key &key) {
 
 } // namespace
 
-MenuFilterState::MenuFilterState() : state_(vinput_fcitx_menu_filter_state_new()) {}
-
-MenuFilterState::~MenuFilterState() {
-  vinput_fcitx_menu_filter_state_free(state_);
-}
+MenuFilterState::MenuFilterState()
+    : state_(StateHandle::Adopt(vinput_fcitx_menu_filter_state_new())) {}
 
 void MenuFilterState::Reset() {
-  static_cast<void>(vinput_fcitx_menu_filter_state_reset(state_));
+  static_cast<void>(vinput_fcitx_menu_filter_state_reset(state_.mutable_raw_handle()));
 }
 
 std::optional<bool> MenuFilterState::active() const {
   std::uint8_t active = 0;
-  if (vinput_fcitx_menu_filter_state_active(state_, &active) == 0) {
+  if (vinput_fcitx_menu_filter_state_active(state_.raw_handle(), &active) == 0) {
     return std::nullopt;
   }
   return active != 0;
 }
 
-std::string MenuFilterState::DecorateTitle(std::string_view base_title) const {
+std::string MenuFilterState::DecorateTitle(std::string_view base_title) {
   VinputFcitxStringView title{};
-  if (vinput_fcitx_menu_filter_state_decorate_title(state_, Bytes(base_title),
+  if (vinput_fcitx_menu_filter_state_decorate_title(state_.mutable_raw_handle(),
+                                                    RustBytes(base_title),
                                                     base_title.size(), &title) == 0) {
     return std::string(base_title);
   }
-  return CopyText(title);
+  return CopyRustString(title);
 }
 
 std::optional<MenuKeyDecision>
@@ -143,8 +131,8 @@ MenuFilterState::HandleKey(bool release, const MenuSemanticKey &key,
                            int current_page, std::size_t visible_item_count) {
   VinputFcitxMenuKeyDecisionView decision{};
   if (vinput_fcitx_menu_filter_state_handle_key(
-          state_, static_cast<std::uint8_t>(release),
-          static_cast<std::uint8_t>(key.kind), key.value, Bytes(key.text),
+          state_.mutable_raw_handle(), static_cast<std::uint8_t>(release),
+          static_cast<std::uint8_t>(key.kind), key.value, RustBytes(key.text),
           key.text.size(), static_cast<std::uint8_t>(cursor_available),
           current_selection, current_page, visible_item_count, &decision) == 0) {
     return std::nullopt;
@@ -157,7 +145,7 @@ MenuFilterState::HandleKey(bool release, const MenuSemanticKey &key,
 }
 
 const ::VinputFcitxMenuFilterState *MenuFilterState::raw_handle() const {
-  return state_;
+  return state_.raw_handle();
 }
 
 void SetMenuCandidatePage(fcitx::CommonCandidateList &candidates, int requested_page) {

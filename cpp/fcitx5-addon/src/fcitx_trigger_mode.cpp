@@ -57,16 +57,14 @@ bool SchedulesStart(TriggerModeAction action) {
 } // namespace
 
 TriggerModeController::TriggerModeController(TriggerMode mode)
-    : state_(vinput_fcitx_trigger_state_new(static_cast<std::uint8_t>(mode))) {}
-
-TriggerModeController::~TriggerModeController() {
-  vinput_fcitx_trigger_state_free(state_);
-}
+    : state_(StateHandle::Adopt(
+          vinput_fcitx_trigger_state_new(static_cast<std::uint8_t>(mode)))) {}
 
 void TriggerModeController::SetMode(TriggerMode mode) {
-  static_cast<void>(Dispatch(state_, VINPUT_FCITX_TRIGGER_EVENT_SET_MODE,
+  static_cast<void>(Dispatch(state_.mutable_raw_handle(),
+                             VINPUT_FCITX_TRIGGER_EVENT_SET_MODE,
                              static_cast<std::uint8_t>(mode)));
-  if (state_ != nullptr) {
+  if (state_) {
     pending_key_.reset();
   }
 }
@@ -75,7 +73,7 @@ TriggerModeAction TriggerModeController::OnPress(TriggerKind kind,
                                                  const fcitx::Key &key, TimePoint now,
                                                  bool recording) {
   const auto action =
-      Dispatch(state_, VINPUT_FCITX_TRIGGER_EVENT_PRESS,
+      Dispatch(state_.mutable_raw_handle(), VINPUT_FCITX_TRIGGER_EVENT_PRESS,
                static_cast<std::uint8_t>(kind), recording, ToNanoseconds(now));
   if (SchedulesStart(action)) {
     pending_key_ = key;
@@ -90,8 +88,9 @@ TriggerModeAction TriggerModeController::OnRelease(TriggerKind, const fcitx::Key
                                                    TimePoint now) {
   const bool active_release =
       active_key_.has_value() && IsReleaseOfTrigger(key, *active_key_);
-  const auto action = Dispatch(state_, VINPUT_FCITX_TRIGGER_EVENT_RELEASE, 0,
-                               active_release, ToNanoseconds(now));
+  const auto action =
+      Dispatch(state_.mutable_raw_handle(), VINPUT_FCITX_TRIGGER_EVENT_RELEASE, 0,
+               active_release, ToNanoseconds(now));
   if (action == TriggerModeAction::CancelPendingStart) {
     pending_key_.reset();
   }
@@ -99,7 +98,8 @@ TriggerModeAction TriggerModeController::OnRelease(TriggerKind, const fcitx::Key
 }
 
 TriggerModeAction TriggerModeController::FirePendingStart() {
-  const auto action = Dispatch(state_, VINPUT_FCITX_TRIGGER_EVENT_FIRE_PENDING_START);
+  const auto action = Dispatch(state_.mutable_raw_handle(),
+                               VINPUT_FCITX_TRIGGER_EVENT_FIRE_PENDING_START);
   if (StartsImmediately(action)) {
     active_key_ = pending_key_;
     pending_key_.reset();
@@ -108,12 +108,14 @@ TriggerModeAction TriggerModeController::FirePendingStart() {
 }
 
 TriggerModeAction TriggerModeController::FirePendingStop() {
-  return Dispatch(state_, VINPUT_FCITX_TRIGGER_EVENT_FIRE_PENDING_STOP);
+  return Dispatch(state_.mutable_raw_handle(),
+                  VINPUT_FCITX_TRIGGER_EVENT_FIRE_PENDING_STOP);
 }
 
 void TriggerModeController::ConfirmStart(bool recording_started) {
-  static_cast<void>(
-      Dispatch(state_, VINPUT_FCITX_TRIGGER_EVENT_CONFIRM_START, 0, recording_started));
+  static_cast<void>(Dispatch(state_.mutable_raw_handle(),
+                             VINPUT_FCITX_TRIGGER_EVENT_CONFIRM_START, 0,
+                             recording_started));
   if (!recording_started) {
     pending_key_.reset();
     active_key_.reset();
@@ -121,7 +123,8 @@ void TriggerModeController::ConfirmStart(bool recording_started) {
 }
 
 void TriggerModeController::RecordingStopped() {
-  static_cast<void>(Dispatch(state_, VINPUT_FCITX_TRIGGER_EVENT_RECORDING_STOPPED));
+  static_cast<void>(Dispatch(state_.mutable_raw_handle(),
+                             VINPUT_FCITX_TRIGGER_EVENT_RECORDING_STOPPED));
   pending_key_.reset();
   active_key_.reset();
 }

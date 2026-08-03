@@ -9,16 +9,17 @@ use super::{
     FRONTEND_TRIGGER_INTENT_STOP_COMMAND, FRONTEND_TRIGGER_INTENT_STOP_NORMAL,
     FRONTEND_TRIGGER_REQUEST_SHOW_ASR_MENU, FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU,
     FRONTEND_TRIGGER_REQUEST_START_NORMAL, FRONTEND_TRIGGER_REQUEST_STOP_COMMAND,
-    FRONTEND_TRIGGER_REQUEST_STOP_NORMAL, VinputFcitxCandidateView, VinputFcitxFrontendOutcome,
-    VinputFcitxFrontendOutcomeView, VinputFcitxStringView, boxed_outcome, execute_step_with,
+    FRONTEND_TRIGGER_REQUEST_STOP_NORMAL, VinputFcitxFrontendOutcome,
+    VinputFcitxFrontendPresentation, VinputFcitxFrontendPresentationView,
+    VinputFcitxPresentedCandidateView, VinputFcitxStringView, boxed_outcome, execute_step_with,
     vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon,
     vinput_fcitx_frontend_controller_command_mode, vinput_fcitx_frontend_controller_free,
     vinput_fcitx_frontend_controller_new, vinput_fcitx_frontend_controller_plan_trigger,
     vinput_fcitx_frontend_controller_recording,
     vinput_fcitx_frontend_controller_start_command_with_daemon,
-    vinput_fcitx_frontend_controller_start_normal_with_daemon,
-    vinput_fcitx_frontend_outcome_candidate, vinput_fcitx_frontend_outcome_free,
-    vinput_fcitx_frontend_outcome_view,
+    vinput_fcitx_frontend_controller_start_normal_with_daemon, vinput_fcitx_frontend_outcome_free,
+    vinput_fcitx_frontend_presentation_candidate, vinput_fcitx_frontend_presentation_free,
+    vinput_fcitx_frontend_presentation_new, vinput_fcitx_frontend_presentation_view,
 };
 use crate::menu_snapshot::{boxed_scene_snapshot, vinput_fcitx_scene_snapshot_free};
 
@@ -30,54 +31,79 @@ unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     unsafe { std::slice::from_raw_parts(view.data, view.len) }
 }
 
-unsafe fn outcome_view(outcome: *mut VinputFcitxFrontendOutcome) -> VinputFcitxFrontendOutcomeView {
-    let mut view = VinputFcitxFrontendOutcomeView {
+unsafe fn presentation_view(
+    outcome: *mut VinputFcitxFrontendOutcome,
+) -> (
+    *mut VinputFcitxFrontendPresentation,
+    VinputFcitxFrontendPresentationView,
+) {
+    let original = b"Original";
+    let voice_command = b"Voice Command";
+    let cancel = b"Cancel";
+    // SAFETY: Test byte slices and the outcome remain live for the call.
+    let presentation = unsafe {
+        vinput_fcitx_frontend_presentation_new(
+            outcome,
+            original.as_ptr(),
+            original.len(),
+            voice_command.as_ptr(),
+            voice_command.len(),
+            cancel.as_ptr(),
+            cancel.len(),
+        )
+    };
+    assert!(!presentation.is_null());
+    let mut view = VinputFcitxFrontendPresentationView {
         kind: 0,
-        command_mode: 0,
+        replace_selection: 0,
         text: VinputFcitxStringView {
             data: ptr::null(),
             len: 0,
         },
-        commit_text: VinputFcitxStringView {
-            data: ptr::null(),
-            len: 0,
-        },
         candidate_count: 0,
+        cursor_index: 0,
     };
     // SAFETY: Test callers pass live handles and writable local output.
     assert_eq!(
-        unsafe { vinput_fcitx_frontend_outcome_view(outcome, &raw mut view) },
+        unsafe { vinput_fcitx_frontend_presentation_view(presentation, &raw mut view) },
         1
     );
-    view
+    (presentation, view)
 }
 
 #[test]
-fn builds_candidate_outcome_views() {
+fn builds_projected_frontend_presentation_views() {
     // SAFETY: Input bytes remain alive and the outcome handle is freed exactly once.
     unsafe {
         let payload = r#"{"commit_text":"selected","candidates":[{"text":"selected","source":"raw"},{"text":"changed","source":"asr"}]}"#;
         let outcome = boxed_outcome(FrontendOutcome::from_payload(payload, true));
         assert!(!outcome.is_null());
-        let view = outcome_view(outcome);
+        let (presentation, view) = presentation_view(outcome);
         assert_eq!(view.kind, 4);
-        assert_eq!(view.command_mode, 1);
-        assert_eq!(bytes(view.commit_text), b"selected");
+        assert_eq!(view.replace_selection, 1);
+        assert_eq!(bytes(view.text), b"selected");
         assert_eq!(view.candidate_count, 2);
+        assert_eq!(view.cursor_index, 0);
 
-        let mut candidate = VinputFcitxCandidateView {
+        let mut candidate = VinputFcitxPresentedCandidateView {
             text: VinputFcitxStringView {
                 data: ptr::null(),
                 len: 0,
             },
-            source: 0,
+            comment: VinputFcitxStringView {
+                data: ptr::null(),
+                len: 0,
+            },
+            commit: 0,
         };
         assert_eq!(
-            vinput_fcitx_frontend_outcome_candidate(outcome, 1, &raw mut candidate),
+            vinput_fcitx_frontend_presentation_candidate(presentation, 1, &raw mut candidate,),
             1
         );
         assert_eq!(bytes(candidate.text), b"changed");
-        assert_eq!(candidate.source, 2);
+        assert_eq!(bytes(candidate.comment), b"Voice Command");
+        assert_eq!(candidate.commit, 1);
+        vinput_fcitx_frontend_presentation_free(presentation);
         vinput_fcitx_frontend_outcome_free(outcome);
     }
 }
@@ -106,9 +132,10 @@ fn direct_exports_validate_inputs_and_immediate_errors() {
             7,
         );
         assert!(!immediate.is_null());
-        let view = outcome_view(immediate);
+        let (presentation, view) = presentation_view(immediate);
         assert_eq!(view.kind, 5);
         assert_eq!(bytes(view.text), b"Please select text first.");
+        vinput_fcitx_frontend_presentation_free(presentation);
         vinput_fcitx_frontend_outcome_free(immediate);
 
         let scene = boxed_scene_snapshot(SceneSnapshot::new("remote".to_owned()));
@@ -119,11 +146,12 @@ fn direct_exports_validate_inputs_and_immediate_errors() {
             scene,
         );
         assert!(!adopted.is_null());
-        let view = outcome_view(adopted);
+        let (presentation, view) = presentation_view(adopted);
         assert_eq!(view.kind, 5);
         assert_eq!(bytes(view.text), b"Voice input daemon is unavailable.");
         assert_eq!(vinput_fcitx_frontend_controller_recording(controller), 0);
         assert_eq!(vinput_fcitx_frontend_controller_command_mode(controller), 0);
+        vinput_fcitx_frontend_presentation_free(presentation);
         vinput_fcitx_frontend_outcome_free(adopted);
         vinput_fcitx_scene_snapshot_free(scene);
         vinput_fcitx_frontend_controller_free(controller);

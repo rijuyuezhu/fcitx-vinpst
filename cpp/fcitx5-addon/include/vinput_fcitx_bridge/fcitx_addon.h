@@ -103,13 +103,13 @@ private:
   mutable std::unique_ptr<VinputFrontendConfig> frontend_config_;
   SceneStateSnapshot scene_state_;
   MenuFilterState scene_menu_filter_;
-  std::vector<ProjectedMenuControl> scene_menu_controls_;
+  std::shared_ptr<SceneMenuProjection> scene_menu_projection_;
   int scene_menu_page_ = 0;
   fcitx::InputContext *scene_menu_ic_ = nullptr;
   bool scene_menu_visible_ = false;
   AsrDisplayMenuStateSnapshot asr_menu_state_;
   MenuFilterState asr_menu_filter_;
-  std::vector<ProjectedMenuControl> asr_menu_controls_;
+  std::shared_ptr<AsrMenuProjection> asr_menu_projection_;
   int asr_menu_page_ = 0;
   fcitx::InputContext *asr_menu_ic_ = nullptr;
   bool asr_menu_visible_ = false;
@@ -118,11 +118,9 @@ private:
   fcitx::TrackableObjectReference<fcitx::InputContext> pending_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> remote_status_ic_;
-  bool remote_status_command_mode_ = false;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::unique_ptr<FcitxDaemonSignalMonitor> daemon_signal_monitor_;
-  std::string live_daemon_status_;
-  std::string live_partial_text_;
+  DaemonLivePresentationState live_daemon_state_;
   std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
       event_handlers_;
 };

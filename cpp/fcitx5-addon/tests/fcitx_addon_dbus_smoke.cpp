@@ -48,7 +48,7 @@ bool ExpectApplied(AppliedOutcome actual, AppliedOutcome expected,
 bool ExpectLastOutcome(BridgeOutcome::Kind kind, std::string_view text,
                        bool command_mode, std::string_view label) {
   if (g_last_outcome.kind == kind && g_last_outcome.text == text &&
-      g_last_outcome.command_mode == command_mode) {
+      g_last_outcome.replace_selection == command_mode) {
     return true;
   }
   std::cerr << label << " produced unexpected bridge outcome: " << g_last_outcome.text

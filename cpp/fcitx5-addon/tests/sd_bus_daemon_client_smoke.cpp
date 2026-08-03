@@ -1,4 +1,6 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
+#include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_bridge/rust_string.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
 #include "vinput_fcitx_ffi.h"
 
@@ -21,35 +23,15 @@ using vinput_fcitx_bridge::SdBusDaemonClient;
 
 namespace {
 
-std::string CopyText(VinputFcitxStringView view) {
-  return view.data == nullptr || view.len == 0
-             ? std::string{}
-             : std::string(reinterpret_cast<const char *>(view.data), view.len);
-}
-
-const std::uint8_t *Bytes(std::string_view value) {
-  return value.empty() ? nullptr : reinterpret_cast<const std::uint8_t *>(value.data());
-}
-
-struct SceneProjectionDeleter {
-  void operator()(VinputFcitxSceneProjection *projection) const {
-    vinput_fcitx_scene_projection_free(projection);
-  }
-};
-
-struct AsrProjectionDeleter {
-  void operator()(VinputFcitxAsrProjection *projection) const {
-    vinput_fcitx_asr_projection_free(projection);
-  }
-};
-
-struct MenuFilterDeleter {
-  void operator()(VinputFcitxMenuFilterState *filter) const {
-    vinput_fcitx_menu_filter_state_free(filter);
-  }
-};
-
-using MenuFilterPtr = std::unique_ptr<VinputFcitxMenuFilterState, MenuFilterDeleter>;
+using SceneProjectionHandle =
+    vinput_fcitx_bridge::RustOwnedHandle<VinputFcitxSceneProjection,
+                                         vinput_fcitx_scene_projection_free>;
+using AsrProjectionHandle =
+    vinput_fcitx_bridge::RustOwnedHandle<VinputFcitxAsrProjection,
+                                         vinput_fcitx_asr_projection_free>;
+using MenuFilterHandle =
+    vinput_fcitx_bridge::RustOwnedHandle<VinputFcitxMenuFilterState,
+                                         vinput_fcitx_menu_filter_state_free>;
 
 struct ProjectedItem {
   std::string label;
@@ -70,30 +52,35 @@ struct AsrProjectionState {
 };
 
 ProjectedItem CopyProjectedItem(const VinputFcitxProjectedMenuItemView &view) {
-  return ProjectedItem{CopyText(view.label), view.control_kind,
-                       CopyText(view.control_first), CopyText(view.control_second),
-                       CopyText(view.control_label)};
+  return ProjectedItem{vinput_fcitx_bridge::CopyRustString(view.label),
+                       view.control_kind,
+                       vinput_fcitx_bridge::CopyRustString(view.control_first),
+                       vinput_fcitx_bridge::CopyRustString(view.control_second),
+                       vinput_fcitx_bridge::CopyRustString(view.control_label)};
 }
 
 std::optional<SceneProjectionState> ProjectScene(const SceneStateSnapshot &snapshot) {
-  MenuFilterPtr filter(vinput_fcitx_menu_filter_state_new());
-  if (filter == nullptr) {
+  auto filter = MenuFilterHandle::Adopt(vinput_fcitx_menu_filter_state_new());
+  if (!filter) {
     return std::nullopt;
   }
-  std::unique_ptr<VinputFcitxSceneProjection, SceneProjectionDeleter> projection(
-      vinput_fcitx_scene_projection_new(snapshot.raw_handle(), filter.get()));
-  if (projection == nullptr) {
+  auto projection = SceneProjectionHandle::Adopt(
+      vinput_fcitx_scene_projection_new(snapshot.raw_handle(), filter.raw_handle()));
+  if (!projection) {
     return std::nullopt;
   }
   VinputFcitxSceneProjectionView view{};
-  if (vinput_fcitx_scene_projection_view(projection.get(), &view) == 0) {
+  if (vinput_fcitx_scene_projection_view(projection.raw_handle(), &view) == 0) {
     return std::nullopt;
   }
-  SceneProjectionState state{.active_label = CopyText(view.active_label), .items = {}};
+  SceneProjectionState state{.active_label =
+                                 vinput_fcitx_bridge::CopyRustString(view.active_label),
+                             .items = {}};
   state.items.reserve(view.item_count);
   for (std::size_t index = 0; index < view.item_count; ++index) {
     VinputFcitxProjectedMenuItemView item{};
-    if (vinput_fcitx_scene_projection_item_view(projection.get(), index, &item) == 0) {
+    if (vinput_fcitx_scene_projection_item_view(projection.raw_handle(), index,
+                                                &item) == 0) {
       return std::nullopt;
     }
     state.items.push_back(CopyProjectedItem(item));
@@ -118,30 +105,34 @@ ProjectAsr(const AsrDisplayMenuStateSnapshot &snapshot) {
   constexpr std::string_view kUnavailable = "unavailable";
   constexpr std::string_view kLoadingPrefix = "Loading: ";
   constexpr std::string_view kErrorPrefix = "Error: ";
-  MenuFilterPtr filter(vinput_fcitx_menu_filter_state_new());
-  if (filter == nullptr) {
+  auto filter = MenuFilterHandle::Adopt(vinput_fcitx_menu_filter_state_new());
+  if (!filter) {
     return std::nullopt;
   }
-  std::unique_ptr<VinputFcitxAsrProjection, AsrProjectionDeleter> projection(
-      vinput_fcitx_asr_projection_new(
-          snapshot.raw_handle(), filter.get(), Bytes(kLocal), kLocal.size(),
-          Bytes(kRemote), kRemote.size(), Bytes(kCommand), kCommand.size(),
-          Bytes(kLoadingSuffix), kLoadingSuffix.size(), Bytes(kUnavailable),
-          kUnavailable.size(), Bytes(kLoadingPrefix), kLoadingPrefix.size(),
-          Bytes(kErrorPrefix), kErrorPrefix.size()));
-  if (projection == nullptr) {
+  auto projection = AsrProjectionHandle::Adopt(vinput_fcitx_asr_projection_new(
+      snapshot.raw_handle(), filter.raw_handle(),
+      vinput_fcitx_bridge::RustBytes(kLocal), kLocal.size(),
+      vinput_fcitx_bridge::RustBytes(kRemote), kRemote.size(),
+      vinput_fcitx_bridge::RustBytes(kCommand), kCommand.size(),
+      vinput_fcitx_bridge::RustBytes(kLoadingSuffix), kLoadingSuffix.size(),
+      vinput_fcitx_bridge::RustBytes(kUnavailable), kUnavailable.size(),
+      vinput_fcitx_bridge::RustBytes(kLoadingPrefix), kLoadingPrefix.size(),
+      vinput_fcitx_bridge::RustBytes(kErrorPrefix), kErrorPrefix.size()));
+  if (!projection) {
     return std::nullopt;
   }
   VinputFcitxProjectionView view{};
-  if (vinput_fcitx_asr_projection_view(projection.get(), &view) == 0) {
+  if (vinput_fcitx_asr_projection_view(projection.raw_handle(), &view) == 0) {
     return std::nullopt;
   }
-  AsrProjectionState state{.effective_label = CopyText(view.effective_label),
-                           .items = {}};
+  AsrProjectionState state{
+      .effective_label = vinput_fcitx_bridge::CopyRustString(view.effective_label),
+      .items = {}};
   state.items.reserve(view.item_count);
   for (std::size_t index = 0; index < view.item_count; ++index) {
     VinputFcitxProjectedMenuItemView item{};
-    if (vinput_fcitx_asr_projection_item_view(projection.get(), index, &item) == 0) {
+    if (vinput_fcitx_asr_projection_item_view(projection.raw_handle(), index, &item) ==
+        0) {
       return std::nullopt;
     }
     state.items.push_back(CopyProjectedItem(item));
@@ -448,7 +439,7 @@ int main() {
   }
 
   if (normal_bridge.recording() || normal_bridge.command_mode() ||
-      normal_stop.command_mode) {
+      normal_stop.replace_selection) {
     std::cerr << "normal stop did not reset bridge state\n";
     return 1;
   }
@@ -483,7 +474,7 @@ int main() {
   }
 
   if (command_bridge.recording() || command_bridge.command_mode() ||
-      !command_stop.command_mode) {
+      !command_stop.replace_selection) {
     std::cerr << "command stop did not reset bridge state\n";
     return 1;
   }

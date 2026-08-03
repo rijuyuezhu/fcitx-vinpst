@@ -26,6 +26,7 @@ int main() {
   using fcitx::dbus::BusType;
   using fcitx::dbus::RequestNameFlag;
   using vinput_fcitx_bridge::ComposeDaemonStatusPreedit;
+  using vinput_fcitx_bridge::DaemonLivePresentationState;
   using vinput_fcitx_bridge::DaemonSignalCallbacks;
   using vinput_fcitx_bridge::FcitxDaemonSignalMonitor;
   using vinput_fcitx_bridge::FrontendNotificationKind;
@@ -39,6 +40,24 @@ int main() {
   assert(ComposeDaemonStatusPreedit("idle", false, "").empty());
   assert(ComposeDaemonStatusPreedit("recording", false, "live partial") ==
          "live partial");
+
+  DaemonLivePresentationState live_state;
+  live_state.BeginStatus("recording", true);
+  assert(live_state.CommandMode());
+  assert(live_state.Preedit() == "... Commanding ...");
+  assert(!live_state.UpdatePartial("live partial", false));
+  assert(live_state.UpdatePartial("live partial", true));
+  assert(!live_state.UpdatePartial("live partial", true));
+  assert(live_state.Preedit() == "live partial");
+  live_state.UpdateStatus("inferring");
+  assert(live_state.CommandMode());
+  assert(live_state.Preedit() == "live partial");
+  live_state.BeginStatus("postprocessing", false);
+  assert(!live_state.CommandMode());
+  assert(live_state.Preedit() == "... Postprocessing ...");
+  live_state.Reset();
+  assert(!live_state.CommandMode());
+  assert(live_state.Preedit().empty());
 
   const WireNotification info{
       .code = "unknown",

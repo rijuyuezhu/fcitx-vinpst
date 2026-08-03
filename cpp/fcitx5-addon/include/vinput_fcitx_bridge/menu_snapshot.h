@@ -1,48 +1,21 @@
 #pragma once
 
+#include "vinput_fcitx_bridge/rust_handle.h"
+
 struct VinputFcitxAsrDisplaySnapshot;
 struct VinputFcitxSceneSnapshot;
 
+extern "C" {
+void vinput_fcitx_asr_display_snapshot_free(VinputFcitxAsrDisplaySnapshot *snapshot);
+void vinput_fcitx_scene_snapshot_free(VinputFcitxSceneSnapshot *snapshot);
+}
+
 namespace vinput_fcitx_bridge {
 
-class SdBusDaemonClient;
-
-class SceneStateSnapshot {
-public:
-  SceneStateSnapshot() = default;
-  static SceneStateSnapshot Adopt(::VinputFcitxSceneSnapshot *snapshot);
-  ~SceneStateSnapshot();
-
-  SceneStateSnapshot(const SceneStateSnapshot &) = delete;
-  SceneStateSnapshot &operator=(const SceneStateSnapshot &) = delete;
-  SceneStateSnapshot(SceneStateSnapshot &&other) noexcept;
-  SceneStateSnapshot &operator=(SceneStateSnapshot &&other) noexcept;
-
-  const ::VinputFcitxSceneSnapshot *raw_handle() const;
-
-private:
-  friend class SdBusDaemonClient;
-  explicit SceneStateSnapshot(::VinputFcitxSceneSnapshot *snapshot);
-  ::VinputFcitxSceneSnapshot *mutable_raw_handle();
-  ::VinputFcitxSceneSnapshot *snapshot_ = nullptr;
-};
-
-class AsrDisplayMenuStateSnapshot {
-public:
-  AsrDisplayMenuStateSnapshot() = default;
-  static AsrDisplayMenuStateSnapshot Adopt(::VinputFcitxAsrDisplaySnapshot *snapshot);
-  ~AsrDisplayMenuStateSnapshot();
-
-  AsrDisplayMenuStateSnapshot(const AsrDisplayMenuStateSnapshot &) = delete;
-  AsrDisplayMenuStateSnapshot &operator=(const AsrDisplayMenuStateSnapshot &) = delete;
-  AsrDisplayMenuStateSnapshot(AsrDisplayMenuStateSnapshot &&other) noexcept;
-  AsrDisplayMenuStateSnapshot &operator=(AsrDisplayMenuStateSnapshot &&other) noexcept;
-
-  const ::VinputFcitxAsrDisplaySnapshot *raw_handle() const;
-
-private:
-  explicit AsrDisplayMenuStateSnapshot(::VinputFcitxAsrDisplaySnapshot *snapshot);
-  ::VinputFcitxAsrDisplaySnapshot *snapshot_ = nullptr;
-};
+using SceneStateSnapshot =
+    RustOwnedHandle<VinputFcitxSceneSnapshot, vinput_fcitx_scene_snapshot_free>;
+using AsrDisplayMenuStateSnapshot =
+    RustOwnedHandle<VinputFcitxAsrDisplaySnapshot,
+                    vinput_fcitx_asr_display_snapshot_free>;
 
 } // namespace vinput_fcitx_bridge

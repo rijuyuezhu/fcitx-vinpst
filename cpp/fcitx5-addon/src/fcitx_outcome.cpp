@@ -9,146 +9,100 @@
 #include <fcitx/userinterface.h>
 
 #include <string>
-#include <string_view>
 #include <utility>
 
 namespace vinput_fcitx_bridge {
 namespace {
 
-class OutcomeSink {
-public:
-  virtual ~OutcomeSink() = default;
-
-  virtual void SetPreedit(std::string_view text) = 0;
-  virtual void ClearPreedit() = 0;
-  virtual void ClearCandidateMenu() = 0;
-  virtual void DeleteSelectedTextIfAny() = 0;
-  virtual void CommitString(std::string_view text) = 0;
-  virtual bool ShowCandidateMenu(const RecognitionPayload &payload,
-                                 bool command_mode) = 0;
-};
-
-class FcitxInputContextSink final : public OutcomeSink {
-public:
-  explicit FcitxInputContextSink(fcitx::InputContext *input_context)
-      : input_context_(input_context) {}
-
-  void SetPreedit(std::string_view text) override {
-    ClearCandidateMenu();
-    fcitx::Text preedit;
-    if (!text.empty()) {
-      preedit.append(std::string(text));
-    }
-    input_context_->inputPanel().setPreedit(preedit);
-    input_context_->updatePreedit();
-    input_context_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-  }
-
-  void ClearPreedit() override {
-    SetPreedit("");
-  }
-
-  void ClearCandidateMenu() override {
-    ClearResultCandidateMenu(input_context_);
-  }
-
-  void DeleteSelectedTextIfAny() override {
-    auto range = SelectedTextDeletionRange(input_context_->surroundingText());
-    if (!range.has_value()) {
-      return;
-    }
-    input_context_->deleteSurroundingText(range->offset, range->size);
-  }
-
-  void CommitString(std::string_view text) override {
-    input_context_->commitString(std::string(text));
-  }
-
-  bool ShowCandidateMenu(const RecognitionPayload &payload,
-                         bool command_mode) override {
-    auto candidate_list = BuildResultCandidateList(
-        payload,
-        [command_mode](fcitx::InputContext *input_context, const Candidate &candidate) {
-          ApplyResultCandidateSelection(input_context, candidate, command_mode);
-        });
-    if (candidate_list == nullptr) {
-      return false;
-    }
-    ClearPreedit();
-    fcitx::Text aux_up;
-    aux_up.append(ResultCandidateMenuTitle(payload.candidates.size()));
-    input_context_->inputPanel().setAuxUp(aux_up);
-    input_context_->inputPanel().setCandidateList(std::move(candidate_list));
-    input_context_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-    return true;
-  }
-
-private:
-  fcitx::InputContext *input_context_;
-};
-
-std::string_view CommitText(const BridgeOutcome &outcome) {
-  if (!outcome.text.empty()) {
-    return outcome.text;
-  }
-  return outcome.payload.commit_text;
+void ClearCandidateMenu(fcitx::InputContext *input_context) {
+  ClearResultCandidateMenu(input_context);
 }
 
-AppliedOutcome ApplyBridgeOutcomeToSink(const BridgeOutcome &outcome,
-                                        OutcomeSink &sink) {
+void SetPreedit(fcitx::InputContext *input_context, std::string_view text) {
+  ClearCandidateMenu(input_context);
+  fcitx::Text preedit;
+  if (!text.empty()) {
+    preedit.append(std::string(text));
+  }
+  input_context->inputPanel().setPreedit(preedit);
+  input_context->updatePreedit();
+  input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+void DeleteSelectedTextIfAny(fcitx::InputContext *input_context) {
+  const auto range = SelectedTextDeletionRange(input_context->surroundingText());
+  if (range.has_value()) {
+    input_context->deleteSurroundingText(range->offset, range->size);
+  }
+}
+
+void CommitText(fcitx::InputContext *input_context, std::string_view text,
+                bool replace_selection) {
+  if (replace_selection) {
+    DeleteSelectedTextIfAny(input_context);
+  }
+  ClearCandidateMenu(input_context);
+  SetPreedit(input_context, "");
+  input_context->commitString(std::string(text));
+}
+
+bool ShowCandidateMenu(fcitx::InputContext *input_context,
+                       const CandidatePresentation &presentation,
+                       bool replace_selection) {
+  auto candidate_list = BuildResultCandidateList(
+      presentation, [replace_selection](fcitx::InputContext *selected_context,
+                                        const PresentedCandidate &candidate) {
+        ApplyResultCandidateSelection(selected_context, candidate, replace_selection);
+      });
+  if (candidate_list == nullptr) {
+    return false;
+  }
+  SetPreedit(input_context, "");
+  fcitx::Text aux_up;
+  aux_up.append(ResultCandidateMenuTitle(presentation.candidate_count));
+  input_context->inputPanel().setAuxUp(aux_up);
+  input_context->inputPanel().setCandidateList(std::move(candidate_list));
+  input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  return true;
+}
+
+} // namespace
+
+AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
+                                                fcitx::InputContext *input_context) {
+  if (input_context == nullptr) {
+    return AppliedOutcome::None;
+  }
 
   switch (outcome.kind) {
   case BridgeOutcome::Kind::None:
     return AppliedOutcome::None;
   case BridgeOutcome::Kind::Preedit:
   case BridgeOutcome::Kind::Error:
-    sink.SetPreedit(outcome.text);
+    SetPreedit(input_context, outcome.text);
     return AppliedOutcome::Preedit;
   case BridgeOutcome::Kind::Clear:
-    sink.ClearPreedit();
+    SetPreedit(input_context, "");
     return AppliedOutcome::Clear;
-  case BridgeOutcome::Kind::Commit: {
-    const auto text = CommitText(outcome);
-    if (text.empty()) {
+  case BridgeOutcome::Kind::Commit:
+    if (outcome.text.empty()) {
       return AppliedOutcome::None;
     }
-    if (outcome.command_mode) {
-      sink.DeleteSelectedTextIfAny();
-    }
-    sink.ClearCandidateMenu();
-    sink.ClearPreedit();
-    sink.CommitString(text);
+    CommitText(input_context, outcome.text, outcome.replace_selection);
     return AppliedOutcome::Commit;
-  }
   case BridgeOutcome::Kind::CandidateMenu:
-    if (sink.ShowCandidateMenu(outcome.payload, outcome.command_mode)) {
+    if (ShowCandidateMenu(input_context, outcome.candidate_menu,
+                          outcome.replace_selection)) {
       return AppliedOutcome::CandidateMenu;
     }
-    const auto text = CommitText(outcome);
-    if (text.empty()) {
+    if (outcome.text.empty()) {
       return AppliedOutcome::None;
     }
-    if (outcome.command_mode) {
-      sink.DeleteSelectedTextIfAny();
-    }
-    sink.ClearCandidateMenu();
-    sink.ClearPreedit();
-    sink.CommitString(text);
+    CommitText(input_context, outcome.text, outcome.replace_selection);
     return AppliedOutcome::Commit;
   }
 
   return AppliedOutcome::None;
-}
-
-} // namespace
-
-AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
-                                                fcitx::InputContext *ic) {
-  if (ic == nullptr) {
-    return AppliedOutcome::None;
-  }
-  FcitxInputContextSink sink(ic);
-  return ApplyBridgeOutcomeToSink(outcome, sink);
 }
 
 } // namespace vinput_fcitx_bridge

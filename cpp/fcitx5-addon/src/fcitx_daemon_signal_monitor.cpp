@@ -2,6 +2,8 @@
 
 #include "vinput_fcitx_bridge/dbus_contract.h"
 #include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_bridge/rust_string.h"
 #include "vinput_fcitx_ffi.h"
 
 #include <fcitx-utils/dbus/matchrule.h>
@@ -40,19 +42,8 @@ Rule SignalMatchRule(std::string service, std::string path, std::string interfac
   }
 }
 
-const std::uint8_t *Bytes(std::string_view value) {
-  return value.empty() ? nullptr : reinterpret_cast<const std::uint8_t *>(value.data());
-}
-
-std::string CopyText(VinputFcitxStringView view) {
-  if (view.data == nullptr || view.len == 0) {
-    return {};
-  }
-  return {reinterpret_cast<const char *>(view.data), view.len};
-}
-
 std::string RenderPlan(const VinputFcitxDaemonSignalPlanView &plan) {
-  const auto text = CopyText(plan.text);
+  const auto text = CopyRustString(plan.text);
   return plan.translate != 0 ? FrontendText(text) : text;
 }
 
@@ -61,8 +52,9 @@ PresentDaemonNotification(std::string_view code, std::string_view subject,
                           std::string_view detail, std::string_view raw_message) {
   VinputFcitxDaemonSignalPlanView plan{};
   if (vinput_fcitx_daemon_notification_plan(
-          Bytes(code), code.size(), Bytes(subject), subject.size(), Bytes(detail),
-          detail.size(), Bytes(raw_message), raw_message.size(), &plan) == 0) {
+          RustBytes(code), code.size(), RustBytes(subject), subject.size(),
+          RustBytes(detail), detail.size(), RustBytes(raw_message), raw_message.size(),
+          &plan) == 0) {
     return {FrontendNotificationKind::Error, FrontendText("Unknown error.")};
   }
   const auto kind = plan.kind == VINPUT_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO
@@ -96,12 +88,63 @@ AddStringSignalMatch(fcitx::dbus::Bus *bus, std::string_view signal,
 
 } // namespace
 
+struct DaemonLivePresentationState::Impl {
+  using Handle =
+      RustOwnedHandle<VinputFcitxDaemonLiveState, vinput_fcitx_daemon_live_state_free>;
+
+  Impl() : state(Handle::Adopt(vinput_fcitx_daemon_live_state_new())) {}
+
+  Handle state;
+};
+
+DaemonLivePresentationState::DaemonLivePresentationState()
+    : impl_(std::make_unique<Impl>()) {}
+
+DaemonLivePresentationState::~DaemonLivePresentationState() = default;
+
+void DaemonLivePresentationState::Reset() {
+  static_cast<void>(
+      vinput_fcitx_daemon_live_state_reset(impl_->state.mutable_raw_handle()));
+}
+
+void DaemonLivePresentationState::BeginStatus(std::string_view status,
+                                              bool command_mode) {
+  static_cast<void>(vinput_fcitx_daemon_live_state_begin_status(
+      impl_->state.mutable_raw_handle(), RustBytes(status), status.size(),
+      static_cast<std::uint8_t>(command_mode)));
+}
+
+void DaemonLivePresentationState::UpdateStatus(std::string_view status) {
+  static_cast<void>(vinput_fcitx_daemon_live_state_update_status(
+      impl_->state.mutable_raw_handle(), RustBytes(status), status.size()));
+}
+
+bool DaemonLivePresentationState::UpdatePartial(std::string_view partial_text,
+                                                bool recording) {
+  return vinput_fcitx_daemon_live_state_update_partial(
+             impl_->state.mutable_raw_handle(), RustBytes(partial_text),
+             partial_text.size(), static_cast<std::uint8_t>(recording)) != 0;
+}
+
+bool DaemonLivePresentationState::CommandMode() const {
+  return vinput_fcitx_daemon_live_state_command_mode(impl_->state.raw_handle()) != 0;
+}
+
+std::string DaemonLivePresentationState::Preedit() const {
+  VinputFcitxDaemonSignalPlanView plan{};
+  if (vinput_fcitx_daemon_live_state_preedit_plan(impl_->state.raw_handle(), &plan) ==
+      0) {
+    return {};
+  }
+  return RenderPlan(plan);
+}
+
 std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
                                        std::string_view partial_text) {
   VinputFcitxDaemonSignalPlanView plan{};
   if (vinput_fcitx_daemon_status_preedit_plan(
-          Bytes(status), status.size(), static_cast<std::uint8_t>(command_mode),
-          Bytes(partial_text), partial_text.size(), &plan) == 0) {
+          RustBytes(status), status.size(), static_cast<std::uint8_t>(command_mode),
+          RustBytes(partial_text), partial_text.size(), &plan) == 0) {
     return {};
   }
   return RenderPlan(plan);

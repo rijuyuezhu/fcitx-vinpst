@@ -6,8 +6,9 @@ use std::{
 };
 
 use vinput_fcitx_core::{
-    Candidate, CandidateSource, FrontendCall, FrontendController, FrontendOutcome,
-    FrontendOutcomeKind, FrontendStep, FrontendTriggerIntent, FrontendTriggerRequest,
+    FrontendCall, FrontendController, FrontendOutcome, FrontendOutcomeKind, FrontendPresentation,
+    FrontendStep, FrontendTriggerIntent, FrontendTriggerRequest, PresentedResultCandidate,
+    ResultCandidateText, present_frontend_outcome,
 };
 use vinput_fcitx_dbus::{DaemonOperation, DaemonResponse};
 
@@ -44,6 +45,11 @@ pub struct VinputFcitxFrontendOutcome {
     outcome: FrontendOutcome,
 }
 
+/// Opaque Rust-owned platform-neutral frontend presentation.
+pub struct VinputFcitxFrontendPresentation {
+    presentation: FrontendPresentation,
+}
+
 /// Borrowed UTF-8 byte view valid while its owner handle remains alive.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -54,30 +60,32 @@ pub struct VinputFcitxStringView {
     pub len: usize,
 }
 
-/// Borrowed frontend outcome summary.
+/// Borrowed platform-neutral frontend presentation summary.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct VinputFcitxFrontendOutcomeView {
-    /// Stable `VINPUT_FCITX_FRONTEND_OUTCOME_*` value.
+pub struct VinputFcitxFrontendPresentationView {
+    /// Stable `VINPUT_FCITX_FRONTEND_OUTCOME_*` value after fallback normalization.
     pub kind: u8,
-    /// Whether this result belongs to command mode.
-    pub command_mode: u8,
-    /// Primary preedit, commit, or error text.
+    /// Whether commits and candidate selections replace surrounding selected text.
+    pub replace_selection: u8,
+    /// Preedit, commit, error, or candidate-menu fallback text.
     pub text: VinputFcitxStringView,
-    /// Normalized commit text from the recognition payload.
-    pub commit_text: VinputFcitxStringView,
-    /// Number of normalized candidates.
+    /// Number of fully rendered result candidates.
     pub candidate_count: usize,
+    /// Preferred candidate cursor position.
+    pub cursor_index: usize,
 }
 
-/// Borrowed candidate row.
+/// Borrowed fully rendered result candidate row.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct VinputFcitxCandidateView {
+pub struct VinputFcitxPresentedCandidateView {
     /// Candidate text.
     pub text: VinputFcitxStringView,
-    /// Stable `VINPUT_FCITX_CANDIDATE_SOURCE_*` value.
-    pub source: u8,
+    /// Localized candidate annotation.
+    pub comment: VinputFcitxStringView,
+    /// Whether selecting this row commits its text.
+    pub commit: u8,
 }
 
 unsafe fn text_input<'a>(data: *const u8, len: usize) -> Option<&'a str> {
@@ -138,15 +146,6 @@ const fn trigger_intent(intent: FrontendTriggerIntent) -> u8 {
         FrontendTriggerIntent::StopCommand => FRONTEND_TRIGGER_INTENT_STOP_COMMAND,
         FrontendTriggerIntent::ShowSceneMenu => FRONTEND_TRIGGER_INTENT_SHOW_SCENE_MENU,
         FrontendTriggerIntent::ShowAsrMenu => FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU,
-    }
-}
-
-fn candidate_source(source: CandidateSource) -> u8 {
-    match source {
-        CandidateSource::Raw => 0,
-        CandidateSource::Llm => 1,
-        CandidateSource::Asr => 2,
-        CandidateSource::Cancel => 3,
     }
 }
 
@@ -444,66 +443,133 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_outcome_free(
     }
 }
 
-/// Borrows the complete outcome summary.
+/// Projects one frontend outcome into a Rust-owned platform-neutral presentation.
 ///
 /// # Safety
 ///
-/// `outcome` must be live and `view_out` must be writable.
+/// `outcome` must be live and localization byte pointers must reference their lengths.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_outcome_view(
+pub unsafe extern "C" fn vinput_fcitx_frontend_presentation_new(
     outcome: *const VinputFcitxFrontendOutcome,
-    view_out: *mut VinputFcitxFrontendOutcomeView,
+    original_data: *const u8,
+    original_len: usize,
+    voice_command_data: *const u8,
+    voice_command_len: usize,
+    cancel_data: *const u8,
+    cancel_len: usize,
+) -> *mut VinputFcitxFrontendPresentation {
+    catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(outcome) = (unsafe { outcome.as_ref() }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(original) = (unsafe { text_input(original_data, original_len) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(voice_command) = (unsafe { text_input(voice_command_data, voice_command_len) })
+        else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(cancel) = (unsafe { text_input(cancel_data, cancel_len) }) else {
+            return ptr::null_mut();
+        };
+        Box::into_raw(Box::new(VinputFcitxFrontendPresentation {
+            presentation: present_frontend_outcome(
+                &outcome.outcome,
+                ResultCandidateText {
+                    original,
+                    voice_command,
+                    cancel,
+                },
+            ),
+        }))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
+
+/// Releases a frontend presentation.
+///
+/// # Safety
+///
+/// A non-null pointer must be a live handle returned by this crate.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_frontend_presentation_free(
+    presentation: *mut VinputFcitxFrontendPresentation,
+) {
+    if !presentation.is_null() {
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            // SAFETY: Forwarded from this function's caller contract.
+            drop(unsafe { Box::from_raw(presentation) });
+        }));
+    }
+}
+
+/// Borrows the complete frontend presentation summary.
+///
+/// # Safety
+///
+/// `presentation` must be live and `view_out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_frontend_presentation_view(
+    presentation: *const VinputFcitxFrontendPresentation,
+    view_out: *mut VinputFcitxFrontendPresentationView,
 ) -> u8 {
     if view_out.is_null() {
         return 0;
     }
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(outcome) = (unsafe { outcome.as_ref() }) else {
+    let Some(presentation) = (unsafe { presentation.as_ref() }) else {
         return 0;
     };
-    let payload = outcome.outcome.payload();
     // SAFETY: The caller guarantees a writable output pointer.
     unsafe {
-        view_out.write(VinputFcitxFrontendOutcomeView {
-            kind: outcome_kind(outcome.outcome.kind()),
-            command_mode: u8::from(outcome.outcome.command_mode()),
-            text: string_view(outcome.outcome.text()),
-            commit_text: string_view(&payload.commit_text),
-            candidate_count: payload.candidates.len(),
+        view_out.write(VinputFcitxFrontendPresentationView {
+            kind: outcome_kind(presentation.presentation.kind),
+            replace_selection: u8::from(presentation.presentation.replace_selection),
+            text: string_view(&presentation.presentation.text),
+            candidate_count: presentation.presentation.candidates.len(),
+            cursor_index: presentation.presentation.cursor_index,
         });
     }
     1
 }
 
-/// Borrows one candidate row.
+/// Borrows one fully rendered frontend candidate row.
 ///
 /// # Safety
 ///
-/// `outcome` must be live and `view_out` must be writable.
+/// `presentation` must be live and `view_out` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_outcome_candidate(
-    outcome: *const VinputFcitxFrontendOutcome,
+pub unsafe extern "C" fn vinput_fcitx_frontend_presentation_candidate(
+    presentation: *const VinputFcitxFrontendPresentation,
     index: usize,
-    view_out: *mut VinputFcitxCandidateView,
+    view_out: *mut VinputFcitxPresentedCandidateView,
 ) -> u8 {
     if view_out.is_null() {
         return 0;
     }
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(candidate) = (unsafe { outcome.as_ref() })
-        .and_then(|outcome| outcome.outcome.payload().candidates.get(index))
+    let Some(candidate) = (unsafe { presentation.as_ref() })
+        .and_then(|value| value.presentation.candidates.get(index))
     else {
         return 0;
     };
-    write_candidate(candidate, view_out)
+    write_presented_candidate(candidate, view_out)
 }
 
-fn write_candidate(candidate: &Candidate, view_out: *mut VinputFcitxCandidateView) -> u8 {
+fn write_presented_candidate(
+    candidate: &PresentedResultCandidate,
+    view_out: *mut VinputFcitxPresentedCandidateView,
+) -> u8 {
     // SAFETY: Callers validate the output pointer before entering this helper.
     unsafe {
-        view_out.write(VinputFcitxCandidateView {
+        view_out.write(VinputFcitxPresentedCandidateView {
             text: string_view(&candidate.text),
-            source: candidate_source(candidate.source),
+            comment: string_view(&candidate.comment),
+            commit: u8::from(candidate.commit),
         });
     }
     1

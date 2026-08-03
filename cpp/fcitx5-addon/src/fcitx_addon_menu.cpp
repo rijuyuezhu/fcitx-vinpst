@@ -72,7 +72,7 @@ std::string DecoratePagedMenuTitle(std::string title,
 }
 
 void SetFilteredMenuTitle(fcitx::InputContext *ic, std::string_view base_title,
-                          const MenuFilterState &filter,
+                          MenuFilterState &filter,
                           fcitx::CandidateList *candidate_list) {
   if (ic == nullptr) {
     return;
@@ -82,11 +82,13 @@ void SetFilteredMenuTitle(fcitx::InputContext *ic, std::string_view base_title,
 }
 
 template <typename RebuildMenu, typename HideMenu, typename SelectItem>
-bool HandleProjectedMenuKeyEvent(
-    fcitx::KeyEvent &event, bool trigger_key, fcitx::InputContext *input_context,
-    MenuFilterState &filter, const std::vector<ProjectedMenuControl> &visible_controls,
-    int current_page, const FrontendSettings &settings, std::string_view base_title,
-    RebuildMenu &&rebuild_menu, HideMenu &&hide_menu, SelectItem &&select_item) {
+bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
+                                 fcitx::InputContext *input_context,
+                                 MenuFilterState &filter, std::size_t visible_count,
+                                 int current_page, const FrontendSettings &settings,
+                                 std::string_view base_title,
+                                 RebuildMenu &&rebuild_menu, HideMenu &&hide_menu,
+                                 SelectItem &&select_item) {
   auto candidate_list = input_context->inputPanel().candidateList();
   auto *cursor =
       candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
@@ -98,10 +100,9 @@ bool HandleProjectedMenuKeyEvent(
   const auto semantic_key =
       ClassifyMenuKey(event.key(), trigger_key, *filter_active, settings.page_prev_keys,
                       settings.page_next_keys);
-  const auto decision =
-      filter.HandleKey(event.isRelease(), semantic_key, cursor != nullptr,
-                       CurrentMenuSelectionIndex(candidate_list.get()), current_page,
-                       visible_controls.size());
+  const auto decision = filter.HandleKey(
+      event.isRelease(), semantic_key, cursor != nullptr,
+      CurrentMenuSelectionIndex(candidate_list.get()), current_page, visible_count);
   if (!decision.has_value()) {
     hide_menu();
     return false;
@@ -145,13 +146,12 @@ bool HandleProjectedMenuKeyEvent(
     break;
   case MenuKeyAction::Select:
     if (decision->value < 0 ||
-        static_cast<std::uint64_t>(decision->value) >= visible_controls.size()) {
+        static_cast<std::uint64_t>(decision->value) >= visible_count) {
       hide_menu();
       event.filterAndAccept();
       return true;
     }
-    select_item(visible_controls[static_cast<std::size_t>(decision->value)],
-                input_context);
+    select_item(static_cast<std::size_t>(decision->value), input_context);
     event.filterAndAccept();
     return true;
   }
@@ -192,18 +192,35 @@ void FcitxVinputAddon::RebuildSceneMenu(int page) {
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
   auto projection = ProjectSceneMenu(scene_state_, scene_menu_filter_);
-  if (!projection.has_value()) {
+  if (!projection) {
     FCITX_ERROR() << "fcitx-vinput failed to finalize scene menu projection";
     HideSceneMenu();
     return;
   }
+  const auto item_count = projection->size();
+  const auto active_label = projection->active_label();
+  if (!item_count.has_value() || !active_label.has_value()) {
+    FCITX_ERROR() << "fcitx-vinput failed to read scene menu projection";
+    HideSceneMenu();
+    return;
+  }
 
-  scene_menu_controls_.clear();
-  for (const auto &item : projection->items) {
-    scene_menu_controls_.push_back(item.control);
+  scene_menu_projection_ = projection;
+  for (std::size_t index = 0; index < *item_count; ++index) {
+    const auto item = projection->item(index);
+    if (!item.has_value()) {
+      FCITX_ERROR() << "fcitx-vinput failed to read scene menu item " << index;
+      HideSceneMenu();
+      return;
+    }
     candidates->append<MenuCandidateWord>(
-        item.label, [this, control = item.control](fcitx::InputContext *input_context) {
-          ExecuteMenuControl(control, input_context);
+        item->label, [this, projection, index](fcitx::InputContext *input_context) {
+          const auto selected = projection->item(index);
+          if (!selected.has_value()) {
+            HideSceneMenu();
+            return;
+          }
+          ExecuteMenuControl(selected->control, input_context);
         });
   }
   if (candidates->totalSize() > 0) {
@@ -217,7 +234,7 @@ void FcitxVinputAddon::RebuildSceneMenu(int page) {
   SetFilteredMenuTitle(scene_menu_ic_, FrontendText("Scenes /filter"),
                        scene_menu_filter_, candidates.get());
   scene_menu_ic_->inputPanel().setAuxDown(
-      fcitx::Text(FrontendText("Current: ") + projection->active_label));
+      fcitx::Text(FrontendText("Current: ") + *active_label));
   PublishMenuCandidateList(scene_menu_ic_, std::move(candidates));
   scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
@@ -232,7 +249,7 @@ void FcitxVinputAddon::HideSceneMenu() {
   scene_menu_visible_ = false;
   scene_menu_ic_ = nullptr;
   scene_menu_filter_.Reset();
-  scene_menu_controls_.clear();
+  scene_menu_projection_.reset();
   scene_menu_page_ = 0;
   if (ic == nullptr) {
     return;
@@ -249,13 +266,23 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
     return false;
   }
   const auto title = FrontendText("Scenes /filter");
+  const auto projection = scene_menu_projection_;
+  const auto item_count = projection != nullptr ? projection->size() : std::nullopt;
+  if (!item_count.has_value()) {
+    HideSceneMenu();
+    return false;
+  }
   return HandleProjectedMenuKeyEvent(
       event, trigger_policy_.IsSceneMenuTrigger(event), scene_menu_ic_,
-      scene_menu_filter_, scene_menu_controls_, scene_menu_page_, frontend_settings_,
-      title, [this](int page) { RebuildSceneMenu(page); },
-      [this]() { HideSceneMenu(); },
-      [this](const ProjectedMenuControl &control, fcitx::InputContext *ic) {
-        ExecuteMenuControl(control, ic);
+      scene_menu_filter_, *item_count, scene_menu_page_, frontend_settings_, title,
+      [this](int page) { RebuildSceneMenu(page); }, [this]() { HideSceneMenu(); },
+      [this, projection](std::size_t index, fcitx::InputContext *ic) {
+        const auto item = projection->item(index);
+        if (!item.has_value()) {
+          HideSceneMenu();
+          return;
+        }
+        ExecuteMenuControl(item->control, ic);
       });
 }
 
@@ -297,18 +324,35 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
                                          loading_suffix, unavailable, loading_prefix,
                                          error_prefix};
   auto projection = ProjectAsrMenu(asr_menu_state_, asr_menu_filter_, localization);
-  if (!projection.has_value()) {
+  if (!projection) {
     FCITX_ERROR() << "fcitx-vinput failed to finalize ASR menu projection";
     HideAsrMenu();
     return;
   }
+  const auto item_count = projection->size();
+  const auto effective_label = projection->effective_label();
+  if (!item_count.has_value() || !effective_label.has_value()) {
+    FCITX_ERROR() << "fcitx-vinput failed to read ASR menu projection";
+    HideAsrMenu();
+    return;
+  }
 
-  asr_menu_controls_.clear();
-  for (const auto &item : projection->items) {
-    asr_menu_controls_.push_back(item.control);
+  asr_menu_projection_ = projection;
+  for (std::size_t index = 0; index < *item_count; ++index) {
+    const auto item = projection->item(index);
+    if (!item.has_value()) {
+      FCITX_ERROR() << "fcitx-vinput failed to read ASR menu item " << index;
+      HideAsrMenu();
+      return;
+    }
     candidates->append<MenuCandidateWord>(
-        item.label, [this, control = item.control](fcitx::InputContext *input_context) {
-          ExecuteMenuControl(control, input_context);
+        item->label, [this, projection, index](fcitx::InputContext *input_context) {
+          const auto selected = projection->item(index);
+          if (!selected.has_value()) {
+            HideAsrMenu();
+            return;
+          }
+          ExecuteMenuControl(selected->control, input_context);
         });
   }
   if (candidates->totalSize() > 0) {
@@ -322,7 +366,7 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
   SetFilteredMenuTitle(asr_menu_ic_, FrontendText("Models /filter"), asr_menu_filter_,
                        candidates.get());
   asr_menu_ic_->inputPanel().setAuxDown(
-      fcitx::Text(FrontendText("Current: ") + projection->effective_label));
+      fcitx::Text(FrontendText("Current: ") + *effective_label));
   PublishMenuCandidateList(asr_menu_ic_, std::move(candidates));
   asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
@@ -337,7 +381,7 @@ void FcitxVinputAddon::HideAsrMenu() {
   asr_menu_visible_ = false;
   asr_menu_ic_ = nullptr;
   asr_menu_filter_.Reset();
-  asr_menu_controls_.clear();
+  asr_menu_projection_.reset();
   asr_menu_page_ = 0;
   if (ic == nullptr) {
     return;
@@ -354,12 +398,23 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
     return false;
   }
   const auto title = FrontendText("Models /filter");
+  const auto projection = asr_menu_projection_;
+  const auto item_count = projection != nullptr ? projection->size() : std::nullopt;
+  if (!item_count.has_value()) {
+    HideAsrMenu();
+    return false;
+  }
   return HandleProjectedMenuKeyEvent(
       event, trigger_policy_.IsAsrMenuTrigger(event), asr_menu_ic_, asr_menu_filter_,
-      asr_menu_controls_, asr_menu_page_, frontend_settings_, title,
+      *item_count, asr_menu_page_, frontend_settings_, title,
       [this](int page) { RebuildAsrMenu(page); }, [this]() { HideAsrMenu(); },
-      [this](const ProjectedMenuControl &control, fcitx::InputContext *ic) {
-        ExecuteMenuControl(control, ic);
+      [this, projection](std::size_t index, fcitx::InputContext *ic) {
+        const auto item = projection->item(index);
+        if (!item.has_value()) {
+          HideAsrMenu();
+          return;
+        }
+        ExecuteMenuControl(item->control, ic);
       });
 }
 

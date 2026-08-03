@@ -10,38 +10,34 @@ extern "C" {
 typedef struct VinputFcitxAsrProjection VinputFcitxAsrProjection;
 typedef struct VinputFcitxAsrDisplaySnapshot VinputFcitxAsrDisplaySnapshot;
 typedef struct VinputFcitxDaemonClient VinputFcitxDaemonClient;
-typedef struct VinputFcitxDaemonResponse VinputFcitxDaemonResponse;
+typedef struct VinputFcitxDaemonLiveState VinputFcitxDaemonLiveState;
 typedef struct VinputFcitxFrontendController VinputFcitxFrontendController;
 typedef struct VinputFcitxFrontendOutcome VinputFcitxFrontendOutcome;
+typedef struct VinputFcitxFrontendPresentation VinputFcitxFrontendPresentation;
 typedef struct VinputFcitxMenuFilterState VinputFcitxMenuFilterState;
+typedef struct VinputFcitxOwnedString VinputFcitxOwnedString;
 typedef struct VinputFcitxSceneProjection VinputFcitxSceneProjection;
 typedef struct VinputFcitxSceneSnapshot VinputFcitxSceneSnapshot;
 typedef struct VinputFcitxTriggerState VinputFcitxTriggerState;
-
-enum {
-  VINPUT_FCITX_CANDIDATE_SOURCE_RAW = 0,
-  VINPUT_FCITX_CANDIDATE_SOURCE_LLM = 1,
-  VINPUT_FCITX_CANDIDATE_SOURCE_ASR = 2,
-  VINPUT_FCITX_CANDIDATE_SOURCE_CANCEL = 3,
-};
 
 typedef struct VinputFcitxStringView {
   const uint8_t *data;
   size_t len;
 } VinputFcitxStringView;
 
-typedef struct VinputFcitxFrontendOutcomeView {
+typedef struct VinputFcitxFrontendPresentationView {
   uint8_t kind;
-  uint8_t command_mode;
+  uint8_t replace_selection;
   VinputFcitxStringView text;
-  VinputFcitxStringView commit_text;
   size_t candidate_count;
-} VinputFcitxFrontendOutcomeView;
+  size_t cursor_index;
+} VinputFcitxFrontendPresentationView;
 
-typedef struct VinputFcitxCandidateView {
+typedef struct VinputFcitxPresentedCandidateView {
   VinputFcitxStringView text;
-  uint8_t source;
-} VinputFcitxCandidateView;
+  VinputFcitxStringView comment;
+  uint8_t commit;
+} VinputFcitxPresentedCandidateView;
 
 typedef struct VinputFcitxMenuKeyDecisionView {
   uint8_t action;
@@ -79,11 +75,6 @@ typedef struct VinputFcitxTriggerEventView {
   int64_t now_ns;
 } VinputFcitxTriggerEventView;
 
-
-typedef struct VinputFcitxDaemonResponseView {
-  uint8_t is_error;
-  VinputFcitxStringView text;
-} VinputFcitxDaemonResponseView;
 
 typedef struct VinputFcitxDaemonSignalPlanView {
   uint8_t kind;
@@ -266,6 +257,23 @@ uint8_t vinput_fcitx_scene_projection_item_view(
 uint8_t vinput_fcitx_daemon_control_plan(
     uint8_t event, const uint8_t *status_data, size_t status_len,
     uint8_t flag, uint8_t recording, uint8_t remote_status_active);
+VinputFcitxDaemonLiveState *vinput_fcitx_daemon_live_state_new(void);
+void vinput_fcitx_daemon_live_state_free(VinputFcitxDaemonLiveState *state);
+uint8_t vinput_fcitx_daemon_live_state_reset(VinputFcitxDaemonLiveState *state);
+uint8_t vinput_fcitx_daemon_live_state_begin_status(
+    VinputFcitxDaemonLiveState *state, const uint8_t *status_data,
+    size_t status_len, uint8_t command_mode);
+uint8_t vinput_fcitx_daemon_live_state_update_status(
+    VinputFcitxDaemonLiveState *state, const uint8_t *status_data,
+    size_t status_len);
+uint8_t vinput_fcitx_daemon_live_state_update_partial(
+    VinputFcitxDaemonLiveState *state, const uint8_t *partial_data,
+    size_t partial_len, uint8_t recording);
+uint8_t vinput_fcitx_daemon_live_state_preedit_plan(
+    const VinputFcitxDaemonLiveState *state,
+    VinputFcitxDaemonSignalPlanView *view_out);
+uint8_t vinput_fcitx_daemon_live_state_command_mode(
+    const VinputFcitxDaemonLiveState *state);
 uint8_t vinput_fcitx_daemon_status_preedit_plan(
     const uint8_t *status_data, size_t status_len, uint8_t command_mode,
     const uint8_t *partial_data, size_t partial_len,
@@ -278,30 +286,30 @@ uint8_t vinput_fcitx_daemon_notification_plan(
     VinputFcitxDaemonSignalPlanView *view_out);
 
 VinputFcitxDaemonClient *vinput_fcitx_daemon_client_connect(
-    VinputFcitxDaemonResponse **error_out);
+    VinputFcitxOwnedString **error_out);
 void vinput_fcitx_daemon_client_free(VinputFcitxDaemonClient *client);
-VinputFcitxDaemonResponse *vinput_fcitx_daemon_client_get_status(
-    const VinputFcitxDaemonClient *client);
+VinputFcitxOwnedString *vinput_fcitx_daemon_client_get_status(
+    const VinputFcitxDaemonClient *client,
+    VinputFcitxOwnedString **error_out);
 VinputFcitxSceneSnapshot *vinput_fcitx_daemon_client_get_scene_state(
     const VinputFcitxDaemonClient *client,
-    VinputFcitxDaemonResponse **error_out);
+    VinputFcitxOwnedString **error_out);
 uint8_t vinput_fcitx_daemon_client_set_active_scene(
     const VinputFcitxDaemonClient *client, VinputFcitxSceneSnapshot *snapshot,
     const uint8_t *scene_data, size_t scene_len, uint8_t *persisted_out,
-    VinputFcitxDaemonResponse **error_out);
+    VinputFcitxOwnedString **error_out);
 VinputFcitxAsrDisplaySnapshot *
 vinput_fcitx_daemon_client_get_asr_display_state(
     const VinputFcitxDaemonClient *client,
-    VinputFcitxDaemonResponse **error_out);
+    VinputFcitxOwnedString **error_out);
 uint8_t vinput_fcitx_daemon_client_set_active_asr_target(
     const VinputFcitxDaemonClient *client,
     const uint8_t *provider_data, size_t provider_len,
     const uint8_t *model_data, size_t model_len, uint8_t *persisted_out,
-    VinputFcitxDaemonResponse **error_out);
-void vinput_fcitx_daemon_response_free(VinputFcitxDaemonResponse *response);
-uint8_t vinput_fcitx_daemon_response_view(
-    const VinputFcitxDaemonResponse *response,
-    VinputFcitxDaemonResponseView *view_out);
+    VinputFcitxOwnedString **error_out);
+void vinput_fcitx_owned_string_free(VinputFcitxOwnedString *value);
+uint8_t vinput_fcitx_owned_string_view(
+    const VinputFcitxOwnedString *value, VinputFcitxStringView *view_out);
 
 VinputFcitxTriggerState *vinput_fcitx_trigger_state_new(uint8_t mode);
 void vinput_fcitx_trigger_state_free(VinputFcitxTriggerState *state);
@@ -343,12 +351,19 @@ uint8_t vinput_fcitx_frontend_controller_reset(
 
 void vinput_fcitx_frontend_outcome_free(
     VinputFcitxFrontendOutcome *outcome);
-uint8_t vinput_fcitx_frontend_outcome_view(
+VinputFcitxFrontendPresentation *vinput_fcitx_frontend_presentation_new(
     const VinputFcitxFrontendOutcome *outcome,
-    VinputFcitxFrontendOutcomeView *view_out);
-uint8_t vinput_fcitx_frontend_outcome_candidate(
-    const VinputFcitxFrontendOutcome *outcome, size_t index,
-    VinputFcitxCandidateView *view_out);
+    const uint8_t *original_data, size_t original_len,
+    const uint8_t *voice_command_data, size_t voice_command_len,
+    const uint8_t *cancel_data, size_t cancel_len);
+void vinput_fcitx_frontend_presentation_free(
+    VinputFcitxFrontendPresentation *presentation);
+uint8_t vinput_fcitx_frontend_presentation_view(
+    const VinputFcitxFrontendPresentation *presentation,
+    VinputFcitxFrontendPresentationView *view_out);
+uint8_t vinput_fcitx_frontend_presentation_candidate(
+    const VinputFcitxFrontendPresentation *presentation, size_t index,
+    VinputFcitxPresentedCandidateView *view_out);
 
 #ifdef __cplusplus
 }

@@ -114,7 +114,6 @@ endfunction()
 
 add_library(vinput_fcitx_bridge_core STATIC
   src/frontend_bridge.cpp
-  src/menu_snapshot.cpp
 )
 add_library(vinput_fcitx_bridge::core ALIAS vinput_fcitx_bridge_core)
 target_include_directories(vinput_fcitx_bridge_core

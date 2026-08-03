@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vinput_fcitx_bridge/fcitx_config.h"
+#include "vinput_fcitx_bridge/rust_handle.h"
 
 #include <chrono>
 #include <cstdint>
@@ -9,6 +10,8 @@
 #include <fcitx-utils/key.h>
 
 struct VinputFcitxTriggerState;
+
+extern "C" void vinput_fcitx_trigger_state_free(VinputFcitxTriggerState *state);
 
 namespace vinput_fcitx_bridge {
 
@@ -39,7 +42,7 @@ public:
   using TimePoint = Clock::time_point;
 
   explicit TriggerModeController(TriggerMode mode = TriggerMode::Both);
-  ~TriggerModeController();
+  ~TriggerModeController() = default;
 
   TriggerModeController(const TriggerModeController &) = delete;
   TriggerModeController &operator=(const TriggerModeController &) = delete;
@@ -60,7 +63,10 @@ private:
   static bool IsReleaseOfTrigger(const fcitx::Key &release, const fcitx::Key &trigger);
   static std::int64_t ToNanoseconds(TimePoint now);
 
-  ::VinputFcitxTriggerState *state_ = nullptr;
+  using StateHandle =
+      RustOwnedHandle<::VinputFcitxTriggerState, vinput_fcitx_trigger_state_free>;
+
+  StateHandle state_;
   std::optional<fcitx::Key> pending_key_;
   std::optional<fcitx::Key> active_key_;
 };

@@ -1,6 +1,8 @@
 #pragma once
 
-#include "vinput_fcitx_bridge/recognition_payload.h"
+#include "vinput_fcitx_bridge/frontend_presentation.h"
+#include "vinput_fcitx_bridge/menu_snapshot.h"
+#include "vinput_fcitx_bridge/rust_handle.h"
 
 #include <cstdint>
 #include <string>
@@ -9,9 +11,10 @@
 struct VinputFcitxDaemonClient;
 struct VinputFcitxFrontendController;
 
-namespace vinput_fcitx_bridge {
+extern "C" void
+vinput_fcitx_frontend_controller_free(VinputFcitxFrontendController *controller);
 
-class SceneStateSnapshot;
+namespace vinput_fcitx_bridge {
 
 enum class FrontendTriggerRequest : std::uint8_t {
   None,
@@ -40,14 +43,14 @@ struct BridgeOutcome {
 
   Kind kind = Kind::None;
   std::string text;
-  RecognitionPayload payload;
-  bool command_mode = false;
+  CandidatePresentation candidate_menu;
+  bool replace_selection = false;
 };
 
 class FrontendBridge {
 public:
   FrontendBridge();
-  ~FrontendBridge();
+  ~FrontendBridge() = default;
 
   FrontendBridge(const FrontendBridge &) = delete;
   FrontendBridge &operator=(const FrontendBridge &) = delete;
@@ -62,6 +65,8 @@ public:
                      const SceneStateSnapshot &scene_state);
   BridgeOutcome AdoptAndStop(const ::VinputFcitxDaemonClient *client, bool command_mode,
                              const SceneStateSnapshot &scene_state);
+  void SetPresentationText(std::string original, std::string voice_command,
+                           std::string cancel);
   void Reset();
 
   FrontendTriggerIntent PlanTrigger(FrontendTriggerRequest request) const;
@@ -69,7 +74,13 @@ public:
   bool command_mode() const;
 
 private:
-  ::VinputFcitxFrontendController *controller_ = nullptr;
+  using ControllerHandle = RustOwnedHandle<::VinputFcitxFrontendController,
+                                           vinput_fcitx_frontend_controller_free>;
+
+  ControllerHandle controller_;
+  std::string original_text_ = "Original";
+  std::string voice_command_text_ = "Voice Command";
+  std::string cancel_text_ = "Cancel";
 };
 
 } // namespace vinput_fcitx_bridge

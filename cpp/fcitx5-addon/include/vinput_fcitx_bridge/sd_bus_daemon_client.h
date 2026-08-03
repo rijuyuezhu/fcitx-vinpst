@@ -30,9 +30,11 @@ public:
   const ::VinputFcitxDaemonClient *raw_handle() const;
 
 private:
+  struct Impl;
+
   explicit SdBusDaemonClient(::VinputFcitxDaemonClient *client);
 
-  ::VinputFcitxDaemonClient *client_ = nullptr;
+  std::unique_ptr<Impl> impl_;
 };
 
 } // namespace vinput_fcitx_bridge

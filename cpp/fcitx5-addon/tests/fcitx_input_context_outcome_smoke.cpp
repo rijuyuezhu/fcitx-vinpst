@@ -7,6 +7,7 @@
 #include <fcitx/text.h>
 
 #include <cassert>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -48,18 +49,29 @@ protected:
   }
 };
 
-vinput_fcitx_bridge::BridgeOutcome CommandCandidateOutcome() {
+vinput_fcitx_bridge::BridgeOutcome CommandCandidateOutcome(bool cancel = false) {
   using vinput_fcitx_bridge::BridgeOutcome;
-  using vinput_fcitx_bridge::Candidate;
-  using vinput_fcitx_bridge::CandidateSource;
+  using vinput_fcitx_bridge::PresentedCandidate;
 
+  auto rows = std::make_shared<const std::vector<PresentedCandidate>>(
+      std::vector<PresentedCandidate>{
+          PresentedCandidate{"replace this text", "Original", true},
+          cancel ? PresentedCandidate{"", "Cancel", false}
+                 : PresentedCandidate{"native voice command", "Voice Command", true},
+      });
   BridgeOutcome outcome;
   outcome.kind = BridgeOutcome::Kind::CandidateMenu;
-  outcome.command_mode = true;
-  outcome.payload.commit_text = "replace this text";
-  outcome.payload.candidates = {
-      Candidate{"replace this text", CandidateSource::Raw},
-      Candidate{"native voice command", CandidateSource::Asr},
+  outcome.replace_selection = true;
+  outcome.text = "replace this text";
+  outcome.candidate_menu = {
+      .candidate_count = rows->size(),
+      .cursor_index = 0,
+      .candidate_at = [rows](std::size_t index) -> std::optional<PresentedCandidate> {
+        if (index >= rows->size()) {
+          return std::nullopt;
+        }
+        return (*rows)[index];
+      },
   };
   return outcome;
 }
@@ -104,7 +116,7 @@ int main() {
 
     BridgeOutcome outcome;
     outcome.kind = BridgeOutcome::Kind::Commit;
-    outcome.command_mode = true;
+    outcome.replace_selection = true;
     outcome.text = "rewritten selection";
 
     const auto applied = ApplyBridgeOutcomeToInputContext(outcome, &input_context);
@@ -119,9 +131,7 @@ int main() {
     TestInputContext input_context(manager);
     input_context.surroundingText().setText("keep selection", 14, 0);
 
-    auto outcome = CommandCandidateOutcome();
-    outcome.payload.candidates[1].source = vinput_fcitx_bridge::CandidateSource::Cancel;
-    outcome.payload.candidates[1].text.clear();
+    auto outcome = CommandCandidateOutcome(true);
 
     const auto applied = ApplyBridgeOutcomeToInputContext(outcome, &input_context);
     assert(applied == AppliedOutcome::CandidateMenu);

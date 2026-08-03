@@ -37,6 +37,59 @@ pub enum DaemonStatusPreedit<'a> {
     Postprocessing,
 }
 
+/// Rust-owned live daemon status and partial-recognition state.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DaemonLiveState {
+    status: String,
+    partial_text: String,
+    command_mode: bool,
+}
+
+impl DaemonLiveState {
+    /// Replaces the current status without discarding a newer live partial.
+    pub fn update_status(&mut self, status: impl Into<String>) {
+        self.status = status.into();
+    }
+
+    /// Starts a new status presentation and clears any previous partial.
+    pub fn begin_status(&mut self, status: impl Into<String>, command_mode: bool) {
+        self.status = status.into();
+        self.partial_text.clear();
+        self.command_mode = command_mode;
+    }
+
+    /// Stores one new live partial only while a local recording is active.
+    ///
+    /// Returns whether the visible preedit may have changed.
+    pub fn update_partial(&mut self, partial_text: &str, recording: bool) -> bool {
+        if !recording || partial_text.is_empty() || partial_text == self.partial_text {
+            return false;
+        }
+        self.partial_text.clear();
+        self.partial_text.push_str(partial_text);
+        true
+    }
+
+    /// Clears all live daemon presentation state.
+    pub fn reset(&mut self) {
+        self.status.clear();
+        self.partial_text.clear();
+        self.command_mode = false;
+    }
+
+    /// Returns the semantic preedit for the current state.
+    #[must_use]
+    pub fn preedit(&self) -> DaemonStatusPreedit<'_> {
+        plan_daemon_status_preedit(&self.status, self.command_mode, &self.partial_text)
+    }
+
+    /// Returns whether the current presentation belongs to command mode.
+    #[must_use]
+    pub const fn command_mode(&self) -> bool {
+        self.command_mode
+    }
+}
+
 /// Daemon-side event whose frontend control effect is decided by Rust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DaemonControlEvent<'a> {
@@ -193,8 +246,8 @@ pub fn plan_daemon_status_preedit<'a>(
 #[cfg(test)]
 mod tests {
     use super::{
-        DaemonControlContext, DaemonControlEvent, DaemonControlPlan, DaemonNotificationKind,
-        DaemonStatusPreedit, plan_daemon_control, plan_daemon_notification,
+        DaemonControlContext, DaemonControlEvent, DaemonControlPlan, DaemonLiveState,
+        DaemonNotificationKind, DaemonStatusPreedit, plan_daemon_control, plan_daemon_notification,
         plan_daemon_status_preedit,
     };
 
@@ -240,6 +293,29 @@ mod tests {
             DaemonStatusPreedit::Clear
         );
     }
+
+    #[test]
+    fn live_state_owns_status_partial_and_deduplication() {
+        let mut state = DaemonLiveState::default();
+        state.begin_status("recording", true);
+        assert!(state.command_mode());
+        assert_eq!(state.preedit(), DaemonStatusPreedit::Commanding);
+
+        assert!(!state.update_partial("partial", false));
+        assert!(state.update_partial("partial", true));
+        assert!(!state.update_partial("partial", true));
+        assert_eq!(state.preedit(), DaemonStatusPreedit::Partial("partial"));
+
+        state.update_status("postprocessing");
+        assert_eq!(state.preedit(), DaemonStatusPreedit::Partial("partial"));
+
+        state.begin_status("postprocessing", false);
+        assert!(!state.command_mode());
+        assert_eq!(state.preedit(), DaemonStatusPreedit::Postprocessing);
+        state.reset();
+        assert_eq!(state.preedit(), DaemonStatusPreedit::Clear);
+    }
+
     #[test]
     fn plans_daemon_availability_and_status_control() {
         let idle = DaemonControlContext {

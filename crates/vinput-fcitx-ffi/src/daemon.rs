@@ -21,26 +21,15 @@ pub struct VinputFcitxDaemonClient {
     pub(crate) client: DaemonClient,
 }
 
-/// Owned daemon text or transport/type error.
-pub struct VinputFcitxDaemonResponse {
-    is_error: bool,
-    text: String,
+/// Opaque Rust-owned UTF-8 string.
+pub struct VinputFcitxOwnedString {
+    value: String,
 }
 
-/// Borrowed daemon text/error response.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct VinputFcitxDaemonResponseView {
-    /// Whether `text` is an error message instead of a successful text result.
-    pub is_error: u8,
-    /// Borrowed text valid while the response handle remains alive.
-    pub text: VinputFcitxStringView,
-}
-
-struct ErrorOut(*mut *mut VinputFcitxDaemonResponse);
+struct ErrorOut(*mut *mut VinputFcitxOwnedString);
 
 impl ErrorOut {
-    unsafe fn new(output: *mut *mut VinputFcitxDaemonResponse) -> Self {
+    unsafe fn new(output: *mut *mut VinputFcitxOwnedString) -> Self {
         if !output.is_null() {
             // SAFETY: The caller guarantees a writable output pointer when non-null.
             unsafe { output.write(ptr::null_mut()) };
@@ -51,7 +40,7 @@ impl ErrorOut {
     fn write(&self, message: impl Into<String>) {
         if !self.0.is_null() {
             // SAFETY: Construction requires a writable output pointer when non-null.
-            unsafe { self.0.write(boxed_response(true, message.into())) };
+            unsafe { self.0.write(boxed_string(message.into())) };
         }
     }
 }
@@ -75,8 +64,8 @@ fn string_view(value: &str) -> VinputFcitxStringView {
     }
 }
 
-fn boxed_response(is_error: bool, text: String) -> *mut VinputFcitxDaemonResponse {
-    Box::into_raw(Box::new(VinputFcitxDaemonResponse { is_error, text }))
+fn boxed_string(value: String) -> *mut VinputFcitxOwnedString {
+    Box::into_raw(Box::new(VinputFcitxOwnedString { value }))
 }
 
 fn call(
@@ -127,7 +116,7 @@ fn take_asr_display(response: DaemonResponse) -> Option<AsrDisplaySnapshot> {
 
 unsafe fn snapshot_call<T, H>(
     client: *const VinputFcitxDaemonClient,
-    error_out: *mut *mut VinputFcitxDaemonResponse,
+    error_out: *mut *mut VinputFcitxOwnedString,
     operation: DaemonOperation,
     expected: &str,
     extract: fn(DaemonResponse) -> Option<T>,
@@ -155,7 +144,7 @@ unsafe fn bool_call(
     first: (*const u8, usize, &str),
     second: (*const u8, usize, &str),
     persisted_out: *mut u8,
-    error_out: *mut *mut VinputFcitxDaemonResponse,
+    error_out: *mut *mut VinputFcitxOwnedString,
 ) -> bool {
     // SAFETY: Forwarded from the exported function's caller contract.
     let errors = unsafe { ErrorOut::new(error_out) };
@@ -209,7 +198,7 @@ unsafe fn bool_call(
 /// `error_out` must be writable when non-null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_client_connect(
-    error_out: *mut *mut VinputFcitxDaemonResponse,
+    error_out: *mut *mut VinputFcitxOwnedString,
 ) -> *mut VinputFcitxDaemonClient {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -240,18 +229,22 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_free(client: *mut VinputFcit
     }
 }
 
-/// Reads the current daemon status as owned text or an owned error.
+/// Reads the current daemon status as owned text.
 ///
 /// # Safety
 ///
-/// `client` must be a live handle.
+/// `client` must be a live handle and `error_out` writable when non-null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_status(
     client: *const VinputFcitxDaemonClient,
-) -> *mut VinputFcitxDaemonResponse {
+    error_out: *mut *mut VinputFcitxOwnedString,
+) -> *mut VinputFcitxOwnedString {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
+        let errors = unsafe { ErrorOut::new(error_out) };
+        // SAFETY: Forwarded from this function's caller contract.
         let Some(client) = (unsafe { client.as_ref() }) else {
+            errors.write("invalid daemon client");
             return ptr::null_mut();
         };
         match expect(
@@ -259,8 +252,11 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_status(
             "text",
             take_text,
         ) {
-            Ok(status) => boxed_response(false, status),
-            Err(error) => boxed_response(true, error),
+            Ok(status) => boxed_string(status),
+            Err(error) => {
+                errors.write(error);
+                ptr::null_mut()
+            }
         }
     }))
     .unwrap_or(ptr::null_mut())
@@ -274,7 +270,7 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_status(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_scene_state(
     client: *const VinputFcitxDaemonClient,
-    error_out: *mut *mut VinputFcitxDaemonResponse,
+    error_out: *mut *mut VinputFcitxOwnedString,
 ) -> *mut VinputFcitxSceneSnapshot {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -304,7 +300,7 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_scene(
     scene_data: *const u8,
     scene_len: usize,
     persisted_out: *mut u8,
-    error_out: *mut *mut VinputFcitxDaemonResponse,
+    error_out: *mut *mut VinputFcitxOwnedString,
 ) -> u8 {
     u8::from(
         catch_unwind(AssertUnwindSafe(|| {
@@ -348,7 +344,7 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_scene(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_asr_display_state(
     client: *const VinputFcitxDaemonClient,
-    error_out: *mut *mut VinputFcitxDaemonResponse,
+    error_out: *mut *mut VinputFcitxOwnedString,
 ) -> *mut VinputFcitxAsrDisplaySnapshot {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -379,7 +375,7 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_asr_target(
     model_data: *const u8,
     model_len: usize,
     persisted_out: *mut u8,
-    error_out: *mut *mut VinputFcitxDaemonResponse,
+    error_out: *mut *mut VinputFcitxOwnedString,
 ) -> u8 {
     u8::from(
         catch_unwind(AssertUnwindSafe(|| {
@@ -399,46 +395,41 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_asr_target(
     )
 }
 
-/// Releases a daemon text/error response.
+/// Releases a Rust-owned UTF-8 string.
 ///
 /// # Safety
 ///
 /// A non-null pointer must be a live handle returned by this crate.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_daemon_response_free(
-    response: *mut VinputFcitxDaemonResponse,
-) {
-    if !response.is_null() {
+pub unsafe extern "C" fn vinput_fcitx_owned_string_free(value: *mut VinputFcitxOwnedString) {
+    if !value.is_null() {
         let _ = catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: Forwarded from this function's caller contract.
-            drop(unsafe { Box::from_raw(response) });
+            drop(unsafe { Box::from_raw(value) });
         }));
     }
 }
 
-/// Borrows a daemon text/error response.
+/// Borrows a Rust-owned UTF-8 string.
 ///
 /// # Safety
 ///
-/// `response` must be live and `view_out` writable.
+/// `value` must be live and `view_out` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_daemon_response_view(
-    response: *const VinputFcitxDaemonResponse,
-    view_out: *mut VinputFcitxDaemonResponseView,
+pub unsafe extern "C" fn vinput_fcitx_owned_string_view(
+    value: *const VinputFcitxOwnedString,
+    view_out: *mut VinputFcitxStringView,
 ) -> u8 {
     if view_out.is_null() {
         return 0;
     }
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(response) = (unsafe { response.as_ref() }) else {
+    let Some(value) = (unsafe { value.as_ref() }) else {
         return 0;
     };
     // SAFETY: The caller guarantees a writable output pointer.
     unsafe {
-        view_out.write(VinputFcitxDaemonResponseView {
-            is_error: u8::from(response.is_error),
-            text: string_view(&response.text),
-        });
+        view_out.write(string_view(&value.value));
     }
     1
 }
@@ -451,8 +442,8 @@ mod tests {
     use vinput_fcitx_dbus::DaemonResponse;
 
     use super::{
-        VinputFcitxDaemonResponseView, boxed_response, expect, take_asr_display, take_scene,
-        take_text, vinput_fcitx_daemon_response_free, vinput_fcitx_daemon_response_view,
+        boxed_string, expect, take_asr_display, take_scene, take_text,
+        vinput_fcitx_owned_string_free, vinput_fcitx_owned_string_view,
     };
     use crate::frontend::VinputFcitxStringView;
 
@@ -465,25 +456,18 @@ mod tests {
     }
 
     #[test]
-    fn exposes_owned_text_and_error_responses() {
-        // SAFETY: Each response is live for all accesses and freed exactly once.
+    fn exposes_owned_strings() {
+        // SAFETY: Each string is live for all accesses and freed exactly once.
         unsafe {
-            for (is_error, text) in [(false, "recording"), (true, "broken")] {
-                let response = boxed_response(is_error, text.to_owned());
-                let mut view = VinputFcitxDaemonResponseView {
-                    is_error: u8::MAX,
-                    text: VinputFcitxStringView {
-                        data: ptr::null(),
-                        len: 0,
-                    },
+            for text in ["recording", "broken"] {
+                let value = boxed_string(text.to_owned());
+                let mut view = VinputFcitxStringView {
+                    data: ptr::null(),
+                    len: 0,
                 };
-                assert_eq!(
-                    vinput_fcitx_daemon_response_view(response, &raw mut view),
-                    1
-                );
-                assert_eq!(view.is_error, u8::from(is_error));
-                assert_eq!(bytes(view.text), text.as_bytes());
-                vinput_fcitx_daemon_response_free(response);
+                assert_eq!(vinput_fcitx_owned_string_view(value, &raw mut view), 1);
+                assert_eq!(bytes(view), text.as_bytes());
+                vinput_fcitx_owned_string_free(value);
             }
         }
     }

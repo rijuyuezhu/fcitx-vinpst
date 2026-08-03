@@ -1,7 +1,6 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
 
-#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -21,7 +20,6 @@ std::string RequiredEnvironment(const char *name) {
 
 int main() {
   using vinput_fcitx_bridge::BridgeOutcome;
-  using vinput_fcitx_bridge::CandidateSource;
   using vinput_fcitx_bridge::FrontendBridge;
   using vinput_fcitx_bridge::SdBusDaemonClient;
 
@@ -55,18 +53,12 @@ int main() {
               << static_cast<int>(stop.kind) << " text=" << stop.text << '\n';
     return 1;
   }
-  if (stop.text != expected_text || stop.payload.commit_text != expected_text) {
+  if (stop.text != expected_text) {
     std::cerr << "native frontend commit mismatch: " << stop.text << '\n';
     return 1;
   }
-
-  const auto raw_candidate = std::ranges::find_if(
-      stop.payload.candidates, [&expected_text](const auto &candidate) {
-        return candidate.source == CandidateSource::Raw &&
-               candidate.text == expected_text;
-      });
-  if (raw_candidate == stop.payload.candidates.end()) {
-    std::cerr << "native frontend payload did not retain the raw candidate\n";
+  if (stop.candidate_menu.candidate_count != 0) {
+    std::cerr << "native frontend commit leaked unused candidate rows\n";
     return 1;
   }
   std::cout << "native frontend commit: " << stop.text << '\n';
