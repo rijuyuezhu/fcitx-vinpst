@@ -1182,6 +1182,73 @@ fn reload_configured_asr_backend_is_deferred_and_applied_when_idle() {
 }
 
 #[test]
+fn queued_configured_reload_updates_idle_runtime_config_and_text_policy() {
+    let config = VinputConfig::bundled_default().unwrap();
+    let backend = MockAsrBackend::streaming("mock partial", "mock recognition result");
+    let audio = super::default_mock_audio_source();
+    let mut runtime =
+        RuntimeState::with_configured_text(config.clone(), Box::new(backend), Box::new(audio))
+            .unwrap();
+
+    let mut updated = config;
+    updated.global.capture_device = "virtual.source".to_owned();
+    updated.scenes.active_scene = "reload-scene".to_owned();
+    updated
+        .scenes
+        .definitions
+        .push(vinput_config::SceneDefinition {
+            id: "reload-scene".to_owned(),
+            label: "Reload scene".to_owned(),
+            prompt: Some("polish text".to_owned()),
+            provider_id: None,
+            model: None,
+            candidate_count: 1,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+    updated.llm.adapters.push(vinput_config::LlmAdapterConfig {
+        id: "reload-adapter".to_owned(),
+        command: "sh".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            r#"cat >/dev/null; printf '%s\n' '{"text":"reloaded configured final"}'"#.to_owned(),
+        ],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    });
+    updated.validate().unwrap();
+
+    assert!(runtime.queue_configured_asr_reload(updated));
+    assert_eq!(runtime.scene_state().0, "reload-scene");
+    assert_eq!(runtime.capture_device(), "virtual.source");
+
+    runtime.start_recording().unwrap();
+    let payload = runtime.stop_recording(None).unwrap();
+    assert_eq!(payload.commit_text, "reloaded configured final");
+}
+
+#[test]
+fn queued_configured_reload_defers_scene_changes_until_busy_runtime_is_idle() {
+    let config = VinputConfig::bundled_default().unwrap();
+    let mut runtime = RuntimeState::new(config.clone()).unwrap();
+    runtime.start_recording().unwrap();
+
+    let mut updated = config;
+    updated.scenes.active_scene = vinput_config::COMMAND_SCENE_ID.to_owned();
+    updated.validate().unwrap();
+
+    assert!(runtime.queue_configured_asr_reload(updated));
+    assert_eq!(runtime.scene_state().0, vinput_config::RAW_SCENE_ID);
+    runtime.stop_recording(None).unwrap();
+    assert!(matches!(
+        runtime.next_asr_reload_worker_step(),
+        AsrReloadWorkerStep::Prepare(_)
+    ));
+    assert_eq!(runtime.scene_state().0, vinput_config::COMMAND_SCENE_ID);
+}
+
+#[test]
 fn deferred_configured_asr_reload_failure_keeps_previous_backend() {
     let mut config = VinputConfig::bundled_default().unwrap();
     config.asr.active_provider = "mock".to_owned();

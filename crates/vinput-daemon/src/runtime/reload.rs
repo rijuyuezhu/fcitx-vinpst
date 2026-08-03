@@ -6,7 +6,7 @@ use vinput_asr::{AsrBackend, AsrBackendFactory};
 use vinput_config::VinputConfig;
 use vinput_protocol::{AsrBackendState, ServiceStatus};
 
-use super::{RuntimeError, RuntimeState};
+use super::{RuntimeError, RuntimeState, configured_text_processor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PendingAsrReload {
@@ -122,11 +122,15 @@ impl RuntimeState {
         self.asr_reload_generation = self.asr_reload_generation.wrapping_add(1);
         let generation = self.asr_reload_generation;
 
-        self.config.asr.clone_from(&config.asr);
-        self.config
-            .global
-            .default_language
-            .clone_from(&config.global.default_language);
+        if self.status == ServiceStatus::Idle {
+            self.apply_reloaded_config(&config);
+        } else {
+            self.config.asr.clone_from(&config.asr);
+            self.config
+                .global
+                .default_language
+                .clone_from(&config.global.default_language);
+        }
         self.pending_asr_reload = Some(PendingAsrReload::ConfiguredBackend);
         self.pending_asr_reload_config = Some((generation, config));
         self.asr_reload_last_error = None;
@@ -136,6 +140,13 @@ impl RuntimeState {
         } else {
             self.asr_reload_worker_running = true;
             true
+        }
+    }
+
+    fn apply_reloaded_config(&mut self, config: &VinputConfig) {
+        self.config.clone_from(config);
+        if self.reload_configured_text {
+            self.text_processor = configured_text_processor(config);
         }
     }
 
@@ -156,6 +167,7 @@ impl RuntimeState {
                     return AsrReloadWorkerStep::Stop;
                 };
                 self.pending_asr_reload = None;
+                self.apply_reloaded_config(&config);
                 self.asr_reload_preparing = true;
                 AsrReloadWorkerStep::Prepare(Box::new(AsrReloadRequest { generation, config }))
             }

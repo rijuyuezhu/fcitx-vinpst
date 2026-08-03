@@ -338,6 +338,62 @@ async fn dbus_facade_reload_rebuilds_configured_backend() {
 }
 
 #[tokio::test]
+async fn dbus_facade_reload_synchronizes_scene_state_from_config_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.asr.active_provider = "mock".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: None,
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let mut runtime = RuntimeState::with_asr_backend(
+        config.clone(),
+        Box::new(MockAsrBackend::buffered("injected final")),
+    )
+    .unwrap();
+    runtime.set_config_path(Some(config_path.clone()));
+    let service = VinputDbusService::new(runtime);
+
+    config.scenes.active_scene = "meeting".to_owned();
+    config
+        .scenes
+        .definitions
+        .push(vinput_config::SceneDefinition {
+            id: "meeting".to_owned(),
+            label: "Meeting".to_owned(),
+            prompt: None,
+            provider_id: None,
+            model: None,
+            candidate_count: 0,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+    config.validate().unwrap();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+    service.reload_asr_backend().await.unwrap();
+    let scene_state = service.get_scene_state().await;
+    assert_eq!(scene_state.0, "meeting");
+    assert!(
+        scene_state
+            .1
+            .contains(&("meeting".to_owned(), "Meeting".to_owned()))
+    );
+    let state = wait_for_asr_reload(&service).await;
+    assert_eq!(state.2, "mock");
+    assert!(!state.5);
+}
+
+#[tokio::test]
 async fn dbus_facade_preserves_early_final_events() {
     let config = VinputConfig::bundled_default().unwrap();
     let runtime = RuntimeState::with_asr_backend(

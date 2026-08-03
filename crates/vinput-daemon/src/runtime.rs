@@ -56,6 +56,7 @@ pub struct RuntimeState {
     audio_recorder: Box<dyn AudioRecorder>,
     output_ducker: OutputDucker,
     text_processor: Box<dyn TextProcessor>,
+    reload_configured_text: bool,
     active_session: Option<ActiveRecognitionSession>,
     pending_asr_reload: Option<PendingAsrReload>,
     pending_asr_reload_config: Option<(u64, VinputConfig)>,
@@ -190,7 +191,9 @@ impl RuntimeState {
         audio_source: Box<dyn AudioSource>,
     ) -> Result<Self, RuntimeError> {
         let text_processor = configured_text_processor(&config);
-        Self::with_components(config, asr_backend, audio_source, text_processor)
+        let mut runtime = Self::with_components(config, asr_backend, audio_source, text_processor)?;
+        runtime.reload_configured_text = true;
+        Ok(runtime)
     }
 
     /// Builds an idle runtime with an injected recorder and configured command text adapters.
@@ -200,7 +203,10 @@ impl RuntimeState {
         audio_recorder: Box<dyn AudioRecorder>,
     ) -> Result<Self, RuntimeError> {
         let text_processor = configured_text_processor(&config);
-        Self::with_recorder_components(config, asr_backend, audio_recorder, text_processor)
+        let mut runtime =
+            Self::with_recorder_components(config, asr_backend, audio_recorder, text_processor)?;
+        runtime.reload_configured_text = true;
+        Ok(runtime)
     }
 
     /// Builds an idle runtime from validated config and injected component seams.
@@ -251,6 +257,7 @@ impl RuntimeState {
             audio_recorder,
             output_ducker: OutputDucker::default(),
             text_processor,
+            reload_configured_text: false,
             active_session: None,
             pending_asr_reload: None,
             pending_asr_reload_config: None,
