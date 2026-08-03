@@ -4,7 +4,7 @@ mod common;
 
 use std::fs;
 
-use common::{assert_json_success, vinput_command, write_temp_json};
+use common::{assert_json_success, isolated_vinput_command, vinput_command, write_temp_json};
 
 fn assert_daemon_owner_probe(value: &serde_json::Value) {
     assert_eq!(
@@ -498,10 +498,8 @@ fn device_list_json_reports_config_source_and_audio_summary() {
 
 #[test]
 fn device_list_text_includes_default_target() {
-    let root = unique_temp_dir("vinput-device-list-text");
-    let output = vinput_command()
-        .env("HOME", &root)
-        .env("XDG_CONFIG_HOME", root.join("config"))
+    let (_home, mut command) = isolated_vinput_command("vinput-device-list-text");
+    let output = command
         .args(["device", "list"])
         .output()
         .expect("run vinput device list text");
@@ -511,7 +509,6 @@ fn device_list_text_includes_default_target() {
     assert!(stdout.contains("capture_device: default"));
     assert!(stdout.contains("target\tid\tname\tdescription"));
     assert!(stdout.contains("default\t-\tdefault\tDefault capture source"));
-    fs::remove_dir_all(root).expect("remove device list text fixture");
 }
 
 #[test]
