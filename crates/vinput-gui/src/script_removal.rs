@@ -14,6 +14,10 @@ impl App {
         kind: LiveScriptKind,
         id: String,
     ) -> Task<Message> {
+        if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
         let Ok(document) = &self.config else {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
