@@ -79,6 +79,8 @@ build() {
     -DBUILD_TESTING=OFF \
     -DCMAKE_BUILD_TYPE=None \
     -DCMAKE_INSTALL_PREFIX=/usr \
+    -DVINPUT_FCITX_RUST_BUILD_PROFILE=release \
+    -DVINPUT_FCITX_RUST_TARGET_DIR="${srcdir}/cargo-target" \
     -DVINPUT_DAEMON_EXECUTABLE=/usr/bin/vinput-daemon \
     -DVINPUT_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' \
     -DVINPUT_FCITX_BRIDGE_ENABLE_TESTS=OFF \

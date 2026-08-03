@@ -35,16 +35,36 @@ set(
   "${VINPUT_REPOSITORY_ROOT}/target"
   CACHE PATH "Cargo target directory for the Rust frontend bridge"
 )
-if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
+set(
+  VINPUT_FCITX_RUST_BUILD_PROFILE
+  auto
+  CACHE STRING "Cargo profile for the Rust frontend bridge: auto, debug, or release"
+)
+set_property(
+  CACHE VINPUT_FCITX_RUST_BUILD_PROFILE
+  PROPERTY STRINGS auto debug release
+)
+if(VINPUT_FCITX_RUST_BUILD_PROFILE STREQUAL "auto")
+  if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
+    set(VINPUT_FCITX_RUST_RESOLVED_PROFILE release)
+  else()
+    set(VINPUT_FCITX_RUST_RESOLVED_PROFILE debug)
+  endif()
+elseif(VINPUT_FCITX_RUST_BUILD_PROFILE MATCHES "^(debug|release)$")
+  set(VINPUT_FCITX_RUST_RESOLVED_PROFILE "${VINPUT_FCITX_RUST_BUILD_PROFILE}")
+else()
+  message(FATAL_ERROR
+    "VINPUT_FCITX_RUST_BUILD_PROFILE must be auto, debug, or release"
+  )
+endif()
+if(VINPUT_FCITX_RUST_RESOLVED_PROFILE STREQUAL "release")
   set(VINPUT_FCITX_RUST_CARGO_ARGS --release)
-  set(VINPUT_FCITX_RUST_PROFILE release)
 else()
   set(VINPUT_FCITX_RUST_CARGO_ARGS)
-  set(VINPUT_FCITX_RUST_PROFILE debug)
 endif()
 set(
   VINPUT_FCITX_RUST_LIBRARY
-  "${VINPUT_FCITX_RUST_TARGET_DIR}/${VINPUT_FCITX_RUST_PROFILE}/libvinput_fcitx_ffi.a"
+  "${VINPUT_FCITX_RUST_TARGET_DIR}/${VINPUT_FCITX_RUST_RESOLVED_PROFILE}/libvinput_fcitx_ffi.a"
 )
 file(
   GLOB_RECURSE VINPUT_FCITX_RUST_SOURCES CONFIGURE_DEPENDS
@@ -109,6 +129,11 @@ endfunction()
 function(vinput_bridge_apply_warnings target)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+    if("${target}" MATCHES "_smoke$")
+      # C++ smoke tests use assert for behavior checks; keep them active in
+      # Release builds instead of compiling the checks and their inputs away.
+      target_compile_options(${target} PRIVATE -UNDEBUG)
+    endif()
   endif()
 endfunction()
 
@@ -256,6 +281,11 @@ if(Fcitx5Core_FOUND)
       Fcitx5::Module::DBus
   )
   target_compile_features(fcitx5_vinput_addon PRIVATE cxx_std_20)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # Rust and bridge archives are implementation details of the Fcitx module.
+    # Do not publish their symbols through the module's dynamic symbol table.
+    target_link_options(fcitx5_vinput_addon PRIVATE "LINKER:--exclude-libs,ALL")
+  endif()
   if(Fcitx5ModuleClipboard_FOUND)
     target_link_libraries(fcitx5_vinput_addon PRIVATE Fcitx5::Module::Clipboard)
     target_compile_definitions(fcitx5_vinput_addon PRIVATE VINPUT_FCITX_HAVE_CLIPBOARD)
