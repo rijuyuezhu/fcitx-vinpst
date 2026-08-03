@@ -29,9 +29,18 @@ VINPUT_UPGRADE_ROOT="${root}" \
   timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
 root="${VINPUT_UPGRADE_ROOT}"
 uid="$(id -u)"
-runtime_root="${root}/run/user"
+runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinput-upgrade-runtime.XXXXXX")"
 runtime_dir="${runtime_root}/${uid}"
 test_home="${root}/home"
+daemon_pid=""
+cleanup() {
+  if [[ -n "${daemon_pid}" ]]; then
+    kill "${daemon_pid}" 2>/dev/null || true
+    wait "${daemon_pid}" 2>/dev/null || true
+  fi
+  rm -rf "${runtime_root}"
+}
+trap cleanup EXIT
 mkdir -p "${runtime_dir}" "${test_home}" "${root}/config"
 bus_path="${DBUS_SESSION_BUS_ADDRESS#unix:path=}"
 bus_path="${bus_path%%,*}"
@@ -97,11 +106,6 @@ test ! -e "${root}/vinput.args"
 XDG_CONFIG_HOME="${root}/config" \
   target/debug/vinput-daemon --dbus >"${root}/daemon.log" 2>&1 &
 daemon_pid=$!
-cleanup() {
-  kill "${daemon_pid}" 2>/dev/null || true
-  wait "${daemon_pid}" 2>/dev/null || true
-}
-trap cleanup EXIT
 for _ in $(seq 1 100); do
   if gdbus call --session \
     --dest org.freedesktop.DBus \
