@@ -4,7 +4,7 @@ use iced::{
     Element, Length, Task,
     widget::{button, column, row, text, text_input},
 };
-use vinput_config::{SceneDefinition, VinputConfig};
+use vinput_config::{COMMAND_SCENE_ID, RAW_SCENE_ID, SceneDefinition, VinputConfig};
 
 use crate::{
     App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, load_config_document,
@@ -545,6 +545,9 @@ fn use_scene(config: &VinputConfig, scene_id: &str) -> Result<VinputConfig, Stri
 }
 
 fn remove_scene(config: &VinputConfig, scene_id: &str) -> Result<VinputConfig, String> {
+    if matches!(scene_id, RAW_SCENE_ID | COMMAND_SCENE_ID) {
+        return Err(format!("Refusing to remove built-in scene `{scene_id}`."));
+    }
     if config.scenes.active_scene == scene_id {
         return Err(format!(
             "Scene `{scene_id}` is active; select another scene before removing it."
@@ -661,28 +664,27 @@ mod tests {
     }
 
     #[test]
-    fn use_and_remove_scene_enforce_active_boundary() {
+    fn use_and_remove_scene_enforce_active_and_built_in_boundaries() {
         let config = VinputConfig::bundled_default().expect("bundled config");
-        let inactive = config
-            .scenes
-            .definitions
-            .iter()
-            .find(|scene| scene.id != config.scenes.active_scene)
-            .expect("inactive scene")
-            .id
-            .clone();
-        let selected = use_scene(&config, &inactive).expect("select inactive scene");
-        assert_eq!(selected.scenes.active_scene, inactive);
-        let error = remove_scene(&selected, &inactive).expect_err("reject active removal");
-        assert!(error.contains("is active"));
-        let old_active = config.scenes.active_scene.clone();
-        let removed = remove_scene(&selected, &old_active).expect("remove inactive scene");
+        let with_custom = add_scene(&config, &new_scene_editor()).expect("add custom scene");
+        let selected = use_scene(&with_custom, "meeting").expect("select custom scene");
+        assert_eq!(selected.scenes.active_scene, "meeting");
+
+        let active_error = remove_scene(&selected, "meeting").expect_err("reject active removal");
+        assert!(active_error.contains("is active"));
+        for built_in in [RAW_SCENE_ID, COMMAND_SCENE_ID] {
+            let error = remove_scene(&selected, built_in).expect_err("reject built-in removal");
+            assert!(error.contains("built-in scene"));
+        }
+
+        let raw_selected = use_scene(&selected, RAW_SCENE_ID).expect("restore raw scene");
+        let removed = remove_scene(&raw_selected, "meeting").expect("remove inactive custom scene");
         assert!(
             removed
                 .scenes
                 .definitions
                 .iter()
-                .all(|scene| scene.id != old_active)
+                .all(|scene| scene.id != "meeting")
         );
     }
 
