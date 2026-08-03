@@ -498,7 +498,10 @@ fn device_list_json_reports_config_source_and_audio_summary() {
 
 #[test]
 fn device_list_text_includes_default_target() {
+    let root = unique_temp_dir("vinput-device-list-text");
     let output = vinput_command()
+        .env("HOME", &root)
+        .env("XDG_CONFIG_HOME", root.join("config"))
         .args(["device", "list"])
         .output()
         .expect("run vinput device list text");
@@ -508,6 +511,7 @@ fn device_list_text_includes_default_target() {
     assert!(stdout.contains("capture_device: default"));
     assert!(stdout.contains("target\tid\tname\tdescription"));
     assert!(stdout.contains("default\t-\tdefault\tDefault capture source"));
+    fs::remove_dir_all(root).expect("remove device list text fixture");
 }
 
 #[test]
