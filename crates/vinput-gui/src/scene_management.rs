@@ -310,6 +310,10 @@ impl App {
         summary: String,
         progress: &'static str,
     ) -> Task<Message> {
+        if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
         self.operation = OperationState::Running(progress);
         Task::perform(
             async move {

@@ -106,6 +106,25 @@ fn config_draft_applies_every_editable_field() {
 }
 
 #[test]
+fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    let document = ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-dirty-draft.json"),
+        from_disk: false,
+        config: config.clone(),
+    };
+    let clean = ConfigDraft::from_config(&config);
+    assert!(ensure_resource_mutation_draft_clean(&Ok(document.clone()), Some(&clean)).is_ok());
+
+    let mut dirty = clean;
+    dirty.default_language = "zh-CN".to_owned();
+    let error = ensure_resource_mutation_draft_clean(&Ok(document), Some(&dirty))
+        .expect_err("dirty Control draft must block resource mutation");
+    assert!(error.contains("Save or reset"));
+    assert_eq!(dirty.default_language, "zh-CN");
+}
+
+#[test]
 fn config_draft_creates_missing_user_file_without_backup() {
     let directory = tempfile::tempdir().expect("create temp dir");
     let path = directory.path().join("nested/config.json");

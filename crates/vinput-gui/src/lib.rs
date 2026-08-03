@@ -96,6 +96,10 @@ impl ConfigDraft {
         }
     }
 
+    fn is_dirty(&self, config: &VinputConfig) -> bool {
+        self != &Self::from_config(config)
+    }
+
     fn apply_to(&self, config: &mut VinputConfig) {
         config
             .global
@@ -327,6 +331,10 @@ impl App {
         if let Some(draft) = &mut self.draft {
             update(draft);
         }
+    }
+
+    pub(crate) fn ensure_no_unsaved_config_draft(&self) -> Result<(), String> {
+        ensure_resource_mutation_draft_clean(&self.config, self.draft.as_ref())
     }
 
     fn reload_config(&mut self) {
@@ -725,7 +733,7 @@ impl App {
         draft: &'a ConfigDraft,
         busy: bool,
     ) -> Element<'a, Message> {
-        let dirty = *draft != ConfigDraft::from_config(&document.config);
+        let dirty = draft.is_dirty(&document.config);
         row![
             button("Save configuration")
                 .on_press_maybe((dirty && !busy).then_some(Message::SaveConfig)),
@@ -847,6 +855,21 @@ fn ensure_config_save_allowed(snapshot: &DaemonSnapshot) -> Result<(), String> {
             "Configuration cannot be saved while the daemon is `{}` or has an active session.",
             snapshot.status
         ));
+    }
+    Ok(())
+}
+
+fn ensure_resource_mutation_draft_clean(
+    config: &Result<ConfigDocument, String>,
+    draft: Option<&ConfigDraft>,
+) -> Result<(), String> {
+    let (Ok(document), Some(draft)) = (config, draft) else {
+        return Ok(());
+    };
+    if draft.is_dirty(&document.config) {
+        return Err(
+            "Save or reset the Control page changes before modifying resources.".to_owned(),
+        );
     }
     Ok(())
 }
