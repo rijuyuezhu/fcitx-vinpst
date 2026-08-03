@@ -38,10 +38,26 @@ struct SceneMenuProjectionResult {
   std::vector<ProjectedMenuItem> items;
 };
 
+struct AsrMenuLocalization {
+  std::string_view local;
+  std::string_view remote;
+  std::string_view command;
+  std::string_view loading_suffix;
+  std::string_view unavailable;
+  std::string_view loading_prefix;
+  std::string_view error_prefix;
+};
+
+struct AsrMenuProjectionResult {
+  std::string effective_label;
+  std::vector<ProjectedMenuItem> items;
+};
+
 class AsrMenuProjectionBuilder {
 public:
   AsrMenuProjectionBuilder(const AsrDisplayMenuStateSnapshot &snapshot,
-                           std::string_view query);
+                           std::string_view query,
+                           const AsrMenuLocalization &localization);
   ~AsrMenuProjectionBuilder();
 
   AsrMenuProjectionBuilder(const AsrMenuProjectionBuilder &) = delete;
@@ -49,8 +65,7 @@ public:
   AsrMenuProjectionBuilder(AsrMenuProjectionBuilder &&) = delete;
   AsrMenuProjectionBuilder &operator=(AsrMenuProjectionBuilder &&) = delete;
 
-  bool SetLabel(std::size_t row_index, std::string_view rendered_label);
-  std::optional<std::vector<ProjectedMenuItem>> Finish();
+  std::optional<AsrMenuProjectionResult> Finish();
 
 private:
   ::VinputFcitxAsrProjection *projection_ = nullptr;

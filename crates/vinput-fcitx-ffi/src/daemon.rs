@@ -17,7 +17,7 @@ use crate::{
 
 /// Opaque blocking daemon client.
 pub struct VinputFcitxDaemonClient {
-    client: DaemonClient,
+    pub(crate) client: DaemonClient,
 }
 
 /// Opaque daemon response or transport error.

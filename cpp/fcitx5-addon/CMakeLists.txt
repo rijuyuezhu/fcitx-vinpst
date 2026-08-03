@@ -115,7 +115,6 @@ endfunction()
 add_library(vinput_fcitx_bridge_core STATIC
   src/frontend_bridge.cpp
   src/menu_snapshot.cpp
-  src/recognition_payload.cpp
 )
 add_library(vinput_fcitx_bridge::core ALIAS vinput_fcitx_bridge_core)
 target_include_directories(vinput_fcitx_bridge_core
@@ -613,17 +612,6 @@ if(BUILD_TESTING AND VINPUT_FCITX_BRIDGE_ENABLE_TESTS)
     NAME vinput_fcitx_bridge_rust_ffi_smoke
     COMMAND vinput_fcitx_bridge_rust_ffi_smoke
   )
-  vinput_bridge_smoke_test(
-    vinput_fcitx_bridge_recognition_payload_smoke
-    tests/recognition_payload_smoke.cpp
-  )
-  target_link_libraries(vinput_fcitx_bridge_recognition_payload_smoke
-                        PRIVATE vinput_fcitx_rust_ffi)
-  vinput_bridge_smoke_test(
-    vinput_fcitx_bridge_frontend_smoke
-    tests/frontend_bridge_smoke.cpp
-  )
-
   add_executable(
     vinput_fcitx_bridge_dbus_smoke
     tests/sd_bus_daemon_client_smoke.cpp
@@ -632,6 +620,7 @@ if(BUILD_TESTING AND VINPUT_FCITX_BRIDGE_ENABLE_TESTS)
     vinput_fcitx_bridge_dbus_smoke
     PRIVATE
       vinput_fcitx_bridge::sdbus
+      vinput_fcitx_rust_ffi
   )
   vinput_bridge_apply_warnings(vinput_fcitx_bridge_dbus_smoke)
 

@@ -6,8 +6,8 @@ use std::{
 };
 
 use vinput_fcitx_core::{
-    AsrDisplaySnapshot, AsrMenuItem, AsrMenuProjectionState, MenuControl, MenuFilterState,
-    ProjectedMenuItem, project_asr_menu,
+    AsrDisplaySnapshot, AsrDisplayText, AsrMenuItem, AsrMenuProjectionState, MenuControl,
+    MenuFilterState, ProjectedMenuItem, project_asr_menu,
 };
 
 use crate::{
@@ -17,16 +17,16 @@ use crate::{
 
 /// Opaque ASR projection state and result.
 pub struct VinputFcitxAsrProjection {
-    snapshot: AsrDisplaySnapshot,
-    filter: MenuFilterState,
-    labels: Vec<Option<String>>,
-    projection: Option<Vec<ProjectedMenuItem>>,
+    effective_label: String,
+    projection: Vec<ProjectedMenuItem>,
 }
 
 /// Borrowed projection summary.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct VinputFcitxProjectionView {
+    /// Fully rendered effective-backend summary.
+    pub effective_label: VinputFcitxStringView,
     /// Number of visible projected rows.
     pub item_count: usize,
 }
@@ -118,16 +118,31 @@ fn projection_state(snapshot: &AsrDisplaySnapshot) -> AsrMenuProjectionState {
     }
 }
 
-/// Creates an ASR projection from a Rust-owned snapshot.
+/// Creates a localized ASR projection from a Rust-owned snapshot.
 ///
 /// # Safety
 ///
-/// `snapshot` must be live and query bytes must be readable.
+/// `snapshot` must be live and every input pointer must reference its declared length.
+#[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_asr_projection_new(
     snapshot: *const VinputFcitxAsrDisplaySnapshot,
     query_data: *const u8,
     query_len: usize,
+    local_data: *const u8,
+    local_len: usize,
+    remote_data: *const u8,
+    remote_len: usize,
+    command_data: *const u8,
+    command_len: usize,
+    loading_suffix_data: *const u8,
+    loading_suffix_len: usize,
+    unavailable_data: *const u8,
+    unavailable_len: usize,
+    loading_prefix_data: *const u8,
+    loading_prefix_len: usize,
+    error_prefix_data: *const u8,
+    error_prefix_len: usize,
 ) -> *mut VinputFcitxAsrProjection {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -138,11 +153,62 @@ pub unsafe extern "C" fn vinput_fcitx_asr_projection_new(
         let Some(query) = (unsafe { text_input(query_data, query_len) }) else {
             return ptr::null_mut();
         };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(local) = (unsafe { text_input(local_data, local_len) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(remote) = (unsafe { text_input(remote_data, remote_len) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(command) = (unsafe { text_input(command_data, command_len) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(loading_suffix) = (unsafe { text_input(loading_suffix_data, loading_suffix_len) })
+        else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(unavailable) = (unsafe { text_input(unavailable_data, unavailable_len) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(loading_prefix) = (unsafe { text_input(loading_prefix_data, loading_prefix_len) })
+        else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(error_prefix) = (unsafe { text_input(error_prefix_data, error_prefix_len) })
+        else {
+            return ptr::null_mut();
+        };
+        let text = AsrDisplayText {
+            local,
+            remote,
+            command,
+            loading_suffix,
+            unavailable,
+            loading_prefix,
+            error_prefix,
+        };
+        let filter = filter_from_query(query);
+        let targets = snapshot
+            .targets()
+            .iter()
+            .map(|target| AsrMenuItem {
+                provider_id: target.provider_id.clone(),
+                kind: target.kind.clone(),
+                item_id: target.item_id.clone(),
+                display_title: target.display_title.clone(),
+                model_value: target.model_value.clone(),
+                rendered_label: snapshot.render_target_label(target, &text),
+            })
+            .collect::<Vec<_>>();
         Box::into_raw(Box::new(VinputFcitxAsrProjection {
-            snapshot: snapshot.clone(),
-            filter: filter_from_query(query),
-            labels: vec![None; snapshot.targets().len()],
-            projection: None,
+            effective_label: snapshot.render_effective_label(&text),
+            projection: project_asr_menu(&projection_state(snapshot), &targets, &filter),
         }))
     }))
     .unwrap_or(ptr::null_mut())
@@ -165,88 +231,7 @@ pub unsafe extern "C" fn vinput_fcitx_asr_projection_free(
     }
 }
 
-/// Supplies one gettext-rendered row label.
-///
-/// # Safety
-///
-/// `projection` must be live and label bytes must be readable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_asr_projection_set_label(
-    projection: *mut VinputFcitxAsrProjection,
-    row_index: usize,
-    label_data: *const u8,
-    label_len: usize,
-) -> u8 {
-    u8::from(
-        catch_unwind(AssertUnwindSafe(|| {
-            // SAFETY: Forwarded from this function's caller contract.
-            let Some(projection) = (unsafe { projection.as_mut() }) else {
-                return false;
-            };
-            if projection.projection.is_some() {
-                return false;
-            }
-            // SAFETY: Forwarded from this function's caller contract.
-            let Some(label) = (unsafe { text_input(label_data, label_len) }) else {
-                return false;
-            };
-            let Some(slot) = projection.labels.get_mut(row_index) else {
-                return false;
-            };
-            *slot = Some(label.to_owned());
-            true
-        }))
-        .unwrap_or(false),
-    )
-}
-
-/// Finalizes the ASR projection.
-///
-/// # Safety
-///
-/// `projection` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_asr_projection_finish(
-    projection: *mut VinputFcitxAsrProjection,
-) -> u8 {
-    u8::from(
-        catch_unwind(AssertUnwindSafe(|| {
-            // SAFETY: Forwarded from this function's caller contract.
-            let Some(projection) = (unsafe { projection.as_mut() }) else {
-                return false;
-            };
-            if projection.projection.is_some() {
-                return true;
-            }
-            if projection.labels.iter().any(Option::is_none) {
-                return false;
-            }
-            let targets = projection
-                .snapshot
-                .targets()
-                .iter()
-                .zip(&projection.labels)
-                .map(|(target, label)| AsrMenuItem {
-                    provider_id: target.provider_id.clone(),
-                    kind: target.kind.clone(),
-                    item_id: target.item_id.clone(),
-                    display_title: target.display_title.clone(),
-                    model_value: target.model_value.clone(),
-                    rendered_label: label.as_deref().unwrap_or_default().to_owned(),
-                })
-                .collect::<Vec<_>>();
-            projection.projection = Some(project_asr_menu(
-                &projection_state(&projection.snapshot),
-                &targets,
-                &projection.filter,
-            ));
-            true
-        }))
-        .unwrap_or(false),
-    )
-}
-
-/// Borrows the finalized projection summary.
+/// Borrows the projection summary.
 ///
 /// # Safety
 ///
@@ -260,20 +245,20 @@ pub unsafe extern "C" fn vinput_fcitx_asr_projection_view(
         return 0;
     }
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(items) = (unsafe { projection.as_ref() }).and_then(|value| value.projection.as_ref())
-    else {
+    let Some(projection) = (unsafe { projection.as_ref() }) else {
         return 0;
     };
     // SAFETY: The caller guarantees a writable output pointer.
     unsafe {
         view_out.write(VinputFcitxProjectionView {
-            item_count: items.len(),
+            effective_label: string_view(&projection.effective_label),
+            item_count: projection.projection.len(),
         });
     }
     1
 }
 
-/// Borrows one finalized projected row.
+/// Borrows one projected row.
 ///
 /// # Safety
 ///
@@ -288,9 +273,7 @@ pub unsafe extern "C" fn vinput_fcitx_asr_projection_item_view(
         return 0;
     }
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(item) = (unsafe { projection.as_ref() })
-        .and_then(|value| value.projection.as_ref())
-        .and_then(|items| items.get(index))
+    let Some(item) = (unsafe { projection.as_ref() }).and_then(|value| value.projection.get(index))
     else {
         return 0;
     };

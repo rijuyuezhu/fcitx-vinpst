@@ -3,24 +3,13 @@
 #include "vinput_fcitx_bridge/recognition_payload.h"
 
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 
+struct VinputFcitxDaemonClient;
 struct VinputFcitxFrontendController;
 
 namespace vinput_fcitx_bridge {
-
-class DaemonClient {
-public:
-  virtual ~DaemonClient() = default;
-
-  virtual bool StartRecording(std::string *error) = 0;
-  virtual bool StartCommandRecording(std::string_view selected_text,
-                                     std::string *error) = 0;
-  virtual bool StopRecording(std::string_view scene_id, std::string *payload_json,
-                             std::string *error) = 0;
-};
 
 enum class FrontendTriggerRequest : std::uint8_t {
   None,
@@ -63,13 +52,14 @@ public:
   FrontendBridge(FrontendBridge &&) = delete;
   FrontendBridge &operator=(FrontendBridge &&) = delete;
 
-  BridgeOutcome StartNormal(DaemonClient *client);
-  BridgeOutcome StartNormal(DaemonClient *client, std::string_view scene_id);
-  BridgeOutcome StartCommand(DaemonClient *client, std::string_view selected_text);
-  BridgeOutcome StartCommand(DaemonClient *client, std::string_view selected_text,
+  BridgeOutcome StartNormal(const ::VinputFcitxDaemonClient *client,
+                            std::string_view scene_id);
+  BridgeOutcome StartCommand(const ::VinputFcitxDaemonClient *client,
+                             std::string_view selected_text, std::string_view scene_id);
+  BridgeOutcome Stop(const ::VinputFcitxDaemonClient *client,
+                     std::string_view scene_id);
+  BridgeOutcome AdoptAndStop(const ::VinputFcitxDaemonClient *client, bool command_mode,
                              std::string_view scene_id);
-  BridgeOutcome Stop(DaemonClient *client, std::string_view scene_id);
-  void AdoptRecording(bool command_mode, std::string_view scene_id);
   void Reset();
 
   FrontendTriggerIntent PlanTrigger(FrontendTriggerRequest request) const;
@@ -77,12 +67,6 @@ public:
   bool command_mode() const;
 
 private:
-  BridgeOutcome StartNormalWithScene(DaemonClient *client,
-                                     std::optional<std::string_view> scene_id);
-  BridgeOutcome StartCommandWithScene(DaemonClient *client,
-                                      std::string_view selected_text,
-                                      std::optional<std::string_view> scene_id);
-
   ::VinputFcitxFrontendController *controller_ = nullptr;
 };
 

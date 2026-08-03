@@ -101,7 +101,7 @@ pub struct AsrMenuProjectionState {
     pub last_error: String,
 }
 
-/// One ASR row prepared by the C++ localization adapter.
+/// One ASR row prepared by the Rust localization plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsrMenuItem {
     /// Stable provider identifier.

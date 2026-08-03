@@ -91,7 +91,8 @@ private:
   void HandleDaemonAvailability(bool available);
   void HandleDaemonStatus(std::string_view status);
   void HandleRecognitionPartial(std::string_view partial_text);
-  void HandleDaemonNotification(const DaemonNotificationPayload &payload);
+  void HandleDaemonNotification(FrontendNotificationKind kind,
+                                std::string_view message);
   void UpdateLivePreedit();
   void ResetLiveSignalState();
   void ResetActiveRecording(fcitx::InputContext *ic);

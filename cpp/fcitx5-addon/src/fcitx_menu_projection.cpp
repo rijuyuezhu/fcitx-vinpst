@@ -65,29 +65,32 @@ CopyProjection(const VinputFcitxProjectionView &summary,
 } // namespace
 
 AsrMenuProjectionBuilder::AsrMenuProjectionBuilder(
-    const AsrDisplayMenuStateSnapshot &snapshot, std::string_view query)
-    : projection_(vinput_fcitx_asr_projection_new(snapshot.raw_handle(), Bytes(query),
-                                                  query.size())) {}
+    const AsrDisplayMenuStateSnapshot &snapshot, std::string_view query,
+    const AsrMenuLocalization &localization)
+    : projection_(vinput_fcitx_asr_projection_new(
+          snapshot.raw_handle(), Bytes(query), query.size(), Bytes(localization.local),
+          localization.local.size(), Bytes(localization.remote),
+          localization.remote.size(), Bytes(localization.command),
+          localization.command.size(), Bytes(localization.loading_suffix),
+          localization.loading_suffix.size(), Bytes(localization.unavailable),
+          localization.unavailable.size(), Bytes(localization.loading_prefix),
+          localization.loading_prefix.size(), Bytes(localization.error_prefix),
+          localization.error_prefix.size())) {}
 
 AsrMenuProjectionBuilder::~AsrMenuProjectionBuilder() {
   vinput_fcitx_asr_projection_free(projection_);
 }
 
-bool AsrMenuProjectionBuilder::SetLabel(std::size_t row_index,
-                                        std::string_view rendered_label) {
-  return vinput_fcitx_asr_projection_set_label(
-             projection_, row_index, Bytes(rendered_label), rendered_label.size()) != 0;
-}
-
-std::optional<std::vector<ProjectedMenuItem>> AsrMenuProjectionBuilder::Finish() {
-  if (vinput_fcitx_asr_projection_finish(projection_) == 0) {
-    return std::nullopt;
-  }
+std::optional<AsrMenuProjectionResult> AsrMenuProjectionBuilder::Finish() {
   VinputFcitxProjectionView summary{};
   if (vinput_fcitx_asr_projection_view(projection_, &summary) == 0) {
     return std::nullopt;
   }
-  return CopyProjection(summary, projection_);
+  auto items = CopyProjection(summary, projection_);
+  if (!items.has_value()) {
+    return std::nullopt;
+  }
+  return AsrMenuProjectionResult{CopyText(summary.effective_label), std::move(*items)};
 }
 
 SceneMenuProjectionBuilder::SceneMenuProjectionBuilder(

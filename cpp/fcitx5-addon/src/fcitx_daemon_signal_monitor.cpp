@@ -56,6 +56,21 @@ std::string RenderPlan(const VinputFcitxDaemonSignalPlanView &plan) {
   return plan.translate != 0 ? FrontendText(text) : text;
 }
 
+std::pair<FrontendNotificationKind, std::string>
+PresentDaemonNotification(std::string_view code, std::string_view subject,
+                          std::string_view detail, std::string_view raw_message) {
+  VinputFcitxDaemonSignalPlanView plan{};
+  if (vinput_fcitx_daemon_notification_plan(
+          Bytes(code), code.size(), Bytes(subject), subject.size(), Bytes(detail),
+          detail.size(), Bytes(raw_message), raw_message.size(), &plan) == 0) {
+    return {FrontendNotificationKind::Error, FrontendText("Unknown error.")};
+  }
+  const auto kind = plan.kind == VINPUT_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO
+                        ? FrontendNotificationKind::Info
+                        : FrontendNotificationKind::Error;
+  return {kind, RenderPlan(plan)};
+}
+
 std::unique_ptr<fcitx::dbus::Slot>
 AddStringSignalMatch(fcitx::dbus::Bus *bus, std::string_view signal,
                      const std::function<bool(const fcitx::dbus::Message &)> &accept,
@@ -80,25 +95,6 @@ AddStringSignalMatch(fcitx::dbus::Bus *bus, std::string_view signal,
 }
 
 } // namespace
-
-bool DaemonNotificationPayload::empty() const {
-  return code.empty() && subject.empty() && detail.empty() && raw_message.empty();
-}
-
-DaemonNotificationPresentation
-PresentDaemonNotification(const DaemonNotificationPayload &payload) {
-  VinputFcitxDaemonSignalPlanView plan{};
-  if (vinput_fcitx_daemon_notification_plan(
-          Bytes(payload.code), payload.code.size(), Bytes(payload.subject),
-          payload.subject.size(), Bytes(payload.detail), payload.detail.size(),
-          Bytes(payload.raw_message), payload.raw_message.size(), &plan) == 0) {
-    return {FrontendNotificationKind::Error, FrontendText("Unknown error.")};
-  }
-  const auto kind = plan.kind == VINPUT_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO
-                        ? FrontendNotificationKind::Info
-                        : FrontendNotificationKind::Error;
-  return {kind, RenderPlan(plan)};
-}
 
 std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
                                        std::string_view partial_text) {
@@ -154,14 +150,12 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
           return true;
         }
 
-        auto payload = DaemonNotificationPayload{
-            .code = std::move(std::get<0>(wire_payload)),
-            .subject = std::move(std::get<1>(wire_payload)),
-            .detail = std::move(std::get<2>(wire_payload)),
-            .raw_message = std::move(std::get<3>(wire_payload)),
-        };
-        if (!payload.empty()) {
-          callbacks_.notification(payload);
+        const auto &[code, subject, detail, raw_message] = wire_payload;
+        if (!code.empty() || !subject.empty() || !detail.empty() ||
+            !raw_message.empty()) {
+          auto [kind, rendered] =
+              PresentDaemonNotification(code, subject, detail, raw_message);
+          callbacks_.notification(kind, rendered);
         }
         return true;
       });

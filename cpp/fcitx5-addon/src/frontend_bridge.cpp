@@ -35,6 +35,19 @@ std::string_view StringView(VinputFcitxStringView view) {
   return {reinterpret_cast<const char *>(view.data), view.len};
 }
 
+CandidateSource CandidateSourceFromValue(std::uint8_t source) {
+  switch (source) {
+  case VINPUT_FCITX_CANDIDATE_SOURCE_LLM:
+    return CandidateSource::Llm;
+  case VINPUT_FCITX_CANDIDATE_SOURCE_ASR:
+    return CandidateSource::Asr;
+  case VINPUT_FCITX_CANDIDATE_SOURCE_CANCEL:
+    return CandidateSource::Cancel;
+  default:
+    return CandidateSource::Raw;
+  }
+}
+
 BridgeOutcome FfiFailure() {
   return BridgeOutcome{
       BridgeOutcome::Kind::Error, "Voice input daemon is unavailable.", {}};
@@ -42,60 +55,27 @@ BridgeOutcome FfiFailure() {
 
 BridgeOutcome TakeOutcome(VinputFcitxFrontendOutcome *raw_outcome) {
   std::unique_ptr<VinputFcitxFrontendOutcome, OutcomeDeleter> outcome(raw_outcome);
-  const auto copied = CopyFrontendOutcome(outcome.get());
-  if (!copied.has_value() || copied->kind > VINPUT_FCITX_FRONTEND_OUTCOME_ERROR) {
+  VinputFcitxFrontendOutcomeView view{};
+  if (vinput_fcitx_frontend_outcome_view(outcome.get(), &view) == 0 ||
+      view.kind > VINPUT_FCITX_FRONTEND_OUTCOME_ERROR) {
     return FfiFailure();
   }
-  return BridgeOutcome{static_cast<BridgeOutcome::Kind>(copied->kind),
-                       std::move(copied->text), std::move(copied->payload),
-                       copied->command_mode};
-}
 
-BridgeOutcome RunPreparedCall(DaemonClient *client,
-                              VinputFcitxFrontendController *controller,
-                              std::uint8_t step,
-                              VinputFcitxFrontendOutcome *immediate) {
-  if (step == VINPUT_FCITX_FRONTEND_STEP_OUTCOME_READY) {
-    return TakeOutcome(immediate);
-  }
-  if (step != VINPUT_FCITX_FRONTEND_STEP_CALL_READY || controller == nullptr) {
-    vinput_fcitx_frontend_outcome_free(immediate);
-    if (controller != nullptr) {
-      static_cast<void>(vinput_fcitx_frontend_controller_reset(controller));
+  RecognitionPayload payload;
+  payload.commit_text = StringView(view.commit_text);
+  payload.candidates.reserve(view.candidate_count);
+  for (std::size_t index = 0; index < view.candidate_count; ++index) {
+    VinputFcitxCandidateView candidate{};
+    if (vinput_fcitx_frontend_outcome_candidate(outcome.get(), index, &candidate) ==
+        0) {
+      return FfiFailure();
     }
-    return FfiFailure();
+    payload.candidates.push_back(Candidate{std::string(StringView(candidate.text)),
+                                           CandidateSourceFromValue(candidate.source)});
   }
-
-  std::uint8_t call_kind = VINPUT_FCITX_FRONTEND_CALL_NONE;
-  VinputFcitxStringView argument{};
-  if (vinput_fcitx_frontend_controller_pending_call(controller, &call_kind,
-                                                    &argument) == 0) {
-    return FfiFailure();
-  }
-
-  const auto call_argument = StringView(argument);
-  std::string payload;
-  std::string error;
-  bool success = false;
-  if (client != nullptr) {
-    switch (call_kind) {
-    case VINPUT_FCITX_FRONTEND_CALL_START_NORMAL:
-      success = client->StartRecording(&error);
-      break;
-    case VINPUT_FCITX_FRONTEND_CALL_START_COMMAND:
-      success = client->StartCommandRecording(call_argument, &error);
-      break;
-    case VINPUT_FCITX_FRONTEND_CALL_STOP:
-      success = client->StopRecording(call_argument, &payload, &error);
-      break;
-    default:
-      break;
-    }
-  }
-
-  const auto &response = success ? payload : error;
-  return TakeOutcome(vinput_fcitx_frontend_controller_complete(
-      controller, success ? 1U : 0U, Bytes(response), response.size()));
+  return BridgeOutcome{static_cast<BridgeOutcome::Kind>(view.kind),
+                       std::string(StringView(view.text)), std::move(payload),
+                       view.command_mode != 0};
 }
 
 } // namespace
@@ -126,61 +106,31 @@ bool FrontendBridge::command_mode() const {
   return vinput_fcitx_frontend_controller_command_mode(controller_) != 0;
 }
 
-BridgeOutcome FrontendBridge::StartNormal(DaemonClient *client) {
-  return StartNormalWithScene(client, std::nullopt);
-}
-
-BridgeOutcome FrontendBridge::StartNormal(DaemonClient *client,
+BridgeOutcome FrontendBridge::StartNormal(const VinputFcitxDaemonClient *client,
                                           std::string_view scene_id) {
-  return StartNormalWithScene(client, scene_id);
+  return TakeOutcome(vinput_fcitx_frontend_controller_start_normal_with_daemon(
+      controller_, client, Bytes(scene_id), scene_id.size()));
 }
 
-BridgeOutcome
-FrontendBridge::StartNormalWithScene(DaemonClient *client,
-                                     std::optional<std::string_view> scene_id) {
-  VinputFcitxFrontendOutcome *outcome = nullptr;
-  const auto scene = scene_id.value_or(std::string_view{});
-  const auto step = vinput_fcitx_frontend_controller_start_normal(
-      controller_, Bytes(scene), scene.size(), scene_id.has_value() ? 1U : 0U,
-      &outcome);
-  return RunPreparedCall(client, controller_, step, outcome);
-}
-
-BridgeOutcome FrontendBridge::StartCommand(DaemonClient *client,
-                                           std::string_view selected_text) {
-  return StartCommandWithScene(client, selected_text, std::nullopt);
-}
-
-BridgeOutcome FrontendBridge::StartCommand(DaemonClient *client,
+BridgeOutcome FrontendBridge::StartCommand(const VinputFcitxDaemonClient *client,
                                            std::string_view selected_text,
                                            std::string_view scene_id) {
-  return StartCommandWithScene(client, selected_text, scene_id);
+  return TakeOutcome(vinput_fcitx_frontend_controller_start_command_with_daemon(
+      controller_, client, Bytes(selected_text), selected_text.size(), Bytes(scene_id),
+      scene_id.size()));
 }
 
-BridgeOutcome
-FrontendBridge::StartCommandWithScene(DaemonClient *client,
-                                      std::string_view selected_text,
-                                      std::optional<std::string_view> scene_id) {
-  VinputFcitxFrontendOutcome *outcome = nullptr;
-  const auto scene = scene_id.value_or(std::string_view{});
-  const auto step = vinput_fcitx_frontend_controller_start_command(
-      controller_, Bytes(selected_text), selected_text.size(), Bytes(scene),
-      scene.size(), scene_id.has_value() ? 1U : 0U, &outcome);
-  return RunPreparedCall(client, controller_, step, outcome);
+BridgeOutcome FrontendBridge::Stop(const VinputFcitxDaemonClient *client,
+                                   std::string_view scene_id) {
+  return TakeOutcome(vinput_fcitx_frontend_controller_stop_with_daemon(
+      controller_, client, Bytes(scene_id), scene_id.size()));
 }
 
-BridgeOutcome FrontendBridge::Stop(DaemonClient *client, std::string_view scene_id) {
-  VinputFcitxFrontendOutcome *outcome = nullptr;
-  const auto step = vinput_fcitx_frontend_controller_stop(controller_, Bytes(scene_id),
-                                                          scene_id.size(), &outcome);
-  return RunPreparedCall(client, controller_, step, outcome);
-}
-
-void FrontendBridge::AdoptRecording(bool command_mode, std::string_view scene_id) {
-  if (vinput_fcitx_frontend_controller_adopt(controller_, command_mode ? 1U : 0U,
-                                             Bytes(scene_id), scene_id.size()) == 0) {
-    Reset();
-  }
+BridgeOutcome FrontendBridge::AdoptAndStop(const VinputFcitxDaemonClient *client,
+                                           bool command_mode,
+                                           std::string_view scene_id) {
+  return TakeOutcome(vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
+      controller_, client, command_mode ? 1U : 0U, Bytes(scene_id), scene_id.size()));
 }
 
 void FrontendBridge::Reset() {

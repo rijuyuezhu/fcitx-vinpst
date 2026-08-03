@@ -162,50 +162,6 @@ bool HandleProjectedMenuKeyEvent(
   return true;
 }
 
-std::string TranslatedProviderKind(std::string_view kind) {
-  if (kind == "local") {
-    return FrontendText("Local");
-  }
-  if (kind == "remote") {
-    return FrontendText("Remote");
-  }
-  if (kind == "command") {
-    return FrontendText("Command");
-  }
-  return std::string(kind);
-}
-
-std::string AsrTargetLabel(const AsrDisplayMenuPresentation &target) {
-  std::string label = target.base_label;
-  label += " [" + TranslatedProviderKind(target.kind) + "]";
-  if (target.loading) {
-    label += FrontendText(" (loading)");
-  }
-  return label;
-}
-
-std::string EffectiveAsrLabel(const AsrDisplayMenuState &state) {
-  std::string label = state.effective_base_label;
-  if (label.empty()) {
-    label = FrontendText("unavailable");
-  }
-  if (state.reload_in_progress && !state.target_provider_id.empty()) {
-    label += " | ";
-    label += FrontendText("Loading: ");
-    label += state.target_provider_id;
-    if (!state.target_model_id.empty()) {
-      label += "/";
-      label += state.target_base_label;
-    }
-  }
-  if (!state.last_error.empty()) {
-    label += " | ";
-    label += FrontendText("Error: ");
-    label += state.last_error;
-  }
-  return label;
-}
-
 } // namespace
 
 void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
@@ -277,12 +233,12 @@ bool FcitxVinputAddon::RefreshSceneState(std::string *error) {
   if (client == nullptr || !client->GetSceneState(&scene_state_, error)) {
     return false;
   }
-  const auto state = scene_state_.state();
-  if (!state.has_value()) {
+  const auto active_scene_id = scene_state_.active_scene_id();
+  if (!active_scene_id.has_value()) {
     return false;
   }
-  if (!state->active_scene_id.empty()) {
-    active_scene_id_ = state->active_scene_id;
+  if (!active_scene_id->empty()) {
+    active_scene_id_ = *active_scene_id;
   }
   return true;
 }
@@ -346,31 +302,23 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
   candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
-  const auto state = asr_menu_state_.state();
-  if (!state.has_value()) {
-    HideAsrMenu();
-    return;
-  }
   const auto filter_view = asr_menu_filter_.view();
   if (!filter_view.has_value()) {
     HideAsrMenu();
     return;
   }
-  AsrMenuProjectionBuilder projection_builder(asr_menu_state_, filter_view->query);
-  for (std::size_t index = 0; index < state->item_count; ++index) {
-    const auto target = asr_menu_state_.presentation(index);
-    if (!target.has_value()) {
-      FCITX_ERROR() << "fcitx-vinput failed to read Rust ASR menu row";
-      HideAsrMenu();
-      return;
-    }
-    const auto label = AsrTargetLabel(*target);
-    if (!projection_builder.SetLabel(index, label)) {
-      FCITX_ERROR() << "fcitx-vinput failed to project ASR menu row";
-      HideAsrMenu();
-      return;
-    }
-  }
+  const auto local = FrontendText("Local");
+  const auto remote = FrontendText("Remote");
+  const auto command = FrontendText("Command");
+  const auto loading_suffix = FrontendText(" (loading)");
+  const auto unavailable = FrontendText("unavailable");
+  const auto loading_prefix = FrontendText("Loading: ");
+  const auto error_prefix = FrontendText("Error: ");
+  const AsrMenuLocalization localization{local,          remote,      command,
+                                         loading_suffix, unavailable, loading_prefix,
+                                         error_prefix};
+  AsrMenuProjectionBuilder projection_builder(asr_menu_state_, filter_view->query,
+                                              localization);
   auto projection = projection_builder.Finish();
   if (!projection.has_value()) {
     FCITX_ERROR() << "fcitx-vinput failed to finalize ASR menu projection";
@@ -379,7 +327,7 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
   }
 
   asr_menu_controls_.clear();
-  for (const auto &item : *projection) {
+  for (const auto &item : projection->items) {
     asr_menu_controls_.push_back(item.control);
     candidates->append<MenuCandidateWord>(
         item.label, [this, control = item.control](fcitx::InputContext *input_context) {
@@ -397,7 +345,7 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
   SetFilteredMenuTitle(asr_menu_ic_, FrontendText("Models /filter"), asr_menu_filter_,
                        candidates.get());
   asr_menu_ic_->inputPanel().setAuxDown(
-      fcitx::Text(FrontendText("Current: ") + EffectiveAsrLabel(*state)));
+      fcitx::Text(FrontendText("Current: ") + projection->effective_label));
   PublishMenuCandidateList(asr_menu_ic_, std::move(candidates));
   asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }

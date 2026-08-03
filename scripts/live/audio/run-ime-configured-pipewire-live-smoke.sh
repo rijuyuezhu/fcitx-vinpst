@@ -55,8 +55,6 @@ XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/u
 VINPUT_DBUS_SMOKE_RECORD_MS="${record_ms}" \
 VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="${expected_text}" \
 VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="${expected_text}" \
-VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="live-command-asr" \
-VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="live-text-adapter" \
 VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="live-postprocess" \
 VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \

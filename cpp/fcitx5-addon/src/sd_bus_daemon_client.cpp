@@ -86,12 +86,6 @@ SdBusDaemonClient::~SdBusDaemonClient() {
   vinput_fcitx_daemon_client_free(client_);
 }
 
-bool SdBusDaemonClient::CallNoReply(std::uint8_t operation, std::string_view first,
-                                    std::string_view second, std::string *error) {
-  return static_cast<bool>(Call(client_, operation, first, second,
-                                VINPUT_FCITX_DAEMON_RESPONSE_NONE, error));
-}
-
 bool SdBusDaemonClient::CallStringReply(std::uint8_t operation, std::string_view first,
                                         std::string_view second, std::string *reply,
                                         std::string *error) {
@@ -124,22 +118,6 @@ bool SdBusDaemonClient::CallBoolReply(std::uint8_t operation, std::string_view f
   }
   *reply = view->bool_value != 0;
   return true;
-}
-
-bool SdBusDaemonClient::StartRecording(std::string *error) {
-  return CallNoReply(VINPUT_FCITX_DAEMON_OPERATION_START_RECORDING, {}, {}, error);
-}
-
-bool SdBusDaemonClient::StartCommandRecording(std::string_view selected_text,
-                                              std::string *error) {
-  return CallNoReply(VINPUT_FCITX_DAEMON_OPERATION_START_COMMAND_RECORDING,
-                     selected_text, {}, error);
-}
-
-bool SdBusDaemonClient::StopRecording(std::string_view scene_id,
-                                      std::string *payload_json, std::string *error) {
-  return CallStringReply(VINPUT_FCITX_DAEMON_OPERATION_STOP_RECORDING, scene_id, {},
-                         payload_json, error);
 }
 
 bool SdBusDaemonClient::GetStatus(std::string *status, std::string *error) {
@@ -194,12 +172,6 @@ bool SdBusDaemonClient::GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *stat
   return true;
 }
 
-bool SdBusDaemonClient::SetActiveAsrProvider(std::string_view provider_id,
-                                             bool *persisted, std::string *error) {
-  return CallBoolReply(VINPUT_FCITX_DAEMON_OPERATION_SET_ACTIVE_ASR_PROVIDER,
-                       provider_id, {}, persisted, error);
-}
-
 bool SdBusDaemonClient::SetActiveAsrTarget(std::string_view provider_id,
                                            std::string_view model_value,
                                            bool *persisted, std::string *error) {
@@ -207,24 +179,8 @@ bool SdBusDaemonClient::SetActiveAsrTarget(std::string_view provider_id,
                        model_value, persisted, error);
 }
 
-bool SdBusDaemonClient::GetTextAdapterState(std::string *state_json,
-                                            std::string *error) {
-  return CallStringReply(VINPUT_FCITX_DAEMON_OPERATION_GET_TEXT_ADAPTER_STATE, {}, {},
-                         state_json, error);
-}
-
-bool SdBusDaemonClient::StartAdapter(std::string_view adapter_id, std::string *error) {
-  return CallNoReply(VINPUT_FCITX_DAEMON_OPERATION_START_ADAPTER, adapter_id, {},
-                     error);
-}
-
-bool SdBusDaemonClient::StopAdapter(std::string_view adapter_id, std::string *error) {
-  return CallNoReply(VINPUT_FCITX_DAEMON_OPERATION_STOP_ADAPTER, adapter_id, {}, error);
-}
-
-bool SdBusDaemonClient::GetRuntimeStatus(std::string *status_json, std::string *error) {
-  return CallStringReply(VINPUT_FCITX_DAEMON_OPERATION_GET_RUNTIME_STATUS, {}, {},
-                         status_json, error);
+const VinputFcitxDaemonClient *SdBusDaemonClient::raw_handle() const {
+  return client_;
 }
 
 } // namespace vinput_fcitx_bridge

@@ -30,7 +30,7 @@ pub use menu_projection::{
     SceneMenuProjection, is_effective_asr_target, project_asr_menu, project_scene_menu,
 };
 pub use menu_snapshot::{
-    AsrDisplaySnapshot, AsrDisplaySnapshotItem, SceneSnapshot, SceneSnapshotItem,
+    AsrDisplaySnapshot, AsrDisplaySnapshotItem, AsrDisplayText, SceneSnapshot, SceneSnapshotItem,
 };
 pub use trigger_mode::{
     TRIGGER_DEBOUNCE_NS, TRIGGER_HOLD_THRESHOLD_NS, TriggerAction, TriggerEvent, TriggerKind,

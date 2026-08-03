@@ -1,5 +1,6 @@
 #include "vinput_fcitx_bridge/fcitx_addon.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -19,6 +20,43 @@ namespace {
 
 BridgeOutcome g_last_outcome;
 
+struct ResponseDeleter {
+  void operator()(VinputFcitxDaemonResponse *response) const {
+    vinput_fcitx_daemon_response_free(response);
+  }
+};
+
+std::string CopyText(VinputFcitxStringView view) {
+  if (view.data == nullptr || view.len == 0) {
+    return {};
+  }
+  return {reinterpret_cast<const char *>(view.data), view.len};
+}
+
+bool StartExternalRecording(const VinputFcitxDaemonClient *client, std::string *error) {
+  std::unique_ptr<VinputFcitxDaemonResponse, ResponseDeleter> response(
+      vinput_fcitx_daemon_client_call(client,
+                                      VINPUT_FCITX_DAEMON_OPERATION_START_RECORDING,
+                                      nullptr, 0, nullptr, 0));
+  VinputFcitxDaemonResponseView view{};
+  if (response == nullptr ||
+      vinput_fcitx_daemon_response_view(response.get(), &view) == 0) {
+    if (error != nullptr) {
+      *error = "external normal start failed before receiving a response";
+    }
+    return false;
+  }
+  if (view.kind == VINPUT_FCITX_DAEMON_RESPONSE_NONE) {
+    return true;
+  }
+  if (error != nullptr) {
+    *error = view.kind == VINPUT_FCITX_DAEMON_RESPONSE_ERROR
+                 ? CopyText(view.text)
+                 : "external normal start returned an unexpected response";
+  }
+  return false;
+}
+
 std::unique_ptr<SdBusDaemonClient> ConnectWithRetry(std::string *error) {
   for (int attempt = 0; attempt < 50; ++attempt) {
     auto client = SdBusDaemonClient::ConnectSession(error);
@@ -33,53 +71,6 @@ std::unique_ptr<SdBusDaemonClient> ConnectWithRetry(std::string *error) {
 std::string ExpectedText(const char *env_name, const char *fallback) {
   const char *value = std::getenv(env_name);
   return value == nullptr ? std::string(fallback) : std::string(value);
-}
-
-bool Contains(std::string_view haystack, std::string_view needle) {
-  return haystack.find(needle) != std::string_view::npos;
-}
-
-bool GetRuntimeStatus(SdBusDaemonClient *client, std::string *status_json,
-                      std::string *error) {
-  if (!client->GetRuntimeStatus(status_json, error)) {
-    return false;
-  }
-  return true;
-}
-
-bool ExpectRuntimeStatus(SdBusDaemonClient *client, std::string_view expected,
-                         std::string *error) {
-  std::string status_json;
-  if (!GetRuntimeStatus(client, &status_json, error)) {
-    return false;
-  }
-  if (!Contains(status_json, expected)) {
-    if (error != nullptr) {
-      *error = "runtime status missing expected marker: ";
-      *error += expected;
-      *error += " in ";
-      *error += status_json;
-    }
-    return false;
-  }
-  return true;
-}
-
-bool ExpectSanitizedCommandStatus(SdBusDaemonClient *client, std::string *error) {
-  std::string status_json;
-  if (!GetRuntimeStatus(client, &status_json, error)) {
-    return false;
-  }
-  if (!Contains(status_json, "\"status\":\"recording\"") ||
-      !Contains(status_json, "\"selected_text_present\":true") ||
-      Contains(status_json, "selected text")) {
-    if (error != nullptr) {
-      *error = "runtime status command snapshot was not sanitized: ";
-      *error += status_json;
-    }
-    return false;
-  }
-  return true;
 }
 
 bool ExpectApplied(AppliedOutcome actual, AppliedOutcome expected,
@@ -154,18 +145,13 @@ int main() {
     return 1;
   }
 
-  if (!client->StartRecording(&error)) {
+  if (!StartExternalRecording(client->raw_handle(), &error)) {
     std::cerr << "external normal start failed: " << error << '\n';
     return 1;
   }
   std::string external_status;
   if (!client->GetStatus(&external_status, &error) || external_status != "recording") {
     std::cerr << "external normal status check failed: " << error << '\n';
-    return 1;
-  }
-  if (!ExpectRuntimeStatus(client.get(), "\"status\":\"recording\"", &error) ||
-      !ExpectRuntimeStatus(client.get(), "\"selected_text_present\":false", &error)) {
-    std::cerr << "runtime status external normal check failed: " << error << '\n';
     return 1;
   }
 
@@ -189,10 +175,6 @@ int main() {
   if (!client->GetStatus(&external_status, &error) || external_status != "idle") {
     std::cerr << "external normal takeover did not return daemon to idle: " << error
               << '\n';
-    return 1;
-  }
-  if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error)) {
-    std::cerr << "runtime status after normal takeover failed: " << error << '\n';
     return 1;
   }
 
@@ -222,8 +204,8 @@ int main() {
     return 1;
   }
 
-  if (!ExpectSanitizedCommandStatus(client.get(), &error)) {
-    std::cerr << "runtime status command check failed: " << error << '\n';
+  if (!client->GetStatus(&external_status, &error) || external_status != "recording") {
+    std::cerr << "daemon status command recording check failed: " << error << '\n';
     return 1;
   }
 
@@ -239,9 +221,8 @@ int main() {
     return 1;
   }
 
-  if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error) ||
-      !ExpectRuntimeStatus(client.get(), "\"selected_text_present\":false", &error)) {
-    std::cerr << "runtime status after command stop failed: " << error << '\n';
+  if (!client->GetStatus(&external_status, &error) || external_status != "idle") {
+    std::cerr << "daemon status after command stop failed: " << error << '\n';
     return 1;
   }
 

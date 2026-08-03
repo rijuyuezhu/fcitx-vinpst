@@ -89,6 +89,25 @@ impl AsrDisplaySnapshotItem {
     }
 }
 
+/// Localized fragments used to render ASR menu presentation without Fcitx types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AsrDisplayText<'a> {
+    /// Local provider kind label.
+    pub local: &'a str,
+    /// Remote provider kind label.
+    pub remote: &'a str,
+    /// Command provider kind label.
+    pub command: &'a str,
+    /// Suffix appended to the requested row while a reload is active.
+    pub loading_suffix: &'a str,
+    /// Fallback used when no effective backend label is available.
+    pub unavailable: &'a str,
+    /// Prefix used when presenting the requested backend during reload.
+    pub loading_prefix: &'a str,
+    /// Prefix used when presenting the last backend reload error.
+    pub error_prefix: &'a str,
+}
+
 /// ASR state returned by `GetAsrDisplayMenuState`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AsrDisplaySnapshot {
@@ -206,11 +225,65 @@ impl AsrDisplaySnapshot {
             self.display_title_for(&self.target_provider_id, &self.target_model_id)
         }
     }
+
+    /// Renders one target row using localized provider-kind and loading fragments.
+    #[must_use]
+    pub fn render_target_label(
+        &self,
+        target: &AsrDisplaySnapshotItem,
+        text: &AsrDisplayText<'_>,
+    ) -> String {
+        let kind = match target.kind.as_str() {
+            "local" => text.local,
+            "remote" => text.remote,
+            "command" => text.command,
+            other => other,
+        };
+        let mut label = format!("{} [{kind}]", target.base_label());
+        if self.is_loading_target(target) {
+            label.push_str(text.loading_suffix);
+        }
+        label
+    }
+
+    /// Renders the effective backend summary using localized status fragments.
+    #[must_use]
+    pub fn render_effective_label(&self, text: &AsrDisplayText<'_>) -> String {
+        let mut label = self.effective_base_label().to_owned();
+        if label.is_empty() {
+            label.push_str(text.unavailable);
+        }
+        if self.reload_in_progress && !self.target_provider_id.is_empty() {
+            label.push_str(" | ");
+            label.push_str(text.loading_prefix);
+            label.push_str(&self.target_provider_id);
+            if !self.target_model_id.is_empty() {
+                label.push('/');
+                label.push_str(self.target_base_label());
+            }
+        }
+        if !self.last_error.is_empty() {
+            label.push_str(" | ");
+            label.push_str(text.error_prefix);
+            label.push_str(&self.last_error);
+        }
+        label
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AsrDisplaySnapshot, AsrDisplaySnapshotItem, SceneSnapshot};
+    use super::{AsrDisplaySnapshot, AsrDisplaySnapshotItem, AsrDisplayText, SceneSnapshot};
+
+    const TEXT: AsrDisplayText<'static> = AsrDisplayText {
+        local: "Local",
+        remote: "Remote",
+        command: "Command",
+        loading_suffix: " (loading)",
+        unavailable: "unavailable",
+        loading_prefix: "Loading: ",
+        error_prefix: "Error: ",
+    };
 
     fn target(
         provider_id: &str,
@@ -281,5 +354,73 @@ mod tests {
         assert_eq!(snapshot.effective_base_label(), "unknown-model");
         assert_eq!(snapshot.target_base_label(), "remote");
         assert_eq!(snapshot.last_error(), "reload failed");
+    }
+
+    #[test]
+    fn renders_localized_target_rows_and_preserves_unknown_kinds() {
+        let mut snapshot = AsrDisplaySnapshot::new(
+            "sherpa".to_owned(),
+            "requested".to_owned(),
+            "sherpa".to_owned(),
+            "effective".to_owned(),
+            true,
+            String::new(),
+        );
+        snapshot.push(target("sherpa", "requested", "Requested", "requested"));
+        snapshot.push(AsrDisplaySnapshotItem {
+            provider_id: "custom".to_owned(),
+            kind: "plugin".to_owned(),
+            item_id: "custom-model".to_owned(),
+            display_title: "Custom".to_owned(),
+            model_value: "custom-model".to_owned(),
+        });
+
+        assert_eq!(
+            snapshot.render_target_label(&snapshot.targets()[0], &TEXT),
+            "Requested [Local] (loading)"
+        );
+        assert_eq!(
+            snapshot.render_target_label(&snapshot.targets()[1], &TEXT),
+            "Custom [plugin]"
+        );
+    }
+
+    #[test]
+    fn renders_effective_loading_and_error_summary() {
+        let mut snapshot = AsrDisplaySnapshot::new(
+            "sherpa".to_owned(),
+            "requested".to_owned(),
+            "sherpa".to_owned(),
+            "effective".to_owned(),
+            true,
+            "reload failed".to_owned(),
+        );
+        snapshot.push(target(
+            "sherpa",
+            "effective",
+            "Effective Model",
+            "effective",
+        ));
+        snapshot.push(target(
+            "sherpa",
+            "requested",
+            "Requested Model",
+            "requested",
+        ));
+
+        assert_eq!(
+            snapshot.render_effective_label(&TEXT),
+            "Effective Model | Loading: sherpa/Requested Model | Error: reload failed"
+        );
+
+        let unavailable = AsrDisplaySnapshot::new(
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            false,
+            String::new(),
+        );
+        assert_eq!(unavailable.render_effective_label(&TEXT), "unavailable");
     }
 }

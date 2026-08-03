@@ -78,7 +78,7 @@ int main() {
 
   FrontendBridge bridge;
   RecordingOutcomeSink sink;
-  const auto start = bridge.StartNormal(client.get(), "raw");
+  const auto start = bridge.StartNormal(client->raw_handle(), "raw");
   if (start.kind != BridgeOutcome::Kind::Preedit || !bridge.recording()) {
     std::cerr << "native frontend start failed: kind=" << static_cast<int>(start.kind)
               << " text=" << start.text << '\n';
@@ -90,7 +90,7 @@ int main() {
     return 1;
   }
 
-  const auto stop = bridge.Stop(client.get(), "raw");
+  const auto stop = bridge.Stop(client->raw_handle(), "raw");
   if (stop.kind != BridgeOutcome::Kind::Commit || bridge.recording()) {
     std::cerr << "native frontend stop did not commit: kind="
               << static_cast<int>(stop.kind) << " text=" << stop.text << '\n';

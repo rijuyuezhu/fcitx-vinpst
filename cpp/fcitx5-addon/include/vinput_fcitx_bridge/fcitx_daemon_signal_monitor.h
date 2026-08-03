@@ -12,23 +12,6 @@
 
 namespace vinput_fcitx_bridge {
 
-struct DaemonNotificationPayload {
-  std::string code;
-  std::string subject;
-  std::string detail;
-  std::string raw_message;
-
-  bool empty() const;
-  bool operator==(const DaemonNotificationPayload &) const = default;
-};
-
-struct DaemonNotificationPresentation {
-  FrontendNotificationKind kind = FrontendNotificationKind::Error;
-  std::string message;
-};
-
-DaemonNotificationPresentation
-PresentDaemonNotification(const DaemonNotificationPayload &payload);
 std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
                                        std::string_view partial_text);
 
@@ -36,7 +19,8 @@ struct DaemonSignalCallbacks {
   std::function<void(bool available)> service_availability_changed;
   std::function<void(std::string_view status)> status_changed;
   std::function<void(std::string_view partial_text)> recognition_partial;
-  std::function<void(const DaemonNotificationPayload &payload)> notification;
+  std::function<void(FrontendNotificationKind kind, std::string_view message)>
+      notification;
 };
 
 class FcitxDaemonSignalMonitor final {

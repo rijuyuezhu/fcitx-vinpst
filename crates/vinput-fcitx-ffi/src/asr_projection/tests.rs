@@ -1,16 +1,15 @@
 use std::ptr;
 
 use super::{
-    VinputFcitxProjectedMenuItemView, VinputFcitxProjectionView,
-    vinput_fcitx_asr_projection_finish, vinput_fcitx_asr_projection_free,
+    VinputFcitxProjectedMenuItemView, VinputFcitxProjectionView, vinput_fcitx_asr_projection_free,
     vinput_fcitx_asr_projection_item_view, vinput_fcitx_asr_projection_new,
-    vinput_fcitx_asr_projection_set_label, vinput_fcitx_asr_projection_view,
+    vinput_fcitx_asr_projection_view,
 };
 use crate::{
     frontend::VinputFcitxStringView,
     menu_snapshot::{
-        vinput_fcitx_asr_display_snapshot_add, vinput_fcitx_asr_display_snapshot_free,
-        vinput_fcitx_asr_display_snapshot_new,
+        VinputFcitxAsrDisplaySnapshot, vinput_fcitx_asr_display_snapshot_add,
+        vinput_fcitx_asr_display_snapshot_free, vinput_fcitx_asr_display_snapshot_new,
     },
 };
 
@@ -22,9 +21,43 @@ unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     unsafe { std::slice::from_raw_parts(view.data, view.len) }
 }
 
+unsafe fn projection(
+    snapshot: *const VinputFcitxAsrDisplaySnapshot,
+    query: &[u8],
+) -> *mut super::VinputFcitxAsrProjection {
+    // SAFETY: Test byte slices outlive the projection constructor call.
+    unsafe {
+        vinput_fcitx_asr_projection_new(
+            snapshot,
+            query.as_ptr(),
+            query.len(),
+            b"Local".as_ptr(),
+            5,
+            b"Remote".as_ptr(),
+            6,
+            b"Command".as_ptr(),
+            7,
+            b" (loading)".as_ptr(),
+            10,
+            b"unavailable".as_ptr(),
+            11,
+            b"Loading: ".as_ptr(),
+            9,
+            b"Error: ".as_ptr(),
+            7,
+        )
+    }
+}
+
+fn empty_string_view() -> VinputFcitxStringView {
+    VinputFcitxStringView {
+        data: ptr::null(),
+        len: 0,
+    }
+}
+
 #[test]
-#[allow(clippy::too_many_lines)]
-fn projects_localized_rows_directly_from_snapshot() {
+fn projects_localized_rows_and_effective_label_directly_from_snapshot() {
     // SAFETY: Local byte slices outlive all calls and handles are freed once.
     unsafe {
         let snapshot = vinput_fcitx_asr_display_snapshot_new(
@@ -74,38 +107,20 @@ fn projects_localized_rows_directly_from_snapshot() {
             1,
         );
 
-        let projection = vinput_fcitx_asr_projection_new(snapshot, b"chinese local".as_ptr(), 13);
+        let projection = projection(snapshot, b"chinese local");
         assert!(!projection.is_null());
-        assert_eq!(
-            vinput_fcitx_asr_projection_set_label(
-                projection,
-                0,
-                b"Moonshine English [Local]".as_ptr(),
-                25,
-            ),
-            1,
-        );
-        assert_eq!(
-            vinput_fcitx_asr_projection_set_label(
-                projection,
-                1,
-                b"Paraformer Chinese [Local]".as_ptr(),
-                26,
-            ),
-            1,
-        );
-        assert_eq!(vinput_fcitx_asr_projection_finish(projection), 1);
-
-        let mut summary = VinputFcitxProjectionView { item_count: 0 };
+        let mut summary = VinputFcitxProjectionView {
+            effective_label: empty_string_view(),
+            item_count: 0,
+        };
         assert_eq!(
             vinput_fcitx_asr_projection_view(projection, &raw mut summary),
             1,
         );
+        assert_eq!(bytes(summary.effective_label), b"Moonshine English");
         assert_eq!(summary.item_count, 1);
-        let empty = VinputFcitxStringView {
-            data: ptr::null(),
-            len: 0,
-        };
+
+        let empty = empty_string_view();
         let mut item = VinputFcitxProjectedMenuItemView {
             label: empty,
             control_kind: 0,
@@ -122,17 +137,14 @@ fn projects_localized_rows_directly_from_snapshot() {
         assert_eq!(bytes(item.control_first), b"sherpa");
         assert_eq!(bytes(item.control_second), b"paraformer-zh");
         assert_eq!(bytes(item.control_label), b"Paraformer Chinese");
-        assert_eq!(
-            vinput_fcitx_asr_projection_item_view(projection, 1, &raw mut item),
-            0,
-        );
+
         vinput_fcitx_asr_projection_free(projection);
         vinput_fcitx_asr_display_snapshot_free(snapshot);
     }
 }
 
 #[test]
-fn keeps_requested_loading_row_visible() {
+fn renders_loading_row_and_current_backend_summary() {
     // SAFETY: Local byte slices outlive all calls and handles are freed once.
     unsafe {
         let snapshot = vinput_fcitx_asr_display_snapshot_new(
@@ -145,8 +157,8 @@ fn keeps_requested_loading_row_visible() {
             b"legacy".as_ptr(),
             6,
             1,
-            ptr::null(),
-            0,
+            b"reload failed".as_ptr(),
+            13,
         );
         assert_eq!(
             vinput_fcitx_asr_display_snapshot_add(
@@ -164,31 +176,45 @@ fn keeps_requested_loading_row_visible() {
             ),
             1,
         );
-        let projection = vinput_fcitx_asr_projection_new(snapshot, ptr::null(), 0);
-        assert_eq!(
-            vinput_fcitx_asr_projection_set_label(
-                projection,
-                0,
-                b"Requested [Local] (loading)".as_ptr(),
-                27,
-            ),
-            1,
-        );
-        assert_eq!(vinput_fcitx_asr_projection_finish(projection), 1);
-        let mut summary = VinputFcitxProjectionView { item_count: 0 };
+
+        let projection = projection(snapshot, b"");
+        assert!(!projection.is_null());
+        let mut summary = VinputFcitxProjectionView {
+            effective_label: empty_string_view(),
+            item_count: 0,
+        };
         assert_eq!(
             vinput_fcitx_asr_projection_view(projection, &raw mut summary),
             1,
         );
+        assert_eq!(
+            bytes(summary.effective_label),
+            b"legacy | Loading: sherpa/Requested | Error: reload failed"
+        );
         assert_eq!(summary.item_count, 1);
+
+        let empty = empty_string_view();
+        let mut item = VinputFcitxProjectedMenuItemView {
+            label: empty,
+            control_kind: 0,
+            control_first: empty,
+            control_second: empty,
+            control_label: empty,
+        };
+        assert_eq!(
+            vinput_fcitx_asr_projection_item_view(projection, 0, &raw mut item),
+            1,
+        );
+        assert_eq!(bytes(item.label), b"Requested [Local] (loading)");
+
         vinput_fcitx_asr_projection_free(projection);
         vinput_fcitx_asr_display_snapshot_free(snapshot);
     }
 }
 
 #[test]
-fn incomplete_or_invalid_labels_do_not_finalize() {
-    // SAFETY: Local byte slices outlive all calls and handles are freed once.
+fn invalid_localized_fragment_rejects_projection() {
+    // SAFETY: Local byte slices outlive the constructor call and the snapshot is freed once.
     unsafe {
         let snapshot = vinput_fcitx_asr_display_snapshot_new(
             ptr::null(),
@@ -203,40 +229,27 @@ fn incomplete_or_invalid_labels_do_not_finalize() {
             ptr::null(),
             0,
         );
-        assert_eq!(
-            vinput_fcitx_asr_display_snapshot_add(
-                snapshot,
-                b"provider".as_ptr(),
-                8,
-                b"local".as_ptr(),
-                5,
-                b"model".as_ptr(),
-                5,
-                ptr::null(),
-                0,
-                b"model".as_ptr(),
-                5,
-            ),
-            1,
-        );
-        let projection = vinput_fcitx_asr_projection_new(snapshot, ptr::null(), 0);
-        assert_eq!(vinput_fcitx_asr_projection_finish(projection), 0);
         let invalid = [0xff];
-        assert_eq!(
-            vinput_fcitx_asr_projection_set_label(projection, 0, invalid.as_ptr(), invalid.len(),),
+        let projection = vinput_fcitx_asr_projection_new(
+            snapshot,
+            ptr::null(),
             0,
+            invalid.as_ptr(),
+            invalid.len(),
+            b"Remote".as_ptr(),
+            6,
+            b"Command".as_ptr(),
+            7,
+            b" (loading)".as_ptr(),
+            10,
+            b"unavailable".as_ptr(),
+            11,
+            b"Loading: ".as_ptr(),
+            9,
+            b"Error: ".as_ptr(),
+            7,
         );
-        assert_eq!(vinput_fcitx_asr_projection_finish(projection), 0);
-        assert_eq!(
-            vinput_fcitx_asr_projection_set_label(projection, 0, b"Model".as_ptr(), 5),
-            1,
-        );
-        assert_eq!(vinput_fcitx_asr_projection_finish(projection), 1);
-        assert_eq!(
-            vinput_fcitx_asr_projection_set_label(projection, 0, b"Other".as_ptr(), 5),
-            0,
-        );
-        vinput_fcitx_asr_projection_free(projection);
+        assert!(projection.is_null());
         vinput_fcitx_asr_display_snapshot_free(snapshot);
     }
 }

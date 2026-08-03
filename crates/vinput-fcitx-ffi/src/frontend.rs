@@ -9,22 +9,9 @@ use vinput_fcitx_core::{
     Candidate, CandidateSource, FrontendCall, FrontendController, FrontendOutcome,
     FrontendOutcomeKind, FrontendStep, FrontendTriggerIntent, FrontendTriggerRequest,
 };
+use vinput_fcitx_dbus::{DaemonOperation, DaemonResponse};
 
-/// Request preparation failed.
-pub const FRONTEND_STEP_INVALID: u8 = 0;
-/// A daemon call is ready.
-pub const FRONTEND_STEP_CALL_READY: u8 = 1;
-/// The request completed immediately with an outcome.
-pub const FRONTEND_STEP_OUTCOME_READY: u8 = 2;
-
-/// No pending daemon call.
-pub const FRONTEND_CALL_NONE: u8 = 0;
-/// Start normal recording.
-pub const FRONTEND_CALL_START_NORMAL: u8 = 1;
-/// Start command recording.
-pub const FRONTEND_CALL_START_COMMAND: u8 = 2;
-/// Stop recording.
-pub const FRONTEND_CALL_STOP: u8 = 3;
+use crate::daemon::VinputFcitxDaemonClient;
 
 const FRONTEND_TRIGGER_REQUEST_NONE: u8 = 0;
 const FRONTEND_TRIGGER_REQUEST_START_NORMAL: u8 = 1;
@@ -98,22 +85,6 @@ unsafe fn text_input<'a>(data: *const u8, len: usize) -> Option<&'a str> {
     std::str::from_utf8(unsafe { std::slice::from_raw_parts(data, len) }).ok()
 }
 
-unsafe fn optional_text_input<'a>(
-    data: *const u8,
-    len: usize,
-    present: u8,
-) -> Result<Option<&'a str>, ()> {
-    if present == 0 {
-        return if data.is_null() && len == 0 {
-            Ok(None)
-        } else {
-            Err(())
-        };
-    }
-    // SAFETY: Forwarded from each exported function's caller contract.
-    unsafe { text_input(data, len) }.map(Some).ok_or(())
-}
-
 fn string_view(value: &str) -> VinputFcitxStringView {
     VinputFcitxStringView {
         data: if value.is_empty() {
@@ -122,14 +93,6 @@ fn string_view(value: &str) -> VinputFcitxStringView {
             value.as_ptr()
         },
         len: value.len(),
-    }
-}
-
-fn call_kind(call: &FrontendCall) -> u8 {
-    match call {
-        FrontendCall::StartNormal => FRONTEND_CALL_START_NORMAL,
-        FrontendCall::StartCommand { .. } => FRONTEND_CALL_START_COMMAND,
-        FrontendCall::Stop { .. } => FRONTEND_CALL_STOP,
     }
 }
 
@@ -188,23 +151,52 @@ fn boxed_outcome(outcome: FrontendOutcome) -> *mut VinputFcitxFrontendOutcome {
     Box::into_raw(Box::new(VinputFcitxFrontendOutcome { outcome }))
 }
 
-unsafe fn prepare_step(
+fn execute_step_with(
+    controller: &mut FrontendController,
     step: FrontendStep,
-    outcome_out: *mut *mut VinputFcitxFrontendOutcome,
-) -> u8 {
-    if outcome_out.is_null() {
-        return FRONTEND_STEP_INVALID;
-    }
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe { outcome_out.write(ptr::null_mut()) };
-    match step {
-        FrontendStep::CallReady => FRONTEND_STEP_CALL_READY,
-        FrontendStep::Outcome(outcome) => {
-            // SAFETY: The caller guarantees a writable output pointer.
-            unsafe { outcome_out.write(boxed_outcome(outcome)) };
-            FRONTEND_STEP_OUTCOME_READY
-        }
-    }
+    mut call_daemon: impl FnMut(DaemonOperation, &str) -> Result<DaemonResponse, String>,
+) -> FrontendOutcome {
+    let FrontendStep::CallReady = step else {
+        let FrontendStep::Outcome(outcome) = step else {
+            unreachable!();
+        };
+        return outcome;
+    };
+    let Some(call) = controller.pending_call().cloned() else {
+        return FrontendOutcome::default();
+    };
+    let (operation, expects_text) = match &call {
+        FrontendCall::StartNormal => (DaemonOperation::StartRecording, false),
+        FrontendCall::StartCommand { .. } => (DaemonOperation::StartCommandRecording, false),
+        FrontendCall::Stop { .. } => (DaemonOperation::StopRecording, true),
+    };
+    let (success, response) = match call_daemon(operation, call.argument()) {
+        Ok(DaemonResponse::None) if !expects_text => (true, String::new()),
+        Ok(DaemonResponse::Text(text)) if expects_text => (true, text),
+        Ok(_) => (false, String::new()),
+        Err(error) => (false, error),
+    };
+    controller.complete(success, &response)
+}
+
+fn execute_step(
+    controller: &mut VinputFcitxFrontendController,
+    daemon: Option<&VinputFcitxDaemonClient>,
+    step: FrontendStep,
+) -> *mut VinputFcitxFrontendOutcome {
+    boxed_outcome(execute_step_with(
+        &mut controller.controller,
+        step,
+        |operation, argument| {
+            let Some(daemon) = daemon else {
+                return Err(String::new());
+            };
+            daemon
+                .client
+                .call(operation, argument, "")
+                .map_err(|error| error.to_string())
+        },
+    ))
 }
 
 /// Creates an idle frontend controller.
@@ -289,146 +281,17 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_plan_trigger(
     1
 }
 
-/// Prepares a normal recording start.
+/// Starts normal recording and executes the prepared daemon call in Rust.
 ///
 /// # Safety
 ///
-/// Input pointers must reference their lengths and `outcome_out` must be writable.
+/// Handles must be live and `scene_data` must reference `scene_len` readable bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_normal(
+pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_normal_with_daemon(
     controller: *mut VinputFcitxFrontendController,
+    daemon: *const VinputFcitxDaemonClient,
     scene_data: *const u8,
     scene_len: usize,
-    has_scene: u8,
-    outcome_out: *mut *mut VinputFcitxFrontendOutcome,
-) -> u8 {
-    catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: Forwarded from this function's caller contract.
-        let Some(controller) = (unsafe { controller.as_mut() }) else {
-            return FRONTEND_STEP_INVALID;
-        };
-        // SAFETY: Forwarded from this function's caller contract.
-        let Ok(scene) = (unsafe { optional_text_input(scene_data, scene_len, has_scene) }) else {
-            return FRONTEND_STEP_INVALID;
-        };
-        // SAFETY: Forwarded from this function's caller contract.
-        unsafe { prepare_step(controller.controller.start_normal(scene), outcome_out) }
-    }))
-    .unwrap_or(FRONTEND_STEP_INVALID)
-}
-
-/// Prepares a command recording start.
-///
-/// # Safety
-///
-/// Input pointers must reference their lengths and `outcome_out` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_command(
-    controller: *mut VinputFcitxFrontendController,
-    selected_data: *const u8,
-    selected_len: usize,
-    scene_data: *const u8,
-    scene_len: usize,
-    has_scene: u8,
-    outcome_out: *mut *mut VinputFcitxFrontendOutcome,
-) -> u8 {
-    catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: Forwarded from this function's caller contract.
-        let Some(controller) = (unsafe { controller.as_mut() }) else {
-            return FRONTEND_STEP_INVALID;
-        };
-        // SAFETY: Forwarded from this function's caller contract.
-        let Some(selected) = (unsafe { text_input(selected_data, selected_len) }) else {
-            return FRONTEND_STEP_INVALID;
-        };
-        // SAFETY: Forwarded from this function's caller contract.
-        let Ok(scene) = (unsafe { optional_text_input(scene_data, scene_len, has_scene) }) else {
-            return FRONTEND_STEP_INVALID;
-        };
-        // SAFETY: Forwarded from this function's caller contract.
-        unsafe {
-            prepare_step(
-                controller.controller.start_command(selected, scene),
-                outcome_out,
-            )
-        }
-    }))
-    .unwrap_or(FRONTEND_STEP_INVALID)
-}
-
-/// Prepares a recording stop.
-///
-/// # Safety
-///
-/// Input pointers must reference their lengths and `outcome_out` must be writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_controller_stop(
-    controller: *mut VinputFcitxFrontendController,
-    fallback_scene_data: *const u8,
-    fallback_scene_len: usize,
-    outcome_out: *mut *mut VinputFcitxFrontendOutcome,
-) -> u8 {
-    catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: Forwarded from this function's caller contract.
-        let Some(controller) = (unsafe { controller.as_mut() }) else {
-            return FRONTEND_STEP_INVALID;
-        };
-        // SAFETY: Forwarded from this function's caller contract.
-        let Some(fallback) = (unsafe { text_input(fallback_scene_data, fallback_scene_len) })
-        else {
-            return FRONTEND_STEP_INVALID;
-        };
-        // SAFETY: Forwarded from this function's caller contract.
-        unsafe { prepare_step(controller.controller.stop(fallback), outcome_out) }
-    }))
-    .unwrap_or(FRONTEND_STEP_INVALID)
-}
-
-/// Returns the pending daemon call and its string argument.
-///
-/// # Safety
-///
-/// All pointers must be valid for the duration of the call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_controller_pending_call(
-    controller: *const VinputFcitxFrontendController,
-    kind_out: *mut u8,
-    argument_out: *mut VinputFcitxStringView,
-) -> u8 {
-    if kind_out.is_null() || argument_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(controller) = (unsafe { controller.as_ref() }) else {
-        return 0;
-    };
-    let Some(call) = controller.controller.pending_call() else {
-        // SAFETY: The caller guarantees writable output pointers.
-        unsafe {
-            kind_out.write(FRONTEND_CALL_NONE);
-            argument_out.write(string_view(""));
-        }
-        return 1;
-    };
-    // SAFETY: The caller guarantees writable output pointers.
-    unsafe {
-        kind_out.write(call_kind(call));
-        argument_out.write(string_view(call.argument()));
-    }
-    1
-}
-
-/// Completes the pending daemon call and returns an owned outcome.
-///
-/// # Safety
-///
-/// `response_data` must reference `response_len` bytes and the controller must be live.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_controller_complete(
-    controller: *mut VinputFcitxFrontendController,
-    success: u8,
-    response_data: *const u8,
-    response_len: usize,
 ) -> *mut VinputFcitxFrontendOutcome {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -436,43 +299,113 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_complete(
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(response) = (unsafe { text_input(response_data, response_len) }) else {
+        let Some(scene) = (unsafe { text_input(scene_data, scene_len) }) else {
             return ptr::null_mut();
         };
-        boxed_outcome(controller.controller.complete(success != 0, response))
+        // SAFETY: Forwarded from this function's caller contract.
+        let daemon = unsafe { daemon.as_ref() };
+        let step = controller.controller.start_normal(Some(scene));
+        execute_step(controller, daemon, step)
     }))
     .unwrap_or(ptr::null_mut())
 }
 
-/// Adopts a recording already active in the daemon.
+/// Starts command recording and executes the prepared daemon call in Rust.
 ///
 /// # Safety
 ///
-/// `scene_data` must reference `scene_len` readable bytes.
+/// Handles must be live and input byte pointers must reference their lengths.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_controller_adopt(
+pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_command_with_daemon(
     controller: *mut VinputFcitxFrontendController,
+    daemon: *const VinputFcitxDaemonClient,
+    selected_data: *const u8,
+    selected_len: usize,
+    scene_data: *const u8,
+    scene_len: usize,
+) -> *mut VinputFcitxFrontendOutcome {
+    catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(selected) = (unsafe { text_input(selected_data, selected_len) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(scene) = (unsafe { text_input(scene_data, scene_len) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let daemon = unsafe { daemon.as_ref() };
+        let step = controller.controller.start_command(selected, Some(scene));
+        execute_step(controller, daemon, step)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
+
+/// Stops recording and executes the prepared daemon call in Rust.
+///
+/// # Safety
+///
+/// Handles must be live and `fallback_scene_data` must reference its length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_frontend_controller_stop_with_daemon(
+    controller: *mut VinputFcitxFrontendController,
+    daemon: *const VinputFcitxDaemonClient,
+    fallback_scene_data: *const u8,
+    fallback_scene_len: usize,
+) -> *mut VinputFcitxFrontendOutcome {
+    catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(fallback) = (unsafe { text_input(fallback_scene_data, fallback_scene_len) })
+        else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let daemon = unsafe { daemon.as_ref() };
+        let step = controller.controller.stop(fallback);
+        execute_step(controller, daemon, step)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
+
+/// Adopts an externally started recording and stops it through the Rust daemon client.
+///
+/// # Safety
+///
+/// Handles must be live and `scene_data` must reference `scene_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
+    controller: *mut VinputFcitxFrontendController,
+    daemon: *const VinputFcitxDaemonClient,
     command_mode: u8,
     scene_data: *const u8,
     scene_len: usize,
-) -> u8 {
-    u8::from(
-        catch_unwind(AssertUnwindSafe(|| {
-            // SAFETY: Forwarded from this function's caller contract.
-            let Some(controller) = (unsafe { controller.as_mut() }) else {
-                return false;
-            };
-            // SAFETY: Forwarded from this function's caller contract.
-            let Some(scene) = (unsafe { text_input(scene_data, scene_len) }) else {
-                return false;
-            };
-            controller
-                .controller
-                .adopt_recording(command_mode != 0, scene);
-            true
-        }))
-        .unwrap_or(false),
-    )
+) -> *mut VinputFcitxFrontendOutcome {
+    catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(scene) = (unsafe { text_input(scene_data, scene_len) }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let daemon = unsafe { daemon.as_ref() };
+        controller
+            .controller
+            .adopt_recording(command_mode != 0, scene);
+        let step = controller.controller.stop(scene);
+        execute_step(controller, daemon, step)
+    }))
+    .unwrap_or(ptr::null_mut())
 }
 
 /// Resets a frontend controller to idle.

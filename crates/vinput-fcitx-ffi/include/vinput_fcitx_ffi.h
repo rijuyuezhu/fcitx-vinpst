@@ -87,6 +87,7 @@ typedef struct VinputFcitxAsrDisplaySnapshotItemView {
 } VinputFcitxAsrDisplaySnapshotItemView;
 
 typedef struct VinputFcitxProjectionView {
+  VinputFcitxStringView effective_label;
   size_t item_count;
 } VinputFcitxProjectionView;
 
@@ -185,19 +186,6 @@ enum {
   VINPUT_FCITX_DAEMON_OPERATION_START_ADAPTER = 10,
   VINPUT_FCITX_DAEMON_OPERATION_STOP_ADAPTER = 11,
   VINPUT_FCITX_DAEMON_OPERATION_GET_RUNTIME_STATUS = 12,
-};
-
-enum {
-  VINPUT_FCITX_FRONTEND_STEP_INVALID = 0,
-  VINPUT_FCITX_FRONTEND_STEP_CALL_READY = 1,
-  VINPUT_FCITX_FRONTEND_STEP_OUTCOME_READY = 2,
-};
-
-enum {
-  VINPUT_FCITX_FRONTEND_CALL_NONE = 0,
-  VINPUT_FCITX_FRONTEND_CALL_START_NORMAL = 1,
-  VINPUT_FCITX_FRONTEND_CALL_START_COMMAND = 2,
-  VINPUT_FCITX_FRONTEND_CALL_STOP = 3,
 };
 
 enum {
@@ -352,13 +340,15 @@ uint8_t vinput_fcitx_asr_display_snapshot_item_view(
 
 VinputFcitxAsrProjection *vinput_fcitx_asr_projection_new(
     const VinputFcitxAsrDisplaySnapshot *snapshot,
-    const uint8_t *query_data, size_t query_len);
+    const uint8_t *query_data, size_t query_len,
+    const uint8_t *local_data, size_t local_len,
+    const uint8_t *remote_data, size_t remote_len,
+    const uint8_t *command_data, size_t command_len,
+    const uint8_t *loading_suffix_data, size_t loading_suffix_len,
+    const uint8_t *unavailable_data, size_t unavailable_len,
+    const uint8_t *loading_prefix_data, size_t loading_prefix_len,
+    const uint8_t *error_prefix_data, size_t error_prefix_len);
 void vinput_fcitx_asr_projection_free(VinputFcitxAsrProjection *projection);
-uint8_t vinput_fcitx_asr_projection_set_label(
-    VinputFcitxAsrProjection *projection, size_t row_index,
-    const uint8_t *label_data, size_t label_len);
-uint8_t vinput_fcitx_asr_projection_finish(
-    VinputFcitxAsrProjection *projection);
 uint8_t vinput_fcitx_asr_projection_view(
     const VinputFcitxAsrProjection *projection,
     VinputFcitxProjectionView *view_out);
@@ -427,26 +417,24 @@ uint8_t vinput_fcitx_frontend_controller_command_mode(
 uint8_t vinput_fcitx_frontend_controller_plan_trigger(
     const VinputFcitxFrontendController *controller, uint8_t request,
     uint8_t *intent_out);
-uint8_t vinput_fcitx_frontend_controller_start_normal(
-    VinputFcitxFrontendController *controller, const uint8_t *scene_data,
-    size_t scene_len, uint8_t has_scene,
-    VinputFcitxFrontendOutcome **outcome_out);
-uint8_t vinput_fcitx_frontend_controller_start_command(
-    VinputFcitxFrontendController *controller, const uint8_t *selected_data,
-    size_t selected_len, const uint8_t *scene_data, size_t scene_len,
-    uint8_t has_scene, VinputFcitxFrontendOutcome **outcome_out);
-uint8_t vinput_fcitx_frontend_controller_stop(
+VinputFcitxFrontendOutcome *
+vinput_fcitx_frontend_controller_start_normal_with_daemon(
     VinputFcitxFrontendController *controller,
-    const uint8_t *fallback_scene_data, size_t fallback_scene_len,
-    VinputFcitxFrontendOutcome **outcome_out);
-uint8_t vinput_fcitx_frontend_controller_pending_call(
-    const VinputFcitxFrontendController *controller, uint8_t *kind_out,
-    VinputFcitxStringView *argument_out);
-VinputFcitxFrontendOutcome *vinput_fcitx_frontend_controller_complete(
-    VinputFcitxFrontendController *controller, uint8_t success,
-    const uint8_t *response_data, size_t response_len);
-uint8_t vinput_fcitx_frontend_controller_adopt(
-    VinputFcitxFrontendController *controller, uint8_t command_mode,
+    const VinputFcitxDaemonClient *daemon, const uint8_t *scene_data,
+    size_t scene_len);
+VinputFcitxFrontendOutcome *
+vinput_fcitx_frontend_controller_start_command_with_daemon(
+    VinputFcitxFrontendController *controller,
+    const VinputFcitxDaemonClient *daemon, const uint8_t *selected_data,
+    size_t selected_len, const uint8_t *scene_data, size_t scene_len);
+VinputFcitxFrontendOutcome *vinput_fcitx_frontend_controller_stop_with_daemon(
+    VinputFcitxFrontendController *controller,
+    const VinputFcitxDaemonClient *daemon,
+    const uint8_t *fallback_scene_data, size_t fallback_scene_len);
+VinputFcitxFrontendOutcome *
+vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
+    VinputFcitxFrontendController *controller,
+    const VinputFcitxDaemonClient *daemon, uint8_t command_mode,
     const uint8_t *scene_data, size_t scene_len);
 uint8_t vinput_fcitx_frontend_controller_reset(
     VinputFcitxFrontendController *controller);

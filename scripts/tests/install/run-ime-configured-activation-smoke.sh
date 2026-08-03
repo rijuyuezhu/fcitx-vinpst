@@ -79,8 +79,6 @@ if XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share
   VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
-  VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER="demo-command-asr" \
-  VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER="demo-text-adapter" \
   VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
   VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 120s dbus-run-session -- bash -euo pipefail -c '

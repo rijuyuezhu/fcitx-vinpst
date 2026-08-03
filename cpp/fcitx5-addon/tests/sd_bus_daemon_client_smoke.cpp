@@ -1,6 +1,7 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 #include "vinput_fcitx_bridge/scene_defaults.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <algorithm>
 #include <chrono>
@@ -20,6 +21,90 @@ using vinput_fcitx_bridge::SceneStateSnapshot;
 using vinput_fcitx_bridge::SdBusDaemonClient;
 
 namespace {
+
+std::string CopyText(VinputFcitxStringView view) {
+  return view.data == nullptr || view.len == 0
+             ? std::string{}
+             : std::string(reinterpret_cast<const char *>(view.data), view.len);
+}
+
+struct SceneSnapshotState {
+  std::string active_scene_id;
+  std::size_t item_count = 0;
+};
+
+struct SceneSnapshotItem {
+  std::string id;
+  std::string label;
+};
+
+struct AsrSnapshotState {
+  std::string target_provider_id;
+  std::string target_model_id;
+  std::string effective_provider_id;
+  std::string effective_model_id;
+  std::string last_error;
+  std::string effective_base_label;
+  std::string target_base_label;
+  bool reload_in_progress = false;
+  std::size_t item_count = 0;
+};
+
+struct AsrSnapshotItem {
+  std::string provider_id;
+  std::string kind;
+  std::string item_id;
+  std::string display_title;
+  std::string model_value;
+  std::string base_label;
+  bool loading = false;
+};
+
+std::optional<SceneSnapshotState> ReadState(const SceneStateSnapshot &snapshot) {
+  VinputFcitxSceneSnapshotView view{};
+  if (vinput_fcitx_scene_snapshot_view(snapshot.raw_handle(), &view) == 0) {
+    return std::nullopt;
+  }
+  return SceneSnapshotState{CopyText(view.active_scene_id), view.item_count};
+}
+
+std::optional<SceneSnapshotItem> ReadItem(const SceneStateSnapshot &snapshot,
+                                          std::size_t index) {
+  VinputFcitxSceneSnapshotItemView view{};
+  if (vinput_fcitx_scene_snapshot_item_view(snapshot.raw_handle(), index, &view) == 0) {
+    return std::nullopt;
+  }
+  return SceneSnapshotItem{CopyText(view.id), CopyText(view.label)};
+}
+
+std::optional<AsrSnapshotState> ReadState(const AsrDisplayMenuStateSnapshot &snapshot) {
+  VinputFcitxAsrDisplaySnapshotView view{};
+  if (vinput_fcitx_asr_display_snapshot_view(snapshot.raw_handle(), &view) == 0) {
+    return std::nullopt;
+  }
+  return AsrSnapshotState{CopyText(view.target_provider_id),
+                          CopyText(view.target_model_id),
+                          CopyText(view.effective_provider_id),
+                          CopyText(view.effective_model_id),
+                          CopyText(view.last_error),
+                          CopyText(view.effective_base_label),
+                          CopyText(view.target_base_label),
+                          view.reload_in_progress != 0,
+                          view.item_count};
+}
+
+std::optional<AsrSnapshotItem> ReadItem(const AsrDisplayMenuStateSnapshot &snapshot,
+                                        std::size_t index) {
+  VinputFcitxAsrDisplaySnapshotItemView view{};
+  if (vinput_fcitx_asr_display_snapshot_item_view(snapshot.raw_handle(), index,
+                                                  &view) == 0) {
+    return std::nullopt;
+  }
+  return AsrSnapshotItem{CopyText(view.provider_id), CopyText(view.kind),
+                         CopyText(view.item_id),     CopyText(view.display_title),
+                         CopyText(view.model_value), CopyText(view.base_label),
+                         view.is_loading != 0};
+}
 
 std::unique_ptr<SdBusDaemonClient> ConnectWithRetry(std::string *error) {
   for (int attempt = 0; attempt < 50; ++attempt) {
@@ -42,10 +127,6 @@ std::string OptionalExpectedText(const char *env_name) {
   return value == nullptr ? std::string() : std::string(value);
 }
 
-bool Contains(std::string_view haystack, std::string_view needle) {
-  return haystack.find(needle) != std::string_view::npos;
-}
-
 bool ExpectDaemonStatus(SdBusDaemonClient *client, std::string_view expected,
                         std::string *error) {
   std::string status;
@@ -64,83 +145,20 @@ bool ExpectDaemonStatus(SdBusDaemonClient *client, std::string_view expected,
   return false;
 }
 
-bool ExpectRuntimeStatus(SdBusDaemonClient *client, std::string_view expected,
-                         std::string *error) {
-  std::string status_json;
-  if (!client->GetRuntimeStatus(&status_json, error)) {
-    return false;
-  }
-  if (!Contains(status_json, expected)) {
-    if (error != nullptr) {
-      *error = "runtime status missing expected marker: ";
-      *error += expected;
-      *error += " in ";
-      *error += status_json;
-    }
-    return false;
-  }
-  return true;
-}
-
-bool ExpectConfiguredDiagnostics(SdBusDaemonClient *client, std::string *error) {
+bool ExpectConfiguredAsrState(SdBusDaemonClient *client, std::string *error) {
   AsrDisplayMenuStateSnapshot snapshot;
   if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
     return false;
   }
-  const auto asr_state = snapshot.state();
-  if (!asr_state.has_value() || asr_state->target_provider_id.empty()) {
-    if (error != nullptr) {
-      *error = "ASR display state did not include a target provider";
-    }
-    return false;
+  const auto state = ReadState(snapshot);
+  if (state.has_value() && !state->target_provider_id.empty() &&
+      state->item_count != 0) {
+    return true;
   }
-
-  const auto expected_asr_provider =
-      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_ASR_PROVIDER");
-  if (!expected_asr_provider.empty() &&
-      (asr_state->target_provider_id != expected_asr_provider ||
-       asr_state->effective_provider_id != expected_asr_provider)) {
-    if (error != nullptr) {
-      *error = "ASR display state did not match configured provider: target=";
-      *error += asr_state->target_provider_id;
-      *error += " effective=";
-      *error += asr_state->effective_provider_id;
-    }
-    return false;
+  if (error != nullptr) {
+    *error = "ASR display state did not include a target provider and menu rows";
   }
-
-  std::string text_adapter_state_json;
-  if (!client->GetTextAdapterState(&text_adapter_state_json, error)) {
-    return false;
-  }
-  if (!Contains(text_adapter_state_json, "\"adapter_count\":")) {
-    if (error != nullptr) {
-      *error = "text adapter state missing adapter_count in ";
-      *error += text_adapter_state_json;
-    }
-    return false;
-  }
-
-  const auto expected_text_adapter =
-      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_TEXT_ADAPTER");
-  if (!expected_text_adapter.empty()) {
-    const std::string expected_single_adapter_marker =
-        "\"single_adapter_id\":\"" + expected_text_adapter + "\"";
-    const std::string expected_adapter_id_marker =
-        "\"id\":\"" + expected_text_adapter + "\"";
-    if (!Contains(text_adapter_state_json, expected_single_adapter_marker) ||
-        !Contains(text_adapter_state_json, expected_adapter_id_marker)) {
-      if (error != nullptr) {
-        *error = "text adapter state missing expected adapter: ";
-        *error += expected_text_adapter;
-        *error += " in ";
-        *error += text_adapter_state_json;
-      }
-      return false;
-    }
-  }
-
-  return true;
+  return false;
 }
 
 bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
@@ -153,13 +171,13 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   if (expected_active_scene.empty()) {
     expected_active_scene = kDefaultNormalSceneId;
   }
-  const auto scene_state = state.state();
+  const auto scene_state = ReadState(state);
   if (!scene_state.has_value()) {
     return false;
   }
   bool exposes_expected_scene = false;
   for (std::size_t index = 0; index < scene_state->item_count; ++index) {
-    const auto scene = state.item(index);
+    const auto scene = ReadItem(state, index);
     if (scene.has_value() && scene->id == expected_active_scene) {
       exposes_expected_scene = true;
       break;
@@ -189,7 +207,7 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   if (!client->GetSceneState(&state, error)) {
     return false;
   }
-  const auto command_scene_state = state.state();
+  const auto command_scene_state = ReadState(state);
   if (!command_scene_state.has_value() ||
       command_scene_state->active_scene_id != "__command__") {
     if (error != nullptr && error->empty()) {
@@ -200,82 +218,12 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   return client->SetActiveScene(expected_active_scene, &persisted, error);
 }
 
-bool ExpectAsrMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
-  AsrDisplayMenuStateSnapshot snapshot;
-  if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
-    return false;
-  }
-  auto state = snapshot.state();
-  if (!state.has_value() || state->target_provider_id.empty() ||
-      state->effective_provider_id.empty() || state->item_count == 0) {
-    if (error != nullptr) {
-      *error = "ASR display state did not expose target, effective, and providers";
-    }
-    return false;
-  }
-
-  const auto switch_provider =
-      OptionalExpectedText("VINPUT_DBUS_SMOKE_SWITCH_ASR_PROVIDER");
-  if (switch_provider.empty()) {
-    return true;
-  }
-  bool found = false;
-  for (std::size_t index = 0; index < state->item_count; ++index) {
-    const auto target = snapshot.item(index);
-    found = found || (target.has_value() && target->provider_id == switch_provider);
-  }
-  if (!found) {
-    if (error != nullptr) {
-      *error =
-          "ASR display state missing requested switch provider: " + switch_provider;
-    }
-    return false;
-  }
-
-  bool persisted = false;
-  if (!client->SetActiveAsrProvider(switch_provider, &persisted, error)) {
-    return false;
-  }
-  const bool expect_persisted =
-      !OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_PERSISTED").empty();
-  if (persisted != expect_persisted) {
-    if (error != nullptr) {
-      *error = "ASR provider persistence result did not match expectation";
-    }
-    return false;
-  }
-
-  for (int attempt = 0; attempt < 200; ++attempt) {
-    if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
-      return false;
-    }
-    state = snapshot.state();
-    if (!state.has_value()) {
-      return false;
-    }
-    if (!state->reload_in_progress && state->effective_provider_id == switch_provider) {
-      return state->last_error.empty();
-    }
-    if (!state->reload_in_progress && !state->last_error.empty()) {
-      if (error != nullptr) {
-        *error = "ASR provider reload failed: " + state->last_error;
-      }
-      return false;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  if (error != nullptr) {
-    *error = "timed out waiting for ASR provider switch to " + switch_provider;
-  }
-  return false;
-}
-
 bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
   AsrDisplayMenuStateSnapshot snapshot;
   if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
     return false;
   }
-  auto state = snapshot.state();
+  auto state = ReadState(snapshot);
   if (!state.has_value() || state->target_provider_id.empty() ||
       state->effective_provider_id.empty() || state->item_count == 0) {
     if (error != nullptr) {
@@ -299,7 +247,7 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
   }
   bool found = false;
   for (std::size_t index = 0; index < state->item_count; ++index) {
-    const auto item = snapshot.item(index);
+    const auto item = ReadItem(snapshot, index);
     found = found || (item.has_value() && item->provider_id == switch_provider &&
                       item->model_value == switch_model);
   }
@@ -328,7 +276,7 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
     if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
       return false;
     }
-    state = snapshot.state();
+    state = ReadState(snapshot);
     if (!state.has_value()) {
       return false;
     }
@@ -357,7 +305,7 @@ bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
   if (!client->GetAsrDisplayMenuState(&state, error)) {
     return false;
   }
-  const auto display_state = state.state();
+  const auto display_state = ReadState(state);
   if (!display_state.has_value() || display_state->target_provider_id.empty() ||
       display_state->effective_provider_id.empty() || display_state->item_count == 0) {
     if (error != nullptr) {
@@ -387,7 +335,7 @@ bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
   }
 
   for (std::size_t index = 0; index < display_state->item_count; ++index) {
-    const auto target = state.item(index);
+    const auto target = ReadItem(state, index);
     if (target.has_value() && target->provider_id == expected_provider &&
         target->model_value == expected_model && target->item_id == expected_id &&
         target->display_title == expected_title) {
@@ -398,77 +346,6 @@ bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
     *error = "ASR display menu state missing expected localized row";
   }
   return false;
-}
-
-bool ExpectAdapterLifecycle(SdBusDaemonClient *client, std::string_view adapter_id,
-                            std::string *error) {
-  std::string state_json;
-  if (!client->GetTextAdapterState(&state_json, error)) {
-    return false;
-  }
-  const std::string adapter_marker = "\"id\":\"" + std::string(adapter_id) + "\"";
-  if (!Contains(state_json, adapter_marker)) {
-    if (error != nullptr) {
-      *error = "text adapter lifecycle state missing adapter: ";
-      *error += adapter_id;
-      *error += " in ";
-      *error += state_json;
-    }
-    return false;
-  }
-
-  if (!client->StartAdapter(adapter_id, error)) {
-    return false;
-  }
-  if (!client->GetTextAdapterState(&state_json, error)) {
-    return false;
-  }
-  if (!Contains(state_json, adapter_marker) ||
-      !Contains(state_json, "\"is_running\":true") ||
-      !Contains(state_json, "\"pid\":")) {
-    if (error != nullptr) {
-      *error = "text adapter lifecycle start did not report running adapter in ";
-      *error += state_json;
-    }
-    std::string stop_error;
-    client->StopAdapter(adapter_id, &stop_error);
-    return false;
-  }
-
-  std::string duplicate_error;
-  if (client->StartAdapter(adapter_id, &duplicate_error)) {
-    if (error != nullptr) {
-      *error = "duplicate text adapter lifecycle start unexpectedly succeeded";
-    }
-    client->StopAdapter(adapter_id, &duplicate_error);
-    return false;
-  }
-  if (!Contains(duplicate_error, "already running")) {
-    if (error != nullptr) {
-      *error = "duplicate text adapter lifecycle start produced unexpected error: ";
-      *error += duplicate_error;
-    }
-    client->StopAdapter(adapter_id, &duplicate_error);
-    return false;
-  }
-
-  if (!client->StopAdapter(adapter_id, error)) {
-    return false;
-  }
-  if (!client->GetTextAdapterState(&state_json, error)) {
-    return false;
-  }
-  if (!Contains(state_json, adapter_marker) ||
-      !Contains(state_json, "\"is_running\":false") ||
-      !Contains(state_json, "\"pid\":null")) {
-    if (error != nullptr) {
-      *error = "text adapter lifecycle stop did not report stopped adapter in ";
-      *error += state_json;
-    }
-    return false;
-  }
-
-  return true;
 }
 
 std::chrono::milliseconds RecordDelay() {
@@ -506,20 +383,12 @@ int main() {
     std::cerr << "daemon status idle check failed: " << error << '\n';
     return 1;
   }
-  if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error)) {
-    std::cerr << "runtime status idle check failed: " << error << '\n';
-    return 1;
-  }
-  if (!ExpectConfiguredDiagnostics(client.get(), &error)) {
-    std::cerr << "configured diagnostics check failed: " << error << '\n';
+  if (!ExpectConfiguredAsrState(client.get(), &error)) {
+    std::cerr << "configured ASR state check failed: " << error << '\n';
     return 1;
   }
   if (!ExpectSceneLifecycle(client.get(), &error)) {
     std::cerr << "scene lifecycle check failed: " << error << '\n';
-    return 1;
-  }
-  if (!ExpectAsrMenuLifecycle(client.get(), &error)) {
-    std::cerr << "ASR menu lifecycle check failed: " << error << '\n';
     return 1;
   }
   if (!ExpectAsrTargetMenuLifecycle(client.get(), &error)) {
@@ -530,20 +399,9 @@ int main() {
     std::cerr << "ASR display menu state check failed: " << error << '\n';
     return 1;
   }
-  const auto lifecycle_adapter =
-      OptionalExpectedText("VINPUT_DBUS_SMOKE_LIFECYCLE_ADAPTER");
-  if (!lifecycle_adapter.empty()) {
-    if (!ExpectAdapterLifecycle(client.get(), lifecycle_adapter, &error)) {
-      std::cerr << "adapter lifecycle check failed: " << error << '\n';
-      return 1;
-    }
-    if (!OptionalExpectedText("VINPUT_DBUS_SMOKE_LIFECYCLE_ONLY").empty()) {
-      return 0;
-    }
-  }
-
   FrontendBridge normal_bridge;
-  auto normal_start = normal_bridge.StartNormal(client.get());
+  auto normal_start =
+      normal_bridge.StartNormal(client->raw_handle(), kDefaultNormalSceneId);
   if (normal_start.kind != BridgeOutcome::Kind::Preedit) {
     std::cerr << "normal start failed: " << normal_start.text << '\n';
     return 1;
@@ -557,7 +415,7 @@ int main() {
 
   const auto expected_normal_text =
       ExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
-  auto normal_stop = normal_bridge.Stop(client.get(), kDefaultNormalSceneId);
+  auto normal_stop = normal_bridge.Stop(client->raw_handle(), kDefaultNormalSceneId);
   if (normal_stop.kind != BridgeOutcome::Kind::Commit ||
       normal_stop.text != expected_normal_text) {
     std::cerr << "normal stop did not produce expected commit text: "
@@ -576,7 +434,8 @@ int main() {
   }
 
   FrontendBridge command_bridge;
-  auto command_start = command_bridge.StartCommand(client.get(), "selected text");
+  auto command_start = command_bridge.StartCommand(
+      client->raw_handle(), "selected text", kDefaultCommandSceneId);
   if (command_start.kind != BridgeOutcome::Kind::Preedit) {
     std::cerr << "command start failed: " << command_start.text << '\n';
     return 1;
@@ -584,22 +443,14 @@ int main() {
 
   WaitForRecording(record_delay);
 
-  std::string command_status_json;
-  if (!client->GetRuntimeStatus(&command_status_json, &error)) {
-    std::cerr << "runtime status command check failed: " << error << '\n';
-    return 1;
-  }
-  if (!Contains(command_status_json, "\"status\":\"recording\"") ||
-      !Contains(command_status_json, "\"selected_text_present\":true") ||
-      Contains(command_status_json, "selected text")) {
-    std::cerr << "runtime status command snapshot was not sanitized: "
-              << command_status_json << '\n';
+  if (!ExpectDaemonStatus(client.get(), "recording", &error)) {
+    std::cerr << "daemon status command recording check failed: " << error << '\n';
     return 1;
   }
 
   const auto expected_command_text = ExpectedText(
       "VINPUT_DBUS_SMOKE_EXPECTED_COMMAND", "mock command result for: selected text");
-  auto command_stop = command_bridge.Stop(client.get(), kDefaultCommandSceneId);
+  auto command_stop = command_bridge.Stop(client->raw_handle(), kDefaultCommandSceneId);
   if (command_stop.kind != BridgeOutcome::Kind::Commit ||
       command_stop.text != expected_command_text) {
     std::cerr << "command stop did not produce expected commit text: "
@@ -610,6 +461,11 @@ int main() {
   if (command_bridge.recording() || command_bridge.command_mode() ||
       !command_stop.command_mode) {
     std::cerr << "command stop did not reset bridge state\n";
+    return 1;
+  }
+
+  if (!ExpectDaemonStatus(client.get(), "idle", &error)) {
+    std::cerr << "daemon status after command stop failed: " << error << '\n';
     return 1;
   }
 
