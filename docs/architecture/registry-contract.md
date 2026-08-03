@@ -8,7 +8,7 @@ The registry crate is split so each side-effectful boundary stays reviewable:
 
 - `schema.rs`: legacy dry-run registry index, model, adapter, asset, summary, validation, and URL resolution helpers;
 - `live.rs`: live registry v2 `registry/models.json` parsing, `short_id` lookup, i18n title/description fallback, and typed/raw `vinput_model` metadata;
-- `script.rs`: live `registry/providers.json` and `registry/adapters.json` parsing, legacy-compatible managed script paths, mirror-backed executable publication, environment defaults, and guarded config materialization;
+- `script.rs`: live `registry/providers.json` and `registry/adapters.json` parsing, legacy-compatible managed script paths, mirror-backed executable publication, environment defaults, and guarded config materialization; `provider_script.rs`: shared command-provider script resolution, exact direct-argv editor planning/execution, legacy editor priority, and typed failures for CLI/GUI use;
 - `installed.rs`: shared installed-model discovery, typed `vinput-model.json` loading, stable registry-id/display-title access, and regular-file inventory for both the current flat Rust managed layout and the legacy two-level engine/model layout;
 - `plan.rs`: planned assets, dry-run install plans, checksum policy planning, and target path calculation;
 - `error.rs`: `RegistryError`;
