@@ -10,9 +10,9 @@ use super::{
     FRONTEND_TRIGGER_REQUEST_SHOW_ASR_MENU, FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU,
     FRONTEND_TRIGGER_REQUEST_START_NORMAL, FRONTEND_TRIGGER_REQUEST_STOP_COMMAND,
     FRONTEND_TRIGGER_REQUEST_STOP_NORMAL, VinputFcitxFrontendOutcome,
-    VinputFcitxFrontendPresentation, VinputFcitxFrontendPresentationView,
-    VinputFcitxPresentedCandidateView, VinputFcitxStringView, boxed_outcome, execute_step_with,
-    vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon,
+    VinputFcitxFrontendPresentation, VinputFcitxFrontendPresentationTextView,
+    VinputFcitxFrontendPresentationView, VinputFcitxPresentedCandidateView, boxed_outcome,
+    execute_step_with, vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon,
     vinput_fcitx_frontend_controller_command_mode, vinput_fcitx_frontend_controller_free,
     vinput_fcitx_frontend_controller_new, vinput_fcitx_frontend_controller_plan_trigger,
     vinput_fcitx_frontend_controller_recording,
@@ -22,6 +22,7 @@ use super::{
     vinput_fcitx_frontend_presentation_candidate, vinput_fcitx_frontend_presentation_free,
     vinput_fcitx_frontend_presentation_new, vinput_fcitx_frontend_presentation_view,
 };
+use crate::ffi_string::VinputFcitxStringView;
 use crate::menu_controller::{boxed_scene_controller, vinput_fcitx_scene_menu_controller_free};
 
 unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
@@ -30,6 +31,29 @@ unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     }
     // SAFETY: Test callers keep the owning handle alive.
     unsafe { std::slice::from_raw_parts(view.data, view.len) }
+}
+
+fn string_view(value: &[u8]) -> VinputFcitxStringView {
+    VinputFcitxStringView {
+        data: if value.is_empty() {
+            ptr::null()
+        } else {
+            value.as_ptr()
+        },
+        len: value.len(),
+    }
+}
+
+fn presentation_text(
+    original: &[u8],
+    voice_command: &[u8],
+    cancel: &[u8],
+) -> VinputFcitxFrontendPresentationTextView {
+    VinputFcitxFrontendPresentationTextView {
+        original: string_view(original),
+        voice_command: string_view(voice_command),
+        cancel: string_view(cancel),
+    }
 }
 
 unsafe fn presentation_view(
@@ -41,18 +65,9 @@ unsafe fn presentation_view(
     let original = b"Original";
     let voice_command = b"Voice Command";
     let cancel = b"Cancel";
+    let text = presentation_text(original, voice_command, cancel);
     // SAFETY: Test byte slices and the outcome remain live for the call.
-    let presentation = unsafe {
-        vinput_fcitx_frontend_presentation_new(
-            outcome,
-            original.as_ptr(),
-            original.len(),
-            voice_command.as_ptr(),
-            voice_command.len(),
-            cancel.as_ptr(),
-            cancel.len(),
-        )
-    };
+    let presentation = unsafe { vinput_fcitx_frontend_presentation_new(outcome, &raw const text) };
     assert!(!presentation.is_null());
     let mut view = VinputFcitxFrontendPresentationView {
         kind: 0,
@@ -105,6 +120,18 @@ fn builds_projected_frontend_presentation_views() {
         assert_eq!(bytes(candidate.comment), b"Voice Command");
         assert_eq!(candidate.commit, 1);
         vinput_fcitx_frontend_presentation_free(presentation);
+        vinput_fcitx_frontend_outcome_free(outcome);
+    }
+}
+
+#[test]
+fn presentation_text_is_validated_atomically() {
+    // SAFETY: Local input bytes outlive the call and the outcome is freed exactly once.
+    unsafe {
+        let outcome = boxed_outcome(FrontendOutcome::from_payload("{}", false));
+        let invalid = [0xff];
+        let text = presentation_text(b"Original", &invalid, b"Cancel");
+        assert!(vinput_fcitx_frontend_presentation_new(outcome, &raw const text).is_null());
         vinput_fcitx_frontend_outcome_free(outcome);
     }
 }

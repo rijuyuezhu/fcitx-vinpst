@@ -1,13 +1,10 @@
 //! Shared C ABI for finalized Rust-owned menu projections.
 
-use std::{
-    panic::{AssertUnwindSafe, catch_unwind},
-    ptr,
-};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use vinput_fcitx_core::{MenuControl, ProjectedMenuItem};
 
-use crate::frontend::VinputFcitxStringView;
+use crate::ffi_string::{VinputFcitxStringView, string_view};
 
 /// Opaque finalized menu projection shared by Scene and ASR menus.
 pub struct VinputFcitxMenuProjection {
@@ -43,17 +40,6 @@ pub struct VinputFcitxProjectedMenuItemView {
 
 const MENU_CONTROL_SET_ACTIVE_SCENE: u8 = 1;
 const MENU_CONTROL_SET_ACTIVE_ASR_TARGET: u8 = 2;
-
-fn string_view(value: &str) -> VinputFcitxStringView {
-    VinputFcitxStringView {
-        data: if value.is_empty() {
-            ptr::null()
-        } else {
-            value.as_ptr()
-        },
-        len: value.len(),
-    }
-}
 
 pub(crate) fn projected_item_view(item: &ProjectedMenuItem) -> VinputFcitxProjectedMenuItemView {
     let (control_kind, control_first, control_second, control_label) = match &item.control {

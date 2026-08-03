@@ -37,11 +37,14 @@ BridgeOutcome TakeOutcome(VinputFcitxFrontendOutcome *raw_outcome,
                           std::string_view original, std::string_view voice_command,
                           std::string_view cancel) {
   auto outcome = FrontendOutcomeHandle::Adopt(raw_outcome);
-  auto presentation = std::make_shared<FrontendPresentationHandle>(
-      FrontendPresentationHandle::Adopt(vinput_fcitx_frontend_presentation_new(
-          outcome.raw_handle(), RustBytes(original), original.size(),
-          RustBytes(voice_command), voice_command.size(), RustBytes(cancel),
-          cancel.size())));
+  const VinputFcitxFrontendPresentationTextView text{
+      .original = ToRustStringView(original),
+      .voice_command = ToRustStringView(voice_command),
+      .cancel = ToRustStringView(cancel),
+  };
+  auto presentation =
+      std::make_shared<FrontendPresentationHandle>(FrontendPresentationHandle::Adopt(
+          vinput_fcitx_frontend_presentation_new(outcome.raw_handle(), &text)));
   VinputFcitxFrontendPresentationView view{};
   if (vinput_fcitx_frontend_presentation_view(presentation->raw_handle(), &view) == 0 ||
       view.kind > VINPUT_FCITX_FRONTEND_OUTCOME_ERROR) {

@@ -11,7 +11,7 @@ use vinput_fcitx_core::{
     plan_daemon_status_preedit,
 };
 
-use crate::frontend::VinputFcitxStringView;
+use crate::ffi_string::{VinputFcitxStringView, string_view, text_input};
 
 /// Borrowed semantic signal presentation.
 #[repr(C)]
@@ -23,6 +23,84 @@ pub struct VinputFcitxDaemonSignalPlanView {
     pub translate: u8,
     /// Borrowed daemon text or gettext message id.
     pub text: VinputFcitxStringView,
+}
+
+/// Borrowed structured daemon notification fields.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VinputFcitxDaemonNotificationView {
+    /// Stable notification code.
+    pub code: VinputFcitxStringView,
+    /// Optional notification subject.
+    pub subject: VinputFcitxStringView,
+    /// Optional notification detail.
+    pub detail: VinputFcitxStringView,
+    /// Original daemon message used as the highest-priority fallback.
+    pub raw: VinputFcitxStringView,
+}
+
+/// Borrowed daemon status and partial preedit context.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VinputFcitxDaemonStatusView {
+    /// Current daemon status.
+    pub status: VinputFcitxStringView,
+    /// Whether the active remote recording is command mode.
+    pub command_mode: u8,
+    /// Latest partial recognition text.
+    pub partial: VinputFcitxStringView,
+}
+
+/// Borrowed daemon control event and current frontend state.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VinputFcitxDaemonControlView {
+    /// Stable `VINPUT_FCITX_DAEMON_CONTROL_EVENT_*` value.
+    pub event: u8,
+    /// Current daemon status.
+    pub status: VinputFcitxStringView,
+    /// Event-specific availability or requested-command-mode flag.
+    pub flag: u8,
+    /// Whether this frontend currently owns a recording.
+    pub recording: u8,
+    /// Whether a remote daemon status is currently presented.
+    pub remote_status_active: u8,
+}
+
+struct DaemonNotificationInput<'a> {
+    code: &'a str,
+    subject: &'a str,
+    detail: &'a str,
+    raw: &'a str,
+}
+
+impl VinputFcitxDaemonNotificationView {
+    unsafe fn borrow(&self) -> Option<DaemonNotificationInput<'_>> {
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let code = unsafe { text_input(self.code.data, self.code.len) }?;
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let subject = unsafe { text_input(self.subject.data, self.subject.len) }?;
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let detail = unsafe { text_input(self.detail.data, self.detail.len) }?;
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let raw = unsafe { text_input(self.raw.data, self.raw.len) }?;
+        Some(DaemonNotificationInput {
+            code,
+            subject,
+            detail,
+            raw,
+        })
+    }
+}
+
+impl VinputFcitxDaemonStatusView {
+    unsafe fn borrow(&self) -> Option<(&str, bool, &str)> {
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let status = unsafe { text_input(self.status.data, self.status.len) }?;
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let partial = unsafe { text_input(self.partial.data, self.partial.len) }?;
+        Some((status, self.command_mode != 0, partial))
+    }
 }
 
 /// Opaque Rust-owned live daemon presentation state.
@@ -51,25 +129,6 @@ const CONTROL_PLAN_UPDATE_LOCAL_PREEDIT: u8 = 4;
 const CONTROL_PLAN_PRESENT_REMOTE_STATUS: u8 = 5;
 const CONTROL_PLAN_ADOPT_AND_STOP_NORMAL: u8 = 6;
 const CONTROL_PLAN_CLEAR_DAEMON_ERROR: u8 = 7;
-
-unsafe fn text_input<'a>(data: *const u8, len: usize) -> Option<&'a str> {
-    if data.is_null() {
-        return (len == 0).then_some("");
-    }
-    // SAFETY: Forwarded from each exported function's caller contract.
-    std::str::from_utf8(unsafe { std::slice::from_raw_parts(data, len) }).ok()
-}
-
-fn string_view(value: &str) -> VinputFcitxStringView {
-    VinputFcitxStringView {
-        data: if value.is_empty() {
-            ptr::null()
-        } else {
-            value.as_ptr()
-        },
-        len: value.len(),
-    }
-}
 
 fn write_status_preedit(
     preedit: DaemonStatusPreedit<'_>,
@@ -114,41 +173,40 @@ fn control_plan_value(plan: DaemonControlPlan) -> u8 {
 
 /// Plans one daemon availability/status/reconciliation control event.
 ///
-/// `flag` is availability for event 0 and requested command mode for event 2.
+/// `control.flag` is availability for event 0 and requested command mode for event 2.
 /// Invalid ABI inputs map to the no-op plan.
 ///
 /// # Safety
 ///
-/// Status bytes must be readable for the duration of the call.
+/// The control view and its status bytes must be readable for the duration of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_control_plan(
-    event: u8,
-    status_data: *const u8,
-    status_len: usize,
-    flag: u8,
-    recording: u8,
-    remote_status_active: u8,
+    control: *const VinputFcitxDaemonControlView,
 ) -> u8 {
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(status) = (unsafe { text_input(status_data, status_len) }) else {
+    let Some(control) = (unsafe { control.as_ref() }) else {
         return CONTROL_PLAN_NONE;
     };
-    let event = match event {
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(status) = (unsafe { text_input(control.status.data, control.status.len) }) else {
+        return CONTROL_PLAN_NONE;
+    };
+    let event = match control.event {
         CONTROL_EVENT_AVAILABILITY_CHANGED => DaemonControlEvent::AvailabilityChanged {
-            available: flag != 0,
+            available: control.flag != 0,
         },
         CONTROL_EVENT_STATUS_CHANGED => DaemonControlEvent::StatusChanged { status },
         CONTROL_EVENT_RECONCILE_BEFORE_START => DaemonControlEvent::ReconcileBeforeStart {
             status,
-            requested_command_mode: flag != 0,
+            requested_command_mode: control.flag != 0,
         },
         _ => return CONTROL_PLAN_NONE,
     };
     control_plan_value(plan_daemon_control(
         event,
         DaemonControlContext {
-            recording: recording != 0,
-            remote_status_active: remote_status_active != 0,
+            recording: control.recording != 0,
+            remote_status_active: control.remote_status_active != 0,
         },
     ))
 }
@@ -304,29 +362,25 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_command_mode(
 ///
 /// # Safety
 ///
-/// Input pointers must reference their declared lengths and `view_out` must be writable.
+/// Input views must reference valid UTF-8 and `view_out` must be writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_status_preedit_plan(
-    status_data: *const u8,
-    status_len: usize,
-    command_mode: u8,
-    partial_data: *const u8,
-    partial_len: usize,
+    status: *const VinputFcitxDaemonStatusView,
     view_out: *mut VinputFcitxDaemonSignalPlanView,
 ) -> u8 {
     if view_out.is_null() {
         return 0;
     }
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(status) = (unsafe { text_input(status_data, status_len) }) else {
+    let Some(status) = (unsafe { status.as_ref() }) else {
         return 0;
     };
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(partial) = (unsafe { text_input(partial_data, partial_len) }) else {
+    let Some((status, command_mode, partial)) = (unsafe { status.borrow() }) else {
         return 0;
     };
     write_status_preedit(
-        plan_daemon_status_preedit(status, command_mode != 0, partial),
+        plan_daemon_status_preedit(status, command_mode, partial),
         view_out,
     )
 }
@@ -336,39 +390,28 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_status_preedit_plan(
 /// # Safety
 ///
 /// Input pointers must reference their declared lengths and `view_out` must be writable.
-#[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_notification_plan(
-    code_data: *const u8,
-    code_len: usize,
-    subject_data: *const u8,
-    subject_len: usize,
-    detail_data: *const u8,
-    detail_len: usize,
-    raw_data: *const u8,
-    raw_len: usize,
+    notification: *const VinputFcitxDaemonNotificationView,
     view_out: *mut VinputFcitxDaemonSignalPlanView,
 ) -> u8 {
     if view_out.is_null() {
         return 0;
     }
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(code) = (unsafe { text_input(code_data, code_len) }) else {
+    let Some(notification) = (unsafe { notification.as_ref() }) else {
         return 0;
     };
     // SAFETY: Forwarded from this function's caller contract.
-    let Some(subject) = (unsafe { text_input(subject_data, subject_len) }) else {
+    let Some(notification) = (unsafe { notification.borrow() }) else {
         return 0;
     };
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(detail) = (unsafe { text_input(detail_data, detail_len) }) else {
-        return 0;
-    };
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(raw) = (unsafe { text_input(raw_data, raw_len) }) else {
-        return 0;
-    };
-    let plan = plan_daemon_notification(code, subject, detail, raw);
+    let plan = plan_daemon_notification(
+        notification.code,
+        notification.subject,
+        notification.detail,
+        notification.raw,
+    );
     let kind = match plan.kind {
         DaemonNotificationKind::Info => SIGNAL_PLAN_NOTIFICATION_INFO,
         DaemonNotificationKind::Error => SIGNAL_PLAN_NOTIFICATION_ERROR,
@@ -394,19 +437,20 @@ mod tests {
     use super::{
         CONTROL_EVENT_AVAILABILITY_CHANGED, CONTROL_EVENT_RECONCILE_BEFORE_START,
         CONTROL_EVENT_STATUS_CHANGED, CONTROL_PLAN_ADOPT_AND_STOP_NORMAL,
-        CONTROL_PLAN_CLEAR_REMOTE_STATUS, CONTROL_PLAN_PRESENT_REMOTE_STATUS,
+        CONTROL_PLAN_CLEAR_REMOTE_STATUS, CONTROL_PLAN_NONE, CONTROL_PLAN_PRESENT_REMOTE_STATUS,
         CONTROL_PLAN_RESET_LOCAL_RECORDING, CONTROL_PLAN_RESET_UNAVAILABLE,
         CONTROL_PLAN_UPDATE_LOCAL_PREEDIT, SIGNAL_PLAN_CLEAR, SIGNAL_PLAN_COMMANDING,
         SIGNAL_PLAN_NOTIFICATION_ERROR, SIGNAL_PLAN_NOTIFICATION_INFO, SIGNAL_PLAN_PARTIAL,
-        VinputFcitxDaemonSignalPlanView, vinput_fcitx_daemon_control_plan,
-        vinput_fcitx_daemon_live_state_begin_status, vinput_fcitx_daemon_live_state_command_mode,
-        vinput_fcitx_daemon_live_state_free, vinput_fcitx_daemon_live_state_new,
-        vinput_fcitx_daemon_live_state_preedit_plan, vinput_fcitx_daemon_live_state_reset,
-        vinput_fcitx_daemon_live_state_update_partial,
+        VinputFcitxDaemonControlView, VinputFcitxDaemonNotificationView,
+        VinputFcitxDaemonSignalPlanView, VinputFcitxDaemonStatusView,
+        vinput_fcitx_daemon_control_plan, vinput_fcitx_daemon_live_state_begin_status,
+        vinput_fcitx_daemon_live_state_command_mode, vinput_fcitx_daemon_live_state_free,
+        vinput_fcitx_daemon_live_state_new, vinput_fcitx_daemon_live_state_preedit_plan,
+        vinput_fcitx_daemon_live_state_reset, vinput_fcitx_daemon_live_state_update_partial,
         vinput_fcitx_daemon_live_state_update_status, vinput_fcitx_daemon_notification_plan,
         vinput_fcitx_daemon_status_preedit_plan,
     };
-    use crate::frontend::VinputFcitxStringView;
+    use crate::ffi_string::VinputFcitxStringView;
 
     unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
         if view.data.is_null() {
@@ -427,39 +471,97 @@ mod tests {
         }
     }
 
+    fn string_view(value: &[u8]) -> VinputFcitxStringView {
+        VinputFcitxStringView {
+            data: if value.is_empty() {
+                ptr::null()
+            } else {
+                value.as_ptr()
+            },
+            len: value.len(),
+        }
+    }
+
+    fn notification_view(
+        code: &[u8],
+        subject: &[u8],
+        detail: &[u8],
+        raw: &[u8],
+    ) -> VinputFcitxDaemonNotificationView {
+        VinputFcitxDaemonNotificationView {
+            code: string_view(code),
+            subject: string_view(subject),
+            detail: string_view(detail),
+            raw: string_view(raw),
+        }
+    }
+
+    fn status_view(
+        status: &[u8],
+        command_mode: bool,
+        partial: &[u8],
+    ) -> VinputFcitxDaemonStatusView {
+        VinputFcitxDaemonStatusView {
+            status: string_view(status),
+            command_mode: u8::from(command_mode),
+            partial: string_view(partial),
+        }
+    }
+
+    unsafe fn control_plan(
+        event: u8,
+        status: &[u8],
+        flag: bool,
+        recording: bool,
+        remote_status_active: bool,
+    ) -> u8 {
+        let control = VinputFcitxDaemonControlView {
+            event,
+            status: string_view(status),
+            flag: u8::from(flag),
+            recording: u8::from(recording),
+            remote_status_active: u8::from(remote_status_active),
+        };
+        // SAFETY: The local view and source bytes are live for this call.
+        unsafe { vinput_fcitx_daemon_control_plan(&raw const control) }
+    }
+
     #[test]
     fn plans_status_and_partial_without_allocating_handles() {
         // SAFETY: Local byte slices outlive calls and output is writable.
         unsafe {
             let mut view = empty_view();
+            let status = status_view(b"recording", true, b"");
             assert_eq!(
-                vinput_fcitx_daemon_status_preedit_plan(
-                    b"recording".as_ptr(),
-                    9,
-                    1,
-                    ptr::null(),
-                    0,
-                    &raw mut view,
-                ),
+                vinput_fcitx_daemon_status_preedit_plan(&raw const status, &raw mut view,),
                 1,
             );
             assert_eq!(view.kind, SIGNAL_PLAN_COMMANDING);
             assert_eq!(view.translate, 1);
             assert_eq!(bytes(view.text), b"... Commanding ...");
+
+            let status = status_view(b"recording", false, b"partial");
             assert_eq!(
-                vinput_fcitx_daemon_status_preedit_plan(
-                    b"recording".as_ptr(),
-                    9,
-                    0,
-                    b"partial".as_ptr(),
-                    7,
-                    &raw mut view,
-                ),
+                vinput_fcitx_daemon_status_preedit_plan(&raw const status, &raw mut view,),
                 1,
             );
             assert_eq!(view.kind, SIGNAL_PLAN_PARTIAL);
             assert_eq!(view.translate, 0);
             assert_eq!(bytes(view.text), b"partial");
+
+            let invalid = [0xff];
+            let status = VinputFcitxDaemonStatusView {
+                status: string_view(b"recording"),
+                command_mode: 0,
+                partial: string_view(&invalid),
+            };
+            view.kind = 91;
+            view.translate = 92;
+            assert_eq!(
+                vinput_fcitx_daemon_status_preedit_plan(&raw const status, &raw mut view,),
+                0,
+            );
+            assert_eq!((view.kind, view.translate), (91, 92));
         }
     }
 
@@ -524,41 +626,38 @@ mod tests {
         // SAFETY: Local byte slices outlive calls and output is writable.
         unsafe {
             let mut view = empty_view();
+            let notification = notification_view(b"code", b"subject", b"detail", b"raw");
             assert_eq!(
-                vinput_fcitx_daemon_notification_plan(
-                    b"code".as_ptr(),
-                    4,
-                    b"subject".as_ptr(),
-                    7,
-                    b"detail".as_ptr(),
-                    6,
-                    b"raw".as_ptr(),
-                    3,
-                    &raw mut view,
-                ),
+                vinput_fcitx_daemon_notification_plan(&raw const notification, &raw mut view,),
                 1,
             );
             assert_eq!(view.kind, SIGNAL_PLAN_NOTIFICATION_ERROR);
             assert_eq!(view.translate, 0);
             assert_eq!(bytes(view.text), b"raw");
 
+            let notification = notification_view(b"unknown", b"", b"", b"");
             assert_eq!(
-                vinput_fcitx_daemon_notification_plan(
-                    b"unknown".as_ptr(),
-                    7,
-                    ptr::null(),
-                    0,
-                    ptr::null(),
-                    0,
-                    ptr::null(),
-                    0,
-                    &raw mut view,
-                ),
+                vinput_fcitx_daemon_notification_plan(&raw const notification, &raw mut view,),
                 1,
             );
             assert_eq!(view.kind, SIGNAL_PLAN_NOTIFICATION_INFO);
             assert_eq!(view.translate, 1);
             assert_eq!(bytes(view.text), b"Unknown error.");
+
+            let invalid = [0xff];
+            let notification = VinputFcitxDaemonNotificationView {
+                code: string_view(b"code"),
+                subject: string_view(&invalid),
+                detail: string_view(b"detail"),
+                raw: string_view(b"raw"),
+            };
+            view.kind = 91;
+            view.translate = 92;
+            assert_eq!(
+                vinput_fcitx_daemon_notification_plan(&raw const notification, &raw mut view,),
+                0,
+            );
+            assert_eq!((view.kind, view.translate), (91, 92));
         }
     }
     #[test]
@@ -566,74 +665,56 @@ mod tests {
         // SAFETY: Local byte slices outlive all calls.
         unsafe {
             assert_eq!(
-                vinput_fcitx_daemon_control_plan(
-                    CONTROL_EVENT_AVAILABILITY_CHANGED,
-                    ptr::null(),
-                    0,
-                    0,
-                    1,
-                    0,
-                ),
+                control_plan(CONTROL_EVENT_AVAILABILITY_CHANGED, b"", false, true, false),
                 CONTROL_PLAN_RESET_UNAVAILABLE,
             );
             assert_eq!(
-                vinput_fcitx_daemon_control_plan(
-                    CONTROL_EVENT_STATUS_CHANGED,
-                    b"idle".as_ptr(),
-                    4,
-                    0,
-                    0,
-                    1,
-                ),
+                control_plan(CONTROL_EVENT_STATUS_CHANGED, b"idle", false, false, true),
                 CONTROL_PLAN_CLEAR_REMOTE_STATUS,
             );
             assert_eq!(
-                vinput_fcitx_daemon_control_plan(
+                control_plan(
                     CONTROL_EVENT_STATUS_CHANGED,
-                    b"inferring".as_ptr(),
-                    9,
-                    0,
-                    0,
-                    1,
+                    b"inferring",
+                    false,
+                    false,
+                    true,
                 ),
                 CONTROL_PLAN_PRESENT_REMOTE_STATUS,
             );
             assert_eq!(
-                vinput_fcitx_daemon_control_plan(
+                control_plan(
                     CONTROL_EVENT_STATUS_CHANGED,
-                    b"recording".as_ptr(),
-                    9,
-                    0,
-                    1,
-                    0,
+                    b"recording",
+                    false,
+                    true,
+                    false,
                 ),
                 CONTROL_PLAN_UPDATE_LOCAL_PREEDIT,
             );
             assert_eq!(
-                vinput_fcitx_daemon_control_plan(
-                    CONTROL_EVENT_STATUS_CHANGED,
-                    b"error".as_ptr(),
-                    5,
-                    0,
-                    1,
-                    0,
-                ),
+                control_plan(CONTROL_EVENT_STATUS_CHANGED, b"error", false, true, false),
                 CONTROL_PLAN_RESET_LOCAL_RECORDING,
             );
             assert_eq!(
-                vinput_fcitx_daemon_control_plan(
+                control_plan(
                     CONTROL_EVENT_RECONCILE_BEFORE_START,
-                    b"recording".as_ptr(),
-                    9,
-                    0,
-                    0,
-                    0,
+                    b"recording",
+                    false,
+                    false,
+                    false,
                 ),
                 CONTROL_PLAN_ADOPT_AND_STOP_NORMAL,
             );
             assert_eq!(
-                vinput_fcitx_daemon_control_plan(99, ptr::null(), 0, 0, 0, 0),
-                0,
+                control_plan(99, b"", false, false, false),
+                CONTROL_PLAN_NONE
+            );
+
+            let invalid = [0xff];
+            assert_eq!(
+                control_plan(CONTROL_EVENT_STATUS_CHANGED, &invalid, false, false, false,),
+                CONTROL_PLAN_NONE,
             );
         }
     }

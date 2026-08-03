@@ -14,6 +14,7 @@ use vinput_fcitx_dbus::{DaemonOperation, DaemonResponse};
 
 use crate::{
     daemon::VinputFcitxDaemonClient,
+    ffi_string::{VinputFcitxStringView, string_view, text_input},
     menu_controller::{VinputFcitxSceneMenuController, scene_controller_ref},
 };
 
@@ -50,16 +51,6 @@ pub struct VinputFcitxFrontendPresentation {
     presentation: FrontendPresentation,
 }
 
-/// Borrowed UTF-8 byte view valid while its owner handle remains alive.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct VinputFcitxStringView {
-    /// UTF-8 bytes, or null when `len` is zero.
-    pub data: *const u8,
-    /// Number of readable bytes.
-    pub len: usize,
-}
-
 /// Borrowed platform-neutral frontend presentation summary.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -88,22 +79,31 @@ pub struct VinputFcitxPresentedCandidateView {
     pub commit: u8,
 }
 
-unsafe fn text_input<'a>(data: *const u8, len: usize) -> Option<&'a str> {
-    if data.is_null() {
-        return (len == 0).then_some("");
-    }
-    // SAFETY: Forwarded from each exported function's caller contract.
-    std::str::from_utf8(unsafe { std::slice::from_raw_parts(data, len) }).ok()
+/// Borrowed localized candidate annotations used to build a presentation.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VinputFcitxFrontendPresentationTextView {
+    /// Label for the unmodified recognition candidate.
+    pub original: VinputFcitxStringView,
+    /// Label for voice-command-derived candidates.
+    pub voice_command: VinputFcitxStringView,
+    /// Label for the non-committing cancel row.
+    pub cancel: VinputFcitxStringView,
 }
 
-fn string_view(value: &str) -> VinputFcitxStringView {
-    VinputFcitxStringView {
-        data: if value.is_empty() {
-            ptr::null()
-        } else {
-            value.as_ptr()
-        },
-        len: value.len(),
+impl VinputFcitxFrontendPresentationTextView {
+    unsafe fn borrow(&self) -> Option<ResultCandidateText<'_>> {
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let original = unsafe { text_input(self.original.data, self.original.len) }?;
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let voice_command = unsafe { text_input(self.voice_command.data, self.voice_command.len) }?;
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let cancel = unsafe { text_input(self.cancel.data, self.cancel.len) }?;
+        Some(ResultCandidateText {
+            original,
+            voice_command,
+            cancel,
+        })
     }
 }
 
@@ -453,16 +453,11 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_outcome_free(
 ///
 /// # Safety
 ///
-/// `outcome` must be live and localization byte pointers must reference their lengths.
+/// `outcome` must be live and localization views must reference valid UTF-8.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_frontend_presentation_new(
     outcome: *const VinputFcitxFrontendOutcome,
-    original_data: *const u8,
-    original_len: usize,
-    voice_command_data: *const u8,
-    voice_command_len: usize,
-    cancel_data: *const u8,
-    cancel_len: usize,
+    text: *const VinputFcitxFrontendPresentationTextView,
 ) -> *mut VinputFcitxFrontendPresentation {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -470,27 +465,15 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_presentation_new(
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(original) = (unsafe { text_input(original_data, original_len) }) else {
+        let Some(text) = (unsafe { text.as_ref() }) else {
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(voice_command) = (unsafe { text_input(voice_command_data, voice_command_len) })
-        else {
-            return ptr::null_mut();
-        };
-        // SAFETY: Forwarded from this function's caller contract.
-        let Some(cancel) = (unsafe { text_input(cancel_data, cancel_len) }) else {
+        let Some(text) = (unsafe { text.borrow() }) else {
             return ptr::null_mut();
         };
         Box::into_raw(Box::new(VinputFcitxFrontendPresentation {
-            presentation: present_frontend_outcome(
-                &outcome.outcome,
-                ResultCandidateText {
-                    original,
-                    voice_command,
-                    cancel,
-                },
-            ),
+            presentation: present_frontend_outcome(&outcome.outcome, text),
         }))
     }))
     .unwrap_or(ptr::null_mut())

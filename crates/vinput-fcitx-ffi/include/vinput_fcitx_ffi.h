@@ -38,15 +38,41 @@ typedef struct VinputFcitxPresentedCandidateView {
   uint8_t commit;
 } VinputFcitxPresentedCandidateView;
 
+typedef struct VinputFcitxFrontendPresentationTextView {
+  VinputFcitxStringView original;
+  VinputFcitxStringView voice_command;
+  VinputFcitxStringView cancel;
+} VinputFcitxFrontendPresentationTextView;
+
 typedef struct VinputFcitxMenuKeyDecisionView {
   uint8_t action;
   int64_t value;
 } VinputFcitxMenuKeyDecisionView;
 
+typedef struct VinputFcitxMenuKeyInputView {
+  uint8_t release;
+  uint8_t key_kind;
+  int64_t key_value;
+  VinputFcitxStringView text;
+  uint8_t cursor_available;
+  int64_t current_selection;
+  size_t visible_item_count;
+} VinputFcitxMenuKeyInputView;
+
 typedef struct VinputFcitxMenuProjectionView {
   VinputFcitxStringView summary;
   size_t item_count;
 } VinputFcitxMenuProjectionView;
+
+typedef struct VinputFcitxAsrMenuTextView {
+  VinputFcitxStringView local;
+  VinputFcitxStringView remote;
+  VinputFcitxStringView command;
+  VinputFcitxStringView loading_suffix;
+  VinputFcitxStringView unavailable;
+  VinputFcitxStringView loading_prefix;
+  VinputFcitxStringView error_prefix;
+} VinputFcitxAsrMenuTextView;
 
 typedef struct VinputFcitxProjectedMenuItemView {
   VinputFcitxStringView label;
@@ -75,6 +101,32 @@ typedef struct VinputFcitxDaemonSignalPlanView {
   uint8_t translate;
   VinputFcitxStringView text;
 } VinputFcitxDaemonSignalPlanView;
+
+typedef struct VinputFcitxDaemonNotificationView {
+  VinputFcitxStringView code;
+  VinputFcitxStringView subject;
+  VinputFcitxStringView detail;
+  VinputFcitxStringView raw;
+} VinputFcitxDaemonNotificationView;
+
+typedef struct VinputFcitxDaemonStatusView {
+  VinputFcitxStringView status;
+  uint8_t command_mode;
+  VinputFcitxStringView partial;
+} VinputFcitxDaemonStatusView;
+
+typedef struct VinputFcitxDaemonControlView {
+  uint8_t event;
+  VinputFcitxStringView status;
+  uint8_t flag;
+  uint8_t recording;
+  uint8_t remote_status_active;
+} VinputFcitxDaemonControlView;
+
+typedef struct VinputFcitxAsrTargetView {
+  VinputFcitxStringView provider;
+  VinputFcitxStringView model;
+} VinputFcitxAsrTargetView;
 
 enum {
   VINPUT_FCITX_DAEMON_CONTROL_EVENT_AVAILABILITY_CHANGED = 0,
@@ -211,10 +263,9 @@ uint8_t vinput_fcitx_menu_session_decorate_title(
     VinputFcitxMenuSession *session, const uint8_t *base_data,
     size_t base_len, VinputFcitxStringView *title_out);
 uint8_t vinput_fcitx_menu_session_handle_key(
-    VinputFcitxMenuSession *session, uint8_t release, uint8_t key_kind,
-    int64_t key_value, const uint8_t *text_data, size_t text_len,
-    uint8_t cursor_available, int64_t current_selection,
-    size_t visible_item_count, VinputFcitxMenuKeyDecisionView *decision_out);
+    VinputFcitxMenuSession *session,
+    const VinputFcitxMenuKeyInputView *input,
+    VinputFcitxMenuKeyDecisionView *decision_out);
 int32_t vinput_fcitx_clamp_menu_page(int32_t total_pages,
                                      int32_t requested_page);
 
@@ -230,13 +281,7 @@ void vinput_fcitx_asr_menu_controller_free(
 VinputFcitxMenuProjection *vinput_fcitx_asr_menu_controller_projection_new(
     const VinputFcitxAsrMenuController *controller,
     const VinputFcitxMenuSession *session,
-    const uint8_t *local_data, size_t local_len,
-    const uint8_t *remote_data, size_t remote_len,
-    const uint8_t *command_data, size_t command_len,
-    const uint8_t *loading_suffix_data, size_t loading_suffix_len,
-    const uint8_t *unavailable_data, size_t unavailable_len,
-    const uint8_t *loading_prefix_data, size_t loading_prefix_len,
-    const uint8_t *error_prefix_data, size_t error_prefix_len);
+    const VinputFcitxAsrMenuTextView *text);
 
 void vinput_fcitx_menu_projection_free(VinputFcitxMenuProjection *projection);
 uint8_t vinput_fcitx_menu_projection_view(
@@ -247,8 +292,7 @@ uint8_t vinput_fcitx_menu_projection_item_view(
     VinputFcitxProjectedMenuItemView *view_out);
 
 uint8_t vinput_fcitx_daemon_control_plan(
-    uint8_t event, const uint8_t *status_data, size_t status_len,
-    uint8_t flag, uint8_t recording, uint8_t remote_status_active);
+    const VinputFcitxDaemonControlView *control);
 VinputFcitxDaemonLiveState *vinput_fcitx_daemon_live_state_new(void);
 void vinput_fcitx_daemon_live_state_free(VinputFcitxDaemonLiveState *state);
 uint8_t vinput_fcitx_daemon_live_state_reset(VinputFcitxDaemonLiveState *state);
@@ -267,14 +311,10 @@ uint8_t vinput_fcitx_daemon_live_state_preedit_plan(
 uint8_t vinput_fcitx_daemon_live_state_command_mode(
     const VinputFcitxDaemonLiveState *state);
 uint8_t vinput_fcitx_daemon_status_preedit_plan(
-    const uint8_t *status_data, size_t status_len, uint8_t command_mode,
-    const uint8_t *partial_data, size_t partial_len,
+    const VinputFcitxDaemonStatusView *status,
     VinputFcitxDaemonSignalPlanView *view_out);
 uint8_t vinput_fcitx_daemon_notification_plan(
-    const uint8_t *code_data, size_t code_len,
-    const uint8_t *subject_data, size_t subject_len,
-    const uint8_t *detail_data, size_t detail_len,
-    const uint8_t *raw_data, size_t raw_len,
+    const VinputFcitxDaemonNotificationView *notification,
     VinputFcitxDaemonSignalPlanView *view_out);
 
 VinputFcitxDaemonClient *vinput_fcitx_daemon_client_connect(
@@ -298,8 +338,7 @@ uint8_t vinput_fcitx_daemon_client_refresh_asr_menu_controller(
     VinputFcitxOwnedString **error_out);
 uint8_t vinput_fcitx_daemon_client_set_active_asr_target(
     const VinputFcitxDaemonClient *client,
-    const uint8_t *provider_data, size_t provider_len,
-    const uint8_t *model_data, size_t model_len, uint8_t *persisted_out,
+    const VinputFcitxAsrTargetView *target, uint8_t *persisted_out,
     VinputFcitxOwnedString **error_out);
 void vinput_fcitx_owned_string_free(VinputFcitxOwnedString *value);
 uint8_t vinput_fcitx_owned_string_view(
@@ -348,9 +387,7 @@ void vinput_fcitx_frontend_outcome_free(
     VinputFcitxFrontendOutcome *outcome);
 VinputFcitxFrontendPresentation *vinput_fcitx_frontend_presentation_new(
     const VinputFcitxFrontendOutcome *outcome,
-    const uint8_t *original_data, size_t original_len,
-    const uint8_t *voice_command_data, size_t voice_command_len,
-    const uint8_t *cancel_data, size_t cancel_len);
+    const VinputFcitxFrontendPresentationTextView *text);
 void vinput_fcitx_frontend_presentation_free(
     VinputFcitxFrontendPresentation *presentation);
 uint8_t vinput_fcitx_frontend_presentation_view(

@@ -9,7 +9,7 @@ use vinput_fcitx_core::{AsrDisplaySnapshot, SceneSnapshot};
 use vinput_fcitx_dbus::{DaemonClient, DaemonOperation, DaemonResponse};
 
 use crate::{
-    frontend::VinputFcitxStringView,
+    ffi_string::{VinputFcitxStringView, string_view, text_input},
     menu_controller::{
         VinputFcitxAsrMenuController, VinputFcitxSceneMenuController, asr_controller_mut,
         scene_controller_mut,
@@ -24,6 +24,26 @@ pub struct VinputFcitxDaemonClient {
 /// Opaque Rust-owned UTF-8 string.
 pub struct VinputFcitxOwnedString {
     value: String,
+}
+
+/// Borrowed provider/model pair identifying one ASR target.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VinputFcitxAsrTargetView {
+    /// ASR provider id.
+    pub provider: VinputFcitxStringView,
+    /// Provider-specific model value.
+    pub model: VinputFcitxStringView,
+}
+
+impl VinputFcitxAsrTargetView {
+    unsafe fn borrow(&self) -> Option<(&str, &str)> {
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let provider = unsafe { text_input(self.provider.data, self.provider.len) }?;
+        // SAFETY: Forwarded from the exported function's caller contract.
+        let model = unsafe { text_input(self.model.data, self.model.len) }?;
+        Some((provider, model))
+    }
 }
 
 struct ErrorOut(*mut *mut VinputFcitxOwnedString);
@@ -42,25 +62,6 @@ impl ErrorOut {
             // SAFETY: Construction requires a writable output pointer when non-null.
             unsafe { self.0.write(boxed_string(message.into())) };
         }
-    }
-}
-
-unsafe fn text_input<'a>(data: *const u8, len: usize) -> Option<&'a str> {
-    if data.is_null() {
-        return (len == 0).then_some("");
-    }
-    // SAFETY: Forwarded from each exported function's caller contract.
-    std::str::from_utf8(unsafe { std::slice::from_raw_parts(data, len) }).ok()
-}
-
-fn string_view(value: &str) -> VinputFcitxStringView {
-    VinputFcitxStringView {
-        data: if value.is_empty() {
-            ptr::null()
-        } else {
-            value.as_ptr()
-        },
-        len: value.len(),
     }
 }
 
@@ -117,13 +118,11 @@ fn take_asr_display(response: DaemonResponse) -> Option<AsrDisplaySnapshot> {
 unsafe fn bool_call(
     client: *const VinputFcitxDaemonClient,
     operation: DaemonOperation,
-    first: (*const u8, usize, &str),
-    second: (*const u8, usize, &str),
+    first: &str,
+    second: &str,
     persisted_out: *mut u8,
-    error_out: *mut *mut VinputFcitxOwnedString,
+    errors: &ErrorOut,
 ) -> bool {
-    // SAFETY: Forwarded from the exported function's caller contract.
-    let errors = unsafe { ErrorOut::new(error_out) };
     if persisted_out.is_null() {
         errors.write("missing persisted output");
         return false;
@@ -135,18 +134,8 @@ unsafe fn bool_call(
         errors.write("invalid daemon client");
         return false;
     };
-    // SAFETY: Forwarded from the exported function's caller contract.
-    let Some(first_value) = (unsafe { text_input(first.0, first.1) }) else {
-        errors.write(format!("{} is not valid UTF-8", first.2));
-        return false;
-    };
-    // SAFETY: Forwarded from the exported function's caller contract.
-    let Some(second_value) = (unsafe { text_input(second.0, second.1) }) else {
-        errors.write(format!("{} is not valid UTF-8", second.2));
-        return false;
-    };
     match expect(
-        call(client, operation, first_value, second_value),
+        call(client, operation, first, second),
         "boolean",
         |response| match response {
             DaemonResponse::Bool(value) => Some(value),
@@ -319,10 +308,10 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_scene(
                 bool_call(
                     client,
                     DaemonOperation::SetActiveScene,
-                    (scene_data, scene_len, "scene id"),
-                    (ptr::null(), 0, "unused argument"),
+                    scene,
+                    "",
                     persisted_out,
-                    error_out,
+                    &errors,
                 )
             };
             if succeeded {
@@ -386,24 +375,33 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_refresh_asr_menu_controller(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_asr_target(
     client: *const VinputFcitxDaemonClient,
-    provider_data: *const u8,
-    provider_len: usize,
-    model_data: *const u8,
-    model_len: usize,
+    target: *const VinputFcitxAsrTargetView,
     persisted_out: *mut u8,
     error_out: *mut *mut VinputFcitxOwnedString,
 ) -> u8 {
     u8::from(
         catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: Forwarded from this function's caller contract.
+            let errors = unsafe { ErrorOut::new(error_out) };
+            // SAFETY: Forwarded from this function's caller contract.
+            let Some(target) = (unsafe { target.as_ref() }) else {
+                errors.write("invalid ASR target");
+                return false;
+            };
+            // SAFETY: Forwarded from this function's caller contract.
+            let Some((provider, model)) = (unsafe { target.borrow() }) else {
+                errors.write("ASR target is not valid UTF-8");
+                return false;
+            };
+            // SAFETY: Forwarded from this function's caller contract.
             unsafe {
                 bool_call(
                     client,
                     DaemonOperation::SetActiveAsrTarget,
-                    (provider_data, provider_len, "provider id"),
-                    (model_data, model_len, "model value"),
+                    provider,
+                    model,
                     persisted_out,
-                    error_out,
+                    &errors,
                 )
             }
         }))
@@ -461,7 +459,7 @@ mod tests {
         boxed_string, expect, take_asr_display, take_scene, take_text,
         vinput_fcitx_owned_string_free, vinput_fcitx_owned_string_view,
     };
-    use crate::frontend::VinputFcitxStringView;
+    use crate::ffi_string::VinputFcitxStringView;
 
     unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
         if view.data.is_null() {

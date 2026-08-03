@@ -4,14 +4,14 @@ use super::{
     MENU_ACTION_CLOSE_AND_CONSUME, MENU_ACTION_CONSUME, MENU_ACTION_MOVE_PREVIOUS,
     MENU_ACTION_PASS, MENU_ACTION_REBUILD, MENU_ACTION_SELECT, MENU_KEY_DIGIT, MENU_KEY_ENTER,
     MENU_KEY_ESCAPE, MENU_KEY_MOVE_PREVIOUS, MENU_KEY_OTHER, MENU_KEY_PAGE, MENU_KEY_SLASH,
-    MENU_KEY_TEXT, VinputFcitxMenuKeyDecisionView, menu_session_filter_ref,
-    vinput_fcitx_clamp_menu_page, vinput_fcitx_menu_session_close,
+    MENU_KEY_TEXT, VinputFcitxMenuKeyDecisionView, VinputFcitxMenuKeyInputView,
+    menu_session_filter_ref, vinput_fcitx_clamp_menu_page, vinput_fcitx_menu_session_close,
     vinput_fcitx_menu_session_decorate_title, vinput_fcitx_menu_session_filter_active,
     vinput_fcitx_menu_session_free, vinput_fcitx_menu_session_handle_key,
     vinput_fcitx_menu_session_is_open, vinput_fcitx_menu_session_new,
     vinput_fcitx_menu_session_open, vinput_fcitx_menu_session_set_page,
 };
-use crate::frontend::VinputFcitxStringView;
+use crate::ffi_string::VinputFcitxStringView;
 
 #[derive(Clone, Copy, Default)]
 struct KeyCall<'a> {
@@ -22,6 +22,23 @@ struct KeyCall<'a> {
     cursor_available: bool,
     current_selection: i64,
     visible_item_count: usize,
+}
+
+impl KeyCall<'_> {
+    fn view(&self) -> VinputFcitxMenuKeyInputView {
+        VinputFcitxMenuKeyInputView {
+            release: u8::from(self.release),
+            key_kind: self.kind,
+            key_value: self.value,
+            text: VinputFcitxStringView {
+                data: self.text.as_ptr(),
+                len: self.text.len(),
+            },
+            cursor_available: u8::from(self.cursor_available),
+            current_selection: self.current_selection,
+            visible_item_count: self.visible_item_count,
+        }
+    }
 }
 
 unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
@@ -50,21 +67,10 @@ unsafe fn session_handle_key(
         action: u8::MAX,
         value: i64::MAX,
     };
+    let input = call.view();
     // SAFETY: Test callers provide live inputs and writable output.
-    let success = unsafe {
-        vinput_fcitx_menu_session_handle_key(
-            state,
-            u8::from(call.release),
-            call.kind,
-            call.value,
-            call.text.as_ptr(),
-            call.text.len(),
-            u8::from(call.cursor_available),
-            call.current_selection,
-            call.visible_item_count,
-            &raw mut decision,
-        )
-    };
+    let success =
+        unsafe { vinput_fcitx_menu_session_handle_key(state, &raw const input, &raw mut decision) };
     (success != 0).then_some(decision)
 }
 
@@ -268,19 +274,20 @@ fn invalid_key_text_preserves_state_and_output() {
             action: 91,
             value: 92,
         };
+        let input = VinputFcitxMenuKeyInputView {
+            release: 0,
+            key_kind: MENU_KEY_TEXT,
+            key_value: 0,
+            text: VinputFcitxStringView {
+                data: invalid.as_ptr(),
+                len: invalid.len(),
+            },
+            cursor_available: 0,
+            current_selection: -1,
+            visible_item_count: 0,
+        };
         assert_eq!(
-            vinput_fcitx_menu_session_handle_key(
-                state,
-                0,
-                MENU_KEY_TEXT,
-                0,
-                invalid.as_ptr(),
-                invalid.len(),
-                0,
-                -1,
-                0,
-                &raw mut decision,
-            ),
+            vinput_fcitx_menu_session_handle_key(state, &raw const input, &raw mut decision,),
             0,
         );
         assert_eq!((decision.action, decision.value), (91, 92));

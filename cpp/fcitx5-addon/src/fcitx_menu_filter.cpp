@@ -145,12 +145,18 @@ std::optional<MenuKeyDecision>
 MenuSessionState::HandleKey(bool release, const MenuSemanticKey &key,
                             bool cursor_available, int current_selection,
                             std::size_t visible_item_count) {
+  const VinputFcitxMenuKeyInputView input{
+      .release = static_cast<std::uint8_t>(release),
+      .key_kind = static_cast<std::uint8_t>(key.kind),
+      .key_value = key.value,
+      .text = ToRustStringView(key.text),
+      .cursor_available = static_cast<std::uint8_t>(cursor_available),
+      .current_selection = current_selection,
+      .visible_item_count = visible_item_count,
+  };
   VinputFcitxMenuKeyDecisionView decision{};
-  if (vinput_fcitx_menu_session_handle_key(
-          state_.mutable_raw_handle(), static_cast<std::uint8_t>(release),
-          static_cast<std::uint8_t>(key.kind), key.value, RustBytes(key.text),
-          key.text.size(), static_cast<std::uint8_t>(cursor_available),
-          current_selection, visible_item_count, &decision) == 0) {
+  if (vinput_fcitx_menu_session_handle_key(state_.mutable_raw_handle(), &input,
+                                           &decision) == 0) {
     return std::nullopt;
   }
   const auto action = ActionFromWire(decision.action);

@@ -3,12 +3,12 @@ use std::ptr;
 use vinput_fcitx_core::{AsrDisplaySnapshot, AsrDisplaySnapshotItem, SceneSnapshot};
 
 use super::{
-    boxed_asr_controller, boxed_scene_controller, vinput_fcitx_asr_menu_controller_free,
-    vinput_fcitx_asr_menu_controller_projection_new, vinput_fcitx_scene_menu_controller_free,
-    vinput_fcitx_scene_menu_controller_projection_new,
+    VinputFcitxAsrMenuTextView, boxed_asr_controller, boxed_scene_controller,
+    vinput_fcitx_asr_menu_controller_free, vinput_fcitx_asr_menu_controller_projection_new,
+    vinput_fcitx_scene_menu_controller_free, vinput_fcitx_scene_menu_controller_projection_new,
 };
 use crate::{
-    frontend::VinputFcitxStringView,
+    ffi_string::VinputFcitxStringView,
     menu::{vinput_fcitx_menu_session_free, vinput_fcitx_menu_session_new},
     menu_projection::{
         VinputFcitxMenuProjectionView, vinput_fcitx_menu_projection_free,
@@ -22,6 +22,13 @@ unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     }
     // SAFETY: Test callers keep the owning projection alive.
     unsafe { std::slice::from_raw_parts(view.data, view.len) }
+}
+
+fn string_view(value: &[u8]) -> VinputFcitxStringView {
+    VinputFcitxStringView {
+        data: value.as_ptr(),
+        len: value.len(),
+    }
 }
 
 #[test]
@@ -100,24 +107,17 @@ fn asr_controller_projects_and_validates_localized_state() {
             b"Loading: ".as_slice(),
             b"Error: ".as_slice(),
         ];
-        let projection = vinput_fcitx_asr_menu_controller_projection_new(
-            controller,
-            session,
-            args[0].as_ptr(),
-            args[0].len(),
-            args[1].as_ptr(),
-            args[1].len(),
-            args[2].as_ptr(),
-            args[2].len(),
-            args[3].as_ptr(),
-            args[3].len(),
-            args[4].as_ptr(),
-            args[4].len(),
-            args[5].as_ptr(),
-            args[5].len(),
-            args[6].as_ptr(),
-            args[6].len(),
-        );
+        let text = VinputFcitxAsrMenuTextView {
+            local: string_view(args[0]),
+            remote: string_view(args[1]),
+            command: string_view(args[2]),
+            loading_suffix: string_view(args[3]),
+            unavailable: string_view(args[4]),
+            loading_prefix: string_view(args[5]),
+            error_prefix: string_view(args[6]),
+        };
+        let projection =
+            vinput_fcitx_asr_menu_controller_projection_new(controller, session, &raw const text);
         assert!(!projection.is_null());
         let mut view = VinputFcitxMenuProjectionView {
             summary: VinputFcitxStringView {
@@ -135,24 +135,15 @@ fn asr_controller_projects_and_validates_localized_state() {
         vinput_fcitx_menu_projection_free(projection);
 
         let invalid = [0xff];
+        let invalid_text = VinputFcitxAsrMenuTextView {
+            local: string_view(&invalid),
+            ..text
+        };
         assert!(
             vinput_fcitx_asr_menu_controller_projection_new(
                 controller,
                 session,
-                invalid.as_ptr(),
-                invalid.len(),
-                args[1].as_ptr(),
-                args[1].len(),
-                args[2].as_ptr(),
-                args[2].len(),
-                args[3].as_ptr(),
-                args[3].len(),
-                args[4].as_ptr(),
-                args[4].len(),
-                args[5].as_ptr(),
-                args[5].len(),
-                args[6].as_ptr(),
-                args[6].len(),
+                &raw const invalid_text,
             )
             .is_null()
         );

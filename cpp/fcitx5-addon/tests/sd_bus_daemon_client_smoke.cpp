@@ -108,16 +108,18 @@ std::optional<AsrProjectionState> ProjectAsr(const AsrMenuController &controller
   if (!session) {
     return std::nullopt;
   }
+  const VinputFcitxAsrMenuTextView text{
+      .local = vinput_fcitx_bridge::ToRustStringView(kLocal),
+      .remote = vinput_fcitx_bridge::ToRustStringView(kRemote),
+      .command = vinput_fcitx_bridge::ToRustStringView(kCommand),
+      .loading_suffix = vinput_fcitx_bridge::ToRustStringView(kLoadingSuffix),
+      .unavailable = vinput_fcitx_bridge::ToRustStringView(kUnavailable),
+      .loading_prefix = vinput_fcitx_bridge::ToRustStringView(kLoadingPrefix),
+      .error_prefix = vinput_fcitx_bridge::ToRustStringView(kErrorPrefix),
+  };
   auto projection =
       MenuProjectionHandle::Adopt(vinput_fcitx_asr_menu_controller_projection_new(
-          controller.raw_handle(), session.raw_handle(),
-          vinput_fcitx_bridge::RustBytes(kLocal), kLocal.size(),
-          vinput_fcitx_bridge::RustBytes(kRemote), kRemote.size(),
-          vinput_fcitx_bridge::RustBytes(kCommand), kCommand.size(),
-          vinput_fcitx_bridge::RustBytes(kLoadingSuffix), kLoadingSuffix.size(),
-          vinput_fcitx_bridge::RustBytes(kUnavailable), kUnavailable.size(),
-          vinput_fcitx_bridge::RustBytes(kLoadingPrefix), kLoadingPrefix.size(),
-          vinput_fcitx_bridge::RustBytes(kErrorPrefix), kErrorPrefix.size()));
+          controller.raw_handle(), session.raw_handle(), &text));
   if (!projection) {
     return std::nullopt;
   }

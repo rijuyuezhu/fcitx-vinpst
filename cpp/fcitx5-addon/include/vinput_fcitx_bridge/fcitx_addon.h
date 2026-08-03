@@ -26,6 +26,12 @@
 
 namespace vinput_fcitx_bridge {
 
+struct FcitxProjectedMenuState {
+  MenuSessionState session;
+  std::shared_ptr<MenuProjection> projection;
+  fcitx::InputContext *input_context = nullptr;
+};
+
 class FcitxVinputAddon final : public fcitx::AddonInstance {
 public:
   explicit FcitxVinputAddon(fcitx::Instance *instance);
@@ -102,13 +108,9 @@ private:
   TriggerModeController trigger_mode_controller_;
   mutable std::unique_ptr<VinputFrontendConfig> frontend_config_;
   SceneMenuController scene_menu_controller_;
-  MenuSessionState scene_menu_session_;
-  std::shared_ptr<MenuProjection> scene_menu_projection_;
-  fcitx::InputContext *scene_menu_ic_ = nullptr;
+  FcitxProjectedMenuState scene_menu_;
   AsrMenuController asr_menu_controller_;
-  MenuSessionState asr_menu_session_;
-  std::shared_ptr<MenuProjection> asr_menu_projection_;
-  fcitx::InputContext *asr_menu_ic_ = nullptr;
+  FcitxProjectedMenuState asr_menu_;
   std::unique_ptr<fcitx::EventSourceTime> pending_trigger_start_event_;
   std::unique_ptr<fcitx::EventSourceTime> pending_trigger_stop_event_;
   fcitx::TrackableObjectReference<fcitx::InputContext> pending_trigger_ic_;

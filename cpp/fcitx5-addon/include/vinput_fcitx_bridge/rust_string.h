@@ -12,6 +12,10 @@ inline const std::uint8_t *RustBytes(std::string_view value) {
   return value.empty() ? nullptr : reinterpret_cast<const std::uint8_t *>(value.data());
 }
 
+inline VinputFcitxStringView ToRustStringView(std::string_view value) {
+  return {RustBytes(value), value.size()};
+}
+
 inline std::string_view BorrowRustString(VinputFcitxStringView view) {
   if (view.data == nullptr || view.len == 0) {
     return {};

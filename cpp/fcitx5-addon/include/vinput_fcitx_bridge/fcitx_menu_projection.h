@@ -26,6 +26,35 @@ namespace vinput_fcitx_bridge {
 
 class MenuSessionState;
 
+namespace detail {
+
+template <typename Controller, Controller *(*New)(), void (*Free)(Controller *)>
+class RustMenuControllerOwner {
+public:
+  RustMenuControllerOwner(const RustMenuControllerOwner &) = delete;
+  RustMenuControllerOwner &operator=(const RustMenuControllerOwner &) = delete;
+  RustMenuControllerOwner(RustMenuControllerOwner &&) = delete;
+  RustMenuControllerOwner &operator=(RustMenuControllerOwner &&) = delete;
+
+  const Controller *raw_handle() const {
+    return controller_.raw_handle();
+  }
+  Controller *mutable_raw_handle() {
+    return controller_.mutable_raw_handle();
+  }
+
+protected:
+  RustMenuControllerOwner() : controller_(Handle::Adopt(New())) {}
+  ~RustMenuControllerOwner() = default;
+
+private:
+  using Handle = RustOwnedHandle<Controller, Free>;
+
+  Handle controller_;
+};
+
+} // namespace detail
+
 enum class ProjectedMenuControlKind : std::uint8_t {
   None,
   SetActiveScene,
@@ -73,62 +102,44 @@ private:
   friend class SceneMenuController;
 
   explicit MenuProjection(::VinputFcitxMenuProjection *projection);
+  static std::shared_ptr<MenuProjection> Adopt(::VinputFcitxMenuProjection *projection);
 
   Handle projection_;
 };
 
-class SceneMenuController final {
+class SceneMenuController final
+    : private detail::RustMenuControllerOwner<::VinputFcitxSceneMenuController,
+                                              vinput_fcitx_scene_menu_controller_new,
+                                              vinput_fcitx_scene_menu_controller_free> {
 public:
-  SceneMenuController()
-      : controller_(Handle::Adopt(vinput_fcitx_scene_menu_controller_new())) {}
-  ~SceneMenuController() = default;
+  using Owner =
+      detail::RustMenuControllerOwner<::VinputFcitxSceneMenuController,
+                                      vinput_fcitx_scene_menu_controller_new,
+                                      vinput_fcitx_scene_menu_controller_free>;
 
-  SceneMenuController(const SceneMenuController &) = delete;
-  SceneMenuController &operator=(const SceneMenuController &) = delete;
-  SceneMenuController(SceneMenuController &&) = delete;
-  SceneMenuController &operator=(SceneMenuController &&) = delete;
+  SceneMenuController() = default;
 
   std::shared_ptr<MenuProjection> Project(const MenuSessionState &session) const;
-  const ::VinputFcitxSceneMenuController *raw_handle() const {
-    return controller_.raw_handle();
-  }
-  ::VinputFcitxSceneMenuController *mutable_raw_handle() {
-    return controller_.mutable_raw_handle();
-  }
-
-private:
-  using Handle = RustOwnedHandle<::VinputFcitxSceneMenuController,
-                                 vinput_fcitx_scene_menu_controller_free>;
-
-  Handle controller_;
+  using Owner::mutable_raw_handle;
+  using Owner::raw_handle;
 };
 
-class AsrMenuController final {
+class AsrMenuController final
+    : private detail::RustMenuControllerOwner<::VinputFcitxAsrMenuController,
+                                              vinput_fcitx_asr_menu_controller_new,
+                                              vinput_fcitx_asr_menu_controller_free> {
 public:
-  AsrMenuController()
-      : controller_(Handle::Adopt(vinput_fcitx_asr_menu_controller_new())) {}
-  ~AsrMenuController() = default;
+  using Owner = detail::RustMenuControllerOwner<::VinputFcitxAsrMenuController,
+                                                vinput_fcitx_asr_menu_controller_new,
+                                                vinput_fcitx_asr_menu_controller_free>;
 
-  AsrMenuController(const AsrMenuController &) = delete;
-  AsrMenuController &operator=(const AsrMenuController &) = delete;
-  AsrMenuController(AsrMenuController &&) = delete;
-  AsrMenuController &operator=(AsrMenuController &&) = delete;
+  AsrMenuController() = default;
 
   std::shared_ptr<MenuProjection>
   Project(const MenuSessionState &session,
           const AsrMenuLocalization &localization) const;
-  const ::VinputFcitxAsrMenuController *raw_handle() const {
-    return controller_.raw_handle();
-  }
-  ::VinputFcitxAsrMenuController *mutable_raw_handle() {
-    return controller_.mutable_raw_handle();
-  }
-
-private:
-  using Handle = RustOwnedHandle<::VinputFcitxAsrMenuController,
-                                 vinput_fcitx_asr_menu_controller_free>;
-
-  Handle controller_;
+  using Owner::mutable_raw_handle;
+  using Owner::raw_handle;
 };
 
 } // namespace vinput_fcitx_bridge

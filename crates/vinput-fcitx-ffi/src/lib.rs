@@ -9,6 +9,8 @@ mod daemon;
 #[allow(unsafe_code)]
 mod daemon_signal;
 #[allow(unsafe_code)]
+mod ffi_string;
+#[allow(unsafe_code)]
 mod frontend;
 #[allow(unsafe_code)]
 mod menu;

@@ -8,11 +8,11 @@ use super::{
     vinput_fcitx_menu_projection_view,
 };
 use crate::{
-    frontend::VinputFcitxStringView,
+    ffi_string::VinputFcitxStringView,
     menu::{boxed_menu_session, vinput_fcitx_menu_session_free},
     menu_controller::{
-        VinputFcitxAsrMenuController, boxed_asr_controller, vinput_fcitx_asr_menu_controller_free,
-        vinput_fcitx_asr_menu_controller_projection_new,
+        VinputFcitxAsrMenuController, VinputFcitxAsrMenuTextView, boxed_asr_controller,
+        vinput_fcitx_asr_menu_controller_free, vinput_fcitx_asr_menu_controller_projection_new,
     },
 };
 
@@ -28,26 +28,23 @@ unsafe fn menu_projection(
     controller: *const VinputFcitxAsrMenuController,
     filter: *const crate::menu::VinputFcitxMenuSession,
 ) -> *mut VinputFcitxMenuProjection {
+    let text = VinputFcitxAsrMenuTextView {
+        local: string_view(b"Local"),
+        remote: string_view(b"Remote"),
+        command: string_view(b"Command"),
+        loading_suffix: string_view(b" (loading)"),
+        unavailable: string_view(b"unavailable"),
+        loading_prefix: string_view(b"Loading: "),
+        error_prefix: string_view(b"Error: "),
+    };
     // SAFETY: Test byte slices outlive the projection constructor call.
-    unsafe {
-        vinput_fcitx_asr_menu_controller_projection_new(
-            controller,
-            filter,
-            b"Local".as_ptr(),
-            5,
-            b"Remote".as_ptr(),
-            6,
-            b"Command".as_ptr(),
-            7,
-            b" (loading)".as_ptr(),
-            10,
-            b"unavailable".as_ptr(),
-            11,
-            b"Loading: ".as_ptr(),
-            9,
-            b"Error: ".as_ptr(),
-            7,
-        )
+    unsafe { vinput_fcitx_asr_menu_controller_projection_new(controller, filter, &raw const text) }
+}
+
+fn string_view(value: &[u8]) -> VinputFcitxStringView {
+    VinputFcitxStringView {
+        data: value.as_ptr(),
+        len: value.len(),
     }
 }
 
@@ -219,24 +216,17 @@ fn invalid_localized_fragment_rejects_projection() {
         let controller = controller("", "", "", "", false, "", &[]);
         let filter = filter("");
         let invalid = [0xff];
-        let projection = vinput_fcitx_asr_menu_controller_projection_new(
-            controller,
-            filter,
-            invalid.as_ptr(),
-            invalid.len(),
-            b"Remote".as_ptr(),
-            6,
-            b"Command".as_ptr(),
-            7,
-            b" (loading)".as_ptr(),
-            10,
-            b"unavailable".as_ptr(),
-            11,
-            b"Loading: ".as_ptr(),
-            9,
-            b"Error: ".as_ptr(),
-            7,
-        );
+        let text = VinputFcitxAsrMenuTextView {
+            local: string_view(&invalid),
+            remote: string_view(b"Remote"),
+            command: string_view(b"Command"),
+            loading_suffix: string_view(b" (loading)"),
+            unavailable: string_view(b"unavailable"),
+            loading_prefix: string_view(b"Loading: "),
+            error_prefix: string_view(b"Error: "),
+        };
+        let projection =
+            vinput_fcitx_asr_menu_controller_projection_new(controller, filter, &raw const text);
         assert!(projection.is_null());
         vinput_fcitx_menu_session_free(filter);
         vinput_fcitx_asr_menu_controller_free(controller);

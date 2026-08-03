@@ -388,10 +388,14 @@ std::optional<AppliedOutcome>
 FcitxVinputAddon::ExecuteDaemonControl(std::uint8_t event, fcitx::InputContext *ic,
                                        std::string_view status, bool flag,
                                        bool command_mode) {
-  const auto plan = DecodeDaemonControlPlan(vinput_fcitx_daemon_control_plan(
-      event, RustBytes(status), status.size(), static_cast<std::uint8_t>(flag),
-      static_cast<std::uint8_t>(bridge_.recording()),
-      static_cast<std::uint8_t>(remote_status_ic_.isValid())));
+  const VinputFcitxDaemonControlView control{
+      .event = event,
+      .status = ToRustStringView(status),
+      .flag = static_cast<std::uint8_t>(flag),
+      .recording = static_cast<std::uint8_t>(bridge_.recording()),
+      .remote_status_active = static_cast<std::uint8_t>(remote_status_ic_.isValid()),
+  };
+  const auto plan = DecodeDaemonControlPlan(vinput_fcitx_daemon_control_plan(&control));
   if (!plan.has_value()) {
     FCITX_ERROR() << "fcitx-vinput received an invalid Rust daemon control plan";
     return std::nullopt;

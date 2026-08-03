@@ -10,7 +10,7 @@ use vinput_fcitx_core::{
     clamp_menu_page,
 };
 
-use crate::frontend::VinputFcitxStringView;
+use crate::ffi_string::{VinputFcitxStringView, string_view, text_input};
 
 /// Opaque complete menu session owned by Rust.
 pub struct VinputFcitxMenuSession {
@@ -26,6 +26,26 @@ pub struct VinputFcitxMenuKeyDecisionView {
     pub action: u8,
     /// Action-specific page or visible-row value.
     pub value: i64,
+}
+
+/// Borrowed semantic key and candidate cursor context.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VinputFcitxMenuKeyInputView {
+    /// Whether this is a key-release event.
+    pub release: u8,
+    /// Stable `VINPUT_FCITX_MENU_KEY_*` value.
+    pub key_kind: u8,
+    /// Page or digit value for value-carrying semantic keys.
+    pub key_value: i64,
+    /// Borrowed UTF-8 text for `VINPUT_FCITX_MENU_KEY_TEXT`.
+    pub text: VinputFcitxStringView,
+    /// Whether the current Fcitx candidate list supports cursor movement.
+    pub cursor_available: u8,
+    /// Global selected-row index, or `-1` when no row is selected.
+    pub current_selection: i64,
+    /// Number of visible projected menu rows.
+    pub visible_item_count: usize,
 }
 
 const MENU_KEY_OTHER: u8 = 0;
@@ -51,25 +71,6 @@ const MENU_ACTION_MOVE_PREVIOUS: u8 = 5;
 const MENU_ACTION_MOVE_NEXT: u8 = 6;
 const MENU_ACTION_SELECT: u8 = 7;
 
-unsafe fn text_input<'a>(data: *const u8, len: usize) -> Option<&'a str> {
-    if data.is_null() {
-        return (len == 0).then_some("");
-    }
-    // SAFETY: Forwarded from each exported function's caller contract.
-    std::str::from_utf8(unsafe { std::slice::from_raw_parts(data, len) }).ok()
-}
-
-fn string_view(value: &str) -> VinputFcitxStringView {
-    VinputFcitxStringView {
-        data: if value.is_empty() {
-            ptr::null()
-        } else {
-            value.as_ptr()
-        },
-        len: value.len(),
-    }
-}
-
 pub(crate) unsafe fn menu_session_filter_ref<'a>(
     session: *const VinputFcitxMenuSession,
 ) -> Option<&'a MenuFilterState> {
@@ -87,13 +88,8 @@ pub(crate) fn boxed_menu_session(state: MenuFilterState) -> *mut VinputFcitxMenu
     }))
 }
 
-unsafe fn semantic_key<'a>(
-    kind: u8,
-    value: i64,
-    text_data: *const u8,
-    text_len: usize,
-) -> Option<MenuSemanticKey<'a>> {
-    match kind {
+unsafe fn menu_key_input(input: &VinputFcitxMenuKeyInputView) -> Option<MenuSessionKeyInput<'_>> {
+    let key = match input.key_kind {
         MENU_KEY_OTHER => Some(MenuSemanticKey::Other),
         MENU_KEY_PASSIVE => Some(MenuSemanticKey::Passive),
         MENU_KEY_ESCAPE => Some(MenuSemanticKey::Escape),
@@ -103,15 +99,31 @@ unsafe fn semantic_key<'a>(
         MENU_KEY_CLEAR_FILTER => Some(MenuSemanticKey::ClearFilter),
         MENU_KEY_TEXT => {
             // SAFETY: Forwarded from the caller contract.
-            unsafe { text_input(text_data, text_len) }.map(MenuSemanticKey::Text)
+            unsafe { text_input(input.text.data, input.text.len) }.map(MenuSemanticKey::Text)
         }
-        MENU_KEY_PAGE => i32::try_from(value).ok().map(MenuSemanticKey::Page),
-        MENU_KEY_DIGIT => usize::try_from(value).ok().map(MenuSemanticKey::Digit),
+        MENU_KEY_PAGE => i32::try_from(input.key_value)
+            .ok()
+            .map(MenuSemanticKey::Page),
+        MENU_KEY_DIGIT => usize::try_from(input.key_value)
+            .ok()
+            .map(MenuSemanticKey::Digit),
         MENU_KEY_MOVE_PREVIOUS => Some(MenuSemanticKey::MovePrevious),
         MENU_KEY_MOVE_NEXT => Some(MenuSemanticKey::MoveNext),
         MENU_KEY_ENTER => Some(MenuSemanticKey::Enter),
         _ => None,
-    }
+    }?;
+    let current_selection = if input.current_selection < 0 {
+        None
+    } else {
+        Some(usize::try_from(input.current_selection).ok()?)
+    };
+    Some(MenuSessionKeyInput {
+        release: input.release != 0,
+        key,
+        cursor_available: input.cursor_available != 0,
+        current_selection,
+        visible_item_count: input.visible_item_count,
+    })
 }
 
 fn decision_view(action: MenuKeyAction) -> VinputFcitxMenuKeyDecisionView {
@@ -312,18 +324,10 @@ pub unsafe extern "C" fn vinput_fcitx_menu_session_decorate_title(
 /// # Safety
 ///
 /// Input bytes must be readable and `decision_out` must be writable.
-#[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_menu_session_handle_key(
     state: *mut VinputFcitxMenuSession,
-    release: u8,
-    key_kind: u8,
-    key_value: i64,
-    text_data: *const u8,
-    text_len: usize,
-    cursor_available: u8,
-    current_selection: i64,
-    visible_item_count: usize,
+    input: *const VinputFcitxMenuKeyInputView,
     decision_out: *mut VinputFcitxMenuKeyDecisionView,
 ) -> u8 {
     if decision_out.is_null() {
@@ -336,26 +340,15 @@ pub unsafe extern "C" fn vinput_fcitx_menu_session_handle_key(
                 return false;
             };
             // SAFETY: Forwarded from this function's caller contract.
-            let Some(key) = (unsafe { semantic_key(key_kind, key_value, text_data, text_len) })
-            else {
+            let Some(input) = (unsafe { input.as_ref() }) else {
                 return false;
             };
-            let selection = if current_selection < 0 {
-                None
-            } else {
-                usize::try_from(current_selection).ok()
-            };
-            if current_selection >= 0 && selection.is_none() {
+            // SAFETY: Forwarded from this function's caller contract.
+            let Some(input) = (unsafe { menu_key_input(input) }) else {
                 return false;
-            }
+            };
 
-            let Some(action) = state.session.handle_key(MenuSessionKeyInput {
-                release: release != 0,
-                key,
-                cursor_available: cursor_available != 0,
-                current_selection: selection,
-                visible_item_count,
-            }) else {
+            let Some(action) = state.session.handle_key(input) else {
                 return false;
             };
             state.decorated_title.clear();

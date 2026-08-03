@@ -38,6 +38,18 @@ CopyProjectedItem(const VinputFcitxProjectedMenuItemView &view) {
 MenuProjection::MenuProjection(VinputFcitxMenuProjection *projection)
     : projection_(Handle::Adopt(projection)) {}
 
+std::shared_ptr<MenuProjection>
+MenuProjection::Adopt(VinputFcitxMenuProjection *raw_projection) {
+  if (raw_projection == nullptr) {
+    return {};
+  }
+  auto projection = std::shared_ptr<MenuProjection>(new MenuProjection(raw_projection));
+  if (!projection->size().has_value() || !projection->summary().has_value()) {
+    return {};
+  }
+  return projection;
+}
+
 std::optional<std::string> MenuProjection::summary() const {
   VinputFcitxMenuProjectionView view{};
   if (vinput_fcitx_menu_projection_view(projection_.raw_handle(), &view) == 0) {
@@ -66,37 +78,23 @@ std::optional<ProjectedMenuItem> MenuProjection::item(std::size_t index) const {
 std::shared_ptr<MenuProjection>
 AsrMenuController::Project(const MenuSessionState &session,
                            const AsrMenuLocalization &localization) const {
-  auto *raw_projection = vinput_fcitx_asr_menu_controller_projection_new(
-      controller_.raw_handle(), session.raw_handle(), RustBytes(localization.local),
-      localization.local.size(), RustBytes(localization.remote),
-      localization.remote.size(), RustBytes(localization.command),
-      localization.command.size(), RustBytes(localization.loading_suffix),
-      localization.loading_suffix.size(), RustBytes(localization.unavailable),
-      localization.unavailable.size(), RustBytes(localization.loading_prefix),
-      localization.loading_prefix.size(), RustBytes(localization.error_prefix),
-      localization.error_prefix.size());
-  if (raw_projection == nullptr) {
-    return {};
-  }
-  auto projection = std::shared_ptr<MenuProjection>(new MenuProjection(raw_projection));
-  if (!projection->size().has_value() || !projection->summary().has_value()) {
-    return {};
-  }
-  return projection;
+  const VinputFcitxAsrMenuTextView text{
+      .local = ToRustStringView(localization.local),
+      .remote = ToRustStringView(localization.remote),
+      .command = ToRustStringView(localization.command),
+      .loading_suffix = ToRustStringView(localization.loading_suffix),
+      .unavailable = ToRustStringView(localization.unavailable),
+      .loading_prefix = ToRustStringView(localization.loading_prefix),
+      .error_prefix = ToRustStringView(localization.error_prefix),
+  };
+  return MenuProjection::Adopt(vinput_fcitx_asr_menu_controller_projection_new(
+      raw_handle(), session.raw_handle(), &text));
 }
 
 std::shared_ptr<MenuProjection>
 SceneMenuController::Project(const MenuSessionState &session) const {
-  auto *raw_projection = vinput_fcitx_scene_menu_controller_projection_new(
-      controller_.raw_handle(), session.raw_handle());
-  if (raw_projection == nullptr) {
-    return {};
-  }
-  auto projection = std::shared_ptr<MenuProjection>(new MenuProjection(raw_projection));
-  if (!projection->size().has_value() || !projection->summary().has_value()) {
-    return {};
-  }
-  return projection;
+  return MenuProjection::Adopt(vinput_fcitx_scene_menu_controller_projection_new(
+      raw_handle(), session.raw_handle()));
 }
 
 } // namespace vinput_fcitx_bridge

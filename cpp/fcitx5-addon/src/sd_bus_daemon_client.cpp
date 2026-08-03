@@ -145,12 +145,14 @@ bool SdBusDaemonClient::SetActiveAsrTarget(std::string_view provider_id,
     SetError(error, "Missing boolean response output.");
     return false;
   }
+  const VinputFcitxAsrTargetView target{
+      .provider = ToRustStringView(provider_id),
+      .model = ToRustStringView(model_value),
+  };
   std::uint8_t persisted_value = 0;
   VinputFcitxOwnedString *raw_error = nullptr;
   if (vinput_fcitx_daemon_client_set_active_asr_target(
-          impl_->client.raw_handle(), RustBytes(provider_id), provider_id.size(),
-          RustBytes(model_value), model_value.size(), &persisted_value,
-          &raw_error) == 0) {
+          impl_->client.raw_handle(), &target, &persisted_value, &raw_error) == 0) {
     SetRustError(error, raw_error,
                  "Voice input daemon failed to set the active ASR target.");
     return false;

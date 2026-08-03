@@ -50,11 +50,14 @@ std::string RenderPlan(const VinputFcitxDaemonSignalPlanView &plan) {
 std::pair<FrontendNotificationKind, std::string>
 PresentDaemonNotification(std::string_view code, std::string_view subject,
                           std::string_view detail, std::string_view raw_message) {
+  const VinputFcitxDaemonNotificationView notification{
+      .code = ToRustStringView(code),
+      .subject = ToRustStringView(subject),
+      .detail = ToRustStringView(detail),
+      .raw = ToRustStringView(raw_message),
+  };
   VinputFcitxDaemonSignalPlanView plan{};
-  if (vinput_fcitx_daemon_notification_plan(
-          RustBytes(code), code.size(), RustBytes(subject), subject.size(),
-          RustBytes(detail), detail.size(), RustBytes(raw_message), raw_message.size(),
-          &plan) == 0) {
+  if (vinput_fcitx_daemon_notification_plan(&notification, &plan) == 0) {
     return {FrontendNotificationKind::Error, FrontendText("Unknown error.")};
   }
   const auto kind = plan.kind == VINPUT_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO
@@ -141,10 +144,13 @@ std::string DaemonLivePresentationState::Preedit() const {
 
 std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
                                        std::string_view partial_text) {
+  const VinputFcitxDaemonStatusView status_view{
+      .status = ToRustStringView(status),
+      .command_mode = static_cast<std::uint8_t>(command_mode),
+      .partial = ToRustStringView(partial_text),
+  };
   VinputFcitxDaemonSignalPlanView plan{};
-  if (vinput_fcitx_daemon_status_preedit_plan(
-          RustBytes(status), status.size(), static_cast<std::uint8_t>(command_mode),
-          RustBytes(partial_text), partial_text.size(), &plan) == 0) {
+  if (vinput_fcitx_daemon_status_preedit_plan(&status_view, &plan) == 0) {
     return {};
   }
   return RenderPlan(plan);
