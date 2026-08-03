@@ -539,6 +539,38 @@ fn device_use_dry_run_json_validates_without_writing() {
 }
 
 #[test]
+fn device_use_materializes_omitted_global_defaults() {
+    let root = unique_temp_dir("vinput-device-use-omitted-global");
+    let config_path = copy_default_config(&root);
+    let mut document = read_json(&config_path);
+    document
+        .as_object_mut()
+        .expect("default config root")
+        .remove("global");
+    let before = serde_json::to_string_pretty(&document).expect("serialize compact config");
+    fs::write(&config_path, &before).expect("write compact config");
+
+    let output = vinput_command()
+        .args(["device", "use", "alsa_input.virtual-source", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput device use with omitted global defaults");
+
+    let value = assert_json_success(output, "device use omitted global json");
+    assert_eq!(value["before"], "default");
+    assert_eq!(value["after"], "alsa_input.virtual-source");
+    assert_eq!(
+        read_json(&config_path)["global"]["capture_device"],
+        "alsa_input.virtual-source"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("config.json.bak")).expect("read compact backup"),
+        before
+    );
+}
+
+#[test]
 fn device_use_output_writes_valid_config_without_overwriting_input() {
     let root = unique_temp_dir("vinput-device-use-output");
     let config_path = copy_default_config(&root);

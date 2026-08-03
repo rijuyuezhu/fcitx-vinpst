@@ -140,17 +140,25 @@ fn run_device_use(request: &DeviceUseRequest<'_>) -> anyhow::Result<DeviceUseOut
         .with_context(|| format!("parse capture device `{}`", request.target))?;
     let default_path = default_config_path()?;
     let mut loaded = load_config_json(request.config_path)?;
-    let before = loaded
+    let contents =
+        serde_json::to_string(&loaded.document).context("serialize config for device selection")?;
+    let before = VinputConfig::from_json_str(&contents)
+        .context("parse config for device selection")?
+        .global
+        .capture_device;
+    let root = loaded
         .document
-        .pointer("/global/capture_device")
-        .and_then(serde_json::Value::as_str)
-        .with_context(|| "config pointer `/global/capture_device` not found or not a string")?
-        .to_owned();
-    *loaded
-        .document
-        .pointer_mut("/global/capture_device")
-        .with_context(|| "config pointer `/global/capture_device` not found")? =
-        serde_json::Value::String(after.clone());
+        .as_object_mut()
+        .context("device config root must be an object")?;
+    let global = root
+        .entry("global")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .context("device config field `global` must be an object")?;
+    global.insert(
+        "capture_device".to_owned(),
+        serde_json::Value::String(after.clone()),
+    );
     validate_config_json_value(&loaded.document, "validate updated device config")?;
 
     let write_target = config_set_write_target(
