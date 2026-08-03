@@ -12,6 +12,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 for command in dbus-run-session gdbus jq timeout; do
   command -v "${command}" >/dev/null
@@ -23,9 +24,11 @@ mkdir -p "${root}"
 
 write_activation_fixture() {
   local case_root="$1"
-  mkdir -p "${case_root}/data-home/dbus-1/services" "${case_root}/data-dirs"
+  local service_dir="${case_root}/data-home/dbus-1/services"
+  mkdir -p "${service_dir}" "${case_root}/data-dirs"
   printf '[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/removed/vinput-daemon --dbus\n' \
-    >"${case_root}/data-home/dbus-1/services/org.fcitx.Vinput.service"
+    >"${service_dir}/org.fcitx.Vinput.service"
+  write_isolated_dbus_session_config "${case_root}/session.conf" "${service_dir}"
 }
 
 cargo build -q -p vinput-cli --bin vinput -p vinput-daemon --bin vinput-daemon
@@ -35,7 +38,8 @@ write_activation_fixture "${root}/no-owner"
 XDG_DATA_HOME="${root}/no-owner/data-home" \
 XDG_DATA_DIRS="${root}/no-owner/data-dirs" \
 VINPUT_REMOVE_ROOT="${root}/no-owner" \
-  timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 20s dbus-run-session --config-file="${root}/no-owner/session.conf" -- \
+  bash -euo pipefail <<'INNER'
 root="${VINPUT_REMOVE_ROOT}"
 activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinput.service"
 gdbus call --session \
@@ -122,7 +126,8 @@ chmod +x "${direct}/systemctl" "${direct}/kill"
 XDG_DATA_HOME="${direct}/data-home" \
 XDG_DATA_DIRS="${direct}/data-dirs" \
 VINPUT_REMOVE_ROOT="${direct}" \
-  timeout 25s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 25s dbus-run-session --config-file="${direct}/session.conf" -- \
+  bash -euo pipefail <<'INNER'
 root="${VINPUT_REMOVE_ROOT}"
 activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinput.service"
 gdbus call --session \
@@ -216,7 +221,8 @@ chmod +x "${busy}/systemctl" "${busy}/must-not-kill"
 XDG_DATA_HOME="${busy}/data-home" \
 XDG_DATA_DIRS="${busy}/data-dirs" \
 VINPUT_REMOVE_ROOT="${busy}" \
-  timeout 25s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 25s dbus-run-session --config-file="${busy}/session.conf" -- \
+  bash -euo pipefail <<'INNER'
 root="${VINPUT_REMOVE_ROOT}"
 activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinput.service"
 gdbus call --session \
@@ -373,7 +379,8 @@ chmod +x "${systemd_case}/systemctl" "${systemd_case}/must-not-kill"
 XDG_DATA_HOME="${systemd_case}/data-home" \
 XDG_DATA_DIRS="${systemd_case}/data-dirs" \
 VINPUT_REMOVE_ROOT="${systemd_case}" \
-  timeout 25s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 25s dbus-run-session --config-file="${systemd_case}/session.conf" -- \
+  bash -euo pipefail <<'INNER'
 root="${VINPUT_REMOVE_ROOT}"
 activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinput.service"
 gdbus call --session \

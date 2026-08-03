@@ -14,6 +14,7 @@ python3 -B scripts/tests/check_fcitx_ffi_abi.py
 scripts/tests/addon-install-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-asr-menu-smoke.sh
+scripts/tests/cpp/run-cpp-dbus-configured-activation-smoke.sh
 scripts/tests/toolkit-probe-check.sh
 scripts/tests/niri-live-argument-smoke.sh
 

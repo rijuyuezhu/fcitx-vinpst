@@ -96,6 +96,25 @@ bool HasSceneControl(const SceneProjectionState &projection,
   });
 }
 
+std::string
+DescribeSceneProjection(const std::optional<SceneProjectionState> &projection) {
+  if (!projection.has_value()) {
+    return "unavailable";
+  }
+  std::string description = "summary='" + projection->active_label + "', rows=[";
+  for (std::size_t index = 0; index < projection->items.size(); ++index) {
+    if (index != 0) {
+      description += ", ";
+    }
+    const auto &item = projection->items[index];
+    description += "{label='" + item.label + "', kind=" +
+                   std::to_string(static_cast<unsigned int>(item.control_kind)) +
+                   ", first='" + item.first + "'}";
+  }
+  description += "]";
+  return description;
+}
+
 std::optional<AsrProjectionState> ProjectAsr(const AsrMenuController &controller) {
   constexpr std::string_view kLocal = "Local";
   constexpr std::string_view kRemote = "Remote";
@@ -212,8 +231,11 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
       HasSceneControl(*projection, expected_active_scene) ||
       !HasSceneControl(*projection, "__command__")) {
     if (error != nullptr) {
-      *error = "scene state did not expose expected active scene and menu rows: ";
+      *error =
+          "scene state did not expose expected active scene and menu rows: expected='";
       *error += expected_active_scene;
+      *error += "', projection=";
+      *error += DescribeSceneProjection(projection);
     }
     return false;
   }
@@ -226,7 +248,10 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
       !OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED").empty();
   if (persisted != expect_persisted) {
     if (error != nullptr) {
-      *error = "scene persistence result did not match expectation";
+      *error = "scene persistence result did not match expectation: actual=";
+      *error += persisted ? "true" : "false";
+      *error += ", expected=";
+      *error += expect_persisted ? "true" : "false";
     }
     return false;
   }
@@ -238,7 +263,8 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
       HasSceneControl(*command_projection, "__command__") ||
       !HasSceneControl(*command_projection, expected_active_scene)) {
     if (error != nullptr && error->empty()) {
-      *error = "scene state did not reflect selected command scene";
+      *error = "scene state did not reflect selected command scene: projection=";
+      *error += DescribeSceneProjection(command_projection);
     }
     return false;
   }
