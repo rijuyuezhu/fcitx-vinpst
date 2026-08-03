@@ -35,6 +35,8 @@ pub enum LlmProviderMessage {
     BeginAdd,
     /// Open an existing provider for editing.
     BeginEdit(String),
+    /// Remove one configured provider when the full config remains valid.
+    Remove(String),
     /// Update one field without exposing the entered value through `Debug`.
     EditorChanged {
         /// Typed field being edited.
@@ -208,6 +210,7 @@ impl App {
         match message {
             LlmProviderMessage::BeginAdd => self.begin_add_llm_provider(),
             LlmProviderMessage::BeginEdit(id) => self.begin_edit_llm_provider(&id),
+            LlmProviderMessage::Remove(id) => return self.begin_llm_provider_remove(&id),
             LlmProviderMessage::EditorChanged { field, value } => {
                 self.update_llm_provider_editor(field, value);
             }
@@ -254,6 +257,28 @@ impl App {
         };
         self.llm_provider_editor = Some(LlmProviderEditorState::edit(&provider));
         self.operation = OperationState::Idle;
+    }
+
+    fn begin_llm_provider_remove(&mut self, provider_id: &str) -> Task<Message> {
+        if self.is_busy() || self.llm_provider_editor.is_some() {
+            return Task::none();
+        }
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        let updated = match remove_llm_provider(&document.config, provider_id) {
+            Ok(updated) => updated,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
+        };
+        self.begin_llm_provider_mutation(
+            document.clone(),
+            updated,
+            format!("Removed LLM provider `{provider_id}`."),
+        )
     }
 
     fn update_llm_provider_editor(&mut self, field: LlmProviderEditorField, value: SecretInput) {
@@ -412,6 +437,9 @@ fn llm_provider_row(
         button("Edit").on_press_maybe(controls_enabled.then_some(Message::LlmProvider(
             LlmProviderMessage::BeginEdit(provider_id.to_owned())
         ))),
+        button("Remove").on_press_maybe(controls_enabled.then_some(Message::LlmProvider(
+            LlmProviderMessage::Remove(provider_id.to_owned())
+        ))),
     ]
     .spacing(10)
     .into()
@@ -541,6 +569,21 @@ fn edit_llm_provider(
         .find(|configured| configured.id == original_id)
         .ok_or_else(|| format!("LLM provider `{original_id}` is no longer configured."))?;
     *configured = provider;
+    validate_llm_provider_update(updated)
+}
+
+fn remove_llm_provider(config: &VinputConfig, provider_id: &str) -> Result<VinputConfig, String> {
+    let mut updated = config.clone();
+    let before = updated.llm.providers.len();
+    updated
+        .llm
+        .providers
+        .retain(|provider| provider.id != provider_id);
+    if updated.llm.providers.len() == before {
+        return Err(format!(
+            "LLM provider `{provider_id}` is no longer configured."
+        ));
+    }
     validate_llm_provider_update(updated)
 }
 
@@ -675,6 +718,19 @@ mod tests {
                 .iter()
                 .any(|provider| provider.id == "renamed")
         );
+    }
+
+    #[test]
+    fn remove_provider_requires_unreferenced_config() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        config.llm.providers.push(provider("cloud"));
+
+        let removed = remove_llm_provider(&config, "cloud").expect("remove provider");
+        assert!(removed.llm.providers.is_empty());
+
+        config.scenes.definitions[0].provider_id = Some("cloud".to_owned());
+        let error = remove_llm_provider(&config, "cloud").expect_err("reject referenced provider");
+        assert!(error.contains("cloud"));
     }
 
     #[test]
