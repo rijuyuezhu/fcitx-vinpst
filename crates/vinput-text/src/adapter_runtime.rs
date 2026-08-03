@@ -13,7 +13,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use vinput_config::LlmAdapterConfig;
 use vinput_process::{
-    ProcessGroupSignal, configure_process_group, process_group_exists,
+    ProcessGroupSignal, configure_process_group, process_group_has_live_members,
     signal_process_group_and_child, terminate_child_process_group, try_wait_child_and_cleanup,
 };
 
@@ -382,6 +382,7 @@ pub fn start_adapter_process(
     paths: &AdapterRuntimePaths,
 ) -> Result<StartedAdapterProcess, TextError> {
     prepare_adapter_pid_slot(&spec.id, paths)?;
+    paths.ensure_runtime_dir()?;
     let mut command = Command::new(&spec.command);
     configure_process_group(&mut command);
     command
@@ -540,7 +541,7 @@ fn wait_for_record_cleanup(
     loop {
         match process_record_state(record)? {
             ProcessRecordState::Missing | ProcessRecordState::Exited => {
-                if !process_group_exists(record.pid).map_err(|error| {
+                if !process_group_has_live_members(record.pid).map_err(|error| {
                     TextError::AdapterRuntimeIo(format!(
                         "failed to inspect text adapter process group {}: {error}",
                         record.pid

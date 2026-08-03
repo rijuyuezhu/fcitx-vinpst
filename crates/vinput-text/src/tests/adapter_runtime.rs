@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::*;
-use crate::stop_started_adapter_process;
+use crate::{StartedAdapterProcess, stop_started_adapter_process};
 
 fn unique_runtime_dir(label: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
@@ -58,14 +58,39 @@ fn read_proc_start_time_ticks(pid: u32) -> u64 {
         .unwrap()
 }
 
-fn wait_for_file(path: &std::path::Path) {
-    for _ in 0..100 {
+fn wait_for_file(
+    path: &std::path::Path,
+    process: &mut StartedAdapterProcess,
+    paths: &AdapterRuntimePaths,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
         if path.exists() {
             return;
         }
+        match process.try_wait_and_cleanup() {
+            Ok(None) => {}
+            Ok(Some(status)) => {
+                let _ = paths.remove_pid(&process.id);
+                panic!(
+                    "adapter exited with {status} before file appeared: {}",
+                    path.display()
+                );
+            }
+            Err(error) => {
+                let _ = stop_started_adapter_process(process, paths);
+                panic!(
+                    "failed to inspect adapter while waiting for {}: {error}",
+                    path.display()
+                );
+            }
+        }
+        if Instant::now() >= deadline {
+            let _ = stop_started_adapter_process(process, paths);
+            panic!("file did not appear within 5 seconds: {}", path.display());
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
-    panic!("file did not appear: {}", path.display());
 }
 
 #[test]
@@ -263,14 +288,14 @@ fn stop_started_adapter_process_terminates_group_and_descendant() {
     let paths = AdapterRuntimePaths::new(&runtime_dir);
     let mut spec = sleep_adapter_spec(vec![
         "-c".to_owned(),
-        r#"sleep 30 & echo $! > "$CHILD_PID"; wait"#.to_owned(),
+        "sleep 30 & echo $! > \"$CHILD_PID\"; wait".to_owned(),
     ]);
     spec.env.insert(
         "CHILD_PID".to_owned(),
         child_pid_path.to_string_lossy().into_owned(),
     );
     let mut started = start_adapter_process(&spec, &paths).unwrap();
-    wait_for_file(&child_pid_path);
+    wait_for_file(&child_pid_path, &mut started, &paths);
     let child_pid = std::fs::read_to_string(&child_pid_path)
         .unwrap()
         .trim()
@@ -291,14 +316,14 @@ fn stop_started_adapter_process_escalates_when_term_is_ignored() {
     let paths = AdapterRuntimePaths::new(&runtime_dir);
     let mut spec = sleep_adapter_spec(vec![
         "-c".to_owned(),
-        r#"trap '' TERM; : > "$READY_PATH"; while :; do sleep 1; done"#.to_owned(),
+        "trap '' TERM; : > \"$READY_PATH\"; while :; do sleep 1; done".to_owned(),
     ]);
     spec.env.insert(
         "READY_PATH".to_owned(),
         ready_path.to_string_lossy().into_owned(),
     );
     let mut started = start_adapter_process(&spec, &paths).unwrap();
-    wait_for_file(&ready_path);
+    wait_for_file(&ready_path, &mut started, &paths);
 
     let began = Instant::now();
     let outcome = stop_started_adapter_process(&mut started, &paths).unwrap();

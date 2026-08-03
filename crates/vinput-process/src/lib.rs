@@ -2,6 +2,8 @@
 
 #![cfg(unix)]
 
+#[cfg(target_os = "linux")]
+use std::fs;
 use std::{
     io::{self, Read},
     os::unix::process::CommandExt,
@@ -118,6 +120,76 @@ pub fn process_group_exists(process_group_id: u32) -> io::Result<bool> {
         Ok(()) | Err(nix::errno::Errno::EPERM) => Ok(true),
         Err(nix::errno::Errno::ESRCH) => Ok(false),
         Err(error) => Err(io::Error::from_raw_os_error(error as i32)),
+    }
+}
+
+/// Returns whether a process group still has at least one non-zombie member.
+///
+/// Linux keeps an exited process in its process group until its parent reaps
+/// the zombie. A signal-zero group probe therefore cannot distinguish useful
+/// work from a group containing only unreaped zombies. On Linux this helper
+/// scans `/proc` after the group probe and treats zombie-only groups as clean.
+/// Other Unix targets conservatively fall back to group existence.
+pub fn process_group_has_live_members(process_group_id: u32) -> io::Result<bool> {
+    if !process_group_exists(process_group_id)? {
+        return Ok(false);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    return Ok(true);
+
+    #[cfg(target_os = "linux")]
+    {
+        let mut saw_member = false;
+        for entry in fs::read_dir("/proc")? {
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if file_name.parse::<u32>().is_err() {
+                continue;
+            }
+            let stat = match fs::read_to_string(entry.path().join("stat")) {
+                Ok(stat) => stat,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                    ) =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let Some(closing_paren) = stat.rfind(')') else {
+                continue;
+            };
+            let mut fields = stat[closing_paren + 1..].split_whitespace();
+            let Some(state) = fields.next().and_then(|value| value.chars().next()) else {
+                continue;
+            };
+            let Some(_parent_pid) = fields.next() else {
+                continue;
+            };
+            let Some(group_id) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+                continue;
+            };
+            if group_id != process_group_id {
+                continue;
+            }
+            saw_member = true;
+            if !matches!(state, 'Z' | 'X') {
+                return Ok(true);
+            }
+        }
+
+        if saw_member {
+            Ok(false)
+        } else {
+            process_group_exists(process_group_id)
+        }
     }
 }
 
@@ -488,8 +560,15 @@ fn kill_process_group(process_group_id: u32) {
 #[cfg(test)]
 mod tests {
     use std::{io::Write, process::Command, time::Instant};
+    #[cfg(target_os = "linux")]
+    use std::{process::Stdio, thread, time::Duration};
 
     use super::{MAX_COMMAND_OUTPUT_BYTES, PipedCommandError, run_piped_command};
+    #[cfg(target_os = "linux")]
+    use super::{
+        ProcessGroupSignal, configure_process_group, process_group_exists,
+        process_group_has_live_members, signal_process_group_and_child,
+    };
 
     #[test]
     fn captures_bounded_output_and_stdin() {
@@ -530,5 +609,66 @@ mod tests {
             PipedCommandError::StdoutTooLarge { limit }
                 if limit == MAX_COMMAND_OUTPUT_BYTES
         ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn zombie_only_group_has_no_live_members() {
+        let mut command = Command::new("sh");
+        configure_process_group(&mut command);
+        command.args(["-c", "exit 0"]);
+        let mut child = command.spawn().unwrap();
+        let process_group_id = child.id();
+        let deadline = Instant::now() + Duration::from_secs(2);
+
+        while process_group_has_live_members(process_group_id).unwrap() && Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let group_exists = process_group_exists(process_group_id).unwrap();
+        let has_live_members = process_group_has_live_members(process_group_id).unwrap();
+        child.wait().unwrap();
+
+        assert!(
+            group_exists,
+            "unreaped zombie should keep the group visible"
+        );
+        assert!(!has_live_members, "zombie-only group should count as clean");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reaped_leader_group_stays_live_while_descendant_runs() {
+        let mut command = Command::new("sh");
+        configure_process_group(&mut command);
+        command
+            .args(["-c", "sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
+            .stdout(Stdio::piped());
+        let child = command.spawn().unwrap();
+        let process_group_id = child.id();
+        let output = child.wait_with_output().unwrap();
+        let descendant_pid = String::from_utf8(output.stdout)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .unwrap();
+
+        let live_result = process_group_has_live_members(process_group_id);
+        let _ = signal_process_group_and_child(process_group_id, ProcessGroupSignal::Kill);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while process_group_has_live_members(process_group_id).unwrap_or(false)
+            && Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(
+            live_result.unwrap(),
+            "group should remain live while descendant {descendant_pid} runs"
+        );
+        assert!(
+            !process_group_has_live_members(process_group_id).unwrap(),
+            "killed descendant group should become zombie-only or disappear"
+        );
     }
 }
