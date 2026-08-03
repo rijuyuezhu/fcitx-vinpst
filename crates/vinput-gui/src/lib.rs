@@ -27,6 +27,7 @@ mod provider_script_edit;
 mod resource_pages;
 mod script_install;
 mod script_management;
+mod script_recovery;
 mod script_removal;
 
 pub use message::Message;
@@ -261,6 +262,8 @@ impl App {
             Message::ConfirmScriptInstall => return self.confirm_script_install(),
             Message::CancelScriptInstall => self.script_install.cancel(),
             Message::RetryScriptInstall => return self.retry_script_install(),
+            Message::RetryScriptConfigUpdate => return self.retry_script_config_update(),
+            Message::DismissScriptRecovery => self.dismiss_script_recovery(),
             Message::ScriptInstallProgressTick => self.script_install.refresh_progress(),
             Message::ScriptInstalled {
                 operation_id,

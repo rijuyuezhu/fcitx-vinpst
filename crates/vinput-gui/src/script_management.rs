@@ -11,7 +11,8 @@ use vinput_registry::{
 };
 
 use crate::{
-    ConfigDocument, ensure_config_mutation_allowed, save_updated_config_with_daemon,
+    ConfigDocument, ConfigSaveOutcome, ensure_config_mutation_allowed,
+    save_updated_config_with_daemon,
     script_install::{
         ScriptEnvironmentValue, ScriptInstallOutcome, ScriptInstallPlan, ScriptPrepareOutcome,
     },
@@ -108,6 +109,22 @@ fn install_registry_script_from_source(
     control: &RegistryOperationControl,
     asset_source: &impl vinput_registry::RegistryAssetSource,
 ) -> ScriptInstallOutcome {
+    install_registry_script_from_source_and_save(
+        document,
+        plan,
+        control,
+        asset_source,
+        save_updated_config_with_daemon,
+    )
+}
+
+pub(crate) fn install_registry_script_from_source_and_save(
+    document: &ConfigDocument,
+    plan: &ScriptInstallPlan,
+    control: &RegistryOperationControl,
+    asset_source: &impl vinput_registry::RegistryAssetSource,
+    save: impl FnOnce(&ConfigDocument, &VinputConfig) -> Result<ConfigSaveOutcome, String>,
+) -> ScriptInstallOutcome {
     control.report(RegistryOperationProgress::Preparing);
     if control.is_cancelled() {
         return ScriptInstallOutcome::Cancelled;
@@ -159,13 +176,10 @@ fn install_registry_script_from_source(
     }
 
     control.report(RegistryOperationProgress::UpdatingConfiguration);
-    let saved = match save_updated_config_with_daemon(document, &updated) {
+    let saved = match save(document, &updated) {
         Ok(saved) => saved,
         Err(error) => {
-            return ScriptInstallOutcome::Failed(format!(
-                "Script installed at {}, but configuration update failed: {error}",
-                plan.script_path.display()
-            ));
+            return ScriptInstallOutcome::PublishedButConfigFailed { error };
         }
     };
     control.report(RegistryOperationProgress::Completed);
@@ -179,7 +193,7 @@ fn install_registry_script_from_source(
     ))
 }
 
-fn validate_plan_environment(plan: &ScriptInstallPlan) -> Result<(), String> {
+pub(crate) fn validate_plan_environment(plan: &ScriptInstallPlan) -> Result<(), String> {
     if plan.environment.len() != plan.entry.envs.len()
         || !plan
             .environment
@@ -225,7 +239,7 @@ fn prepared_environment_value(
     }
 }
 
-fn apply_plan_environment(config: &mut VinputConfig, plan: &ScriptInstallPlan) {
+pub(crate) fn apply_plan_environment(config: &mut VinputConfig, plan: &ScriptInstallPlan) {
     let environment = match plan.kind {
         LiveScriptKind::AsrProvider => config
             .asr
@@ -289,7 +303,7 @@ fn fetch_live_script_registry_from(
     ))
 }
 
-fn materialize_config(
+pub(crate) fn materialize_config(
     config: &VinputConfig,
     kind: LiveScriptKind,
     entry: &vinput_registry::LiveScriptEntry,

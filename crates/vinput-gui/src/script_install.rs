@@ -18,6 +18,7 @@ use crate::{
     script_management::{
         install_registry_script_controlled, prepare_registry_script_controlled, resource_label,
     },
+    script_recovery::recover_registry_script_config,
 };
 
 /// A user-entered value whose debug representation is always redacted.
@@ -178,6 +179,11 @@ pub enum ScriptInstallOutcome {
     Installed(String),
     /// The user or application shutdown requested cancellation.
     Cancelled,
+    /// The script was published, but its configuration entry could not be committed.
+    PublishedButConfigFailed {
+        /// Config mutation or persistence error without environment values.
+        error: String,
+    },
     /// The operation failed.
     Failed(String),
 }
@@ -198,6 +204,11 @@ pub(crate) enum ScriptInstallState {
     Preparing(ActiveScriptPreparation),
     AwaitingEnvironment(Box<ScriptInstallPlan>),
     Active(Box<ActiveScriptInstall>),
+    Recovering(Box<ActiveScriptRecovery>),
+    RecoveryRequired {
+        plan: Box<ScriptInstallPlan>,
+        error: String,
+    },
     Succeeded(String),
     Cancelled {
         retry: ScriptRetryRequest,
@@ -233,6 +244,12 @@ pub(crate) struct ActiveScriptInstall {
     cancelling: bool,
 }
 
+#[derive(Debug)]
+pub(crate) struct ActiveScriptRecovery {
+    operation_id: u64,
+    plan: ScriptInstallPlan,
+}
+
 impl Drop for ActiveScriptInstall {
     fn drop(&mut self) {
         self.control.cancel();
@@ -241,13 +258,20 @@ impl Drop for ActiveScriptInstall {
 
 impl ScriptInstallState {
     pub(crate) fn has_worker(&self) -> bool {
-        matches!(self, Self::Preparing(_) | Self::Active(_))
+        matches!(
+            self,
+            Self::Preparing(_) | Self::Active(_) | Self::Recovering(_)
+        )
     }
 
     pub(crate) fn blocks_operations(&self) -> bool {
         matches!(
             self,
-            Self::Preparing(_) | Self::AwaitingEnvironment(_) | Self::Active(_)
+            Self::Preparing(_)
+                | Self::AwaitingEnvironment(_)
+                | Self::Active(_)
+                | Self::Recovering(_)
+                | Self::RecoveryRequired { .. }
         )
     }
 
@@ -339,6 +363,35 @@ impl ScriptInstallState {
         )
     }
 
+    pub(crate) fn start_recovery(
+        document: ConfigDocument,
+        plan: ScriptInstallPlan,
+        operation_id: u64,
+    ) -> (Self, Task<Message>) {
+        let worker_plan = plan.clone();
+        let task = Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    recover_registry_script_config(&document, &worker_plan)
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    ScriptInstallOutcome::PublishedButConfigFailed {
+                        error: "Configuration recovery worker stopped unexpectedly.".to_owned(),
+                    }
+                })
+            },
+            move |outcome| Message::ScriptInstalled {
+                operation_id,
+                outcome,
+            },
+        );
+        (
+            Self::Recovering(Box::new(ActiveScriptRecovery { operation_id, plan })),
+            task,
+        )
+    }
+
     pub(crate) fn cancel(&mut self) {
         match self {
             Self::Preparing(active) => {
@@ -353,7 +406,12 @@ impl ScriptInstallState {
                 active.control.cancel();
                 active.cancelling = true;
             }
-            Self::Idle | Self::Succeeded(_) | Self::Cancelled { .. } | Self::Failed { .. } => {}
+            Self::Idle
+            | Self::Recovering(_)
+            | Self::RecoveryRequired { .. }
+            | Self::Succeeded(_)
+            | Self::Cancelled { .. }
+            | Self::Failed { .. } => {}
         }
     }
 
@@ -426,12 +484,29 @@ impl ScriptInstallState {
         operation_id: u64,
         outcome: ScriptInstallOutcome,
     ) -> bool {
-        let plan = match self {
-            Self::Active(active) if active.operation_id == operation_id => active.plan.clone(),
+        let (plan, recovering) = match self {
+            Self::Active(active) if active.operation_id == operation_id => {
+                (active.plan.clone(), false)
+            }
+            Self::Recovering(active) if active.operation_id == operation_id => {
+                (active.plan.clone(), true)
+            }
             _ => return false,
         };
         *self = match outcome {
             ScriptInstallOutcome::Installed(summary) => Self::Succeeded(summary),
+            ScriptInstallOutcome::PublishedButConfigFailed { error } => Self::RecoveryRequired {
+                plan: Box::new(plan),
+                error,
+            },
+            ScriptInstallOutcome::Cancelled if recovering => Self::RecoveryRequired {
+                plan: Box::new(plan),
+                error: "Configuration recovery was cancelled before completion.".to_owned(),
+            },
+            ScriptInstallOutcome::Failed(error) if recovering => Self::RecoveryRequired {
+                plan: Box::new(plan),
+                error,
+            },
             ScriptInstallOutcome::Cancelled => Self::Cancelled {
                 retry: ScriptRetryRequest::Install(Box::new(plan)),
             },
@@ -443,6 +518,25 @@ impl ScriptInstallState {
         true
     }
 
+    pub(crate) fn recovery_plan(&self) -> Option<ScriptInstallPlan> {
+        match self {
+            Self::RecoveryRequired { plan, .. } => Some((**plan).clone()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn dismiss_recovery(&mut self) {
+        if matches!(self, Self::RecoveryRequired { .. }) {
+            *self = Self::Idle;
+        }
+    }
+
+    pub(crate) fn set_recovery_error(&mut self, message: String) {
+        if let Self::RecoveryRequired { error, .. } = self {
+            *error = message;
+        }
+    }
+
     fn retry_request(&self) -> Option<ScriptRetryRequest> {
         match self {
             Self::Cancelled { retry } | Self::Failed { retry, .. } => Some(retry.clone()),
@@ -450,6 +544,8 @@ impl ScriptInstallState {
             | Self::Preparing(_)
             | Self::AwaitingEnvironment(_)
             | Self::Active(_)
+            | Self::Recovering(_)
+            | Self::RecoveryRequired { .. }
             | Self::Succeeded(_) => None,
         }
     }
@@ -460,6 +556,43 @@ impl ScriptInstallState {
             Self::Preparing(active) => Some(active.view()),
             Self::AwaitingEnvironment(plan) => Some(plan.view()),
             Self::Active(active) => Some(active.view()),
+            Self::Recovering(active) => Some(
+                column![
+                    text(format!(
+                        "Retrying configuration for {} `{}`…",
+                        resource_label(active.plan.kind),
+                        active.plan.entry.id
+                    )),
+                    text("The published script is being reused; no download is running."),
+                ]
+                .spacing(6)
+                .into(),
+            ),
+            Self::RecoveryRequired { plan, error } => Some(
+                column![
+                    text("Script published; configuration incomplete").size(18),
+                    text(format!(
+                        "{} `{}` was published at {}.",
+                        resource_label(plan.kind),
+                        plan.entry.id,
+                        plan.script_path.display()
+                    )),
+                    text(format!("Configuration error: {error}")),
+                    text(
+                        "Reload after resolving external changes or permissions, then retry. The script will not be downloaded again; dismissing keeps the published file."
+                    ),
+                    row![
+                        button("Reload config").on_press(Message::ReloadConfig),
+                        button("Retry configuration update")
+                            .on_press(Message::RetryScriptConfigUpdate),
+                        button("Dismiss (keep script)")
+                            .on_press(Message::DismissScriptRecovery),
+                    ]
+                    .spacing(10),
+                ]
+                .spacing(8)
+                .into(),
+            ),
             Self::Succeeded(summary) => Some(text(format!("Success: {summary}")).into()),
             Self::Cancelled { .. } => Some(
                 row![
@@ -505,6 +638,34 @@ impl App {
             }
             ScriptRetryRequest::Install(plan) => self.begin_resolved_script_install(*plan),
         }
+    }
+
+    pub(crate) fn retry_script_config_update(&mut self) -> Task<Message> {
+        let Some(plan) = self.script_install.recovery_plan() else {
+            return Task::none();
+        };
+        let Ok(document) = &self.config else {
+            let error = self
+                .config
+                .as_ref()
+                .err()
+                .cloned()
+                .unwrap_or_else(|| "No valid config is loaded.".to_owned());
+            self.script_install
+                .set_recovery_error(format!("Reloaded config is invalid: {error}"));
+            return Task::none();
+        };
+        let document = document.clone();
+        let operation_id = self.next_script_operation_id();
+        let (state, task) = ScriptInstallState::start_recovery(document, plan, operation_id);
+        self.operation = OperationState::Idle;
+        self.script_install = state;
+        task
+    }
+
+    pub(crate) fn dismiss_script_recovery(&mut self) {
+        self.script_install.dismiss_recovery();
+        self.operation = OperationState::Idle;
     }
 
     fn begin_script_preparation_for(
@@ -576,7 +737,9 @@ impl App {
         let document = document.clone();
         if matches!(
             self.script_install,
-            ScriptInstallState::Preparing(_) | ScriptInstallState::Active(_)
+            ScriptInstallState::Preparing(_)
+                | ScriptInstallState::Active(_)
+                | ScriptInstallState::Recovering(_)
         ) {
             return Task::none();
         }
@@ -615,8 +778,9 @@ impl App {
                 .ok()
                 .map(|document| document.path.clone());
             self.replace_config(load_config_document(path.as_deref()));
+            return self.begin_daemon_refresh(false);
         }
-        self.begin_daemon_refresh(false)
+        Task::none()
     }
 
     pub(crate) fn provider_install_controls(&self, busy: bool) -> Element<'_, Message> {
@@ -851,6 +1015,62 @@ mod tests {
             state.retry_request(),
             Some(ScriptRetryRequest::Install(_))
         ));
+    }
+
+    #[test]
+    fn published_script_failure_enters_redacted_recovery_state() {
+        let document = ConfigDocument {
+            path: "/tmp/config.json".into(),
+            from_disk: false,
+            config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
+        };
+        let install_plan = plan(vec![ScriptEnvironmentValue {
+            name: "TOKEN".to_owned(),
+            required: true,
+            value: "super-secret".to_owned(),
+        }]);
+        let (mut state, _) = ScriptInstallState::start_install(document, install_plan, 16);
+
+        assert!(state.finish_install(
+            16,
+            ScriptInstallOutcome::PublishedButConfigFailed {
+                error: "permission denied".to_owned(),
+            }
+        ));
+
+        assert!(matches!(state, ScriptInstallState::RecoveryRequired { .. }));
+        assert!(state.blocks_operations());
+        assert!(state.recovery_plan().is_some());
+        assert!(!format!("{state:?}").contains("super-secret"));
+    }
+
+    #[test]
+    fn stale_recovery_completion_is_rejected_and_dismiss_clears_state() {
+        let document = ConfigDocument {
+            path: "/tmp/config.json".into(),
+            from_disk: false,
+            config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
+        };
+        let (mut state, _) = ScriptInstallState::start_recovery(document, plan(Vec::new()), 17);
+
+        assert!(!state.finish_install(
+            16,
+            ScriptInstallOutcome::PublishedButConfigFailed {
+                error: "stale".to_owned(),
+            }
+        ));
+        assert!(state.has_worker());
+        assert!(state.finish_install(
+            17,
+            ScriptInstallOutcome::PublishedButConfigFailed {
+                error: "still blocked".to_owned(),
+            }
+        ));
+        assert!(matches!(state, ScriptInstallState::RecoveryRequired { .. }));
+
+        state.dismiss_recovery();
+
+        assert!(matches!(state, ScriptInstallState::Idle));
     }
 
     #[test]

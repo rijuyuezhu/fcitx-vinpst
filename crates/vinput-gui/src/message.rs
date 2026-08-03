@@ -101,6 +101,10 @@ pub enum Message {
     CancelScriptInstall,
     /// Retry the last failed or cancelled provider or adapter installation.
     RetryScriptInstall,
+    /// Retry only the configuration commit after a script was already published.
+    RetryScriptConfigUpdate,
+    /// Dismiss a published-script recovery state without deleting the script.
+    DismissScriptRecovery,
     /// Refresh progress from the active provider or adapter worker.
     ScriptInstallProgressTick,
     /// Result of a live provider or adapter installation.
