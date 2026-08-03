@@ -99,21 +99,23 @@ pub unsafe extern "C" fn vinput_fcitx_menu_projection_view(
     projection: *const VinputFcitxMenuProjection,
     view_out: *mut VinputFcitxMenuProjectionView,
 ) -> u8 {
-    if view_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(projection) = (unsafe { projection.as_ref() }) else {
-        return 0;
-    };
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe {
-        view_out.write(VinputFcitxMenuProjectionView {
-            summary: string_view(&projection.summary),
-            item_count: projection.items.len(),
-        });
-    }
-    1
+    crate::ffi_catch(0, || {
+        if view_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(projection) = (unsafe { projection.as_ref() }) else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe {
+            view_out.write(VinputFcitxMenuProjectionView {
+                summary: string_view(&projection.summary),
+                item_count: projection.items.len(),
+            });
+        }
+        1
+    })
 }
 
 /// Borrows one row from a shared menu projection.
@@ -127,17 +129,19 @@ pub unsafe extern "C" fn vinput_fcitx_menu_projection_item_view(
     index: usize,
     view_out: *mut VinputFcitxProjectedMenuItemView,
 ) -> u8 {
-    if view_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(item) = (unsafe { projection.as_ref() }).and_then(|value| value.items.get(index))
-    else {
-        return 0;
-    };
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe { view_out.write(projected_item_view(item)) };
-    1
+    crate::ffi_catch(0, || {
+        if view_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(item) = (unsafe { projection.as_ref() }).and_then(|value| value.items.get(index))
+        else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe { view_out.write(projected_item_view(item)) };
+        1
+    })
 }
 
 #[cfg(test)]

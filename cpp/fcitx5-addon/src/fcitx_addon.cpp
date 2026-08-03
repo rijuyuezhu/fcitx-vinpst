@@ -79,6 +79,14 @@ std::string TriggerListDescription(const fcitx::KeyList &keys) {
   return description.empty() ? "<disabled>" : description;
 }
 
+BridgeOutcome BuildPreeditOutcome(std::string text, bool replace_selection) {
+  BridgeOutcome outcome;
+  outcome.kind = BridgeOutcome::Kind::Preedit;
+  outcome.text = std::move(text);
+  outcome.replace_selection = replace_selection;
+  return outcome;
+}
+
 #ifdef VINPUT_FCITX_HAVE_CLIPBOARD
 std::string PrimarySelectionFromClipboard(fcitx::Instance *instance,
                                           fcitx::InputContext *ic) {
@@ -278,12 +286,7 @@ void FcitxVinputAddon::UpdateLivePreedit() {
   if (preedit.empty()) {
     return;
   }
-  const BridgeOutcome outcome{
-      .kind = BridgeOutcome::Kind::Preedit,
-      .text = preedit,
-      .candidate_menu = {},
-      .replace_selection = bridge_.command_mode(),
-  };
+  const auto outcome = BuildPreeditOutcome(preedit, bridge_.command_mode());
   ApplyBridgeOutcomeToInputContext(outcome, active_ic);
 }
 
@@ -477,12 +480,7 @@ AppliedOutcome FcitxVinputAddon::PresentRemoteDaemonStatus(fcitx::InputContext *
   if (ic != nullptr) {
     remote_status_ic_ = ic->watch();
   }
-  const BridgeOutcome outcome{
-      .kind = BridgeOutcome::Kind::Preedit,
-      .text = preedit,
-      .candidate_menu = {},
-      .replace_selection = command_mode,
-  };
+  const auto outcome = BuildPreeditOutcome(preedit, command_mode);
   return ApplyBridgeOutcomeToInputContext(outcome, ic);
 }
 

@@ -15,3 +15,6 @@ thiserror.workspace = true
 vinput-fcitx-core = { path = "../vinput-fcitx-core" }
 vinput-protocol = { path = "../vinput-protocol" }
 zbus = { workspace = true, features = ["blocking-api"] }
+
+[dev-dependencies]
+tokio.workspace = true

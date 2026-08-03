@@ -183,32 +183,34 @@ fn control_plan_value(plan: DaemonControlPlan) -> u8 {
 pub unsafe extern "C" fn vinput_fcitx_daemon_control_plan(
     control: *const VinputFcitxDaemonControlView,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(control) = (unsafe { control.as_ref() }) else {
-        return CONTROL_PLAN_NONE;
-    };
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(status) = (unsafe { text_input(control.status.data, control.status.len) }) else {
-        return CONTROL_PLAN_NONE;
-    };
-    let event = match control.event {
-        CONTROL_EVENT_AVAILABILITY_CHANGED => DaemonControlEvent::AvailabilityChanged {
-            available: control.flag != 0,
-        },
-        CONTROL_EVENT_STATUS_CHANGED => DaemonControlEvent::StatusChanged { status },
-        CONTROL_EVENT_RECONCILE_BEFORE_START => DaemonControlEvent::ReconcileBeforeStart {
-            status,
-            requested_command_mode: control.flag != 0,
-        },
-        _ => return CONTROL_PLAN_NONE,
-    };
-    control_plan_value(plan_daemon_control(
-        event,
-        DaemonControlContext {
-            recording: control.recording != 0,
-            remote_status_active: control.remote_status_active != 0,
-        },
-    ))
+    crate::ffi_catch(CONTROL_PLAN_NONE, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(control) = (unsafe { control.as_ref() }) else {
+            return CONTROL_PLAN_NONE;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(status) = (unsafe { text_input(control.status.data, control.status.len) }) else {
+            return CONTROL_PLAN_NONE;
+        };
+        let event = match control.event {
+            CONTROL_EVENT_AVAILABILITY_CHANGED => DaemonControlEvent::AvailabilityChanged {
+                available: control.flag != 0,
+            },
+            CONTROL_EVENT_STATUS_CHANGED => DaemonControlEvent::StatusChanged { status },
+            CONTROL_EVENT_RECONCILE_BEFORE_START => DaemonControlEvent::ReconcileBeforeStart {
+                status,
+                requested_command_mode: control.flag != 0,
+            },
+            _ => return CONTROL_PLAN_NONE,
+        };
+        control_plan_value(plan_daemon_control(
+            event,
+            DaemonControlContext {
+                recording: control.recording != 0,
+                remote_status_active: control.remote_status_active != 0,
+            },
+        ))
+    })
 }
 
 /// Allocates empty Rust-owned live daemon presentation state.
@@ -248,12 +250,14 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_free(
 pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_reset(
     state: *mut VinputFcitxDaemonLiveState,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_mut() }) else {
-        return 0;
-    };
-    state.state.reset();
-    1
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_mut() }) else {
+            return 0;
+        };
+        state.state.reset();
+        1
+    })
 }
 
 /// Starts a new daemon status presentation and stores its command mode.
@@ -268,16 +272,18 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_begin_status(
     status_len: usize,
     command_mode: u8,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_mut() }) else {
-        return 0;
-    };
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(status) = (unsafe { text_input(status_data, status_len) }) else {
-        return 0;
-    };
-    state.state.begin_status(status, command_mode != 0);
-    1
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(status) = (unsafe { text_input(status_data, status_len) }) else {
+            return 0;
+        };
+        state.state.begin_status(status, command_mode != 0);
+        1
+    })
 }
 
 /// Replaces the current daemon status without changing mode or partial state.
@@ -291,16 +297,18 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_update_status(
     status_data: *const u8,
     status_len: usize,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_mut() }) else {
-        return 0;
-    };
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(status) = (unsafe { text_input(status_data, status_len) }) else {
-        return 0;
-    };
-    state.state.update_status(status);
-    1
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(status) = (unsafe { text_input(status_data, status_len) }) else {
+            return 0;
+        };
+        state.state.update_status(status);
+        1
+    })
 }
 
 /// Stores one distinct live partial while local recording is active.
@@ -317,15 +325,17 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_update_partial(
     partial_len: usize,
     recording: u8,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_mut() }) else {
-        return 0;
-    };
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(partial) = (unsafe { text_input(partial_data, partial_len) }) else {
-        return 0;
-    };
-    u8::from(state.state.update_partial(partial, recording != 0))
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(partial) = (unsafe { text_input(partial_data, partial_len) }) else {
+            return 0;
+        };
+        u8::from(state.state.update_partial(partial, recording != 0))
+    })
 }
 
 /// Borrows the semantic preedit for the current live state.
@@ -338,11 +348,13 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_preedit_plan(
     state: *const VinputFcitxDaemonLiveState,
     view_out: *mut VinputFcitxDaemonSignalPlanView,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_ref() }) else {
-        return 0;
-    };
-    write_status_preedit(state.state.preedit(), view_out)
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_ref() }) else {
+            return 0;
+        };
+        write_status_preedit(state.state.preedit(), view_out)
+    })
 }
 
 /// Returns whether the current live presentation is command mode.
@@ -354,8 +366,10 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_preedit_plan(
 pub unsafe extern "C" fn vinput_fcitx_daemon_live_state_command_mode(
     state: *const VinputFcitxDaemonLiveState,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    unsafe { state.as_ref() }.map_or(0, |state| u8::from(state.state.command_mode()))
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        unsafe { state.as_ref() }.map_or(0, |state| u8::from(state.state.command_mode()))
+    })
 }
 
 /// Plans one status/partial preedit update.
@@ -368,21 +382,23 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_status_preedit_plan(
     status: *const VinputFcitxDaemonStatusView,
     view_out: *mut VinputFcitxDaemonSignalPlanView,
 ) -> u8 {
-    if view_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(status) = (unsafe { status.as_ref() }) else {
-        return 0;
-    };
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some((status, command_mode, partial)) = (unsafe { status.borrow() }) else {
-        return 0;
-    };
-    write_status_preedit(
-        plan_daemon_status_preedit(status, command_mode, partial),
-        view_out,
-    )
+    crate::ffi_catch(0, || {
+        if view_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(status) = (unsafe { status.as_ref() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some((status, command_mode, partial)) = (unsafe { status.borrow() }) else {
+            return 0;
+        };
+        write_status_preedit(
+            plan_daemon_status_preedit(status, command_mode, partial),
+            view_out,
+        )
+    })
 }
 
 /// Plans one structured daemon notification.
@@ -395,39 +411,41 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_notification_plan(
     notification: *const VinputFcitxDaemonNotificationView,
     view_out: *mut VinputFcitxDaemonSignalPlanView,
 ) -> u8 {
-    if view_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(notification) = (unsafe { notification.as_ref() }) else {
-        return 0;
-    };
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(notification) = (unsafe { notification.borrow() }) else {
-        return 0;
-    };
-    let plan = plan_daemon_notification(
-        notification.code,
-        notification.subject,
-        notification.detail,
-        notification.raw,
-    );
-    let kind = match plan.kind {
-        DaemonNotificationKind::Info => SIGNAL_PLAN_NOTIFICATION_INFO,
-        DaemonNotificationKind::Error => SIGNAL_PLAN_NOTIFICATION_ERROR,
-    };
-    // SAFETY: The caller guarantees a writable output pointer.
-    let (translate, text) = plan
-        .text
-        .map_or((true, "Unknown error."), |text| (false, text));
-    unsafe {
-        view_out.write(VinputFcitxDaemonSignalPlanView {
-            kind,
-            translate: u8::from(translate),
-            text: string_view(text),
-        });
-    }
-    1
+    crate::ffi_catch(0, || {
+        if view_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(notification) = (unsafe { notification.as_ref() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(notification) = (unsafe { notification.borrow() }) else {
+            return 0;
+        };
+        let plan = plan_daemon_notification(
+            notification.code,
+            notification.subject,
+            notification.detail,
+            notification.raw,
+        );
+        let kind = match plan.kind {
+            DaemonNotificationKind::Info => SIGNAL_PLAN_NOTIFICATION_INFO,
+            DaemonNotificationKind::Error => SIGNAL_PLAN_NOTIFICATION_ERROR,
+        };
+        let (translate, text) = plan
+            .text
+            .map_or((true, "Unknown error."), |text| (false, text));
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe {
+            view_out.write(VinputFcitxDaemonSignalPlanView {
+                kind,
+                translate: u8::from(translate),
+                text: string_view(text),
+            });
+        }
+        1
+    })
 }
 
 #[cfg(test)]

@@ -3,10 +3,14 @@
 //! This crate owns platform I/O and typed wire decoding. Pure frontend policy
 //! and snapshot semantics remain in `vinput-fcitx-core`.
 
+use std::time::Duration;
+
 use thiserror::Error;
 use vinput_fcitx_core::{AsrDisplaySnapshot, AsrDisplaySnapshotItem, SceneSnapshot};
 use vinput_protocol::dbus;
-use zbus::blocking::{Connection, Proxy};
+use zbus::blocking::{Connection, Proxy, connection::Builder};
+
+const METHOD_CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// One daemon operation exposed to the narrow C ABI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +96,14 @@ type AsrDisplayReply = (
 impl DaemonClient {
     /// Connects to the user session bus.
     pub fn connect_session() -> Result<Self, DaemonError> {
-        Connection::session()
+        Self::connect_session_with_timeout(METHOD_CALL_TIMEOUT)
+    }
+
+    fn connect_session_with_timeout(timeout: Duration) -> Result<Self, DaemonError> {
+        Builder::session()
+            .map_err(DaemonError::Connect)?
+            .method_timeout(timeout)
+            .build()
             .map(|connection| Self { connection })
             .map_err(DaemonError::Connect)
     }
@@ -252,7 +263,32 @@ fn asr_display_snapshot(reply: AsrDisplayReply) -> AsrDisplaySnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::{asr_display_snapshot, scene_snapshot};
+    use std::{
+        env, io,
+        process::Command,
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use super::{
+        DaemonClient, DaemonError, DaemonOperation, asr_display_snapshot, dbus, scene_snapshot,
+    };
+
+    const TIMEOUT_CHILD_ENV: &str = "VINPUT_FCITX_DBUS_TIMEOUT_TEST_CHILD";
+
+    struct SlowDaemon {
+        delay: Duration,
+    }
+
+    #[zbus::interface(name = "org.fcitx.Vinput.Service")]
+    impl SlowDaemon {
+        #[zbus(name = "GetStatus")]
+        async fn get_status(&self) -> String {
+            tokio::time::sleep(self.delay).await;
+            "idle".to_owned()
+        }
+    }
 
     #[test]
     fn assembles_scene_reply_in_wire_order() {
@@ -298,5 +334,66 @@ mod tests {
         assert_eq!(snapshot.effective_base_label(), "effective");
         assert!(snapshot.is_loading_target(&snapshot.targets()[0]));
         assert_eq!(snapshot.targets()[1].base_label(), "endpoint");
+    }
+
+    #[test]
+    fn method_call_timeout_is_enforced() {
+        if env::var_os(TIMEOUT_CHILD_ENV).is_none() {
+            let status = Command::new("dbus-run-session")
+                .arg("--")
+                .arg(env::current_exe().expect("locate current test executable"))
+                .arg("--exact")
+                .arg("tests::method_call_timeout_is_enforced")
+                .arg("--nocapture")
+                .env(TIMEOUT_CHILD_ENV, "1")
+                .status()
+                .expect("run timeout test under a private session bus");
+            assert!(status.success(), "private-bus timeout child failed");
+            return;
+        }
+
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let (stop_tx, stop_rx) = mpsc::sync_channel(1);
+        let server = thread::spawn(move || {
+            let connection = zbus::blocking::connection::Builder::session()
+                .expect("create server connection builder")
+                .name(dbus::SERVICE_BUS_NAME)
+                .expect("request daemon service name")
+                .serve_at(
+                    dbus::SERVICE_OBJECT_PATH,
+                    SlowDaemon {
+                        delay: Duration::from_millis(300),
+                    },
+                )
+                .expect("serve slow daemon object")
+                .build()
+                .expect("connect slow daemon to private bus");
+            ready_tx.send(()).expect("report slow daemon readiness");
+            let _ = stop_rx.recv_timeout(Duration::from_secs(2));
+            drop(connection);
+        });
+        ready_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("wait for slow daemon readiness");
+
+        let timeout = Duration::from_millis(50);
+        let client = DaemonClient::connect_session_with_timeout(timeout)
+            .expect("connect timeout-limited frontend client");
+        assert_eq!(client.connection.method_timeout(), Some(timeout));
+        let started = Instant::now();
+        let error = client
+            .call(DaemonOperation::GetStatus, "", "")
+            .expect_err("slow method must exceed the frontend deadline");
+        assert!(started.elapsed() < Duration::from_millis(250));
+        assert!(matches!(
+            error,
+            DaemonError::Call {
+                source: zbus::Error::InputOutput(ref error),
+                ..
+            } if error.kind() == io::ErrorKind::TimedOut
+        ));
+
+        stop_tx.send(()).expect("stop slow daemon");
+        server.join().expect("join slow daemon thread");
     }
 }

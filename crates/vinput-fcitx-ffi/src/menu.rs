@@ -197,13 +197,15 @@ pub unsafe extern "C" fn vinput_fcitx_menu_session_free(session: *mut VinputFcit
 /// `state` must be a live handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_menu_session_open(state: *mut VinputFcitxMenuSession) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_mut() }) else {
-        return 0;
-    };
-    state.session.open();
-    state.decorated_title.clear();
-    1
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_mut() }) else {
+            return 0;
+        };
+        state.session.open();
+        state.decorated_title.clear();
+        1
+    })
 }
 
 /// Closes a menu session and clears its page and filter.
@@ -213,13 +215,15 @@ pub unsafe extern "C" fn vinput_fcitx_menu_session_open(state: *mut VinputFcitxM
 /// `state` must be a live handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_menu_session_close(state: *mut VinputFcitxMenuSession) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_mut() }) else {
-        return 0;
-    };
-    state.session.close();
-    state.decorated_title.clear();
-    1
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_mut() }) else {
+            return 0;
+        };
+        state.session.close();
+        state.decorated_title.clear();
+        1
+    })
 }
 
 /// Reads whether a menu session is open.
@@ -232,16 +236,18 @@ pub unsafe extern "C" fn vinput_fcitx_menu_session_is_open(
     state: *const VinputFcitxMenuSession,
     open_out: *mut u8,
 ) -> u8 {
-    if open_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_ref() }) else {
-        return 0;
-    };
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe { open_out.write(u8::from(state.session.is_open())) };
-    1
+    crate::ffi_catch(0, || {
+        if open_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_ref() }) else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe { open_out.write(u8::from(state.session.is_open())) };
+        1
+    })
 }
 
 /// Stores the actual zero-based page after Fcitx clamps a rebuild request.
@@ -254,11 +260,13 @@ pub unsafe extern "C" fn vinput_fcitx_menu_session_set_page(
     state: *mut VinputFcitxMenuSession,
     page: i32,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_mut() }) else {
-        return 0;
-    };
-    u8::from(state.session.set_page(page))
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_mut() }) else {
+            return 0;
+        };
+        u8::from(state.session.set_page(page))
+    })
 }
 
 /// Reads the active flag.
@@ -271,16 +279,18 @@ pub unsafe extern "C" fn vinput_fcitx_menu_session_filter_active(
     state: *const VinputFcitxMenuSession,
     active_out: *mut u8,
 ) -> u8 {
-    if active_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_ref() }) else {
-        return 0;
-    };
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe { active_out.write(u8::from(state.session.filter().active())) };
-    1
+    crate::ffi_catch(0, || {
+        if active_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(state) = (unsafe { state.as_ref() }) else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe { active_out.write(u8::from(state.session.filter().active())) };
+        1
+    })
 }
 
 /// Computes and borrows the decorated menu title.

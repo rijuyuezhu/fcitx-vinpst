@@ -434,18 +434,20 @@ pub unsafe extern "C" fn vinput_fcitx_owned_string_view(
     value: *const VinputFcitxOwnedString,
     view_out: *mut VinputFcitxStringView,
 ) -> u8 {
-    if view_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(value) = (unsafe { value.as_ref() }) else {
-        return 0;
-    };
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe {
-        view_out.write(string_view(&value.value));
-    }
-    1
+    crate::ffi_catch(0, || {
+        if view_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(value) = (unsafe { value.as_ref() }) else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe {
+            view_out.write(string_view(&value.value));
+        }
+        1
+    })
 }
 
 #[cfg(test)]

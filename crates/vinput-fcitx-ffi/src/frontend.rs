@@ -238,8 +238,10 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_free(
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_recording(
     controller: *const VinputFcitxFrontendController,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    unsafe { controller.as_ref() }.map_or(0, |value| u8::from(value.controller.recording()))
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        unsafe { controller.as_ref() }.map_or(0, |value| u8::from(value.controller.recording()))
+    })
 }
 
 /// Returns one when the active session is command mode.
@@ -251,8 +253,10 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_recording(
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_command_mode(
     controller: *const VinputFcitxFrontendController,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    unsafe { controller.as_ref() }.map_or(0, |value| u8::from(value.controller.command_mode()))
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        unsafe { controller.as_ref() }.map_or(0, |value| u8::from(value.controller.command_mode()))
+    })
 }
 
 /// Applies Rust session-state gating to one semantic trigger request.
@@ -268,19 +272,21 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_plan_trigger(
     request: u8,
     intent_out: *mut u8,
 ) -> u8 {
-    if intent_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(controller) = (unsafe { controller.as_ref() }) else {
-        return 0;
-    };
-    let Some(request) = trigger_request(request) else {
-        return 0;
-    };
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe { intent_out.write(trigger_intent(controller.controller.plan_trigger(request))) };
-    1
+    crate::ffi_catch(0, || {
+        if intent_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_ref() }) else {
+            return 0;
+        };
+        let Some(request) = trigger_request(request) else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe { intent_out.write(trigger_intent(controller.controller.plan_trigger(request))) };
+        1
+    })
 }
 
 /// Starts normal recording using the scene snapshot owned by a Rust controller.
@@ -424,12 +430,14 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_adopt_and_stop_with_da
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_reset(
     controller: *mut VinputFcitxFrontendController,
 ) -> u8 {
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(controller) = (unsafe { controller.as_mut() }) else {
-        return 0;
-    };
-    controller.controller.reset();
-    1
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return 0;
+        };
+        controller.controller.reset();
+        1
+    })
 }
 
 /// Releases a frontend outcome.
@@ -506,24 +514,26 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_presentation_view(
     presentation: *const VinputFcitxFrontendPresentation,
     view_out: *mut VinputFcitxFrontendPresentationView,
 ) -> u8 {
-    if view_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(presentation) = (unsafe { presentation.as_ref() }) else {
-        return 0;
-    };
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe {
-        view_out.write(VinputFcitxFrontendPresentationView {
-            kind: outcome_kind(presentation.presentation.kind),
-            replace_selection: u8::from(presentation.presentation.replace_selection),
-            text: string_view(&presentation.presentation.text),
-            candidate_count: presentation.presentation.candidates.len(),
-            cursor_index: presentation.presentation.cursor_index,
-        });
-    }
-    1
+    crate::ffi_catch(0, || {
+        if view_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(presentation) = (unsafe { presentation.as_ref() }) else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe {
+            view_out.write(VinputFcitxFrontendPresentationView {
+                kind: outcome_kind(presentation.presentation.kind),
+                replace_selection: u8::from(presentation.presentation.replace_selection),
+                text: string_view(&presentation.presentation.text),
+                candidate_count: presentation.presentation.candidates.len(),
+                cursor_index: presentation.presentation.cursor_index,
+            });
+        }
+        1
+    })
 }
 
 /// Borrows one fully rendered frontend candidate row.
@@ -537,16 +547,18 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_presentation_candidate(
     index: usize,
     view_out: *mut VinputFcitxPresentedCandidateView,
 ) -> u8 {
-    if view_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(candidate) = (unsafe { presentation.as_ref() })
-        .and_then(|value| value.presentation.candidates.get(index))
-    else {
-        return 0;
-    };
-    write_presented_candidate(candidate, view_out)
+    crate::ffi_catch(0, || {
+        if view_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(candidate) = (unsafe { presentation.as_ref() })
+            .and_then(|value| value.presentation.candidates.get(index))
+        else {
+            return 0;
+        };
+        write_presented_candidate(candidate, view_out)
+    })
 }
 
 fn write_presented_candidate(

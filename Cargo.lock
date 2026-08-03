@@ -4287,6 +4287,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
+ "tokio",
  "vinput-fcitx-core",
  "vinput-protocol",
  "zbus",

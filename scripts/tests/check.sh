@@ -7,8 +7,10 @@ cd "${repo_root}"
 
 scripts/tests/format.sh --check
 scripts/tests/scripts-lint.sh
+export PYTHONDONTWRITEBYTECODE=1
 scripts/tests/lint.sh
 scripts/tests/test.sh
+python3 -B scripts/tests/check_fcitx_ffi_abi.py
 scripts/tests/addon-install-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-asr-menu-smoke.sh
