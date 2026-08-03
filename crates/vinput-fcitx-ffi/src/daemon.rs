@@ -10,9 +10,9 @@ use vinput_fcitx_dbus::{DaemonClient, DaemonOperation, DaemonResponse};
 
 use crate::{
     frontend::VinputFcitxStringView,
-    menu_snapshot::{
-        VinputFcitxAsrDisplaySnapshot, VinputFcitxSceneSnapshot, boxed_asr_display_snapshot,
-        boxed_scene_snapshot, scene_core_mut,
+    menu_controller::{
+        VinputFcitxAsrMenuController, VinputFcitxSceneMenuController, asr_controller_mut,
+        scene_controller_mut,
     },
 };
 
@@ -111,30 +111,6 @@ fn take_asr_display(response: DaemonResponse) -> Option<AsrDisplaySnapshot> {
     match response {
         DaemonResponse::AsrDisplaySnapshot(value) => Some(value),
         _ => None,
-    }
-}
-
-unsafe fn snapshot_call<T, H>(
-    client: *const VinputFcitxDaemonClient,
-    error_out: *mut *mut VinputFcitxOwnedString,
-    operation: DaemonOperation,
-    expected: &str,
-    extract: fn(DaemonResponse) -> Option<T>,
-    boxed: fn(T) -> *mut H,
-) -> *mut H {
-    // SAFETY: Forwarded from the exported function's caller contract.
-    let errors = unsafe { ErrorOut::new(error_out) };
-    // SAFETY: Forwarded from the exported function's caller contract.
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        errors.write("invalid daemon client");
-        return ptr::null_mut();
-    };
-    match expect(call(client, operation, "", ""), expected, extract) {
-        Ok(value) => boxed(value),
-        Err(error) => {
-            errors.write(error);
-            ptr::null_mut()
-        }
     }
 }
 
@@ -262,33 +238,51 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_status(
     .unwrap_or(ptr::null_mut())
 }
 
-/// Reads the Rust-owned Scene snapshot.
+/// Refreshes a Rust-owned scene menu controller directly from the daemon.
 ///
 /// # Safety
 ///
-/// `client` must be live and `error_out` writable when non-null.
+/// Both handles must be live and `error_out` writable when non-null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_scene_state(
+pub unsafe extern "C" fn vinput_fcitx_daemon_client_refresh_scene_menu_controller(
     client: *const VinputFcitxDaemonClient,
+    controller: *mut VinputFcitxSceneMenuController,
     error_out: *mut *mut VinputFcitxOwnedString,
-) -> *mut VinputFcitxSceneSnapshot {
-    catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: Forwarded from this function's caller contract.
-        unsafe {
-            snapshot_call(
-                client,
-                error_out,
-                DaemonOperation::GetSceneState,
+) -> u8 {
+    u8::from(
+        catch_unwind(AssertUnwindSafe(|| {
+            // SAFETY: Forwarded from this function's caller contract.
+            let errors = unsafe { ErrorOut::new(error_out) };
+            // SAFETY: Forwarded from this function's caller contract.
+            let Some(client) = (unsafe { client.as_ref() }) else {
+                errors.write("invalid daemon client");
+                return false;
+            };
+            // SAFETY: Forwarded from this function's caller contract.
+            let Some(controller) = (unsafe { scene_controller_mut(controller) }) else {
+                errors.write("invalid scene menu controller");
+                return false;
+            };
+            match expect(
+                call(client, DaemonOperation::GetSceneState, "", ""),
                 "scene snapshot",
                 take_scene,
-                boxed_scene_snapshot,
-            )
-        }
-    }))
-    .unwrap_or(ptr::null_mut())
+            ) {
+                Ok(snapshot) => {
+                    controller.replace_snapshot(snapshot);
+                    true
+                }
+                Err(error) => {
+                    errors.write(error);
+                    false
+                }
+            }
+        }))
+        .unwrap_or(false),
+    )
 }
 
-/// Persists or applies the active Scene id.
+/// Persists or applies an active scene and updates the controller snapshot.
 ///
 /// # Safety
 ///
@@ -296,7 +290,7 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_scene_state(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_scene(
     client: *const VinputFcitxDaemonClient,
-    snapshot: *mut VinputFcitxSceneSnapshot,
+    controller: *mut VinputFcitxSceneMenuController,
     scene_data: *const u8,
     scene_len: usize,
     persisted_out: *mut u8,
@@ -307,8 +301,12 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_scene(
             // SAFETY: Forwarded from this function's caller contract.
             let errors = unsafe { ErrorOut::new(error_out) };
             // SAFETY: Forwarded from this function's caller contract.
-            let Some(snapshot) = (unsafe { scene_core_mut(snapshot) }) else {
-                errors.write("invalid scene snapshot");
+            let Some(controller) = (unsafe { scene_controller_mut(controller) }) else {
+                errors.write("invalid scene menu controller");
+                return false;
+            };
+            let Some(snapshot) = controller.snapshot_mut() else {
+                errors.write("scene menu controller has no snapshot");
                 return false;
             };
             // SAFETY: Forwarded from this function's caller contract.
@@ -336,30 +334,48 @@ pub unsafe extern "C" fn vinput_fcitx_daemon_client_set_active_scene(
     )
 }
 
-/// Reads the Rust-owned ASR display snapshot.
+/// Refreshes a Rust-owned ASR menu controller directly from the daemon.
 ///
 /// # Safety
 ///
-/// `client` must be live and `error_out` writable when non-null.
+/// Both handles must be live and `error_out` writable when non-null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_daemon_client_get_asr_display_state(
+pub unsafe extern "C" fn vinput_fcitx_daemon_client_refresh_asr_menu_controller(
     client: *const VinputFcitxDaemonClient,
+    controller: *mut VinputFcitxAsrMenuController,
     error_out: *mut *mut VinputFcitxOwnedString,
-) -> *mut VinputFcitxAsrDisplaySnapshot {
-    catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: Forwarded from this function's caller contract.
-        unsafe {
-            snapshot_call(
-                client,
-                error_out,
-                DaemonOperation::GetAsrDisplayMenuState,
+) -> u8 {
+    u8::from(
+        catch_unwind(AssertUnwindSafe(|| {
+            // SAFETY: Forwarded from this function's caller contract.
+            let errors = unsafe { ErrorOut::new(error_out) };
+            // SAFETY: Forwarded from this function's caller contract.
+            let Some(client) = (unsafe { client.as_ref() }) else {
+                errors.write("invalid daemon client");
+                return false;
+            };
+            // SAFETY: Forwarded from this function's caller contract.
+            let Some(controller) = (unsafe { asr_controller_mut(controller) }) else {
+                errors.write("invalid ASR menu controller");
+                return false;
+            };
+            match expect(
+                call(client, DaemonOperation::GetAsrDisplayMenuState, "", ""),
                 "ASR display snapshot",
                 take_asr_display,
-                boxed_asr_display_snapshot,
-            )
-        }
-    }))
-    .unwrap_or(ptr::null_mut())
+            ) {
+                Ok(snapshot) => {
+                    controller.replace_snapshot(snapshot);
+                    true
+                }
+                Err(error) => {
+                    errors.write(error);
+                    false
+                }
+            }
+        }))
+        .unwrap_or(false),
+    )
 }
 
 /// Persists or applies the active ASR provider/model target.

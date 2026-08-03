@@ -29,6 +29,8 @@
 #include <chrono>
 #include <functional>
 #include <limits>
+#include <optional>
+#include <string_view>
 #include <utility>
 
 namespace vinput_fcitx_bridge {
@@ -72,27 +74,35 @@ std::string DecoratePagedMenuTitle(std::string title,
 }
 
 void SetFilteredMenuTitle(fcitx::InputContext *ic, std::string_view base_title,
-                          MenuFilterState &filter,
+                          MenuSessionState &session,
                           fcitx::CandidateList *candidate_list) {
   if (ic == nullptr) {
     return;
   }
   ic->inputPanel().setAuxUp(fcitx::Text(
-      DecoratePagedMenuTitle(filter.DecorateTitle(base_title), candidate_list)));
+      DecoratePagedMenuTitle(session.DecorateTitle(base_title), candidate_list)));
 }
 
-template <typename RebuildMenu, typename HideMenu, typename SelectItem>
-bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
-                                 fcitx::InputContext *input_context,
-                                 MenuFilterState &filter, std::size_t visible_count,
-                                 int current_page, const FrontendSettings &settings,
-                                 std::string_view base_title,
-                                 RebuildMenu &&rebuild_menu, HideMenu &&hide_menu,
-                                 SelectItem &&select_item) {
+template <typename Projection, typename RebuildMenu, typename HideMenu,
+          typename SelectControl>
+bool HandleProjectedMenuKeyEvent(
+    fcitx::KeyEvent &event, bool trigger_key, fcitx::InputContext *input_context,
+    MenuSessionState &session, const std::shared_ptr<Projection> &projection,
+    const FrontendSettings &settings, std::string_view base_title,
+    RebuildMenu &&rebuild_menu, HideMenu &&hide_menu, SelectControl &&select_control) {
+  const auto open = session.is_open();
+  if (!open.has_value() || !*open || input_context == nullptr || !projection) {
+    return false;
+  }
+  const auto item_count = projection->size();
+  if (!item_count.has_value()) {
+    hide_menu();
+    return false;
+  }
   auto candidate_list = input_context->inputPanel().candidateList();
   auto *cursor =
       candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
-  const auto filter_active = filter.active();
+  const auto filter_active = session.active();
   if (!filter_active.has_value()) {
     hide_menu();
     return false;
@@ -100,9 +110,9 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
   const auto semantic_key =
       ClassifyMenuKey(event.key(), trigger_key, *filter_active, settings.page_prev_keys,
                       settings.page_next_keys);
-  const auto decision = filter.HandleKey(
-      event.isRelease(), semantic_key, cursor != nullptr,
-      CurrentMenuSelectionIndex(candidate_list.get()), current_page, visible_count);
+  const auto decision =
+      session.HandleKey(event.isRelease(), semantic_key, cursor != nullptr,
+                        CurrentMenuSelectionIndex(candidate_list.get()), *item_count);
   if (!decision.has_value()) {
     hide_menu();
     return false;
@@ -146,20 +156,105 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
     break;
   case MenuKeyAction::Select:
     if (decision->value < 0 ||
-        static_cast<std::uint64_t>(decision->value) >= visible_count) {
+        static_cast<std::uint64_t>(decision->value) >= *item_count) {
       hide_menu();
       event.filterAndAccept();
       return true;
     }
-    select_item(static_cast<std::size_t>(decision->value), input_context);
+    const auto item = projection->item(static_cast<std::size_t>(decision->value));
+    if (!item.has_value()) {
+      hide_menu();
+      event.filterAndAccept();
+      return true;
+    }
+    select_control(item->control, input_context);
     event.filterAndAccept();
     return true;
   }
 
-  SetFilteredMenuTitle(input_context, base_title, filter, candidate_list.get());
+  SetFilteredMenuTitle(input_context, base_title, session, candidate_list.get());
   input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
   event.filterAndAccept();
   return true;
+}
+
+template <typename Projection, typename HideMenu, typename SelectControl>
+bool PublishProjectedMenu(fcitx::InputContext *input_context, MenuSessionState &session,
+                          std::shared_ptr<Projection> &stored_projection,
+                          const std::shared_ptr<Projection> &projection,
+                          std::optional<std::string> current_label, int page,
+                          std::string_view base_title, std::string_view menu_name,
+                          HideMenu hide_menu, SelectControl select_control) {
+  if (input_context == nullptr || !projection) {
+    hide_menu();
+    return false;
+  }
+  const auto item_count = projection->size();
+  if (!item_count.has_value() || !current_label.has_value()) {
+    FCITX_ERROR() << "fcitx-vinput failed to read " << menu_name << " menu projection";
+    hide_menu();
+    return false;
+  }
+
+  auto candidates = std::make_unique<fcitx::CommonCandidateList>();
+  candidates->setPageSize(kMenuPageSize);
+  candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
+  candidates->setCursorPositionAfterPaging(
+      fcitx::CursorPositionAfterPaging::ResetToFirst);
+  stored_projection = projection;
+  for (std::size_t index = 0; index < *item_count; ++index) {
+    const auto item = projection->item(index);
+    if (!item.has_value()) {
+      FCITX_ERROR() << "fcitx-vinput failed to read " << menu_name << " menu item "
+                    << index;
+      hide_menu();
+      return false;
+    }
+    candidates->append<MenuCandidateWord>(
+        item->label, [projection, index, hide_menu,
+                      select_control](fcitx::InputContext *selected_context) {
+          const auto selected = projection->item(index);
+          if (!selected.has_value()) {
+            hide_menu();
+            return;
+          }
+          select_control(selected->control, selected_context);
+        });
+  }
+
+  if (candidates->totalSize() > 0) {
+    candidates->setGlobalCursorIndex(0);
+    SetMenuCandidatePage(*candidates, page);
+  }
+  const int actual_page = candidates->totalSize() > 0 ? candidates->currentPage() : 0;
+  if (!session.SetPage(actual_page)) {
+    hide_menu();
+    return false;
+  }
+
+  SetFilteredMenuTitle(input_context, base_title, session, candidates.get());
+  input_context->inputPanel().setAuxDown(
+      fcitx::Text(FrontendText("Current: ") + *current_label));
+  PublishMenuCandidateList(input_context, std::move(candidates));
+  input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  return true;
+}
+
+template <typename Projection>
+void ClearProjectedMenu(fcitx::InputContext *&input_context, MenuSessionState &session,
+                        std::shared_ptr<Projection> &projection) {
+  auto *previous_context = input_context;
+  input_context = nullptr;
+  session.Close();
+  projection.reset();
+  if (previous_context == nullptr) {
+    return;
+  }
+  fcitx::Text empty;
+  previous_context->inputPanel().setAuxUp(empty);
+  previous_context->inputPanel().setAuxDown(empty);
+  previous_context->inputPanel().setCandidateList({});
+  previous_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
 } // namespace
@@ -176,113 +271,50 @@ void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
   }
 
   scene_menu_ic_ = ic;
-  scene_menu_visible_ = true;
-  scene_menu_filter_.Reset();
+  scene_menu_session_.Open();
   RebuildSceneMenu();
 }
 
 void FcitxVinputAddon::RebuildSceneMenu(int page) {
-  if (!scene_menu_visible_ || scene_menu_ic_ == nullptr) {
+  const auto open = scene_menu_session_.is_open();
+  if (!open.has_value() || !*open || scene_menu_ic_ == nullptr) {
     return;
   }
 
-  auto candidates = std::make_unique<fcitx::CommonCandidateList>();
-  candidates->setPageSize(kMenuPageSize);
-  candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
-  candidates->setCursorPositionAfterPaging(
-      fcitx::CursorPositionAfterPaging::ResetToFirst);
-  auto projection = ProjectSceneMenu(scene_state_, scene_menu_filter_);
+  auto projection = scene_menu_controller_.Project(scene_menu_session_);
   if (!projection) {
     FCITX_ERROR() << "fcitx-vinput failed to finalize scene menu projection";
     HideSceneMenu();
     return;
   }
-  const auto item_count = projection->size();
-  const auto active_label = projection->active_label();
-  if (!item_count.has_value() || !active_label.has_value()) {
-    FCITX_ERROR() << "fcitx-vinput failed to read scene menu projection";
-    HideSceneMenu();
-    return;
-  }
-
-  scene_menu_projection_ = projection;
-  for (std::size_t index = 0; index < *item_count; ++index) {
-    const auto item = projection->item(index);
-    if (!item.has_value()) {
-      FCITX_ERROR() << "fcitx-vinput failed to read scene menu item " << index;
-      HideSceneMenu();
-      return;
-    }
-    candidates->append<MenuCandidateWord>(
-        item->label, [this, projection, index](fcitx::InputContext *input_context) {
-          const auto selected = projection->item(index);
-          if (!selected.has_value()) {
-            HideSceneMenu();
-            return;
-          }
-          ExecuteMenuControl(selected->control, input_context);
-        });
-  }
-  if (candidates->totalSize() > 0) {
-    candidates->setGlobalCursorIndex(0);
-    SetMenuCandidatePage(*candidates, page);
-    scene_menu_page_ = candidates->currentPage();
-  } else {
-    scene_menu_page_ = 0;
-  }
-
-  SetFilteredMenuTitle(scene_menu_ic_, FrontendText("Scenes /filter"),
-                       scene_menu_filter_, candidates.get());
-  scene_menu_ic_->inputPanel().setAuxDown(
-      fcitx::Text(FrontendText("Current: ") + *active_label));
-  PublishMenuCandidateList(scene_menu_ic_, std::move(candidates));
-  scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  static_cast<void>(PublishProjectedMenu(
+      scene_menu_ic_, scene_menu_session_, scene_menu_projection_, projection,
+      projection->summary(), page, FrontendText("Scenes /filter"), "scene",
+      [this]() { HideSceneMenu(); },
+      [this](const ProjectedMenuControl &control, fcitx::InputContext *input_context) {
+        ExecuteMenuControl(control, input_context);
+      }));
 }
 
 bool FcitxVinputAddon::RefreshSceneState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
-  return client != nullptr && client->GetSceneState(&scene_state_, error);
+  return client != nullptr &&
+         client->RefreshSceneMenuController(&scene_menu_controller_, error);
 }
 
 void FcitxVinputAddon::HideSceneMenu() {
-  auto *ic = scene_menu_ic_;
-  scene_menu_visible_ = false;
-  scene_menu_ic_ = nullptr;
-  scene_menu_filter_.Reset();
-  scene_menu_projection_.reset();
-  scene_menu_page_ = 0;
-  if (ic == nullptr) {
-    return;
-  }
-  fcitx::Text empty;
-  ic->inputPanel().setAuxUp(empty);
-  ic->inputPanel().setAuxDown(empty);
-  ic->inputPanel().setCandidateList({});
-  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  ClearProjectedMenu(scene_menu_ic_, scene_menu_session_, scene_menu_projection_);
 }
 
 bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
-  if (!scene_menu_visible_ || scene_menu_ic_ == nullptr) {
-    return false;
-  }
-  const auto title = FrontendText("Scenes /filter");
   const auto projection = scene_menu_projection_;
-  const auto item_count = projection != nullptr ? projection->size() : std::nullopt;
-  if (!item_count.has_value()) {
-    HideSceneMenu();
-    return false;
-  }
   return HandleProjectedMenuKeyEvent(
       event, trigger_policy_.IsSceneMenuTrigger(event), scene_menu_ic_,
-      scene_menu_filter_, *item_count, scene_menu_page_, frontend_settings_, title,
-      [this](int page) { RebuildSceneMenu(page); }, [this]() { HideSceneMenu(); },
-      [this, projection](std::size_t index, fcitx::InputContext *ic) {
-        const auto item = projection->item(index);
-        if (!item.has_value()) {
-          HideSceneMenu();
-          return;
-        }
-        ExecuteMenuControl(item->control, ic);
+      scene_menu_session_, projection, frontend_settings_,
+      FrontendText("Scenes /filter"), [this](int page) { RebuildSceneMenu(page); },
+      [this]() { HideSceneMenu(); },
+      [this](const ProjectedMenuControl &control, fcitx::InputContext *input_context) {
+        ExecuteMenuControl(control, input_context);
       });
 }
 
@@ -298,21 +330,16 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
   }
 
   asr_menu_ic_ = ic;
-  asr_menu_visible_ = true;
-  asr_menu_filter_.Reset();
+  asr_menu_session_.Open();
   RebuildAsrMenu();
 }
 
 void FcitxVinputAddon::RebuildAsrMenu(int page) {
-  if (!asr_menu_visible_ || asr_menu_ic_ == nullptr) {
+  const auto open = asr_menu_session_.is_open();
+  if (!open.has_value() || !*open || asr_menu_ic_ == nullptr) {
     return;
   }
 
-  auto candidates = std::make_unique<fcitx::CommonCandidateList>();
-  candidates->setPageSize(kMenuPageSize);
-  candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
-  candidates->setCursorPositionAfterPaging(
-      fcitx::CursorPositionAfterPaging::ResetToFirst);
   const auto local = FrontendText("Local");
   const auto remote = FrontendText("Remote");
   const auto command = FrontendText("Command");
@@ -323,98 +350,39 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
   const AsrMenuLocalization localization{local,          remote,      command,
                                          loading_suffix, unavailable, loading_prefix,
                                          error_prefix};
-  auto projection = ProjectAsrMenu(asr_menu_state_, asr_menu_filter_, localization);
+  auto projection = asr_menu_controller_.Project(asr_menu_session_, localization);
   if (!projection) {
     FCITX_ERROR() << "fcitx-vinput failed to finalize ASR menu projection";
     HideAsrMenu();
     return;
   }
-  const auto item_count = projection->size();
-  const auto effective_label = projection->effective_label();
-  if (!item_count.has_value() || !effective_label.has_value()) {
-    FCITX_ERROR() << "fcitx-vinput failed to read ASR menu projection";
-    HideAsrMenu();
-    return;
-  }
-
-  asr_menu_projection_ = projection;
-  for (std::size_t index = 0; index < *item_count; ++index) {
-    const auto item = projection->item(index);
-    if (!item.has_value()) {
-      FCITX_ERROR() << "fcitx-vinput failed to read ASR menu item " << index;
-      HideAsrMenu();
-      return;
-    }
-    candidates->append<MenuCandidateWord>(
-        item->label, [this, projection, index](fcitx::InputContext *input_context) {
-          const auto selected = projection->item(index);
-          if (!selected.has_value()) {
-            HideAsrMenu();
-            return;
-          }
-          ExecuteMenuControl(selected->control, input_context);
-        });
-  }
-  if (candidates->totalSize() > 0) {
-    candidates->setGlobalCursorIndex(0);
-    SetMenuCandidatePage(*candidates, page);
-    asr_menu_page_ = candidates->currentPage();
-  } else {
-    asr_menu_page_ = 0;
-  }
-
-  SetFilteredMenuTitle(asr_menu_ic_, FrontendText("Models /filter"), asr_menu_filter_,
-                       candidates.get());
-  asr_menu_ic_->inputPanel().setAuxDown(
-      fcitx::Text(FrontendText("Current: ") + *effective_label));
-  PublishMenuCandidateList(asr_menu_ic_, std::move(candidates));
-  asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  static_cast<void>(PublishProjectedMenu(
+      asr_menu_ic_, asr_menu_session_, asr_menu_projection_, projection,
+      projection->summary(), page, FrontendText("Models /filter"), "ASR",
+      [this]() { HideAsrMenu(); },
+      [this](const ProjectedMenuControl &control, fcitx::InputContext *input_context) {
+        ExecuteMenuControl(control, input_context);
+      }));
 }
 
 bool FcitxVinputAddon::RefreshAsrMenuState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
-  return client != nullptr && client->GetAsrDisplayMenuState(&asr_menu_state_, error);
+  return client != nullptr &&
+         client->RefreshAsrMenuController(&asr_menu_controller_, error);
 }
 
 void FcitxVinputAddon::HideAsrMenu() {
-  auto *ic = asr_menu_ic_;
-  asr_menu_visible_ = false;
-  asr_menu_ic_ = nullptr;
-  asr_menu_filter_.Reset();
-  asr_menu_projection_.reset();
-  asr_menu_page_ = 0;
-  if (ic == nullptr) {
-    return;
-  }
-  fcitx::Text empty;
-  ic->inputPanel().setAuxUp(empty);
-  ic->inputPanel().setAuxDown(empty);
-  ic->inputPanel().setCandidateList({});
-  ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  ClearProjectedMenu(asr_menu_ic_, asr_menu_session_, asr_menu_projection_);
 }
 
 bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
-  if (!asr_menu_visible_ || asr_menu_ic_ == nullptr) {
-    return false;
-  }
-  const auto title = FrontendText("Models /filter");
   const auto projection = asr_menu_projection_;
-  const auto item_count = projection != nullptr ? projection->size() : std::nullopt;
-  if (!item_count.has_value()) {
-    HideAsrMenu();
-    return false;
-  }
   return HandleProjectedMenuKeyEvent(
-      event, trigger_policy_.IsAsrMenuTrigger(event), asr_menu_ic_, asr_menu_filter_,
-      *item_count, asr_menu_page_, frontend_settings_, title,
+      event, trigger_policy_.IsAsrMenuTrigger(event), asr_menu_ic_, asr_menu_session_,
+      projection, frontend_settings_, FrontendText("Models /filter"),
       [this](int page) { RebuildAsrMenu(page); }, [this]() { HideAsrMenu(); },
-      [this, projection](std::size_t index, fcitx::InputContext *ic) {
-        const auto item = projection->item(index);
-        if (!item.has_value()) {
-          HideAsrMenu();
-          return;
-        }
-        ExecuteMenuControl(item->control, ic);
+      [this](const ProjectedMenuControl &control, fcitx::InputContext *input_context) {
+        ExecuteMenuControl(control, input_context);
       });
 }
 
@@ -427,7 +395,8 @@ void FcitxVinputAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
   switch (control.kind) {
   case ProjectedMenuControlKind::SetActiveScene:
     if (client == nullptr ||
-        !client->SetActiveScene(&scene_state_, control.first, &persisted, &error)) {
+        !client->SetActiveScene(&scene_menu_controller_, control.first, &persisted,
+                                &error)) {
       HideSceneMenu();
       ApplyDaemonUnavailable(ic, std::move(error));
       return;

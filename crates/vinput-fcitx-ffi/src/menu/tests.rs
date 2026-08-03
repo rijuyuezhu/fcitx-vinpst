@@ -4,11 +4,12 @@ use super::{
     MENU_ACTION_CLOSE_AND_CONSUME, MENU_ACTION_CONSUME, MENU_ACTION_MOVE_PREVIOUS,
     MENU_ACTION_PASS, MENU_ACTION_REBUILD, MENU_ACTION_SELECT, MENU_KEY_DIGIT, MENU_KEY_ENTER,
     MENU_KEY_ESCAPE, MENU_KEY_MOVE_PREVIOUS, MENU_KEY_OTHER, MENU_KEY_PAGE, MENU_KEY_SLASH,
-    MENU_KEY_TEXT, VinputFcitxMenuKeyDecisionView, menu_filter_core_ref,
-    vinput_fcitx_clamp_menu_page, vinput_fcitx_menu_filter_state_active,
-    vinput_fcitx_menu_filter_state_decorate_title, vinput_fcitx_menu_filter_state_free,
-    vinput_fcitx_menu_filter_state_handle_key, vinput_fcitx_menu_filter_state_new,
-    vinput_fcitx_menu_filter_state_reset,
+    MENU_KEY_TEXT, VinputFcitxMenuKeyDecisionView, menu_session_filter_ref,
+    vinput_fcitx_clamp_menu_page, vinput_fcitx_menu_session_close,
+    vinput_fcitx_menu_session_decorate_title, vinput_fcitx_menu_session_filter_active,
+    vinput_fcitx_menu_session_free, vinput_fcitx_menu_session_handle_key,
+    vinput_fcitx_menu_session_is_open, vinput_fcitx_menu_session_new,
+    vinput_fcitx_menu_session_open, vinput_fcitx_menu_session_set_page,
 };
 use crate::frontend::VinputFcitxStringView;
 
@@ -20,7 +21,6 @@ struct KeyCall<'a> {
     text: &'a [u8],
     cursor_available: bool,
     current_selection: i64,
-    current_page: i32,
     visible_item_count: usize,
 }
 
@@ -32,18 +32,18 @@ unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     unsafe { std::slice::from_raw_parts(view.data, view.len) }
 }
 
-unsafe fn state_active(state: *const super::VinputFcitxMenuFilterState) -> u8 {
+unsafe fn state_active(state: *const super::VinputFcitxMenuSession) -> u8 {
     let mut active = u8::MAX;
     // SAFETY: Test callers pass live state and writable output.
     assert_eq!(
-        unsafe { vinput_fcitx_menu_filter_state_active(state, &raw mut active) },
+        unsafe { vinput_fcitx_menu_session_filter_active(state, &raw mut active) },
         1
     );
     active
 }
 
-unsafe fn handle_key(
-    state: *mut super::VinputFcitxMenuFilterState,
+unsafe fn session_handle_key(
+    state: *mut super::VinputFcitxMenuSession,
     call: KeyCall<'_>,
 ) -> Option<VinputFcitxMenuKeyDecisionView> {
     let mut decision = VinputFcitxMenuKeyDecisionView {
@@ -52,7 +52,7 @@ unsafe fn handle_key(
     };
     // SAFETY: Test callers provide live inputs and writable output.
     let success = unsafe {
-        vinput_fcitx_menu_filter_state_handle_key(
+        vinput_fcitx_menu_session_handle_key(
             state,
             u8::from(call.release),
             call.kind,
@@ -61,7 +61,6 @@ unsafe fn handle_key(
             call.text.len(),
             u8::from(call.cursor_available),
             call.current_selection,
-            call.current_page,
             call.visible_item_count,
             &raw mut decision,
         )
@@ -73,11 +72,12 @@ unsafe fn handle_key(
 fn drives_filter_lifecycle_only_through_semantic_keys() {
     // SAFETY: State and local byte views remain live and are freed exactly once.
     unsafe {
-        let state = vinput_fcitx_menu_filter_state_new();
+        let state = vinput_fcitx_menu_session_new();
         assert!(!state.is_null());
+        assert_eq!(vinput_fcitx_menu_session_open(state), 1);
         assert_eq!(state_active(state), 0);
         assert_eq!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_SLASH,
@@ -88,7 +88,7 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
             Some(MENU_ACTION_REBUILD),
         );
         assert_eq!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_TEXT,
@@ -106,7 +106,7 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
             len: 0,
         };
         assert_eq!(
-            vinput_fcitx_menu_filter_state_decorate_title(
+            vinput_fcitx_menu_session_decorate_title(
                 state,
                 b"Models /".as_ptr(),
                 8,
@@ -117,7 +117,7 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
         assert_eq!(bytes(title), "Models /MOON 中".as_bytes());
 
         assert_eq!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_ESCAPE,
@@ -129,7 +129,7 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
         );
         assert_eq!(state_active(state), 0);
         assert_eq!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_ESCAPE,
@@ -139,8 +139,7 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
             .map(|value| value.action),
             Some(MENU_ACTION_CLOSE_AND_CONSUME),
         );
-        assert_eq!(vinput_fcitx_menu_filter_state_reset(state), 1);
-        vinput_fcitx_menu_filter_state_free(state);
+        vinput_fcitx_menu_session_free(state);
     }
 }
 
@@ -148,41 +147,42 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
 fn exposes_page_digit_cursor_enter_and_release_decisions() {
     // SAFETY: State is live for all calls and freed exactly once.
     unsafe {
-        let state = vinput_fcitx_menu_filter_state_new();
-        let page = handle_key(
+        let state = vinput_fcitx_menu_session_new();
+        assert_eq!(vinput_fcitx_menu_session_open(state), 1);
+        assert_eq!(vinput_fcitx_menu_session_set_page(state, 1), 1);
+        let page = session_handle_key(
             state,
             KeyCall {
                 kind: MENU_KEY_PAGE,
                 value: 1,
                 current_selection: -1,
-                current_page: 1,
                 visible_item_count: 13,
                 ..KeyCall::default()
             },
         )
         .expect("page decision");
         assert_eq!((page.action, page.value), (MENU_ACTION_REBUILD, 2));
-        let digit = handle_key(
+        let digit = session_handle_key(
             state,
             KeyCall {
                 kind: MENU_KEY_DIGIT,
                 value: 2,
                 current_selection: -1,
-                current_page: 1,
                 visible_item_count: 13,
                 ..KeyCall::default()
             },
         )
         .expect("digit decision");
         assert_eq!((digit.action, digit.value), (MENU_ACTION_SELECT, 12));
+        assert_eq!(vinput_fcitx_menu_session_open(state), 1);
+        assert_eq!(vinput_fcitx_menu_session_set_page(state, 1), 1);
         assert_eq!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_DIGIT,
                     value: 3,
                     current_selection: -1,
-                    current_page: 1,
                     visible_item_count: 13,
                     ..KeyCall::default()
                 },
@@ -191,7 +191,7 @@ fn exposes_page_digit_cursor_enter_and_release_decisions() {
             Some(MENU_ACTION_CONSUME),
         );
         assert_eq!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_MOVE_PREVIOUS,
@@ -204,13 +204,13 @@ fn exposes_page_digit_cursor_enter_and_release_decisions() {
             .map(|value| value.action),
             Some(MENU_ACTION_MOVE_PREVIOUS),
         );
+        assert_eq!(vinput_fcitx_menu_session_set_page(state, 1), 1);
         assert_eq!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_ENTER,
                     current_selection: -1,
-                    current_page: 1,
                     visible_item_count: 13,
                     ..KeyCall::default()
                 },
@@ -218,8 +218,9 @@ fn exposes_page_digit_cursor_enter_and_release_decisions() {
             .map(|value| (value.action, value.value)),
             Some((MENU_ACTION_SELECT, 10)),
         );
+        assert_eq!(vinput_fcitx_menu_session_open(state), 1);
         assert_eq!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     release: true,
@@ -231,7 +232,7 @@ fn exposes_page_digit_cursor_enter_and_release_decisions() {
             .map(|value| value.action),
             Some(MENU_ACTION_PASS),
         );
-        vinput_fcitx_menu_filter_state_free(state);
+        vinput_fcitx_menu_session_free(state);
     }
 }
 
@@ -239,9 +240,10 @@ fn exposes_page_digit_cursor_enter_and_release_decisions() {
 fn invalid_key_text_preserves_state_and_output() {
     // SAFETY: State and invalid local bytes remain live and state is freed once.
     unsafe {
-        let state = vinput_fcitx_menu_filter_state_new();
+        let state = vinput_fcitx_menu_session_new();
+        assert_eq!(vinput_fcitx_menu_session_open(state), 1);
         assert!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_SLASH,
@@ -251,7 +253,7 @@ fn invalid_key_text_preserves_state_and_output() {
             .is_some()
         );
         assert!(
-            handle_key(
+            session_handle_key(
                 state,
                 KeyCall {
                     kind: MENU_KEY_TEXT,
@@ -267,7 +269,7 @@ fn invalid_key_text_preserves_state_and_output() {
             value: 92,
         };
         assert_eq!(
-            vinput_fcitx_menu_filter_state_handle_key(
+            vinput_fcitx_menu_session_handle_key(
                 state,
                 0,
                 MENU_KEY_TEXT,
@@ -277,17 +279,16 @@ fn invalid_key_text_preserves_state_and_output() {
                 0,
                 -1,
                 0,
-                0,
                 &raw mut decision,
             ),
             0,
         );
         assert_eq!((decision.action, decision.value), (91, 92));
         assert_eq!(
-            menu_filter_core_ref(state).map(vinput_fcitx_core::MenuFilterState::query),
+            menu_session_filter_ref(state).map(vinput_fcitx_core::MenuFilterState::query),
             Some("old")
         );
-        vinput_fcitx_menu_filter_state_free(state);
+        vinput_fcitx_menu_session_free(state);
     }
 }
 
@@ -297,4 +298,42 @@ fn exposes_page_clamping() {
     assert_eq!(vinput_fcitx_clamp_menu_page(2, -1), 0);
     assert_eq!(vinput_fcitx_clamp_menu_page(2, 1), 1);
     assert_eq!(vinput_fcitx_clamp_menu_page(2, 99), 1);
+}
+
+#[test]
+fn menu_session_owns_open_page_and_terminal_key_transitions() {
+    // SAFETY: State is live for all calls and freed exactly once.
+    unsafe {
+        let state = vinput_fcitx_menu_session_new();
+        assert!(!state.is_null());
+
+        let mut open = u8::MAX;
+        assert_eq!(vinput_fcitx_menu_session_is_open(state, &raw mut open), 1);
+        assert_eq!(open, 0);
+        assert_eq!(vinput_fcitx_menu_session_set_page(state, 1), 0);
+        assert!(session_handle_key(state, KeyCall::default()).is_none());
+
+        assert_eq!(vinput_fcitx_menu_session_open(state), 1);
+        assert_eq!(vinput_fcitx_menu_session_set_page(state, 2), 1);
+        assert_eq!(
+            session_handle_key(
+                state,
+                KeyCall {
+                    kind: MENU_KEY_DIGIT,
+                    value: 3,
+                    current_selection: -1,
+                    visible_item_count: 30,
+                    ..KeyCall::default()
+                },
+            )
+            .map(|value| (value.action, value.value)),
+            Some((MENU_ACTION_SELECT, 23)),
+        );
+        assert_eq!(vinput_fcitx_menu_session_is_open(state, &raw mut open), 1);
+        assert_eq!(open, 0);
+
+        assert_eq!(vinput_fcitx_menu_session_open(state), 1);
+        assert_eq!(vinput_fcitx_menu_session_close(state), 1);
+        vinput_fcitx_menu_session_free(state);
+    }
 }

@@ -1,4 +1,5 @@
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
+#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 #include "vinput_fcitx_bridge/rust_handle.h"
 #include "vinput_fcitx_bridge/rust_string.h"
 
@@ -80,36 +81,36 @@ bool SdBusDaemonClient::GetStatus(std::string *status, std::string *error) {
   return true;
 }
 
-bool SdBusDaemonClient::GetSceneState(SceneStateSnapshot *state, std::string *error) {
-  if (state == nullptr) {
-    SetError(error, "Missing scene snapshot output.");
+bool SdBusDaemonClient::RefreshSceneMenuController(SceneMenuController *controller,
+                                                   std::string *error) {
+  if (controller == nullptr) {
+    SetError(error, "Missing scene menu controller.");
     return false;
   }
   VinputFcitxOwnedString *raw_error = nullptr;
-  auto *snapshot = vinput_fcitx_daemon_client_get_scene_state(
-      impl_->client.raw_handle(), &raw_error);
-  if (snapshot == nullptr) {
+  if (vinput_fcitx_daemon_client_refresh_scene_menu_controller(
+          impl_->client.raw_handle(), controller->mutable_raw_handle(), &raw_error) ==
+      0) {
     SetRustError(error, raw_error,
                  "Voice input daemon returned an invalid scene snapshot.");
     return false;
   }
   auto ignored_error = OwnedStringHandle::Adopt(raw_error);
-  *state = SceneStateSnapshot::Adopt(snapshot);
   return true;
 }
 
-bool SdBusDaemonClient::SetActiveScene(SceneStateSnapshot *state,
+bool SdBusDaemonClient::SetActiveScene(SceneMenuController *controller,
                                        std::string_view scene_id, bool *persisted,
                                        std::string *error) {
-  if (state == nullptr || persisted == nullptr) {
+  if (controller == nullptr || persisted == nullptr) {
     SetError(error, "Missing boolean response output.");
     return false;
   }
   std::uint8_t persisted_value = 0;
   VinputFcitxOwnedString *raw_error = nullptr;
   if (vinput_fcitx_daemon_client_set_active_scene(
-          impl_->client.raw_handle(), state->mutable_raw_handle(), RustBytes(scene_id),
-          scene_id.size(), &persisted_value, &raw_error) == 0) {
+          impl_->client.raw_handle(), controller->mutable_raw_handle(),
+          RustBytes(scene_id), scene_id.size(), &persisted_value, &raw_error) == 0) {
     SetRustError(error, raw_error,
                  "Voice input daemon failed to set the active scene.");
     return false;
@@ -119,22 +120,21 @@ bool SdBusDaemonClient::SetActiveScene(SceneStateSnapshot *state,
   return true;
 }
 
-bool SdBusDaemonClient::GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state,
-                                               std::string *error) {
-  if (state == nullptr) {
-    SetError(error, "Missing ASR snapshot output.");
+bool SdBusDaemonClient::RefreshAsrMenuController(AsrMenuController *controller,
+                                                 std::string *error) {
+  if (controller == nullptr) {
+    SetError(error, "Missing ASR menu controller.");
     return false;
   }
   VinputFcitxOwnedString *raw_error = nullptr;
-  auto *snapshot = vinput_fcitx_daemon_client_get_asr_display_state(
-      impl_->client.raw_handle(), &raw_error);
-  if (snapshot == nullptr) {
+  if (vinput_fcitx_daemon_client_refresh_asr_menu_controller(
+          impl_->client.raw_handle(), controller->mutable_raw_handle(), &raw_error) ==
+      0) {
     SetRustError(error, raw_error,
                  "Voice input daemon returned an invalid ASR snapshot.");
     return false;
   }
   auto ignored_error = OwnedStringHandle::Adopt(raw_error);
-  *state = AsrDisplayMenuStateSnapshot::Adopt(snapshot);
   return true;
 }
 

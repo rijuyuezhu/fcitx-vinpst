@@ -3,16 +3,16 @@ use std::ptr;
 use vinput_fcitx_core::{AsrDisplaySnapshot, AsrDisplaySnapshotItem, MenuFilterState};
 
 use super::{
-    VinputFcitxProjectedMenuItemView, VinputFcitxProjectionView, vinput_fcitx_asr_projection_free,
-    vinput_fcitx_asr_projection_item_view, vinput_fcitx_asr_projection_new,
-    vinput_fcitx_asr_projection_view,
+    VinputFcitxMenuProjection, VinputFcitxMenuProjectionView, VinputFcitxProjectedMenuItemView,
+    vinput_fcitx_menu_projection_free, vinput_fcitx_menu_projection_item_view,
+    vinput_fcitx_menu_projection_view,
 };
 use crate::{
     frontend::VinputFcitxStringView,
-    menu::{boxed_menu_filter_state, vinput_fcitx_menu_filter_state_free},
-    menu_snapshot::{
-        VinputFcitxAsrDisplaySnapshot, boxed_asr_display_snapshot,
-        vinput_fcitx_asr_display_snapshot_free,
+    menu::{boxed_menu_session, vinput_fcitx_menu_session_free},
+    menu_controller::{
+        VinputFcitxAsrMenuController, boxed_asr_controller, vinput_fcitx_asr_menu_controller_free,
+        vinput_fcitx_asr_menu_controller_projection_new,
     },
 };
 
@@ -24,14 +24,14 @@ unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     unsafe { std::slice::from_raw_parts(view.data, view.len) }
 }
 
-unsafe fn projection(
-    snapshot: *const VinputFcitxAsrDisplaySnapshot,
-    filter: *const crate::menu::VinputFcitxMenuFilterState,
-) -> *mut super::VinputFcitxAsrProjection {
+unsafe fn menu_projection(
+    controller: *const VinputFcitxAsrMenuController,
+    filter: *const crate::menu::VinputFcitxMenuSession,
+) -> *mut VinputFcitxMenuProjection {
     // SAFETY: Test byte slices outlive the projection constructor call.
     unsafe {
-        vinput_fcitx_asr_projection_new(
-            snapshot,
+        vinput_fcitx_asr_menu_controller_projection_new(
+            controller,
             filter,
             b"Local".as_ptr(),
             5,
@@ -51,16 +51,16 @@ unsafe fn projection(
     }
 }
 
-fn filter(query: &str) -> *mut crate::menu::VinputFcitxMenuFilterState {
+fn filter(query: &str) -> *mut crate::menu::VinputFcitxMenuSession {
     let mut filter = MenuFilterState::default();
     if !query.is_empty() {
         filter.activate();
         filter.append_text(query);
     }
-    boxed_menu_filter_state(filter)
+    boxed_menu_session(filter)
 }
 
-fn snapshot(
+fn controller(
     target_provider: &str,
     target_model: &str,
     effective_provider: &str,
@@ -68,7 +68,7 @@ fn snapshot(
     reload: bool,
     error: &str,
     rows: &[(&str, &str, &str, &str, &str)],
-) -> *mut VinputFcitxAsrDisplaySnapshot {
+) -> *mut VinputFcitxAsrMenuController {
     let mut snapshot = AsrDisplaySnapshot::new(
         target_provider.to_owned(),
         target_model.to_owned(),
@@ -86,7 +86,7 @@ fn snapshot(
             model_value: (*model_value).to_owned(),
         });
     }
-    boxed_asr_display_snapshot(snapshot)
+    boxed_asr_controller(Some(snapshot))
 }
 
 fn empty_string_view() -> VinputFcitxStringView {
@@ -97,10 +97,10 @@ fn empty_string_view() -> VinputFcitxStringView {
 }
 
 #[test]
-fn projects_localized_rows_and_effective_label_directly_from_snapshot() {
+fn projects_localized_rows_and_effective_label_from_controller() {
     // SAFETY: Both handles are live for all calls and freed exactly once.
     unsafe {
-        let snapshot = snapshot(
+        let controller = controller(
             "sherpa",
             "moonshine-en",
             "sherpa",
@@ -125,17 +125,17 @@ fn projects_localized_rows_and_effective_label_directly_from_snapshot() {
             ],
         );
         let filter = filter("chinese local");
-        let projection = projection(snapshot, filter);
+        let projection = menu_projection(controller, filter);
         assert!(!projection.is_null());
-        let mut summary = VinputFcitxProjectionView {
-            effective_label: empty_string_view(),
+        let mut summary = VinputFcitxMenuProjectionView {
+            summary: empty_string_view(),
             item_count: 0,
         };
         assert_eq!(
-            vinput_fcitx_asr_projection_view(projection, &raw mut summary),
+            vinput_fcitx_menu_projection_view(projection, &raw mut summary),
             1,
         );
-        assert_eq!(bytes(summary.effective_label), b"Moonshine English");
+        assert_eq!(bytes(summary.summary), b"Moonshine English");
         assert_eq!(summary.item_count, 1);
 
         let empty = empty_string_view();
@@ -147,7 +147,7 @@ fn projects_localized_rows_and_effective_label_directly_from_snapshot() {
             control_label: empty,
         };
         assert_eq!(
-            vinput_fcitx_asr_projection_item_view(projection, 0, &raw mut item),
+            vinput_fcitx_menu_projection_item_view(projection, 0, &raw mut item),
             1,
         );
         assert_eq!(bytes(item.label), b"Paraformer Chinese [Local]");
@@ -156,9 +156,9 @@ fn projects_localized_rows_and_effective_label_directly_from_snapshot() {
         assert_eq!(bytes(item.control_second), b"paraformer-zh");
         assert_eq!(bytes(item.control_label), b"Paraformer Chinese");
 
-        vinput_fcitx_asr_projection_free(projection);
-        vinput_fcitx_menu_filter_state_free(filter);
-        vinput_fcitx_asr_display_snapshot_free(snapshot);
+        vinput_fcitx_menu_projection_free(projection);
+        vinput_fcitx_menu_session_free(filter);
+        vinput_fcitx_asr_menu_controller_free(controller);
     }
 }
 
@@ -166,7 +166,7 @@ fn projects_localized_rows_and_effective_label_directly_from_snapshot() {
 fn renders_loading_row_and_current_backend_summary() {
     // SAFETY: Both handles are live for all calls and freed exactly once.
     unsafe {
-        let snapshot = snapshot(
+        let controller = controller(
             "sherpa",
             "requested",
             "sherpa",
@@ -176,18 +176,18 @@ fn renders_loading_row_and_current_backend_summary() {
             &[("sherpa", "local", "requested", "Requested", "requested")],
         );
         let filter = filter("");
-        let projection = projection(snapshot, filter);
+        let projection = menu_projection(controller, filter);
         assert!(!projection.is_null());
-        let mut summary = VinputFcitxProjectionView {
-            effective_label: empty_string_view(),
+        let mut summary = VinputFcitxMenuProjectionView {
+            summary: empty_string_view(),
             item_count: 0,
         };
         assert_eq!(
-            vinput_fcitx_asr_projection_view(projection, &raw mut summary),
+            vinput_fcitx_menu_projection_view(projection, &raw mut summary),
             1,
         );
         assert_eq!(
-            bytes(summary.effective_label),
+            bytes(summary.summary),
             b"legacy | Loading: sherpa/Requested | Error: reload failed"
         );
         assert_eq!(summary.item_count, 1);
@@ -201,26 +201,26 @@ fn renders_loading_row_and_current_backend_summary() {
             control_label: empty,
         };
         assert_eq!(
-            vinput_fcitx_asr_projection_item_view(projection, 0, &raw mut item),
+            vinput_fcitx_menu_projection_item_view(projection, 0, &raw mut item),
             1,
         );
         assert_eq!(bytes(item.label), b"Requested [Local] (loading)");
 
-        vinput_fcitx_asr_projection_free(projection);
-        vinput_fcitx_menu_filter_state_free(filter);
-        vinput_fcitx_asr_display_snapshot_free(snapshot);
+        vinput_fcitx_menu_projection_free(projection);
+        vinput_fcitx_menu_session_free(filter);
+        vinput_fcitx_asr_menu_controller_free(controller);
     }
 }
 
 #[test]
 fn invalid_localized_fragment_rejects_projection() {
-    // SAFETY: The snapshot is live for the constructor call and freed exactly once.
+    // SAFETY: The controller is live for the constructor call and freed exactly once.
     unsafe {
-        let snapshot = snapshot("", "", "", "", false, "", &[]);
+        let controller = controller("", "", "", "", false, "", &[]);
         let filter = filter("");
         let invalid = [0xff];
-        let projection = vinput_fcitx_asr_projection_new(
-            snapshot,
+        let projection = vinput_fcitx_asr_menu_controller_projection_new(
+            controller,
             filter,
             invalid.as_ptr(),
             invalid.len(),
@@ -238,7 +238,7 @@ fn invalid_localized_fragment_rejects_projection() {
             7,
         );
         assert!(projection.is_null());
-        vinput_fcitx_menu_filter_state_free(filter);
-        vinput_fcitx_asr_display_snapshot_free(snapshot);
+        vinput_fcitx_menu_session_free(filter);
+        vinput_fcitx_asr_menu_controller_free(controller);
     }
 }

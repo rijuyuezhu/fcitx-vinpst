@@ -104,15 +104,15 @@ int main() {
     return 1;
   }
 
-  vinput_fcitx_bridge::SceneStateSnapshot scene_state;
-  if (!client->GetSceneState(&scene_state, &error)) {
+  vinput_fcitx_bridge::SceneMenuController scene_controller;
+  if (!client->RefreshSceneMenuController(&scene_controller, &error)) {
     std::cerr << "scene state failed: " << error << '\n';
     return 1;
   }
 
   FrontendBridge external_bridge;
   const auto external_start =
-      external_bridge.StartNormal(client->raw_handle(), scene_state);
+      external_bridge.StartNormal(client->raw_handle(), scene_controller);
   if (external_start.kind != BridgeOutcome::Kind::Preedit ||
       !external_bridge.recording()) {
     std::cerr << "external normal frontend start failed: " << external_start.text

@@ -431,8 +431,8 @@ FcitxVinputAddon::ExecuteDaemonControl(std::uint8_t event, fcitx::InputContext *
   case DaemonControlPlan::AdoptAndStopNormal:
     ClearRemoteDaemonStatus();
     if (auto *client = EnsureDaemonClient(nullptr); client != nullptr) {
-      return ApplyBridgeOutcome(
-          ic, bridge_.AdoptAndStop(client->raw_handle(), false, scene_state_));
+      return ApplyBridgeOutcome(ic, bridge_.AdoptAndStop(client->raw_handle(), false,
+                                                         scene_menu_controller_));
     }
     return ApplyDaemonUnavailable(ic, "Voice input daemon is unavailable.");
   case DaemonControlPlan::ClearDaemonError:
@@ -504,8 +504,8 @@ AppliedOutcome FcitxVinputAddon::StartNormalRecording(fcitx::InputContext *ic) {
     return ApplyDaemonUnavailable(ic, std::move(error));
   }
 
-  return ApplyBridgeOutcome(ic,
-                            bridge_.StartNormal(client->raw_handle(), scene_state_));
+  return ApplyBridgeOutcome(
+      ic, bridge_.StartNormal(client->raw_handle(), scene_menu_controller_));
 }
 
 AppliedOutcome FcitxVinputAddon::StartCommandRecording(fcitx::InputContext *ic,
@@ -532,7 +532,8 @@ AppliedOutcome FcitxVinputAddon::StopRecording(fcitx::InputContext *ic) {
   if (client == nullptr) {
     return ApplyDaemonUnavailable(ic, std::move(error));
   }
-  return ApplyBridgeOutcome(ic, bridge_.Stop(client->raw_handle(), scene_state_));
+  return ApplyBridgeOutcome(ic,
+                            bridge_.Stop(client->raw_handle(), scene_menu_controller_));
 }
 
 AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
@@ -581,10 +582,10 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
   }
 
   auto &key_event = static_cast<fcitx::KeyEvent &>(event);
-  if (asr_menu_visible_ && HandleAsrMenuKeyEvent(key_event)) {
+  if (HandleAsrMenuKeyEvent(key_event)) {
     return;
   }
-  if (scene_menu_visible_ && HandleSceneMenuKeyEvent(key_event)) {
+  if (HandleSceneMenuKeyEvent(key_event)) {
     return;
   }
   const auto action = trigger_policy_.Classify(key_event);

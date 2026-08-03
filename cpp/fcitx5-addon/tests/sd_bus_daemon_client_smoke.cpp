@@ -1,3 +1,4 @@
+#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 #include "vinput_fcitx_bridge/rust_handle.h"
 #include "vinput_fcitx_bridge/rust_string.h"
@@ -15,27 +16,25 @@
 #include <thread>
 #include <vector>
 
-using vinput_fcitx_bridge::AsrDisplayMenuStateSnapshot;
+using vinput_fcitx_bridge::AsrMenuController;
 using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FrontendBridge;
-using vinput_fcitx_bridge::SceneStateSnapshot;
+using vinput_fcitx_bridge::ProjectedMenuControlKind;
+using vinput_fcitx_bridge::SceneMenuController;
 using vinput_fcitx_bridge::SdBusDaemonClient;
 
 namespace {
 
-using SceneProjectionHandle =
-    vinput_fcitx_bridge::RustOwnedHandle<VinputFcitxSceneProjection,
-                                         vinput_fcitx_scene_projection_free>;
-using AsrProjectionHandle =
-    vinput_fcitx_bridge::RustOwnedHandle<VinputFcitxAsrProjection,
-                                         vinput_fcitx_asr_projection_free>;
-using MenuFilterHandle =
-    vinput_fcitx_bridge::RustOwnedHandle<VinputFcitxMenuFilterState,
-                                         vinput_fcitx_menu_filter_state_free>;
+using MenuProjectionHandle =
+    vinput_fcitx_bridge::RustOwnedHandle<VinputFcitxMenuProjection,
+                                         vinput_fcitx_menu_projection_free>;
+using MenuSessionHandle =
+    vinput_fcitx_bridge::RustOwnedHandle<VinputFcitxMenuSession,
+                                         vinput_fcitx_menu_session_free>;
 
 struct ProjectedItem {
   std::string label;
-  std::uint8_t control_kind = VINPUT_FCITX_MENU_CONTROL_NONE;
+  ProjectedMenuControlKind control_kind = ProjectedMenuControlKind::None;
   std::string first;
   std::string second;
   std::string control_label;
@@ -53,34 +52,35 @@ struct AsrProjectionState {
 
 ProjectedItem CopyProjectedItem(const VinputFcitxProjectedMenuItemView &view) {
   return ProjectedItem{vinput_fcitx_bridge::CopyRustString(view.label),
-                       view.control_kind,
+                       static_cast<ProjectedMenuControlKind>(view.control_kind),
                        vinput_fcitx_bridge::CopyRustString(view.control_first),
                        vinput_fcitx_bridge::CopyRustString(view.control_second),
                        vinput_fcitx_bridge::CopyRustString(view.control_label)};
 }
 
-std::optional<SceneProjectionState> ProjectScene(const SceneStateSnapshot &snapshot) {
-  auto filter = MenuFilterHandle::Adopt(vinput_fcitx_menu_filter_state_new());
-  if (!filter) {
+std::optional<SceneProjectionState>
+ProjectScene(const SceneMenuController &controller) {
+  auto session = MenuSessionHandle::Adopt(vinput_fcitx_menu_session_new());
+  if (!session) {
     return std::nullopt;
   }
-  auto projection = SceneProjectionHandle::Adopt(
-      vinput_fcitx_scene_projection_new(snapshot.raw_handle(), filter.raw_handle()));
+  auto projection =
+      MenuProjectionHandle::Adopt(vinput_fcitx_scene_menu_controller_projection_new(
+          controller.raw_handle(), session.raw_handle()));
   if (!projection) {
     return std::nullopt;
   }
-  VinputFcitxSceneProjectionView view{};
-  if (vinput_fcitx_scene_projection_view(projection.raw_handle(), &view) == 0) {
+  VinputFcitxMenuProjectionView view{};
+  if (vinput_fcitx_menu_projection_view(projection.raw_handle(), &view) == 0) {
     return std::nullopt;
   }
-  SceneProjectionState state{.active_label =
-                                 vinput_fcitx_bridge::CopyRustString(view.active_label),
-                             .items = {}};
+  SceneProjectionState state{
+      .active_label = vinput_fcitx_bridge::CopyRustString(view.summary), .items = {}};
   state.items.reserve(view.item_count);
   for (std::size_t index = 0; index < view.item_count; ++index) {
     VinputFcitxProjectedMenuItemView item{};
-    if (vinput_fcitx_scene_projection_item_view(projection.raw_handle(), index,
-                                                &item) == 0) {
+    if (vinput_fcitx_menu_projection_item_view(projection.raw_handle(), index, &item) ==
+        0) {
       return std::nullopt;
     }
     state.items.push_back(CopyProjectedItem(item));
@@ -91,13 +91,12 @@ std::optional<SceneProjectionState> ProjectScene(const SceneStateSnapshot &snaps
 bool HasSceneControl(const SceneProjectionState &projection,
                      std::string_view scene_id) {
   return std::ranges::any_of(projection.items, [scene_id](const auto &item) {
-    return item.control_kind == VINPUT_FCITX_MENU_CONTROL_SET_ACTIVE_SCENE &&
+    return item.control_kind == ProjectedMenuControlKind::SetActiveScene &&
            item.first == scene_id;
   });
 }
 
-std::optional<AsrProjectionState>
-ProjectAsr(const AsrDisplayMenuStateSnapshot &snapshot) {
+std::optional<AsrProjectionState> ProjectAsr(const AsrMenuController &controller) {
   constexpr std::string_view kLocal = "Local";
   constexpr std::string_view kRemote = "Remote";
   constexpr std::string_view kCommand = "Command";
@@ -105,33 +104,34 @@ ProjectAsr(const AsrDisplayMenuStateSnapshot &snapshot) {
   constexpr std::string_view kUnavailable = "unavailable";
   constexpr std::string_view kLoadingPrefix = "Loading: ";
   constexpr std::string_view kErrorPrefix = "Error: ";
-  auto filter = MenuFilterHandle::Adopt(vinput_fcitx_menu_filter_state_new());
-  if (!filter) {
+  auto session = MenuSessionHandle::Adopt(vinput_fcitx_menu_session_new());
+  if (!session) {
     return std::nullopt;
   }
-  auto projection = AsrProjectionHandle::Adopt(vinput_fcitx_asr_projection_new(
-      snapshot.raw_handle(), filter.raw_handle(),
-      vinput_fcitx_bridge::RustBytes(kLocal), kLocal.size(),
-      vinput_fcitx_bridge::RustBytes(kRemote), kRemote.size(),
-      vinput_fcitx_bridge::RustBytes(kCommand), kCommand.size(),
-      vinput_fcitx_bridge::RustBytes(kLoadingSuffix), kLoadingSuffix.size(),
-      vinput_fcitx_bridge::RustBytes(kUnavailable), kUnavailable.size(),
-      vinput_fcitx_bridge::RustBytes(kLoadingPrefix), kLoadingPrefix.size(),
-      vinput_fcitx_bridge::RustBytes(kErrorPrefix), kErrorPrefix.size()));
+  auto projection =
+      MenuProjectionHandle::Adopt(vinput_fcitx_asr_menu_controller_projection_new(
+          controller.raw_handle(), session.raw_handle(),
+          vinput_fcitx_bridge::RustBytes(kLocal), kLocal.size(),
+          vinput_fcitx_bridge::RustBytes(kRemote), kRemote.size(),
+          vinput_fcitx_bridge::RustBytes(kCommand), kCommand.size(),
+          vinput_fcitx_bridge::RustBytes(kLoadingSuffix), kLoadingSuffix.size(),
+          vinput_fcitx_bridge::RustBytes(kUnavailable), kUnavailable.size(),
+          vinput_fcitx_bridge::RustBytes(kLoadingPrefix), kLoadingPrefix.size(),
+          vinput_fcitx_bridge::RustBytes(kErrorPrefix), kErrorPrefix.size()));
   if (!projection) {
     return std::nullopt;
   }
-  VinputFcitxProjectionView view{};
-  if (vinput_fcitx_asr_projection_view(projection.raw_handle(), &view) == 0) {
+  VinputFcitxMenuProjectionView view{};
+  if (vinput_fcitx_menu_projection_view(projection.raw_handle(), &view) == 0) {
     return std::nullopt;
   }
-  AsrProjectionState state{
-      .effective_label = vinput_fcitx_bridge::CopyRustString(view.effective_label),
-      .items = {}};
+  AsrProjectionState state{.effective_label =
+                               vinput_fcitx_bridge::CopyRustString(view.summary),
+                           .items = {}};
   state.items.reserve(view.item_count);
   for (std::size_t index = 0; index < view.item_count; ++index) {
     VinputFcitxProjectedMenuItemView item{};
-    if (vinput_fcitx_asr_projection_item_view(projection.raw_handle(), index, &item) ==
+    if (vinput_fcitx_menu_projection_item_view(projection.raw_handle(), index, &item) ==
         0) {
       return std::nullopt;
     }
@@ -180,11 +180,11 @@ bool ExpectDaemonStatus(SdBusDaemonClient *client, std::string_view expected,
 }
 
 bool ExpectConfiguredAsrState(SdBusDaemonClient *client, std::string *error) {
-  AsrDisplayMenuStateSnapshot snapshot;
-  if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
+  AsrMenuController controller;
+  if (!client->RefreshAsrMenuController(&controller, error)) {
     return false;
   }
-  const auto projection = ProjectAsr(snapshot);
+  const auto projection = ProjectAsr(controller);
   if (projection.has_value() && !projection->effective_label.empty()) {
     return true;
   }
@@ -195,8 +195,8 @@ bool ExpectConfiguredAsrState(SdBusDaemonClient *client, std::string *error) {
 }
 
 bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
-  SceneStateSnapshot state;
-  if (!client->GetSceneState(&state, error)) {
+  SceneMenuController controller;
+  if (!client->RefreshSceneMenuController(&controller, error)) {
     return false;
   }
   auto expected_active_scene =
@@ -204,7 +204,7 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   if (expected_active_scene.empty()) {
     expected_active_scene = "__raw__";
   }
-  const auto projection = ProjectScene(state);
+  const auto projection = ProjectScene(controller);
   if (!projection.has_value() || projection->active_label.empty() ||
       projection->items.empty() ||
       HasSceneControl(*projection, expected_active_scene) ||
@@ -217,7 +217,7 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   }
 
   bool persisted = true;
-  if (!client->SetActiveScene(&state, "__command__", &persisted, error)) {
+  if (!client->SetActiveScene(&controller, "__command__", &persisted, error)) {
     return false;
   }
   const bool expect_persisted =
@@ -228,10 +228,10 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
     }
     return false;
   }
-  if (!client->GetSceneState(&state, error)) {
+  if (!client->RefreshSceneMenuController(&controller, error)) {
     return false;
   }
-  const auto command_projection = ProjectScene(state);
+  const auto command_projection = ProjectScene(controller);
   if (!command_projection.has_value() || command_projection->active_label.empty() ||
       HasSceneControl(*command_projection, "__command__") ||
       !HasSceneControl(*command_projection, expected_active_scene)) {
@@ -240,15 +240,15 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
     }
     return false;
   }
-  return client->SetActiveScene(&state, expected_active_scene, &persisted, error);
+  return client->SetActiveScene(&controller, expected_active_scene, &persisted, error);
 }
 
 bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
-  AsrDisplayMenuStateSnapshot snapshot;
-  if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
+  AsrMenuController controller;
+  if (!client->RefreshAsrMenuController(&controller, error)) {
     return false;
   }
-  auto projection = ProjectAsr(snapshot);
+  auto projection = ProjectAsr(controller);
   if (!projection.has_value() || projection->effective_label.empty()) {
     if (error != nullptr) {
       *error = "ASR display state did not produce a projection";
@@ -273,7 +273,7 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
   const auto target = std::find_if(
       projection->items.begin(), projection->items.end(),
       [&](const ProjectedItem &item) {
-        return item.control_kind == VINPUT_FCITX_MENU_CONTROL_SET_ACTIVE_ASR_TARGET &&
+        return item.control_kind == ProjectedMenuControlKind::SetActiveAsrTarget &&
                item.first == switch_provider && item.second == switch_model;
       });
   if (target == projection->items.end()) {
@@ -311,10 +311,10 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
   }
 
   for (int attempt = 0; attempt < 200; ++attempt) {
-    if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
+    if (!client->RefreshAsrMenuController(&controller, error)) {
       return false;
     }
-    projection = ProjectAsr(snapshot);
+    projection = ProjectAsr(controller);
     if (!projection.has_value()) {
       return false;
     }
@@ -327,7 +327,7 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
     const bool target_still_visible = std::any_of(
         projection->items.begin(), projection->items.end(),
         [&](const ProjectedItem &item) {
-          return item.control_kind == VINPUT_FCITX_MENU_CONTROL_SET_ACTIVE_ASR_TARGET &&
+          return item.control_kind == ProjectedMenuControlKind::SetActiveAsrTarget &&
                  item.first == switch_provider && item.second == switch_model;
         });
     if (!target_still_visible &&
@@ -344,11 +344,11 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
 }
 
 bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
-  AsrDisplayMenuStateSnapshot snapshot;
-  if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
+  AsrMenuController controller;
+  if (!client->RefreshAsrMenuController(&controller, error)) {
     return false;
   }
-  const auto projection = ProjectAsr(snapshot);
+  const auto projection = ProjectAsr(controller);
   if (projection.has_value() && !projection->effective_label.empty()) {
     return true;
   }
@@ -409,14 +409,14 @@ int main() {
     std::cerr << "ASR display menu state check failed: " << error << '\n';
     return 1;
   }
-  SceneStateSnapshot frontend_scene_state;
-  if (!client->GetSceneState(&frontend_scene_state, &error)) {
+  SceneMenuController frontend_scene_controller;
+  if (!client->RefreshSceneMenuController(&frontend_scene_controller, &error)) {
     std::cerr << "frontend scene state check failed: " << error << '\n';
     return 1;
   }
   FrontendBridge normal_bridge;
   auto normal_start =
-      normal_bridge.StartNormal(client->raw_handle(), frontend_scene_state);
+      normal_bridge.StartNormal(client->raw_handle(), frontend_scene_controller);
   if (normal_start.kind != BridgeOutcome::Kind::Preedit) {
     std::cerr << "normal start failed: " << normal_start.text << '\n';
     return 1;
@@ -430,7 +430,8 @@ int main() {
 
   const auto expected_normal_text =
       ExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
-  auto normal_stop = normal_bridge.Stop(client->raw_handle(), frontend_scene_state);
+  auto normal_stop =
+      normal_bridge.Stop(client->raw_handle(), frontend_scene_controller);
   if (normal_stop.kind != BridgeOutcome::Kind::Commit ||
       normal_stop.text != expected_normal_text) {
     std::cerr << "normal stop did not produce expected commit text: "
@@ -465,7 +466,8 @@ int main() {
 
   const auto expected_command_text = ExpectedText(
       "VINPUT_DBUS_SMOKE_EXPECTED_COMMAND", "mock command result for: selected text");
-  auto command_stop = command_bridge.Stop(client->raw_handle(), frontend_scene_state);
+  auto command_stop =
+      command_bridge.Stop(client->raw_handle(), frontend_scene_controller);
   if (command_stop.kind != BridgeOutcome::Kind::Commit ||
       command_stop.text != expected_command_text) {
     std::cerr << "command stop did not produce expected commit text: "

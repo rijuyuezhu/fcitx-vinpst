@@ -14,7 +14,7 @@ use vinput_fcitx_dbus::{DaemonOperation, DaemonResponse};
 
 use crate::{
     daemon::VinputFcitxDaemonClient,
-    menu_snapshot::{VinputFcitxSceneSnapshot, scene_core_ref},
+    menu_controller::{VinputFcitxSceneMenuController, scene_controller_ref},
 };
 
 const FRONTEND_TRIGGER_REQUEST_NONE: u8 = 0;
@@ -283,16 +283,16 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_plan_trigger(
     1
 }
 
-/// Starts normal recording and executes the prepared daemon call in Rust.
+/// Starts normal recording using the scene snapshot owned by a Rust controller.
 ///
 /// # Safety
 ///
-/// Handles must be live.
+/// Handles must be live and the scene controller must contain a snapshot.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_normal_with_daemon(
     controller: *mut VinputFcitxFrontendController,
     daemon: *const VinputFcitxDaemonClient,
-    scene_snapshot: *const VinputFcitxSceneSnapshot,
+    scene_controller: *const VinputFcitxSceneMenuController,
 ) -> *mut VinputFcitxFrontendOutcome {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -300,7 +300,10 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_normal_with_daem
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(scene_snapshot) = (unsafe { scene_core_ref(scene_snapshot) }) else {
+        let Some(scene_controller) = (unsafe { scene_controller_ref(scene_controller) }) else {
+            return ptr::null_mut();
+        };
+        let Some(scene_snapshot) = scene_controller.snapshot() else {
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
@@ -348,25 +351,25 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_command_with_dae
     .unwrap_or(ptr::null_mut())
 }
 
-/// Stops recording and executes the prepared daemon call in Rust.
+/// Stops recording using the fallback scene owned by a Rust controller.
 ///
 /// # Safety
 ///
-/// Handles must be live.
+/// Handles must be live. A controller without a snapshot supplies an empty fallback.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_stop_with_daemon(
     controller: *mut VinputFcitxFrontendController,
     daemon: *const VinputFcitxDaemonClient,
-    scene_snapshot: *const VinputFcitxSceneSnapshot,
+    scene_controller: *const VinputFcitxSceneMenuController,
 ) -> *mut VinputFcitxFrontendOutcome {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
         let Some(controller) = (unsafe { controller.as_mut() }) else {
             return ptr::null_mut();
         };
-        // SAFETY: Forwarded from this function's caller contract. A missing snapshot
-        // is valid when the controller already owns a started scene.
-        let fallback = unsafe { scene_core_ref(scene_snapshot) }
+        // SAFETY: Forwarded from this function's caller contract.
+        let fallback = unsafe { scene_controller_ref(scene_controller) }
+            .and_then(|value| value.snapshot())
             .map_or("", vinput_fcitx_core::SceneSnapshot::active_scene_id);
         // SAFETY: Forwarded from this function's caller contract.
         let daemon = unsafe { daemon.as_ref() };
@@ -376,17 +379,17 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_stop_with_daemon(
     .unwrap_or(ptr::null_mut())
 }
 
-/// Adopts an externally started recording and stops it through the Rust daemon client.
+/// Adopts and stops an external recording using a Rust-owned scene controller.
 ///
 /// # Safety
 ///
-/// Handles must be live.
+/// Handles must be live and the scene controller must contain a snapshot.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
     controller: *mut VinputFcitxFrontendController,
     daemon: *const VinputFcitxDaemonClient,
     command_mode: u8,
-    scene_snapshot: *const VinputFcitxSceneSnapshot,
+    scene_controller: *const VinputFcitxSceneMenuController,
 ) -> *mut VinputFcitxFrontendOutcome {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -394,7 +397,10 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_adopt_and_stop_with_da
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(scene_snapshot) = (unsafe { scene_core_ref(scene_snapshot) }) else {
+        let Some(scene_controller) = (unsafe { scene_controller_ref(scene_controller) }) else {
+            return ptr::null_mut();
+        };
+        let Some(scene_snapshot) = scene_controller.snapshot() else {
             return ptr::null_mut();
         };
         let scene = scene_snapshot.active_scene_id();

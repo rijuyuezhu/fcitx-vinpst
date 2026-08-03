@@ -1,6 +1,5 @@
 #pragma once
 
-#include "vinput_fcitx_bridge/menu_snapshot.h"
 #include "vinput_fcitx_bridge/rust_handle.h"
 
 #include <cstddef>
@@ -9,19 +8,23 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 
-struct VinputFcitxSceneProjection;
-struct VinputFcitxAsrProjection;
+struct VinputFcitxMenuProjection;
+struct VinputFcitxAsrMenuController;
+struct VinputFcitxSceneMenuController;
 
-extern "C" {
-void vinput_fcitx_asr_projection_free(VinputFcitxAsrProjection *projection);
-void vinput_fcitx_scene_projection_free(VinputFcitxSceneProjection *projection);
-}
+extern "C" void
+vinput_fcitx_menu_projection_free(VinputFcitxMenuProjection *projection);
+extern "C" VinputFcitxAsrMenuController *vinput_fcitx_asr_menu_controller_new();
+extern "C" void
+vinput_fcitx_asr_menu_controller_free(VinputFcitxAsrMenuController *controller);
+extern "C" VinputFcitxSceneMenuController *vinput_fcitx_scene_menu_controller_new();
+extern "C" void
+vinput_fcitx_scene_menu_controller_free(VinputFcitxSceneMenuController *controller);
 
 namespace vinput_fcitx_bridge {
 
-class MenuFilterState;
+class MenuSessionState;
 
 enum class ProjectedMenuControlKind : std::uint8_t {
   None,
@@ -41,29 +44,6 @@ struct ProjectedMenuItem {
   ProjectedMenuControl control;
 };
 
-class SceneMenuProjection final {
-public:
-  SceneMenuProjection(const SceneMenuProjection &) = delete;
-  SceneMenuProjection &operator=(const SceneMenuProjection &) = delete;
-  SceneMenuProjection(SceneMenuProjection &&) = delete;
-  SceneMenuProjection &operator=(SceneMenuProjection &&) = delete;
-
-  std::optional<std::string> active_label() const;
-  std::optional<std::size_t> size() const;
-  std::optional<ProjectedMenuItem> item(std::size_t index) const;
-
-private:
-  using Handle =
-      RustOwnedHandle<::VinputFcitxSceneProjection, vinput_fcitx_scene_projection_free>;
-
-  friend std::shared_ptr<SceneMenuProjection>
-  ProjectSceneMenu(const SceneStateSnapshot &, const MenuFilterState &);
-
-  explicit SceneMenuProjection(::VinputFcitxSceneProjection *projection);
-
-  Handle projection_;
-};
-
 struct AsrMenuLocalization {
   std::string_view local;
   std::string_view remote;
@@ -74,35 +54,81 @@ struct AsrMenuLocalization {
   std::string_view error_prefix;
 };
 
-class AsrMenuProjection final {
+class MenuProjection final {
 public:
-  AsrMenuProjection(const AsrMenuProjection &) = delete;
-  AsrMenuProjection &operator=(const AsrMenuProjection &) = delete;
-  AsrMenuProjection(AsrMenuProjection &&) = delete;
-  AsrMenuProjection &operator=(AsrMenuProjection &&) = delete;
+  MenuProjection(const MenuProjection &) = delete;
+  MenuProjection &operator=(const MenuProjection &) = delete;
+  MenuProjection(MenuProjection &&) = delete;
+  MenuProjection &operator=(MenuProjection &&) = delete;
 
-  std::optional<std::string> effective_label() const;
+  std::optional<std::string> summary() const;
   std::optional<std::size_t> size() const;
   std::optional<ProjectedMenuItem> item(std::size_t index) const;
 
 private:
   using Handle =
-      RustOwnedHandle<::VinputFcitxAsrProjection, vinput_fcitx_asr_projection_free>;
+      RustOwnedHandle<::VinputFcitxMenuProjection, vinput_fcitx_menu_projection_free>;
 
-  friend std::shared_ptr<AsrMenuProjection>
-  ProjectAsrMenu(const AsrDisplayMenuStateSnapshot &, const MenuFilterState &,
-                 const AsrMenuLocalization &);
+  friend class AsrMenuController;
+  friend class SceneMenuController;
 
-  explicit AsrMenuProjection(::VinputFcitxAsrProjection *projection);
+  explicit MenuProjection(::VinputFcitxMenuProjection *projection);
 
   Handle projection_;
 };
 
-std::shared_ptr<AsrMenuProjection>
-ProjectAsrMenu(const AsrDisplayMenuStateSnapshot &snapshot,
-               const MenuFilterState &filter, const AsrMenuLocalization &localization);
+class SceneMenuController final {
+public:
+  SceneMenuController()
+      : controller_(Handle::Adopt(vinput_fcitx_scene_menu_controller_new())) {}
+  ~SceneMenuController() = default;
 
-std::shared_ptr<SceneMenuProjection>
-ProjectSceneMenu(const SceneStateSnapshot &snapshot, const MenuFilterState &filter);
+  SceneMenuController(const SceneMenuController &) = delete;
+  SceneMenuController &operator=(const SceneMenuController &) = delete;
+  SceneMenuController(SceneMenuController &&) = delete;
+  SceneMenuController &operator=(SceneMenuController &&) = delete;
+
+  std::shared_ptr<MenuProjection> Project(const MenuSessionState &session) const;
+  const ::VinputFcitxSceneMenuController *raw_handle() const {
+    return controller_.raw_handle();
+  }
+  ::VinputFcitxSceneMenuController *mutable_raw_handle() {
+    return controller_.mutable_raw_handle();
+  }
+
+private:
+  using Handle = RustOwnedHandle<::VinputFcitxSceneMenuController,
+                                 vinput_fcitx_scene_menu_controller_free>;
+
+  Handle controller_;
+};
+
+class AsrMenuController final {
+public:
+  AsrMenuController()
+      : controller_(Handle::Adopt(vinput_fcitx_asr_menu_controller_new())) {}
+  ~AsrMenuController() = default;
+
+  AsrMenuController(const AsrMenuController &) = delete;
+  AsrMenuController &operator=(const AsrMenuController &) = delete;
+  AsrMenuController(AsrMenuController &&) = delete;
+  AsrMenuController &operator=(AsrMenuController &&) = delete;
+
+  std::shared_ptr<MenuProjection>
+  Project(const MenuSessionState &session,
+          const AsrMenuLocalization &localization) const;
+  const ::VinputFcitxAsrMenuController *raw_handle() const {
+    return controller_.raw_handle();
+  }
+  ::VinputFcitxAsrMenuController *mutable_raw_handle() {
+    return controller_.mutable_raw_handle();
+  }
+
+private:
+  using Handle = RustOwnedHandle<::VinputFcitxAsrMenuController,
+                                 vinput_fcitx_asr_menu_controller_free>;
+
+  Handle controller_;
+};
 
 } // namespace vinput_fcitx_bridge

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "vinput_fcitx_bridge/menu_snapshot.h"
-
 #include <memory>
 #include <string>
 #include <string_view>
@@ -9,6 +7,9 @@
 struct VinputFcitxDaemonClient;
 
 namespace vinput_fcitx_bridge {
+
+class AsrMenuController;
+class SceneMenuController;
 
 class SdBusDaemonClient final {
 public:
@@ -21,10 +22,10 @@ public:
   SdBusDaemonClient &operator=(SdBusDaemonClient &&) = delete;
 
   bool GetStatus(std::string *status, std::string *error);
-  bool GetSceneState(SceneStateSnapshot *state, std::string *error);
-  bool SetActiveScene(SceneStateSnapshot *state, std::string_view scene_id,
+  bool RefreshSceneMenuController(SceneMenuController *controller, std::string *error);
+  bool SetActiveScene(SceneMenuController *controller, std::string_view scene_id,
                       bool *persisted, std::string *error);
-  bool GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state, std::string *error);
+  bool RefreshAsrMenuController(AsrMenuController *controller, std::string *error);
   bool SetActiveAsrTarget(std::string_view provider_id, std::string_view model_value,
                           bool *persisted, std::string *error);
   const ::VinputFcitxDaemonClient *raw_handle() const;

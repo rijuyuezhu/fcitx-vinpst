@@ -1,3 +1,4 @@
+#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
 
@@ -33,21 +34,21 @@ int main() {
     return 1;
   }
 
-  vinput_fcitx_bridge::SceneStateSnapshot scene_state;
-  if (!client->GetSceneState(&scene_state, &error)) {
+  vinput_fcitx_bridge::SceneMenuController scene_controller;
+  if (!client->RefreshSceneMenuController(&scene_controller, &error)) {
     std::cerr << "failed to read frontend scene state: " << error << '\n';
     return 1;
   }
 
   FrontendBridge bridge;
-  const auto start = bridge.StartNormal(client->raw_handle(), scene_state);
+  const auto start = bridge.StartNormal(client->raw_handle(), scene_controller);
   if (start.kind != BridgeOutcome::Kind::Preedit || start.text != "... Recording ..." ||
       !bridge.recording()) {
     std::cerr << "native frontend start failed: kind=" << static_cast<int>(start.kind)
               << " text=" << start.text << '\n';
     return 1;
   }
-  const auto stop = bridge.Stop(client->raw_handle(), scene_state);
+  const auto stop = bridge.Stop(client->raw_handle(), scene_controller);
   if (stop.kind != BridgeOutcome::Kind::Commit || bridge.recording()) {
     std::cerr << "native frontend stop did not commit: kind="
               << static_cast<int>(stop.kind) << " text=" << stop.text << '\n';

@@ -17,11 +17,12 @@ use super::{
     vinput_fcitx_frontend_controller_new, vinput_fcitx_frontend_controller_plan_trigger,
     vinput_fcitx_frontend_controller_recording,
     vinput_fcitx_frontend_controller_start_command_with_daemon,
-    vinput_fcitx_frontend_controller_start_normal_with_daemon, vinput_fcitx_frontend_outcome_free,
+    vinput_fcitx_frontend_controller_start_normal_with_daemon,
+    vinput_fcitx_frontend_controller_stop_with_daemon, vinput_fcitx_frontend_outcome_free,
     vinput_fcitx_frontend_presentation_candidate, vinput_fcitx_frontend_presentation_free,
     vinput_fcitx_frontend_presentation_new, vinput_fcitx_frontend_presentation_view,
 };
-use crate::menu_snapshot::{boxed_scene_snapshot, vinput_fcitx_scene_snapshot_free};
+use crate::menu_controller::{boxed_scene_controller, vinput_fcitx_scene_menu_controller_free};
 
 unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     if view.data.is_null() {
@@ -138,12 +139,12 @@ fn direct_exports_validate_inputs_and_immediate_errors() {
         vinput_fcitx_frontend_presentation_free(presentation);
         vinput_fcitx_frontend_outcome_free(immediate);
 
-        let scene = boxed_scene_snapshot(SceneSnapshot::new("remote".to_owned()));
+        let scenes = boxed_scene_controller(Some(SceneSnapshot::new("remote".to_owned())));
         let adopted = vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
             controller,
             ptr::null(),
             1,
-            scene,
+            scenes,
         );
         assert!(!adopted.is_null());
         let (presentation, view) = presentation_view(adopted);
@@ -153,7 +154,68 @@ fn direct_exports_validate_inputs_and_immediate_errors() {
         assert_eq!(vinput_fcitx_frontend_controller_command_mode(controller), 0);
         vinput_fcitx_frontend_presentation_free(presentation);
         vinput_fcitx_frontend_outcome_free(adopted);
-        vinput_fcitx_scene_snapshot_free(scene);
+        vinput_fcitx_scene_menu_controller_free(scenes);
+        vinput_fcitx_frontend_controller_free(controller);
+    }
+}
+
+#[test]
+fn scene_controller_exports_share_one_snapshot_with_frontend_calls() {
+    // SAFETY: Every handle is live for each call and released exactly once.
+    unsafe {
+        let controller = vinput_fcitx_frontend_controller_new();
+        let scenes = boxed_scene_controller(None);
+        assert!(!controller.is_null());
+        assert!(!scenes.is_null());
+
+        assert!(
+            vinput_fcitx_frontend_controller_start_normal_with_daemon(
+                controller,
+                ptr::null(),
+                scenes,
+            )
+            .is_null()
+        );
+        assert_eq!(vinput_fcitx_frontend_controller_recording(controller), 0);
+
+        vinput_fcitx_scene_menu_controller_free(scenes);
+        let scenes = boxed_scene_controller(Some(SceneSnapshot::new("remote".to_owned())));
+        let start = vinput_fcitx_frontend_controller_start_normal_with_daemon(
+            controller,
+            ptr::null(),
+            scenes,
+        );
+        assert!(!start.is_null());
+        let (presentation, view) = presentation_view(start);
+        assert_eq!(view.kind, 5);
+        assert_eq!(bytes(view.text), b"Voice input daemon is unavailable.");
+        assert_eq!(vinput_fcitx_frontend_controller_recording(controller), 0);
+        vinput_fcitx_frontend_presentation_free(presentation);
+        vinput_fcitx_frontend_outcome_free(start);
+
+        let adopted = vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
+            controller,
+            ptr::null(),
+            1,
+            scenes,
+        );
+        assert!(!adopted.is_null());
+        let (presentation, view) = presentation_view(adopted);
+        assert_eq!(view.kind, 5);
+        assert_eq!(bytes(view.text), b"Voice input daemon is unavailable.");
+        assert_eq!(vinput_fcitx_frontend_controller_recording(controller), 0);
+        assert_eq!(vinput_fcitx_frontend_controller_command_mode(controller), 0);
+        vinput_fcitx_frontend_presentation_free(presentation);
+        vinput_fcitx_frontend_outcome_free(adopted);
+
+        (*controller).controller.adopt_recording(false, "started");
+        let stopped =
+            vinput_fcitx_frontend_controller_stop_with_daemon(controller, ptr::null(), ptr::null());
+        assert!(!stopped.is_null());
+        assert_eq!(vinput_fcitx_frontend_controller_recording(controller), 0);
+        vinput_fcitx_frontend_outcome_free(stopped);
+
+        vinput_fcitx_scene_menu_controller_free(scenes);
         vinput_fcitx_frontend_controller_free(controller);
     }
 }

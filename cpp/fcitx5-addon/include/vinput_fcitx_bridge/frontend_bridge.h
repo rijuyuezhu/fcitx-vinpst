@@ -1,7 +1,6 @@
 #pragma once
 
 #include "vinput_fcitx_bridge/frontend_presentation.h"
-#include "vinput_fcitx_bridge/menu_snapshot.h"
 #include "vinput_fcitx_bridge/rust_handle.h"
 
 #include <cstdint>
@@ -15,6 +14,8 @@ extern "C" void
 vinput_fcitx_frontend_controller_free(VinputFcitxFrontendController *controller);
 
 namespace vinput_fcitx_bridge {
+
+class SceneMenuController;
 
 enum class FrontendTriggerRequest : std::uint8_t {
   None,
@@ -58,13 +59,13 @@ public:
   FrontendBridge &operator=(FrontendBridge &&) = delete;
 
   BridgeOutcome StartNormal(const ::VinputFcitxDaemonClient *client,
-                            const SceneStateSnapshot &scene_state);
+                            const SceneMenuController &scene_controller);
   BridgeOutcome StartCommand(const ::VinputFcitxDaemonClient *client,
                              std::string_view selected_text, std::string_view scene_id);
   BridgeOutcome Stop(const ::VinputFcitxDaemonClient *client,
-                     const SceneStateSnapshot &scene_state);
+                     const SceneMenuController &scene_controller);
   BridgeOutcome AdoptAndStop(const ::VinputFcitxDaemonClient *client, bool command_mode,
-                             const SceneStateSnapshot &scene_state);
+                             const SceneMenuController &scene_controller);
   void SetPresentationText(std::string original, std::string voice_command,
                            std::string cancel);
   void Reset();

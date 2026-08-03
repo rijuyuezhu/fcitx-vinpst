@@ -5,8 +5,6 @@
 //! testable.
 
 #[allow(unsafe_code)]
-mod asr_projection;
-#[allow(unsafe_code)]
 mod daemon;
 #[allow(unsafe_code)]
 mod daemon_signal;
@@ -15,8 +13,8 @@ mod frontend;
 #[allow(unsafe_code)]
 mod menu;
 #[allow(unsafe_code)]
-mod menu_snapshot;
+mod menu_controller;
 #[allow(unsafe_code)]
-mod scene_projection;
+mod menu_projection;
 #[allow(unsafe_code)]
 mod trigger;

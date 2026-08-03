@@ -1,6 +1,6 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 
-#include "vinput_fcitx_bridge/menu_snapshot.h"
+#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 #include "vinput_fcitx_bridge/rust_handle.h"
 #include "vinput_fcitx_bridge/rust_string.h"
 
@@ -93,10 +93,10 @@ bool FrontendBridge::command_mode() const {
 }
 
 BridgeOutcome FrontendBridge::StartNormal(const VinputFcitxDaemonClient *client,
-                                          const SceneStateSnapshot &scene_state) {
+                                          const SceneMenuController &scene_controller) {
   return TakeOutcome(
       vinput_fcitx_frontend_controller_start_normal_with_daemon(
-          controller_.mutable_raw_handle(), client, scene_state.raw_handle()),
+          controller_.mutable_raw_handle(), client, scene_controller.raw_handle()),
       original_text_, voice_command_text_, cancel_text_);
 }
 
@@ -111,19 +111,19 @@ BridgeOutcome FrontendBridge::StartCommand(const VinputFcitxDaemonClient *client
 }
 
 BridgeOutcome FrontendBridge::Stop(const VinputFcitxDaemonClient *client,
-                                   const SceneStateSnapshot &scene_state) {
+                                   const SceneMenuController &scene_controller) {
   return TakeOutcome(
       vinput_fcitx_frontend_controller_stop_with_daemon(
-          controller_.mutable_raw_handle(), client, scene_state.raw_handle()),
+          controller_.mutable_raw_handle(), client, scene_controller.raw_handle()),
       original_text_, voice_command_text_, cancel_text_);
 }
 
-BridgeOutcome FrontendBridge::AdoptAndStop(const VinputFcitxDaemonClient *client,
-                                           bool command_mode,
-                                           const SceneStateSnapshot &scene_state) {
+BridgeOutcome
+FrontendBridge::AdoptAndStop(const VinputFcitxDaemonClient *client, bool command_mode,
+                             const SceneMenuController &scene_controller) {
   return TakeOutcome(vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
                          controller_.mutable_raw_handle(), client,
-                         command_mode ? 1U : 0U, scene_state.raw_handle()),
+                         command_mode ? 1U : 0U, scene_controller.raw_handle()),
                      original_text_, voice_command_text_, cancel_text_);
 }
 

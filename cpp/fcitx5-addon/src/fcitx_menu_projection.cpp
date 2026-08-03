@@ -1,8 +1,6 @@
 #include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 
 #include "vinput_fcitx_bridge/fcitx_menu_filter.h"
-#include "vinput_fcitx_bridge/menu_snapshot.h"
-#include "vinput_fcitx_bridge/rust_handle.h"
 #include "vinput_fcitx_bridge/rust_string.h"
 #include "vinput_fcitx_ffi.h"
 
@@ -37,39 +35,39 @@ CopyProjectedItem(const VinputFcitxProjectedMenuItemView &view) {
 
 } // namespace
 
-AsrMenuProjection::AsrMenuProjection(VinputFcitxAsrProjection *projection)
+MenuProjection::MenuProjection(VinputFcitxMenuProjection *projection)
     : projection_(Handle::Adopt(projection)) {}
 
-std::optional<std::string> AsrMenuProjection::effective_label() const {
-  VinputFcitxProjectionView view{};
-  if (vinput_fcitx_asr_projection_view(projection_.raw_handle(), &view) == 0) {
+std::optional<std::string> MenuProjection::summary() const {
+  VinputFcitxMenuProjectionView view{};
+  if (vinput_fcitx_menu_projection_view(projection_.raw_handle(), &view) == 0) {
     return std::nullopt;
   }
-  return CopyRustString(view.effective_label);
+  return CopyRustString(view.summary);
 }
 
-std::optional<std::size_t> AsrMenuProjection::size() const {
-  VinputFcitxProjectionView view{};
-  if (vinput_fcitx_asr_projection_view(projection_.raw_handle(), &view) == 0) {
+std::optional<std::size_t> MenuProjection::size() const {
+  VinputFcitxMenuProjectionView view{};
+  if (vinput_fcitx_menu_projection_view(projection_.raw_handle(), &view) == 0) {
     return std::nullopt;
   }
   return view.item_count;
 }
 
-std::optional<ProjectedMenuItem> AsrMenuProjection::item(std::size_t index) const {
+std::optional<ProjectedMenuItem> MenuProjection::item(std::size_t index) const {
   VinputFcitxProjectedMenuItemView view{};
-  if (vinput_fcitx_asr_projection_item_view(projection_.raw_handle(), index, &view) ==
+  if (vinput_fcitx_menu_projection_item_view(projection_.raw_handle(), index, &view) ==
       0) {
     return std::nullopt;
   }
   return CopyProjectedItem(view);
 }
 
-std::shared_ptr<AsrMenuProjection>
-ProjectAsrMenu(const AsrDisplayMenuStateSnapshot &snapshot,
-               const MenuFilterState &filter, const AsrMenuLocalization &localization) {
-  auto *raw_projection = vinput_fcitx_asr_projection_new(
-      snapshot.raw_handle(), filter.raw_handle(), RustBytes(localization.local),
+std::shared_ptr<MenuProjection>
+AsrMenuController::Project(const MenuSessionState &session,
+                           const AsrMenuLocalization &localization) const {
+  auto *raw_projection = vinput_fcitx_asr_menu_controller_projection_new(
+      controller_.raw_handle(), session.raw_handle(), RustBytes(localization.local),
       localization.local.size(), RustBytes(localization.remote),
       localization.remote.size(), RustBytes(localization.command),
       localization.command.size(), RustBytes(localization.loading_suffix),
@@ -80,52 +78,22 @@ ProjectAsrMenu(const AsrDisplayMenuStateSnapshot &snapshot,
   if (raw_projection == nullptr) {
     return {};
   }
-  auto projection =
-      std::shared_ptr<AsrMenuProjection>(new AsrMenuProjection(raw_projection));
-  if (!projection->size().has_value() || !projection->effective_label().has_value()) {
+  auto projection = std::shared_ptr<MenuProjection>(new MenuProjection(raw_projection));
+  if (!projection->size().has_value() || !projection->summary().has_value()) {
     return {};
   }
   return projection;
 }
 
-SceneMenuProjection::SceneMenuProjection(VinputFcitxSceneProjection *projection)
-    : projection_(Handle::Adopt(projection)) {}
-
-std::optional<std::string> SceneMenuProjection::active_label() const {
-  VinputFcitxSceneProjectionView view{};
-  if (vinput_fcitx_scene_projection_view(projection_.raw_handle(), &view) == 0) {
-    return std::nullopt;
-  }
-  return CopyRustString(view.active_label);
-}
-
-std::optional<std::size_t> SceneMenuProjection::size() const {
-  VinputFcitxSceneProjectionView view{};
-  if (vinput_fcitx_scene_projection_view(projection_.raw_handle(), &view) == 0) {
-    return std::nullopt;
-  }
-  return view.item_count;
-}
-
-std::optional<ProjectedMenuItem> SceneMenuProjection::item(std::size_t index) const {
-  VinputFcitxProjectedMenuItemView view{};
-  if (vinput_fcitx_scene_projection_item_view(projection_.raw_handle(), index, &view) ==
-      0) {
-    return std::nullopt;
-  }
-  return CopyProjectedItem(view);
-}
-
-std::shared_ptr<SceneMenuProjection>
-ProjectSceneMenu(const SceneStateSnapshot &snapshot, const MenuFilterState &filter) {
-  auto *raw_projection =
-      vinput_fcitx_scene_projection_new(snapshot.raw_handle(), filter.raw_handle());
+std::shared_ptr<MenuProjection>
+SceneMenuController::Project(const MenuSessionState &session) const {
+  auto *raw_projection = vinput_fcitx_scene_menu_controller_projection_new(
+      controller_.raw_handle(), session.raw_handle());
   if (raw_projection == nullptr) {
     return {};
   }
-  auto projection =
-      std::shared_ptr<SceneMenuProjection>(new SceneMenuProjection(raw_projection));
-  if (!projection->size().has_value() || !projection->active_label().has_value()) {
+  auto projection = std::shared_ptr<MenuProjection>(new MenuProjection(raw_projection));
+  if (!projection->size().has_value() || !projection->summary().has_value()) {
     return {};
   }
   return projection;

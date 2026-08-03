@@ -7,17 +7,16 @@
 extern "C" {
 #endif
 
-typedef struct VinputFcitxAsrProjection VinputFcitxAsrProjection;
-typedef struct VinputFcitxAsrDisplaySnapshot VinputFcitxAsrDisplaySnapshot;
+typedef struct VinputFcitxAsrMenuController VinputFcitxAsrMenuController;
 typedef struct VinputFcitxDaemonClient VinputFcitxDaemonClient;
 typedef struct VinputFcitxDaemonLiveState VinputFcitxDaemonLiveState;
 typedef struct VinputFcitxFrontendController VinputFcitxFrontendController;
 typedef struct VinputFcitxFrontendOutcome VinputFcitxFrontendOutcome;
 typedef struct VinputFcitxFrontendPresentation VinputFcitxFrontendPresentation;
-typedef struct VinputFcitxMenuFilterState VinputFcitxMenuFilterState;
+typedef struct VinputFcitxMenuSession VinputFcitxMenuSession;
+typedef struct VinputFcitxMenuProjection VinputFcitxMenuProjection;
 typedef struct VinputFcitxOwnedString VinputFcitxOwnedString;
-typedef struct VinputFcitxSceneProjection VinputFcitxSceneProjection;
-typedef struct VinputFcitxSceneSnapshot VinputFcitxSceneSnapshot;
+typedef struct VinputFcitxSceneMenuController VinputFcitxSceneMenuController;
 typedef struct VinputFcitxTriggerState VinputFcitxTriggerState;
 
 typedef struct VinputFcitxStringView {
@@ -44,10 +43,10 @@ typedef struct VinputFcitxMenuKeyDecisionView {
   int64_t value;
 } VinputFcitxMenuKeyDecisionView;
 
-typedef struct VinputFcitxProjectionView {
-  VinputFcitxStringView effective_label;
+typedef struct VinputFcitxMenuProjectionView {
+  VinputFcitxStringView summary;
   size_t item_count;
-} VinputFcitxProjectionView;
+} VinputFcitxMenuProjectionView;
 
 typedef struct VinputFcitxProjectedMenuItemView {
   VinputFcitxStringView label;
@@ -62,11 +61,6 @@ enum {
   VINPUT_FCITX_MENU_CONTROL_SET_ACTIVE_SCENE = 1,
   VINPUT_FCITX_MENU_CONTROL_SET_ACTIVE_ASR_TARGET = 2,
 };
-
-typedef struct VinputFcitxSceneProjectionView {
-  VinputFcitxStringView active_label;
-  size_t item_count;
-} VinputFcitxSceneProjectionView;
 
 typedef struct VinputFcitxTriggerEventView {
   uint8_t kind;
@@ -203,31 +197,39 @@ enum {
 
 enum { VINPUT_FCITX_MENU_PAGE_SIZE = 10 };
 
-VinputFcitxMenuFilterState *vinput_fcitx_menu_filter_state_new(void);
-void vinput_fcitx_menu_filter_state_free(VinputFcitxMenuFilterState *state);
-uint8_t vinput_fcitx_menu_filter_state_reset(
-    VinputFcitxMenuFilterState *state);
-uint8_t vinput_fcitx_menu_filter_state_active(
-    const VinputFcitxMenuFilterState *state, uint8_t *active_out);
-uint8_t vinput_fcitx_menu_filter_state_decorate_title(
-    VinputFcitxMenuFilterState *state, const uint8_t *base_data,
+VinputFcitxMenuSession *vinput_fcitx_menu_session_new(void);
+void vinput_fcitx_menu_session_free(VinputFcitxMenuSession *session);
+uint8_t vinput_fcitx_menu_session_open(VinputFcitxMenuSession *session);
+uint8_t vinput_fcitx_menu_session_close(VinputFcitxMenuSession *session);
+uint8_t vinput_fcitx_menu_session_is_open(
+    const VinputFcitxMenuSession *session, uint8_t *open_out);
+uint8_t vinput_fcitx_menu_session_set_page(
+    VinputFcitxMenuSession *session, int32_t page);
+uint8_t vinput_fcitx_menu_session_filter_active(
+    const VinputFcitxMenuSession *session, uint8_t *active_out);
+uint8_t vinput_fcitx_menu_session_decorate_title(
+    VinputFcitxMenuSession *session, const uint8_t *base_data,
     size_t base_len, VinputFcitxStringView *title_out);
-uint8_t vinput_fcitx_menu_filter_state_handle_key(
-    VinputFcitxMenuFilterState *state, uint8_t release, uint8_t key_kind,
+uint8_t vinput_fcitx_menu_session_handle_key(
+    VinputFcitxMenuSession *session, uint8_t release, uint8_t key_kind,
     int64_t key_value, const uint8_t *text_data, size_t text_len,
     uint8_t cursor_available, int64_t current_selection,
-    int32_t current_page, size_t visible_item_count,
-    VinputFcitxMenuKeyDecisionView *decision_out);
+    size_t visible_item_count, VinputFcitxMenuKeyDecisionView *decision_out);
 int32_t vinput_fcitx_clamp_menu_page(int32_t total_pages,
                                      int32_t requested_page);
 
-void vinput_fcitx_scene_snapshot_free(VinputFcitxSceneSnapshot *snapshot);
-void vinput_fcitx_asr_display_snapshot_free(
-    VinputFcitxAsrDisplaySnapshot *snapshot);
-
-VinputFcitxAsrProjection *vinput_fcitx_asr_projection_new(
-    const VinputFcitxAsrDisplaySnapshot *snapshot,
-    const VinputFcitxMenuFilterState *filter,
+VinputFcitxSceneMenuController *vinput_fcitx_scene_menu_controller_new(void);
+void vinput_fcitx_scene_menu_controller_free(
+    VinputFcitxSceneMenuController *controller);
+VinputFcitxMenuProjection *vinput_fcitx_scene_menu_controller_projection_new(
+    const VinputFcitxSceneMenuController *controller,
+    const VinputFcitxMenuSession *session);
+VinputFcitxAsrMenuController *vinput_fcitx_asr_menu_controller_new(void);
+void vinput_fcitx_asr_menu_controller_free(
+    VinputFcitxAsrMenuController *controller);
+VinputFcitxMenuProjection *vinput_fcitx_asr_menu_controller_projection_new(
+    const VinputFcitxAsrMenuController *controller,
+    const VinputFcitxMenuSession *session,
     const uint8_t *local_data, size_t local_len,
     const uint8_t *remote_data, size_t remote_len,
     const uint8_t *command_data, size_t command_len,
@@ -235,23 +237,13 @@ VinputFcitxAsrProjection *vinput_fcitx_asr_projection_new(
     const uint8_t *unavailable_data, size_t unavailable_len,
     const uint8_t *loading_prefix_data, size_t loading_prefix_len,
     const uint8_t *error_prefix_data, size_t error_prefix_len);
-void vinput_fcitx_asr_projection_free(VinputFcitxAsrProjection *projection);
-uint8_t vinput_fcitx_asr_projection_view(
-    const VinputFcitxAsrProjection *projection,
-    VinputFcitxProjectionView *view_out);
-uint8_t vinput_fcitx_asr_projection_item_view(
-    const VinputFcitxAsrProjection *projection, size_t index,
-    VinputFcitxProjectedMenuItemView *view_out);
 
-VinputFcitxSceneProjection *vinput_fcitx_scene_projection_new(
-    const VinputFcitxSceneSnapshot *snapshot,
-    const VinputFcitxMenuFilterState *filter);
-void vinput_fcitx_scene_projection_free(VinputFcitxSceneProjection *projection);
-uint8_t vinput_fcitx_scene_projection_view(
-    const VinputFcitxSceneProjection *projection,
-    VinputFcitxSceneProjectionView *view_out);
-uint8_t vinput_fcitx_scene_projection_item_view(
-    const VinputFcitxSceneProjection *projection, size_t index,
+void vinput_fcitx_menu_projection_free(VinputFcitxMenuProjection *projection);
+uint8_t vinput_fcitx_menu_projection_view(
+    const VinputFcitxMenuProjection *projection,
+    VinputFcitxMenuProjectionView *view_out);
+uint8_t vinput_fcitx_menu_projection_item_view(
+    const VinputFcitxMenuProjection *projection, size_t index,
     VinputFcitxProjectedMenuItemView *view_out);
 
 uint8_t vinput_fcitx_daemon_control_plan(
@@ -291,16 +283,18 @@ void vinput_fcitx_daemon_client_free(VinputFcitxDaemonClient *client);
 VinputFcitxOwnedString *vinput_fcitx_daemon_client_get_status(
     const VinputFcitxDaemonClient *client,
     VinputFcitxOwnedString **error_out);
-VinputFcitxSceneSnapshot *vinput_fcitx_daemon_client_get_scene_state(
+uint8_t vinput_fcitx_daemon_client_refresh_scene_menu_controller(
     const VinputFcitxDaemonClient *client,
+    VinputFcitxSceneMenuController *controller,
     VinputFcitxOwnedString **error_out);
 uint8_t vinput_fcitx_daemon_client_set_active_scene(
-    const VinputFcitxDaemonClient *client, VinputFcitxSceneSnapshot *snapshot,
+    const VinputFcitxDaemonClient *client,
+    VinputFcitxSceneMenuController *controller,
     const uint8_t *scene_data, size_t scene_len, uint8_t *persisted_out,
     VinputFcitxOwnedString **error_out);
-VinputFcitxAsrDisplaySnapshot *
-vinput_fcitx_daemon_client_get_asr_display_state(
+uint8_t vinput_fcitx_daemon_client_refresh_asr_menu_controller(
     const VinputFcitxDaemonClient *client,
+    VinputFcitxAsrMenuController *controller,
     VinputFcitxOwnedString **error_out);
 uint8_t vinput_fcitx_daemon_client_set_active_asr_target(
     const VinputFcitxDaemonClient *client,
@@ -331,21 +325,22 @@ VinputFcitxFrontendOutcome *
 vinput_fcitx_frontend_controller_start_normal_with_daemon(
     VinputFcitxFrontendController *controller,
     const VinputFcitxDaemonClient *daemon,
-    const VinputFcitxSceneSnapshot *scene_snapshot);
+    const VinputFcitxSceneMenuController *scene_controller);
 VinputFcitxFrontendOutcome *
 vinput_fcitx_frontend_controller_start_command_with_daemon(
     VinputFcitxFrontendController *controller,
     const VinputFcitxDaemonClient *daemon, const uint8_t *selected_data,
     size_t selected_len, const uint8_t *scene_data, size_t scene_len);
-VinputFcitxFrontendOutcome *vinput_fcitx_frontend_controller_stop_with_daemon(
+VinputFcitxFrontendOutcome *
+vinput_fcitx_frontend_controller_stop_with_daemon(
     VinputFcitxFrontendController *controller,
     const VinputFcitxDaemonClient *daemon,
-    const VinputFcitxSceneSnapshot *scene_snapshot);
+    const VinputFcitxSceneMenuController *scene_controller);
 VinputFcitxFrontendOutcome *
 vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
     VinputFcitxFrontendController *controller,
     const VinputFcitxDaemonClient *daemon, uint8_t command_mode,
-    const VinputFcitxSceneSnapshot *scene_snapshot);
+    const VinputFcitxSceneMenuController *scene_controller);
 uint8_t vinput_fcitx_frontend_controller_reset(
     VinputFcitxFrontendController *controller);
 

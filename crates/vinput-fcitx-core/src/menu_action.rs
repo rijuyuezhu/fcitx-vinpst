@@ -1,6 +1,6 @@
 //! Pure menu key-action decisions for the retained Fcitx adapter.
 
-use crate::MenuFilterState;
+use crate::{MenuFilterState, MenuSessionState};
 
 /// Candidate page size used by both retained scene and ASR menus.
 pub const MENU_PAGE_SIZE: i32 = 10;
@@ -60,6 +60,21 @@ pub struct MenuKeyInput<'a> {
     pub current_selection: Option<usize>,
     /// Current zero-based page.
     pub current_page: i32,
+    /// Number of currently visible menu rows.
+    pub visible_item_count: usize,
+}
+
+/// Fcitx-specific key context for a Rust-owned menu session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MenuSessionKeyInput<'a> {
+    /// Whether this is a key-release event.
+    pub release: bool,
+    /// Semantic key translated by the retained C++ adapter.
+    pub key: MenuSemanticKey<'a>,
+    /// Whether the current Fcitx candidate list exposes cursor movement.
+    pub cursor_available: bool,
+    /// Current zero-based visible-row selection across all pages.
+    pub current_selection: Option<usize>,
     /// Number of currently visible menu rows.
     pub visible_item_count: usize,
 }
@@ -164,6 +179,33 @@ impl MenuFilterState {
     }
 }
 
+impl MenuSessionState {
+    /// Applies one key to an open menu and owns close/select lifecycle transitions.
+    pub fn handle_key(&mut self, input: MenuSessionKeyInput<'_>) -> Option<MenuKeyAction> {
+        if !self.is_open() {
+            return None;
+        }
+        let current_page = self.page();
+        let action = self.filter_mut().handle_key(MenuKeyInput {
+            release: input.release,
+            key: input.key,
+            cursor_available: input.cursor_available,
+            current_selection: input.current_selection,
+            current_page,
+            visible_item_count: input.visible_item_count,
+        });
+        if matches!(
+            action,
+            MenuKeyAction::CloseAndPass
+                | MenuKeyAction::CloseAndConsume
+                | MenuKeyAction::Select { .. }
+        ) {
+            self.close();
+        }
+        Some(action)
+    }
+}
+
 fn visible_index(current_page: i32, offset: usize, visible_item_count: usize) -> Option<usize> {
     let page = usize::try_from(current_page).ok()?;
     let page_size = usize::try_from(MENU_PAGE_SIZE).expect("positive menu page size");
@@ -173,8 +215,10 @@ fn visible_index(current_page: i32, offset: usize, visible_item_count: usize) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{MENU_PAGE_SIZE, MenuKeyAction, MenuKeyInput, MenuSemanticKey};
-    use crate::MenuFilterState;
+    use super::{
+        MENU_PAGE_SIZE, MenuKeyAction, MenuKeyInput, MenuSemanticKey, MenuSessionKeyInput,
+    };
+    use crate::{MenuFilterState, MenuSessionState};
 
     #[test]
     fn distinguishes_release_and_unhandled_press_behavior() {
@@ -381,5 +425,33 @@ mod tests {
             }),
             MenuKeyAction::CloseAndConsume
         );
+    }
+
+    #[test]
+    fn session_uses_owned_page_and_closes_on_terminal_actions() {
+        let mut session = MenuSessionState::default();
+        assert_eq!(session.handle_key(MenuSessionKeyInput::default()), None);
+
+        session.open();
+        assert!(session.set_page(2));
+        assert_eq!(
+            session.handle_key(MenuSessionKeyInput {
+                key: MenuSemanticKey::Digit(3),
+                visible_item_count: 30,
+                ..MenuSessionKeyInput::default()
+            }),
+            Some(MenuKeyAction::Select { visible_index: 23 })
+        );
+        assert!(!session.is_open());
+
+        session.open();
+        assert_eq!(
+            session.handle_key(MenuSessionKeyInput {
+                key: MenuSemanticKey::Escape,
+                ..MenuSessionKeyInput::default()
+            }),
+            Some(MenuKeyAction::CloseAndConsume)
+        );
+        assert!(!session.is_open());
     }
 }

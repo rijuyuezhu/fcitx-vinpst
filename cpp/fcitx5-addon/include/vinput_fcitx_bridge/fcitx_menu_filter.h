@@ -11,9 +11,9 @@
 
 #include <fcitx-utils/key.h>
 
-struct VinputFcitxMenuFilterState;
+struct VinputFcitxMenuSession;
 
-extern "C" void vinput_fcitx_menu_filter_state_free(VinputFcitxMenuFilterState *state);
+extern "C" void vinput_fcitx_menu_session_free(VinputFcitxMenuSession *session);
 
 namespace vinput_fcitx_bridge {
 
@@ -62,28 +62,30 @@ struct MenuKeyDecision {
   std::int64_t value = 0;
 };
 
-class MenuFilterState {
+class MenuSessionState {
 public:
-  MenuFilterState();
-  ~MenuFilterState() = default;
+  MenuSessionState();
+  ~MenuSessionState() = default;
 
-  MenuFilterState(const MenuFilterState &) = delete;
-  MenuFilterState &operator=(const MenuFilterState &) = delete;
-  MenuFilterState(MenuFilterState &&) = delete;
-  MenuFilterState &operator=(MenuFilterState &&) = delete;
+  MenuSessionState(const MenuSessionState &) = delete;
+  MenuSessionState &operator=(const MenuSessionState &) = delete;
+  MenuSessionState(MenuSessionState &&) = delete;
+  MenuSessionState &operator=(MenuSessionState &&) = delete;
 
-  void Reset();
+  void Open();
+  void Close();
+  std::optional<bool> is_open() const;
+  bool SetPage(int page);
   std::optional<bool> active() const;
   std::string DecorateTitle(std::string_view base_title);
   std::optional<MenuKeyDecision> HandleKey(bool release, const MenuSemanticKey &key,
                                            bool cursor_available, int current_selection,
-                                           int current_page,
                                            std::size_t visible_item_count);
-  const ::VinputFcitxMenuFilterState *raw_handle() const;
+  const ::VinputFcitxMenuSession *raw_handle() const;
 
 private:
-  using StateHandle = RustOwnedHandle<::VinputFcitxMenuFilterState,
-                                      vinput_fcitx_menu_filter_state_free>;
+  using StateHandle =
+      RustOwnedHandle<::VinputFcitxMenuSession, vinput_fcitx_menu_session_free>;
 
   StateHandle state_;
 };

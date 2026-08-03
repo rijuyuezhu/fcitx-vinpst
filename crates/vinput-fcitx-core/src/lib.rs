@@ -9,6 +9,7 @@ mod frontend;
 mod frontend_presentation;
 mod menu;
 mod menu_action;
+mod menu_controller;
 mod menu_projection;
 mod menu_snapshot;
 mod trigger_mode;
@@ -27,8 +28,11 @@ pub use frontend::{
 pub use frontend_presentation::{
     FrontendPresentation, PresentedResultCandidate, ResultCandidateText, present_frontend_outcome,
 };
-pub use menu::{MenuFilterState, clamp_menu_page};
-pub use menu_action::{MENU_PAGE_SIZE, MenuKeyAction, MenuKeyInput, MenuSemanticKey};
+pub use menu::{MenuFilterState, MenuSessionState, clamp_menu_page};
+pub use menu_action::{
+    MENU_PAGE_SIZE, MenuKeyAction, MenuKeyInput, MenuSemanticKey, MenuSessionKeyInput,
+};
+pub use menu_controller::{AsrMenuController, MenuProjection, SceneMenuController};
 pub use menu_projection::{
     AsrMenuItem, AsrMenuProjectionState, MenuControl, ProjectedMenuItem, SceneMenuItem,
     SceneMenuProjection, is_effective_asr_target, project_asr_menu, project_scene_menu,

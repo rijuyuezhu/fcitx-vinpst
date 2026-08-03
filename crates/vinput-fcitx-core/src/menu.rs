@@ -7,6 +7,62 @@ pub struct MenuFilterState {
     query: String,
 }
 
+/// Rust-owned lifecycle state shared by the Scene and ASR menus.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MenuSessionState {
+    open: bool,
+    page: i32,
+    filter: MenuFilterState,
+}
+
+impl MenuSessionState {
+    /// Opens a fresh menu session on the first page with an empty filter.
+    pub fn open(&mut self) {
+        self.open = true;
+        self.page = 0;
+        self.filter.reset();
+    }
+
+    /// Closes the menu and clears all session-local state.
+    pub fn close(&mut self) {
+        self.open = false;
+        self.page = 0;
+        self.filter.reset();
+    }
+
+    /// Returns whether this menu session is currently open.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Returns the current zero-based page reported by the Fcitx candidate list.
+    #[must_use]
+    pub const fn page(&self) -> i32 {
+        self.page
+    }
+
+    /// Stores the current zero-based page after Fcitx clamps a rebuild request.
+    pub fn set_page(&mut self, page: i32) -> bool {
+        if !self.open || page < 0 {
+            return false;
+        }
+        self.page = page;
+        true
+    }
+
+    /// Borrows the filter used to project menu rows.
+    #[must_use]
+    pub const fn filter(&self) -> &MenuFilterState {
+        &self.filter
+    }
+
+    /// Mutably borrows the filter for compatibility adapters and tests.
+    pub const fn filter_mut(&mut self) -> &mut MenuFilterState {
+        &mut self.filter
+    }
+}
+
 impl MenuFilterState {
     /// Clears the query and leaves filter-entry mode.
     pub fn reset(&mut self) {
@@ -122,7 +178,7 @@ pub fn clamp_menu_page(total_pages: i32, requested_page: i32) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MenuFilterState, clamp_menu_page};
+    use super::{MenuFilterState, MenuSessionState, clamp_menu_page};
 
     #[test]
     fn edits_utf8_query_with_legacy_activation_rules() {
@@ -189,5 +245,31 @@ mod tests {
         assert_eq!(clamp_menu_page(2, 0), Some(0));
         assert_eq!(clamp_menu_page(2, 1), Some(1));
         assert_eq!(clamp_menu_page(2, 99), Some(1));
+    }
+
+    #[test]
+    fn menu_session_owns_visibility_page_and_filter_lifecycle() {
+        let mut session = MenuSessionState::default();
+        assert!(!session.is_open());
+        assert_eq!(session.page(), 0);
+        assert!(!session.set_page(1));
+
+        session.open();
+        assert!(session.is_open());
+        assert!(session.set_page(2));
+        session.filter_mut().activate();
+        session.filter_mut().append_text("moon");
+        assert_eq!(session.page(), 2);
+        assert_eq!(session.filter().query(), "moon");
+
+        session.open();
+        assert_eq!(session.page(), 0);
+        assert!(!session.filter().active());
+        assert!(session.filter().query().is_empty());
+
+        session.close();
+        assert!(!session.is_open());
+        assert_eq!(session.page(), 0);
+        assert!(!session.set_page(1));
     }
 }

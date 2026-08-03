@@ -1,4 +1,4 @@
-//! Compact C ABI for Rust-owned menu filtering and action decisions.
+//! Compact C ABI for Rust-owned menu sessions and action decisions.
 
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -6,14 +6,15 @@ use std::{
 };
 
 use vinput_fcitx_core::{
-    MenuFilterState, MenuKeyAction, MenuKeyInput, MenuSemanticKey, clamp_menu_page,
+    MenuFilterState, MenuKeyAction, MenuSemanticKey, MenuSessionKeyInput, MenuSessionState,
+    clamp_menu_page,
 };
 
 use crate::frontend::VinputFcitxStringView;
 
-/// Opaque menu filter state owned by Rust.
-pub struct VinputFcitxMenuFilterState {
-    state: MenuFilterState,
+/// Opaque complete menu session owned by Rust.
+pub struct VinputFcitxMenuSession {
+    session: MenuSessionState,
     decorated_title: String,
 }
 
@@ -69,17 +70,19 @@ fn string_view(value: &str) -> VinputFcitxStringView {
     }
 }
 
-pub(crate) unsafe fn menu_filter_core_ref<'a>(
-    state: *const VinputFcitxMenuFilterState,
+pub(crate) unsafe fn menu_session_filter_ref<'a>(
+    session: *const VinputFcitxMenuSession,
 ) -> Option<&'a MenuFilterState> {
     // SAFETY: Forwarded from the caller contract.
-    unsafe { state.as_ref() }.map(|value| &value.state)
+    unsafe { session.as_ref() }.map(|value| value.session.filter())
 }
 
 #[cfg(test)]
-pub(crate) fn boxed_menu_filter_state(state: MenuFilterState) -> *mut VinputFcitxMenuFilterState {
-    Box::into_raw(Box::new(VinputFcitxMenuFilterState {
-        state,
+pub(crate) fn boxed_menu_session(state: MenuFilterState) -> *mut VinputFcitxMenuSession {
+    let mut session = MenuSessionState::default();
+    *session.filter_mut() = state;
+    Box::into_raw(Box::new(VinputFcitxMenuSession {
+        session,
         decorated_title: String::new(),
     }))
 }
@@ -148,51 +151,102 @@ fn decision_view(action: MenuKeyAction) -> VinputFcitxMenuKeyDecisionView {
     }
 }
 
-/// Creates an inactive empty menu filter state.
+/// Creates a closed empty menu session.
 #[unsafe(no_mangle)]
-pub extern "C" fn vinput_fcitx_menu_filter_state_new() -> *mut VinputFcitxMenuFilterState {
+pub extern "C" fn vinput_fcitx_menu_session_new() -> *mut VinputFcitxMenuSession {
     catch_unwind(|| {
-        Box::into_raw(Box::new(VinputFcitxMenuFilterState {
-            state: MenuFilterState::default(),
+        Box::into_raw(Box::new(VinputFcitxMenuSession {
+            session: MenuSessionState::default(),
             decorated_title: String::new(),
         }))
     })
     .unwrap_or(ptr::null_mut())
 }
 
-/// Releases a menu filter state.
+/// Releases a menu session.
 ///
 /// # Safety
 ///
 /// A non-null pointer must be a live handle returned by this crate.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_free(
-    state: *mut VinputFcitxMenuFilterState,
-) {
-    if !state.is_null() {
+pub unsafe extern "C" fn vinput_fcitx_menu_session_free(session: *mut VinputFcitxMenuSession) {
+    if !session.is_null() {
         let _ = catch_unwind(AssertUnwindSafe(|| {
             // SAFETY: Forwarded from this function's caller contract.
-            drop(unsafe { Box::from_raw(state) });
+            drop(unsafe { Box::from_raw(session) });
         }));
     }
 }
 
-/// Clears and deactivates the filter.
+/// Opens a fresh menu session and resets its page and filter.
 ///
 /// # Safety
 ///
-/// `state` must be null or a live handle.
+/// `state` must be a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_reset(
-    state: *mut VinputFcitxMenuFilterState,
+pub unsafe extern "C" fn vinput_fcitx_menu_session_open(state: *mut VinputFcitxMenuSession) -> u8 {
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return 0;
+    };
+    state.session.open();
+    state.decorated_title.clear();
+    1
+}
+
+/// Closes a menu session and clears its page and filter.
+///
+/// # Safety
+///
+/// `state` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_menu_session_close(state: *mut VinputFcitxMenuSession) -> u8 {
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(state) = (unsafe { state.as_mut() }) else {
+        return 0;
+    };
+    state.session.close();
+    state.decorated_title.clear();
+    1
+}
+
+/// Reads whether a menu session is open.
+///
+/// # Safety
+///
+/// `state` must be live and `open_out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_menu_session_is_open(
+    state: *const VinputFcitxMenuSession,
+    open_out: *mut u8,
+) -> u8 {
+    if open_out.is_null() {
+        return 0;
+    }
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(state) = (unsafe { state.as_ref() }) else {
+        return 0;
+    };
+    // SAFETY: The caller guarantees a writable output pointer.
+    unsafe { open_out.write(u8::from(state.session.is_open())) };
+    1
+}
+
+/// Stores the actual zero-based page after Fcitx clamps a rebuild request.
+///
+/// # Safety
+///
+/// `state` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_menu_session_set_page(
+    state: *mut VinputFcitxMenuSession,
+    page: i32,
 ) -> u8 {
     // SAFETY: Forwarded from this function's caller contract.
     let Some(state) = (unsafe { state.as_mut() }) else {
         return 0;
     };
-    state.state.reset();
-    state.decorated_title.clear();
-    1
+    u8::from(state.session.set_page(page))
 }
 
 /// Reads the active flag.
@@ -201,8 +255,8 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_reset(
 ///
 /// `state` must be live and `active_out` must be writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_active(
-    state: *const VinputFcitxMenuFilterState,
+pub unsafe extern "C" fn vinput_fcitx_menu_session_filter_active(
+    state: *const VinputFcitxMenuSession,
     active_out: *mut u8,
 ) -> u8 {
     if active_out.is_null() {
@@ -213,7 +267,7 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_active(
         return 0;
     };
     // SAFETY: The caller guarantees a writable output pointer.
-    unsafe { active_out.write(u8::from(state.state.active())) };
+    unsafe { active_out.write(u8::from(state.session.filter().active())) };
     1
 }
 
@@ -223,8 +277,8 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_active(
 ///
 /// Input bytes must be readable and `title_out` must be writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_decorate_title(
-    state: *mut VinputFcitxMenuFilterState,
+pub unsafe extern "C" fn vinput_fcitx_menu_session_decorate_title(
+    state: *mut VinputFcitxMenuSession,
     base_data: *const u8,
     base_len: usize,
     title_out: *mut VinputFcitxStringView,
@@ -242,7 +296,7 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_decorate_title(
             let Some(base_title) = (unsafe { text_input(base_data, base_len) }) else {
                 return false;
             };
-            state.decorated_title = state.state.decorate_title(base_title);
+            state.decorated_title = state.session.filter().decorate_title(base_title);
             // SAFETY: The caller guarantees a writable output pointer.
             unsafe { title_out.write(string_view(&state.decorated_title)) };
             true
@@ -251,15 +305,17 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_decorate_title(
     )
 }
 
-/// Applies one semantic key atomically and returns its action.
+/// Applies one semantic key to an open Rust-owned menu session.
+///
+/// The current page and terminal close/select transitions are owned by Rust.
 ///
 /// # Safety
 ///
 /// Input bytes must be readable and `decision_out` must be writable.
 #[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_handle_key(
-    state: *mut VinputFcitxMenuFilterState,
+pub unsafe extern "C" fn vinput_fcitx_menu_session_handle_key(
+    state: *mut VinputFcitxMenuSession,
     release: u8,
     key_kind: u8,
     key_value: i64,
@@ -267,7 +323,6 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_handle_key(
     text_len: usize,
     cursor_available: u8,
     current_selection: i64,
-    current_page: i32,
     visible_item_count: usize,
     decision_out: *mut VinputFcitxMenuKeyDecisionView,
 ) -> u8 {
@@ -294,20 +349,18 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_handle_key(
                 return false;
             }
 
-            let mut updated = state.state.clone();
-            let action = updated.handle_key(MenuKeyInput {
+            let Some(action) = state.session.handle_key(MenuSessionKeyInput {
                 release: release != 0,
                 key,
                 cursor_available: cursor_available != 0,
                 current_selection: selection,
-                current_page,
                 visible_item_count,
-            });
-            let decision = decision_view(action);
-            state.state = updated;
+            }) else {
+                return false;
+            };
             state.decorated_title.clear();
             // SAFETY: The caller guarantees a writable output pointer.
-            unsafe { decision_out.write(decision) };
+            unsafe { decision_out.write(decision_view(action)) };
             true
         }))
         .unwrap_or(false),
