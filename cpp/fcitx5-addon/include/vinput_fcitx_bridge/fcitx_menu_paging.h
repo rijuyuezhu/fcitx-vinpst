@@ -8,20 +8,7 @@
 
 namespace vinput_fcitx_bridge {
 
-inline void SetMenuCandidatePage(fcitx::CommonCandidateList &candidates,
-                                 int requested_page) {
-  const int total_pages = candidates.totalPages();
-  if (total_pages <= 0) {
-    return;
-  }
-  int page = requested_page;
-  if (page < 0) {
-    page = 0;
-  } else if (page >= total_pages) {
-    page = total_pages - 1;
-  }
-  candidates.setPage(page);
-}
+void SetMenuCandidatePage(fcitx::CommonCandidateList &candidates, int requested_page);
 
 inline void
 PublishMenuCandidateList(fcitx::InputContext *input_context,

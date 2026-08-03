@@ -90,7 +90,13 @@ bool ReadSceneStateReply(sd_bus_message *message, SceneStateSnapshot *state,
     SetSdBusError(error, "enter scene array", result, bus_error);
     return false;
   }
-  std::vector<SceneStateItem> scenes;
+  SceneStateSnapshot snapshot(active_scene_id != nullptr ? active_scene_id : "");
+  if (!snapshot.valid()) {
+    if (error != nullptr) {
+      *error = "create Rust scene snapshot: allocation failed";
+    }
+    return false;
+  }
   for (;;) {
     result = sd_bus_message_enter_container(message, SD_BUS_TYPE_STRUCT, "ss");
     if (result < 0) {
@@ -115,8 +121,12 @@ bool ReadSceneStateReply(sd_bus_message *message, SceneStateSnapshot *state,
       SetSdBusError(error, "exit scene item", result, bus_error);
       return false;
     }
-    scenes.push_back(
-        SceneStateItem{id != nullptr ? id : "", label != nullptr ? label : ""});
+    if (!snapshot.Add(id != nullptr ? id : "", label != nullptr ? label : "")) {
+      if (error != nullptr) {
+        *error = "append Rust scene snapshot row";
+      }
+      return false;
+    }
   }
   result = sd_bus_message_exit_container(message);
   if (result < 0) {
@@ -125,8 +135,7 @@ bool ReadSceneStateReply(sd_bus_message *message, SceneStateSnapshot *state,
     return false;
   }
   if (state != nullptr) {
-    state->active_scene_id = active_scene_id != nullptr ? active_scene_id : "";
-    state->scenes = std::move(scenes);
+    *state = std::move(snapshot);
   }
   return true;
 }
@@ -300,7 +309,18 @@ bool ReadAsrDisplayMenuStateReply(sd_bus_message *message,
     SetSdBusError(error, "enter ASR display target array", result, bus_error);
     return false;
   }
-  std::vector<AsrDisplayMenuItem> targets;
+  AsrDisplayMenuStateSnapshot snapshot(
+      target_provider_id != nullptr ? target_provider_id : "",
+      target_model_id != nullptr ? target_model_id : "",
+      effective_provider_id != nullptr ? effective_provider_id : "",
+      effective_model_id != nullptr ? effective_model_id : "", reload_in_progress != 0,
+      last_error != nullptr ? last_error : "");
+  if (!snapshot.valid()) {
+    if (error != nullptr) {
+      *error = "create Rust ASR display snapshot: allocation failed";
+    }
+    return false;
+  }
   for (;;) {
     result = sd_bus_message_enter_container(message, SD_BUS_TYPE_STRUCT, "sssss");
     if (result < 0) {
@@ -329,11 +349,15 @@ bool ReadAsrDisplayMenuStateReply(sd_bus_message *message,
       SetSdBusError(error, "exit ASR display target item", result, bus_error);
       return false;
     }
-    targets.push_back(AsrDisplayMenuItem{provider_id != nullptr ? provider_id : "",
-                                         kind != nullptr ? kind : "",
-                                         item_id != nullptr ? item_id : "",
-                                         display_title != nullptr ? display_title : "",
-                                         model_value != nullptr ? model_value : ""});
+    if (!snapshot.Add(provider_id != nullptr ? provider_id : "",
+                      kind != nullptr ? kind : "", item_id != nullptr ? item_id : "",
+                      display_title != nullptr ? display_title : "",
+                      model_value != nullptr ? model_value : "")) {
+      if (error != nullptr) {
+        *error = "append Rust ASR display snapshot row";
+      }
+      return false;
+    }
   }
   result = sd_bus_message_exit_container(message);
   if (result < 0) {
@@ -342,14 +366,7 @@ bool ReadAsrDisplayMenuStateReply(sd_bus_message *message,
     return false;
   }
   if (state != nullptr) {
-    state->target_provider_id = target_provider_id != nullptr ? target_provider_id : "";
-    state->target_model_id = target_model_id != nullptr ? target_model_id : "";
-    state->effective_provider_id =
-        effective_provider_id != nullptr ? effective_provider_id : "";
-    state->effective_model_id = effective_model_id != nullptr ? effective_model_id : "";
-    state->reload_in_progress = reload_in_progress != 0;
-    state->last_error = last_error != nullptr ? last_error : "";
-    state->targets = std::move(targets);
+    *state = std::move(snapshot);
   }
   return true;
 }

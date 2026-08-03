@@ -157,11 +157,15 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   if (expected_active_scene.empty()) {
     expected_active_scene = kDefaultNormalSceneId;
   }
-  const bool exposes_expected_scene =
-      std::ranges::any_of(state.scenes, [&expected_active_scene](const auto &scene) {
-        return scene.id == expected_active_scene;
-      });
-  if (state.active_scene_id != expected_active_scene || state.scenes.size() < 2 ||
+  bool exposes_expected_scene = false;
+  for (std::size_t index = 0; index < state.size(); ++index) {
+    const auto scene = state.item(index);
+    if (scene.has_value() && scene->id == expected_active_scene) {
+      exposes_expected_scene = true;
+      break;
+    }
+  }
+  if (state.active_scene_id() != expected_active_scene || state.size() < 2 ||
       !exposes_expected_scene) {
     if (error != nullptr) {
       *error = "scene state did not expose expected active scene and menu items: ";
@@ -182,7 +186,8 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
     }
     return false;
   }
-  if (!client->GetSceneState(&state, error) || state.active_scene_id != "__command__") {
+  if (!client->GetSceneState(&state, error) ||
+      state.active_scene_id() != "__command__") {
     if (error != nullptr && error->empty()) {
       *error = "scene state did not reflect selected command scene";
     }
@@ -335,8 +340,8 @@ bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
   if (!client->GetAsrDisplayMenuState(&state, error)) {
     return false;
   }
-  if (state.target_provider_id.empty() || state.effective_provider_id.empty() ||
-      state.targets.empty()) {
+  if (state.target_provider_id().empty() || state.effective_provider_id().empty() ||
+      state.size() == 0) {
     if (error != nullptr) {
       *error = "ASR display menu state did not expose target, effective, and rows";
     }
@@ -363,10 +368,11 @@ bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
     return false;
   }
 
-  for (const auto &target : state.targets) {
-    if (target.provider_id == expected_provider &&
-        target.model_value == expected_model && target.item_id == expected_id &&
-        target.display_title == expected_title) {
+  for (std::size_t index = 0; index < state.size(); ++index) {
+    const auto target = state.item(index);
+    if (target.has_value() && target->provider_id == expected_provider &&
+        target->model_value == expected_model && target->item_id == expected_id &&
+        target->display_title == expected_title) {
       return true;
     }
   }

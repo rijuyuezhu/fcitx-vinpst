@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vinput_fcitx_bridge/frontend_bridge.h"
+#include "vinput_fcitx_bridge/menu_snapshot.h"
 
 #include <memory>
 #include <string>
@@ -20,16 +21,6 @@ struct AsrBackendStateSnapshot {
   bool reload_in_progress = false;
   bool has_effective_backend = false;
   std::vector<std::string> remote_endpoints;
-};
-
-struct SceneStateItem {
-  std::string id;
-  std::string label;
-};
-
-struct SceneStateSnapshot {
-  std::string active_scene_id;
-  std::vector<SceneStateItem> scenes;
 };
 
 struct AsrMenuProviderItem {
@@ -62,24 +53,6 @@ struct AsrTargetMenuStateSnapshot {
   bool reload_in_progress = false;
   std::string last_error;
   std::vector<AsrTargetMenuItem> targets;
-};
-
-struct AsrDisplayMenuItem {
-  std::string provider_id;
-  std::string kind;
-  std::string item_id;
-  std::string display_title;
-  std::string model_value;
-};
-
-struct AsrDisplayMenuStateSnapshot {
-  std::string target_provider_id;
-  std::string target_model_id;
-  std::string effective_provider_id;
-  std::string effective_model_id;
-  bool reload_in_progress = false;
-  std::string last_error;
-  std::vector<AsrDisplayMenuItem> targets;
 };
 
 class SdBusDaemonClient final : public DaemonClient {

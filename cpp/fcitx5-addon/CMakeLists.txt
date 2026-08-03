@@ -112,6 +112,7 @@ endfunction()
 
 add_library(vinput_fcitx_bridge_core STATIC
   src/frontend_bridge.cpp
+  src/menu_snapshot.cpp
   src/recognition_payload.cpp
 )
 add_library(vinput_fcitx_bridge::core ALIAS vinput_fcitx_bridge_core)
@@ -209,6 +210,7 @@ if(Fcitx5Core_FOUND)
     src/fcitx_candidates.cpp
     src/fcitx_key_trigger.cpp
     src/fcitx_menu_filter.cpp
+    src/fcitx_menu_projection.cpp
     src/fcitx_notifications.cpp
     src/fcitx_trigger_mode.cpp
     src/fcitx_outcome.cpp
@@ -487,6 +489,7 @@ if(Fcitx5Core_FOUND)
     src/fcitx_daemon_signal_monitor.cpp
     src/fcitx_key_trigger.cpp
     src/fcitx_menu_filter.cpp
+    src/fcitx_menu_projection.cpp
     src/fcitx_notifications.cpp
     src/fcitx_trigger_mode.cpp
     src/fcitx_selection.cpp

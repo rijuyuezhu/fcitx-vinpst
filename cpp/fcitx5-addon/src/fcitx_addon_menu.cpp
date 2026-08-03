@@ -5,6 +5,7 @@
 #include "vinput_fcitx_bridge/fcitx_i18n.h"
 
 #include "vinput_fcitx_bridge/fcitx_menu_paging.h"
+#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 
 #include "vinput_fcitx_bridge/fcitx_selection.h"
 
@@ -27,12 +28,11 @@
 
 #include <chrono>
 #include <functional>
+#include <limits>
 #include <utility>
 
 namespace vinput_fcitx_bridge {
 namespace {
-
-constexpr int kMenuPageSize = 10;
 
 class MenuCandidateWord final : public fcitx::CandidateWord {
 public:
@@ -50,11 +50,6 @@ public:
 private:
   std::function<void(fcitx::InputContext *)> on_select_;
 };
-
-bool IsKey(const fcitx::Key &key, FcitxKeySym symbol) {
-  const auto normalized = key.normalize();
-  return normalized.sym() == symbol && normalized.states() == fcitx::KeyStates();
-}
 
 int CurrentMenuSelectionIndex(fcitx::CandidateList *candidate_list) {
   if (candidate_list == nullptr || candidate_list->cursorIndex() < 0) {
@@ -86,33 +81,80 @@ void SetFilteredMenuTitle(fcitx::InputContext *ic, std::string_view base_title,
       DecoratePagedMenuTitle(filter.DecorateTitle(base_title), candidate_list)));
 }
 
-bool IsMenuEnterKey(const fcitx::Key &key) {
-  return IsKey(key, FcitxKey_Return) || IsKey(key, FcitxKey_KP_Enter);
-}
-
-bool IsHandledMenuKey(const fcitx::Key &key, bool trigger_key,
-                      const MenuFilterState &filter, const FrontendSettings &settings) {
-  return trigger_key || key.checkKeyList(settings.page_prev_keys) ||
-         key.checkKeyList(settings.page_next_keys) || key.digitSelection() >= 0 ||
-         IsMenuSlashKey(key) || IsMenuBackspaceKey(key) ||
-         IsMenuCtrlShortcut(key, FcitxKey_w) || IsMenuCtrlShortcut(key, FcitxKey_u) ||
-         IsKey(key, FcitxKey_Up) || IsKey(key, FcitxKey_Down) || IsMenuEnterKey(key) ||
-         IsKey(key, FcitxKey_Escape) || IsMenuPureModifierKey(key) ||
-         IsPrintableMenuInput(key, filter.active(), settings.page_prev_keys,
-                              settings.page_next_keys);
-}
-
-bool IsEffectiveAsrTarget(const AsrDisplayMenuItem &target,
-                          const AsrDisplayMenuStateSnapshot &state) {
-  if (target.provider_id != state.effective_provider_id) {
+template <typename RebuildMenu, typename HideMenu, typename SelectItem>
+bool HandleProjectedMenuKeyEvent(
+    fcitx::KeyEvent &event, bool trigger_key, fcitx::InputContext *input_context,
+    MenuFilterState &filter, const std::vector<std::size_t> &visible_indices,
+    int current_page, const FrontendSettings &settings, std::string_view base_title,
+    RebuildMenu &&rebuild_menu, HideMenu &&hide_menu, SelectItem &&select_item) {
+  auto candidate_list = input_context->inputPanel().candidateList();
+  auto *cursor =
+      candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
+  const auto semantic_key =
+      ClassifyMenuKey(event.key(), trigger_key, filter.active(),
+                      settings.page_prev_keys, settings.page_next_keys);
+  const auto decision =
+      filter.HandleKey(event.isRelease(), semantic_key, cursor != nullptr,
+                       CurrentMenuSelectionIndex(candidate_list.get()), current_page,
+                       visible_indices.size());
+  if (!decision.has_value()) {
+    hide_menu();
     return false;
   }
-  if (target.model_value == state.effective_model_id) {
+
+  switch (decision->action) {
+  case MenuKeyAction::Pass:
+    return false;
+  case MenuKeyAction::Consume:
+    event.filterAndAccept();
+    return true;
+  case MenuKeyAction::CloseAndPass:
+    hide_menu();
+    return false;
+  case MenuKeyAction::CloseAndConsume:
+    hide_menu();
+    event.filterAndAccept();
+    return true;
+  case MenuKeyAction::Rebuild:
+    if (decision->value < std::numeric_limits<int>::min() ||
+        decision->value > std::numeric_limits<int>::max()) {
+      hide_menu();
+      return false;
+    }
+    rebuild_menu(static_cast<int>(decision->value));
+    event.filterAndAccept();
+    return true;
+  case MenuKeyAction::MovePrevious:
+    if (cursor == nullptr) {
+      hide_menu();
+      return false;
+    }
+    cursor->prevCandidate();
+    break;
+  case MenuKeyAction::MoveNext:
+    if (cursor == nullptr) {
+      hide_menu();
+      return false;
+    }
+    cursor->nextCandidate();
+    break;
+  case MenuKeyAction::Select:
+    if (decision->value < 0 ||
+        static_cast<std::uint64_t>(decision->value) >= visible_indices.size()) {
+      hide_menu();
+      event.filterAndAccept();
+      return true;
+    }
+    select_item(visible_indices[static_cast<std::size_t>(decision->value)],
+                input_context);
+    event.filterAndAccept();
     return true;
   }
-  return !state.reload_in_progress && state.last_error.empty() &&
-         target.provider_id == state.target_provider_id &&
-         target.model_value == state.target_model_id;
+
+  SetFilteredMenuTitle(input_context, base_title, filter, candidate_list.get());
+  input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+  event.filterAndAccept();
+  return true;
 }
 
 std::string TranslatedProviderKind(std::string_view kind) {
@@ -128,53 +170,36 @@ std::string TranslatedProviderKind(std::string_view kind) {
   return std::string(kind);
 }
 
-std::string AsrTargetLabel(const AsrDisplayMenuItem &target,
-                           const AsrDisplayMenuStateSnapshot &state) {
-  std::string label =
-      target.display_title.empty()
-          ? (target.item_id.empty() ? target.provider_id : target.item_id)
-          : target.display_title;
+std::string AsrTargetLabel(const AsrDisplayMenuPresentation &target) {
+  std::string label = target.base_label;
   label += " [" + TranslatedProviderKind(target.kind) + "]";
-  if (state.reload_in_progress && target.provider_id == state.target_provider_id &&
-      target.model_value == state.target_model_id) {
+  if (target.loading) {
     label += FrontendText(" (loading)");
   }
   return label;
 }
 
-std::string AsrDisplayTitleFor(std::string_view provider_id,
-                               std::string_view model_value,
-                               const AsrDisplayMenuStateSnapshot &state) {
-  for (const auto &target : state.targets) {
-    if (target.provider_id == provider_id && target.model_value == model_value) {
-      return target.display_title.empty() ? target.item_id : target.display_title;
-    }
-  }
-  return std::string(model_value);
-}
-
 std::string EffectiveAsrLabel(const AsrDisplayMenuStateSnapshot &state) {
-  std::string label = state.effective_model_id.empty()
-                          ? state.effective_provider_id
-                          : AsrDisplayTitleFor(state.effective_provider_id,
-                                               state.effective_model_id, state);
+  std::string label = state.effective_base_label();
   if (label.empty()) {
     label = FrontendText("unavailable");
   }
-  if (state.reload_in_progress && !state.target_provider_id.empty()) {
+  const auto target_provider_id = state.target_provider_id();
+  const auto target_model_id = state.target_model_id();
+  if (state.reload_in_progress() && !target_provider_id.empty()) {
     label += " | ";
     label += FrontendText("Loading: ");
-    label += state.target_provider_id;
-    if (!state.target_model_id.empty()) {
+    label += target_provider_id;
+    if (!target_model_id.empty()) {
       label += "/";
-      label +=
-          AsrDisplayTitleFor(state.target_provider_id, state.target_model_id, state);
+      label += state.target_base_label();
     }
   }
-  if (!state.last_error.empty()) {
+  const auto last_error = state.last_error();
+  if (!last_error.empty()) {
     label += " | ";
     label += FrontendText("Error: ");
-    label += state.last_error;
+    label += last_error;
   }
   return label;
 }
@@ -208,21 +233,22 @@ void FcitxVinputAddon::RebuildSceneMenu(int page) {
   candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
+  SceneMenuProjectionBuilder projection_builder(scene_state_,
+                                                scene_menu_filter_.query());
+  auto projection = projection_builder.Finish();
+  if (!projection.has_value()) {
+    FCITX_ERROR() << "fcitx-vinput failed to finalize scene menu projection";
+    HideSceneMenu();
+    return;
+  }
+
   scene_menu_indices_.clear();
-  std::string active_label = active_scene_id_;
-  for (std::size_t index = 0; index < scene_state_.scenes.size(); ++index) {
-    const auto &scene = scene_state_.scenes[index];
-    if (scene.id == active_scene_id_) {
-      active_label = scene.label;
-      continue;
-    }
-    if (!scene_menu_filter_.Matches(scene.label + " " + scene.id)) {
-      continue;
-    }
-    scene_menu_indices_.push_back(index);
+  for (const auto &item : projection->items) {
+    const auto source_index = item.source_index;
+    scene_menu_indices_.push_back(source_index);
     candidates->append<MenuCandidateWord>(
-        scene.label, [this, index](fcitx::InputContext *input_context) {
-          SelectScene(index, input_context);
+        item.label, [this, source_index](fcitx::InputContext *input_context) {
+          SelectScene(source_index, input_context);
         });
   }
   if (candidates->totalSize() > 0) {
@@ -236,7 +262,7 @@ void FcitxVinputAddon::RebuildSceneMenu(int page) {
   SetFilteredMenuTitle(scene_menu_ic_, FrontendText("Scenes /filter"),
                        scene_menu_filter_, candidates.get());
   scene_menu_ic_->inputPanel().setAuxDown(
-      fcitx::Text(FrontendText("Current: ") + active_label));
+      fcitx::Text(FrontendText("Current: ") + projection->active_label));
   PublishMenuCandidateList(scene_menu_ic_, std::move(candidates));
   scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
@@ -246,8 +272,9 @@ bool FcitxVinputAddon::RefreshSceneState(std::string *error) {
   if (client == nullptr || !client->GetSceneState(&scene_state_, error)) {
     return false;
   }
-  if (!scene_state_.active_scene_id.empty()) {
-    active_scene_id_ = scene_state_.active_scene_id;
+  const auto active_scene_id = scene_state_.active_scene_id();
+  if (!active_scene_id.empty()) {
+    active_scene_id_ = active_scene_id;
   }
   return true;
 }
@@ -273,142 +300,35 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
   if (!scene_menu_visible_ || scene_menu_ic_ == nullptr) {
     return false;
   }
-  const auto &key = event.key();
-  const bool trigger_key = trigger_policy_.IsSceneMenuTrigger(event);
-  const bool printable_filter_input = IsPrintableMenuInput(
-      key, scene_menu_filter_.active(), frontend_settings_.page_prev_keys,
-      frontend_settings_.page_next_keys);
-  const bool handled =
-      IsHandledMenuKey(key, trigger_key, scene_menu_filter_, frontend_settings_);
-
-  if (event.isRelease()) {
-    if (!handled) {
-      return false;
-    }
-    event.filterAndAccept();
-    return true;
-  }
-  if (!handled) {
-    HideSceneMenu();
-    return false;
-  }
-  if (trigger_key || IsMenuPureModifierKey(key)) {
-    event.filterAndAccept();
-    return true;
-  }
-  if (IsKey(key, FcitxKey_Escape)) {
-    if (scene_menu_filter_.active() || !scene_menu_filter_.query().empty()) {
-      scene_menu_filter_.ClearAndDeactivate();
-      RebuildSceneMenu();
-    } else {
-      HideSceneMenu();
-    }
-    event.filterAndAccept();
-    return true;
-  }
-  if (IsMenuSlashKey(key)) {
-    scene_menu_filter_.Activate();
-    RebuildSceneMenu();
-    event.filterAndAccept();
-    return true;
-  }
-  if (IsMenuBackspaceKey(key) && scene_menu_filter_.active()) {
-    scene_menu_filter_.Backspace();
-    RebuildSceneMenu();
-    event.filterAndAccept();
-    return true;
-  }
-  if (scene_menu_filter_.active() && IsMenuCtrlShortcut(key, FcitxKey_w)) {
-    scene_menu_filter_.DeleteLastWord();
-    RebuildSceneMenu();
-    event.filterAndAccept();
-    return true;
-  }
-  if (scene_menu_filter_.active() && IsMenuCtrlShortcut(key, FcitxKey_u)) {
-    scene_menu_filter_.ClearAndDeactivate();
-    RebuildSceneMenu();
-    event.filterAndAccept();
-    return true;
-  }
-  if (printable_filter_input) {
-    scene_menu_filter_.AppendText(MenuKeyToUtf8(key));
-    RebuildSceneMenu();
-    event.filterAndAccept();
-    return true;
-  }
-
-  auto candidate_list = scene_menu_ic_->inputPanel().candidateList();
-  auto *cursor =
-      candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
-  if (key.checkKeyList(frontend_settings_.page_prev_keys)) {
-    RebuildSceneMenu(scene_menu_page_ - 1);
-    event.filterAndAccept();
-    return true;
-  } else if (key.checkKeyList(frontend_settings_.page_next_keys)) {
-    RebuildSceneMenu(scene_menu_page_ + 1);
-    event.filterAndAccept();
-    return true;
-  } else {
-    const int digit = key.digitSelection();
-    if (digit >= 0) {
-      const int index = scene_menu_page_ * kMenuPageSize + digit;
-      if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
-        SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)],
-                    scene_menu_ic_);
-      }
-      event.filterAndAccept();
-      return true;
-    }
-    if (cursor != nullptr && IsKey(key, FcitxKey_Up)) {
-      cursor->prevCandidate();
-    } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
-      cursor->nextCandidate();
-    } else if (IsMenuEnterKey(key)) {
-      int index = CurrentMenuSelectionIndex(candidate_list.get());
-      if (index < 0 && !scene_menu_indices_.empty()) {
-        index = scene_menu_page_ * kMenuPageSize;
-      }
-      if (index >= 0 && index < static_cast<int>(scene_menu_indices_.size())) {
-        SelectScene(scene_menu_indices_[static_cast<std::size_t>(index)],
-                    scene_menu_ic_);
-      } else {
-        HideSceneMenu();
-      }
-      event.filterAndAccept();
-      return true;
-    } else {
-      HideSceneMenu();
-      return false;
-    }
-  }
-
-  SetFilteredMenuTitle(scene_menu_ic_, FrontendText("Scenes /filter"),
-                       scene_menu_filter_, candidate_list.get());
-  scene_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-  event.filterAndAccept();
-  return true;
+  const auto title = FrontendText("Scenes /filter");
+  return HandleProjectedMenuKeyEvent(
+      event, trigger_policy_.IsSceneMenuTrigger(event), scene_menu_ic_,
+      scene_menu_filter_, scene_menu_indices_, scene_menu_page_, frontend_settings_,
+      title, [this](int page) { RebuildSceneMenu(page); },
+      [this]() { HideSceneMenu(); },
+      [this](std::size_t index, fcitx::InputContext *ic) { SelectScene(index, ic); });
 }
 
 void FcitxVinputAddon::SelectScene(std::size_t index, fcitx::InputContext *ic) {
-  if (index >= scene_state_.scenes.size()) {
+  const auto scene = scene_state_.item(index);
+  if (!scene.has_value()) {
     HideSceneMenu();
     return;
   }
   std::string error;
   bool persisted = false;
   auto *client = EnsureDaemonClient(&error);
-  const auto &scene = scene_state_.scenes[index];
-  if (client == nullptr || !client->SetActiveScene(scene.id, &persisted, &error)) {
+  if (client == nullptr || !client->SetActiveScene(scene->id, &persisted, &error)) {
     HideSceneMenu();
     ApplyDaemonUnavailable(ic, std::move(error));
     return;
   }
-  active_scene_id_ = scene.id;
-  scene_state_.active_scene_id = scene.id;
+  active_scene_id_ = scene->id;
+  static_cast<void>(scene_state_.SetActive(scene->id));
   HideSceneMenu();
-  const auto message = FrontendValueText("Switched scene to '%s'.", scene.label);
+  const auto message = FrontendValueText("Switched scene to '%s'.", scene->label);
   Notify(FrontendNotificationKind::Info, message);
-  FCITX_INFO() << "fcitx-vinput switched active scene to " << scene.id
+  FCITX_INFO() << "fcitx-vinput switched active scene to " << scene->id
                << " persisted=" << persisted;
 }
 
@@ -439,23 +359,36 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
   candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
+  AsrMenuProjectionBuilder projection_builder(asr_menu_state_,
+                                              asr_menu_filter_.query());
+  for (std::size_t index = 0; index < asr_menu_state_.size(); ++index) {
+    const auto target = asr_menu_state_.presentation(index);
+    if (!target.has_value()) {
+      FCITX_ERROR() << "fcitx-vinput failed to read Rust ASR menu row";
+      HideAsrMenu();
+      return;
+    }
+    const auto label = AsrTargetLabel(*target);
+    if (!projection_builder.Add(asr_menu_state_, index, label)) {
+      FCITX_ERROR() << "fcitx-vinput failed to project ASR menu row";
+      HideAsrMenu();
+      return;
+    }
+  }
+  auto projection = projection_builder.Finish();
+  if (!projection.has_value()) {
+    FCITX_ERROR() << "fcitx-vinput failed to finalize ASR menu projection";
+    HideAsrMenu();
+    return;
+  }
+
   asr_menu_indices_.clear();
-  for (std::size_t index = 0; index < asr_menu_state_.targets.size(); ++index) {
-    const auto &target = asr_menu_state_.targets[index];
-    if (IsEffectiveAsrTarget(target, asr_menu_state_)) {
-      continue;
-    }
-    const auto label = AsrTargetLabel(target, asr_menu_state_);
-    const auto search_text = label + " " + target.provider_id + " " + target.kind +
-                             " " + target.item_id + " " + target.display_title + " " +
-                             target.model_value;
-    if (!asr_menu_filter_.Matches(search_text)) {
-      continue;
-    }
-    asr_menu_indices_.push_back(index);
+  for (const auto &item : *projection) {
+    const auto source_index = item.source_index;
+    asr_menu_indices_.push_back(source_index);
     candidates->append<MenuCandidateWord>(
-        label, [this, index](fcitx::InputContext *input_context) {
-          SelectAsrTarget(index, input_context);
+        item.label, [this, source_index](fcitx::InputContext *input_context) {
+          SelectAsrTarget(source_index, input_context);
         });
   }
   if (candidates->totalSize() > 0) {
@@ -500,146 +433,38 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
   if (!asr_menu_visible_ || asr_menu_ic_ == nullptr) {
     return false;
   }
-  const auto &key = event.key();
-  const bool trigger_key = trigger_policy_.IsAsrMenuTrigger(event);
-  const bool printable_filter_input = IsPrintableMenuInput(
-      key, asr_menu_filter_.active(), frontend_settings_.page_prev_keys,
-      frontend_settings_.page_next_keys);
-  const bool handled =
-      IsHandledMenuKey(key, trigger_key, asr_menu_filter_, frontend_settings_);
-
-  if (event.isRelease()) {
-    if (!handled) {
-      return false;
-    }
-    event.filterAndAccept();
-    return true;
-  }
-  if (!handled) {
-    HideAsrMenu();
-    return false;
-  }
-  if (trigger_key || IsMenuPureModifierKey(key)) {
-    event.filterAndAccept();
-    return true;
-  }
-  if (IsKey(key, FcitxKey_Escape)) {
-    if (asr_menu_filter_.active() || !asr_menu_filter_.query().empty()) {
-      asr_menu_filter_.ClearAndDeactivate();
-      RebuildAsrMenu();
-    } else {
-      HideAsrMenu();
-    }
-    event.filterAndAccept();
-    return true;
-  }
-  if (IsMenuSlashKey(key)) {
-    asr_menu_filter_.Activate();
-    RebuildAsrMenu();
-    event.filterAndAccept();
-    return true;
-  }
-  if (IsMenuBackspaceKey(key) && asr_menu_filter_.active()) {
-    asr_menu_filter_.Backspace();
-    RebuildAsrMenu();
-    event.filterAndAccept();
-    return true;
-  }
-  if (asr_menu_filter_.active() && IsMenuCtrlShortcut(key, FcitxKey_w)) {
-    asr_menu_filter_.DeleteLastWord();
-    RebuildAsrMenu();
-    event.filterAndAccept();
-    return true;
-  }
-  if (asr_menu_filter_.active() && IsMenuCtrlShortcut(key, FcitxKey_u)) {
-    asr_menu_filter_.ClearAndDeactivate();
-    RebuildAsrMenu();
-    event.filterAndAccept();
-    return true;
-  }
-  if (printable_filter_input) {
-    asr_menu_filter_.AppendText(MenuKeyToUtf8(key));
-    RebuildAsrMenu();
-    event.filterAndAccept();
-    return true;
-  }
-
-  auto candidate_list = asr_menu_ic_->inputPanel().candidateList();
-  auto *cursor =
-      candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
-  if (key.checkKeyList(frontend_settings_.page_prev_keys)) {
-    RebuildAsrMenu(asr_menu_page_ - 1);
-    event.filterAndAccept();
-    return true;
-  } else if (key.checkKeyList(frontend_settings_.page_next_keys)) {
-    RebuildAsrMenu(asr_menu_page_ + 1);
-    event.filterAndAccept();
-    return true;
-  } else {
-    const int digit = key.digitSelection();
-    if (digit >= 0) {
-      const int index = asr_menu_page_ * kMenuPageSize + digit;
-      if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
-        SelectAsrTarget(asr_menu_indices_[static_cast<std::size_t>(index)],
-                        asr_menu_ic_);
-      }
-      event.filterAndAccept();
-      return true;
-    }
-    if (cursor != nullptr && IsKey(key, FcitxKey_Up)) {
-      cursor->prevCandidate();
-    } else if (cursor != nullptr && IsKey(key, FcitxKey_Down)) {
-      cursor->nextCandidate();
-    } else if (IsMenuEnterKey(key)) {
-      int index = CurrentMenuSelectionIndex(candidate_list.get());
-      if (index < 0 && !asr_menu_indices_.empty()) {
-        index = asr_menu_page_ * kMenuPageSize;
-      }
-      if (index >= 0 && index < static_cast<int>(asr_menu_indices_.size())) {
-        SelectAsrTarget(asr_menu_indices_[static_cast<std::size_t>(index)],
-                        asr_menu_ic_);
-      } else {
-        HideAsrMenu();
-      }
-      event.filterAndAccept();
-      return true;
-    } else {
-      HideAsrMenu();
-      return false;
-    }
-  }
-
-  SetFilteredMenuTitle(asr_menu_ic_, FrontendText("Models /filter"), asr_menu_filter_,
-                       candidate_list.get());
-  asr_menu_ic_->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-  event.filterAndAccept();
-  return true;
+  const auto title = FrontendText("Models /filter");
+  return HandleProjectedMenuKeyEvent(
+      event, trigger_policy_.IsAsrMenuTrigger(event), asr_menu_ic_, asr_menu_filter_,
+      asr_menu_indices_, asr_menu_page_, frontend_settings_, title,
+      [this](int page) { RebuildAsrMenu(page); }, [this]() { HideAsrMenu(); },
+      [this](std::size_t index, fcitx::InputContext *ic) {
+        SelectAsrTarget(index, ic);
+      });
 }
 
 void FcitxVinputAddon::SelectAsrTarget(std::size_t index, fcitx::InputContext *ic) {
-  if (index >= asr_menu_state_.targets.size()) {
+  const auto target = asr_menu_state_.item(index);
+  if (!target.has_value()) {
     HideAsrMenu();
     return;
   }
   std::string error;
   bool persisted = false;
   auto *client = EnsureDaemonClient(&error);
-  const auto &target = asr_menu_state_.targets[index];
   if (client == nullptr ||
-      !client->SetActiveAsrTarget(target.provider_id, target.model_value, &persisted,
+      !client->SetActiveAsrTarget(target->provider_id, target->model_value, &persisted,
                                   &error)) {
     HideAsrMenu();
     ApplyDaemonUnavailable(ic, std::move(error));
     return;
   }
   HideAsrMenu();
-  const auto display_title =
-      target.display_title.empty() ? target.item_id : target.display_title;
   const auto message =
-      FrontendValueText("ASR switch requested for '%s'.", display_title);
+      FrontendValueText("ASR switch requested for '%s'.", target->base_label);
   Notify(FrontendNotificationKind::Info, message);
-  FCITX_INFO() << "fcitx-vinput requested ASR target switch to " << target.provider_id
-               << '/' << target.item_id << " persisted=" << persisted;
+  FCITX_INFO() << "fcitx-vinput requested ASR target switch to " << target->provider_id
+               << '/' << target->item_id << " persisted=" << persisted;
 }
 
 } // namespace vinput_fcitx_bridge

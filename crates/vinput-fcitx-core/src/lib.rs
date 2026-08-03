@@ -4,7 +4,21 @@
 //! It receives owned wire data and returns frontend decisions that can be tested
 //! without loading Fcitx.
 
+mod menu;
+mod menu_action;
+mod menu_projection;
+mod menu_snapshot;
 mod trigger_mode;
+
+pub use menu::{MenuFilterState, clamp_menu_page};
+pub use menu_action::{MENU_PAGE_SIZE, MenuKeyAction, MenuKeyInput, MenuSemanticKey};
+pub use menu_projection::{
+    AsrMenuItem, AsrMenuProjectionState, ProjectedMenuItem, SceneMenuItem, SceneMenuProjection,
+    is_effective_asr_target, project_asr_menu, project_scene_menu,
+};
+pub use menu_snapshot::{
+    AsrDisplaySnapshot, AsrDisplaySnapshotItem, SceneSnapshot, SceneSnapshotItem,
+};
 
 pub use trigger_mode::{
     TRIGGER_DEBOUNCE_NS, TRIGGER_HOLD_THRESHOLD_NS, TriggerAction, TriggerKind, TriggerMode,
