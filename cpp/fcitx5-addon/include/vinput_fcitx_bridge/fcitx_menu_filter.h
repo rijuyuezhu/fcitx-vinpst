@@ -58,11 +58,6 @@ struct MenuKeyDecision {
   std::int64_t value = 0;
 };
 
-struct MenuFilterView {
-  bool active = false;
-  std::string query;
-};
-
 class MenuFilterState {
 public:
   MenuFilterState();
@@ -74,25 +69,18 @@ public:
   MenuFilterState &operator=(MenuFilterState &&) = delete;
 
   void Reset();
-  std::optional<MenuFilterView> view() const;
+  std::optional<bool> active() const;
   std::string DecorateTitle(std::string_view base_title) const;
   std::optional<MenuKeyDecision> HandleKey(bool release, const MenuSemanticKey &key,
                                            bool cursor_available, int current_selection,
                                            int current_page,
                                            std::size_t visible_item_count);
+  const ::VinputFcitxMenuFilterState *raw_handle() const;
 
 private:
   ::VinputFcitxMenuFilterState *state_ = nullptr;
 };
 
-bool IsMenuCtrlShortcut(const fcitx::Key &key, fcitx::KeySym symbol);
-bool IsMenuPureModifierKey(const fcitx::Key &key);
-bool IsMenuSlashKey(const fcitx::Key &key);
-bool IsMenuBackspaceKey(const fcitx::Key &key);
-bool IsPrintableMenuInput(const fcitx::Key &key, bool filter_active,
-                          const fcitx::KeyList &page_prev_keys,
-                          const fcitx::KeyList &page_next_keys);
-std::string MenuKeyToUtf8(const fcitx::Key &key);
 MenuSemanticKey ClassifyMenuKey(const fcitx::Key &key, bool passive, bool filter_active,
                                 const fcitx::KeyList &page_prev_keys,
                                 const fcitx::KeyList &page_next_keys);

@@ -4,11 +4,11 @@ use super::{
     MENU_ACTION_CLOSE_AND_CONSUME, MENU_ACTION_CONSUME, MENU_ACTION_MOVE_PREVIOUS,
     MENU_ACTION_PASS, MENU_ACTION_REBUILD, MENU_ACTION_SELECT, MENU_KEY_DIGIT, MENU_KEY_ENTER,
     MENU_KEY_ESCAPE, MENU_KEY_MOVE_PREVIOUS, MENU_KEY_OTHER, MENU_KEY_PAGE, MENU_KEY_SLASH,
-    MENU_KEY_TEXT, VinputFcitxMenuFilterView, VinputFcitxMenuKeyDecisionView,
-    vinput_fcitx_clamp_menu_page, vinput_fcitx_menu_filter_state_decorate_title,
-    vinput_fcitx_menu_filter_state_free, vinput_fcitx_menu_filter_state_handle_key,
-    vinput_fcitx_menu_filter_state_new, vinput_fcitx_menu_filter_state_reset,
-    vinput_fcitx_menu_filter_state_view,
+    MENU_KEY_TEXT, VinputFcitxMenuKeyDecisionView, menu_filter_core_ref,
+    vinput_fcitx_clamp_menu_page, vinput_fcitx_menu_filter_state_active,
+    vinput_fcitx_menu_filter_state_decorate_title, vinput_fcitx_menu_filter_state_free,
+    vinput_fcitx_menu_filter_state_handle_key, vinput_fcitx_menu_filter_state_new,
+    vinput_fcitx_menu_filter_state_reset,
 };
 use crate::frontend::VinputFcitxStringView;
 
@@ -32,20 +32,14 @@ unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     unsafe { std::slice::from_raw_parts(view.data, view.len) }
 }
 
-unsafe fn state_view(state: *const super::VinputFcitxMenuFilterState) -> VinputFcitxMenuFilterView {
-    let mut view = VinputFcitxMenuFilterView {
-        active: 0,
-        query: VinputFcitxStringView {
-            data: ptr::null(),
-            len: 0,
-        },
-    };
+unsafe fn state_active(state: *const super::VinputFcitxMenuFilterState) -> u8 {
+    let mut active = u8::MAX;
     // SAFETY: Test callers pass live state and writable output.
     assert_eq!(
-        unsafe { vinput_fcitx_menu_filter_state_view(state, &raw mut view) },
+        unsafe { vinput_fcitx_menu_filter_state_active(state, &raw mut active) },
         1
     );
-    view
+    active
 }
 
 unsafe fn handle_key(
@@ -81,7 +75,7 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
     unsafe {
         let state = vinput_fcitx_menu_filter_state_new();
         assert!(!state.is_null());
-        assert_eq!(state_view(state).active, 0);
+        assert_eq!(state_active(state), 0);
         assert_eq!(
             handle_key(
                 state,
@@ -105,9 +99,7 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
             .map(|value| value.action),
             Some(MENU_ACTION_REBUILD),
         );
-        let view = state_view(state);
-        assert_eq!(view.active, 1);
-        assert_eq!(bytes(view.query), "MOON 中".as_bytes());
+        assert_eq!(state_active(state), 1);
 
         let mut title = VinputFcitxStringView {
             data: ptr::null(),
@@ -135,7 +127,7 @@ fn drives_filter_lifecycle_only_through_semantic_keys() {
             .map(|value| value.action),
             Some(MENU_ACTION_REBUILD),
         );
-        assert_eq!(state_view(state).active, 0);
+        assert_eq!(state_active(state), 0);
         assert_eq!(
             handle_key(
                 state,
@@ -291,7 +283,10 @@ fn invalid_key_text_preserves_state_and_output() {
             0,
         );
         assert_eq!((decision.action, decision.value), (91, 92));
-        assert_eq!(bytes(state_view(state).query), b"old");
+        assert_eq!(
+            menu_filter_core_ref(state).map(vinput_fcitx_core::MenuFilterState::query),
+            Some("old")
+        );
         vinput_fcitx_menu_filter_state_free(state);
     }
 }

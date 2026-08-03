@@ -90,14 +90,14 @@ bool HandleProjectedMenuKeyEvent(
   auto candidate_list = input_context->inputPanel().candidateList();
   auto *cursor =
       candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
-  const auto filter_view = filter.view();
-  if (!filter_view.has_value()) {
+  const auto filter_active = filter.active();
+  if (!filter_active.has_value()) {
     hide_menu();
     return false;
   }
   const auto semantic_key =
-      ClassifyMenuKey(event.key(), trigger_key, filter_view->active,
-                      settings.page_prev_keys, settings.page_next_keys);
+      ClassifyMenuKey(event.key(), trigger_key, *filter_active, settings.page_prev_keys,
+                      settings.page_next_keys);
   const auto decision =
       filter.HandleKey(event.isRelease(), semantic_key, cursor != nullptr,
                        CurrentMenuSelectionIndex(candidate_list.get()), current_page,
@@ -191,13 +191,7 @@ void FcitxVinputAddon::RebuildSceneMenu(int page) {
   candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
-  const auto filter_view = scene_menu_filter_.view();
-  if (!filter_view.has_value()) {
-    HideSceneMenu();
-    return;
-  }
-  SceneMenuProjectionBuilder projection_builder(scene_state_, filter_view->query);
-  auto projection = projection_builder.Finish();
+  auto projection = ProjectSceneMenu(scene_state_, scene_menu_filter_);
   if (!projection.has_value()) {
     FCITX_ERROR() << "fcitx-vinput failed to finalize scene menu projection";
     HideSceneMenu();
@@ -230,17 +224,7 @@ void FcitxVinputAddon::RebuildSceneMenu(int page) {
 
 bool FcitxVinputAddon::RefreshSceneState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
-  if (client == nullptr || !client->GetSceneState(&scene_state_, error)) {
-    return false;
-  }
-  const auto active_scene_id = scene_state_.active_scene_id();
-  if (!active_scene_id.has_value()) {
-    return false;
-  }
-  if (!active_scene_id->empty()) {
-    active_scene_id_ = *active_scene_id;
-  }
-  return true;
+  return client != nullptr && client->GetSceneState(&scene_state_, error);
 }
 
 void FcitxVinputAddon::HideSceneMenu() {
@@ -302,11 +286,6 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
   candidates->setLayoutHint(fcitx::CandidateLayoutHint::Vertical);
   candidates->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
-  const auto filter_view = asr_menu_filter_.view();
-  if (!filter_view.has_value()) {
-    HideAsrMenu();
-    return;
-  }
   const auto local = FrontendText("Local");
   const auto remote = FrontendText("Remote");
   const auto command = FrontendText("Command");
@@ -317,9 +296,7 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
   const AsrMenuLocalization localization{local,          remote,      command,
                                          loading_suffix, unavailable, loading_prefix,
                                          error_prefix};
-  AsrMenuProjectionBuilder projection_builder(asr_menu_state_, filter_view->query,
-                                              localization);
-  auto projection = projection_builder.Finish();
+  auto projection = ProjectAsrMenu(asr_menu_state_, asr_menu_filter_, localization);
   if (!projection.has_value()) {
     FCITX_ERROR() << "fcitx-vinput failed to finalize ASR menu projection";
     HideAsrMenu();
@@ -395,13 +372,11 @@ void FcitxVinputAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
   switch (control.kind) {
   case ProjectedMenuControlKind::SetActiveScene:
     if (client == nullptr ||
-        !client->SetActiveScene(control.first, &persisted, &error)) {
+        !client->SetActiveScene(&scene_state_, control.first, &persisted, &error)) {
       HideSceneMenu();
       ApplyDaemonUnavailable(ic, std::move(error));
       return;
     }
-    active_scene_id_ = control.first;
-    static_cast<void>(scene_state_.SetActive(control.first));
     HideSceneMenu();
     Notify(FrontendNotificationKind::Info,
            FrontendValueText("Switched scene to '%s'.", control.display_label));

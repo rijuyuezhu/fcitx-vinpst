@@ -7,11 +7,12 @@ use std::{
 
 use vinput_fcitx_core::{
     AsrDisplaySnapshot, AsrDisplayText, AsrMenuItem, AsrMenuProjectionState, MenuControl,
-    MenuFilterState, ProjectedMenuItem, project_asr_menu,
+    ProjectedMenuItem, project_asr_menu,
 };
 
 use crate::{
     frontend::VinputFcitxStringView,
+    menu::{VinputFcitxMenuFilterState, menu_filter_core_ref},
     menu_snapshot::{VinputFcitxAsrDisplaySnapshot, asr_core_ref},
 };
 
@@ -100,13 +101,6 @@ pub(crate) fn projected_item_view(item: &ProjectedMenuItem) -> VinputFcitxProjec
     }
 }
 
-fn filter_from_query(query: &str) -> MenuFilterState {
-    let mut filter = MenuFilterState::default();
-    filter.activate();
-    filter.append_text(query);
-    filter
-}
-
 fn projection_state(snapshot: &AsrDisplaySnapshot) -> AsrMenuProjectionState {
     AsrMenuProjectionState {
         target_provider_id: snapshot.target_provider_id().to_owned(),
@@ -122,13 +116,13 @@ fn projection_state(snapshot: &AsrDisplaySnapshot) -> AsrMenuProjectionState {
 ///
 /// # Safety
 ///
-/// `snapshot` must be live and every input pointer must reference its declared length.
+/// `snapshot` and `filter` must be live, and every text pointer must reference its
+/// declared length.
 #[allow(clippy::too_many_arguments)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_asr_projection_new(
     snapshot: *const VinputFcitxAsrDisplaySnapshot,
-    query_data: *const u8,
-    query_len: usize,
+    filter: *const VinputFcitxMenuFilterState,
     local_data: *const u8,
     local_len: usize,
     remote_data: *const u8,
@@ -150,7 +144,7 @@ pub unsafe extern "C" fn vinput_fcitx_asr_projection_new(
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(query) = (unsafe { text_input(query_data, query_len) }) else {
+        let Some(filter) = (unsafe { menu_filter_core_ref(filter) }) else {
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
@@ -193,7 +187,6 @@ pub unsafe extern "C" fn vinput_fcitx_asr_projection_new(
             loading_prefix,
             error_prefix,
         };
-        let filter = filter_from_query(query);
         let targets = snapshot
             .targets()
             .iter()
@@ -208,7 +201,7 @@ pub unsafe extern "C" fn vinput_fcitx_asr_projection_new(
             .collect::<Vec<_>>();
         Box::into_raw(Box::new(VinputFcitxAsrProjection {
             effective_label: snapshot.render_effective_label(&text),
-            projection: project_asr_menu(&projection_state(snapshot), &targets, &filter),
+            projection: project_asr_menu(&projection_state(snapshot), &targets, filter),
         }))
     }))
     .unwrap_or(ptr::null_mut())

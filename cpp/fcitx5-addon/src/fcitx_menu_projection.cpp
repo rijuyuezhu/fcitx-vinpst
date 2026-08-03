@@ -1,9 +1,11 @@
 #include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 
+#include "vinput_fcitx_bridge/fcitx_menu_filter.h"
 #include "vinput_fcitx_bridge/menu_snapshot.h"
 #include "vinput_fcitx_ffi.h"
 
 #include <cstdint>
+#include <memory>
 
 namespace vinput_fcitx_bridge {
 namespace {
@@ -62,49 +64,50 @@ CopyProjection(const VinputFcitxProjectionView &summary,
   return items;
 }
 
+struct AsrProjectionDeleter {
+  void operator()(VinputFcitxAsrProjection *projection) const {
+    vinput_fcitx_asr_projection_free(projection);
+  }
+};
+
+struct SceneProjectionDeleter {
+  void operator()(VinputFcitxSceneProjection *projection) const {
+    vinput_fcitx_scene_projection_free(projection);
+  }
+};
+
 } // namespace
 
-AsrMenuProjectionBuilder::AsrMenuProjectionBuilder(
-    const AsrDisplayMenuStateSnapshot &snapshot, std::string_view query,
-    const AsrMenuLocalization &localization)
-    : projection_(vinput_fcitx_asr_projection_new(
-          snapshot.raw_handle(), Bytes(query), query.size(), Bytes(localization.local),
+std::optional<AsrMenuProjectionResult>
+ProjectAsrMenu(const AsrDisplayMenuStateSnapshot &snapshot,
+               const MenuFilterState &filter, const AsrMenuLocalization &localization) {
+  std::unique_ptr<VinputFcitxAsrProjection, AsrProjectionDeleter> projection(
+      vinput_fcitx_asr_projection_new(
+          snapshot.raw_handle(), filter.raw_handle(), Bytes(localization.local),
           localization.local.size(), Bytes(localization.remote),
           localization.remote.size(), Bytes(localization.command),
           localization.command.size(), Bytes(localization.loading_suffix),
           localization.loading_suffix.size(), Bytes(localization.unavailable),
           localization.unavailable.size(), Bytes(localization.loading_prefix),
           localization.loading_prefix.size(), Bytes(localization.error_prefix),
-          localization.error_prefix.size())) {}
-
-AsrMenuProjectionBuilder::~AsrMenuProjectionBuilder() {
-  vinput_fcitx_asr_projection_free(projection_);
-}
-
-std::optional<AsrMenuProjectionResult> AsrMenuProjectionBuilder::Finish() {
+          localization.error_prefix.size()));
   VinputFcitxProjectionView summary{};
-  if (vinput_fcitx_asr_projection_view(projection_, &summary) == 0) {
+  if (vinput_fcitx_asr_projection_view(projection.get(), &summary) == 0) {
     return std::nullopt;
   }
-  auto items = CopyProjection(summary, projection_);
+  auto items = CopyProjection(summary, projection.get());
   if (!items.has_value()) {
     return std::nullopt;
   }
   return AsrMenuProjectionResult{CopyText(summary.effective_label), std::move(*items)};
 }
 
-SceneMenuProjectionBuilder::SceneMenuProjectionBuilder(
-    const SceneStateSnapshot &snapshot, std::string_view query)
-    : projection_(vinput_fcitx_scene_projection_new(snapshot.raw_handle(), Bytes(query),
-                                                    query.size())) {}
-
-SceneMenuProjectionBuilder::~SceneMenuProjectionBuilder() {
-  vinput_fcitx_scene_projection_free(projection_);
-}
-
-std::optional<SceneMenuProjectionResult> SceneMenuProjectionBuilder::Finish() {
+std::optional<SceneMenuProjectionResult>
+ProjectSceneMenu(const SceneStateSnapshot &snapshot, const MenuFilterState &filter) {
+  std::unique_ptr<VinputFcitxSceneProjection, SceneProjectionDeleter> projection(
+      vinput_fcitx_scene_projection_new(snapshot.raw_handle(), filter.raw_handle()));
   VinputFcitxSceneProjectionView summary{};
-  if (vinput_fcitx_scene_projection_view(projection_, &summary) == 0) {
+  if (vinput_fcitx_scene_projection_view(projection.get(), &summary) == 0) {
     return std::nullopt;
   }
 
@@ -113,7 +116,7 @@ std::optional<SceneMenuProjectionResult> SceneMenuProjectionBuilder::Finish() {
   result.items.reserve(summary.item_count);
   for (std::size_t index = 0; index < summary.item_count; ++index) {
     VinputFcitxProjectedMenuItemView view{};
-    if (vinput_fcitx_scene_projection_item_view(projection_, index, &view) == 0) {
+    if (vinput_fcitx_scene_projection_item_view(projection.get(), index, &view) == 0) {
       return std::nullopt;
     }
     auto item = CopyProjectedItem(view);

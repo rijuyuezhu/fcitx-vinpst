@@ -16,6 +16,20 @@ namespace {
 
 constexpr int kResultMenuPageSize = 5;
 
+std::string ResultCandidateComment(const Candidate &candidate, std::size_t llm_index) {
+  switch (candidate.source) {
+  case CandidateSource::Raw:
+    return FrontendText("Original");
+  case CandidateSource::Asr:
+    return FrontendText("Voice Command");
+  case CandidateSource::Llm:
+    return std::to_string(llm_index);
+  case CandidateSource::Cancel:
+    return FrontendText("Cancel");
+  }
+  return {};
+}
+
 void DeleteSelectedTextIfAny(fcitx::InputContext *input_context) {
   if (input_context == nullptr) {
     return;
@@ -59,28 +73,6 @@ std::string ResultCandidateMenuTitle(std::size_t count) {
   return FrontendCountText("Choose Result (%zu)", count);
 }
 
-const ResultCandidateSelectCallback &DefaultResultCandidateSelectCallback() {
-  static const ResultCandidateSelectCallback kCallback =
-      [](fcitx::InputContext *input_context, const Candidate &candidate) {
-        ApplyResultCandidateSelection(input_context, candidate);
-      };
-  return kCallback;
-}
-
-std::string ResultCandidateComment(const Candidate &candidate, std::size_t llm_index) {
-  switch (candidate.source) {
-  case CandidateSource::Raw:
-    return FrontendText("Original");
-  case CandidateSource::Asr:
-    return FrontendText("Voice Command");
-  case CandidateSource::Llm:
-    return std::to_string(llm_index);
-  case CandidateSource::Cancel:
-    return FrontendText("Cancel");
-  }
-  return {};
-}
-
 void ClearResultCandidateMenu(fcitx::InputContext *input_context) {
   if (input_context == nullptr) {
     return;
@@ -90,11 +82,6 @@ void ClearResultCandidateMenu(fcitx::InputContext *input_context) {
   input_context->inputPanel().setAuxUp(empty);
   input_context->inputPanel().setCandidateList({});
   input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
-}
-
-void ApplyResultCandidateSelection(fcitx::InputContext *input_context,
-                                   const Candidate &candidate) {
-  ApplyResultCandidateSelection(input_context, candidate, false);
 }
 
 void ApplyResultCandidateSelection(fcitx::InputContext *input_context,

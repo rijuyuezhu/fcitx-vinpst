@@ -1,13 +1,11 @@
 #pragma once
 
-#include <optional>
-#include <string>
-#include <string_view>
-
 struct VinputFcitxAsrDisplaySnapshot;
 struct VinputFcitxSceneSnapshot;
 
 namespace vinput_fcitx_bridge {
+
+class SdBusDaemonClient;
 
 class SceneStateSnapshot {
 public:
@@ -20,12 +18,12 @@ public:
   SceneStateSnapshot(SceneStateSnapshot &&other) noexcept;
   SceneStateSnapshot &operator=(SceneStateSnapshot &&other) noexcept;
 
-  bool SetActive(std::string_view active_scene_id);
-  std::optional<std::string> active_scene_id() const;
   const ::VinputFcitxSceneSnapshot *raw_handle() const;
 
 private:
+  friend class SdBusDaemonClient;
   explicit SceneStateSnapshot(::VinputFcitxSceneSnapshot *snapshot);
+  ::VinputFcitxSceneSnapshot *mutable_raw_handle();
   ::VinputFcitxSceneSnapshot *snapshot_ = nullptr;
 };
 

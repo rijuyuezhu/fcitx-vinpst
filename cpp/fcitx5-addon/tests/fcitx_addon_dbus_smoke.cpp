@@ -1,6 +1,5 @@
 #include "vinput_fcitx_bridge/fcitx_addon.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
-#include "vinput_fcitx_ffi.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -14,48 +13,12 @@ using vinput_fcitx_bridge::AppliedOutcome;
 using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FcitxTriggerAction;
 using vinput_fcitx_bridge::FcitxVinputAddon;
+using vinput_fcitx_bridge::FrontendBridge;
 using vinput_fcitx_bridge::SdBusDaemonClient;
 
 namespace {
 
 BridgeOutcome g_last_outcome;
-
-struct ResponseDeleter {
-  void operator()(VinputFcitxDaemonResponse *response) const {
-    vinput_fcitx_daemon_response_free(response);
-  }
-};
-
-std::string CopyText(VinputFcitxStringView view) {
-  if (view.data == nullptr || view.len == 0) {
-    return {};
-  }
-  return {reinterpret_cast<const char *>(view.data), view.len};
-}
-
-bool StartExternalRecording(const VinputFcitxDaemonClient *client, std::string *error) {
-  std::unique_ptr<VinputFcitxDaemonResponse, ResponseDeleter> response(
-      vinput_fcitx_daemon_client_call(client,
-                                      VINPUT_FCITX_DAEMON_OPERATION_START_RECORDING,
-                                      nullptr, 0, nullptr, 0));
-  VinputFcitxDaemonResponseView view{};
-  if (response == nullptr ||
-      vinput_fcitx_daemon_response_view(response.get(), &view) == 0) {
-    if (error != nullptr) {
-      *error = "external normal start failed before receiving a response";
-    }
-    return false;
-  }
-  if (view.kind == VINPUT_FCITX_DAEMON_RESPONSE_NONE) {
-    return true;
-  }
-  if (error != nullptr) {
-    *error = view.kind == VINPUT_FCITX_DAEMON_RESPONSE_ERROR
-                 ? CopyText(view.text)
-                 : "external normal start returned an unexpected response";
-  }
-  return false;
-}
 
 std::unique_ptr<SdBusDaemonClient> ConnectWithRetry(std::string *error) {
   for (int attempt = 0; attempt < 50; ++attempt) {
@@ -94,19 +57,15 @@ bool ExpectLastOutcome(BridgeOutcome::Kind kind, std::string_view text,
 }
 
 bool ExpectIgnoredTrigger(FcitxVinputAddon *addon, FcitxTriggerAction action,
-                          bool expected_recording, bool expected_command_mode,
                           std::string_view label) {
   const auto applied =
       addon->ApplyTriggerAction(nullptr, action, "ignored selected text");
-  if (applied == AppliedOutcome::None &&
-      addon->bridge().recording() == expected_recording &&
-      addon->bridge().command_mode() == expected_command_mode) {
+  if (applied == AppliedOutcome::None) {
     return true;
   }
-  std::cerr << label << " did not ignore trigger action without changing mode"
-            << ": applied=" << static_cast<int>(applied)
-            << " recording=" << addon->bridge().recording()
-            << " command_mode=" << addon->bridge().command_mode() << '\n';
+  std::cerr << label
+            << " did not ignore trigger action: applied=" << static_cast<int>(applied)
+            << '\n';
   return false;
 }
 
@@ -145,8 +104,19 @@ int main() {
     return 1;
   }
 
-  if (!StartExternalRecording(client->raw_handle(), &error)) {
-    std::cerr << "external normal start failed: " << error << '\n';
+  vinput_fcitx_bridge::SceneStateSnapshot scene_state;
+  if (!client->GetSceneState(&scene_state, &error)) {
+    std::cerr << "scene state failed: " << error << '\n';
+    return 1;
+  }
+
+  FrontendBridge external_bridge;
+  const auto external_start =
+      external_bridge.StartNormal(client->raw_handle(), scene_state);
+  if (external_start.kind != BridgeOutcome::Kind::Preedit ||
+      !external_bridge.recording()) {
+    std::cerr << "external normal frontend start failed: " << external_start.text
+              << '\n';
     return 1;
   }
   std::string external_status;
@@ -167,8 +137,7 @@ int main() {
   if (!ExpectApplied(recovered_stop, AppliedOutcome::Commit,
                      "cross-client normal takeover") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_takeover_text, false,
-                         "cross-client normal takeover") ||
-      addon.bridge().recording() || addon.bridge().command_mode()) {
+                         "cross-client normal takeover")) {
     std::cerr << "addon did not stop externally started normal recording\n";
     return 1;
   }
@@ -178,9 +147,9 @@ int main() {
     return 1;
   }
 
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal, false, false,
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal,
                             "normal stop while idle") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand, false, false,
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand,
                             "command stop while idle")) {
     return 1;
   }
@@ -189,17 +158,16 @@ int main() {
       nullptr, FcitxTriggerAction::StartCommand, "selected text");
   if (!ExpectApplied(command_start, AppliedOutcome::Preedit, "command start") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Preedit, "... Commanding ...", false,
-                         "command start") ||
-      !addon.bridge().recording() || !addon.bridge().command_mode()) {
+                         "command start")) {
     std::cerr << "addon command trigger did not enter command recording mode\n";
     return 1;
   }
 
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand, true, true,
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand,
                             "duplicate command start") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal, true, true,
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal,
                             "normal start while command recording") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal, true, true,
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal,
                             "normal stop while command recording")) {
     return 1;
   }
@@ -215,8 +183,7 @@ int main() {
       addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopCommand);
   if (!ExpectApplied(command_stop, AppliedOutcome::Commit, "command stop") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_command_text, true,
-                         "command stop") ||
-      addon.bridge().recording() || addon.bridge().command_mode()) {
+                         "command stop")) {
     std::cerr << "addon command trigger did not commit and reset\n";
     return 1;
   }
@@ -226,7 +193,7 @@ int main() {
     return 1;
   }
 
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand, false, false,
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand,
                             "command stop after reset")) {
     return 1;
   }

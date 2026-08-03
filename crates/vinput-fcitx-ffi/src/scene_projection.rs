@@ -5,11 +5,12 @@ use std::{
     ptr,
 };
 
-use vinput_fcitx_core::{MenuFilterState, SceneMenuItem, SceneMenuProjection, project_scene_menu};
+use vinput_fcitx_core::{SceneMenuItem, SceneMenuProjection, project_scene_menu};
 
 use crate::{
     asr_projection::{VinputFcitxProjectedMenuItemView, projected_item_view},
     frontend::VinputFcitxStringView,
+    menu::{VinputFcitxMenuFilterState, menu_filter_core_ref},
     menu_snapshot::{VinputFcitxSceneSnapshot, scene_core_ref},
 };
 
@@ -28,14 +29,6 @@ pub struct VinputFcitxSceneProjectionView {
     pub item_count: usize,
 }
 
-unsafe fn text_input<'a>(data: *const u8, len: usize) -> Option<&'a str> {
-    if data.is_null() {
-        return (len == 0).then_some("");
-    }
-    // SAFETY: Forwarded from each exported function's caller contract.
-    std::str::from_utf8(unsafe { std::slice::from_raw_parts(data, len) }).ok()
-}
-
 fn string_view(value: &str) -> VinputFcitxStringView {
     VinputFcitxStringView {
         data: if value.is_empty() {
@@ -47,23 +40,15 @@ fn string_view(value: &str) -> VinputFcitxStringView {
     }
 }
 
-fn filter_from_query(query: &str) -> MenuFilterState {
-    let mut filter = MenuFilterState::default();
-    filter.activate();
-    filter.append_text(query);
-    filter
-}
-
 /// Creates and finalizes a projection from a Rust-owned scene snapshot.
 ///
 /// # Safety
 ///
-/// `snapshot` must be live and query bytes must be readable.
+/// `snapshot` and `filter` must be live handles.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_scene_projection_new(
     snapshot: *const VinputFcitxSceneSnapshot,
-    query_data: *const u8,
-    query_len: usize,
+    filter: *const VinputFcitxMenuFilterState,
 ) -> *mut VinputFcitxSceneProjection {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -71,7 +56,7 @@ pub unsafe extern "C" fn vinput_fcitx_scene_projection_new(
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(query) = (unsafe { text_input(query_data, query_len) }) else {
+        let Some(filter) = (unsafe { menu_filter_core_ref(filter) }) else {
             return ptr::null_mut();
         };
         let scenes = snapshot
@@ -82,11 +67,7 @@ pub unsafe extern "C" fn vinput_fcitx_scene_projection_new(
                 label: scene.label.clone(),
             })
             .collect::<Vec<_>>();
-        let projection = project_scene_menu(
-            snapshot.active_scene_id(),
-            &scenes,
-            &filter_from_query(query),
-        );
+        let projection = project_scene_menu(snapshot.active_scene_id(), &scenes, filter);
         Box::into_raw(Box::new(VinputFcitxSceneProjection { projection }))
     }))
     .unwrap_or(ptr::null_mut())

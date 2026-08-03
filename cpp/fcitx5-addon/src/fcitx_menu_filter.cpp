@@ -120,12 +120,12 @@ void MenuFilterState::Reset() {
   static_cast<void>(vinput_fcitx_menu_filter_state_reset(state_));
 }
 
-std::optional<MenuFilterView> MenuFilterState::view() const {
-  VinputFcitxMenuFilterView view{};
-  if (vinput_fcitx_menu_filter_state_view(state_, &view) == 0) {
+std::optional<bool> MenuFilterState::active() const {
+  std::uint8_t active = 0;
+  if (vinput_fcitx_menu_filter_state_active(state_, &active) == 0) {
     return std::nullopt;
   }
-  return MenuFilterView{view.active != 0, CopyText(view.query)};
+  return active != 0;
 }
 
 std::string MenuFilterState::DecorateTitle(std::string_view base_title) const {
@@ -156,6 +156,10 @@ MenuFilterState::HandleKey(bool release, const MenuSemanticKey &key,
   return MenuKeyDecision{*action, decision.value};
 }
 
+const ::VinputFcitxMenuFilterState *MenuFilterState::raw_handle() const {
+  return state_;
+}
+
 void SetMenuCandidatePage(fcitx::CommonCandidateList &candidates, int requested_page) {
   const auto page =
       vinput_fcitx_clamp_menu_page(candidates.totalPages(), requested_page);
@@ -163,6 +167,8 @@ void SetMenuCandidatePage(fcitx::CommonCandidateList &candidates, int requested_
     candidates.setPage(page);
   }
 }
+
+namespace {
 
 bool IsMenuCtrlShortcut(const fcitx::Key &key, fcitx::KeySym symbol) {
   const auto matches = [symbol](const fcitx::Key &candidate) {
@@ -224,6 +230,8 @@ bool IsPrintableMenuInput(const fcitx::Key &key, bool filter_active,
 std::string MenuKeyToUtf8(const fcitx::Key &key) {
   return fcitx::Key::keySymToUTF8(key.normalize().sym());
 }
+
+} // namespace
 
 MenuSemanticKey ClassifyMenuKey(const fcitx::Key &key, bool passive, bool filter_active,
                                 const fcitx::KeyList &page_prev_keys,

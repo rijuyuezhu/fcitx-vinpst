@@ -26,12 +26,6 @@ FcitxKeyTriggerPolicy::FcitxKeyTriggerPolicy(fcitx::KeyList normal_triggers,
       scene_menu_triggers_(std::move(scene_menu_triggers)),
       asr_menu_triggers_(std::move(asr_menu_triggers)) {}
 
-FcitxKeyTriggerPolicy FcitxKeyTriggerPolicy::FromEnvironment() {
-  return WithEnvironmentOverrides(
-      {fcitx::Key(FcitxKey_Control_R)}, {fcitx::Key(FcitxKey_F10)},
-      {fcitx::Key(FcitxKey_Shift_R)}, {fcitx::Key(FcitxKey_F8)});
-}
-
 FcitxKeyTriggerPolicy FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
     fcitx::KeyList normal_triggers, fcitx::KeyList command_triggers,
     fcitx::KeyList scene_menu_triggers, fcitx::KeyList asr_menu_triggers) {
@@ -63,14 +57,6 @@ FcitxTriggerAction FcitxKeyTriggerPolicy::Classify(const fcitx::KeyEvent &event)
                              : FcitxTriggerAction::ShowAsrMenu;
   }
   return FcitxTriggerAction::None;
-}
-
-bool FcitxKeyTriggerPolicy::IsNormalTrigger(const fcitx::KeyEvent &event) const {
-  return event.isRelease() && event.key().checkKeyList(normal_triggers_);
-}
-
-bool FcitxKeyTriggerPolicy::IsCommandTrigger(const fcitx::KeyEvent &event) const {
-  return event.isRelease() && event.key().checkKeyList(command_triggers_);
 }
 
 bool FcitxKeyTriggerPolicy::IsSceneMenuTrigger(const fcitx::KeyEvent &event) const {

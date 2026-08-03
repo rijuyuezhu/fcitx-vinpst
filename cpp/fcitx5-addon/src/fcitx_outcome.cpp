@@ -15,6 +15,19 @@
 namespace vinput_fcitx_bridge {
 namespace {
 
+class OutcomeSink {
+public:
+  virtual ~OutcomeSink() = default;
+
+  virtual void SetPreedit(std::string_view text) = 0;
+  virtual void ClearPreedit() = 0;
+  virtual void ClearCandidateMenu() = 0;
+  virtual void DeleteSelectedTextIfAny() = 0;
+  virtual void CommitString(std::string_view text) = 0;
+  virtual bool ShowCandidateMenu(const RecognitionPayload &payload,
+                                 bool command_mode) = 0;
+};
+
 class FcitxInputContextSink final : public OutcomeSink {
 public:
   explicit FcitxInputContextSink(fcitx::InputContext *input_context)
@@ -81,8 +94,6 @@ std::string_view CommitText(const BridgeOutcome &outcome) {
   return outcome.payload.commit_text;
 }
 
-} // namespace
-
 AppliedOutcome ApplyBridgeOutcomeToSink(const BridgeOutcome &outcome,
                                         OutcomeSink &sink) {
 
@@ -128,6 +139,8 @@ AppliedOutcome ApplyBridgeOutcomeToSink(const BridgeOutcome &outcome,
 
   return AppliedOutcome::None;
 }
+
+} // namespace
 
 AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
                                                 fcitx::InputContext *ic) {

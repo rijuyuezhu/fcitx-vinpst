@@ -7,12 +7,10 @@
 #include <string_view>
 #include <vector>
 
-struct VinputFcitxAsrProjection;
-struct VinputFcitxSceneProjection;
-
 namespace vinput_fcitx_bridge {
 
 class AsrDisplayMenuStateSnapshot;
+class MenuFilterState;
 class SceneStateSnapshot;
 
 enum class ProjectedMenuControlKind : std::uint8_t {
@@ -53,39 +51,11 @@ struct AsrMenuProjectionResult {
   std::vector<ProjectedMenuItem> items;
 };
 
-class AsrMenuProjectionBuilder {
-public:
-  AsrMenuProjectionBuilder(const AsrDisplayMenuStateSnapshot &snapshot,
-                           std::string_view query,
-                           const AsrMenuLocalization &localization);
-  ~AsrMenuProjectionBuilder();
+std::optional<AsrMenuProjectionResult>
+ProjectAsrMenu(const AsrDisplayMenuStateSnapshot &snapshot,
+               const MenuFilterState &filter, const AsrMenuLocalization &localization);
 
-  AsrMenuProjectionBuilder(const AsrMenuProjectionBuilder &) = delete;
-  AsrMenuProjectionBuilder &operator=(const AsrMenuProjectionBuilder &) = delete;
-  AsrMenuProjectionBuilder(AsrMenuProjectionBuilder &&) = delete;
-  AsrMenuProjectionBuilder &operator=(AsrMenuProjectionBuilder &&) = delete;
-
-  std::optional<AsrMenuProjectionResult> Finish();
-
-private:
-  ::VinputFcitxAsrProjection *projection_ = nullptr;
-};
-
-class SceneMenuProjectionBuilder {
-public:
-  SceneMenuProjectionBuilder(const SceneStateSnapshot &snapshot,
-                             std::string_view query);
-  ~SceneMenuProjectionBuilder();
-
-  SceneMenuProjectionBuilder(const SceneMenuProjectionBuilder &) = delete;
-  SceneMenuProjectionBuilder &operator=(const SceneMenuProjectionBuilder &) = delete;
-  SceneMenuProjectionBuilder(SceneMenuProjectionBuilder &&) = delete;
-  SceneMenuProjectionBuilder &operator=(SceneMenuProjectionBuilder &&) = delete;
-
-  std::optional<SceneMenuProjectionResult> Finish();
-
-private:
-  ::VinputFcitxSceneProjection *projection_ = nullptr;
-};
+std::optional<SceneMenuProjectionResult>
+ProjectSceneMenu(const SceneStateSnapshot &snapshot, const MenuFilterState &filter);
 
 } // namespace vinput_fcitx_bridge

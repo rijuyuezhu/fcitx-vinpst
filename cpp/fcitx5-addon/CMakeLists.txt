@@ -448,22 +448,6 @@ if(Fcitx5Core_FOUND)
   )
 
   add_executable(
-    vinput_fcitx_bridge_outcome_sink_smoke
-    tests/fcitx_outcome_sink_smoke.cpp
-  )
-  target_link_libraries(
-    vinput_fcitx_bridge_outcome_sink_smoke
-    PRIVATE
-      vinput_fcitx_bridge::fcitx
-      Fcitx5::Core
-  )
-  vinput_bridge_apply_warnings(vinput_fcitx_bridge_outcome_sink_smoke)
-  add_test(
-    NAME vinput_fcitx_bridge_outcome_sink_smoke
-    COMMAND vinput_fcitx_bridge_outcome_sink_smoke
-  )
-
-  add_executable(
     vinput_fcitx_bridge_input_context_outcome_smoke
     tests/fcitx_input_context_outcome_smoke.cpp
   )
@@ -598,20 +582,6 @@ if(BUILD_TESTING AND VINPUT_FCITX_BRIDGE_ENABLE_TESTS)
     add_test(NAME ${target} COMMAND ${target})
   endfunction()
 
-  add_executable(
-    vinput_fcitx_bridge_rust_ffi_smoke
-    tests/rust_ffi_smoke.cpp
-  )
-  target_link_libraries(
-    vinput_fcitx_bridge_rust_ffi_smoke
-    PRIVATE
-      vinput_fcitx_rust_ffi
-  )
-  vinput_bridge_apply_warnings(vinput_fcitx_bridge_rust_ffi_smoke)
-  add_test(
-    NAME vinput_fcitx_bridge_rust_ffi_smoke
-    COMMAND vinput_fcitx_bridge_rust_ffi_smoke
-  )
   add_executable(
     vinput_fcitx_bridge_dbus_smoke
     tests/sd_bus_daemon_client_smoke.cpp

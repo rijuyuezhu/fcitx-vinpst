@@ -6,6 +6,17 @@
 #include <cstdlib>
 
 namespace vinput_fcitx_bridge {
+namespace {
+
+std::string
+SelectedTextFromSurroundingText(const fcitx::SurroundingText &surrounding_text) {
+  if (!surrounding_text.isValid()) {
+    return {};
+  }
+  return surrounding_text.selectedText();
+}
+
+} // namespace
 
 std::optional<SurroundingTextSelectionRange>
 SelectedTextDeletionRange(const fcitx::SurroundingText &surrounding_text) {
@@ -19,14 +30,6 @@ SelectedTextDeletionRange(const fcitx::SurroundingText &surrounding_text) {
   const int from = std::min(cursor, anchor);
   const auto size = static_cast<unsigned int>(std::abs(cursor - anchor));
   return SurroundingTextSelectionRange{from - cursor, size};
-}
-
-std::string
-SelectedTextFromSurroundingText(const fcitx::SurroundingText &surrounding_text) {
-  if (!surrounding_text.isValid()) {
-    return {};
-  }
-  return surrounding_text.selectedText();
 }
 
 std::string

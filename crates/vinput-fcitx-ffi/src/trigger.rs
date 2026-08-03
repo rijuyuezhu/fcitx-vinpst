@@ -26,18 +26,6 @@ pub struct VinputFcitxTriggerEventView {
     pub now_ns: i64,
 }
 
-/// Borrowed trigger state summary.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct VinputFcitxTriggerStateView {
-    /// Stable `VINPUT_FCITX_TRIGGER_MODE_*` value.
-    pub mode: u8,
-    /// Whether a delayed hold start is pending.
-    pub has_pending_start: u8,
-    /// Whether a trigger owns the active recording.
-    pub has_active_trigger: u8,
-}
-
 const TRIGGER_EVENT_SET_MODE: u8 = 0;
 const TRIGGER_EVENT_PRESS: u8 = 1;
 const TRIGGER_EVENT_RELEASE: u8 = 2;
@@ -149,44 +137,14 @@ pub unsafe extern "C" fn vinput_fcitx_trigger_state_dispatch(
     )
 }
 
-/// Borrows the complete trigger state summary.
-///
-/// # Safety
-///
-/// `state` must be live and `view_out` writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_trigger_state_view(
-    state: *const VinputFcitxTriggerState,
-    view_out: *mut VinputFcitxTriggerStateView,
-) -> u8 {
-    if view_out.is_null() {
-        return 0;
-    }
-    // SAFETY: Forwarded from this function's caller contract.
-    let Some(state) = (unsafe { state.as_ref() }) else {
-        return 0;
-    };
-    let view = state.state.view();
-    // SAFETY: The caller guarantees a writable output pointer.
-    unsafe {
-        view_out.write(VinputFcitxTriggerStateView {
-            mode: view.mode as u8,
-            has_pending_start: u8::from(view.has_pending_start),
-            has_active_trigger: u8::from(view.has_active_trigger),
-        });
-    }
-    1
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         TRIGGER_EVENT_CONFIRM_START, TRIGGER_EVENT_FIRE_PENDING_START,
         TRIGGER_EVENT_FIRE_PENDING_STOP, TRIGGER_EVENT_PRESS, TRIGGER_EVENT_RECORDING_STOPPED,
         TRIGGER_EVENT_RELEASE, TRIGGER_EVENT_SET_MODE, VinputFcitxTriggerEventView,
-        VinputFcitxTriggerStateView, vinput_fcitx_trigger_state_dispatch,
-        vinput_fcitx_trigger_state_free, vinput_fcitx_trigger_state_new,
-        vinput_fcitx_trigger_state_view,
+        vinput_fcitx_trigger_state_dispatch, vinput_fcitx_trigger_state_free,
+        vinput_fcitx_trigger_state_new,
     };
 
     unsafe fn dispatch(
@@ -199,20 +157,6 @@ mod tests {
             vinput_fcitx_trigger_state_dispatch(state, &raw const event, &raw mut action)
         };
         (success != 0).then_some(action)
-    }
-
-    unsafe fn view(state: *const super::VinputFcitxTriggerState) -> VinputFcitxTriggerStateView {
-        let mut view = VinputFcitxTriggerStateView {
-            mode: u8::MAX,
-            has_pending_start: u8::MAX,
-            has_active_trigger: u8::MAX,
-        };
-        // SAFETY: Test callers pass a live state and writable local output.
-        assert_eq!(
-            unsafe { vinput_fcitx_trigger_state_view(state, &raw mut view) },
-            1
-        );
-        view
     }
 
     #[test]
@@ -233,7 +177,6 @@ mod tests {
                 ),
                 Some(6),
             );
-            assert_eq!(view(state).has_pending_start, 1);
             assert_eq!(
                 dispatch(
                     state,
@@ -258,7 +201,6 @@ mod tests {
                 ),
                 Some(0),
             );
-            assert_eq!(view(state).has_active_trigger, 1);
             assert_eq!(
                 dispatch(
                     state,
@@ -295,7 +237,18 @@ mod tests {
                 ),
                 Some(0),
             );
-            assert_eq!(view(state).has_active_trigger, 0);
+            assert_eq!(
+                dispatch(
+                    state,
+                    VinputFcitxTriggerEventView {
+                        kind: TRIGGER_EVENT_RELEASE,
+                        value: 0,
+                        flag: 1,
+                        now_ns: 500_000_000,
+                    },
+                ),
+                Some(1),
+            );
             vinput_fcitx_trigger_state_free(state);
         }
     }
@@ -305,7 +258,7 @@ mod tests {
         assert!(vinput_fcitx_trigger_state_new(9).is_null());
         // SAFETY: The handle is live for every call and freed exactly once.
         unsafe {
-            let state = vinput_fcitx_trigger_state_new(2);
+            let state = vinput_fcitx_trigger_state_new(1);
             assert_eq!(
                 dispatch(
                     state,
@@ -318,7 +271,6 @@ mod tests {
                 ),
                 Some(0),
             );
-            assert_eq!(view(state).mode, 0);
             let invalid = VinputFcitxTriggerEventView {
                 kind: TRIGGER_EVENT_PRESS,
                 value: 9,
@@ -331,10 +283,18 @@ mod tests {
                 0,
             );
             assert_eq!(action, 77);
-            let state_view = view(state);
-            assert_eq!(state_view.mode, 0);
-            assert_eq!(state_view.has_pending_start, 0);
-            assert_eq!(state_view.has_active_trigger, 0);
+            assert_eq!(
+                dispatch(
+                    state,
+                    VinputFcitxTriggerEventView {
+                        kind: TRIGGER_EVENT_PRESS,
+                        value: 0,
+                        flag: 0,
+                        now_ns: 0,
+                    },
+                ),
+                Some(2),
+            );
             vinput_fcitx_trigger_state_free(state);
         }
     }

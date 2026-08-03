@@ -47,7 +47,6 @@ public:
   TriggerModeController &operator=(TriggerModeController &&) = delete;
 
   void SetMode(TriggerMode mode);
-  TriggerMode mode() const;
 
   TriggerModeAction OnPress(TriggerKind kind, const fcitx::Key &key, TimePoint now,
                             bool recording);
@@ -56,9 +55,6 @@ public:
   TriggerModeAction FirePendingStop();
   void ConfirmStart(bool recording_started);
   void RecordingStopped();
-
-  bool has_pending_start() const;
-  bool has_active_trigger() const;
 
 private:
   static bool IsReleaseOfTrigger(const fcitx::Key &release, const fcitx::Key &trigger);

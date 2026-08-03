@@ -11,7 +11,10 @@ use vinput_fcitx_core::{
 };
 use vinput_fcitx_dbus::{DaemonOperation, DaemonResponse};
 
-use crate::daemon::VinputFcitxDaemonClient;
+use crate::{
+    daemon::VinputFcitxDaemonClient,
+    menu_snapshot::{VinputFcitxSceneSnapshot, scene_core_ref},
+};
 
 const FRONTEND_TRIGGER_REQUEST_NONE: u8 = 0;
 const FRONTEND_TRIGGER_REQUEST_START_NORMAL: u8 = 1;
@@ -285,13 +288,12 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_plan_trigger(
 ///
 /// # Safety
 ///
-/// Handles must be live and `scene_data` must reference `scene_len` readable bytes.
+/// Handles must be live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_normal_with_daemon(
     controller: *mut VinputFcitxFrontendController,
     daemon: *const VinputFcitxDaemonClient,
-    scene_data: *const u8,
-    scene_len: usize,
+    scene_snapshot: *const VinputFcitxSceneSnapshot,
 ) -> *mut VinputFcitxFrontendOutcome {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -299,12 +301,14 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_normal_with_daem
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(scene) = (unsafe { text_input(scene_data, scene_len) }) else {
+        let Some(scene_snapshot) = (unsafe { scene_core_ref(scene_snapshot) }) else {
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
         let daemon = unsafe { daemon.as_ref() };
-        let step = controller.controller.start_normal(Some(scene));
+        let step = controller
+            .controller
+            .start_normal(Some(scene_snapshot.active_scene_id()));
         execute_step(controller, daemon, step)
     }))
     .unwrap_or(ptr::null_mut())
@@ -349,24 +353,22 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_start_command_with_dae
 ///
 /// # Safety
 ///
-/// Handles must be live and `fallback_scene_data` must reference its length.
+/// Handles must be live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_stop_with_daemon(
     controller: *mut VinputFcitxFrontendController,
     daemon: *const VinputFcitxDaemonClient,
-    fallback_scene_data: *const u8,
-    fallback_scene_len: usize,
+    scene_snapshot: *const VinputFcitxSceneSnapshot,
 ) -> *mut VinputFcitxFrontendOutcome {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
         let Some(controller) = (unsafe { controller.as_mut() }) else {
             return ptr::null_mut();
         };
-        // SAFETY: Forwarded from this function's caller contract.
-        let Some(fallback) = (unsafe { text_input(fallback_scene_data, fallback_scene_len) })
-        else {
-            return ptr::null_mut();
-        };
+        // SAFETY: Forwarded from this function's caller contract. A missing snapshot
+        // is valid when the controller already owns a started scene.
+        let fallback = unsafe { scene_core_ref(scene_snapshot) }
+            .map_or("", vinput_fcitx_core::SceneSnapshot::active_scene_id);
         // SAFETY: Forwarded from this function's caller contract.
         let daemon = unsafe { daemon.as_ref() };
         let step = controller.controller.stop(fallback);
@@ -379,14 +381,13 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_stop_with_daemon(
 ///
 /// # Safety
 ///
-/// Handles must be live and `scene_data` must reference `scene_len` readable bytes.
+/// Handles must be live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
     controller: *mut VinputFcitxFrontendController,
     daemon: *const VinputFcitxDaemonClient,
     command_mode: u8,
-    scene_data: *const u8,
-    scene_len: usize,
+    scene_snapshot: *const VinputFcitxSceneSnapshot,
 ) -> *mut VinputFcitxFrontendOutcome {
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: Forwarded from this function's caller contract.
@@ -394,9 +395,10 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_adopt_and_stop_with_da
             return ptr::null_mut();
         };
         // SAFETY: Forwarded from this function's caller contract.
-        let Some(scene) = (unsafe { text_input(scene_data, scene_len) }) else {
+        let Some(scene_snapshot) = (unsafe { scene_core_ref(scene_snapshot) }) else {
             return ptr::null_mut();
         };
+        let scene = scene_snapshot.active_scene_id();
         // SAFETY: Forwarded from this function's caller contract.
         let daemon = unsafe { daemon.as_ref() };
         controller
@@ -423,27 +425,6 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_reset(
     };
     controller.controller.reset();
     1
-}
-
-/// Creates a frontend outcome directly from recognition JSON.
-///
-/// # Safety
-///
-/// `json_data` must reference `json_len` readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_frontend_outcome_from_payload(
-    json_data: *const u8,
-    json_len: usize,
-    command_mode: u8,
-) -> *mut VinputFcitxFrontendOutcome {
-    catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: Forwarded from this function's caller contract.
-        let Some(json) = (unsafe { text_input(json_data, json_len) }) else {
-            return ptr::null_mut();
-        };
-        boxed_outcome(FrontendOutcome::from_payload(json, command_mode != 0))
-    }))
-    .unwrap_or(ptr::null_mut())
 }
 
 /// Releases a frontend outcome.

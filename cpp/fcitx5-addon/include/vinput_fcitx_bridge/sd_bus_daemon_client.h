@@ -2,7 +2,6 @@
 
 #include "vinput_fcitx_bridge/menu_snapshot.h"
 
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -23,7 +22,8 @@ public:
 
   bool GetStatus(std::string *status, std::string *error);
   bool GetSceneState(SceneStateSnapshot *state, std::string *error);
-  bool SetActiveScene(std::string_view scene_id, bool *persisted, std::string *error);
+  bool SetActiveScene(SceneStateSnapshot *state, std::string_view scene_id,
+                      bool *persisted, std::string *error);
   bool GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state, std::string *error);
   bool SetActiveAsrTarget(std::string_view provider_id, std::string_view model_value,
                           bool *persisted, std::string *error);
@@ -31,11 +31,6 @@ public:
 
 private:
   explicit SdBusDaemonClient(::VinputFcitxDaemonClient *client);
-
-  bool CallStringReply(std::uint8_t operation, std::string_view first,
-                       std::string_view second, std::string *reply, std::string *error);
-  bool CallBoolReply(std::uint8_t operation, std::string_view first,
-                     std::string_view second, bool *reply, std::string *error);
 
   ::VinputFcitxDaemonClient *client_ = nullptr;
 };

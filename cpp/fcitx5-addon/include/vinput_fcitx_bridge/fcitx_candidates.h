@@ -13,22 +13,15 @@ namespace vinput_fcitx_bridge {
 using ResultCandidateSelectCallback =
     std::function<void(fcitx::InputContext *, const Candidate &)>;
 
-std::string ResultCandidateComment(const Candidate &candidate, std::size_t llm_index);
-
 std::string ResultCandidateMenuTitle(std::size_t count);
 
 void ClearResultCandidateMenu(fcitx::InputContext *input_context);
 
 void ApplyResultCandidateSelection(fcitx::InputContext *input_context,
-                                   const Candidate &candidate);
-void ApplyResultCandidateSelection(fcitx::InputContext *input_context,
                                    const Candidate &candidate, bool replace_selection);
-
-const ResultCandidateSelectCallback &DefaultResultCandidateSelectCallback();
 
 std::unique_ptr<fcitx::CommonCandidateList>
 BuildResultCandidateList(const RecognitionPayload &payload,
-                         const ResultCandidateSelectCallback &on_select =
-                             DefaultResultCandidateSelectCallback());
+                         const ResultCandidateSelectCallback &on_select);
 
 } // namespace vinput_fcitx_bridge

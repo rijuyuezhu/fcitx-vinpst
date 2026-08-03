@@ -9,7 +9,6 @@
 #include "vinput_fcitx_bridge/fcitx_outcome.h"
 #include "vinput_fcitx_bridge/fcitx_trigger_mode.h"
 #include "vinput_fcitx_bridge/frontend_bridge.h"
-#include "vinput_fcitx_bridge/scene_defaults.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
 
 #include <memory>
@@ -43,23 +42,15 @@ public:
   const fcitx::Configuration *getConfig() const override;
   void setConfig(const fcitx::RawConfig &config) override;
 
-  fcitx::Instance *instance() const {
-    return instance_;
-  }
-  const FrontendBridge &bridge() const {
-    return bridge_;
-  }
-  const std::string &active_scene_id() const {
-    return active_scene_id_;
-  }
-  AppliedOutcome TriggerNormal(fcitx::InputContext *ic,
-                               std::string_view scene_id = kDefaultNormalSceneId);
-  AppliedOutcome TriggerCommand(fcitx::InputContext *ic, std::string_view selected_text,
-                                std::string_view scene_id = kDefaultCommandSceneId);
   AppliedOutcome ApplyTriggerAction(fcitx::InputContext *ic, FcitxTriggerAction action,
                                     std::string_view selected_text = "");
 
 private:
+  AppliedOutcome StartNormalRecording(fcitx::InputContext *ic);
+  AppliedOutcome StartCommandRecording(fcitx::InputContext *ic,
+                                       std::string_view selected_text,
+                                       std::string_view scene_id = {});
+  AppliedOutcome StopRecording(fcitx::InputContext *ic);
   SdBusDaemonClient *EnsureDaemonClient(std::string *error);
   AppliedOutcome ApplyDaemonUnavailable(fcitx::InputContext *ic, std::string error);
   AppliedOutcome ApplyBridgeOutcome(fcitx::InputContext *ic,
@@ -114,7 +105,6 @@ private:
   MenuFilterState scene_menu_filter_;
   std::vector<ProjectedMenuControl> scene_menu_controls_;
   int scene_menu_page_ = 0;
-  std::string active_scene_id_{kDefaultNormalSceneId};
   fcitx::InputContext *scene_menu_ic_ = nullptr;
   bool scene_menu_visible_ = false;
   AsrDisplayMenuStateSnapshot asr_menu_state_;

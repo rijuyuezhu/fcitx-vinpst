@@ -72,21 +72,6 @@ bool SaveFrontendSettings(const FrontendSettings &settings) {
   return fcitx::safeSaveAsIni(raw, kFrontendConfigPathType, kFrontendConfigPath);
 }
 
-FrontendSettings LoadFrontendSettingsFromPath(const std::filesystem::path &path) {
-  VinputFrontendConfig config;
-  fcitx::readAsIni(config, path.string());
-  return config.settings();
-}
-
-bool SaveFrontendSettingsToPath(const FrontendSettings &settings,
-                                const std::filesystem::path &path) {
-  VinputFrontendConfig config(settings);
-  fcitx::RawConfig raw;
-  fcitx::readAsIni(raw, path.string());
-  config.save(raw);
-  return fcitx::safeSaveAsIni(raw, path.string());
-}
-
 std::unique_ptr<VinputFrontendConfig>
 BuildFrontendConfig(const FrontendSettings &settings) {
   return std::make_unique<VinputFrontendConfig>(settings);

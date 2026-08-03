@@ -1,6 +1,6 @@
 use std::ptr;
 
-use vinput_fcitx_core::{FrontendController, FrontendOutcomeKind};
+use vinput_fcitx_core::{FrontendController, FrontendOutcome, FrontendOutcomeKind, SceneSnapshot};
 use vinput_fcitx_dbus::{DaemonOperation, DaemonResponse};
 
 use super::{
@@ -10,7 +10,7 @@ use super::{
     FRONTEND_TRIGGER_REQUEST_SHOW_ASR_MENU, FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU,
     FRONTEND_TRIGGER_REQUEST_START_NORMAL, FRONTEND_TRIGGER_REQUEST_STOP_COMMAND,
     FRONTEND_TRIGGER_REQUEST_STOP_NORMAL, VinputFcitxCandidateView, VinputFcitxFrontendOutcome,
-    VinputFcitxFrontendOutcomeView, VinputFcitxStringView, execute_step_with,
+    VinputFcitxFrontendOutcomeView, VinputFcitxStringView, boxed_outcome, execute_step_with,
     vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon,
     vinput_fcitx_frontend_controller_command_mode, vinput_fcitx_frontend_controller_free,
     vinput_fcitx_frontend_controller_new, vinput_fcitx_frontend_controller_plan_trigger,
@@ -18,8 +18,9 @@ use super::{
     vinput_fcitx_frontend_controller_start_command_with_daemon,
     vinput_fcitx_frontend_controller_start_normal_with_daemon,
     vinput_fcitx_frontend_outcome_candidate, vinput_fcitx_frontend_outcome_free,
-    vinput_fcitx_frontend_outcome_from_payload, vinput_fcitx_frontend_outcome_view,
+    vinput_fcitx_frontend_outcome_view,
 };
+use crate::menu_snapshot::{boxed_scene_snapshot, vinput_fcitx_scene_snapshot_free};
 
 unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     if view.data.is_null() {
@@ -55,9 +56,8 @@ unsafe fn outcome_view(outcome: *mut VinputFcitxFrontendOutcome) -> VinputFcitxF
 fn builds_candidate_outcome_views() {
     // SAFETY: Input bytes remain alive and the outcome handle is freed exactly once.
     unsafe {
-        let payload = br#"{"commit_text":"selected","candidates":[{"text":"selected","source":"raw"},{"text":"changed","source":"asr"}]}"#;
-        let outcome =
-            vinput_fcitx_frontend_outcome_from_payload(payload.as_ptr(), payload.len(), 1);
+        let payload = r#"{"commit_text":"selected","candidates":[{"text":"selected","source":"raw"},{"text":"changed","source":"asr"}]}"#;
+        let outcome = boxed_outcome(FrontendOutcome::from_payload(payload, true));
         assert!(!outcome.is_null());
         let view = outcome_view(outcome);
         assert_eq!(view.kind, 4);
@@ -89,12 +89,10 @@ fn direct_exports_validate_inputs_and_immediate_errors() {
         let controller = vinput_fcitx_frontend_controller_new();
         assert!(!controller.is_null());
 
-        let invalid = [0xff];
         let invalid_outcome = vinput_fcitx_frontend_controller_start_normal_with_daemon(
             controller,
             ptr::null(),
-            invalid.as_ptr(),
-            invalid.len(),
+            ptr::null(),
         );
         assert!(invalid_outcome.is_null());
         assert_eq!(vinput_fcitx_frontend_controller_recording(controller), 0);
@@ -113,12 +111,12 @@ fn direct_exports_validate_inputs_and_immediate_errors() {
         assert_eq!(bytes(view.text), b"Please select text first.");
         vinput_fcitx_frontend_outcome_free(immediate);
 
+        let scene = boxed_scene_snapshot(SceneSnapshot::new("remote".to_owned()));
         let adopted = vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
             controller,
             ptr::null(),
             1,
-            b"remote".as_ptr(),
-            6,
+            scene,
         );
         assert!(!adopted.is_null());
         let view = outcome_view(adopted);
@@ -127,6 +125,7 @@ fn direct_exports_validate_inputs_and_immediate_errors() {
         assert_eq!(vinput_fcitx_frontend_controller_recording(controller), 0);
         assert_eq!(vinput_fcitx_frontend_controller_command_mode(controller), 0);
         vinput_fcitx_frontend_outcome_free(adopted);
+        vinput_fcitx_scene_snapshot_free(scene);
         vinput_fcitx_frontend_controller_free(controller);
     }
 }

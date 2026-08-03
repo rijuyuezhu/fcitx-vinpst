@@ -400,7 +400,7 @@ FcitxVinputAddon::ExecuteDaemonControl(std::uint8_t event, fcitx::InputContext *
     ClearRemoteDaemonStatus();
     if (auto *client = EnsureDaemonClient(nullptr); client != nullptr) {
       return ApplyBridgeOutcome(
-          ic, bridge_.AdoptAndStop(client->raw_handle(), false, active_scene_id_));
+          ic, bridge_.AdoptAndStop(client->raw_handle(), false, scene_state_));
     }
     return ApplyDaemonUnavailable(ic, "Voice input daemon is unavailable.");
   case VINPUT_FCITX_DAEMON_CONTROL_PLAN_CLEAR_DAEMON_ERROR:
@@ -468,24 +468,21 @@ void FcitxVinputAddon::ClearRemoteDaemonStatus() {
   ApplyBridgeOutcomeToInputContext(clear, ic);
 }
 
-AppliedOutcome FcitxVinputAddon::TriggerNormal(fcitx::InputContext *ic,
-                                               std::string_view scene_id) {
+AppliedOutcome FcitxVinputAddon::StartNormalRecording(fcitx::InputContext *ic) {
   std::string error;
   auto *client = EnsureDaemonClient(&error);
   if (client == nullptr) {
     return ApplyDaemonUnavailable(ic, std::move(error));
   }
 
-  auto outcome = bridge_.recording()
-                     ? bridge_.Stop(client->raw_handle(), scene_id)
-                     : bridge_.StartNormal(client->raw_handle(), scene_id);
-  return ApplyBridgeOutcome(ic, outcome);
+  return ApplyBridgeOutcome(ic,
+                            bridge_.StartNormal(client->raw_handle(), scene_state_));
 }
 
-AppliedOutcome FcitxVinputAddon::TriggerCommand(fcitx::InputContext *ic,
-                                                std::string_view selected_text,
-                                                std::string_view scene_id) {
-  if (!bridge_.recording() && selected_text.empty()) {
+AppliedOutcome FcitxVinputAddon::StartCommandRecording(fcitx::InputContext *ic,
+                                                       std::string_view selected_text,
+                                                       std::string_view scene_id) {
+  if (selected_text.empty()) {
     return ApplyBridgeOutcome(ic,
                               bridge_.StartCommand(nullptr, selected_text, scene_id));
   }
@@ -496,10 +493,17 @@ AppliedOutcome FcitxVinputAddon::TriggerCommand(fcitx::InputContext *ic,
     return ApplyDaemonUnavailable(ic, std::move(error));
   }
 
-  auto outcome = bridge_.recording() ? bridge_.Stop(client->raw_handle(), scene_id)
-                                     : bridge_.StartCommand(client->raw_handle(),
-                                                            selected_text, scene_id);
-  return ApplyBridgeOutcome(ic, outcome);
+  return ApplyBridgeOutcome(
+      ic, bridge_.StartCommand(client->raw_handle(), selected_text, scene_id));
+}
+
+AppliedOutcome FcitxVinputAddon::StopRecording(fcitx::InputContext *ic) {
+  std::string error;
+  auto *client = EnsureDaemonClient(&error);
+  if (client == nullptr) {
+    return ApplyDaemonUnavailable(ic, std::move(error));
+  }
+  return ApplyBridgeOutcome(ic, bridge_.Stop(client->raw_handle(), scene_state_));
 }
 
 AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
@@ -521,17 +525,17 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
     if (auto recovered = ReconcileDaemonStatusBeforeStart(ic, TriggerKind::Normal)) {
       return remember_started_input_context(*recovered);
     }
-    return remember_started_input_context(TriggerNormal(ic, active_scene_id_));
+    return remember_started_input_context(StartNormalRecording(ic));
   }
   case FrontendTriggerIntent::StopNormal:
-    return TriggerNormal(ic, active_scene_id_);
+    return StopRecording(ic);
   case FrontendTriggerIntent::StartCommand:
     if (auto recovered = ReconcileDaemonStatusBeforeStart(ic, TriggerKind::Command)) {
       return remember_started_input_context(*recovered);
     }
-    return remember_started_input_context(TriggerCommand(ic, selected_text));
+    return remember_started_input_context(StartCommandRecording(ic, selected_text));
   case FrontendTriggerIntent::StopCommand:
-    return TriggerCommand(ic, "");
+    return StopRecording(ic);
   case FrontendTriggerIntent::ShowSceneMenu:
     ShowSceneMenu(ic);
     return AppliedOutcome::None;
@@ -699,11 +703,7 @@ void FcitxVinputAddon::StopActiveRecording(fcitx::InputContext *fallback_ic) {
     ic = fallback_ic;
   }
   if (bridge_.recording()) {
-    if (bridge_.command_mode()) {
-      ApplyTriggerAction(ic, FcitxTriggerAction::StopCommand);
-    } else {
-      ApplyTriggerAction(ic, FcitxTriggerAction::StopNormal);
-    }
+    StopRecording(ic);
   }
   if (!bridge_.recording()) {
     CancelTriggerStart();

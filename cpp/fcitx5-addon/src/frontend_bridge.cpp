@@ -1,5 +1,7 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 
+#include "vinput_fcitx_bridge/menu_snapshot.h"
+
 #include "vinput_fcitx_ffi.h"
 
 #include <memory>
@@ -107,9 +109,9 @@ bool FrontendBridge::command_mode() const {
 }
 
 BridgeOutcome FrontendBridge::StartNormal(const VinputFcitxDaemonClient *client,
-                                          std::string_view scene_id) {
+                                          const SceneStateSnapshot &scene_state) {
   return TakeOutcome(vinput_fcitx_frontend_controller_start_normal_with_daemon(
-      controller_, client, Bytes(scene_id), scene_id.size()));
+      controller_, client, scene_state.raw_handle()));
 }
 
 BridgeOutcome FrontendBridge::StartCommand(const VinputFcitxDaemonClient *client,
@@ -121,16 +123,16 @@ BridgeOutcome FrontendBridge::StartCommand(const VinputFcitxDaemonClient *client
 }
 
 BridgeOutcome FrontendBridge::Stop(const VinputFcitxDaemonClient *client,
-                                   std::string_view scene_id) {
+                                   const SceneStateSnapshot &scene_state) {
   return TakeOutcome(vinput_fcitx_frontend_controller_stop_with_daemon(
-      controller_, client, Bytes(scene_id), scene_id.size()));
+      controller_, client, scene_state.raw_handle()));
 }
 
 BridgeOutcome FrontendBridge::AdoptAndStop(const VinputFcitxDaemonClient *client,
                                            bool command_mode,
-                                           std::string_view scene_id) {
+                                           const SceneStateSnapshot &scene_state) {
   return TakeOutcome(vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
-      controller_, client, command_mode ? 1U : 0U, Bytes(scene_id), scene_id.size()));
+      controller_, client, command_mode ? 1U : 0U, scene_state.raw_handle()));
 }
 
 void FrontendBridge::Reset() {

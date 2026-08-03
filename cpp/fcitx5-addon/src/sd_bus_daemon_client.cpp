@@ -2,6 +2,7 @@
 
 #include "vinput_fcitx_ffi.h"
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 
@@ -33,34 +34,35 @@ void SetError(std::string *error, std::string message) {
   }
 }
 
-std::optional<VinputFcitxDaemonResponseView>
-ResponseView(const VinputFcitxDaemonResponse *response) {
+void SetResponseError(std::string *error, const VinputFcitxDaemonResponse *response,
+                      std::string_view fallback) {
   VinputFcitxDaemonResponseView view{};
-  if (response == nullptr || vinput_fcitx_daemon_response_view(response, &view) == 0) {
-    return std::nullopt;
+  if (response != nullptr && vinput_fcitx_daemon_response_view(response, &view) != 0 &&
+      view.is_error != 0) {
+    auto message = CopyText(view.text);
+    SetError(error, message.empty() ? std::string(fallback) : std::move(message));
+    return;
   }
-  return view;
+  SetError(error, std::string(fallback));
 }
 
-ResponsePtr Call(VinputFcitxDaemonClient *client, std::uint8_t operation,
-                 std::string_view first, std::string_view second,
-                 std::uint8_t expected_kind, std::string *error) {
-  ResponsePtr response(vinput_fcitx_daemon_client_call(
-      client, operation, Bytes(first), first.size(), Bytes(second), second.size()));
-  const auto view = ResponseView(response.get());
-  if (!view.has_value()) {
+bool CopyTextResponse(ResponsePtr response, std::string *reply, std::string *error) {
+  if (reply == nullptr) {
+    SetError(error, "Missing string response output.");
+    return false;
+  }
+  VinputFcitxDaemonResponseView view{};
+  if (response == nullptr ||
+      vinput_fcitx_daemon_response_view(response.get(), &view) == 0) {
     SetError(error, "Voice input daemon request failed before receiving a response.");
-    return {};
+    return false;
   }
-  if (view->kind == VINPUT_FCITX_DAEMON_RESPONSE_ERROR) {
-    SetError(error, CopyText(view->text));
-    return {};
+  if (view.is_error != 0) {
+    SetResponseError(error, response.get(), "Voice input daemon request failed.");
+    return false;
   }
-  if (view->kind != expected_kind) {
-    SetError(error, "Voice input daemon returned an unexpected response type.");
-    return {};
-  }
-  return response;
+  *reply = CopyText(view.text);
+  return true;
 }
 
 } // namespace
@@ -71,9 +73,8 @@ SdBusDaemonClient::ConnectSession(std::string *error) {
   auto *client = vinput_fcitx_daemon_client_connect(&raw_error);
   ResponsePtr error_response(raw_error);
   if (client == nullptr) {
-    const auto view = ResponseView(error_response.get());
-    SetError(error, view.has_value() ? CopyText(view->text)
-                                     : "Failed to connect to the session D-Bus.");
+    SetResponseError(error, error_response.get(),
+                     "Failed to connect to the session D-Bus.");
     return nullptr;
   }
   return std::unique_ptr<SdBusDaemonClient>(new SdBusDaemonClient(client));
@@ -86,43 +87,9 @@ SdBusDaemonClient::~SdBusDaemonClient() {
   vinput_fcitx_daemon_client_free(client_);
 }
 
-bool SdBusDaemonClient::CallStringReply(std::uint8_t operation, std::string_view first,
-                                        std::string_view second, std::string *reply,
-                                        std::string *error) {
-  if (reply == nullptr) {
-    SetError(error, "Missing string response output.");
-    return false;
-  }
-  auto response =
-      Call(client_, operation, first, second, VINPUT_FCITX_DAEMON_RESPONSE_TEXT, error);
-  const auto view = ResponseView(response.get());
-  if (!view.has_value()) {
-    return false;
-  }
-  *reply = CopyText(view->text);
-  return true;
-}
-
-bool SdBusDaemonClient::CallBoolReply(std::uint8_t operation, std::string_view first,
-                                      std::string_view second, bool *reply,
-                                      std::string *error) {
-  if (reply == nullptr) {
-    SetError(error, "Missing boolean response output.");
-    return false;
-  }
-  auto response =
-      Call(client_, operation, first, second, VINPUT_FCITX_DAEMON_RESPONSE_BOOL, error);
-  const auto view = ResponseView(response.get());
-  if (!view.has_value()) {
-    return false;
-  }
-  *reply = view->bool_value != 0;
-  return true;
-}
-
 bool SdBusDaemonClient::GetStatus(std::string *status, std::string *error) {
-  return CallStringReply(VINPUT_FCITX_DAEMON_OPERATION_GET_STATUS, {}, {}, status,
-                         error);
+  return CopyTextResponse(ResponsePtr(vinput_fcitx_daemon_client_get_status(client_)),
+                          status, error);
 }
 
 bool SdBusDaemonClient::GetSceneState(SceneStateSnapshot *state, std::string *error) {
@@ -130,24 +97,37 @@ bool SdBusDaemonClient::GetSceneState(SceneStateSnapshot *state, std::string *er
     SetError(error, "Missing scene snapshot output.");
     return false;
   }
-  auto response = Call(client_, VINPUT_FCITX_DAEMON_OPERATION_GET_SCENE_STATE, {}, {},
-                       VINPUT_FCITX_DAEMON_RESPONSE_SCENE_SNAPSHOT, error);
-  if (!response) {
-    return false;
-  }
-  auto *snapshot = vinput_fcitx_daemon_response_take_scene_snapshot(response.get());
+  VinputFcitxDaemonResponse *raw_error = nullptr;
+  auto *snapshot = vinput_fcitx_daemon_client_get_scene_state(client_, &raw_error);
+  ResponsePtr error_response(raw_error);
   if (snapshot == nullptr) {
-    SetError(error, "Voice input daemon returned an invalid scene snapshot.");
+    SetResponseError(error, error_response.get(),
+                     "Voice input daemon returned an invalid scene snapshot.");
     return false;
   }
   *state = SceneStateSnapshot::Adopt(snapshot);
   return true;
 }
 
-bool SdBusDaemonClient::SetActiveScene(std::string_view scene_id, bool *persisted,
+bool SdBusDaemonClient::SetActiveScene(SceneStateSnapshot *state,
+                                       std::string_view scene_id, bool *persisted,
                                        std::string *error) {
-  return CallBoolReply(VINPUT_FCITX_DAEMON_OPERATION_SET_ACTIVE_SCENE, scene_id, {},
-                       persisted, error);
+  if (state == nullptr || persisted == nullptr) {
+    SetError(error, "Missing boolean response output.");
+    return false;
+  }
+  std::uint8_t persisted_value = 0;
+  VinputFcitxDaemonResponse *raw_error = nullptr;
+  if (vinput_fcitx_daemon_client_set_active_scene(client_, state->mutable_raw_handle(),
+                                                  Bytes(scene_id), scene_id.size(),
+                                                  &persisted_value, &raw_error) == 0) {
+    ResponsePtr error_response(raw_error);
+    SetResponseError(error, error_response.get(),
+                     "Voice input daemon failed to set the active scene.");
+    return false;
+  }
+  *persisted = persisted_value != 0;
+  return true;
 }
 
 bool SdBusDaemonClient::GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state,
@@ -156,16 +136,13 @@ bool SdBusDaemonClient::GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *stat
     SetError(error, "Missing ASR snapshot output.");
     return false;
   }
-  auto response =
-      Call(client_, VINPUT_FCITX_DAEMON_OPERATION_GET_ASR_DISPLAY_MENU_STATE, {}, {},
-           VINPUT_FCITX_DAEMON_RESPONSE_ASR_DISPLAY_SNAPSHOT, error);
-  if (!response) {
-    return false;
-  }
+  VinputFcitxDaemonResponse *raw_error = nullptr;
   auto *snapshot =
-      vinput_fcitx_daemon_response_take_asr_display_snapshot(response.get());
+      vinput_fcitx_daemon_client_get_asr_display_state(client_, &raw_error);
+  ResponsePtr error_response(raw_error);
   if (snapshot == nullptr) {
-    SetError(error, "Voice input daemon returned an invalid ASR snapshot.");
+    SetResponseError(error, error_response.get(),
+                     "Voice input daemon returned an invalid ASR snapshot.");
     return false;
   }
   *state = AsrDisplayMenuStateSnapshot::Adopt(snapshot);
@@ -175,8 +152,22 @@ bool SdBusDaemonClient::GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *stat
 bool SdBusDaemonClient::SetActiveAsrTarget(std::string_view provider_id,
                                            std::string_view model_value,
                                            bool *persisted, std::string *error) {
-  return CallBoolReply(VINPUT_FCITX_DAEMON_OPERATION_SET_ACTIVE_ASR_TARGET, provider_id,
-                       model_value, persisted, error);
+  if (persisted == nullptr) {
+    SetError(error, "Missing boolean response output.");
+    return false;
+  }
+  std::uint8_t persisted_value = 0;
+  VinputFcitxDaemonResponse *raw_error = nullptr;
+  if (vinput_fcitx_daemon_client_set_active_asr_target(
+          client_, Bytes(provider_id), provider_id.size(), Bytes(model_value),
+          model_value.size(), &persisted_value, &raw_error) == 0) {
+    ResponsePtr error_response(raw_error);
+    SetResponseError(error, error_response.get(),
+                     "Voice input daemon failed to set the active ASR target.");
+    return false;
+  }
+  *persisted = persisted_value != 0;
+  return true;
 }
 
 const VinputFcitxDaemonClient *SdBusDaemonClient::raw_handle() const {

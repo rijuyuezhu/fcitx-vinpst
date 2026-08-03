@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <filesystem>
 #include <memory>
 
 #include <fcitx-config/configuration.h>
@@ -66,9 +65,6 @@ public:
 
 FrontendSettings LoadFrontendSettings();
 bool SaveFrontendSettings(const FrontendSettings &settings);
-FrontendSettings LoadFrontendSettingsFromPath(const std::filesystem::path &path);
-bool SaveFrontendSettingsToPath(const FrontendSettings &settings,
-                                const std::filesystem::path &path);
 std::unique_ptr<VinputFrontendConfig>
 BuildFrontendConfig(const FrontendSettings &settings);
 

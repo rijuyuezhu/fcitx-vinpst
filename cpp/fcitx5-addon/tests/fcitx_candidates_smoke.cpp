@@ -10,21 +10,21 @@ using vinput_fcitx_bridge::BuildResultCandidateList;
 using vinput_fcitx_bridge::Candidate;
 using vinput_fcitx_bridge::CandidateSource;
 using vinput_fcitx_bridge::RecognitionPayload;
-using vinput_fcitx_bridge::ResultCandidateComment;
 using vinput_fcitx_bridge::ResultCandidateMenuTitle;
+
+namespace {
+
+void IgnoreSelection(fcitx::InputContext *, const Candidate &) {}
+
+} // namespace
 
 int main() {
   RecognitionPayload empty;
-  assert(BuildResultCandidateList(empty) == nullptr);
+  assert(BuildResultCandidateList(empty, IgnoreSelection) == nullptr);
 
   assert(ResultCandidateMenuTitle(0) == "Choose Result (0)");
   assert(ResultCandidateMenuTitle(1) == "Choose Result (1)");
   assert(ResultCandidateMenuTitle(3) == "Choose Result (3)");
-
-  assert(ResultCandidateComment({"raw", CandidateSource::Raw}, 0) == "Original");
-  assert(ResultCandidateComment({"asr", CandidateSource::Asr}, 0) == "Voice Command");
-  assert(ResultCandidateComment({"llm", CandidateSource::Llm}, 2) == "2");
-  assert(ResultCandidateComment({"cancel", CandidateSource::Cancel}, 0) == "Cancel");
 
   RecognitionPayload payload;
   payload.commit_text = "polished 2";
@@ -65,7 +65,7 @@ int main() {
   RecognitionPayload asr_payload;
   asr_payload.commit_text = "asr choice";
   asr_payload.candidates = {Candidate{"asr choice", CandidateSource::Asr}};
-  auto asr_candidates = BuildResultCandidateList(asr_payload);
+  auto asr_candidates = BuildResultCandidateList(asr_payload, IgnoreSelection);
   assert(asr_candidates != nullptr);
 #ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
   assert(asr_candidates->candidateFromAll(0).comment().toString() == "Voice Command");
@@ -79,7 +79,7 @@ int main() {
       Candidate{"first polished", CandidateSource::Llm},
       Candidate{"second polished", CandidateSource::Llm},
   };
-  auto mixed_candidates = BuildResultCandidateList(mixed_payload);
+  auto mixed_candidates = BuildResultCandidateList(mixed_payload, IgnoreSelection);
   assert(mixed_candidates != nullptr);
   assert(mixed_candidates->globalCursorIndex() == 3);
 #ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
@@ -95,7 +95,8 @@ int main() {
       Candidate{"raw transcript", CandidateSource::Raw},
       Candidate{"polished", CandidateSource::Llm},
   };
-  auto missing_commit_candidates = BuildResultCandidateList(missing_commit_payload);
+  auto missing_commit_candidates =
+      BuildResultCandidateList(missing_commit_payload, IgnoreSelection);
   assert(missing_commit_candidates != nullptr);
   assert(missing_commit_candidates->totalSize() == 2);
   assert(missing_commit_candidates->globalCursorIndex() == 0);
@@ -129,7 +130,7 @@ int main() {
       Candidate{"choice 5", CandidateSource::Llm},
       Candidate{"choice 6", CandidateSource::Llm},
   };
-  auto paged_candidates = BuildResultCandidateList(paged_payload);
+  auto paged_candidates = BuildResultCandidateList(paged_payload, IgnoreSelection);
   assert(paged_candidates != nullptr);
   assert(ResultCandidateMenuTitle(paged_candidates->totalSize()) ==
          "Choose Result (6)");

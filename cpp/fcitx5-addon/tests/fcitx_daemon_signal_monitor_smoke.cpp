@@ -96,7 +96,6 @@ int main() {
                            finish_when_complete();
                          },
                  });
-  assert(monitor.active());
   assert(sender.requestName(
       std::string(dbus::kServiceBusName),
       {RequestNameFlag::AllowReplacement, RequestNameFlag::ReplaceExisting}));

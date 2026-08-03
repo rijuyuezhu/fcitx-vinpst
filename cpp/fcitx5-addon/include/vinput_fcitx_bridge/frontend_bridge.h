@@ -11,6 +11,8 @@ struct VinputFcitxFrontendController;
 
 namespace vinput_fcitx_bridge {
 
+class SceneStateSnapshot;
+
 enum class FrontendTriggerRequest : std::uint8_t {
   None,
   StartNormal,
@@ -53,13 +55,13 @@ public:
   FrontendBridge &operator=(FrontendBridge &&) = delete;
 
   BridgeOutcome StartNormal(const ::VinputFcitxDaemonClient *client,
-                            std::string_view scene_id);
+                            const SceneStateSnapshot &scene_state);
   BridgeOutcome StartCommand(const ::VinputFcitxDaemonClient *client,
                              std::string_view selected_text, std::string_view scene_id);
   BridgeOutcome Stop(const ::VinputFcitxDaemonClient *client,
-                     std::string_view scene_id);
+                     const SceneStateSnapshot &scene_state);
   BridgeOutcome AdoptAndStop(const ::VinputFcitxDaemonClient *client, bool command_mode,
-                             std::string_view scene_id);
+                             const SceneStateSnapshot &scene_state);
   void Reset();
 
   FrontendTriggerIntent PlanTrigger(FrontendTriggerRequest request) const;

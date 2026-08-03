@@ -1,5 +1,7 @@
 use std::ptr;
 
+use vinput_fcitx_core::{MenuFilterState, SceneSnapshot};
+
 use super::{
     VinputFcitxSceneProjectionView, vinput_fcitx_scene_projection_free,
     vinput_fcitx_scene_projection_item_view, vinput_fcitx_scene_projection_new,
@@ -8,10 +10,8 @@ use super::{
 use crate::{
     asr_projection::VinputFcitxProjectedMenuItemView,
     frontend::VinputFcitxStringView,
-    menu_snapshot::{
-        vinput_fcitx_scene_snapshot_add, vinput_fcitx_scene_snapshot_free,
-        vinput_fcitx_scene_snapshot_new,
-    },
+    menu::{boxed_menu_filter_state, vinput_fcitx_menu_filter_state_free},
+    menu_snapshot::{boxed_scene_snapshot, vinput_fcitx_scene_snapshot_free},
 };
 
 unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
@@ -22,43 +22,40 @@ unsafe fn bytes(view: VinputFcitxStringView) -> &'static [u8] {
     unsafe { std::slice::from_raw_parts(view.data, view.len) }
 }
 
+fn snapshot(
+    active: &str,
+    rows: &[(&str, &str)],
+) -> *mut crate::menu_snapshot::VinputFcitxSceneSnapshot {
+    let mut snapshot = SceneSnapshot::new(active.to_owned());
+    for (id, label) in rows {
+        snapshot.push((*id).to_owned(), (*label).to_owned());
+    }
+    boxed_scene_snapshot(snapshot)
+}
+
+fn filter(query: &str) -> *mut crate::menu::VinputFcitxMenuFilterState {
+    let mut filter = MenuFilterState::default();
+    if !query.is_empty() {
+        filter.activate();
+        filter.append_text(query);
+    }
+    boxed_menu_filter_state(filter)
+}
+
 #[test]
 fn projects_directly_from_scene_snapshot() {
-    // SAFETY: Local byte slices outlive calls and both handles are freed once.
+    // SAFETY: Both handles are live for all calls and freed exactly once.
     unsafe {
-        let snapshot = vinput_fcitx_scene_snapshot_new(b"meeting".as_ptr(), 7);
-        assert!(!snapshot.is_null());
-        assert_eq!(
-            vinput_fcitx_scene_snapshot_add(
-                snapshot,
-                b"raw".as_ptr(),
-                3,
-                b"Raw Dictation".as_ptr(),
-                13,
-            ),
-            1,
+        let snapshot = snapshot(
+            "meeting",
+            &[
+                ("raw", "Raw Dictation"),
+                ("meeting", "Meeting Notes"),
+                ("code", "Code Review"),
+            ],
         );
-        assert_eq!(
-            vinput_fcitx_scene_snapshot_add(
-                snapshot,
-                b"meeting".as_ptr(),
-                7,
-                b"Meeting Notes".as_ptr(),
-                13,
-            ),
-            1,
-        );
-        assert_eq!(
-            vinput_fcitx_scene_snapshot_add(
-                snapshot,
-                b"code".as_ptr(),
-                4,
-                b"Code Review".as_ptr(),
-                11,
-            ),
-            1,
-        );
-        let projection = vinput_fcitx_scene_projection_new(snapshot, b"code".as_ptr(), 4);
+        let filter = filter("code");
+        let projection = vinput_fcitx_scene_projection_new(snapshot, filter);
         assert!(!projection.is_null());
 
         let mut summary = VinputFcitxSceneProjectionView {
@@ -100,20 +97,18 @@ fn projects_directly_from_scene_snapshot() {
             0,
         );
         vinput_fcitx_scene_projection_free(projection);
+        vinput_fcitx_menu_filter_state_free(filter);
         vinput_fcitx_scene_snapshot_free(snapshot);
     }
 }
 
 #[test]
-fn falls_back_to_active_id_and_rejects_invalid_query() {
-    // SAFETY: Local byte slices outlive calls and handles are freed once.
+fn falls_back_to_active_id_and_rejects_missing_filter() {
+    // SAFETY: Both handles are live for all calls and freed exactly once.
     unsafe {
-        let snapshot = vinput_fcitx_scene_snapshot_new(b"missing".as_ptr(), 7);
-        assert_eq!(
-            vinput_fcitx_scene_snapshot_add(snapshot, b"other".as_ptr(), 5, b"Other".as_ptr(), 5,),
-            1,
-        );
-        let projection = vinput_fcitx_scene_projection_new(snapshot, ptr::null(), 0);
+        let snapshot = snapshot("missing", &[("other", "Other")]);
+        let filter = filter("");
+        let projection = vinput_fcitx_scene_projection_new(snapshot, filter);
         let mut summary = VinputFcitxSceneProjectionView {
             active_label: VinputFcitxStringView {
                 data: ptr::null(),
@@ -129,10 +124,8 @@ fn falls_back_to_active_id_and_rejects_invalid_query() {
         assert_eq!(summary.item_count, 1);
         vinput_fcitx_scene_projection_free(projection);
 
-        let invalid = [0xff];
-        assert!(
-            vinput_fcitx_scene_projection_new(snapshot, invalid.as_ptr(), invalid.len()).is_null()
-        );
+        assert!(vinput_fcitx_scene_projection_new(snapshot, ptr::null()).is_null());
+        vinput_fcitx_menu_filter_state_free(filter);
         vinput_fcitx_scene_snapshot_free(snapshot);
     }
 }

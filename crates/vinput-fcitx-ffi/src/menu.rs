@@ -17,16 +17,6 @@ pub struct VinputFcitxMenuFilterState {
     decorated_title: String,
 }
 
-/// Borrowed menu filter summary.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct VinputFcitxMenuFilterView {
-    /// Whether filter-entry mode is active.
-    pub active: u8,
-    /// Current UTF-8 query.
-    pub query: VinputFcitxStringView,
-}
-
 /// One semantic key decision.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -77,6 +67,21 @@ fn string_view(value: &str) -> VinputFcitxStringView {
         },
         len: value.len(),
     }
+}
+
+pub(crate) unsafe fn menu_filter_core_ref<'a>(
+    state: *const VinputFcitxMenuFilterState,
+) -> Option<&'a MenuFilterState> {
+    // SAFETY: Forwarded from the caller contract.
+    unsafe { state.as_ref() }.map(|value| &value.state)
+}
+
+#[cfg(test)]
+pub(crate) fn boxed_menu_filter_state(state: MenuFilterState) -> *mut VinputFcitxMenuFilterState {
+    Box::into_raw(Box::new(VinputFcitxMenuFilterState {
+        state,
+        decorated_title: String::new(),
+    }))
 }
 
 unsafe fn semantic_key<'a>(
@@ -190,17 +195,17 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_reset(
     1
 }
 
-/// Borrows the active flag and current query.
+/// Reads the active flag.
 ///
 /// # Safety
 ///
-/// `state` must be live and `view_out` must be writable.
+/// `state` must be live and `active_out` must be writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_view(
+pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_active(
     state: *const VinputFcitxMenuFilterState,
-    view_out: *mut VinputFcitxMenuFilterView,
+    active_out: *mut u8,
 ) -> u8 {
-    if view_out.is_null() {
+    if active_out.is_null() {
         return 0;
     }
     // SAFETY: Forwarded from this function's caller contract.
@@ -208,12 +213,7 @@ pub unsafe extern "C" fn vinput_fcitx_menu_filter_state_view(
         return 0;
     };
     // SAFETY: The caller guarantees a writable output pointer.
-    unsafe {
-        view_out.write(VinputFcitxMenuFilterView {
-            active: u8::from(state.state.active()),
-            query: string_view(state.state.query()),
-        });
-    }
+    unsafe { active_out.write(u8::from(state.state.active())) };
     1
 }
 

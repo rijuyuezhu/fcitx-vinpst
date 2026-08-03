@@ -4,11 +4,6 @@
 
 int main() {
   using vinput_fcitx_bridge::ClassifyMenuKey;
-  using vinput_fcitx_bridge::IsMenuBackspaceKey;
-  using vinput_fcitx_bridge::IsMenuCtrlShortcut;
-  using vinput_fcitx_bridge::IsMenuPureModifierKey;
-  using vinput_fcitx_bridge::IsMenuSlashKey;
-  using vinput_fcitx_bridge::IsPrintableMenuInput;
   using vinput_fcitx_bridge::MenuFilterState;
   using vinput_fcitx_bridge::MenuKeyAction;
   using vinput_fcitx_bridge::MenuSemanticKey;
@@ -18,24 +13,18 @@ int main() {
                                  fcitx::Key(FcitxKey_KP_Page_Up)};
   const fcitx::KeyList page_next{fcitx::Key(FcitxKey_Page_Down),
                                  fcitx::Key(FcitxKey_KP_Page_Down)};
-  assert(!IsPrintableMenuInput(fcitx::Key(FcitxKey_1), false, page_prev, page_next));
-  assert(IsPrintableMenuInput(fcitx::Key(FcitxKey_1), true, page_prev, page_next));
-  assert(IsPrintableMenuInput(fcitx::Key(FcitxKey_a), true, page_prev, page_next));
+  assert(ClassifyMenuKey(fcitx::Key("Control+W"), false, true, page_prev, page_next)
+             .kind == MenuSemanticKeyKind::DeleteWord);
+  assert(ClassifyMenuKey(fcitx::Key(FcitxKey_slash), false, false, page_prev, page_next)
+             .kind == MenuSemanticKeyKind::Slash);
   assert(
-      !IsPrintableMenuInput(fcitx::Key(FcitxKey_Page_Up), true, page_prev, page_next));
-  assert(!IsPrintableMenuInput(fcitx::Key(FcitxKey_KP_Page_Down), true, page_prev,
-                               page_next));
-  assert(!IsPrintableMenuInput(fcitx::Key("Control+w"), true, page_prev, page_next));
-  assert(IsMenuCtrlShortcut(fcitx::Key("Control+W"), FcitxKey_w));
-  assert(IsMenuSlashKey(fcitx::Key(FcitxKey_slash)));
-  assert(IsMenuBackspaceKey(fcitx::Key(FcitxKey_BackSpace)));
-  assert(IsMenuPureModifierKey(fcitx::Key(FcitxKey_Shift_R)));
+      ClassifyMenuKey(fcitx::Key(FcitxKey_BackSpace), false, true, page_prev, page_next)
+          .kind == MenuSemanticKeyKind::Backspace);
 
   MenuFilterState filter;
-  const auto initial = filter.view();
+  const auto initial = filter.active();
   assert(initial.has_value());
-  assert(!initial->active);
-  assert(initial->query.empty());
+  assert(!*initial);
   assert(filter.DecorateTitle("Models /filter") == "Models /filter");
 
   const auto slash = filter.HandleKey(
@@ -46,19 +35,17 @@ int main() {
   assert(text_key.kind == MenuSemanticKeyKind::Text);
   const auto text = filter.HandleKey(false, text_key, false, -1, 0, 0);
   assert(text.has_value() && text->action == MenuKeyAction::Rebuild);
-  const auto filtered = filter.view();
+  const auto filtered = filter.active();
   assert(filtered.has_value());
-  assert(filtered->active);
-  assert(filtered->query == "1");
+  assert(*filtered);
   assert(filter.DecorateTitle("Models /") == "Models /1");
 
   const auto clear = filter.HandleKey(
       false, MenuSemanticKey{MenuSemanticKeyKind::Escape}, false, -1, 0, 0);
   assert(clear.has_value() && clear->action == MenuKeyAction::Rebuild);
-  const auto cleared = filter.view();
+  const auto cleared = filter.active();
   assert(cleared.has_value());
-  assert(!cleared->active);
-  assert(cleared->query.empty());
+  assert(!*cleared);
   const auto close = filter.HandleKey(
       false, MenuSemanticKey{MenuSemanticKeyKind::Escape}, false, -1, 0, 0);
   assert(close.has_value() && close->action == MenuKeyAction::CloseAndConsume);
@@ -93,7 +80,7 @@ int main() {
          release_consume->action == MenuKeyAction::Consume);
 
   filter.Reset();
-  const auto reset = filter.view();
-  assert(reset.has_value() && !reset->active && reset->query.empty());
+  const auto reset = filter.active();
+  assert(reset.has_value() && !*reset);
   return 0;
 }

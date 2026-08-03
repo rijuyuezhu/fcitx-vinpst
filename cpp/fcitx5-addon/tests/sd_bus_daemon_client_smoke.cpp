@@ -1,5 +1,4 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
-#include "vinput_fcitx_bridge/scene_defaults.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
 #include "vinput_fcitx_ffi.h"
 
@@ -8,15 +7,15 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 using vinput_fcitx_bridge::AsrDisplayMenuStateSnapshot;
 using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FrontendBridge;
-using vinput_fcitx_bridge::kDefaultCommandSceneId;
-using vinput_fcitx_bridge::kDefaultNormalSceneId;
 using vinput_fcitx_bridge::SceneStateSnapshot;
 using vinput_fcitx_bridge::SdBusDaemonClient;
 
@@ -28,82 +27,126 @@ std::string CopyText(VinputFcitxStringView view) {
              : std::string(reinterpret_cast<const char *>(view.data), view.len);
 }
 
-struct SceneSnapshotState {
-  std::string active_scene_id;
-  std::size_t item_count = 0;
+const std::uint8_t *Bytes(std::string_view value) {
+  return value.empty() ? nullptr : reinterpret_cast<const std::uint8_t *>(value.data());
+}
+
+struct SceneProjectionDeleter {
+  void operator()(VinputFcitxSceneProjection *projection) const {
+    vinput_fcitx_scene_projection_free(projection);
+  }
 };
 
-struct SceneSnapshotItem {
-  std::string id;
+struct AsrProjectionDeleter {
+  void operator()(VinputFcitxAsrProjection *projection) const {
+    vinput_fcitx_asr_projection_free(projection);
+  }
+};
+
+struct MenuFilterDeleter {
+  void operator()(VinputFcitxMenuFilterState *filter) const {
+    vinput_fcitx_menu_filter_state_free(filter);
+  }
+};
+
+using MenuFilterPtr = std::unique_ptr<VinputFcitxMenuFilterState, MenuFilterDeleter>;
+
+struct ProjectedItem {
   std::string label;
+  std::uint8_t control_kind = VINPUT_FCITX_MENU_CONTROL_NONE;
+  std::string first;
+  std::string second;
+  std::string control_label;
 };
 
-struct AsrSnapshotState {
-  std::string target_provider_id;
-  std::string target_model_id;
-  std::string effective_provider_id;
-  std::string effective_model_id;
-  std::string last_error;
-  std::string effective_base_label;
-  std::string target_base_label;
-  bool reload_in_progress = false;
-  std::size_t item_count = 0;
+struct SceneProjectionState {
+  std::string active_label;
+  std::vector<ProjectedItem> items;
 };
 
-struct AsrSnapshotItem {
-  std::string provider_id;
-  std::string kind;
-  std::string item_id;
-  std::string display_title;
-  std::string model_value;
-  std::string base_label;
-  bool loading = false;
+struct AsrProjectionState {
+  std::string effective_label;
+  std::vector<ProjectedItem> items;
 };
 
-std::optional<SceneSnapshotState> ReadState(const SceneStateSnapshot &snapshot) {
-  VinputFcitxSceneSnapshotView view{};
-  if (vinput_fcitx_scene_snapshot_view(snapshot.raw_handle(), &view) == 0) {
-    return std::nullopt;
-  }
-  return SceneSnapshotState{CopyText(view.active_scene_id), view.item_count};
+ProjectedItem CopyProjectedItem(const VinputFcitxProjectedMenuItemView &view) {
+  return ProjectedItem{CopyText(view.label), view.control_kind,
+                       CopyText(view.control_first), CopyText(view.control_second),
+                       CopyText(view.control_label)};
 }
 
-std::optional<SceneSnapshotItem> ReadItem(const SceneStateSnapshot &snapshot,
-                                          std::size_t index) {
-  VinputFcitxSceneSnapshotItemView view{};
-  if (vinput_fcitx_scene_snapshot_item_view(snapshot.raw_handle(), index, &view) == 0) {
+std::optional<SceneProjectionState> ProjectScene(const SceneStateSnapshot &snapshot) {
+  MenuFilterPtr filter(vinput_fcitx_menu_filter_state_new());
+  if (filter == nullptr) {
     return std::nullopt;
   }
-  return SceneSnapshotItem{CopyText(view.id), CopyText(view.label)};
+  std::unique_ptr<VinputFcitxSceneProjection, SceneProjectionDeleter> projection(
+      vinput_fcitx_scene_projection_new(snapshot.raw_handle(), filter.get()));
+  if (projection == nullptr) {
+    return std::nullopt;
+  }
+  VinputFcitxSceneProjectionView view{};
+  if (vinput_fcitx_scene_projection_view(projection.get(), &view) == 0) {
+    return std::nullopt;
+  }
+  SceneProjectionState state{.active_label = CopyText(view.active_label), .items = {}};
+  state.items.reserve(view.item_count);
+  for (std::size_t index = 0; index < view.item_count; ++index) {
+    VinputFcitxProjectedMenuItemView item{};
+    if (vinput_fcitx_scene_projection_item_view(projection.get(), index, &item) == 0) {
+      return std::nullopt;
+    }
+    state.items.push_back(CopyProjectedItem(item));
+  }
+  return state;
 }
 
-std::optional<AsrSnapshotState> ReadState(const AsrDisplayMenuStateSnapshot &snapshot) {
-  VinputFcitxAsrDisplaySnapshotView view{};
-  if (vinput_fcitx_asr_display_snapshot_view(snapshot.raw_handle(), &view) == 0) {
-    return std::nullopt;
-  }
-  return AsrSnapshotState{CopyText(view.target_provider_id),
-                          CopyText(view.target_model_id),
-                          CopyText(view.effective_provider_id),
-                          CopyText(view.effective_model_id),
-                          CopyText(view.last_error),
-                          CopyText(view.effective_base_label),
-                          CopyText(view.target_base_label),
-                          view.reload_in_progress != 0,
-                          view.item_count};
+bool HasSceneControl(const SceneProjectionState &projection,
+                     std::string_view scene_id) {
+  return std::ranges::any_of(projection.items, [scene_id](const auto &item) {
+    return item.control_kind == VINPUT_FCITX_MENU_CONTROL_SET_ACTIVE_SCENE &&
+           item.first == scene_id;
+  });
 }
 
-std::optional<AsrSnapshotItem> ReadItem(const AsrDisplayMenuStateSnapshot &snapshot,
-                                        std::size_t index) {
-  VinputFcitxAsrDisplaySnapshotItemView view{};
-  if (vinput_fcitx_asr_display_snapshot_item_view(snapshot.raw_handle(), index,
-                                                  &view) == 0) {
+std::optional<AsrProjectionState>
+ProjectAsr(const AsrDisplayMenuStateSnapshot &snapshot) {
+  constexpr std::string_view kLocal = "Local";
+  constexpr std::string_view kRemote = "Remote";
+  constexpr std::string_view kCommand = "Command";
+  constexpr std::string_view kLoadingSuffix = " (loading)";
+  constexpr std::string_view kUnavailable = "unavailable";
+  constexpr std::string_view kLoadingPrefix = "Loading: ";
+  constexpr std::string_view kErrorPrefix = "Error: ";
+  MenuFilterPtr filter(vinput_fcitx_menu_filter_state_new());
+  if (filter == nullptr) {
     return std::nullopt;
   }
-  return AsrSnapshotItem{CopyText(view.provider_id), CopyText(view.kind),
-                         CopyText(view.item_id),     CopyText(view.display_title),
-                         CopyText(view.model_value), CopyText(view.base_label),
-                         view.is_loading != 0};
+  std::unique_ptr<VinputFcitxAsrProjection, AsrProjectionDeleter> projection(
+      vinput_fcitx_asr_projection_new(
+          snapshot.raw_handle(), filter.get(), Bytes(kLocal), kLocal.size(),
+          Bytes(kRemote), kRemote.size(), Bytes(kCommand), kCommand.size(),
+          Bytes(kLoadingSuffix), kLoadingSuffix.size(), Bytes(kUnavailable),
+          kUnavailable.size(), Bytes(kLoadingPrefix), kLoadingPrefix.size(),
+          Bytes(kErrorPrefix), kErrorPrefix.size()));
+  if (projection == nullptr) {
+    return std::nullopt;
+  }
+  VinputFcitxProjectionView view{};
+  if (vinput_fcitx_asr_projection_view(projection.get(), &view) == 0) {
+    return std::nullopt;
+  }
+  AsrProjectionState state{.effective_label = CopyText(view.effective_label),
+                           .items = {}};
+  state.items.reserve(view.item_count);
+  for (std::size_t index = 0; index < view.item_count; ++index) {
+    VinputFcitxProjectedMenuItemView item{};
+    if (vinput_fcitx_asr_projection_item_view(projection.get(), index, &item) == 0) {
+      return std::nullopt;
+    }
+    state.items.push_back(CopyProjectedItem(item));
+  }
+  return state;
 }
 
 std::unique_ptr<SdBusDaemonClient> ConnectWithRetry(std::string *error) {
@@ -150,13 +193,12 @@ bool ExpectConfiguredAsrState(SdBusDaemonClient *client, std::string *error) {
   if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
     return false;
   }
-  const auto state = ReadState(snapshot);
-  if (state.has_value() && !state->target_provider_id.empty() &&
-      state->item_count != 0) {
+  const auto projection = ProjectAsr(snapshot);
+  if (projection.has_value() && !projection->effective_label.empty()) {
     return true;
   }
   if (error != nullptr) {
-    *error = "ASR display state did not include a target provider and menu rows";
+    *error = "ASR display state did not produce an effective backend label";
   }
   return false;
 }
@@ -169,31 +211,22 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   auto expected_active_scene =
       OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE");
   if (expected_active_scene.empty()) {
-    expected_active_scene = kDefaultNormalSceneId;
+    expected_active_scene = "__raw__";
   }
-  const auto scene_state = ReadState(state);
-  if (!scene_state.has_value()) {
-    return false;
-  }
-  bool exposes_expected_scene = false;
-  for (std::size_t index = 0; index < scene_state->item_count; ++index) {
-    const auto scene = ReadItem(state, index);
-    if (scene.has_value() && scene->id == expected_active_scene) {
-      exposes_expected_scene = true;
-      break;
-    }
-  }
-  if (scene_state->active_scene_id != expected_active_scene ||
-      scene_state->item_count < 2 || !exposes_expected_scene) {
+  const auto projection = ProjectScene(state);
+  if (!projection.has_value() || projection->active_label.empty() ||
+      projection->items.empty() ||
+      HasSceneControl(*projection, expected_active_scene) ||
+      !HasSceneControl(*projection, "__command__")) {
     if (error != nullptr) {
-      *error = "scene state did not expose expected active scene and menu items: ";
+      *error = "scene state did not expose expected active scene and menu rows: ";
       *error += expected_active_scene;
     }
     return false;
   }
 
   bool persisted = true;
-  if (!client->SetActiveScene("__command__", &persisted, error)) {
+  if (!client->SetActiveScene(&state, "__command__", &persisted, error)) {
     return false;
   }
   const bool expect_persisted =
@@ -207,15 +240,16 @@ bool ExpectSceneLifecycle(SdBusDaemonClient *client, std::string *error) {
   if (!client->GetSceneState(&state, error)) {
     return false;
   }
-  const auto command_scene_state = ReadState(state);
-  if (!command_scene_state.has_value() ||
-      command_scene_state->active_scene_id != "__command__") {
+  const auto command_projection = ProjectScene(state);
+  if (!command_projection.has_value() || command_projection->active_label.empty() ||
+      HasSceneControl(*command_projection, "__command__") ||
+      !HasSceneControl(*command_projection, expected_active_scene)) {
     if (error != nullptr && error->empty()) {
       *error = "scene state did not reflect selected command scene";
     }
     return false;
   }
-  return client->SetActiveScene(expected_active_scene, &persisted, error);
+  return client->SetActiveScene(&state, expected_active_scene, &persisted, error);
 }
 
 bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error) {
@@ -223,11 +257,10 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
   if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
     return false;
   }
-  auto state = ReadState(snapshot);
-  if (!state.has_value() || state->target_provider_id.empty() ||
-      state->effective_provider_id.empty() || state->item_count == 0) {
+  auto projection = ProjectAsr(snapshot);
+  if (!projection.has_value() || projection->effective_label.empty()) {
     if (error != nullptr) {
-      *error = "ASR display state did not expose target, effective, and rows";
+      *error = "ASR display state did not produce a projection";
     }
     return false;
   }
@@ -245,20 +278,34 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
     }
     return false;
   }
-  bool found = false;
-  for (std::size_t index = 0; index < state->item_count; ++index) {
-    const auto item = ReadItem(snapshot, index);
-    found = found || (item.has_value() && item->provider_id == switch_provider &&
-                      item->model_value == switch_model);
-  }
-  if (!found) {
+
+  const auto target = std::find_if(
+      projection->items.begin(), projection->items.end(),
+      [&](const ProjectedItem &item) {
+        return item.control_kind == VINPUT_FCITX_MENU_CONTROL_SET_ACTIVE_ASR_TARGET &&
+               item.first == switch_provider && item.second == switch_model;
+      });
+  if (target == projection->items.end()) {
     if (error != nullptr) {
-      *error = "ASR display state missing requested target: " + switch_provider + "/" +
+      *error = "ASR projection missing requested target: " + switch_provider + "/" +
                switch_model;
     }
     return false;
   }
-
+  const auto expected_provider =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_PROVIDER");
+  const auto expected_model =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_MODEL");
+  const auto expected_title =
+      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_TITLE");
+  if ((!expected_provider.empty() && expected_provider != switch_provider) ||
+      (!expected_model.empty() && expected_model != switch_model) ||
+      (!expected_title.empty() && expected_title != target->control_label)) {
+    if (error != nullptr) {
+      *error = "ASR projected target metadata did not match the expectation";
+    }
+    return false;
+  }
   bool persisted = false;
   if (!client->SetActiveAsrTarget(switch_provider, switch_model, &persisted, error)) {
     return false;
@@ -276,20 +323,25 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
     if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
       return false;
     }
-    state = ReadState(snapshot);
-    if (!state.has_value()) {
+    projection = ProjectAsr(snapshot);
+    if (!projection.has_value()) {
       return false;
     }
-    if (!state->reload_in_progress && state->target_provider_id == switch_provider &&
-        state->target_model_id == switch_model &&
-        state->effective_provider_id == switch_provider) {
-      return state->last_error.empty();
-    }
-    if (!state->reload_in_progress && !state->last_error.empty()) {
+    if (projection->effective_label.find("Error: ") != std::string::npos) {
       if (error != nullptr) {
-        *error = "ASR target reload failed: " + state->last_error;
+        *error = "ASR target reload failed: " + projection->effective_label;
       }
       return false;
+    }
+    const bool target_still_visible = std::any_of(
+        projection->items.begin(), projection->items.end(),
+        [&](const ProjectedItem &item) {
+          return item.control_kind == VINPUT_FCITX_MENU_CONTROL_SET_ACTIVE_ASR_TARGET &&
+                 item.first == switch_provider && item.second == switch_model;
+        });
+    if (!target_still_visible &&
+        projection->effective_label.find("Loading: ") == std::string::npos) {
+      return true;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
@@ -301,49 +353,16 @@ bool ExpectAsrTargetMenuLifecycle(SdBusDaemonClient *client, std::string *error)
 }
 
 bool ExpectAsrDisplayMenuState(SdBusDaemonClient *client, std::string *error) {
-  AsrDisplayMenuStateSnapshot state;
-  if (!client->GetAsrDisplayMenuState(&state, error)) {
+  AsrDisplayMenuStateSnapshot snapshot;
+  if (!client->GetAsrDisplayMenuState(&snapshot, error)) {
     return false;
   }
-  const auto display_state = ReadState(state);
-  if (!display_state.has_value() || display_state->target_provider_id.empty() ||
-      display_state->effective_provider_id.empty() || display_state->item_count == 0) {
-    if (error != nullptr) {
-      *error = "ASR display menu state did not expose target, effective, and rows";
-    }
-    return false;
-  }
-
-  const auto expected_provider =
-      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_PROVIDER");
-  const auto expected_model =
-      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_MODEL");
-  const auto expected_id =
-      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_ID");
-  const auto expected_title =
-      OptionalExpectedText("VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_TITLE");
-  if (expected_provider.empty() && expected_model.empty() && expected_id.empty() &&
-      expected_title.empty()) {
+  const auto projection = ProjectAsr(snapshot);
+  if (projection.has_value() && !projection->effective_label.empty()) {
     return true;
   }
-  if (expected_provider.empty() || expected_model.empty() || expected_id.empty() ||
-      expected_title.empty()) {
-    if (error != nullptr) {
-      *error = "ASR display expectation requires provider, model, id, and title";
-    }
-    return false;
-  }
-
-  for (std::size_t index = 0; index < display_state->item_count; ++index) {
-    const auto target = ReadItem(state, index);
-    if (target.has_value() && target->provider_id == expected_provider &&
-        target->model_value == expected_model && target->item_id == expected_id &&
-        target->display_title == expected_title) {
-      return true;
-    }
-  }
   if (error != nullptr) {
-    *error = "ASR display menu state missing expected localized row";
+    *error = "ASR display state did not produce a projection";
   }
   return false;
 }
@@ -399,9 +418,14 @@ int main() {
     std::cerr << "ASR display menu state check failed: " << error << '\n';
     return 1;
   }
+  SceneStateSnapshot frontend_scene_state;
+  if (!client->GetSceneState(&frontend_scene_state, &error)) {
+    std::cerr << "frontend scene state check failed: " << error << '\n';
+    return 1;
+  }
   FrontendBridge normal_bridge;
   auto normal_start =
-      normal_bridge.StartNormal(client->raw_handle(), kDefaultNormalSceneId);
+      normal_bridge.StartNormal(client->raw_handle(), frontend_scene_state);
   if (normal_start.kind != BridgeOutcome::Kind::Preedit) {
     std::cerr << "normal start failed: " << normal_start.text << '\n';
     return 1;
@@ -415,7 +439,7 @@ int main() {
 
   const auto expected_normal_text =
       ExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
-  auto normal_stop = normal_bridge.Stop(client->raw_handle(), kDefaultNormalSceneId);
+  auto normal_stop = normal_bridge.Stop(client->raw_handle(), frontend_scene_state);
   if (normal_stop.kind != BridgeOutcome::Kind::Commit ||
       normal_stop.text != expected_normal_text) {
     std::cerr << "normal stop did not produce expected commit text: "
@@ -434,8 +458,8 @@ int main() {
   }
 
   FrontendBridge command_bridge;
-  auto command_start = command_bridge.StartCommand(
-      client->raw_handle(), "selected text", kDefaultCommandSceneId);
+  auto command_start =
+      command_bridge.StartCommand(client->raw_handle(), "selected text", {});
   if (command_start.kind != BridgeOutcome::Kind::Preedit) {
     std::cerr << "command start failed: " << command_start.text << '\n';
     return 1;
@@ -450,7 +474,7 @@ int main() {
 
   const auto expected_command_text = ExpectedText(
       "VINPUT_DBUS_SMOKE_EXPECTED_COMMAND", "mock command result for: selected text");
-  auto command_stop = command_bridge.Stop(client->raw_handle(), kDefaultCommandSceneId);
+  auto command_stop = command_bridge.Stop(client->raw_handle(), frontend_scene_state);
   if (command_stop.kind != BridgeOutcome::Kind::Commit ||
       command_stop.text != expected_command_text) {
     std::cerr << "command stop did not produce expected commit text: "
