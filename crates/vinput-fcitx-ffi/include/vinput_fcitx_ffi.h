@@ -9,6 +9,8 @@ extern "C" {
 
 typedef struct VinputFcitxAsrProjection VinputFcitxAsrProjection;
 typedef struct VinputFcitxAsrDisplaySnapshot VinputFcitxAsrDisplaySnapshot;
+typedef struct VinputFcitxDaemonClient VinputFcitxDaemonClient;
+typedef struct VinputFcitxDaemonResponse VinputFcitxDaemonResponse;
 typedef struct VinputFcitxFrontendController VinputFcitxFrontendController;
 typedef struct VinputFcitxFrontendOutcome VinputFcitxFrontendOutcome;
 typedef struct VinputFcitxMenuFilterState VinputFcitxMenuFilterState;
@@ -120,6 +122,71 @@ typedef struct VinputFcitxTriggerStateView {
   uint8_t has_active_trigger;
 } VinputFcitxTriggerStateView;
 
+typedef struct VinputFcitxDaemonResponseView {
+  uint8_t kind;
+  uint8_t bool_value;
+  VinputFcitxStringView text;
+} VinputFcitxDaemonResponseView;
+
+typedef struct VinputFcitxDaemonSignalPlanView {
+  uint8_t kind;
+  uint8_t translate;
+  VinputFcitxStringView text;
+} VinputFcitxDaemonSignalPlanView;
+
+enum {
+  VINPUT_FCITX_DAEMON_CONTROL_EVENT_AVAILABILITY_CHANGED = 0,
+  VINPUT_FCITX_DAEMON_CONTROL_EVENT_STATUS_CHANGED = 1,
+  VINPUT_FCITX_DAEMON_CONTROL_EVENT_RECONCILE_BEFORE_START = 2,
+};
+
+enum {
+  VINPUT_FCITX_DAEMON_CONTROL_PLAN_NONE = 0,
+  VINPUT_FCITX_DAEMON_CONTROL_PLAN_RESET_UNAVAILABLE = 1,
+  VINPUT_FCITX_DAEMON_CONTROL_PLAN_CLEAR_REMOTE_STATUS = 2,
+  VINPUT_FCITX_DAEMON_CONTROL_PLAN_RESET_LOCAL_RECORDING = 3,
+  VINPUT_FCITX_DAEMON_CONTROL_PLAN_UPDATE_LOCAL_PREEDIT = 4,
+  VINPUT_FCITX_DAEMON_CONTROL_PLAN_PRESENT_REMOTE_STATUS = 5,
+  VINPUT_FCITX_DAEMON_CONTROL_PLAN_ADOPT_AND_STOP_NORMAL = 6,
+  VINPUT_FCITX_DAEMON_CONTROL_PLAN_CLEAR_DAEMON_ERROR = 7,
+};
+
+enum {
+  VINPUT_FCITX_DAEMON_SIGNAL_PLAN_CLEAR = 0,
+  VINPUT_FCITX_DAEMON_SIGNAL_PLAN_PARTIAL = 1,
+  VINPUT_FCITX_DAEMON_SIGNAL_PLAN_RECORDING = 2,
+  VINPUT_FCITX_DAEMON_SIGNAL_PLAN_COMMANDING = 3,
+  VINPUT_FCITX_DAEMON_SIGNAL_PLAN_RECOGNIZING = 4,
+  VINPUT_FCITX_DAEMON_SIGNAL_PLAN_POSTPROCESSING = 5,
+  VINPUT_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO = 6,
+  VINPUT_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_ERROR = 7,
+};
+
+enum {
+  VINPUT_FCITX_DAEMON_RESPONSE_ERROR = 0,
+  VINPUT_FCITX_DAEMON_RESPONSE_NONE = 1,
+  VINPUT_FCITX_DAEMON_RESPONSE_TEXT = 2,
+  VINPUT_FCITX_DAEMON_RESPONSE_BOOL = 3,
+  VINPUT_FCITX_DAEMON_RESPONSE_SCENE_SNAPSHOT = 4,
+  VINPUT_FCITX_DAEMON_RESPONSE_ASR_DISPLAY_SNAPSHOT = 5,
+};
+
+enum {
+  VINPUT_FCITX_DAEMON_OPERATION_START_RECORDING = 0,
+  VINPUT_FCITX_DAEMON_OPERATION_START_COMMAND_RECORDING = 1,
+  VINPUT_FCITX_DAEMON_OPERATION_STOP_RECORDING = 2,
+  VINPUT_FCITX_DAEMON_OPERATION_GET_STATUS = 3,
+  VINPUT_FCITX_DAEMON_OPERATION_GET_SCENE_STATE = 4,
+  VINPUT_FCITX_DAEMON_OPERATION_SET_ACTIVE_SCENE = 5,
+  VINPUT_FCITX_DAEMON_OPERATION_GET_ASR_DISPLAY_MENU_STATE = 6,
+  VINPUT_FCITX_DAEMON_OPERATION_SET_ACTIVE_ASR_PROVIDER = 7,
+  VINPUT_FCITX_DAEMON_OPERATION_SET_ACTIVE_ASR_TARGET = 8,
+  VINPUT_FCITX_DAEMON_OPERATION_GET_TEXT_ADAPTER_STATE = 9,
+  VINPUT_FCITX_DAEMON_OPERATION_START_ADAPTER = 10,
+  VINPUT_FCITX_DAEMON_OPERATION_STOP_ADAPTER = 11,
+  VINPUT_FCITX_DAEMON_OPERATION_GET_RUNTIME_STATUS = 12,
+};
+
 enum {
   VINPUT_FCITX_FRONTEND_STEP_INVALID = 0,
   VINPUT_FCITX_FRONTEND_STEP_CALL_READY = 1,
@@ -131,6 +198,28 @@ enum {
   VINPUT_FCITX_FRONTEND_CALL_START_NORMAL = 1,
   VINPUT_FCITX_FRONTEND_CALL_START_COMMAND = 2,
   VINPUT_FCITX_FRONTEND_CALL_STOP = 3,
+};
+
+enum {
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_NONE = 0,
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_START_NORMAL = 1,
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_STOP_NORMAL = 2,
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_START_COMMAND = 3,
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_STOP_COMMAND = 4,
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU = 5,
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_CONSUME_SCENE_MENU_RELEASE = 6,
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_SHOW_ASR_MENU = 7,
+  VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_CONSUME_ASR_MENU_RELEASE = 8,
+};
+
+enum {
+  VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_NONE = 0,
+  VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_START_NORMAL = 1,
+  VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_STOP_NORMAL = 2,
+  VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_START_COMMAND = 3,
+  VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_STOP_COMMAND = 4,
+  VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_SHOW_SCENE_MENU = 5,
+  VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU = 6,
 };
 
 enum {
@@ -288,6 +377,37 @@ uint8_t vinput_fcitx_scene_projection_item_view(
     const VinputFcitxSceneProjection *projection, size_t index,
     VinputFcitxProjectedMenuItemView *view_out);
 
+uint8_t vinput_fcitx_daemon_control_plan(
+    uint8_t event, const uint8_t *status_data, size_t status_len,
+    uint8_t flag, uint8_t recording, uint8_t remote_status_active);
+uint8_t vinput_fcitx_daemon_status_preedit_plan(
+    const uint8_t *status_data, size_t status_len, uint8_t command_mode,
+    const uint8_t *partial_data, size_t partial_len,
+    VinputFcitxDaemonSignalPlanView *view_out);
+uint8_t vinput_fcitx_daemon_notification_plan(
+    const uint8_t *code_data, size_t code_len,
+    const uint8_t *subject_data, size_t subject_len,
+    const uint8_t *detail_data, size_t detail_len,
+    const uint8_t *raw_data, size_t raw_len,
+    VinputFcitxDaemonSignalPlanView *view_out);
+
+VinputFcitxDaemonClient *vinput_fcitx_daemon_client_connect(
+    VinputFcitxDaemonResponse **error_out);
+void vinput_fcitx_daemon_client_free(VinputFcitxDaemonClient *client);
+VinputFcitxDaemonResponse *vinput_fcitx_daemon_client_call(
+    const VinputFcitxDaemonClient *client, uint8_t operation,
+    const uint8_t *first_data, size_t first_len,
+    const uint8_t *second_data, size_t second_len);
+void vinput_fcitx_daemon_response_free(VinputFcitxDaemonResponse *response);
+uint8_t vinput_fcitx_daemon_response_view(
+    const VinputFcitxDaemonResponse *response,
+    VinputFcitxDaemonResponseView *view_out);
+VinputFcitxSceneSnapshot *vinput_fcitx_daemon_response_take_scene_snapshot(
+    VinputFcitxDaemonResponse *response);
+VinputFcitxAsrDisplaySnapshot *
+vinput_fcitx_daemon_response_take_asr_display_snapshot(
+    VinputFcitxDaemonResponse *response);
+
 VinputFcitxTriggerState *vinput_fcitx_trigger_state_new(uint8_t mode);
 void vinput_fcitx_trigger_state_free(VinputFcitxTriggerState *state);
 uint8_t vinput_fcitx_trigger_state_dispatch(
@@ -304,6 +424,9 @@ uint8_t vinput_fcitx_frontend_controller_recording(
     const VinputFcitxFrontendController *controller);
 uint8_t vinput_fcitx_frontend_controller_command_mode(
     const VinputFcitxFrontendController *controller);
+uint8_t vinput_fcitx_frontend_controller_plan_trigger(
+    const VinputFcitxFrontendController *controller, uint8_t request,
+    uint8_t *intent_out);
 uint8_t vinput_fcitx_frontend_controller_start_normal(
     VinputFcitxFrontendController *controller, const uint8_t *scene_data,
     size_t scene_len, uint8_t has_scene,

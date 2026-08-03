@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vinput_fcitx_bridge/frontend_bridge.h"
+
 #include <cstdint>
 
 #include <fcitx-utils/key.h>
@@ -7,17 +9,7 @@
 
 namespace vinput_fcitx_bridge {
 
-enum class FcitxTriggerAction : std::uint8_t {
-  None,
-  StartNormal,
-  StopNormal,
-  StartCommand,
-  StopCommand,
-  ShowSceneMenu,
-  ConsumeSceneMenuRelease,
-  ShowAsrMenu,
-  ConsumeAsrMenuRelease,
-};
+using FcitxTriggerAction = FrontendTriggerRequest;
 
 class FcitxKeyTriggerPolicy {
 public:

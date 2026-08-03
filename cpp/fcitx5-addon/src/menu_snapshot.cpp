@@ -24,6 +24,13 @@ SceneStateSnapshot::SceneStateSnapshot(std::string_view active_scene_id)
     : snapshot_(vinput_fcitx_scene_snapshot_new(Bytes(active_scene_id),
                                                 active_scene_id.size())) {}
 
+SceneStateSnapshot::SceneStateSnapshot(VinputFcitxSceneSnapshot *snapshot)
+    : snapshot_(snapshot) {}
+
+SceneStateSnapshot SceneStateSnapshot::Adopt(VinputFcitxSceneSnapshot *snapshot) {
+  return SceneStateSnapshot(snapshot);
+}
+
 SceneStateSnapshot::~SceneStateSnapshot() {
   vinput_fcitx_scene_snapshot_free(snapshot_);
 }
@@ -71,6 +78,15 @@ std::optional<SceneStateItem> SceneStateSnapshot::item(std::size_t index) const 
 
 const ::VinputFcitxSceneSnapshot *SceneStateSnapshot::raw_handle() const {
   return snapshot_;
+}
+
+AsrDisplayMenuStateSnapshot::AsrDisplayMenuStateSnapshot(
+    VinputFcitxAsrDisplaySnapshot *snapshot)
+    : snapshot_(snapshot) {}
+
+AsrDisplayMenuStateSnapshot
+AsrDisplayMenuStateSnapshot::Adopt(VinputFcitxAsrDisplaySnapshot *snapshot) {
+  return AsrDisplayMenuStateSnapshot(snapshot);
 }
 
 AsrDisplayMenuStateSnapshot::AsrDisplayMenuStateSnapshot(

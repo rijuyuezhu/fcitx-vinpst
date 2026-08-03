@@ -62,6 +62,20 @@ pub mod method {
     pub const NOTIFY: &str = "Notify";
 }
 
+/// Stable status strings returned by `GetStatus` and `StatusChanged`.
+pub mod status {
+    /// The daemon is idle.
+    pub const IDLE: &str = "idle";
+    /// The daemon is recording audio.
+    pub const RECORDING: &str = "recording";
+    /// The daemon is running ASR inference.
+    pub const INFERRING: &str = "inferring";
+    /// The daemon is applying postprocessing.
+    pub const POSTPROCESSING: &str = "postprocessing";
+    /// The daemon entered an error state.
+    pub const ERROR: &str = "error";
+}
+
 /// D-Bus error names that are part of the legacy ABI.
 pub mod error {
     /// Legacy operation failure error returned by daemon methods.
@@ -168,6 +182,11 @@ mod tests {
         assert_eq!(method::SET_ACTIVE_ASR_TARGET, "SetActiveAsrTarget");
         assert_eq!(method::GET_ASR_DISPLAY_MENU_STATE, "GetAsrDisplayMenuState");
         assert_eq!(method::NOTIFY, "Notify");
+        assert_eq!(status::IDLE, "idle");
+        assert_eq!(status::RECORDING, "recording");
+        assert_eq!(status::INFERRING, "inferring");
+        assert_eq!(status::POSTPROCESSING, "postprocessing");
+        assert_eq!(status::ERROR, "error");
         assert_eq!(
             error::OPERATION_FAILED,
             "org.fcitx.Vinput.Error.OperationFailed"
@@ -184,6 +203,11 @@ mod tests {
         );
         assert_eq!(signature::ERROR_INFO, "ssss");
         assert_eq!(method::NOTIFY, "Notify");
+        assert_eq!(status::IDLE, "idle");
+        assert_eq!(status::RECORDING, "recording");
+        assert_eq!(status::INFERRING, "inferring");
+        assert_eq!(status::POSTPROCESSING, "postprocessing");
+        assert_eq!(status::ERROR, "error");
     }
 
     #[test]

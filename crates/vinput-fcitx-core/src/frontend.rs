@@ -223,6 +223,48 @@ impl FrontendOutcome {
     }
 }
 
+/// Semantic trigger request classified by the retained Fcitx key adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontendTriggerRequest {
+    /// No semantic action.
+    None,
+    /// Start normal dictation.
+    StartNormal,
+    /// Stop normal dictation.
+    StopNormal,
+    /// Start command dictation.
+    StartCommand,
+    /// Stop command dictation.
+    StopCommand,
+    /// Open the scene menu.
+    ShowSceneMenu,
+    /// Consume the scene-menu trigger release.
+    ConsumeSceneMenuRelease,
+    /// Open the ASR menu.
+    ShowAsrMenu,
+    /// Consume the ASR-menu trigger release.
+    ConsumeAsrMenuRelease,
+}
+
+/// Frontend intent after applying session-state gating in Rust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontendTriggerIntent {
+    /// Ignore the request without changing frontend state.
+    None,
+    /// Reconcile and start normal dictation.
+    StartNormal,
+    /// Stop the active normal dictation session.
+    StopNormal,
+    /// Reconcile and start command dictation.
+    StartCommand,
+    /// Stop the active command dictation session.
+    StopCommand,
+    /// Open the scene menu.
+    ShowSceneMenu,
+    /// Open the ASR menu.
+    ShowAsrMenu,
+}
+
 /// Result of preparing an external daemon operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FrontendStep {
@@ -256,6 +298,44 @@ impl FrontendController {
     #[must_use]
     pub const fn pending_call(&self) -> Option<&FrontendCall> {
         self.pending_call.as_ref()
+    }
+
+    /// Applies current session-state gating to one semantic trigger request.
+    #[must_use]
+    pub const fn plan_trigger(&self, request: FrontendTriggerRequest) -> FrontendTriggerIntent {
+        match request {
+            FrontendTriggerRequest::StartNormal if !self.state.recording() => {
+                FrontendTriggerIntent::StartNormal
+            }
+            FrontendTriggerRequest::StopNormal
+                if self.state.recording() && !self.state.command_mode() =>
+            {
+                FrontendTriggerIntent::StopNormal
+            }
+            FrontendTriggerRequest::StartCommand if !self.state.recording() => {
+                FrontendTriggerIntent::StartCommand
+            }
+            FrontendTriggerRequest::StopCommand
+                if self.state.recording() && self.state.command_mode() =>
+            {
+                FrontendTriggerIntent::StopCommand
+            }
+            FrontendTriggerRequest::ShowSceneMenu if !self.state.recording() => {
+                FrontendTriggerIntent::ShowSceneMenu
+            }
+            FrontendTriggerRequest::ShowAsrMenu if !self.state.recording() => {
+                FrontendTriggerIntent::ShowAsrMenu
+            }
+            FrontendTriggerRequest::None
+            | FrontendTriggerRequest::StartNormal
+            | FrontendTriggerRequest::StopNormal
+            | FrontendTriggerRequest::StartCommand
+            | FrontendTriggerRequest::StopCommand
+            | FrontendTriggerRequest::ShowSceneMenu
+            | FrontendTriggerRequest::ConsumeSceneMenuRelease
+            | FrontendTriggerRequest::ShowAsrMenu
+            | FrontendTriggerRequest::ConsumeAsrMenuRelease => FrontendTriggerIntent::None,
+        }
     }
 
     /// Prepares a normal-dictation start.
@@ -387,8 +467,9 @@ pub fn make_commit_plan(json: &str, command_mode: bool) -> CommitPlan {
 mod tests {
     use super::{
         COMMANDING_PREEDIT, DAEMON_UNAVAILABLE_ERROR, FrontendCall, FrontendController,
-        FrontendOutcome, FrontendOutcomeKind, FrontendState, FrontendStep, NO_SELECTION_ERROR,
-        RECORDING_PREEDIT, make_commit_plan, parse_recognition_payload, should_show_candidate_menu,
+        FrontendOutcome, FrontendOutcomeKind, FrontendState, FrontendStep, FrontendTriggerIntent,
+        FrontendTriggerRequest, NO_SELECTION_ERROR, RECORDING_PREEDIT, make_commit_plan,
+        parse_recognition_payload, should_show_candidate_menu,
     };
     use vinput_protocol::{Candidate, CandidateSource};
 
@@ -580,5 +661,53 @@ mod tests {
             false,
         );
         assert_eq!(cancel.kind(), FrontendOutcomeKind::Clear);
+    }
+    #[test]
+    fn gates_semantic_triggers_from_rust_session_state() {
+        let mut controller = FrontendController::default();
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::StartNormal),
+            FrontendTriggerIntent::StartNormal
+        );
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::StopNormal),
+            FrontendTriggerIntent::None
+        );
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::ShowSceneMenu),
+            FrontendTriggerIntent::ShowSceneMenu
+        );
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::ShowAsrMenu),
+            FrontendTriggerIntent::ShowAsrMenu
+        );
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::ConsumeSceneMenuRelease),
+            FrontendTriggerIntent::None
+        );
+
+        controller.start_normal(Some("scene"));
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::StopNormal),
+            FrontendTriggerIntent::StopNormal
+        );
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::StartCommand),
+            FrontendTriggerIntent::None
+        );
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::ShowSceneMenu),
+            FrontendTriggerIntent::None
+        );
+
+        controller.start_command("selected", None);
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::StopCommand),
+            FrontendTriggerIntent::StopCommand
+        );
+        assert_eq!(
+            controller.plan_trigger(FrontendTriggerRequest::StopNormal),
+            FrontendTriggerIntent::None
+        );
     }
 }

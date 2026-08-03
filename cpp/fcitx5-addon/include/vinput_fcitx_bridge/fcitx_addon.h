@@ -64,6 +64,10 @@ private:
   AppliedOutcome ApplyDaemonUnavailable(fcitx::InputContext *ic, std::string error);
   AppliedOutcome ApplyBridgeOutcome(fcitx::InputContext *ic,
                                     const BridgeOutcome &outcome);
+  std::optional<AppliedOutcome> ExecuteDaemonControl(std::uint8_t event,
+                                                     fcitx::InputContext *ic,
+                                                     std::string_view status, bool flag,
+                                                     bool command_mode);
   std::optional<AppliedOutcome>
   ReconcileDaemonStatusBeforeStart(fcitx::InputContext *ic, TriggerKind kind);
   AppliedOutcome PresentRemoteDaemonStatus(fcitx::InputContext *ic,
@@ -90,6 +94,7 @@ private:
   void HandleDaemonNotification(const DaemonNotificationPayload &payload);
   void UpdateLivePreedit();
   void ResetLiveSignalState();
+  void ResetActiveRecording(fcitx::InputContext *ic);
   void Notify(FrontendNotificationKind kind, std::string_view message);
   void HandleTriggerModeAction(fcitx::InputContext *ic, TriggerModeAction action);
   void ScheduleTriggerStart(fcitx::InputContext *ic);

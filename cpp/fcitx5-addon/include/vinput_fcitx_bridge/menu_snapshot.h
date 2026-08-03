@@ -24,6 +24,7 @@ class SceneStateSnapshot {
 public:
   SceneStateSnapshot() = default;
   explicit SceneStateSnapshot(std::string_view active_scene_id);
+  static SceneStateSnapshot Adopt(::VinputFcitxSceneSnapshot *snapshot);
   ~SceneStateSnapshot();
 
   SceneStateSnapshot(const SceneStateSnapshot &) = delete;
@@ -39,6 +40,7 @@ public:
   const ::VinputFcitxSceneSnapshot *raw_handle() const;
 
 private:
+  explicit SceneStateSnapshot(::VinputFcitxSceneSnapshot *snapshot);
   ::VinputFcitxSceneSnapshot *snapshot_ = nullptr;
 };
 
@@ -73,6 +75,7 @@ struct AsrDisplayMenuState {
 class AsrDisplayMenuStateSnapshot {
 public:
   AsrDisplayMenuStateSnapshot() = default;
+  static AsrDisplayMenuStateSnapshot Adopt(::VinputFcitxAsrDisplaySnapshot *snapshot);
   AsrDisplayMenuStateSnapshot(std::string_view target_provider_id,
                               std::string_view target_model_id,
                               std::string_view effective_provider_id,
@@ -95,6 +98,7 @@ public:
   const ::VinputFcitxAsrDisplaySnapshot *raw_handle() const;
 
 private:
+  explicit AsrDisplayMenuStateSnapshot(::VinputFcitxAsrDisplaySnapshot *snapshot);
   ::VinputFcitxAsrDisplaySnapshot *snapshot_ = nullptr;
 };
 

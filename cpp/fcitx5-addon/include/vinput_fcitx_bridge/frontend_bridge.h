@@ -22,6 +22,28 @@ public:
                              std::string *error) = 0;
 };
 
+enum class FrontendTriggerRequest : std::uint8_t {
+  None,
+  StartNormal,
+  StopNormal,
+  StartCommand,
+  StopCommand,
+  ShowSceneMenu,
+  ConsumeSceneMenuRelease,
+  ShowAsrMenu,
+  ConsumeAsrMenuRelease,
+};
+
+enum class FrontendTriggerIntent : std::uint8_t {
+  None,
+  StartNormal,
+  StopNormal,
+  StartCommand,
+  StopCommand,
+  ShowSceneMenu,
+  ShowAsrMenu,
+};
+
 struct BridgeOutcome {
   enum class Kind : std::uint8_t { None, Preedit, Clear, Commit, CandidateMenu, Error };
 
@@ -50,6 +72,7 @@ public:
   void AdoptRecording(bool command_mode, std::string_view scene_id);
   void Reset();
 
+  FrontendTriggerIntent PlanTrigger(FrontendTriggerRequest request) const;
   bool recording() const;
   bool command_mode() const;
 

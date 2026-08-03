@@ -8,6 +8,16 @@
 namespace vinput_fcitx_bridge {
 namespace {
 
+static_assert(static_cast<std::uint8_t>(FrontendTriggerRequest::None) ==
+              VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_NONE);
+static_assert(
+    static_cast<std::uint8_t>(FrontendTriggerRequest::ConsumeAsrMenuRelease) ==
+    VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_CONSUME_ASR_MENU_RELEASE);
+static_assert(static_cast<std::uint8_t>(FrontendTriggerIntent::None) ==
+              VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_NONE);
+static_assert(static_cast<std::uint8_t>(FrontendTriggerIntent::ShowAsrMenu) ==
+              VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU);
+
 struct OutcomeDeleter {
   void operator()(VinputFcitxFrontendOutcome *outcome) const {
     vinput_fcitx_frontend_outcome_free(outcome);
@@ -95,6 +105,17 @@ FrontendBridge::FrontendBridge()
 
 FrontendBridge::~FrontendBridge() {
   vinput_fcitx_frontend_controller_free(controller_);
+}
+
+FrontendTriggerIntent
+FrontendBridge::PlanTrigger(FrontendTriggerRequest request) const {
+  std::uint8_t intent = VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_NONE;
+  if (vinput_fcitx_frontend_controller_plan_trigger(
+          controller_, static_cast<std::uint8_t>(request), &intent) == 0 ||
+      intent > VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU) {
+    return FrontendTriggerIntent::None;
+  }
+  return static_cast<FrontendTriggerIntent>(intent);
 }
 
 bool FrontendBridge::recording() const {

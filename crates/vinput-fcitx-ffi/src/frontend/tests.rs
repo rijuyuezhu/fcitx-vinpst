@@ -2,11 +2,17 @@ use std::ptr;
 
 use super::{
     FRONTEND_CALL_START_COMMAND, FRONTEND_CALL_START_NORMAL, FRONTEND_CALL_STOP,
-    FRONTEND_STEP_CALL_READY, FRONTEND_STEP_OUTCOME_READY, VinputFcitxCandidateView,
-    VinputFcitxFrontendOutcome, VinputFcitxFrontendOutcomeView, VinputFcitxStringView,
-    vinput_fcitx_frontend_controller_adopt, vinput_fcitx_frontend_controller_command_mode,
-    vinput_fcitx_frontend_controller_complete, vinput_fcitx_frontend_controller_free,
-    vinput_fcitx_frontend_controller_new, vinput_fcitx_frontend_controller_pending_call,
+    FRONTEND_STEP_CALL_READY, FRONTEND_STEP_OUTCOME_READY, FRONTEND_TRIGGER_INTENT_NONE,
+    FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU, FRONTEND_TRIGGER_INTENT_SHOW_SCENE_MENU,
+    FRONTEND_TRIGGER_INTENT_START_NORMAL, FRONTEND_TRIGGER_INTENT_STOP_COMMAND,
+    FRONTEND_TRIGGER_INTENT_STOP_NORMAL, FRONTEND_TRIGGER_REQUEST_SHOW_ASR_MENU,
+    FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU, FRONTEND_TRIGGER_REQUEST_START_NORMAL,
+    FRONTEND_TRIGGER_REQUEST_STOP_COMMAND, FRONTEND_TRIGGER_REQUEST_STOP_NORMAL,
+    VinputFcitxCandidateView, VinputFcitxFrontendOutcome, VinputFcitxFrontendOutcomeView,
+    VinputFcitxStringView, vinput_fcitx_frontend_controller_adopt,
+    vinput_fcitx_frontend_controller_command_mode, vinput_fcitx_frontend_controller_complete,
+    vinput_fcitx_frontend_controller_free, vinput_fcitx_frontend_controller_new,
+    vinput_fcitx_frontend_controller_pending_call, vinput_fcitx_frontend_controller_plan_trigger,
     vinput_fcitx_frontend_controller_recording, vinput_fcitx_frontend_controller_start_command,
     vinput_fcitx_frontend_controller_start_normal, vinput_fcitx_frontend_controller_stop,
     vinput_fcitx_frontend_outcome_candidate, vinput_fcitx_frontend_outcome_free,
@@ -239,6 +245,92 @@ fn rejects_invalid_utf8_without_mutating_controller() {
         );
         assert!(outcome.is_null());
         assert_eq!(vinput_fcitx_frontend_controller_recording(controller), 0);
+        vinput_fcitx_frontend_controller_free(controller);
+    }
+}
+
+#[test]
+fn gates_semantic_trigger_requests_through_controller_state() {
+    // SAFETY: The controller is live for all calls and freed exactly once.
+    unsafe {
+        let controller = vinput_fcitx_frontend_controller_new();
+        let mut intent = u8::MAX;
+        assert_eq!(
+            vinput_fcitx_frontend_controller_plan_trigger(
+                controller,
+                FRONTEND_TRIGGER_REQUEST_START_NORMAL,
+                &raw mut intent,
+            ),
+            1,
+        );
+        assert_eq!(intent, FRONTEND_TRIGGER_INTENT_START_NORMAL);
+        assert_eq!(
+            vinput_fcitx_frontend_controller_plan_trigger(
+                controller,
+                FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU,
+                &raw mut intent,
+            ),
+            1,
+        );
+        assert_eq!(intent, FRONTEND_TRIGGER_INTENT_SHOW_SCENE_MENU);
+        assert_eq!(
+            vinput_fcitx_frontend_controller_plan_trigger(
+                controller,
+                FRONTEND_TRIGGER_REQUEST_SHOW_ASR_MENU,
+                &raw mut intent,
+            ),
+            1,
+        );
+        assert_eq!(intent, FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU);
+
+        let mut outcome = ptr::null_mut();
+        assert_eq!(
+            vinput_fcitx_frontend_controller_start_normal(
+                controller,
+                ptr::null(),
+                0,
+                0,
+                &raw mut outcome,
+            ),
+            FRONTEND_STEP_CALL_READY,
+        );
+        assert_eq!(
+            vinput_fcitx_frontend_controller_plan_trigger(
+                controller,
+                FRONTEND_TRIGGER_REQUEST_STOP_NORMAL,
+                &raw mut intent,
+            ),
+            1,
+        );
+        assert_eq!(intent, FRONTEND_TRIGGER_INTENT_STOP_NORMAL);
+        assert_eq!(
+            vinput_fcitx_frontend_controller_plan_trigger(
+                controller,
+                FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU,
+                &raw mut intent,
+            ),
+            1,
+        );
+        assert_eq!(intent, FRONTEND_TRIGGER_INTENT_NONE);
+
+        assert_eq!(
+            vinput_fcitx_frontend_controller_adopt(controller, 1, b"command".as_ptr(), 7,),
+            1,
+        );
+        assert_eq!(
+            vinput_fcitx_frontend_controller_plan_trigger(
+                controller,
+                FRONTEND_TRIGGER_REQUEST_STOP_COMMAND,
+                &raw mut intent,
+            ),
+            1,
+        );
+        assert_eq!(intent, FRONTEND_TRIGGER_INTENT_STOP_COMMAND);
+        assert_eq!(
+            vinput_fcitx_frontend_controller_plan_trigger(controller, 99, &raw mut intent),
+            0,
+        );
+        assert_eq!(intent, FRONTEND_TRIGGER_INTENT_STOP_COMMAND);
         vinput_fcitx_frontend_controller_free(controller);
     }
 }

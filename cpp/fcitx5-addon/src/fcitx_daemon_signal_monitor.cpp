@@ -2,10 +2,12 @@
 
 #include "vinput_fcitx_bridge/dbus_contract.h"
 #include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <fcitx-utils/dbus/matchrule.h>
 #include <fcitx-utils/dbus/message.h>
 
+#include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -14,7 +16,6 @@
 namespace vinput_fcitx_bridge {
 namespace {
 
-constexpr std::string_view kUnknownErrorCode = "unknown";
 constexpr std::string_view kDbusService = "org.freedesktop.DBus";
 constexpr std::string_view kDbusPath = "/org/freedesktop/DBus";
 constexpr std::string_view kDbusInterface = "org.freedesktop.DBus";
@@ -37,6 +38,22 @@ Rule SignalMatchRule(std::string service, std::string path, std::string interfac
     return Rule{std::move(service), std::move(path), std::move(interface),
                 std::move(name), std::move(argument_match)};
   }
+}
+
+const std::uint8_t *Bytes(std::string_view value) {
+  return value.empty() ? nullptr : reinterpret_cast<const std::uint8_t *>(value.data());
+}
+
+std::string CopyText(VinputFcitxStringView view) {
+  if (view.data == nullptr || view.len == 0) {
+    return {};
+  }
+  return {reinterpret_cast<const char *>(view.data), view.len};
+}
+
+std::string RenderPlan(const VinputFcitxDaemonSignalPlanView &plan) {
+  const auto text = CopyText(plan.text);
+  return plan.translate != 0 ? FrontendText(text) : text;
 }
 
 std::unique_ptr<fcitx::dbus::Slot>
@@ -68,46 +85,30 @@ bool DaemonNotificationPayload::empty() const {
   return code.empty() && subject.empty() && detail.empty() && raw_message.empty();
 }
 
-FrontendNotificationKind
-ClassifyDaemonNotification(const DaemonNotificationPayload &payload) {
-  if ((!payload.code.empty() && payload.code != kUnknownErrorCode) ||
-      !payload.subject.empty() || !payload.detail.empty()) {
-    return FrontendNotificationKind::Error;
+DaemonNotificationPresentation
+PresentDaemonNotification(const DaemonNotificationPayload &payload) {
+  VinputFcitxDaemonSignalPlanView plan{};
+  if (vinput_fcitx_daemon_notification_plan(
+          Bytes(payload.code), payload.code.size(), Bytes(payload.subject),
+          payload.subject.size(), Bytes(payload.detail), payload.detail.size(),
+          Bytes(payload.raw_message), payload.raw_message.size(), &plan) == 0) {
+    return {FrontendNotificationKind::Error, FrontendText("Unknown error.")};
   }
-  return FrontendNotificationKind::Info;
-}
-
-std::string RenderDaemonNotification(const DaemonNotificationPayload &payload) {
-  if (!payload.raw_message.empty()) {
-    return payload.raw_message;
-  }
-  if (!payload.detail.empty()) {
-    return payload.detail;
-  }
-  if (!payload.subject.empty()) {
-    return payload.subject;
-  }
-  if (!payload.code.empty() && payload.code != kUnknownErrorCode) {
-    return payload.code;
-  }
-  return FrontendText("Unknown error.");
+  const auto kind = plan.kind == VINPUT_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO
+                        ? FrontendNotificationKind::Info
+                        : FrontendNotificationKind::Error;
+  return {kind, RenderPlan(plan)};
 }
 
 std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
                                        std::string_view partial_text) {
-  if (!partial_text.empty()) {
-    return std::string(partial_text);
+  VinputFcitxDaemonSignalPlanView plan{};
+  if (vinput_fcitx_daemon_status_preedit_plan(
+          Bytes(status), status.size(), static_cast<std::uint8_t>(command_mode),
+          Bytes(partial_text), partial_text.size(), &plan) == 0) {
+    return {};
   }
-  if (status == dbus::kStatusRecording) {
-    return FrontendText(command_mode ? "... Commanding ..." : "... Recording ...");
-  }
-  if (status == dbus::kStatusInferring) {
-    return FrontendText("... Recognizing ...");
-  }
-  if (status == dbus::kStatusPostprocessing) {
-    return FrontendText("... Postprocessing ...");
-  }
-  return {};
+  return RenderPlan(plan);
 }
 
 FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,

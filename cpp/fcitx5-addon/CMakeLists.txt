@@ -49,6 +49,7 @@ set(
 file(
   GLOB_RECURSE VINPUT_FCITX_RUST_SOURCES CONFIGURE_DEPENDS
   "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-core/src/*.rs"
+  "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-dbus/src/*.rs"
   "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-ffi/src/*.rs"
   "${VINPUT_REPOSITORY_ROOT}/crates/vinput-protocol/src/*.rs"
 )
@@ -64,6 +65,7 @@ add_custom_command(
     "${VINPUT_REPOSITORY_ROOT}/Cargo.toml"
     "${VINPUT_REPOSITORY_ROOT}/Cargo.lock"
     "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-core/Cargo.toml"
+    "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-dbus/Cargo.toml"
     "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-ffi/Cargo.toml"
     "${VINPUT_REPOSITORY_ROOT}/crates/vinput-protocol/Cargo.toml"
     ${VINPUT_FCITX_RUST_SOURCES}
@@ -132,10 +134,8 @@ target_link_libraries(vinput_fcitx_bridge_sdbus
   PUBLIC
     vinput_fcitx_bridge::core
   PRIVATE
-    ${SYSTEMD_LIBRARIES}
+    vinput_fcitx_rust_ffi
 )
-target_include_directories(vinput_fcitx_bridge_sdbus PRIVATE ${SYSTEMD_INCLUDE_DIRS})
-target_compile_options(vinput_fcitx_bridge_sdbus PRIVATE ${SYSTEMD_CFLAGS_OTHER})
 target_compile_features(vinput_fcitx_bridge_sdbus PUBLIC cxx_std_20)
 set_target_properties(vinput_fcitx_bridge_sdbus PROPERTIES POSITION_INDEPENDENT_CODE ON)
 vinput_bridge_apply_warnings(vinput_fcitx_bridge_sdbus)
@@ -253,6 +253,7 @@ if(Fcitx5Core_FOUND)
     PRIVATE
       vinput_fcitx_bridge::sdbus
       vinput_fcitx_bridge::fcitx
+      vinput_fcitx_rust_ffi
       Fcitx5::Core
       Fcitx5::Module::DBus
   )
@@ -532,6 +533,7 @@ if(Fcitx5Core_FOUND)
     PRIVATE
       vinput_fcitx_bridge::sdbus
       vinput_fcitx_bridge::fcitx
+      vinput_fcitx_rust_ffi
       Fcitx5::Core
       Fcitx5::Module::DBus
       Fcitx5::Module::Notifications

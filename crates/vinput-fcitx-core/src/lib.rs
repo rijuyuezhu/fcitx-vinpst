@@ -4,6 +4,7 @@
 //! It receives owned wire data and returns frontend decisions that can be tested
 //! without loading Fcitx.
 
+mod daemon_signal;
 mod frontend;
 mod menu;
 mod menu_action;
@@ -11,10 +12,16 @@ mod menu_projection;
 mod menu_snapshot;
 mod trigger_mode;
 
+pub use daemon_signal::{
+    DaemonControlContext, DaemonControlEvent, DaemonControlPlan, DaemonNotificationKind,
+    DaemonNotificationPlan, DaemonStatusPreedit, plan_daemon_control, plan_daemon_notification,
+    plan_daemon_status_preedit,
+};
 pub use frontend::{
     COMMANDING_PREEDIT, CommitPlan, DAEMON_UNAVAILABLE_ERROR, FrontendCall, FrontendController,
-    FrontendOutcome, FrontendOutcomeKind, FrontendState, FrontendStep, NO_SELECTION_ERROR,
-    RECORDING_PREEDIT, make_commit_plan, parse_recognition_payload, should_show_candidate_menu,
+    FrontendOutcome, FrontendOutcomeKind, FrontendState, FrontendStep, FrontendTriggerIntent,
+    FrontendTriggerRequest, NO_SELECTION_ERROR, RECORDING_PREEDIT, make_commit_plan,
+    parse_recognition_payload, should_show_candidate_menu,
 };
 pub use menu::{MenuFilterState, clamp_menu_page};
 pub use menu_action::{MENU_PAGE_SIZE, MenuKeyAction, MenuKeyInput, MenuSemanticKey};

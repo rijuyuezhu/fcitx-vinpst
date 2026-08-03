@@ -3,11 +3,12 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 #include "vinput_fcitx_bridge/menu_snapshot.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
 
-struct sd_bus;
+struct VinputFcitxDaemonClient;
 
 namespace vinput_fcitx_bridge {
 
@@ -27,7 +28,6 @@ public:
   bool StopRecording(std::string_view scene_id, std::string *payload_json,
                      std::string *error) override;
   bool GetStatus(std::string *status, std::string *error);
-
   bool GetSceneState(SceneStateSnapshot *state, std::string *error);
   bool SetActiveScene(std::string_view scene_id, bool *persisted, std::string *error);
   bool GetAsrDisplayMenuState(AsrDisplayMenuStateSnapshot *state, std::string *error);
@@ -41,21 +41,16 @@ public:
   bool GetRuntimeStatus(std::string *status_json, std::string *error);
 
 private:
-  explicit SdBusDaemonClient(sd_bus *bus);
+  explicit SdBusDaemonClient(::VinputFcitxDaemonClient *client);
 
-  bool CallNoReply(std::string_view method, std::string *error);
-  bool CallNoReplyWithString(std::string_view method, std::string_view value,
-                             std::string *error);
-  bool CallStringReply(std::string_view method, std::string *reply, std::string *error);
-  bool CallStringReplyWithString(std::string_view method, std::string_view value,
-                                 std::string *reply, std::string *error);
-  bool CallBoolReplyWithString(std::string_view method, std::string_view value,
-                               bool *reply, std::string *error);
-  bool CallBoolReplyWithTwoStrings(std::string_view method, std::string_view first,
-                                   std::string_view second, bool *reply,
-                                   std::string *error);
+  bool CallNoReply(std::uint8_t operation, std::string_view first,
+                   std::string_view second, std::string *error);
+  bool CallStringReply(std::uint8_t operation, std::string_view first,
+                       std::string_view second, std::string *reply, std::string *error);
+  bool CallBoolReply(std::uint8_t operation, std::string_view first,
+                     std::string_view second, bool *reply, std::string *error);
 
-  sd_bus *bus_ = nullptr;
+  ::VinputFcitxDaemonClient *client_ = nullptr;
 };
 
 } // namespace vinput_fcitx_bridge

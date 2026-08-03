@@ -13,13 +13,12 @@ int main() {
   using fcitx::dbus::Bus;
   using fcitx::dbus::BusType;
   using fcitx::dbus::RequestNameFlag;
-  using vinput_fcitx_bridge::ClassifyDaemonNotification;
   using vinput_fcitx_bridge::ComposeDaemonStatusPreedit;
   using vinput_fcitx_bridge::DaemonNotificationPayload;
   using vinput_fcitx_bridge::DaemonSignalCallbacks;
   using vinput_fcitx_bridge::FcitxDaemonSignalMonitor;
   using vinput_fcitx_bridge::FrontendNotificationKind;
-  using vinput_fcitx_bridge::RenderDaemonNotification;
+  using vinput_fcitx_bridge::PresentDaemonNotification;
   namespace dbus = vinput_fcitx_bridge::dbus;
 
   assert(ComposeDaemonStatusPreedit("recording", false, "") == "... Recording ...");
@@ -38,8 +37,9 @@ int main() {
       .raw_message = "registry cache refreshed",
   };
   assert(!info.empty());
-  assert(ClassifyDaemonNotification(info) == FrontendNotificationKind::Info);
-  assert(RenderDaemonNotification(info) == "registry cache refreshed");
+  const auto info_presentation = PresentDaemonNotification(info);
+  assert(info_presentation.kind == FrontendNotificationKind::Info);
+  assert(info_presentation.message == "registry cache refreshed");
 
   const DaemonNotificationPayload error{
       .code = "asr_backend_reload_failed",
@@ -47,9 +47,10 @@ int main() {
       .detail = "model metadata is invalid",
       .raw_message = "",
   };
-  assert(ClassifyDaemonNotification(error) == FrontendNotificationKind::Error);
-  assert(RenderDaemonNotification(error) == "model metadata is invalid");
-  assert(RenderDaemonNotification({}) == "Unknown error.");
+  const auto error_presentation = PresentDaemonNotification(error);
+  assert(error_presentation.kind == FrontendNotificationKind::Error);
+  assert(error_presentation.message == "model metadata is invalid");
+  assert(PresentDaemonNotification({}).message == "Unknown error.");
 
   fcitx::EventLoop loop;
   Bus receiver(BusType::Session);

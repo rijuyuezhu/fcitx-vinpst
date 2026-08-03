@@ -21,6 +21,16 @@ pub struct VinputFcitxAsrDisplaySnapshot {
     snapshot: AsrDisplaySnapshot,
 }
 
+pub(crate) fn boxed_scene_snapshot(snapshot: SceneSnapshot) -> *mut VinputFcitxSceneSnapshot {
+    Box::into_raw(Box::new(VinputFcitxSceneSnapshot { snapshot }))
+}
+
+pub(crate) fn boxed_asr_display_snapshot(
+    snapshot: AsrDisplaySnapshot,
+) -> *mut VinputFcitxAsrDisplaySnapshot {
+    Box::into_raw(Box::new(VinputFcitxAsrDisplaySnapshot { snapshot }))
+}
+
 /// Borrowed scene snapshot summary.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]

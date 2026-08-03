@@ -4,6 +4,7 @@
 
 #include <fcitx-utils/dbus/bus.h>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -21,9 +22,13 @@ struct DaemonNotificationPayload {
   bool operator==(const DaemonNotificationPayload &) const = default;
 };
 
-FrontendNotificationKind
-ClassifyDaemonNotification(const DaemonNotificationPayload &payload);
-std::string RenderDaemonNotification(const DaemonNotificationPayload &payload);
+struct DaemonNotificationPresentation {
+  FrontendNotificationKind kind = FrontendNotificationKind::Error;
+  std::string message;
+};
+
+DaemonNotificationPresentation
+PresentDaemonNotification(const DaemonNotificationPayload &payload);
 std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
                                        std::string_view partial_text);
 

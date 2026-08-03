@@ -21,3 +21,4 @@ missing_panics_doc = "allow"
 
 [dependencies]
 vinput-fcitx-core = { path = "../vinput-fcitx-core" }
+vinput-fcitx-dbus = { path = "../vinput-fcitx-dbus" }

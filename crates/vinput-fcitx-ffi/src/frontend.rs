@@ -7,7 +7,7 @@ use std::{
 
 use vinput_fcitx_core::{
     Candidate, CandidateSource, FrontendCall, FrontendController, FrontendOutcome,
-    FrontendOutcomeKind, FrontendStep,
+    FrontendOutcomeKind, FrontendStep, FrontendTriggerIntent, FrontendTriggerRequest,
 };
 
 /// Request preparation failed.
@@ -25,6 +25,24 @@ pub const FRONTEND_CALL_START_NORMAL: u8 = 1;
 pub const FRONTEND_CALL_START_COMMAND: u8 = 2;
 /// Stop recording.
 pub const FRONTEND_CALL_STOP: u8 = 3;
+
+const FRONTEND_TRIGGER_REQUEST_NONE: u8 = 0;
+const FRONTEND_TRIGGER_REQUEST_START_NORMAL: u8 = 1;
+const FRONTEND_TRIGGER_REQUEST_STOP_NORMAL: u8 = 2;
+const FRONTEND_TRIGGER_REQUEST_START_COMMAND: u8 = 3;
+const FRONTEND_TRIGGER_REQUEST_STOP_COMMAND: u8 = 4;
+const FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU: u8 = 5;
+const FRONTEND_TRIGGER_REQUEST_CONSUME_SCENE_MENU_RELEASE: u8 = 6;
+const FRONTEND_TRIGGER_REQUEST_SHOW_ASR_MENU: u8 = 7;
+const FRONTEND_TRIGGER_REQUEST_CONSUME_ASR_MENU_RELEASE: u8 = 8;
+
+const FRONTEND_TRIGGER_INTENT_NONE: u8 = 0;
+const FRONTEND_TRIGGER_INTENT_START_NORMAL: u8 = 1;
+const FRONTEND_TRIGGER_INTENT_STOP_NORMAL: u8 = 2;
+const FRONTEND_TRIGGER_INTENT_START_COMMAND: u8 = 3;
+const FRONTEND_TRIGGER_INTENT_STOP_COMMAND: u8 = 4;
+const FRONTEND_TRIGGER_INTENT_SHOW_SCENE_MENU: u8 = 5;
+const FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU: u8 = 6;
 
 /// Opaque Rust frontend controller.
 pub struct VinputFcitxFrontendController {
@@ -126,6 +144,37 @@ fn outcome_kind(kind: FrontendOutcomeKind) -> u8 {
     }
 }
 
+fn trigger_request(value: u8) -> Option<FrontendTriggerRequest> {
+    match value {
+        FRONTEND_TRIGGER_REQUEST_NONE => Some(FrontendTriggerRequest::None),
+        FRONTEND_TRIGGER_REQUEST_START_NORMAL => Some(FrontendTriggerRequest::StartNormal),
+        FRONTEND_TRIGGER_REQUEST_STOP_NORMAL => Some(FrontendTriggerRequest::StopNormal),
+        FRONTEND_TRIGGER_REQUEST_START_COMMAND => Some(FrontendTriggerRequest::StartCommand),
+        FRONTEND_TRIGGER_REQUEST_STOP_COMMAND => Some(FrontendTriggerRequest::StopCommand),
+        FRONTEND_TRIGGER_REQUEST_SHOW_SCENE_MENU => Some(FrontendTriggerRequest::ShowSceneMenu),
+        FRONTEND_TRIGGER_REQUEST_CONSUME_SCENE_MENU_RELEASE => {
+            Some(FrontendTriggerRequest::ConsumeSceneMenuRelease)
+        }
+        FRONTEND_TRIGGER_REQUEST_SHOW_ASR_MENU => Some(FrontendTriggerRequest::ShowAsrMenu),
+        FRONTEND_TRIGGER_REQUEST_CONSUME_ASR_MENU_RELEASE => {
+            Some(FrontendTriggerRequest::ConsumeAsrMenuRelease)
+        }
+        _ => None,
+    }
+}
+
+const fn trigger_intent(intent: FrontendTriggerIntent) -> u8 {
+    match intent {
+        FrontendTriggerIntent::None => FRONTEND_TRIGGER_INTENT_NONE,
+        FrontendTriggerIntent::StartNormal => FRONTEND_TRIGGER_INTENT_START_NORMAL,
+        FrontendTriggerIntent::StopNormal => FRONTEND_TRIGGER_INTENT_STOP_NORMAL,
+        FrontendTriggerIntent::StartCommand => FRONTEND_TRIGGER_INTENT_START_COMMAND,
+        FrontendTriggerIntent::StopCommand => FRONTEND_TRIGGER_INTENT_STOP_COMMAND,
+        FrontendTriggerIntent::ShowSceneMenu => FRONTEND_TRIGGER_INTENT_SHOW_SCENE_MENU,
+        FrontendTriggerIntent::ShowAsrMenu => FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU,
+    }
+}
+
 fn candidate_source(source: CandidateSource) -> u8 {
     match source {
         CandidateSource::Raw => 0,
@@ -210,6 +259,34 @@ pub unsafe extern "C" fn vinput_fcitx_frontend_controller_command_mode(
 ) -> u8 {
     // SAFETY: Forwarded from this function's caller contract.
     unsafe { controller.as_ref() }.map_or(0, |value| u8::from(value.controller.command_mode()))
+}
+
+/// Applies Rust session-state gating to one semantic trigger request.
+///
+/// Invalid handles or request values fail without changing `intent_out`.
+///
+/// # Safety
+///
+/// `controller` must be live and `intent_out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinput_fcitx_frontend_controller_plan_trigger(
+    controller: *const VinputFcitxFrontendController,
+    request: u8,
+    intent_out: *mut u8,
+) -> u8 {
+    if intent_out.is_null() {
+        return 0;
+    }
+    // SAFETY: Forwarded from this function's caller contract.
+    let Some(controller) = (unsafe { controller.as_ref() }) else {
+        return 0;
+    };
+    let Some(request) = trigger_request(request) else {
+        return 0;
+    };
+    // SAFETY: The caller guarantees a writable output pointer.
+    unsafe { intent_out.write(trigger_intent(controller.controller.plan_trigger(request))) };
+    1
 }
 
 /// Prepares a normal recording start.
