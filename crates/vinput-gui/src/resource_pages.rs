@@ -8,7 +8,7 @@ use vinput_config::{AsrProviderKind, redact_url_for_diagnostics};
 use vinput_registry::InstalledModelInfo;
 
 use crate::{
-    App, Message, filtered_scene_rows, model_is_active,
+    App, Message, model_is_active,
     script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
 
@@ -76,10 +76,7 @@ impl App {
                     let managed = managed_provider_script_path(provider).is_some();
                     body = body.push(provider_row(label, &provider.id, busy, managed, active));
                 }
-                body = body.push(text("Scenes").size(22));
-                for scene in filtered_scene_rows(&document.config, &self.filter) {
-                    body = body.push(text(scene));
-                }
+                body = body.push(self.scene_management_view(busy));
             }
             Err(error) => body = body.push(text(format!("Config error: {error}"))),
         }

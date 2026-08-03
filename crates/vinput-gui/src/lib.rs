@@ -27,6 +27,7 @@ mod page;
 mod provider_script_edit;
 mod resource_details;
 mod resource_pages;
+mod scene_management;
 mod script_install;
 mod script_management;
 mod script_recovery;
@@ -41,6 +42,8 @@ pub use model_management::default_model_root;
 use model_management::{load_installed_models, model_is_active, remove_installed_model};
 pub use page::Page;
 use resource_details::ResourceSelection;
+use scene_management::SceneEditorState;
+pub use scene_management::{SceneEditorField, SceneMessage, SceneMutationOutcome};
 use script_install::ScriptInstallState;
 pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretInput};
 
@@ -158,6 +161,7 @@ pub struct App {
     next_script_install_id: u64,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
     selected_resource: Option<ResourceSelection>,
+    scene_editor: Option<SceneEditorState>,
 }
 
 impl App {
@@ -187,6 +191,7 @@ impl App {
             next_script_install_id: 1,
             installed_models: load_installed_models(),
             selected_resource: None,
+            scene_editor: None,
         };
         let task = app.begin_daemon_refresh(true);
         (app, task)
@@ -233,6 +238,7 @@ impl App {
             Message::ActiveSceneChanged(value) => self.update_draft(|draft| {
                 draft.active_scene = value;
             }),
+            Message::Scene(message) => return self.handle_scene_message(message),
             Message::ResetConfigDraft => self.reset_config_draft(),
             Message::SaveConfig => return self.begin_config_save(),
             Message::ConfigSaved(result) => return self.finish_config_save(result),
@@ -296,6 +302,7 @@ impl App {
     fn select_page(&mut self, page: Page) {
         self.page = page;
         self.selected_resource = None;
+        self.scene_editor = None;
     }
 
     /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
@@ -477,6 +484,7 @@ impl App {
             .ok()
             .map(|document| ConfigDraft::from_config(&document.config));
         self.config = config;
+        self.scene_editor = None;
     }
 
     /// Renders the GUI.
@@ -1025,6 +1033,7 @@ fn filtered_asr_rows(config: &VinputConfig, filter: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn filtered_scene_rows(config: &VinputConfig, filter: &str) -> Vec<String> {
     let filter = filter.to_ascii_lowercase();
     config

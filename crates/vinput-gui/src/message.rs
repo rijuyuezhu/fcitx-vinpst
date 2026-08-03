@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot, ModelInstallOutcome, Page,
+    ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot, ModelInstallOutcome, Page, SceneMessage,
     ScriptInstallOutcome, ScriptPreparationResult, SecretInput,
 };
 
@@ -52,6 +52,8 @@ pub enum Message {
     ActiveProviderChanged(String),
     /// Select the active scene in the draft.
     ActiveSceneChanged(String),
+    /// Apply one scene lifecycle interaction.
+    Scene(SceneMessage),
     /// Restore editable fields from the loaded config.
     ResetConfigDraft,
     /// Validate, back up, and atomically save the config draft.
