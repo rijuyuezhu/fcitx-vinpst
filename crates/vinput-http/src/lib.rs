@@ -1,9 +1,7 @@
 //! Shared HTTP client construction and safe transport diagnostics.
 
 use std::{
-    env,
-    error::Error as _,
-    fs,
+    env, fs,
     io::{self, Read},
     path::Path,
 };
@@ -137,17 +135,31 @@ fn io_error_is_timeout(error: &io::Error) -> bool {
     ) {
         return true;
     }
-    let mut source = error.source();
+    let Some(cause) = error.get_ref() else {
+        return false;
+    };
+    if error_cause_is_timeout(cause) {
+        return true;
+    }
+    let mut source = cause.source();
     while let Some(cause) = source {
-        if cause
-            .downcast_ref::<reqwest::Error>()
-            .is_some_and(reqwest::Error::is_timeout)
-        {
+        if error_cause_is_timeout(cause) {
             return true;
         }
         source = cause.source();
     }
     false
+}
+
+fn error_cause_is_timeout(cause: &(dyn std::error::Error + 'static)) -> bool {
+    cause.downcast_ref::<io::Error>().is_some_and(|error| {
+        matches!(
+            error.kind(),
+            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+        )
+    }) || cause
+        .downcast_ref::<reqwest::Error>()
+        .is_some_and(reqwest::Error::is_timeout)
 }
 
 fn blocking_client_with_extra_ca_path(
@@ -210,6 +222,17 @@ mod tests {
     impl Read for FailingReader {
         fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
             Err(io::Error::new(self.kind, "fixture reader failure"))
+        }
+    }
+
+    struct NestedTimeoutReader;
+
+    impl Read for NestedTimeoutReader {
+        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "nested fixture timeout",
+            )))
         }
     }
 
@@ -283,6 +306,10 @@ mod tests {
                 4,
             )
             .unwrap_err(),
+            ResponseBodyError::TimedOut
+        );
+        assert_eq!(
+            read_utf8_bounded(NestedTimeoutReader, 4).unwrap_err(),
             ResponseBodyError::TimedOut
         );
         assert_eq!(

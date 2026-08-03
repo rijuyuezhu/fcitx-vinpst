@@ -803,14 +803,16 @@ mod tests {
                 received.extend_from_slice(&buffer[..count]);
             }
             thread::sleep(response_delay);
-            write!(
+            let headers_written = write!(
                 stream,
                 "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 response_body.len()
             )
-            .unwrap();
-            thread::sleep(body_delay);
-            let _ = write!(stream, "{response_body}");
+            .is_ok();
+            if headers_written {
+                thread::sleep(body_delay);
+                let _ = write!(stream, "{response_body}");
+            }
             CapturedHttpRequest {
                 head: String::from_utf8_lossy(&received[..header_end]).into_owned(),
                 body: received[header_end..expected_len].to_vec(),
