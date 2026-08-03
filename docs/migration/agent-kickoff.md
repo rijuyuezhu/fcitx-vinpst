@@ -8,7 +8,7 @@ Use this as the compact handoff for implementation work. It points to current so
 
 Continue `fcitx-vinput-rs` from the usable CLI/daemon alpha, live-proven retained Fcitx frontend, broad deterministic release baseline, and packaged Rust management GUI baseline. Do not rebuild completed management, registry, native ASR, activation, frontend, or package transaction surfaces.
 
-The active priority is **M7: Rust management GUI**. Complete signal-driven daemon reconciliation, scene/LLM/hotword lifecycle actions, command-mode integration, localization/accessibility, and real Wayland/X11 interaction proof. Treat new packaging and desktop breadth as deferred expansion unless a regression, blocker, or explicit user request requires it.
+The active priority is **M7: Rust management GUI**. Complete scene/LLM/hotword lifecycle actions, command-mode integration, localization/accessibility, and real Wayland/X11 interaction proof. Treat new packaging and desktop breadth as deferred expansion unless a regression, blocker, or explicit user request requires it.
 
 ## Repositories
 
@@ -34,7 +34,7 @@ The active priority is **M7: Rust management GUI**. Complete signal-driven daemo
 - The Rust/Iced GUI provides Control, Resources, LLM, and Hotwords pages. It uses shared typed config/protocol/registry APIs; supports model and managed provider/adapter install/update, progress, cancellation, retry, guarded removal, atomic config persistence, reload, and non-activating owner recovery; and is installed by the checked package paths.
 - Arch, Debian 12, Ubuntu 24.04, Nix, RPM-family, and Flatpak baselines are deterministic. Production publication, host-installed and multi-user lifecycle proof, broader supported-distro operations, and unrelated-machine regression remain release work.
 - Command helpers use shared process-group supervision with lifecycle-wide deadlines when configured, concurrent bounded stdout/stderr, and descendant cleanup. Long-lived adapters create their runtime directory before spawn, fingerprint PID records, preserve legacy TERM/KILL timing, and treat Linux zombie-only groups as cleaned without ignoring live descendants.
-- The implementation through `55967a4` with synchronized GUI status documentation passes the complete deterministic `just ci` gate. The last pushed baseline with the complete remote Rust, Nix, Debian 12, and Ubuntu 24.04 matrix is `9d31f70`.
+- The implementation through `c507807` with synchronized GUI status documentation passes the complete deterministic `just ci` gate. The last pushed baseline with the complete remote Rust, Nix, Debian 12, and Ubuntu 24.04 matrix is `9d31f70`.
 
 Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.
 
