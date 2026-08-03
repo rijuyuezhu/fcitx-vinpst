@@ -7,6 +7,8 @@
 #include <string>
 #include <string_view>
 
+struct VinputFcitxFrontendState;
+
 namespace vinput_fcitx_bridge {
 
 class DaemonClient {
@@ -31,6 +33,14 @@ struct BridgeOutcome {
 
 class FrontendBridge {
 public:
+  FrontendBridge();
+  ~FrontendBridge();
+
+  FrontendBridge(const FrontendBridge &) = delete;
+  FrontendBridge &operator=(const FrontendBridge &) = delete;
+  FrontendBridge(FrontendBridge &&) = delete;
+  FrontendBridge &operator=(FrontendBridge &&) = delete;
+
   BridgeOutcome StartNormal(DaemonClient *client);
   BridgeOutcome StartNormal(DaemonClient *client, std::string_view scene_id);
   BridgeOutcome StartCommand(DaemonClient *client, std::string_view selected_text);
@@ -40,12 +50,8 @@ public:
   void AdoptRecording(bool command_mode, std::string_view scene_id);
   void Reset();
 
-  bool recording() const {
-    return recording_;
-  }
-  bool command_mode() const {
-    return command_mode_;
-  }
+  bool recording() const;
+  bool command_mode() const;
 
 private:
   BridgeOutcome StartNormalWithScene(DaemonClient *client,
@@ -53,11 +59,9 @@ private:
   BridgeOutcome StartCommandWithScene(DaemonClient *client,
                                       std::string_view selected_text,
                                       std::optional<std::string_view> scene_id);
+  std::optional<std::string> ActiveSceneId() const;
 
-  bool recording_ = false;
-  bool command_mode_ = false;
-  std::string selected_text_;
-  std::optional<std::string> active_scene_id_;
+  ::VinputFcitxFrontendState *state_ = nullptr;
 };
 
 } // namespace vinput_fcitx_bridge

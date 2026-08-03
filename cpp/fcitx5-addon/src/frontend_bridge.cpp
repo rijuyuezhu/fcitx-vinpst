@@ -1,5 +1,9 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 
+#include "vinput_fcitx_ffi.h"
+
+#include <cstddef>
+#include <cstdint>
 #include <utility>
 
 namespace vinput_fcitx_bridge {
@@ -37,7 +41,45 @@ std::string FallbackError(const std::string &error) {
   return error.empty() ? std::string(kDaemonUnavailableError) : error;
 }
 
+const std::uint8_t *ByteData(std::string_view text) {
+  if (text.empty()) {
+    return nullptr;
+  }
+  return reinterpret_cast<const std::uint8_t *>(text.data());
+}
+
 } // namespace
+
+FrontendBridge::FrontendBridge() : state_(vinput_fcitx_frontend_state_new()) {}
+
+FrontendBridge::~FrontendBridge() {
+  vinput_fcitx_frontend_state_free(state_);
+}
+
+bool FrontendBridge::recording() const {
+  return state_ != nullptr && vinput_fcitx_frontend_state_recording(state_) != 0;
+}
+
+bool FrontendBridge::command_mode() const {
+  return state_ != nullptr && vinput_fcitx_frontend_state_command_mode(state_) != 0;
+}
+
+std::optional<std::string> FrontendBridge::ActiveSceneId() const {
+  if (state_ == nullptr || vinput_fcitx_frontend_state_has_active_scene(state_) == 0) {
+    return std::nullopt;
+  }
+
+  const auto size = vinput_fcitx_frontend_state_active_scene_len(state_);
+  if (size == 0) {
+    return std::string{};
+  }
+
+  const auto *data = vinput_fcitx_frontend_state_active_scene_data(state_);
+  if (data == nullptr) {
+    return std::nullopt;
+  }
+  return std::string(reinterpret_cast<const char *>(data), size);
+}
 
 BridgeOutcome FrontendBridge::StartNormal(DaemonClient *client) {
   return StartNormalWithScene(client, std::nullopt);
@@ -51,7 +93,14 @@ BridgeOutcome FrontendBridge::StartNormal(DaemonClient *client,
 BridgeOutcome
 FrontendBridge::StartNormalWithScene(DaemonClient *client,
                                      std::optional<std::string_view> scene_id) {
-  if (!client) {
+  if (client == nullptr || state_ == nullptr) {
+    Reset();
+    return Error(kDaemonUnavailableError);
+  }
+
+  const auto scene = scene_id.value_or(std::string_view{});
+  if (vinput_fcitx_frontend_state_start_normal(state_, ByteData(scene), scene.size(),
+                                               scene_id.has_value() ? 1U : 0U) == 0) {
     Reset();
     return Error(kDaemonUnavailableError);
   }
@@ -62,14 +111,6 @@ FrontendBridge::StartNormalWithScene(DaemonClient *client,
     return Error(FallbackError(error));
   }
 
-  recording_ = true;
-  command_mode_ = false;
-  selected_text_.clear();
-  if (scene_id.has_value()) {
-    active_scene_id_ = std::string(*scene_id);
-  } else {
-    active_scene_id_.reset();
-  }
   return Preedit(kRecordingPreedit);
 }
 
@@ -93,7 +134,14 @@ FrontendBridge::StartCommandWithScene(DaemonClient *client,
     Reset();
     return Error(kNoSelectionError);
   }
-  if (!client) {
+  if (client == nullptr || state_ == nullptr) {
+    Reset();
+    return Error(kDaemonUnavailableError);
+  }
+
+  const auto scene = scene_id.value_or(std::string_view{});
+  if (vinput_fcitx_frontend_state_start_command(state_, ByteData(scene), scene.size(),
+                                                scene_id.has_value() ? 1U : 0U) == 0) {
     Reset();
     return Error(kDaemonUnavailableError);
   }
@@ -104,29 +152,20 @@ FrontendBridge::StartCommandWithScene(DaemonClient *client,
     return Error(FallbackError(error));
   }
 
-  recording_ = true;
-  command_mode_ = true;
-  selected_text_ = std::string(selected_text);
-  if (scene_id.has_value()) {
-    active_scene_id_ = std::string(*scene_id);
-  } else {
-    active_scene_id_.reset();
-  }
   return Preedit(kCommandingPreedit);
 }
 
 BridgeOutcome FrontendBridge::Stop(DaemonClient *client, std::string_view scene_id) {
-  if (!recording_) {
+  if (!recording()) {
     return BridgeOutcome{};
   }
-  if (!client) {
+  if (client == nullptr) {
     Reset();
     return Error(kDaemonUnavailableError);
   }
 
-  const bool was_command_mode = command_mode_;
-
-  const std::string stop_scene_id = active_scene_id_.value_or(std::string(scene_id));
+  const bool was_command_mode = command_mode();
+  const std::string stop_scene_id = ActiveSceneId().value_or(std::string(scene_id));
 
   std::string payload_json;
   std::string error;
@@ -148,17 +187,17 @@ BridgeOutcome FrontendBridge::Stop(DaemonClient *client, std::string_view scene_
 }
 
 void FrontendBridge::AdoptRecording(bool command_mode, std::string_view scene_id) {
-  recording_ = true;
-  command_mode_ = command_mode;
-  selected_text_.clear();
-  active_scene_id_ = std::string(scene_id);
+  if (state_ == nullptr ||
+      vinput_fcitx_frontend_state_adopt(state_, command_mode ? 1U : 0U,
+                                        ByteData(scene_id), scene_id.size()) == 0) {
+    Reset();
+  }
 }
 
 void FrontendBridge::Reset() {
-  recording_ = false;
-  command_mode_ = false;
-  selected_text_.clear();
-  active_scene_id_.reset();
+  if (state_ != nullptr) {
+    static_cast<void>(vinput_fcitx_frontend_state_reset(state_));
+  }
 }
 
 } // namespace vinput_fcitx_bridge

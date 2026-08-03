@@ -1,115 +1,193 @@
 #include "vinput_fcitx_bridge/fcitx_trigger_mode.h"
 
-namespace vinput_fcitx_bridge {
+#include "vinput_fcitx_ffi.h"
 
-TriggerModeController::TriggerModeController(TriggerMode mode) : mode_(mode) {}
+#include <chrono>
+
+namespace vinput_fcitx_bridge {
+namespace {
+
+static_assert(static_cast<std::uint8_t>(TriggerMode::Tap) ==
+              VINPUT_FCITX_TRIGGER_MODE_TAP);
+static_assert(static_cast<std::uint8_t>(TriggerMode::Hold) ==
+              VINPUT_FCITX_TRIGGER_MODE_HOLD);
+static_assert(static_cast<std::uint8_t>(TriggerMode::Both) ==
+              VINPUT_FCITX_TRIGGER_MODE_BOTH);
+static_assert(static_cast<std::uint8_t>(TriggerKind::Normal) ==
+              VINPUT_FCITX_TRIGGER_KIND_NORMAL);
+static_assert(static_cast<std::uint8_t>(TriggerKind::Command) ==
+              VINPUT_FCITX_TRIGGER_KIND_COMMAND);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::None) ==
+              VINPUT_FCITX_TRIGGER_ACTION_NONE);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::Consume) ==
+              VINPUT_FCITX_TRIGGER_ACTION_CONSUME);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::StartNormal) ==
+              VINPUT_FCITX_TRIGGER_ACTION_START_NORMAL);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::StartCommand) ==
+              VINPUT_FCITX_TRIGGER_ACTION_START_COMMAND);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::StopActive) ==
+              VINPUT_FCITX_TRIGGER_ACTION_STOP_ACTIVE);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::ScheduleNormalStart) ==
+              VINPUT_FCITX_TRIGGER_ACTION_SCHEDULE_NORMAL_START);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::ScheduleCommandStart) ==
+              VINPUT_FCITX_TRIGGER_ACTION_SCHEDULE_COMMAND_START);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::CancelPendingStart) ==
+              VINPUT_FCITX_TRIGGER_ACTION_CANCEL_PENDING_START);
+static_assert(static_cast<std::uint8_t>(TriggerModeAction::ScheduleStop) ==
+              VINPUT_FCITX_TRIGGER_ACTION_SCHEDULE_STOP);
+
+TriggerModeAction ActionFromWire(std::uint8_t action) {
+  switch (action) {
+  case VINPUT_FCITX_TRIGGER_ACTION_CONSUME:
+    return TriggerModeAction::Consume;
+  case VINPUT_FCITX_TRIGGER_ACTION_START_NORMAL:
+    return TriggerModeAction::StartNormal;
+  case VINPUT_FCITX_TRIGGER_ACTION_START_COMMAND:
+    return TriggerModeAction::StartCommand;
+  case VINPUT_FCITX_TRIGGER_ACTION_STOP_ACTIVE:
+    return TriggerModeAction::StopActive;
+  case VINPUT_FCITX_TRIGGER_ACTION_SCHEDULE_NORMAL_START:
+    return TriggerModeAction::ScheduleNormalStart;
+  case VINPUT_FCITX_TRIGGER_ACTION_SCHEDULE_COMMAND_START:
+    return TriggerModeAction::ScheduleCommandStart;
+  case VINPUT_FCITX_TRIGGER_ACTION_CANCEL_PENDING_START:
+    return TriggerModeAction::CancelPendingStart;
+  case VINPUT_FCITX_TRIGGER_ACTION_SCHEDULE_STOP:
+    return TriggerModeAction::ScheduleStop;
+  case VINPUT_FCITX_TRIGGER_ACTION_NONE:
+  default:
+    return TriggerModeAction::None;
+  }
+}
+
+bool StartsImmediately(TriggerModeAction action) {
+  return action == TriggerModeAction::StartNormal ||
+         action == TriggerModeAction::StartCommand;
+}
+
+bool SchedulesStart(TriggerModeAction action) {
+  return action == TriggerModeAction::ScheduleNormalStart ||
+         action == TriggerModeAction::ScheduleCommandStart;
+}
+
+} // namespace
+
+TriggerModeController::TriggerModeController(TriggerMode mode)
+    : state_(vinput_fcitx_trigger_state_new(static_cast<std::uint8_t>(mode))) {}
+
+TriggerModeController::~TriggerModeController() {
+  vinput_fcitx_trigger_state_free(state_);
+}
 
 void TriggerModeController::SetMode(TriggerMode mode) {
-  mode_ = mode;
-  pending_start_.reset();
-  last_press_time_.reset();
+  if (state_ != nullptr && vinput_fcitx_trigger_state_set_mode(
+                               state_, static_cast<std::uint8_t>(mode)) != 0) {
+    pending_key_.reset();
+  }
+}
+
+TriggerMode TriggerModeController::mode() const {
+  if (state_ == nullptr) {
+    return TriggerMode::Both;
+  }
+  switch (vinput_fcitx_trigger_state_mode(state_)) {
+  case VINPUT_FCITX_TRIGGER_MODE_TAP:
+    return TriggerMode::Tap;
+  case VINPUT_FCITX_TRIGGER_MODE_HOLD:
+    return TriggerMode::Hold;
+  case VINPUT_FCITX_TRIGGER_MODE_BOTH:
+  default:
+    return TriggerMode::Both;
+  }
 }
 
 TriggerModeAction TriggerModeController::OnPress(TriggerKind kind,
                                                  const fcitx::Key &key, TimePoint now,
                                                  bool recording) {
-  if (last_press_time_.has_value() && now - *last_press_time_ < kTriggerDebounce) {
-    return TriggerModeAction::Consume;
-  }
-  last_press_time_ = now;
-  stop_pending_ = false;
-
-  if (active_trigger_.has_value()) {
-    return active_trigger_->released ? TriggerModeAction::StopActive
-                                     : TriggerModeAction::Consume;
-  }
-  if (recording) {
-    return TriggerModeAction::StopActive;
-  }
-  if (pending_start_.has_value()) {
-    return TriggerModeAction::Consume;
+  if (state_ == nullptr) {
+    return TriggerModeAction::None;
   }
 
-  TriggerPress press{kind, key, now, false};
-  if (mode_ == TriggerMode::Hold) {
-    pending_start_ = press;
-    return ScheduleStartAction(kind);
+  const auto action = ActionFromWire(
+      vinput_fcitx_trigger_state_on_press(state_, static_cast<std::uint8_t>(kind),
+                                          ToNanoseconds(now), recording ? 1U : 0U));
+  if (SchedulesStart(action)) {
+    pending_key_ = key;
+  } else if (StartsImmediately(action)) {
+    active_key_ = key;
+    pending_key_.reset();
   }
-  active_trigger_ = press;
-  return StartAction(kind);
+  return action;
 }
 
 TriggerModeAction TriggerModeController::OnRelease(TriggerKind, const fcitx::Key &key,
                                                    TimePoint now) {
-  if (mode_ == TriggerMode::Hold && pending_start_.has_value()) {
-    pending_start_.reset();
-    return TriggerModeAction::CancelPendingStart;
-  }
-  if (!active_trigger_.has_value()) {
-    return TriggerModeAction::Consume;
+  if (state_ == nullptr) {
+    return TriggerModeAction::None;
   }
 
-  auto &active = *active_trigger_;
-  const bool active_release = IsReleaseOfTrigger(key, active.key);
-  if (mode_ == TriggerMode::Tap) {
-    active.released = true;
-    return TriggerModeAction::Consume;
+  const bool active_release =
+      active_key_.has_value() && IsReleaseOfTrigger(key, *active_key_);
+  const auto action = ActionFromWire(vinput_fcitx_trigger_state_on_release(
+      state_, ToNanoseconds(now), active_release ? 1U : 0U));
+  if (action == TriggerModeAction::CancelPendingStart) {
+    pending_key_.reset();
   }
-
-  if (active_release) {
-    active.released = true;
-    if (now - active.pressed_at >= kTriggerHoldThreshold) {
-      stop_pending_ = true;
-      return TriggerModeAction::ScheduleStop;
-    }
-    return TriggerModeAction::Consume;
-  }
-
-  if (mode_ == TriggerMode::Both) {
-    active.released = true;
-  }
-  return TriggerModeAction::Consume;
+  return action;
 }
 
 TriggerModeAction TriggerModeController::FirePendingStart() {
-  if (!pending_start_.has_value()) {
+  if (state_ == nullptr) {
     return TriggerModeAction::None;
   }
-  const auto kind = pending_start_->kind;
-  active_trigger_ = pending_start_;
-  pending_start_.reset();
-  return StartAction(kind);
+
+  const auto action =
+      ActionFromWire(vinput_fcitx_trigger_state_fire_pending_start(state_));
+  if (StartsImmediately(action)) {
+    active_key_ = pending_key_;
+    pending_key_.reset();
+  }
+  return action;
 }
 
 TriggerModeAction TriggerModeController::FirePendingStop() {
-  if (!stop_pending_ || !active_trigger_.has_value() || !active_trigger_->released) {
+  if (state_ == nullptr) {
     return TriggerModeAction::None;
   }
-  stop_pending_ = false;
-  return TriggerModeAction::StopActive;
+  return ActionFromWire(vinput_fcitx_trigger_state_fire_pending_stop(state_));
 }
 
 void TriggerModeController::ConfirmStart(bool recording_started) {
+  if (state_ != nullptr) {
+    static_cast<void>(
+        vinput_fcitx_trigger_state_confirm_start(state_, recording_started ? 1U : 0U));
+  }
   if (!recording_started) {
-    pending_start_.reset();
-    active_trigger_.reset();
+    pending_key_.reset();
+    active_key_.reset();
   }
 }
 
 void TriggerModeController::RecordingStopped() {
-  pending_start_.reset();
-  active_trigger_.reset();
-  stop_pending_ = false;
+  if (state_ != nullptr) {
+    static_cast<void>(vinput_fcitx_trigger_state_recording_stopped(state_));
+  }
+  pending_key_.reset();
+  active_key_.reset();
 }
 
-TriggerModeAction TriggerModeController::StartAction(TriggerKind kind) {
-  return kind == TriggerKind::Normal ? TriggerModeAction::StartNormal
-                                     : TriggerModeAction::StartCommand;
+bool TriggerModeController::has_pending_start() const {
+  return state_ != nullptr && vinput_fcitx_trigger_state_has_pending_start(state_) != 0;
 }
 
-TriggerModeAction TriggerModeController::ScheduleStartAction(TriggerKind kind) {
-  return kind == TriggerKind::Normal ? TriggerModeAction::ScheduleNormalStart
-                                     : TriggerModeAction::ScheduleCommandStart;
+bool TriggerModeController::has_active_trigger() const {
+  return state_ != nullptr &&
+         vinput_fcitx_trigger_state_has_active_trigger(state_) != 0;
+}
+
+std::int64_t TriggerModeController::ToNanoseconds(TimePoint now) {
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch())
+      .count();
 }
 
 bool TriggerModeController::IsReleaseOfTrigger(const fcitx::Key &release,

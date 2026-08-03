@@ -1,447 +1,70 @@
 #include "vinput_fcitx_bridge/recognition_payload.h"
 
-#include <cctype>
+#include "vinput_fcitx_ffi.h"
+
+#include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <string_view>
-#include <utility>
+#include <memory>
+#include <string>
 
 namespace vinput_fcitx_bridge {
 namespace {
 
-class JsonCursor {
-public:
-  explicit JsonCursor(std::string_view input) : input_(input) {}
-
-  RecognitionPayload parsePayload() {
-    RecognitionPayload payload;
-    skipSpace();
-    if (!consume('{')) {
-      return payload;
-    }
-
-    while (true) {
-      skipSpace();
-      if (consume('}')) {
-        return finishPayload(std::move(payload));
-      }
-
-      auto key = parseString();
-      if (!key) {
-        return {};
-      }
-      skipSpace();
-      if (!consume(':')) {
-        return {};
-      }
-
-      if (*key == "commit_text") {
-        auto value = parseString();
-        if (!value) {
-          return {};
-        }
-        payload.commit_text = std::move(*value);
-      } else if (*key == "candidates") {
-        if (!parseCandidates(&payload.candidates)) {
-          return {};
-        }
-      } else if (!skipValue()) {
-        return {};
-      }
-
-      skipSpace();
-      if (consume('}')) {
-        return finishPayload(std::move(payload));
-      }
-      if (!consume(',')) {
-        return {};
-      }
-    }
+struct CommitPlanDeleter {
+  void operator()(VinputFcitxCommitPlan *plan) const {
+    vinput_fcitx_commit_plan_free(plan);
   }
+};
 
-private:
-  void skipSpace() {
-    while (pos_ < input_.size() &&
-           std::isspace(static_cast<unsigned char>(input_[pos_])) != 0) {
-      ++pos_;
-    }
+using RustCommitPlan = std::unique_ptr<VinputFcitxCommitPlan, CommitPlanDeleter>;
+
+RustCommitPlan MakeRustCommitPlan(std::string_view json, bool command_mode) {
+  return RustCommitPlan(
+      vinput_fcitx_commit_plan_new(reinterpret_cast<const std::uint8_t *>(json.data()),
+                                   json.size(), command_mode ? 1U : 0U));
+}
+
+std::string CopyRustString(const std::uint8_t *data, std::size_t size) {
+  if (data == nullptr || size == 0) {
+    return {};
   }
+  return {reinterpret_cast<const char *>(data), size};
+}
 
-  bool consume(char expected) {
-    skipSpace();
-    if (pos_ >= input_.size() || input_[pos_] != expected) {
-      return false;
-    }
-    ++pos_;
-    return true;
+CandidateSource CandidateSourceFromRust(std::uint8_t source) {
+  switch (source) {
+  case VINPUT_FCITX_CANDIDATE_SOURCE_LLM:
+    return CandidateSource::Llm;
+  case VINPUT_FCITX_CANDIDATE_SOURCE_ASR:
+    return CandidateSource::Asr;
+  case VINPUT_FCITX_CANDIDATE_SOURCE_CANCEL:
+    return CandidateSource::Cancel;
+  case VINPUT_FCITX_CANDIDATE_SOURCE_RAW:
+  default:
+    return CandidateSource::Raw;
   }
+}
 
-  std::optional<std::string> parseString() {
-    skipSpace();
-    if (pos_ >= input_.size() || input_[pos_] != '"') {
-      return std::nullopt;
-    }
-    ++pos_;
-
-    std::string output;
-    while (pos_ < input_.size()) {
-      const unsigned char ch = static_cast<unsigned char>(input_[pos_++]);
-      if (ch == '"') {
-        return output;
-      }
-      if (ch != '\\') {
-        if (ch < 0x20) {
-          return std::nullopt;
-        }
-        output.push_back(static_cast<char>(ch));
-        continue;
-      }
-      if (pos_ >= input_.size()) {
-        return std::nullopt;
-      }
-      const char escape = input_[pos_++];
-      switch (escape) {
-      case '"':
-      case '\\':
-      case '/':
-        output.push_back(escape);
-        break;
-      case 'b':
-        output.push_back('\b');
-        break;
-      case 'f':
-        output.push_back('\f');
-        break;
-      case 'n':
-        output.push_back('\n');
-        break;
-      case 'r':
-        output.push_back('\r');
-        break;
-      case 't':
-        output.push_back('\t');
-        break;
-      case 'u': {
-        auto codepoint = parseUnicodeEscape();
-        if (!codepoint) {
-          return std::nullopt;
-        }
-        appendUtf8(*codepoint, &output);
-        break;
-      }
-      default:
-        return std::nullopt;
-      }
-    }
-    return std::nullopt;
-  }
-
-  std::optional<char32_t> parseUnicodeEscape() {
-    auto high = parseHexQuad();
-    if (!high) {
-      return std::nullopt;
-    }
-
-    if (*high >= 0xDC00 && *high <= 0xDFFF) {
-      return std::nullopt;
-    }
-    if (*high < 0xD800 || *high > 0xDBFF) {
-      return high;
-    }
-
-    if (pos_ + 1 >= input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
-      return std::nullopt;
-    }
-    pos_ += 2;
-    auto low = parseHexQuad();
-    if (!low || *low < 0xDC00 || *low > 0xDFFF) {
-      return std::nullopt;
-    }
-
-    return 0x10000 + ((*high - 0xD800) << 10) + (*low - 0xDC00);
-  }
-
-  std::optional<char32_t> parseHexQuad() {
-    if (pos_ + 4 > input_.size()) {
-      return std::nullopt;
-    }
-    char32_t value = 0;
-    for (int i = 0; i < 4; ++i) {
-      const char ch = input_[pos_++];
-      value <<= 4;
-      if (ch >= '0' && ch <= '9') {
-        value += static_cast<char32_t>(ch - '0');
-      } else if (ch >= 'a' && ch <= 'f') {
-        value += static_cast<char32_t>(ch - 'a' + 10);
-      } else if (ch >= 'A' && ch <= 'F') {
-        value += static_cast<char32_t>(ch - 'A' + 10);
-      } else {
-        return std::nullopt;
-      }
-    }
-    return value;
-  }
-
-  static void appendUtf8(char32_t codepoint, std::string *output) {
-    if (codepoint <= 0x7F) {
-      output->push_back(static_cast<char>(codepoint));
-    } else if (codepoint <= 0x7FF) {
-      output->push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
-      output->push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    } else if (codepoint <= 0xFFFF) {
-      output->push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
-      output->push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-      output->push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    } else {
-      output->push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
-      output->push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
-      output->push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-      output->push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-  }
-
-  bool parseCandidates(std::vector<Candidate> *candidates) {
-    if (!consume('[')) {
-      return false;
-    }
-    skipSpace();
-    if (consume(']')) {
-      return true;
-    }
-
-    while (true) {
-      auto candidate = parseCandidate();
-      if (!candidate) {
-        return false;
-      }
-      if (!candidate->text.empty() || candidate->source == CandidateSource::Cancel) {
-        candidates->push_back(std::move(*candidate));
-      }
-
-      skipSpace();
-      if (consume(']')) {
-        return true;
-      }
-      if (!consume(',')) {
-        return false;
-      }
-    }
-  }
-
-  std::optional<Candidate> parseCandidate() {
-    Candidate candidate;
-    if (!consume('{')) {
-      return std::nullopt;
-    }
-
-    while (true) {
-      skipSpace();
-      if (consume('}')) {
-        return candidate;
-      }
-
-      auto key = parseString();
-      if (!key) {
-        return std::nullopt;
-      }
-      skipSpace();
-      if (!consume(':')) {
-        return std::nullopt;
-      }
-
-      if (*key == "text") {
-        auto value = parseString();
-        if (!value) {
-          return std::nullopt;
-        }
-        candidate.text = std::move(*value);
-      } else if (*key == "source") {
-        auto value = parseString();
-        if (!value) {
-          return std::nullopt;
-        }
-        candidate.source = CandidateSourceFromWire(*value);
-      } else if (!skipValue()) {
-        return std::nullopt;
-      }
-
-      skipSpace();
-      if (consume('}')) {
-        return candidate;
-      }
-      if (!consume(',')) {
-        return std::nullopt;
-      }
-    }
-  }
-
-  bool skipValue() {
-    skipSpace();
-    if (pos_ >= input_.size()) {
-      return false;
-    }
-    if (input_[pos_] == '"') {
-      return parseString().has_value();
-    }
-    if (input_[pos_] == '{') {
-      return skipObject();
-    }
-    if (input_[pos_] == '[') {
-      return skipArray();
-    }
-    return skipScalar();
-  }
-
-  bool skipObject() {
-    if (!consume('{')) {
-      return false;
-    }
-    skipSpace();
-    if (consume('}')) {
-      return true;
-    }
-    while (true) {
-      skipSpace();
-      if (!parseString()) {
-        return false;
-      }
-      skipSpace();
-      if (!consume(':') || !skipValue()) {
-        return false;
-      }
-      skipSpace();
-      if (consume('}')) {
-        return true;
-      }
-      if (!consume(',')) {
-        return false;
-      }
-    }
-  }
-
-  bool skipArray() {
-    if (!consume('[')) {
-      return false;
-    }
-    skipSpace();
-    if (consume(']')) {
-      return true;
-    }
-    while (true) {
-      if (!skipValue()) {
-        return false;
-      }
-      skipSpace();
-      if (consume(']')) {
-        return true;
-      }
-      if (!consume(',')) {
-        return false;
-      }
-    }
-  }
-
-  bool skipScalar() {
-    skipSpace();
-    return consumeLiteral("true") || consumeLiteral("false") ||
-           consumeLiteral("null") || skipNumber();
-  }
-
-  bool consumeLiteral(std::string_view literal) {
-    if (input_.substr(pos_, literal.size()) != literal ||
-        !isValueDelimiter(pos_ + literal.size())) {
-      return false;
-    }
-    pos_ += literal.size();
-    return true;
-  }
-
-  bool isValueDelimiter(std::size_t pos) const {
-    if (pos >= input_.size()) {
-      return true;
-    }
-    const auto ch = static_cast<unsigned char>(input_[pos]);
-    return std::isspace(ch) != 0 || input_[pos] == ',' || input_[pos] == ']' ||
-           input_[pos] == '}';
-  }
-
-  bool skipNumber() {
-    const std::size_t start = pos_;
-    if (pos_ < input_.size() && input_[pos_] == '-') {
-      ++pos_;
-    }
-    if (pos_ >= input_.size()) {
-      pos_ = start;
-      return false;
-    }
-    if (input_[pos_] == '0') {
-      ++pos_;
-    } else if (input_[pos_] >= '1' && input_[pos_] <= '9') {
-      while (pos_ < input_.size() &&
-             std::isdigit(static_cast<unsigned char>(input_[pos_])) != 0) {
-        ++pos_;
-      }
-    } else {
-      pos_ = start;
-      return false;
-    }
-    if (pos_ < input_.size() && input_[pos_] == '.') {
-      ++pos_;
-      const std::size_t fraction_start = pos_;
-      while (pos_ < input_.size() &&
-             std::isdigit(static_cast<unsigned char>(input_[pos_])) != 0) {
-        ++pos_;
-      }
-      if (pos_ == fraction_start) {
-        pos_ = start;
-        return false;
-      }
-    }
-    if (pos_ < input_.size() && (input_[pos_] == 'e' || input_[pos_] == 'E')) {
-      ++pos_;
-      if (pos_ < input_.size() && (input_[pos_] == '+' || input_[pos_] == '-')) {
-        ++pos_;
-      }
-      const std::size_t exponent_start = pos_;
-      while (pos_ < input_.size() &&
-             std::isdigit(static_cast<unsigned char>(input_[pos_])) != 0) {
-        ++pos_;
-      }
-      if (pos_ == exponent_start) {
-        pos_ = start;
-        return false;
-      }
-    }
-    if (!isValueDelimiter(pos_)) {
-      pos_ = start;
-      return false;
-    }
-    return true;
-  }
-
-  RecognitionPayload finishPayload(RecognitionPayload payload) {
-    skipSpace();
-    if (pos_ != input_.size()) {
-      return {};
-    }
-    normalize(&payload);
+RecognitionPayload CopyRecognitionPayload(const VinputFcitxCommitPlan *plan) {
+  RecognitionPayload payload;
+  if (plan == nullptr) {
     return payload;
   }
 
-  static void normalize(RecognitionPayload *payload) {
-    if (payload->commit_text.empty()) {
-      if (!payload->candidates.empty()) {
-        payload->commit_text = payload->candidates.front().text;
-      }
-    } else if (payload->candidates.empty()) {
-      payload->candidates.push_back(
-          Candidate{payload->commit_text, CandidateSource::Raw});
-    }
-  }
+  payload.commit_text = CopyRustString(vinput_fcitx_commit_plan_text_data(plan),
+                                       vinput_fcitx_commit_plan_text_len(plan));
 
-  std::string_view input_;
-  std::size_t pos_ = 0;
-};
+  const auto candidate_count = vinput_fcitx_commit_plan_candidate_count(plan);
+  payload.candidates.reserve(candidate_count);
+  for (std::size_t index = 0; index < candidate_count; ++index) {
+    payload.candidates.push_back(Candidate{
+        CopyRustString(vinput_fcitx_commit_plan_candidate_text_data(plan, index),
+                       vinput_fcitx_commit_plan_candidate_text_len(plan, index)),
+        CandidateSourceFromRust(vinput_fcitx_commit_plan_candidate_source(plan, index)),
+    });
+  }
+  return payload;
+}
 
 } // namespace
 
@@ -473,25 +96,33 @@ CandidateSource CandidateSourceFromWire(std::string_view source) {
 }
 
 RecognitionPayload ParseRecognitionPayload(std::string_view json) {
-  return JsonCursor(json).parsePayload();
+  return MakeCommitPlan(json).payload;
 }
 
 bool ShouldShowCandidateMenu(const RecognitionPayload &payload, bool command_mode) {
   if (command_mode && payload.candidates.size() > 1) {
     return true;
   }
-  int llm_count = 0;
+
+  std::size_t llm_count = 0;
   for (const auto &candidate : payload.candidates) {
-    if (candidate.source == CandidateSource::Llm) {
-      ++llm_count;
+    if (candidate.source == CandidateSource::Llm && ++llm_count > 1) {
+      return true;
     }
   }
-  return llm_count > 1;
+  return false;
 }
 
 CommitPlan MakeCommitPlan(std::string_view json, bool command_mode) {
-  auto payload = ParseRecognitionPayload(json);
-  return CommitPlan{payload, ShouldShowCandidateMenu(payload, command_mode)};
+  const auto rust_plan = MakeRustCommitPlan(json, command_mode);
+  if (rust_plan == nullptr) {
+    return {};
+  }
+
+  return CommitPlan{
+      CopyRecognitionPayload(rust_plan.get()),
+      vinput_fcitx_commit_plan_show_candidate_menu(rust_plan.get()) != 0,
+  };
 }
 
 } // namespace vinput_fcitx_bridge

@@ -4275,6 +4275,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vinput-fcitx-core"
+version = "0.1.0"
+dependencies = [
+ "vinput-protocol",
+]
+
+[[package]]
+name = "vinput-fcitx-ffi"
+version = "0.1.0"
+dependencies = [
+ "vinput-fcitx-core",
+]
+
+[[package]]
 name = "vinput-gui"
 version = "0.1.0"
 dependencies = [

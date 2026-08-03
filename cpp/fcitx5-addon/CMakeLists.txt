@@ -24,7 +24,65 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-
+find_program(CARGO_EXECUTABLE cargo REQUIRED)
+get_filename_component(
+  VINPUT_REPOSITORY_ROOT
+  "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+  ABSOLUTE
+)
+set(
+  VINPUT_FCITX_RUST_TARGET_DIR
+  "${VINPUT_REPOSITORY_ROOT}/target"
+  CACHE PATH "Cargo target directory for the Rust frontend bridge"
+)
+if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
+  set(VINPUT_FCITX_RUST_CARGO_ARGS --release)
+  set(VINPUT_FCITX_RUST_PROFILE release)
+else()
+  set(VINPUT_FCITX_RUST_CARGO_ARGS)
+  set(VINPUT_FCITX_RUST_PROFILE debug)
+endif()
+set(
+  VINPUT_FCITX_RUST_LIBRARY
+  "${VINPUT_FCITX_RUST_TARGET_DIR}/${VINPUT_FCITX_RUST_PROFILE}/libvinput_fcitx_ffi.a"
+)
+file(
+  GLOB_RECURSE VINPUT_FCITX_RUST_SOURCES CONFIGURE_DEPENDS
+  "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-core/src/*.rs"
+  "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-ffi/src/*.rs"
+  "${VINPUT_REPOSITORY_ROOT}/crates/vinput-protocol/src/*.rs"
+)
+add_custom_command(
+  OUTPUT "${VINPUT_FCITX_RUST_LIBRARY}"
+  COMMAND
+    "${CMAKE_COMMAND}" -E env
+    "CARGO_TARGET_DIR=${VINPUT_FCITX_RUST_TARGET_DIR}"
+    "${CARGO_EXECUTABLE}" build --locked -p vinput-fcitx-ffi
+    ${VINPUT_FCITX_RUST_CARGO_ARGS}
+  WORKING_DIRECTORY "${VINPUT_REPOSITORY_ROOT}"
+  DEPENDS
+    "${VINPUT_REPOSITORY_ROOT}/Cargo.toml"
+    "${VINPUT_REPOSITORY_ROOT}/Cargo.lock"
+    "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-core/Cargo.toml"
+    "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-ffi/Cargo.toml"
+    "${VINPUT_REPOSITORY_ROOT}/crates/vinput-protocol/Cargo.toml"
+    ${VINPUT_FCITX_RUST_SOURCES}
+  COMMENT "Building Rust Fcitx frontend bridge"
+  VERBATIM
+)
+add_custom_target(
+  vinput_fcitx_rust_ffi_build
+  DEPENDS "${VINPUT_FCITX_RUST_LIBRARY}"
+)
+add_library(vinput_fcitx_rust_ffi STATIC IMPORTED GLOBAL)
+set_target_properties(
+  vinput_fcitx_rust_ffi
+  PROPERTIES
+    IMPORTED_LOCATION "${VINPUT_FCITX_RUST_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES
+      "${VINPUT_REPOSITORY_ROOT}/crates/vinput-fcitx-ffi/include"
+)
+add_dependencies(vinput_fcitx_rust_ffi vinput_fcitx_rust_ffi_build)
 function(vinput_bridge_install_dir output value fallback)
   if(NOT "${${output}}" STREQUAL "")
     set(candidate "${${output}}")
@@ -62,6 +120,7 @@ target_include_directories(vinput_fcitx_bridge_core
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+target_link_libraries(vinput_fcitx_bridge_core PRIVATE vinput_fcitx_rust_ffi)
 target_compile_features(vinput_fcitx_bridge_core PUBLIC cxx_std_20)
 set_target_properties(vinput_fcitx_bridge_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 vinput_bridge_apply_warnings(vinput_fcitx_bridge_core)
@@ -161,6 +220,7 @@ if(Fcitx5Core_FOUND)
       vinput_fcitx_bridge::core
       Fcitx5::Core
     PRIVATE
+      vinput_fcitx_rust_ffi
       Fcitx5::Module::Notifications
   )
   target_compile_features(vinput_fcitx_bridge_fcitx PUBLIC cxx_std_20)
@@ -444,6 +504,7 @@ if(Fcitx5Core_FOUND)
     vinput_fcitx_addon_dbus_smoke
     PRIVATE
       vinput_fcitx_bridge::sdbus
+      vinput_fcitx_rust_ffi
       Fcitx5::Core
       Fcitx5::Module::DBus
       Fcitx5::Module::Notifications
@@ -533,6 +594,20 @@ if(BUILD_TESTING AND VINPUT_FCITX_BRIDGE_ENABLE_TESTS)
     add_test(NAME ${target} COMMAND ${target})
   endfunction()
 
+  add_executable(
+    vinput_fcitx_bridge_rust_ffi_smoke
+    tests/rust_ffi_smoke.cpp
+  )
+  target_link_libraries(
+    vinput_fcitx_bridge_rust_ffi_smoke
+    PRIVATE
+      vinput_fcitx_rust_ffi
+  )
+  vinput_bridge_apply_warnings(vinput_fcitx_bridge_rust_ffi_smoke)
+  add_test(
+    NAME vinput_fcitx_bridge_rust_ffi_smoke
+    COMMAND vinput_fcitx_bridge_rust_ffi_smoke
+  )
   vinput_bridge_smoke_test(
     vinput_fcitx_bridge_recognition_payload_smoke
     tests/recognition_payload_smoke.cpp
