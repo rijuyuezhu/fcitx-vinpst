@@ -13,8 +13,10 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 export LC_ALL=C
+# shellcheck source=scripts/release/gpg-session-common.sh
+source "${script_dir}/gpg-session-common.sh"
 
-for command in gpg jq python3; do
+for command in gpg gpgconf jq python3; do
   command -v "${command}" >/dev/null
 done
 
@@ -25,6 +27,12 @@ signing_home="${stage_root}/signing-home"
 wrong_home="${stage_root}/wrong-home"
 public_key="${stage_root}/public-key.asc"
 wrong_public_key="${stage_root}/wrong-public-key.asc"
+cleanup() {
+  gpg_session_stop "${signing_home}"
+  gpg_session_stop "${wrong_home}"
+}
+trap cleanup EXIT
+cleanup
 rm -rf "${stage_root}"
 mkdir -p "${artifacts_root}" "${signing_home}" "${wrong_home}"
 chmod 700 "${signing_home}" "${wrong_home}"

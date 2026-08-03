@@ -13,8 +13,10 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 export LC_ALL=C
+# shellcheck source=scripts/release/gpg-session-common.sh
+source "${script_dir}/gpg-session-common.sh"
 
-for command in bsdtar fakeroot gpg pacman pacman-key python3 repo-add sha256sum; do
+for command in bsdtar fakeroot gpg gpgconf pacman pacman-key python3 repo-add sha256sum; do
   command -v "${command}" >/dev/null
 done
 
@@ -55,6 +57,11 @@ repository_database="${repository_root}/${repository_name}.db.tar.gz"
 public_key="${stage_root}/public-key.asc"
 user_config_relative="home/test/.config/fcitx-vinput/config.json"
 
+cleanup() {
+  gpg_session_stop "${signing_home}"
+}
+trap cleanup EXIT
+cleanup
 rm -rf "${stage_root}"
 mkdir -p "${signing_home}" "${trusted_keyring}" "${repository_root}"
 chmod 700 "${signing_home}" "${trusted_keyring}"

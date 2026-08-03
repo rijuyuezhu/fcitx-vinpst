@@ -13,8 +13,10 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 export LC_ALL=C
+# shellcheck source=scripts/release/gpg-session-common.sh
+source "${script_dir}/gpg-session-common.sh"
 
-for command in bsdtar cmp gpg jq python3 sha256sum; do
+for command in bsdtar cmp gpg gpgconf jq python3 sha256sum; do
   command -v "${command}" >/dev/null
 done
 
@@ -87,6 +89,13 @@ cmp "${upgrade_package}" "${signed_upgrade_package}"
 
 stage_root="${repo_root}/target/tmp/arch-release-bundle-smoke"
 bundle="${stage_root}/fcitx-vinput-rs-${version}-x86_64-release-gate"
+verify_home="${stage_root}/verify-home"
+cleanup() {
+  gpg_session_stop "${verify_home}"
+  gpg_session_stop "${signing_home}"
+}
+trap cleanup EXIT
+gpg_session_stop "${verify_home}"
 rm -rf "${stage_root}"
 mkdir -p "${stage_root}"
 
@@ -171,7 +180,6 @@ grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/release/prepare-arch-release
 grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/release/verify-arch-release-candidate.sh$" \
   "${source_listing}"
 
-verify_home="${stage_root}/verify-home"
 mkdir "${verify_home}"
 chmod 700 "${verify_home}"
 gpg --homedir "${verify_home}" --batch --import \

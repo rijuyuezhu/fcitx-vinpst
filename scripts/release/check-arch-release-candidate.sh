@@ -13,8 +13,10 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 export LC_ALL=C
+# shellcheck source=scripts/release/gpg-session-common.sh
+source "${script_dir}/gpg-session-common.sh"
 
-for command in bsdtar gpg jq repo-add zstd; do
+for command in bsdtar gpg gpgconf jq repo-add zstd; do
   command -v "${command}" >/dev/null
 done
 
@@ -36,6 +38,11 @@ signing_home="${stage_root}/signing-home"
 public_key="${stage_root}/public-key.asc"
 gate="${stage_root}/release-gate"
 candidate="${stage_root}/release-candidate"
+cleanup() {
+  gpg_session_stop "${signing_home}"
+}
+trap cleanup EXIT
+cleanup
 rm -rf "${stage_root}"
 mkdir -p "${artifacts}" "${signing_home}"
 chmod 700 "${signing_home}"

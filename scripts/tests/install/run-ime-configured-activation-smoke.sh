@@ -46,10 +46,7 @@ echo "VINPUT_DAEMON_TRACE_STARTUP=\${VINPUT_DAEMON_TRACE_STARTUP}" >>"${daemon_l
 echo "daemon_sha256=$(sha256sum "${daemon_path}" | awk '{print $1}')" >>"${daemon_log}"
 echo "daemon_has_startup_marker=$(strings "${daemon_path}" | grep -F -c 'vinput-daemon-startup')" >>"${daemon_log}"
 echo "daemon_argv=${daemon_path} --dbus --configured-backends --config ${config_path} --wav ${wav_path}" >>"${daemon_log}"
-"${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" >>"${daemon_log}" 2>&1
-status=\$?
-echo "daemon_exit_status=\${status}" >>"${daemon_log}"
-exit "\${status}"
+exec "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" >>"${daemon_log}" 2>&1
 EOF
 chmod +x "${daemon_wrapper}"
 timeout 20s "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" runtime-status >/dev/null
@@ -76,7 +73,7 @@ grep -qx "Name=org.fcitx.Vinput" "${service_file}"
 grep -qx "Exec=${daemon_wrapper} --exit-when-executable-replaced" "${service_file}"
 
 if XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
-  VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
+  VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo final: demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
   VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
