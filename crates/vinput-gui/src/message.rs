@@ -110,6 +110,10 @@ pub enum Message {
         /// Typed worker outcome.
         outcome: ScriptInstallOutcome,
     },
+    /// Open one exact managed command-provider script in the configured editor.
+    EditProviderScript(String),
+    /// Result of a managed provider script editor process.
+    ProviderScriptEdited(Result<String, String>),
     /// Remove one inactive managed command ASR provider.
     RemoveProvider(String),
     /// Remove one managed text adapter.

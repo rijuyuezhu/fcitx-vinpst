@@ -18,6 +18,7 @@ mod managed;
 mod materialize;
 mod operation;
 mod plan;
+mod provider_script;
 mod schema;
 mod script;
 mod staging;
@@ -72,6 +73,12 @@ pub use operation::{
 pub use plan::{
     AssetPlanSummary, ChecksumPolicy, InstallPlan, InstallPlanSummary, PlannedAsset,
     PlannedInstallAsset, RegistryEntryKind,
+};
+pub use provider_script::{
+    ProviderEditorCommand, ProviderScriptEditError, ProviderScriptEditOutcome,
+    ProviderScriptEditPlan, ProviderScriptResolutionContext, prepare_provider_script_edit,
+    prepare_provider_script_edit_with, resolve_editable_provider_script,
+    resolve_editable_provider_script_with,
 };
 pub use schema::{AdapterEntry, AssetEntry, ModelEntry, RegistryIndex, RegistryIndexSummary};
 pub use script::{

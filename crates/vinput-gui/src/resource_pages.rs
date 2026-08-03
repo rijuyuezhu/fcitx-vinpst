@@ -94,16 +94,7 @@ impl App {
                     }
                     let active = provider.id == document.config.asr.active_provider;
                     let managed = managed_provider_script_path(provider).is_some();
-                    body = body.push(
-                        row![
-                            text(label).width(Length::Fill),
-                            button("Remove").on_press_maybe(
-                                (!busy && managed && !active)
-                                    .then_some(Message::RemoveProvider(provider.id.clone())),
-                            ),
-                        ]
-                        .spacing(10),
-                    );
+                    body = body.push(provider_row(label, &provider.id, busy, managed, active));
                 }
                 body = body.push(text("Scenes").size(22));
                 for scene in filtered_scene_rows(&document.config, &self.filter) {
@@ -189,4 +180,25 @@ impl App {
         }
         scrollable(body).into()
     }
+}
+
+fn provider_row(
+    label: String,
+    provider_id: &str,
+    busy: bool,
+    managed: bool,
+    active: bool,
+) -> Element<'static, Message> {
+    row![
+        text(label).width(Length::Fill),
+        button("Edit script").on_press_maybe(
+            (!busy && managed).then_some(Message::EditProviderScript(provider_id.to_owned())),
+        ),
+        button("Remove").on_press_maybe(
+            (!busy && managed && !active)
+                .then_some(Message::RemoveProvider(provider_id.to_owned())),
+        ),
+    ]
+    .spacing(10)
+    .into()
 }

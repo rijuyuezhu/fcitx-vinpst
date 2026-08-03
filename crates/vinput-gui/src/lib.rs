@@ -23,6 +23,7 @@ mod message;
 mod model_install;
 mod model_management;
 mod page;
+mod provider_script_edit;
 mod resource_pages;
 mod script_install;
 mod script_management;
@@ -265,6 +266,8 @@ impl App {
                 operation_id,
                 outcome,
             } => return self.finish_script_install(operation_id, outcome),
+            Message::EditProviderScript(id) => return self.begin_provider_script_edit(&id),
+            Message::ProviderScriptEdited(result) => self.finish_provider_script_edit(result),
             Message::RemoveProvider(id) => {
                 return self.begin_script_remove(LiveScriptKind::AsrProvider, id);
             }
