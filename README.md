@@ -14,7 +14,7 @@ The project currently provides a usable Rust CLI/daemon alpha, a retained thin C
 - Architecture contracts: [`docs/architecture/README.md`](docs/architecture/README.md)
 - Development workflow: [`docs/development.md`](docs/development.md)
 
-The current development priority is the Rust management GUI: complete richer resource details and error recovery, signal-driven daemon reconciliation, command-mode integration, localization/accessibility, and real Wayland/X11 interaction proof. Existing desktop and packaging evidence must remain green, but new packaging expansion is deferred while this baseline advances.
+The current development priority is the Rust management GUI: complete signal-driven daemon reconciliation, scene/LLM/hotword lifecycle actions, command-mode integration, localization/accessibility, and real Wayland/X11 interaction proof. Existing desktop and packaging evidence must remain green, but new packaging expansion is deferred while this baseline advances.
 
 ## Workspace
 
