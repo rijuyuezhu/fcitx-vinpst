@@ -4,7 +4,7 @@ use iced::{
     Element, Length,
     widget::{button, column, row, scrollable, text, text_input},
 };
-use vinput_config::{AsrProviderKind, redact_url_for_diagnostics};
+use vinput_config::AsrProviderKind;
 use vinput_registry::InstalledModelInfo;
 
 use crate::{
@@ -101,26 +101,7 @@ impl App {
         }
         match &self.config {
             Ok(document) => {
-                body = body.push(text("Providers").size(22));
-                for provider in &document.config.llm.providers {
-                    let endpoint = if provider.base_url.is_empty() {
-                        "adapter/local".to_owned()
-                    } else {
-                        redact_url_for_diagnostics(&provider.base_url)
-                    };
-                    body = body.push(llm_provider_row(
-                        format!(
-                            "{} · {} · {}",
-                            provider.id,
-                            provider.model.as_deref().unwrap_or("default model"),
-                            endpoint
-                        ),
-                        &provider.id,
-                    ));
-                }
-                if document.config.llm.providers.is_empty() {
-                    body = body.push(text("No LLM providers configured."));
-                }
+                body = body.push(self.llm_provider_management_view(busy));
 
                 body = body.push(text("Adapters").size(22));
                 for adapter in &document.config.llm.adapters {
@@ -206,15 +187,6 @@ fn provider_row(
             (!busy && managed && !active)
                 .then_some(Message::RemoveProvider(provider_id.to_owned())),
         ),
-    ]
-    .spacing(10)
-    .into()
-}
-
-fn llm_provider_row(label: String, provider_id: &str) -> Element<'static, Message> {
-    row![
-        text(label).width(Length::Fill),
-        button("Details").on_press(Message::SelectLlmProviderDetail(provider_id.to_owned())),
     ]
     .spacing(10)
     .into()

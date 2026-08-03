@@ -1,0 +1,693 @@
+//! LLM provider form state, validation, persistence, and rendering.
+
+use std::fmt;
+
+use iced::{
+    Element, Length, Task,
+    widget::{button, column, row, text, text_input},
+};
+use vinput_config::{LlmProviderConfig, VinputConfig, redact_url_for_diagnostics};
+
+use crate::{
+    App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, SecretInput,
+    load_config_document, save_updated_config_with_daemon,
+};
+
+/// One editable field in the LLM provider form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlmProviderEditorField {
+    /// Stable id for a newly created provider.
+    Id,
+    /// OpenAI-compatible base URL.
+    BaseUrl,
+    /// Optional API key or environment-reference expression.
+    ApiKey,
+    /// Optional default model name.
+    Model,
+    /// Extra JSON request body.
+    ExtraBody,
+}
+
+/// One LLM provider lifecycle interaction handled by the LLM page.
+#[derive(Debug, Clone)]
+pub enum LlmProviderMessage {
+    /// Open an empty provider creation form.
+    BeginAdd,
+    /// Open an existing provider for editing.
+    BeginEdit(String),
+    /// Update one field without exposing the entered value through `Debug`.
+    EditorChanged {
+        /// Typed field being edited.
+        field: LlmProviderEditorField,
+        /// Redacted user-entered value.
+        value: SecretInput,
+    },
+    /// Restore the active form to its initially loaded values.
+    ResetEdit,
+    /// Close the provider form without saving.
+    CancelEdit,
+    /// Validate and persist the active provider form.
+    Save,
+    /// Result of one asynchronous provider mutation.
+    MutationFinished(Result<LlmProviderMutationOutcome, String>),
+}
+
+/// Result of one persisted LLM provider mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmProviderMutationOutcome {
+    /// Shared atomic config-save receipt and daemon reload summary.
+    pub save: ConfigSaveOutcome,
+    /// Secret-free user-facing mutation summary.
+    pub summary: String,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct LlmProviderEditorFields {
+    id: String,
+    base_url: String,
+    api_key: SecretInput,
+    model: String,
+    extra_body: String,
+}
+
+impl fmt::Debug for LlmProviderEditorFields {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LlmProviderEditorFields")
+            .field("id", &self.id)
+            .field("base_url", &redact_url_for_diagnostics(&self.base_url))
+            .field("api_key", &self.api_key)
+            .field("model", &self.model)
+            .field("extra_body", &"<redacted JSON>")
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct LlmProviderEditorState {
+    original_id: Option<String>,
+    baseline: LlmProviderEditorFields,
+    fields: LlmProviderEditorFields,
+    preserved_extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+impl fmt::Debug for LlmProviderEditorState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LlmProviderEditorState")
+            .field("original_id", &self.original_id)
+            .field("baseline", &self.baseline)
+            .field("fields", &self.fields)
+            .field("preserved_extra_count", &self.preserved_extra.len())
+            .finish()
+    }
+}
+
+impl LlmProviderEditorState {
+    fn add() -> Self {
+        let fields = LlmProviderEditorFields {
+            id: String::new(),
+            base_url: String::new(),
+            api_key: SecretInput::new(String::new()),
+            model: String::new(),
+            extra_body: "{}".to_owned(),
+        };
+        Self {
+            original_id: None,
+            baseline: fields.clone(),
+            fields,
+            preserved_extra: std::collections::HashMap::new(),
+        }
+    }
+
+    fn edit(provider: &LlmProviderConfig) -> Self {
+        let fields = LlmProviderEditorFields {
+            id: provider.id.clone(),
+            base_url: provider.base_url.clone(),
+            api_key: SecretInput::new(provider.api_key.clone()),
+            model: provider.model.clone().unwrap_or_default(),
+            extra_body: serde_json::to_string_pretty(&provider.extra_body)
+                .unwrap_or_else(|_| "{}".to_owned()),
+        };
+        Self {
+            original_id: Some(provider.id.clone()),
+            baseline: fields.clone(),
+            fields,
+            preserved_extra: provider.extra.clone(),
+        }
+    }
+
+    fn update(&mut self, field: LlmProviderEditorField, value: SecretInput) {
+        let value = value.into_inner();
+        match field {
+            LlmProviderEditorField::Id if self.original_id.is_none() => self.fields.id = value,
+            LlmProviderEditorField::Id => {}
+            LlmProviderEditorField::BaseUrl => self.fields.base_url = value,
+            LlmProviderEditorField::ApiKey => self.fields.api_key = SecretInput::new(value),
+            LlmProviderEditorField::Model => self.fields.model = value,
+            LlmProviderEditorField::ExtraBody => self.fields.extra_body = value,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.fields = self.baseline.clone();
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.fields != self.baseline
+    }
+
+    fn provider(&self) -> Result<LlmProviderConfig, String> {
+        let id = self
+            .original_id
+            .as_deref()
+            .unwrap_or(&self.fields.id)
+            .trim()
+            .to_owned();
+        if id.is_empty() {
+            return Err("LLM provider id cannot be empty.".to_owned());
+        }
+        let base_url = self.fields.base_url.trim().to_owned();
+        if base_url.is_empty() {
+            return Err("LLM provider base URL cannot be empty.".to_owned());
+        }
+        let extra_body_text = self.fields.extra_body.trim();
+        let extra_body = if extra_body_text.is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str(extra_body_text)
+                .map_err(|error| format!("Parse extra body as JSON object: {error}"))?
+        };
+        if !extra_body.is_object() {
+            return Err("LLM provider extra body must be a JSON object.".to_owned());
+        }
+        Ok(LlmProviderConfig {
+            id,
+            base_url,
+            api_key: self.fields.api_key.as_str().trim().to_owned(),
+            model: optional_trimmed(&self.fields.model),
+            extra_body,
+            extra: self.preserved_extra.clone(),
+        })
+    }
+
+    fn action_label(&self) -> &'static str {
+        if self.original_id.is_some() {
+            "Update provider"
+        } else {
+            "Add provider"
+        }
+    }
+}
+
+impl App {
+    pub(super) fn handle_llm_provider_message(
+        &mut self,
+        message: LlmProviderMessage,
+    ) -> Task<Message> {
+        match message {
+            LlmProviderMessage::BeginAdd => self.begin_add_llm_provider(),
+            LlmProviderMessage::BeginEdit(id) => self.begin_edit_llm_provider(&id),
+            LlmProviderMessage::EditorChanged { field, value } => {
+                self.update_llm_provider_editor(field, value);
+            }
+            LlmProviderMessage::ResetEdit => self.reset_llm_provider_editor(),
+            LlmProviderMessage::CancelEdit => self.cancel_llm_provider_editor(),
+            LlmProviderMessage::Save => return self.begin_llm_provider_save(),
+            LlmProviderMessage::MutationFinished(result) => {
+                return self.finish_llm_provider_mutation(result);
+            }
+        }
+        Task::none()
+    }
+
+    fn begin_add_llm_provider(&mut self) {
+        if self.is_busy() || self.llm_provider_editor.is_some() {
+            return;
+        }
+        self.llm_provider_editor = Some(LlmProviderEditorState::add());
+        self.operation = OperationState::Idle;
+    }
+
+    fn begin_edit_llm_provider(&mut self, provider_id: &str) {
+        if self.is_busy() || self.llm_provider_editor.is_some() {
+            return;
+        }
+        let Some(provider) = self
+            .config
+            .as_ref()
+            .ok()
+            .and_then(|document| {
+                document
+                    .config
+                    .llm
+                    .providers
+                    .iter()
+                    .find(|provider| provider.id == provider_id)
+            })
+            .cloned()
+        else {
+            self.operation = OperationState::Failed(format!(
+                "LLM provider `{provider_id}` is no longer configured."
+            ));
+            return;
+        };
+        self.llm_provider_editor = Some(LlmProviderEditorState::edit(&provider));
+        self.operation = OperationState::Idle;
+    }
+
+    fn update_llm_provider_editor(&mut self, field: LlmProviderEditorField, value: SecretInput) {
+        if let Some(editor) = &mut self.llm_provider_editor {
+            editor.update(field, value);
+        }
+    }
+
+    fn reset_llm_provider_editor(&mut self) {
+        if !self.is_busy() {
+            if let Some(editor) = &mut self.llm_provider_editor {
+                editor.reset();
+            }
+            self.operation = OperationState::Idle;
+        }
+    }
+
+    fn cancel_llm_provider_editor(&mut self) {
+        if !self.is_busy() {
+            self.llm_provider_editor = None;
+            self.operation = OperationState::Idle;
+        }
+    }
+
+    fn begin_llm_provider_save(&mut self) -> Task<Message> {
+        if self.is_busy() {
+            return Task::none();
+        }
+        let Some(editor) = self.llm_provider_editor.clone() else {
+            return Task::none();
+        };
+        if !editor.is_dirty() {
+            return Task::none();
+        }
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        let result = if editor.original_id.is_some() {
+            edit_llm_provider(&document.config, &editor).map(|updated| {
+                let provider_id = editor.original_id.clone().unwrap_or_default();
+                (updated, format!("Updated LLM provider `{provider_id}`."))
+            })
+        } else {
+            add_llm_provider(&document.config, &editor).map(|updated| {
+                let provider_id = editor.fields.id.trim();
+                (updated, format!("Added LLM provider `{provider_id}`."))
+            })
+        };
+        let (updated, summary) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
+        };
+        self.begin_llm_provider_mutation(document.clone(), updated, summary)
+    }
+
+    fn begin_llm_provider_mutation(
+        &mut self,
+        document: ConfigDocument,
+        updated: VinputConfig,
+        summary: String,
+    ) -> Task<Message> {
+        self.operation = OperationState::Running("Saving LLM provider…");
+        Task::perform(
+            async move {
+                save_updated_config_with_daemon(&document, &updated)
+                    .map(|save| LlmProviderMutationOutcome { save, summary })
+            },
+            |result| Message::LlmProvider(LlmProviderMessage::MutationFinished(result)),
+        )
+    }
+
+    fn finish_llm_provider_mutation(
+        &mut self,
+        result: Result<LlmProviderMutationOutcome, String>,
+    ) -> Task<Message> {
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
+        };
+        let backup = outcome.save.backup_path.as_ref().map_or_else(
+            || "no previous file".to_owned(),
+            |path| format!("backup {}", path.display()),
+        );
+        self.replace_config(load_config_document(Some(&outcome.save.path)));
+        self.operation = OperationState::Succeeded(format!(
+            "{} Saved {} ({backup}); {}",
+            outcome.summary,
+            outcome.save.path.display(),
+            outcome.save.daemon_reload
+        ));
+        self.begin_daemon_refresh(false)
+    }
+
+    pub(super) fn llm_provider_management_view(&self, busy: bool) -> Element<'_, Message> {
+        let editor_open = self.llm_provider_editor.is_some();
+        let mut body = column![
+            row![
+                text("Providers").size(22).width(Length::Fill),
+                button("Add provider").on_press_maybe(
+                    (!busy && !editor_open)
+                        .then_some(Message::LlmProvider(LlmProviderMessage::BeginAdd)),
+                ),
+            ]
+            .spacing(10),
+        ]
+        .spacing(10);
+
+        match &self.config {
+            Ok(document) => {
+                for provider in &document.config.llm.providers {
+                    let endpoint = if provider.base_url.is_empty() {
+                        "adapter/local".to_owned()
+                    } else {
+                        redact_url_for_diagnostics(&provider.base_url)
+                    };
+                    body = body.push(llm_provider_row(
+                        format!(
+                            "{} · {} · {}",
+                            provider.id,
+                            provider.model.as_deref().unwrap_or("default model"),
+                            endpoint
+                        ),
+                        &provider.id,
+                        !busy && !editor_open,
+                    ));
+                }
+                if document.config.llm.providers.is_empty() {
+                    body = body.push(text("No LLM providers configured."));
+                }
+            }
+            Err(error) => body = body.push(text(format!("Config error: {error}"))),
+        }
+
+        if let Some(editor) = &self.llm_provider_editor {
+            body = body.push(llm_provider_editor_view(editor, busy));
+        }
+        body.into()
+    }
+}
+
+fn llm_provider_row(
+    label: String,
+    provider_id: &str,
+    controls_enabled: bool,
+) -> Element<'static, Message> {
+    row![
+        text(label).width(Length::Fill),
+        button("Details").on_press(Message::SelectLlmProviderDetail(provider_id.to_owned())),
+        button("Edit").on_press_maybe(controls_enabled.then_some(Message::LlmProvider(
+            LlmProviderMessage::BeginEdit(provider_id.to_owned())
+        ))),
+    ]
+    .spacing(10)
+    .into()
+}
+
+fn llm_provider_editor_view(editor: &LlmProviderEditorState, busy: bool) -> Element<'_, Message> {
+    let id_field: Element<'_, Message> = if editor.original_id.is_some() {
+        text(format!("Provider id: {} (immutable)", editor.fields.id)).into()
+    } else {
+        labeled_input(
+            "Provider id",
+            "stable unique id",
+            &editor.fields.id,
+            LlmProviderEditorField::Id,
+            false,
+        )
+    };
+    let dirty = editor.is_dirty();
+    column![
+        text(editor.action_label()).size(22),
+        id_field,
+        labeled_input(
+            "Base URL",
+            "https://provider.example/v1",
+            &editor.fields.base_url,
+            LlmProviderEditorField::BaseUrl,
+            false,
+        ),
+        labeled_input(
+            "API key",
+            "optional key or environment expression",
+            editor.fields.api_key.as_str(),
+            LlmProviderEditorField::ApiKey,
+            true,
+        ),
+        labeled_input(
+            "Default model",
+            "optional model id",
+            &editor.fields.model,
+            LlmProviderEditorField::Model,
+            false,
+        ),
+        labeled_input(
+            "Extra body",
+            "JSON object; blank means {}",
+            &editor.fields.extra_body,
+            LlmProviderEditorField::ExtraBody,
+            false,
+        ),
+        row![
+            button(editor.action_label()).on_press_maybe(
+                (dirty && !busy).then_some(Message::LlmProvider(LlmProviderMessage::Save)),
+            ),
+            button("Reset form").on_press_maybe(
+                (dirty && !busy).then_some(Message::LlmProvider(LlmProviderMessage::ResetEdit)),
+            ),
+            button("Cancel").on_press_maybe(
+                (!busy).then_some(Message::LlmProvider(LlmProviderMessage::CancelEdit)),
+            ),
+            text(if dirty {
+                "Unsaved provider changes"
+            } else {
+                "Provider form is unchanged"
+            }),
+        ]
+        .spacing(10),
+    ]
+    .spacing(10)
+    .into()
+}
+
+fn labeled_input<'a>(
+    label: &'static str,
+    placeholder: &'static str,
+    value: &'a str,
+    field: LlmProviderEditorField,
+    secure: bool,
+) -> Element<'a, Message> {
+    row![
+        text(label).width(160),
+        text_input(placeholder, value)
+            .secure(secure)
+            .on_input(move |value| {
+                Message::LlmProvider(LlmProviderMessage::EditorChanged {
+                    field,
+                    value: SecretInput::new(value),
+                })
+            })
+            .width(Length::Fill),
+    ]
+    .spacing(10)
+    .into()
+}
+
+fn add_llm_provider(
+    config: &VinputConfig,
+    editor: &LlmProviderEditorState,
+) -> Result<VinputConfig, String> {
+    let provider = editor.provider()?;
+    if config
+        .llm
+        .providers
+        .iter()
+        .any(|configured| configured.id == provider.id)
+    {
+        return Err(format!("LLM provider `{}` already exists.", provider.id));
+    }
+    let mut updated = config.clone();
+    updated.llm.providers.push(provider);
+    validate_llm_provider_update(updated)
+}
+
+fn edit_llm_provider(
+    config: &VinputConfig,
+    editor: &LlmProviderEditorState,
+) -> Result<VinputConfig, String> {
+    let original_id = editor
+        .original_id
+        .as_deref()
+        .ok_or_else(|| "No existing LLM provider is selected for editing.".to_owned())?;
+    let provider = editor.provider()?;
+    let mut updated = config.clone();
+    let configured = updated
+        .llm
+        .providers
+        .iter_mut()
+        .find(|configured| configured.id == original_id)
+        .ok_or_else(|| format!("LLM provider `{original_id}` is no longer configured."))?;
+    *configured = provider;
+    validate_llm_provider_update(updated)
+}
+
+fn validate_llm_provider_update(config: VinputConfig) -> Result<VinputConfig, String> {
+    config
+        .validate()
+        .map_err(|error| format!("Validate edited LLM provider: {error}"))?;
+    Ok(config)
+}
+
+fn optional_trimmed(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    fn provider(id: &str) -> LlmProviderConfig {
+        LlmProviderConfig {
+            id: id.to_owned(),
+            base_url: "https://user:secret@example.invalid/v1?key=hidden".to_owned(),
+            api_key: "api-secret".to_owned(),
+            model: Some("model-a".to_owned()),
+            extra_body: serde_json::json!({"secret": "body-secret"}),
+            extra: HashMap::from([("future".to_owned(), serde_json::json!({"v": 1}))]),
+        }
+    }
+
+    #[test]
+    fn editor_debug_redacts_credentials_and_extra_body() {
+        let editor = LlmProviderEditorState::edit(&provider("cloud"));
+        let debug = format!("{editor:?}");
+        assert!(!debug.contains("api-secret"));
+        assert!(!debug.contains("body-secret"));
+        assert!(!debug.contains("user:secret"));
+        assert!(!debug.contains("hidden"));
+    }
+
+    #[test]
+    fn add_provider_builds_trimmed_typed_config() {
+        let config = VinputConfig::bundled_default().expect("bundled config");
+        let mut editor = LlmProviderEditorState::add();
+        editor.update(
+            LlmProviderEditorField::Id,
+            SecretInput::new(" cloud ".to_owned()),
+        );
+        editor.update(
+            LlmProviderEditorField::BaseUrl,
+            SecretInput::new(" https://example.invalid/v1 ".to_owned()),
+        );
+        editor.update(
+            LlmProviderEditorField::ApiKey,
+            SecretInput::new(" key ".to_owned()),
+        );
+        editor.update(
+            LlmProviderEditorField::Model,
+            SecretInput::new(" model-a ".to_owned()),
+        );
+        editor.update(
+            LlmProviderEditorField::ExtraBody,
+            SecretInput::new("{\"temperature\":0.2}".to_owned()),
+        );
+
+        let updated = add_llm_provider(&config, &editor).expect("add provider");
+        let added = updated
+            .llm
+            .providers
+            .iter()
+            .find(|provider| provider.id == "cloud")
+            .expect("added provider");
+        assert_eq!(added.base_url, "https://example.invalid/v1");
+        assert_eq!(added.api_key, "key");
+        assert_eq!(added.model.as_deref(), Some("model-a"));
+        assert_eq!(added.extra_body, serde_json::json!({"temperature": 0.2}));
+    }
+
+    #[test]
+    fn add_provider_rejects_duplicates_and_non_object_extra_body() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        config.llm.providers.push(provider("cloud"));
+        let editor = LlmProviderEditorState::edit(&provider("cloud"));
+        assert!(add_llm_provider(&config, &editor).is_err());
+
+        let mut invalid = LlmProviderEditorState::add();
+        invalid.update(
+            LlmProviderEditorField::Id,
+            SecretInput::new("other".to_owned()),
+        );
+        invalid.update(
+            LlmProviderEditorField::BaseUrl,
+            SecretInput::new("https://example.invalid/v1".to_owned()),
+        );
+        invalid.update(
+            LlmProviderEditorField::ExtraBody,
+            SecretInput::new("[]".to_owned()),
+        );
+        assert!(invalid.provider().is_err());
+    }
+
+    #[test]
+    fn edit_provider_keeps_id_and_forward_compatible_fields() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        config.llm.providers.push(provider("cloud"));
+        let configured = config.llm.providers.last().expect("configured provider");
+        let mut editor = LlmProviderEditorState::edit(configured);
+        editor.update(
+            LlmProviderEditorField::Id,
+            SecretInput::new("renamed".to_owned()),
+        );
+        editor.update(
+            LlmProviderEditorField::Model,
+            SecretInput::new("model-b".to_owned()),
+        );
+
+        let updated = edit_llm_provider(&config, &editor).expect("edit provider");
+        let edited = updated
+            .llm
+            .providers
+            .iter()
+            .find(|provider| provider.id == "cloud")
+            .expect("edited provider");
+        assert_eq!(edited.model.as_deref(), Some("model-b"));
+        assert_eq!(edited.extra["future"], serde_json::json!({"v": 1}));
+        assert!(
+            !updated
+                .llm
+                .providers
+                .iter()
+                .any(|provider| provider.id == "renamed")
+        );
+    }
+
+    #[test]
+    fn editor_dirty_state_resets_to_loaded_provider() {
+        let mut editor = LlmProviderEditorState::edit(&provider("cloud"));
+        assert!(!editor.is_dirty());
+        editor.update(
+            LlmProviderEditorField::Model,
+            SecretInput::new("model-b".to_owned()),
+        );
+        assert!(editor.is_dirty());
+        editor.reset();
+        assert!(!editor.is_dirty());
+        assert_eq!(editor.fields.model, "model-a");
+    }
+}

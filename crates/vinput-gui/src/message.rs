@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use crate::{
-    ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot, ModelInstallOutcome, Page, SceneMessage,
-    ScriptInstallOutcome, ScriptPreparationResult, SecretInput,
+    ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot, LlmProviderMessage, ModelInstallOutcome,
+    Page, SceneMessage, ScriptInstallOutcome, ScriptPreparationResult, SecretInput,
 };
 
 /// GUI messages.
@@ -54,6 +54,8 @@ pub enum Message {
     ActiveSceneChanged(String),
     /// Apply one scene lifecycle interaction.
     Scene(SceneMessage),
+    /// Apply one LLM provider lifecycle interaction.
+    LlmProvider(LlmProviderMessage),
     /// Restore editable fields from the loaded config.
     ResetConfigDraft,
     /// Validate, back up, and atomically save the config draft.

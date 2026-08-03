@@ -33,6 +33,10 @@ impl SecretInput {
     pub(crate) fn into_inner(self) -> String {
         self.0
     }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl fmt::Debug for SecretInput {

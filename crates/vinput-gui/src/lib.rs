@@ -20,6 +20,7 @@ use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
 mod daemon_owner_monitor;
+mod llm_provider_management;
 mod message;
 mod model_install;
 mod model_management;
@@ -36,6 +37,10 @@ mod script_transaction;
 
 pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
+use llm_provider_management::LlmProviderEditorState;
+pub use llm_provider_management::{
+    LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome,
+};
 pub use message::Message;
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
@@ -167,6 +172,7 @@ pub struct App {
     installed_models: Result<Vec<InstalledModelInfo>, String>,
     selected_resource: Option<ResourceSelection>,
     scene_editor: Option<SceneEditorState>,
+    llm_provider_editor: Option<LlmProviderEditorState>,
 }
 
 impl App {
@@ -197,6 +203,7 @@ impl App {
             installed_models: load_installed_models(),
             selected_resource: None,
             scene_editor: None,
+            llm_provider_editor: None,
         };
         let task = app.begin_daemon_refresh(true);
         (app, task)
@@ -251,6 +258,7 @@ impl App {
                 draft.active_scene = value;
             }),
             Message::Scene(message) => return self.handle_scene_message(message),
+            Message::LlmProvider(message) => return self.handle_llm_provider_message(message),
             Message::ResetConfigDraft => self.reset_config_draft(),
             Message::SaveConfig => return self.begin_config_save(),
             Message::ConfigSaved(result) => return self.finish_config_save(result),
@@ -315,6 +323,7 @@ impl App {
         self.page = page;
         self.selected_resource = None;
         self.scene_editor = None;
+        self.llm_provider_editor = None;
     }
 
     /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
@@ -511,6 +520,7 @@ impl App {
             .map(|document| ConfigDraft::from_config(&document.config));
         self.config = config;
         self.scene_editor = None;
+        self.llm_provider_editor = None;
     }
 
     /// Renders the GUI.
