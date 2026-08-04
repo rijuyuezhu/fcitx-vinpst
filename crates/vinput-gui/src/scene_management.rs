@@ -63,8 +63,8 @@ impl SceneProviderSelection {
 impl fmt::Display for SceneProviderSelection {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::None => formatter.write_str("No provider"),
-            Self::Configured(provider_id) => formatter.write_str(provider_id),
+            Self::None => formatter.write_str("No provider (clear binding)"),
+            Self::Configured(provider_id) => write!(formatter, "Provider: {provider_id}"),
         }
     }
 }
@@ -814,6 +814,10 @@ mod tests {
                 SceneProviderSelection::None,
                 SceneProviderSelection::Configured("cloud".to_owned()),
             ]
+        );
+        assert_ne!(
+            SceneProviderSelection::None.to_string(),
+            SceneProviderSelection::Configured("No provider".to_owned()).to_string()
         );
 
         let (mut app, boot_task) = App::boot();
