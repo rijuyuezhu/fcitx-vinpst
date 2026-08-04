@@ -3,7 +3,7 @@
 use std::{
     fmt, fs,
     io::{self, Read, Write},
-    os::unix::fs::MetadataExt,
+    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
@@ -13,6 +13,7 @@ use rustix::{
     io::Errno,
 };
 use vinput_config::VinputConfig;
+use xattr::FileExt as _;
 
 use crate::{
     ConfigDocument, ConfigSaveOutcome, ensure_config_save_allowed,
@@ -28,6 +29,8 @@ pub(super) struct HotwordFileVersion {
     device: u64,
     inode: u64,
     size: u64,
+    uid: u32,
+    gid: u32,
     mode: u32,
     modified_seconds: i64,
     modified_nanoseconds: i64,
@@ -41,6 +44,8 @@ impl HotwordFileVersion {
             device: metadata.dev(),
             inode: metadata.ino(),
             size: metadata.size(),
+            uid: metadata.uid(),
+            gid: metadata.gid(),
             mode: metadata.mode(),
             modified_seconds: metadata.mtime(),
             modified_nanoseconds: metadata.mtime_nsec(),
@@ -53,6 +58,8 @@ impl HotwordFileVersion {
         self.device == expected.device
             && self.inode == expected.inode
             && self.size == expected.size
+            && self.uid == expected.uid
+            && self.gid == expected.gid
             && self.mode == expected.mode
             && self.modified_seconds == expected.modified_seconds
             && self.modified_nanoseconds == expected.modified_nanoseconds
@@ -184,6 +191,7 @@ pub(super) fn read_hotword_snapshot(path: &Path) -> Result<HotwordContentSnapsho
                 .to_owned(),
         );
     }
+    ensure_no_hotword_extended_attributes(&file)?;
     let mut bytes = Vec::new();
     file.take((MAX_HOTWORD_FILE_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
@@ -336,6 +344,57 @@ fn atomic_write_hotword_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     compare_and_swap_hotword_file(path, &expected, bytes, || {}).map(|_| ())
 }
 
+fn ensure_no_hotword_extended_attributes(file: &fs::File) -> Result<(), String> {
+    let mut attributes = file
+        .list_xattr()
+        .map_err(|error| format!("Inspect hotword file extended attributes: {error}"))?;
+    if attributes.next().is_some() {
+        return Err(
+            "Configured hotword file has extended attributes or ACL metadata that the GUI cannot safely preserve; edit it externally instead."
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
+fn prepare_temporary_hotword_metadata(
+    temporary_file: &fs::File,
+    expected: &HotwordContentSnapshot,
+) -> Result<(), String> {
+    ensure_no_hotword_extended_attributes(temporary_file)?;
+    if !expected.existed {
+        return Ok(());
+    }
+    let expected_version = expected.version.ok_or_else(|| {
+        "Loaded hotword file metadata is unavailable; reload it before saving.".to_owned()
+    })?;
+    let metadata = temporary_file
+        .metadata()
+        .map_err(|error| format!("Inspect temporary hotword file metadata: {error}"))?;
+    if metadata.uid() != expected_version.uid || metadata.gid() != expected_version.gid {
+        return Err(
+            "Configured hotword file ownership cannot be preserved by an atomic GUI replacement; edit it externally instead."
+                .to_owned(),
+        );
+    }
+    temporary_file
+        .set_permissions(fs::Permissions::from_mode(expected_version.mode & 0o7777))
+        .map_err(|error| format!("Preserve hotword file mode: {error}"))?;
+    let prepared = temporary_file
+        .metadata()
+        .map_err(|error| format!("Verify temporary hotword file metadata: {error}"))?;
+    if prepared.uid() != expected_version.uid
+        || prepared.gid() != expected_version.gid
+        || prepared.mode() & 0o7777 != expected_version.mode & 0o7777
+    {
+        return Err(
+            "Configured hotword file ownership or mode could not be preserved exactly; edit it externally instead."
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
 fn compare_and_swap_hotword_file(
     path: &Path,
     expected: &HotwordContentSnapshot,
@@ -355,27 +414,9 @@ fn compare_and_swap_hotword_file(
     let file_name = path
         .file_name()
         .ok_or_else(|| "Hotword path must name a file.".to_owned())?;
-    let existing_permissions = match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            return Err(
-                "Configured hotword file is a symbolic link; edit it externally instead."
-                    .to_owned(),
-            );
-        }
-        Ok(metadata) if !metadata.is_file() => {
-            return Err("Configured hotword path is not a regular file.".to_owned());
-        }
-        Ok(metadata) => Some(metadata.permissions()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-        Err(error) => return Err(format!("Inspect configured hotword file: {error}")),
-    };
     let (temporary_path, mut temporary_file) = create_sibling_file(parent, file_name, "tmp")?;
     let result = (|| -> Result<HotwordPublishOutcome, String> {
-        if let Some(permissions) = existing_permissions {
-            temporary_file
-                .set_permissions(permissions)
-                .map_err(|error| format!("Preserve hotword file permissions: {error}"))?;
-        }
+        prepare_temporary_hotword_metadata(&temporary_file, expected)?;
         temporary_file
             .write_all(bytes)
             .and_then(|()| temporary_file.sync_all())
@@ -765,6 +806,40 @@ mod tests {
             fs::read_to_string(&recovery_files[0]).expect("recovery content"),
             "alpha\n"
         );
+    }
+
+    #[test]
+    fn hotword_snapshot_rejects_extended_attributes() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+        let file = fs::File::create(&path).expect("hotword fixture");
+        file.set_xattr("user.vinput-test", b"fixture")
+            .expect("set fixture xattr");
+
+        let error = read_hotword_snapshot(&path).expect_err("reject extended metadata");
+        assert!(error.contains("extended attributes or ACL metadata"));
+    }
+
+    #[test]
+    fn temporary_publication_rejects_owner_or_group_mismatch() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+        fs::write(&path, "alpha\n").expect("hotword fixture");
+        let mut baseline = read_hotword_snapshot(&path).expect("baseline");
+        let (_, temporary_file) = create_sibling_file(
+            directory.path(),
+            path.file_name().expect("file name"),
+            "tmp",
+        )
+        .expect("temporary file");
+        prepare_temporary_hotword_metadata(&temporary_file, &baseline)
+            .expect("matching owner and group");
+
+        baseline.version.as_mut().expect("version").uid =
+            baseline.version.expect("version").uid.wrapping_add(1);
+        let error = prepare_temporary_hotword_metadata(&temporary_file, &baseline)
+            .expect_err("reject ownership mismatch");
+        assert!(error.contains("ownership cannot be preserved"));
     }
 
     #[test]
