@@ -19,6 +19,7 @@ use vinput_config::{VinputConfig, config_backup_path, write_config_file};
 use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
+mod asr_reload_confirmation;
 mod daemon_owner_monitor;
 mod hotword_management;
 mod hotword_persistence;
@@ -37,6 +38,9 @@ mod script_recovery;
 mod script_removal;
 mod script_transaction;
 
+pub(crate) use asr_reload_confirmation::{
+    reload_asr_backend, reload_asr_backend_and_wait, wait_for_requested_asr_backend,
+};
 pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
 use hotword_management::HotwordEditorState;
@@ -61,6 +65,8 @@ pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretIn
 
 /// Product display name.
 pub const APPLICATION_TITLE: &str = "Vinput Configuration";
+
+pub(crate) const DAEMON_RELOAD_REQUESTED: &str = "daemon config reload requested";
 
 /// A validated config document loaded for the GUI.
 #[derive(Debug, Clone)]
@@ -1030,7 +1036,7 @@ pub(crate) fn save_updated_config_with_daemon(
     let mut outcome = persist_updated_config(document, updated)?;
     outcome.daemon_reload = match daemon {
         Ok(_) => match reload_asr_backend() {
-            Ok(()) => "daemon config reload requested".to_owned(),
+            Ok(()) => DAEMON_RELOAD_REQUESTED.to_owned(),
             Err(error) => {
                 let rollback = restore_config_document(document);
                 return Err(match rollback {
@@ -1072,14 +1078,6 @@ fn save_config_with_daemon(
     let mut updated = document.config.clone();
     draft.apply_to(&mut updated);
     save_updated_config_with_daemon(document, &updated)
-}
-
-pub(crate) fn reload_asr_backend() -> Result<(), String> {
-    let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
-    let proxy = daemon_proxy(&connection)?;
-    proxy
-        .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
-        .map_err(|error| error.to_string())
 }
 
 fn run_recording_action(start: bool, scene: &str) -> Result<String, String> {

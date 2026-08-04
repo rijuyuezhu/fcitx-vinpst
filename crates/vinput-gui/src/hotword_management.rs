@@ -15,13 +15,13 @@ use iced::{
 use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 
 use crate::{
-    App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, SecretInput,
-    ensure_config_document_current,
+    App, ConfigDocument, ConfigSaveOutcome, DAEMON_RELOAD_REQUESTED, Message, OperationState,
+    SecretInput, ensure_config_document_current,
     hotword_persistence::{
         HotwordContentSnapshot, read_hotword_snapshot, save_hotword_content_with_daemon,
         save_hotword_path_with_daemon,
     },
-    load_config_document,
+    load_config_document, wait_for_requested_asr_backend,
 };
 
 /// One ASR provider that supports hotword files.
@@ -85,8 +85,8 @@ pub enum HotwordMessage {
     ContentSaved {
         /// Operation generation used to reject stale completions.
         operation_id: u64,
-        /// Secret-free save summary or error.
-        result: Result<String, String>,
+        /// Secret-free file-save and daemon-activation outcome or error.
+        result: Result<HotwordContentSaveOutcome, String>,
     },
     /// Result of one persisted path mutation.
     MutationFinished(Result<HotwordMutationOutcome, String>),
@@ -135,6 +135,18 @@ impl fmt::Debug for HotwordMessage {
 pub struct HotwordMutationOutcome {
     save: ConfigSaveOutcome,
     summary: String,
+    activation_error: Option<String>,
+}
+
+/// Result of publishing one hotword file and applying it to the active daemon backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HotwordContentSaveOutcome {
+    /// File-save and activation summary without hotword content or paths.
+    pub summary: String,
+    /// Safe activation failure, when the file was saved but the active backend did not apply it.
+    pub activation_error: Option<String>,
+    /// Final disk snapshot, redacted by its custom `Debug` implementation.
+    pub(crate) baseline: Option<HotwordContentSnapshot>,
 }
 
 #[derive(Clone)]
@@ -460,8 +472,29 @@ impl App {
         self.operation = OperationState::Running(progress);
         Task::perform(
             async move {
-                save_hotword_path_with_daemon(&document, &updated, prerequisite_path.as_deref())
-                    .map(|save| HotwordMutationOutcome { save, summary })
+                let should_confirm = updated.asr.active_provider == provider_id;
+                let mut save = save_hotword_path_with_daemon(
+                    &document,
+                    &updated,
+                    prerequisite_path.as_deref(),
+                )?;
+                let activation_error =
+                    if should_confirm && save.daemon_reload == DAEMON_RELOAD_REQUESTED {
+                        match wait_for_requested_asr_backend(&provider_id) {
+                            Ok(summary) => {
+                                save.daemon_reload = summary;
+                                None
+                            }
+                            Err(error) => Some(error),
+                        }
+                    } else {
+                        None
+                    };
+                Ok(HotwordMutationOutcome {
+                    save,
+                    summary,
+                    activation_error,
+                })
             },
             |result| Message::Hotword(HotwordMessage::MutationFinished(result)),
         )
@@ -483,12 +516,16 @@ impl App {
             |path| format!("backup {}", path.display()),
         );
         self.replace_config(load_config_document(Some(&outcome.save.path)));
-        self.operation = OperationState::Succeeded(format!(
+        let summary = format!(
             "{} Saved {} ({backup}); {}",
             outcome.summary,
             outcome.save.path.display(),
             outcome.save.daemon_reload
-        ));
+        );
+        self.operation = match outcome.activation_error {
+            Some(error) => OperationState::Failed(format!("{summary}. {error}")),
+            None => OperationState::Succeeded(summary),
+        };
         self.begin_daemon_refresh(false)
     }
 
@@ -640,19 +677,21 @@ impl App {
     fn finish_hotword_content_save(
         &mut self,
         operation_id: u64,
-        result: Result<String, String>,
+        result: Result<HotwordContentSaveOutcome, String>,
     ) -> Task<Message> {
         if self.active_hotword_operation_id != Some(operation_id) {
             return Task::none();
         }
         self.active_hotword_operation_id = None;
         match result {
-            Ok(summary) => {
-                self.hotword_editor.baseline = Some(HotwordContentSnapshot {
-                    existed: true,
-                    content: self.hotword_editor.content.text(),
-                });
-                self.operation = OperationState::Succeeded(summary);
+            Ok(outcome) => {
+                if let Some(baseline) = outcome.baseline {
+                    self.hotword_editor.baseline = Some(baseline);
+                }
+                self.operation = match outcome.activation_error {
+                    Some(error) => OperationState::Failed(format!("{} {error}", outcome.summary)),
+                    None => OperationState::Succeeded(outcome.summary),
+                };
                 self.begin_daemon_refresh(false)
             }
             Err(error) => {
@@ -853,8 +892,10 @@ fn save_hotword_content_for_document(
     expected_path: &Path,
     expected: &HotwordContentSnapshot,
     content: &str,
-) -> Result<String, String> {
-    save_hotword_content_with_daemon(expected_path, expected, content, || {
+) -> Result<HotwordContentSaveOutcome, String> {
+    let active_provider_id =
+        (document.config.asr.active_provider == provider_id).then_some(provider_id);
+    save_hotword_content_with_daemon(expected_path, expected, content, active_provider_id, || {
         ensure_config_document_current(document)?;
         let current_path = resolved_hotword_content_path(&document.config, provider_id)?;
         if current_path.as_deref() != Some(expected_path) {

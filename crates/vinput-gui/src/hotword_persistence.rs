@@ -9,8 +9,9 @@ use std::{
 use vinput_config::VinputConfig;
 
 use crate::{
-    ConfigDocument, ConfigSaveOutcome, ensure_config_save_allowed, query_daemon_snapshot,
-    reload_asr_backend, save_updated_config_with_daemon,
+    ConfigDocument, ConfigSaveOutcome, ensure_config_save_allowed,
+    hotword_management::HotwordContentSaveOutcome, query_daemon_snapshot,
+    reload_asr_backend_and_wait, save_updated_config_with_daemon,
 };
 
 const MAX_HOTWORD_FILE_BYTES: usize = 1024 * 1024;
@@ -109,17 +110,30 @@ pub(super) fn save_hotword_content_with_daemon(
     path: &Path,
     expected: &HotwordContentSnapshot,
     content: &str,
+    active_provider_id: Option<&str>,
     validate_target: impl FnOnce() -> Result<(), String>,
-) -> Result<String, String> {
+) -> Result<HotwordContentSaveOutcome, String> {
     let daemon = query_daemon_snapshot();
     if let Ok(snapshot) = &daemon {
         ensure_config_save_allowed(snapshot)?;
     }
     validate_target()?;
-    save_hotword_content_with_reload(path, expected, content, || match daemon {
-        Ok(_) => reload_asr_backend().map(|()| "daemon config reload requested".to_owned()),
-        Err(error) => Ok(format!("daemon reload skipped: {error}")),
-    })
+    match active_provider_id {
+        None => {
+            save_hotword_content_with_reload(path, expected, content, || {
+                Ok("inactive provider file updated; it will be used when the provider is activated".to_owned())
+            })
+        }
+        Some(provider_id) => {
+            save_hotword_content_with_reload(path, expected, content, || match daemon {
+                Ok(_) => reload_asr_backend_and_wait(provider_id),
+                Err(_) => Err(
+                    "No reachable daemon was available to apply the saved hotword update."
+                        .to_owned(),
+                ),
+            })
+        }
+    }
 }
 
 pub(super) fn save_hotword_content_with_reload(
@@ -127,7 +141,7 @@ pub(super) fn save_hotword_content_with_reload(
     expected: &HotwordContentSnapshot,
     content: &str,
     reload: impl FnOnce() -> Result<String, String>,
-) -> Result<String, String> {
+) -> Result<HotwordContentSaveOutcome, String> {
     let current = read_hotword_snapshot(path)?;
     if &current != expected {
         return Err(
@@ -135,12 +149,44 @@ pub(super) fn save_hotword_content_with_reload(
         );
     }
     atomic_write_hotword_file(path, content.as_bytes())?;
-    match reload() {
-        Ok(reload_summary) => Ok(format!("Hotword content saved; {reload_summary}")),
-        Err(error) => Err(format!(
-            "Daemon reload failed after saving hotwords: {error}; the current hotword file was preserved and rollback was skipped to avoid overwriting concurrent external updates."
-        )),
+    let reload = reload();
+    let final_snapshot = read_hotword_snapshot(path);
+    let mut activation_errors = Vec::new();
+    if let Err(error) = &reload {
+        activation_errors.push(error.clone());
     }
+    let baseline = if let Ok(snapshot) = final_snapshot {
+        if !snapshot.existed || snapshot.content != content {
+            activation_errors.push(
+                "The hotword file changed while the daemon was applying the update; reload the file before editing it again."
+                    .to_owned(),
+            );
+        }
+        Some(snapshot)
+    } else {
+        activation_errors.push(
+            "The saved hotword file could not be verified after the daemon reload; reload the file before editing it again."
+                .to_owned(),
+        );
+        None
+    };
+    let activation_error = (!activation_errors.is_empty()).then(|| {
+        format!(
+            "{} Automatic file rollback was skipped to avoid overwriting concurrent external updates.",
+            activation_errors.join(" ")
+        )
+    });
+    let summary = match reload {
+        Ok(reload_summary) if activation_error.is_none() => {
+            format!("Hotword content saved; {reload_summary}.")
+        }
+        Ok(_) | Err(_) => "Hotword content was saved to disk.".to_owned(),
+    };
+    Ok(HotwordContentSaveOutcome {
+        summary,
+        activation_error,
+        baseline,
+    })
 }
 
 fn atomic_write_hotword_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -282,11 +328,19 @@ mod tests {
         fs::write(&path, "alpha\n").expect("write fixture");
         let baseline = read_hotword_snapshot(&path).expect("read baseline");
 
-        let summary = save_hotword_content_with_reload(&path, &baseline, "beta\n", || {
+        let outcome = save_hotword_content_with_reload(&path, &baseline, "beta\n", || {
             Ok("fixture reload".to_owned())
         })
         .expect("save content");
-        assert!(summary.contains("fixture reload"));
+        assert!(outcome.summary.contains("fixture reload"));
+        assert_eq!(outcome.activation_error, None);
+        assert_eq!(
+            outcome
+                .baseline
+                .as_ref()
+                .map(|snapshot| snapshot.content.as_str()),
+            Some("beta\n")
+        );
         assert_eq!(fs::read_to_string(&path).expect("saved content"), "beta\n");
 
         let loaded = read_hotword_snapshot(&path).expect("read saved content");
@@ -302,24 +356,36 @@ mod tests {
         );
 
         let external = read_hotword_snapshot(&path).expect("read external content");
-        let reload_error = save_hotword_content_with_reload(&path, &external, "delta\n", || {
+        let reload_outcome = save_hotword_content_with_reload(&path, &external, "delta\n", || {
             Err("fixture reload failure".to_owned())
         })
-        .expect_err("preserve published content after reload failure");
-        assert!(reload_error.contains("rollback was skipped"));
+        .expect("preserve published content after reload failure");
+        assert!(
+            reload_outcome
+                .activation_error
+                .as_deref()
+                .is_some_and(|error| error.contains("rollback was skipped"))
+        );
         assert_eq!(
             fs::read_to_string(&path).expect("published content"),
             "delta\n"
         );
 
         let concurrent_baseline = read_hotword_snapshot(&path).expect("read concurrent baseline");
-        let concurrent_error =
+        let concurrent_outcome =
             save_hotword_content_with_reload(&path, &concurrent_baseline, "gui-write\n", || {
                 fs::write(&path, "concurrent-write\n").expect("concurrent update");
                 Err("fixture reload failure".to_owned())
             })
-            .expect_err("preserve concurrent reload-window update");
-        assert!(concurrent_error.contains("rollback was skipped"));
+            .expect("preserve concurrent reload-window update");
+        assert!(concurrent_outcome.activation_error.is_some());
+        assert_eq!(
+            concurrent_outcome
+                .baseline
+                .as_ref()
+                .map(|snapshot| snapshot.content.as_str()),
+            Some("concurrent-write\n")
+        );
         assert_eq!(
             fs::read_to_string(&path).expect("concurrent content"),
             "concurrent-write\n"
@@ -328,7 +394,7 @@ mod tests {
         let same_content_baseline =
             read_hotword_snapshot(&path).expect("read same-content baseline");
         let replacement = directory.path().join("replacement.txt");
-        let same_content_error = save_hotword_content_with_reload(
+        let same_content_outcome = save_hotword_content_with_reload(
             &path,
             &same_content_baseline,
             "gui-same-content\n",
@@ -338,8 +404,8 @@ mod tests {
                 Err("fixture reload failure".to_owned())
             },
         )
-        .expect_err("detect same-content external replacement");
-        assert!(same_content_error.contains("rollback was skipped"));
+        .expect("detect same-content external replacement");
+        assert!(same_content_outcome.activation_error.is_some());
         assert_eq!(
             fs::read_to_string(&path).expect("same replacement content"),
             "gui-same-content\n"
@@ -347,7 +413,7 @@ mod tests {
 
         let missing_path = directory.path().join("new-hotwords.txt");
         let missing_baseline = read_hotword_snapshot(&missing_path).expect("read missing baseline");
-        let missing_error = save_hotword_content_with_reload(
+        let missing_outcome = save_hotword_content_with_reload(
             &missing_path,
             &missing_baseline,
             "gui-create\n",
@@ -356,8 +422,8 @@ mod tests {
                 Err("fixture reload failure".to_owned())
             },
         )
-        .expect_err("preserve concurrent creation");
-        assert!(missing_error.contains("rollback was skipped"));
+        .expect("preserve concurrent creation");
+        assert!(missing_outcome.activation_error.is_some());
         assert_eq!(
             fs::read_to_string(&missing_path).expect("concurrent created content"),
             "concurrent-create\n"
