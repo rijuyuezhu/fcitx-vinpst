@@ -1,8 +1,10 @@
 //! Scene lifecycle state, validation, persistence, and rendering.
 
+use std::fmt;
+
 use iced::{
     Element, Length, Task,
-    widget::{button, column, row, text, text_input},
+    widget::{button, column, pick_list, row, text, text_input},
 };
 use vinput_config::{COMMAND_SCENE_ID, RAW_SCENE_ID, SceneDefinition, VinputConfig};
 
@@ -20,7 +22,7 @@ pub enum SceneEditorField {
     Label,
     /// Optional prompt template.
     Prompt,
-    /// Optional LLM provider id.
+    /// Optional LLM provider id retained for message compatibility.
     ProviderId,
     /// Optional model override.
     Model,
@@ -30,6 +32,41 @@ pub enum SceneEditorField {
     TimeoutMs,
     /// Number of recent context lines.
     ContextLines,
+}
+
+/// One configured LLM provider choice exposed by the scene editor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SceneProviderSelection {
+    /// Do not bind the scene to an LLM provider.
+    None,
+    /// Bind the scene to one configured provider id.
+    Configured(String),
+}
+
+impl SceneProviderSelection {
+    fn from_provider_id(provider_id: &str) -> Self {
+        if provider_id.is_empty() {
+            Self::None
+        } else {
+            Self::Configured(provider_id.to_owned())
+        }
+    }
+
+    fn into_provider_id(self) -> String {
+        match self {
+            Self::None => String::new(),
+            Self::Configured(provider_id) => provider_id,
+        }
+    }
+}
+
+impl fmt::Display for SceneProviderSelection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => formatter.write_str("No provider (clear binding)"),
+            Self::Configured(provider_id) => write!(formatter, "Provider: {provider_id}"),
+        }
+    }
 }
 
 /// One scene lifecycle interaction handled by the Resources page.
@@ -46,6 +83,8 @@ pub enum SceneMessage {
         /// New user-entered value.
         value: String,
     },
+    /// Select one configured LLM provider or clear the scene binding.
+    ProviderSelected(SceneProviderSelection),
     /// Close the scene form without saving.
     CancelEdit,
     /// Validate and persist the active scene form.
@@ -164,6 +203,9 @@ impl App {
             SceneMessage::EditorChanged { field, value } => {
                 self.update_scene_editor(field, value);
             }
+            SceneMessage::ProviderSelected(selection) => {
+                self.select_scene_provider(selection);
+            }
             SceneMessage::CancelEdit => self.cancel_scene_editor(),
             SceneMessage::Save => return self.begin_scene_save(),
             SceneMessage::Use(id) => return self.begin_scene_use(&id),
@@ -218,6 +260,12 @@ impl App {
     pub(super) fn update_scene_editor(&mut self, field: SceneEditorField, value: String) {
         if let Some(editor) = &mut self.scene_editor {
             editor.update(field, value);
+        }
+    }
+
+    fn select_scene_provider(&mut self, selection: SceneProviderSelection) {
+        if let Some(editor) = &mut self.scene_editor {
+            editor.provider_id = selection.into_provider_id();
         }
     }
 
@@ -395,7 +443,11 @@ impl App {
         }
 
         if let Some(editor) = &self.scene_editor {
-            body = body.push(scene_editor_view(editor, busy));
+            let provider_options = self.config.as_ref().map_or_else(
+                |_| vec![SceneProviderSelection::None],
+                |document| scene_provider_options(&document.config),
+            );
+            body = body.push(scene_editor_view(editor, busy, provider_options));
         }
         body.into()
     }
@@ -426,7 +478,11 @@ fn scene_row(
     .into()
 }
 
-fn scene_editor_view(editor: &SceneEditorState, busy: bool) -> Element<'_, Message> {
+fn scene_editor_view(
+    editor: &SceneEditorState,
+    busy: bool,
+    provider_options: Vec<SceneProviderSelection>,
+) -> Element<'_, Message> {
     let id_field: Element<'_, Message> = if editor.original_id.is_some() {
         text(format!("Scene id: {} (immutable)", editor.id)).into()
     } else {
@@ -437,6 +493,18 @@ fn scene_editor_view(editor: &SceneEditorState, busy: bool) -> Element<'_, Messa
             SceneEditorField::Id,
             busy,
         )
+    };
+    let provider_selection = SceneProviderSelection::from_provider_id(&editor.provider_id);
+    let provider_control: Element<'_, Message> = if busy {
+        text(provider_selection.to_string())
+            .width(Length::Fill)
+            .into()
+    } else {
+        pick_list(provider_options, Some(provider_selection), |selection| {
+            Message::Scene(SceneMessage::ProviderSelected(selection))
+        })
+        .width(Length::Fill)
+        .into()
     };
     column![
         text(editor.action_label()).size(22),
@@ -455,13 +523,7 @@ fn scene_editor_view(editor: &SceneEditorState, busy: bool) -> Element<'_, Messa
             SceneEditorField::Prompt,
             busy,
         ),
-        labeled_input(
-            "LLM provider",
-            "optional configured provider id",
-            &editor.provider_id,
-            SceneEditorField::ProviderId,
-            busy,
-        ),
+        row![text("LLM provider").width(160), provider_control].spacing(10),
         labeled_input(
             "Model override",
             "optional model id",
@@ -500,6 +562,18 @@ fn scene_editor_view(editor: &SceneEditorState, busy: bool) -> Element<'_, Messa
     ]
     .spacing(10)
     .into()
+}
+
+fn scene_provider_options(config: &VinputConfig) -> Vec<SceneProviderSelection> {
+    std::iter::once(SceneProviderSelection::None)
+        .chain(
+            config
+                .llm
+                .providers
+                .iter()
+                .map(|provider| SceneProviderSelection::Configured(provider.id.clone())),
+        )
+        .collect()
 }
 
 fn labeled_input<'a>(
@@ -621,6 +695,7 @@ fn parse_optional_u64(label: &str, value: &str) -> Result<Option<u64>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vinput_config::LlmProviderConfig;
 
     fn new_scene_editor() -> SceneEditorState {
         let mut editor = SceneEditorState::add();
@@ -719,5 +794,61 @@ mod tests {
         let error = add_scene(&config, &editor).expect_err("reject invalid number");
         assert!(error.contains("candidate count"));
         assert_eq!(config.scenes.definitions.len(), 2);
+    }
+
+    #[test]
+    fn provider_selection_lists_configured_ids_and_updates_typed_scene() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        config.llm.providers.push(LlmProviderConfig {
+            id: "cloud".to_owned(),
+            base_url: "https://example.invalid/v1".to_owned(),
+            api_key: String::new(),
+            model: Some("provider-default".to_owned()),
+            extra_body: serde_json::json!({}),
+            extra: std::collections::HashMap::new(),
+        });
+
+        assert_eq!(
+            scene_provider_options(&config),
+            vec![
+                SceneProviderSelection::None,
+                SceneProviderSelection::Configured("cloud".to_owned()),
+            ]
+        );
+        assert_ne!(
+            SceneProviderSelection::None.to_string(),
+            SceneProviderSelection::Configured("No provider".to_owned()).to_string()
+        );
+
+        let (mut app, boot_task) = App::boot();
+        drop(boot_task);
+        app.scene_editor = Some(new_scene_editor());
+        drop(app.handle_scene_message(SceneMessage::ProviderSelected(
+            SceneProviderSelection::Configured("cloud".to_owned()),
+        )));
+        assert_eq!(
+            app.scene_editor.as_ref().expect("open editor").provider_id,
+            "cloud"
+        );
+
+        let mut editor = new_scene_editor();
+        editor.model = "scene-model".to_owned();
+        editor.provider_id =
+            SceneProviderSelection::Configured("cloud".to_owned()).into_provider_id();
+        let updated = add_scene(&config, &editor).expect("add provider-backed scene");
+        let scene = updated
+            .scenes
+            .definitions
+            .iter()
+            .find(|scene| scene.id == "meeting")
+            .expect("added scene");
+        assert_eq!(scene.provider_id.as_deref(), Some("cloud"));
+        assert_eq!(scene.model.as_deref(), Some("scene-model"));
+
+        editor.provider_id = SceneProviderSelection::None.into_provider_id();
+        assert_eq!(
+            editor.definition().expect("cleared provider").provider_id,
+            None
+        );
     }
 }

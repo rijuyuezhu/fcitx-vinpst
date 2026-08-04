@@ -172,6 +172,7 @@ impl Message {
                     SceneMessage::BeginAdd
                         | SceneMessage::BeginEdit(_)
                         | SceneMessage::EditorChanged { .. }
+                        | SceneMessage::ProviderSelected(_)
                         | SceneMessage::CancelEdit
                         | SceneMessage::Save
                         | SceneMessage::Use(_)

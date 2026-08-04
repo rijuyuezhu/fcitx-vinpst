@@ -49,7 +49,9 @@ use model_management::{load_installed_models, model_is_active, remove_installed_
 pub use page::Page;
 use resource_details::ResourceSelection;
 use scene_management::SceneEditorState;
-pub use scene_management::{SceneEditorField, SceneMessage, SceneMutationOutcome};
+pub use scene_management::{
+    SceneEditorField, SceneMessage, SceneMutationOutcome, SceneProviderSelection,
+};
 use script_install::ScriptInstallState;
 pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretInput};
 
