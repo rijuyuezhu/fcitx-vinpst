@@ -99,6 +99,22 @@ pub(super) fn save_hotword_path_with_daemon(
     })
 }
 
+pub(super) fn ensure_hotword_path_update_current(
+    path: &Path,
+    updated: &VinputConfig,
+) -> Result<(), String> {
+    let persisted = ConfigDocument {
+        path: path.to_path_buf(),
+        from_disk: true,
+        config: updated.clone(),
+    };
+    crate::ensure_config_document_current(&persisted).map_err(|error| {
+        format!(
+            "{error} The daemon application result was not accepted because the saved hotword path configuration changed during reload."
+        )
+    })
+}
+
 fn with_prepared_hotword_file<T>(
     path: Option<&Path>,
     action: impl FnOnce() -> Result<T, String>,
@@ -357,7 +373,7 @@ fn compare_and_swap_hotword_file(
             });
         }
         let recovery_path = claim_current_hotword_file(path, parent, file_name)?;
-        sync_directory(parent)?;
+        synchronize_claim_or_restore(&recovery_path, path, parent, sync_directory)?;
         let claimed = read_hotword_snapshot(&recovery_path)?;
         if !claimed.matches_after_claim(expected) {
             let restored = restore_claimed_file(&recovery_path, path, parent)?;
@@ -444,6 +460,28 @@ fn claim_current_hotword_file(
         }
     }
     Err("Could not allocate an adjacent hotword recovery file.".to_owned())
+}
+
+fn synchronize_claim_or_restore(
+    recovery_path: &Path,
+    path: &Path,
+    parent: &Path,
+    synchronize: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    let Err(sync_error) = synchronize(parent) else {
+        return Ok(());
+    };
+    match restore_claimed_file(recovery_path, path, parent) {
+        Ok(true) => Err(format!(
+            "Synchronizing the hotword directory after claiming the loaded file failed: {sync_error}; the loaded file was restored to its configured path."
+        )),
+        Ok(false) => Err(format!(
+            "Synchronizing the hotword directory after claiming the loaded file failed: {sync_error}; an external file occupied the configured path, so it and the adjacent recovery copy were both preserved."
+        )),
+        Err(restore_error) => Err(format!(
+            "Synchronizing the hotword directory after claiming the loaded file failed: {sync_error}; restoring the configured path also failed: {restore_error}"
+        )),
+    }
 }
 
 fn restore_claimed_file(recovery_path: &Path, path: &Path, parent: &Path) -> Result<bool, String> {
@@ -719,6 +757,69 @@ mod tests {
                 .as_deref()
                 .is_some_and(|error| error.contains("target changed"))
         );
+    }
+
+    #[test]
+    fn path_reload_confirmation_rejects_external_config_changes() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let config_path = directory.path().join("config.json");
+        let mut updated = VinputConfig::bundled_default().expect("bundled config");
+        updated.asr.providers[0].hotwords_file = Some(
+            directory
+                .path()
+                .join("old.txt")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        fs::write(
+            &config_path,
+            serde_json::to_vec_pretty(&updated).expect("serialize updated config"),
+        )
+        .expect("write updated config");
+        ensure_hotword_path_update_current(&config_path, &updated)
+            .expect("unchanged path config is current");
+
+        let mut superseding = updated.clone();
+        superseding.asr.providers[0].hotwords_file = Some(
+            directory
+                .path()
+                .join("new.txt")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        fs::write(
+            &config_path,
+            serde_json::to_vec_pretty(&superseding).expect("serialize superseding config"),
+        )
+        .expect("write superseding config");
+        let error = ensure_hotword_path_update_current(&config_path, &updated)
+            .expect_err("reject superseding path config");
+        assert!(error.contains("changed during reload"));
+    }
+
+    #[test]
+    fn claim_sync_failure_restores_configured_path() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+        fs::write(&path, "alpha\n").expect("initial content");
+        let recovery = claim_current_hotword_file(
+            &path,
+            directory.path(),
+            path.file_name().expect("file name"),
+        )
+        .expect("claim configured file");
+        assert!(!path.exists());
+
+        let error = synchronize_claim_or_restore(&recovery, &path, directory.path(), |_| {
+            Err("fixture directory sync failure".to_owned())
+        })
+        .expect_err("sync failure must abort publication");
+        assert!(error.contains("restored to its configured path"));
+        assert_eq!(
+            fs::read_to_string(&path).expect("restored content"),
+            "alpha\n"
+        );
+        assert!(!recovery.exists());
     }
 
     #[test]

@@ -18,8 +18,8 @@ use crate::{
     App, ConfigDocument, ConfigSaveOutcome, DAEMON_RELOAD_REQUESTED, Message, OperationState,
     SecretInput, ensure_config_document_current,
     hotword_persistence::{
-        HotwordContentSnapshot, read_hotword_snapshot, save_hotword_content_with_daemon,
-        save_hotword_path_with_daemon,
+        HotwordContentSnapshot, ensure_hotword_path_update_current, read_hotword_snapshot,
+        save_hotword_content_with_daemon, save_hotword_path_with_daemon,
     },
     load_config_document, wait_for_requested_asr_backend,
 };
@@ -482,8 +482,13 @@ impl App {
                     if should_confirm && save.daemon_reload == DAEMON_RELOAD_REQUESTED {
                         match wait_for_requested_asr_backend(&provider_id) {
                             Ok(summary) => {
-                                save.daemon_reload = summary;
-                                None
+                                match ensure_hotword_path_update_current(&save.path, &updated) {
+                                    Ok(()) => {
+                                        save.daemon_reload = summary;
+                                        None
+                                    }
+                                    Err(error) => Some(error),
+                                }
                             }
                             Err(error) => Some(error),
                         }
