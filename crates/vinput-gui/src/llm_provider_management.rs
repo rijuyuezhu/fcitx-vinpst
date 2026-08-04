@@ -104,9 +104,10 @@ impl fmt::Debug for LlmProviderEditorFields {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 pub(super) struct LlmProviderEditorState {
     original_id: Option<String>,
+    original_provider: Option<LlmProviderConfig>,
     baseline: LlmProviderEditorFields,
     fields: LlmProviderEditorFields,
     preserved_extra: std::collections::HashMap<String, serde_json::Value>,
@@ -117,6 +118,13 @@ impl fmt::Debug for LlmProviderEditorState {
         formatter
             .debug_struct("LlmProviderEditorState")
             .field("original_id", &self.original_id)
+            .field(
+                "original_provider",
+                &self
+                    .original_provider
+                    .as_ref()
+                    .map(|_| "<redacted provider>"),
+            )
             .field("baseline", &self.baseline)
             .field("fields", &self.fields)
             .field("preserved_extra_count", &self.preserved_extra.len())
@@ -135,6 +143,7 @@ impl LlmProviderEditorState {
         };
         Self {
             original_id: None,
+            original_provider: None,
             baseline: fields.clone(),
             fields,
             preserved_extra: std::collections::HashMap::new(),
@@ -152,6 +161,7 @@ impl LlmProviderEditorState {
         };
         Self {
             original_id: Some(provider.id.clone()),
+            original_provider: Some(provider.clone()),
             baseline: fields.clone(),
             fields,
             preserved_extra: provider.extra.clone(),
@@ -186,25 +196,49 @@ impl LlmProviderEditorState {
         if id.trim().is_empty() {
             return Err("LLM provider id cannot be empty.".to_owned());
         }
-        let base_url = self.fields.base_url.trim().to_owned();
-        if base_url.is_empty() {
+        let original_provider = self.original_provider.as_ref();
+        let base_url = original_provider
+            .filter(|_| self.fields.base_url == self.baseline.base_url)
+            .map_or_else(
+                || self.fields.base_url.trim().to_owned(),
+                |provider| provider.base_url.clone(),
+            );
+        if base_url.trim().is_empty() {
             return Err("LLM provider base URL cannot be empty.".to_owned());
         }
-        let extra_body_text = self.fields.extra_body.trim();
-        let extra_body = if extra_body_text.is_empty() {
-            serde_json::json!({})
+        let extra_body = if let Some(provider) =
+            original_provider.filter(|_| self.fields.extra_body == self.baseline.extra_body)
+        {
+            provider.extra_body.clone()
         } else {
-            serde_json::from_str(extra_body_text)
-                .map_err(|error| format!("Parse extra body as JSON object: {error}"))?
+            let extra_body_text = self.fields.extra_body.trim();
+            if extra_body_text.is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::from_str(extra_body_text)
+                    .map_err(|error| format!("Parse extra body as JSON object: {error}"))?
+            }
         };
         if !extra_body.is_object() {
             return Err("LLM provider extra body must be a JSON object.".to_owned());
         }
+        let api_key = original_provider
+            .filter(|_| self.fields.api_key == self.baseline.api_key)
+            .map_or_else(
+                || self.fields.api_key.as_str().trim().to_owned(),
+                |provider| provider.api_key.clone(),
+            );
+        let model = original_provider
+            .filter(|_| self.fields.model == self.baseline.model)
+            .map_or_else(
+                || optional_trimmed(&self.fields.model),
+                |provider| provider.model.clone(),
+            );
         Ok(LlmProviderConfig {
             id,
             base_url,
-            api_key: self.fields.api_key.as_str().trim().to_owned(),
-            model: optional_trimmed(&self.fields.model),
+            api_key,
+            model,
             extra_body,
             extra: self.preserved_extra.clone(),
         })
@@ -831,6 +865,10 @@ fn optional_trimmed(value: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+#[path = "llm_provider_preservation_tests.rs"]
+mod preservation_tests;
+
+#[cfg(test)]
 mod tests {
     use std::{
         collections::HashMap,
@@ -1032,56 +1070,6 @@ mod tests {
                 .providers
                 .iter()
                 .any(|provider| provider.id == "renamed")
-        );
-    }
-
-    #[test]
-    fn edit_provider_preserves_exact_immutable_id_and_scene_reference() {
-        let mut config = VinputConfig::bundled_default().expect("bundled config");
-        config.llm.providers.push(provider(" cloud "));
-        config.scenes.definitions.push(SceneDefinition {
-            id: "cloud-scene".to_owned(),
-            label: "Cloud scene".to_owned(),
-            prompt: Some("Polish the text".to_owned()),
-            provider_id: Some(" cloud ".to_owned()),
-            model: None,
-            candidate_count: 1,
-            timeout_ms: None,
-            context_lines: 0,
-        });
-        config.validate().expect("valid whitespace provider id");
-        let configured = config.llm.providers.last().expect("configured provider");
-        let mut editor = LlmProviderEditorState::edit(configured);
-        editor.update(
-            LlmProviderEditorField::Model,
-            SecretInput::new("model-b".to_owned()),
-        );
-
-        let updated = edit_llm_provider(&config, &editor).expect("edit provider");
-
-        updated.validate().expect("edited config remains valid");
-        assert!(
-            updated
-                .llm
-                .providers
-                .iter()
-                .any(|provider| provider.id == " cloud ")
-        );
-        assert!(
-            !updated
-                .llm
-                .providers
-                .iter()
-                .any(|provider| provider.id == "cloud")
-        );
-        assert_eq!(
-            updated
-                .scenes
-                .definitions
-                .iter()
-                .find(|scene| scene.id == "cloud-scene")
-                .and_then(|scene| scene.provider_id.as_deref()),
-            Some(" cloud ")
         );
     }
 
