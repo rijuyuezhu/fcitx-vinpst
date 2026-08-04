@@ -258,9 +258,17 @@ pub(super) fn save_hotword_content_with_reload(
     reload: impl FnOnce() -> Result<String, String>,
 ) -> Result<HotwordContentSaveOutcome, String> {
     let publish = compare_and_swap_hotword_file(path, expected, content.as_bytes(), || {})?;
+    let published_snapshot = read_hotword_snapshot(path);
     let reload = reload();
+    let reload_failed = reload.is_err();
     let final_snapshot = read_hotword_snapshot(path);
     let mut activation_errors = publish.durability_error.into_iter().collect::<Vec<_>>();
+    if published_snapshot.is_err() {
+        activation_errors.push(
+            "The published hotword file could not be versioned before daemon activation; reload the file before retrying activation."
+                .to_owned(),
+        );
+    }
     if let Err(error) = &reload {
         activation_errors.push(error.clone());
     }
@@ -279,6 +287,16 @@ pub(super) fn save_hotword_content_with_reload(
         );
         None
     };
+    let retry_activation = reload_failed
+        && published_snapshot
+            .as_ref()
+            .ok()
+            .zip(baseline.as_ref())
+            .is_some_and(|(published, final_snapshot)| {
+                published == final_snapshot
+                    && final_snapshot.existed
+                    && final_snapshot.content == content
+            });
     let activation_error = (!activation_errors.is_empty()).then(|| {
         format!(
             "{} Automatic file rollback was skipped to avoid overwriting concurrent external updates.",
@@ -300,10 +318,12 @@ pub(super) fn save_hotword_content_with_reload(
         summary,
         activation_error,
         baseline,
+        retry_activation,
     })
 }
 
 fn append_activation_error(outcome: &mut HotwordContentSaveOutcome, error: String) {
+    outcome.retry_activation = false;
     outcome.activation_error = Some(match outcome.activation_error.take() {
         Some(existing) => format!("{existing} {error}"),
         None => error,
@@ -581,7 +601,7 @@ mod tests {
         );
     }
     #[test]
-    fn content_save_is_atomic_conflict_aware_and_never_rolls_back_after_reload_failure() {
+    fn content_save_is_atomic_conflict_aware_and_retryable_after_reload_failure() {
         let directory = tempfile::tempdir().expect("temp dir");
         let path = directory.path().join("hotwords.txt");
         fs::write(&path, "alpha\n").expect("write fixture");
@@ -625,11 +645,18 @@ mod tests {
                 .as_deref()
                 .is_some_and(|error| error.contains("rollback was skipped"))
         );
+        assert!(reload_outcome.retry_activation);
         assert_eq!(
             fs::read_to_string(&path).expect("published content"),
             "delta\n"
         );
+    }
 
+    #[test]
+    fn content_save_disables_retry_after_reload_window_file_changes() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+        fs::write(&path, "delta\n").expect("write fixture");
         let concurrent_baseline = read_hotword_snapshot(&path).expect("read concurrent baseline");
         let concurrent_outcome =
             save_hotword_content_with_reload(&path, &concurrent_baseline, "gui-write\n", || {
@@ -638,16 +665,13 @@ mod tests {
             })
             .expect("preserve concurrent reload-window update");
         assert!(concurrent_outcome.activation_error.is_some());
+        assert!(!concurrent_outcome.retry_activation);
         assert_eq!(
             concurrent_outcome
                 .baseline
                 .as_ref()
                 .map(|snapshot| snapshot.content.as_str()),
             Some("concurrent-write\n")
-        );
-        assert_eq!(
-            fs::read_to_string(&path).expect("concurrent content"),
-            "concurrent-write\n"
         );
 
         let same_content_baseline =
@@ -665,6 +689,7 @@ mod tests {
         )
         .expect("detect same-content external replacement");
         assert!(same_content_outcome.activation_error.is_some());
+        assert!(!same_content_outcome.retry_activation);
         assert_eq!(
             fs::read_to_string(&path).expect("same replacement content"),
             "gui-same-content\n"
@@ -683,6 +708,7 @@ mod tests {
         )
         .expect("preserve concurrent creation");
         assert!(missing_outcome.activation_error.is_some());
+        assert!(!missing_outcome.retry_activation);
         assert_eq!(
             fs::read_to_string(&missing_path).expect("concurrent created content"),
             "concurrent-create\n"
@@ -759,12 +785,14 @@ mod tests {
             summary: "Hotword content saved; daemon ASR backend applied.".to_owned(),
             activation_error: None,
             baseline: None,
+            retry_activation: false,
         };
         append_activation_error(
             &mut outcome,
             "The configured hotword target changed after publication.".to_owned(),
         );
         assert_eq!(outcome.summary, "Hotword content was saved to disk.");
+        assert!(!outcome.retry_activation);
         assert!(
             outcome
                 .activation_error

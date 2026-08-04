@@ -17,6 +17,7 @@ use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 use crate::{
     App, ConfigDocument, ConfigSaveOutcome, DAEMON_RELOAD_REQUESTED, Message, OperationState,
     SecretInput, ensure_config_document_current,
+    hotword_activation_retry::{PendingHotwordActivation, retry_hotword_activation},
     hotword_persistence::{
         HotwordContentSnapshot, ensure_hotword_path_update_current, read_hotword_snapshot,
         save_hotword_content_with_daemon, save_hotword_path_with_daemon,
@@ -81,6 +82,15 @@ pub enum HotwordMessage {
     SaveContent,
     /// Restore the configured path and last loaded content.
     ResetChanges,
+    /// Retry applying an already saved hotword file to the active daemon backend.
+    RetryActivation,
+    /// Result of one asynchronous activation retry.
+    ActivationRetried {
+        /// Operation generation used to reject stale completions.
+        operation_id: u64,
+        /// Secret-free retry summary or error.
+        result: Result<String, String>,
+    },
     /// Result of one asynchronous content save.
     ContentSaved {
         /// Operation generation used to reject stale completions.
@@ -114,6 +124,15 @@ impl fmt::Debug for HotwordMessage {
             Self::ContentAction(_) => formatter.write_str("ContentAction(<redacted>)"),
             Self::SaveContent => formatter.write_str("SaveContent"),
             Self::ResetChanges => formatter.write_str("ResetChanges"),
+            Self::RetryActivation => formatter.write_str("RetryActivation"),
+            Self::ActivationRetried {
+                operation_id,
+                result,
+            } => formatter
+                .debug_struct("ActivationRetried")
+                .field("operation_id", operation_id)
+                .field("result", &if result.is_ok() { "applied" } else { "failed" })
+                .finish(),
             Self::ContentSaved {
                 operation_id,
                 result,
@@ -147,6 +166,8 @@ pub struct HotwordContentSaveOutcome {
     pub activation_error: Option<String>,
     /// Final disk snapshot, redacted by its custom `Debug` implementation.
     pub(crate) baseline: Option<HotwordContentSnapshot>,
+    /// Whether the saved file can be applied again without rewriting it.
+    pub(crate) retry_activation: bool,
 }
 
 #[derive(Clone)]
@@ -176,6 +197,7 @@ pub(super) struct HotwordEditorState {
     content: text_editor::Content,
     loaded_path: Option<PathBuf>,
     baseline: Option<HotwordContentSnapshot>,
+    pending_activation: Option<PendingHotwordActivation>,
 }
 
 impl fmt::Debug for HotwordEditorState {
@@ -189,6 +211,7 @@ impl fmt::Debug for HotwordEditorState {
             .field("path_dirty", &self.path_is_dirty())
             .field("content_loaded", &self.baseline.is_some())
             .field("content_dirty", &self.content_is_dirty())
+            .field("pending_activation", &self.pending_activation.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -204,6 +227,7 @@ impl HotwordEditorState {
             content: text_editor::Content::new(),
             loaded_path: None,
             baseline: None,
+            pending_activation: None,
         }
     }
 
@@ -243,6 +267,7 @@ impl HotwordEditorState {
             content: text_editor::Content::new(),
             loaded_path: None,
             baseline: None,
+            pending_activation: None,
         }
     }
     pub(super) fn from_document(
@@ -282,6 +307,7 @@ impl HotwordEditorState {
         self.content = text_editor::Content::new();
         self.loaded_path = None;
         self.baseline = None;
+        self.pending_activation = None;
     }
 
     fn reset_changes(&mut self) {
@@ -298,6 +324,7 @@ impl HotwordEditorState {
         self.content = text_editor::Content::with_text(&loaded.snapshot.content);
         self.loaded_path = Some(loaded.path);
         self.baseline = Some(loaded.snapshot);
+        self.pending_activation = None;
     }
 
     fn path_is_dirty(&self) -> bool {
@@ -347,6 +374,7 @@ impl App {
             }
             HotwordMessage::PathChanged(value) => {
                 self.hotword_editor.path_input = value.into_inner();
+                self.hotword_editor.pending_activation = None;
             }
             HotwordMessage::SetPath => return self.begin_hotword_path_set(),
             HotwordMessage::ClearPath => return self.begin_hotword_path_clear(),
@@ -358,9 +386,15 @@ impl App {
             HotwordMessage::ContentAction(action) => {
                 if self.hotword_editor.baseline.is_some() {
                     self.hotword_editor.content.perform(action);
+                    self.hotword_editor.pending_activation = None;
                 }
             }
             HotwordMessage::SaveContent => return self.begin_hotword_content_save(),
+            HotwordMessage::RetryActivation => return self.begin_hotword_activation_retry(),
+            HotwordMessage::ActivationRetried {
+                operation_id,
+                result,
+            } => return self.finish_hotword_activation_retry(operation_id, result),
             HotwordMessage::ResetChanges => {
                 self.hotword_editor.reset_changes();
                 self.operation = OperationState::Idle;
@@ -690,12 +724,33 @@ impl App {
         self.active_hotword_operation_id = None;
         match result {
             Ok(outcome) => {
-                if let Some(baseline) = outcome.baseline {
-                    self.hotword_editor.baseline = Some(baseline);
+                let HotwordContentSaveOutcome {
+                    summary,
+                    activation_error,
+                    baseline,
+                    retry_activation,
+                } = outcome;
+                if let Some(baseline) = baseline {
+                    self.hotword_editor.baseline = Some(baseline.clone());
+                    self.hotword_editor.pending_activation = retry_activation.then(|| {
+                        PendingHotwordActivation::new(
+                            self.hotword_editor
+                                .selected_provider
+                                .clone()
+                                .expect("content save requires a selected provider"),
+                            self.hotword_editor
+                                .content_path
+                                .clone()
+                                .expect("content save requires a resolved path"),
+                            baseline,
+                        )
+                    });
+                } else {
+                    self.hotword_editor.pending_activation = None;
                 }
-                self.operation = match outcome.activation_error {
-                    Some(error) => OperationState::Failed(format!("{} {error}", outcome.summary)),
-                    None => OperationState::Succeeded(outcome.summary),
+                self.operation = match activation_error {
+                    Some(error) => OperationState::Failed(format!("{summary} {error}")),
+                    None => OperationState::Succeeded(summary),
                 };
                 self.begin_daemon_refresh(false)
             }
@@ -704,6 +759,51 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    fn begin_hotword_activation_retry(&mut self) -> Task<Message> {
+        let Some(pending) = self.hotword_editor.pending_activation.clone() else {
+            self.operation =
+                OperationState::Failed("No saved hotword activation is pending retry.".to_owned());
+            return Task::none();
+        };
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        let document = document.clone();
+        let operation_id = self.next_hotword_operation_id;
+        self.next_hotword_operation_id = self.next_hotword_operation_id.saturating_add(1);
+        self.active_hotword_operation_id = Some(operation_id);
+        self.operation = OperationState::Running("Retrying hotword activation…");
+        Task::perform(
+            async move { retry_hotword_activation(&document, &pending) },
+            move |result| {
+                Message::Hotword(HotwordMessage::ActivationRetried {
+                    operation_id,
+                    result,
+                })
+            },
+        )
+    }
+
+    fn finish_hotword_activation_retry(
+        &mut self,
+        operation_id: u64,
+        result: Result<String, String>,
+    ) -> Task<Message> {
+        if self.active_hotword_operation_id != Some(operation_id) {
+            return Task::none();
+        }
+        self.active_hotword_operation_id = None;
+        self.operation = match result {
+            Ok(summary) => {
+                self.hotword_editor.pending_activation = None;
+                OperationState::Succeeded(summary)
+            }
+            Err(error) => OperationState::Failed(error),
+        };
+        self.begin_daemon_refresh(false)
     }
 
     pub(super) fn hotwords_page(&self) -> Element<'_, Message> {
@@ -817,6 +917,13 @@ impl App {
                 (!busy && self.hotword_editor.has_unsaved_changes())
                     .then_some(Message::Hotword(HotwordMessage::ResetChanges)),
             ),
+            button("Retry activation").on_press_maybe(
+                (!busy
+                    && !path_dirty
+                    && !content_dirty
+                    && self.hotword_editor.pending_activation.is_some())
+                .then_some(Message::Hotword(HotwordMessage::RetryActivation)),
+            ),
             text(self.hotword_content_status(content_dirty)),
         ]
         .spacing(10)
@@ -842,6 +949,8 @@ impl App {
     fn hotword_content_status(&self, content_dirty: bool) -> &str {
         if let Some(error) = &self.hotword_editor.content_path_error {
             error
+        } else if self.hotword_editor.pending_activation.is_some() {
+            "Hotword content is saved; daemon activation can be retried"
         } else if self.hotword_editor.baseline.is_some() {
             if content_dirty {
                 "Unsaved hotword content"
@@ -913,7 +1022,7 @@ fn save_hotword_content_for_document(
     })
 }
 
-fn resolved_hotword_content_path(
+pub(super) fn resolved_hotword_content_path(
     config: &VinputConfig,
     provider_id: &str,
 ) -> Result<Option<PathBuf>, String> {
@@ -1006,189 +1115,4 @@ const fn hotword_kind_supported(kind: &AsrProviderKind) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use super::*;
-
-    fn provider(id: &str, kind: AsrProviderKind) -> AsrProviderConfig {
-        let endpoint =
-            (kind == AsrProviderKind::Remote).then(|| "https://example.invalid/asr".to_owned());
-        let command = (kind == AsrProviderKind::Command).then(|| "/bin/true".to_owned());
-        AsrProviderConfig {
-            id: id.to_owned(),
-            kind,
-            timeout_ms: None,
-            model: None,
-            hotwords_file: None,
-            command,
-            args: Vec::new(),
-            env: HashMap::new(),
-            endpoint,
-        }
-    }
-
-    #[test]
-    fn provider_options_include_only_hotword_capable_backends() {
-        let mut config = VinputConfig::bundled_default().expect("bundled config");
-        config.asr.providers = vec![
-            provider("local", AsrProviderKind::Local),
-            provider("remote", AsrProviderKind::Remote),
-            provider("command", AsrProviderKind::Command),
-        ];
-        config.asr.active_provider = "remote".to_owned();
-
-        let options = hotword_provider_options(&config);
-        assert_eq!(
-            options
-                .iter()
-                .map(HotwordProviderSelection::id)
-                .collect::<Vec<_>>(),
-            vec!["local", "command"]
-        );
-        assert_eq!(
-            HotwordEditorState::from_config(&config, None)
-                .selected_provider
-                .as_deref(),
-            Some("local")
-        );
-    }
-
-    #[test]
-    fn path_mutation_sets_clears_and_rejects_remote_providers() {
-        let mut config = VinputConfig::bundled_default().expect("bundled config");
-        config.asr.providers = vec![
-            provider("local", AsrProviderKind::Local),
-            provider("remote", AsrProviderKind::Remote),
-        ];
-        config.asr.active_provider = "local".to_owned();
-
-        let updated =
-            update_hotword_path(&config, "local", Some("  words.txt  ")).expect("set hotword path");
-        assert_eq!(
-            updated.asr.providers[0].hotwords_file.as_deref(),
-            Some("words.txt")
-        );
-        let cleared = update_hotword_path(&updated, "local", None).expect("clear hotword path");
-        assert_eq!(cleared.asr.providers[0].hotwords_file, None);
-        assert!(update_hotword_path(&config, "remote", Some("words.txt")).is_err());
-    }
-
-    #[test]
-    fn content_path_refuses_cross_process_relative_ambiguity() {
-        let mut config = VinputConfig::bundled_default().expect("bundled config");
-        let mut local = provider("local", AsrProviderKind::Local);
-        local.model = Some("/managed-models/paraformer".to_owned());
-        local.hotwords_file = Some("hotwords.txt".to_owned());
-        let mut command = provider("command", AsrProviderKind::Command);
-        command.hotwords_file = Some("relative-command-hotwords.txt".to_owned());
-        config.asr.providers = vec![local, command];
-        config.asr.active_provider = "local".to_owned();
-
-        assert_eq!(
-            resolved_hotword_content_path(&config, "local").expect("resolve local hotwords"),
-            Some(PathBuf::from("/managed-models/paraformer/hotwords.txt"))
-        );
-        config.asr.providers[0].model = Some("paraformer".to_owned());
-        let local_error = resolved_hotword_content_path(&config, "local")
-            .expect_err("relative local model and hotword are ambiguous");
-        assert!(local_error.contains("daemon process environment"));
-
-        config.asr.providers[0].hotwords_file = Some("/tmp/local-hotwords.txt".to_owned());
-        assert_eq!(
-            resolved_hotword_content_path(&config, "local").expect("absolute local hotwords"),
-            Some(PathBuf::from("/tmp/local-hotwords.txt"))
-        );
-
-        let command_error = resolved_hotword_content_path(&config, "command")
-            .expect_err("relative command path is external");
-        assert!(command_error.contains("external command"));
-
-        config.asr.providers[1].hotwords_file = Some("/tmp/command-hotwords.txt".to_owned());
-        assert_eq!(
-            resolved_hotword_content_path(&config, "command")
-                .expect("resolve absolute command hotwords"),
-            Some(PathBuf::from("/tmp/command-hotwords.txt"))
-        );
-    }
-
-    #[test]
-    fn content_save_rejects_external_config_target_changes_before_write() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let config_path = directory.path().join("config.json");
-        let old_path = directory.path().join("old-hotwords.txt");
-        let new_path = directory.path().join("new-hotwords.txt");
-        fs::write(&old_path, "alpha\n").expect("old hotwords fixture");
-
-        let mut config = VinputConfig::bundled_default().expect("bundled config");
-        let mut local = provider("local", AsrProviderKind::Local);
-        local.model = Some(
-            directory
-                .path()
-                .join("model")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        local.hotwords_file = Some(old_path.to_string_lossy().into_owned());
-        config.asr.providers = vec![local];
-        config.asr.active_provider = "local".to_owned();
-        fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("serialize config"),
-        )
-        .expect("write config");
-        let document = ConfigDocument {
-            path: config_path.clone(),
-            from_disk: true,
-            config: config.clone(),
-        };
-        let baseline = read_hotword_snapshot(&old_path).expect("read hotwords");
-
-        config.asr.providers[0].hotwords_file = Some(new_path.to_string_lossy().into_owned());
-        fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&config).expect("serialize external config"),
-        )
-        .expect("write external config");
-
-        let error = save_hotword_content_for_document(
-            &document,
-            "local",
-            &old_path,
-            &baseline,
-            "should-not-write\n",
-        )
-        .expect_err("reject external config change");
-        assert!(error.contains("changed on disk"));
-        assert_eq!(
-            fs::read_to_string(&old_path).expect("old content"),
-            "alpha\n"
-        );
-        assert!(!new_path.exists());
-    }
-
-    #[test]
-    fn hotword_messages_redact_paths_and_loaded_content() {
-        let path_message = HotwordMessage::PathChanged(SecretInput::new(
-            "/home/user/private/hotwords.txt".to_owned(),
-        ));
-        assert!(!format!("{path_message:?}").contains("/home/user"));
-
-        let loaded = LoadedHotwordContent {
-            provider_id: "local".to_owned(),
-            path: PathBuf::from("/home/user/private/hotwords.txt"),
-            snapshot: HotwordContentSnapshot {
-                existed: true,
-                content: "private phrase".to_owned(),
-                version: None,
-            },
-        };
-        let message = HotwordMessage::ContentLoaded {
-            operation_id: 7,
-            result: Ok(loaded),
-        };
-        let debug = format!("{message:?}");
-        assert!(!debug.contains("private phrase"));
-        assert!(!debug.contains("/home/user"));
-    }
-}
+mod tests;

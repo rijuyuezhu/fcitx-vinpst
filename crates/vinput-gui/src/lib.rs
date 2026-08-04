@@ -21,6 +21,7 @@ use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
 mod asr_reload_confirmation;
 mod daemon_owner_monitor;
+mod hotword_activation_retry;
 mod hotword_management;
 mod hotword_persistence;
 mod llm_provider_management;
