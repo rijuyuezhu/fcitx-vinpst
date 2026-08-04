@@ -20,6 +20,8 @@ use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
 mod daemon_owner_monitor;
+mod hotword_management;
+mod hotword_persistence;
 mod llm_provider_management;
 mod message;
 mod model_install;
@@ -37,6 +39,8 @@ mod script_transaction;
 
 pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
+use hotword_management::HotwordEditorState;
+pub use hotword_management::{HotwordMessage, HotwordMutationOutcome, HotwordProviderSelection};
 use llm_provider_management::LlmProviderEditorState;
 pub use llm_provider_management::{
     LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome, LlmProviderTestOutcome,
@@ -176,6 +180,9 @@ pub struct App {
     scene_editor: Option<SceneEditorState>,
     llm_provider_editor: Option<LlmProviderEditorState>,
     llm_provider_test_text: SecretInput,
+    hotword_editor: HotwordEditorState,
+    active_hotword_operation_id: Option<u64>,
+    next_hotword_operation_id: u64,
 }
 
 impl App {
@@ -186,6 +193,7 @@ impl App {
             .as_ref()
             .ok()
             .map(|document| ConfigDraft::from_config(&document.config));
+        let hotword_editor = HotwordEditorState::from_document(&config, None);
         let mut app = Self {
             page: Page::Control,
             filter: String::new(),
@@ -208,6 +216,9 @@ impl App {
             scene_editor: None,
             llm_provider_editor: None,
             llm_provider_test_text: SecretInput::new("Connectivity test".to_owned()),
+            hotword_editor,
+            active_hotword_operation_id: None,
+            next_hotword_operation_id: 1,
         };
         let task = app.begin_daemon_refresh(true);
         (app, task)
@@ -263,6 +274,7 @@ impl App {
             }),
             Message::Scene(message) => return self.handle_scene_message(message),
             Message::LlmProvider(message) => return self.handle_llm_provider_message(message),
+            Message::Hotword(message) => return self.handle_hotword_message(message),
             Message::ResetConfigDraft => self.reset_config_draft(),
             Message::SaveConfig => return self.begin_config_save(),
             Message::ConfigSaved(result) => return self.finish_config_save(result),
@@ -323,16 +335,6 @@ impl App {
         Task::none()
     }
 
-    fn select_page(&mut self, page: Page) {
-        if self.page == page {
-            return;
-        }
-        self.page = page;
-        self.selected_resource = None;
-        self.scene_editor = None;
-        self.llm_provider_editor = None;
-    }
-
     /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = self.daemon_reconciliation_subscriptions();
@@ -382,6 +384,9 @@ impl App {
     }
 
     fn reload_config(&mut self) {
+        if !self.guard_hotword_changes("reloading configuration") {
+            return;
+        }
         let path = self
             .config
             .as_ref()
@@ -535,6 +540,7 @@ impl App {
             .as_ref()
             .ok()
             .map(|document| ConfigDraft::from_config(&document.config));
+        self.refresh_hotword_editor(&config);
         self.config = config;
         self.scene_editor = None;
         self.llm_provider_editor = None;
@@ -1068,7 +1074,7 @@ fn save_config_with_daemon(
     save_updated_config_with_daemon(document, &updated)
 }
 
-fn reload_asr_backend() -> Result<(), String> {
+pub(crate) fn reload_asr_backend() -> Result<(), String> {
     let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
     let proxy = daemon_proxy(&connection)?;
     proxy

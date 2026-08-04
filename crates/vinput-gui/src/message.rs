@@ -3,8 +3,9 @@
 use std::path::PathBuf;
 
 use crate::{
-    ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot, LlmProviderMessage, ModelInstallOutcome,
-    Page, SceneMessage, ScriptInstallOutcome, ScriptPreparationResult, SecretInput,
+    ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot, HotwordMessage, LlmProviderMessage,
+    ModelInstallOutcome, Page, SceneMessage, ScriptInstallOutcome, ScriptPreparationResult,
+    SecretInput,
 };
 
 /// GUI messages.
@@ -56,6 +57,8 @@ pub enum Message {
     Scene(SceneMessage),
     /// Apply one LLM provider lifecycle interaction.
     LlmProvider(LlmProviderMessage),
+    /// Apply one hotword lifecycle interaction.
+    Hotword(HotwordMessage),
     /// Restore editable fields from the loaded config.
     ResetConfigDraft,
     /// Validate, back up, and atomically save the config draft.
@@ -188,6 +191,16 @@ impl Message {
                         | LlmProviderMessage::ResetEdit
                         | LlmProviderMessage::CancelEdit
                         | LlmProviderMessage::Save
+                )
+                | Self::Hotword(
+                    HotwordMessage::ProviderSelected(_)
+                        | HotwordMessage::PathChanged(_)
+                        | HotwordMessage::SetPath
+                        | HotwordMessage::ClearPath
+                        | HotwordMessage::LoadContent
+                        | HotwordMessage::ContentAction(_)
+                        | HotwordMessage::SaveContent
+                        | HotwordMessage::ResetChanges
                 )
         )
     }

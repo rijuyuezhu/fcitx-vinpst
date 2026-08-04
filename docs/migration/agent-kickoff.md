@@ -8,7 +8,7 @@ Use this as the compact handoff for implementation work. It points to current so
 
 Continue `fcitx-vinput-rs` from the usable CLI/daemon alpha, live-proven retained Fcitx frontend, broad deterministic release baseline, and packaged Rust management GUI baseline. Do not rebuild completed management, registry, native ASR, activation, frontend, or package transaction surfaces.
 
-The active priority is **M7: Rust management GUI**. Complete scene/LLM/hotword lifecycle actions, command-mode integration, localization/accessibility, and real Wayland/X11 interaction proof. Treat new packaging and desktop breadth as deferred expansion unless a regression, blocker, or explicit user request requires it.
+The active priority is **M7: Rust management GUI**. Broaden resource-specific error taxonomy, add command-mode integration, complete localization/accessibility, and obtain real Wayland/X11 interaction proof. Treat new packaging and desktop breadth as deferred expansion unless a regression, blocker, or explicit user request requires it.
 
 ## Repositories
 
@@ -31,7 +31,7 @@ The active priority is **M7: Rust management GUI**. Complete scene/LLM/hotword l
 
 - CLI, daemon, typed configuration, registry lifecycle, native/command/remote ASR, text processing, diagnostics, and retained-addon integration are broadly implemented and tested.
 - The real Fcitx path is live-proven for normal and command dictation, multiple GTK/Qt/Chromium/Electron/application surfaces, menus, localization, provider/model switching, notifications, focus handoff, owner loss, reload, a physical microphone, and bounded GTK4 soak. Exact scope and remaining live gaps belong in the audit and matrix.
-- The Rust/Iced GUI provides Control, Resources, LLM, and Hotwords pages. It uses shared typed config/protocol/registry APIs; supports model and managed provider/adapter install/update, progress, cancellation, retry, guarded removal, atomic config persistence, reload, and non-activating owner recovery; and is installed by the checked package paths.
+- The Rust/Iced GUI provides Control, Resources, LLM, and Hotwords pages. It uses shared typed config/protocol/registry APIs; supports scene and LLM-provider lifecycle, configured-only scene provider selection, model and managed provider/adapter install/update, progress, cancellation, retry, guarded removal, production-adapter connectivity testing, hotword provider/path/content lifecycle with conflict-aware atomic writes and reload rollback, and non-activating owner recovery; and is installed by the checked package paths.
 - Arch, Debian 12, Ubuntu 24.04, Nix, RPM-family, and Flatpak baselines are deterministic. Production publication, host-installed and multi-user lifecycle proof, broader supported-distro operations, and unrelated-machine regression remain release work.
 - Command helpers use shared process-group supervision with lifecycle-wide deadlines when configured, concurrent bounded stdout/stderr, and descendant cleanup. Long-lived adapters create their runtime directory before spawn, fingerprint PID records, preserve legacy TERM/KILL timing, and treat Linux zombie-only groups as cleaned without ignoring live descendants.
 - The implementation through `c507807` with synchronized GUI status documentation passes the complete deterministic `just ci` gate. The last pushed baseline with the complete remote Rust, Nix, Debian 12, and Ubuntu 24.04 matrix is `9d31f70`.

@@ -1,4 +1,4 @@
-//! Resources, LLM, and hotword page rendering.
+//! Resources and LLM page rendering.
 
 use iced::{
     Element, Length,
@@ -117,26 +117,6 @@ impl App {
         }
         if let Some(detail) = self.resource_detail_view() {
             body = body.push(detail);
-        }
-        scrollable(body).into()
-    }
-
-    pub(super) fn hotwords_page(&self) -> Element<'_, Message> {
-        let mut body = column![text("Hotwords").size(30)].spacing(12);
-        match &self.config {
-            Ok(document) => {
-                let mut count = 0;
-                for provider in &document.config.asr.providers {
-                    if let Some(path) = provider.hotwords_file.as_deref() {
-                        count += 1;
-                        body = body.push(text(format!("{} · {path}", provider.id)));
-                    }
-                }
-                if count == 0 {
-                    body = body.push(text("No hotword files configured."));
-                }
-            }
-            Err(error) => body = body.push(text(format!("Config error: {error}"))),
         }
         scrollable(body).into()
     }

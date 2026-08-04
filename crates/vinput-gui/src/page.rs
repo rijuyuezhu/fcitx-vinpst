@@ -1,5 +1,7 @@
 //! Top-level management GUI page identifiers.
 
+use crate::App;
+
 /// Main GUI pages matching the legacy management surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -23,5 +25,20 @@ impl Page {
             Self::Llm => "LLM",
             Self::Hotwords => "Hotwords",
         }
+    }
+}
+
+impl App {
+    pub(super) fn select_page(&mut self, page: Page) {
+        if self.page == page {
+            return;
+        }
+        if !self.guard_hotword_changes("leaving the Hotwords page") {
+            return;
+        }
+        self.page = page;
+        self.selected_resource = None;
+        self.scene_editor = None;
+        self.llm_provider_editor = None;
     }
 }

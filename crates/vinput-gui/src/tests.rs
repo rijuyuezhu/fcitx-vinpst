@@ -355,6 +355,42 @@ fn same_page_navigation_preserves_page_local_editors() {
 }
 
 #[test]
+fn hotword_changes_block_navigation_and_reload_until_reset() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    let document = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-hotword-navigation.json"),
+        from_disk: false,
+        config: config.clone(),
+    });
+    app.refresh_hotword_editor(&document);
+    app.config = document;
+    app.draft = Some(ConfigDraft::from_config(&config));
+    app.page = Page::Hotwords;
+
+    drop(app.update(Message::Hotword(HotwordMessage::PathChanged(
+        SecretInput::new("/tmp/unsaved-hotwords.txt".to_owned()),
+    ))));
+    drop(app.update(Message::SelectPage(Page::Control)));
+    assert_eq!(app.page, Page::Hotwords);
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("leaving the Hotwords page")
+    ));
+
+    drop(app.update(Message::ReloadConfig));
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("reloading configuration")
+    ));
+
+    drop(app.update(Message::Hotword(HotwordMessage::ResetChanges)));
+    drop(app.update(Message::SelectPage(Page::Control)));
+    assert_eq!(app.page, Page::Control);
+}
+
+#[test]
 fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
     let config = VinputConfig::bundled_default().expect("bundled config");
     let document = ConfigDocument {
