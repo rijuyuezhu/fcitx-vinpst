@@ -369,24 +369,16 @@ impl App {
             );
             return Task::none();
         }
-        let Some(provider) = self
-            .config
-            .as_ref()
-            .ok()
-            .and_then(|document| {
-                document
-                    .config
-                    .llm
-                    .providers
-                    .iter()
-                    .find(|provider| provider.id == provider_id)
-            })
-            .cloned()
-        else {
-            self.operation = OperationState::Failed(format!(
-                "LLM provider `{provider_id}` is no longer configured."
-            ));
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
+        };
+        let provider = match llm_provider_test_target(&document.config, provider_id) {
+            Ok(provider) => provider,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
         };
 
         self.operation = OperationState::Running("Testing LLM provider…");
@@ -769,6 +761,45 @@ fn edit_llm_provider(
         .ok_or_else(|| format!("LLM provider `{original_id}` is no longer configured."))?;
     *configured = provider;
     validate_llm_provider_update(updated)
+}
+
+fn llm_provider_test_target(
+    config: &VinputConfig,
+    provider_id: &str,
+) -> Result<LlmProviderConfig, String> {
+    let mut provider = config
+        .llm
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .cloned()
+        .ok_or_else(|| format!("LLM provider `{provider_id}` is no longer configured."))?;
+    if provider.model.is_some() {
+        return Ok(provider);
+    }
+
+    let mut scene_model: Option<&String> = None;
+    for model in config
+        .scenes
+        .definitions
+        .iter()
+        .filter(|scene| scene.provider_id.as_deref() == Some(provider_id))
+        .filter_map(|scene| scene.model.as_ref())
+    {
+        if scene_model.is_some_and(|configured| configured != model) {
+            return Err(format!(
+                "LLM provider `{provider_id}` has multiple Scene models and no default model; configure one provider model before testing."
+            ));
+        }
+        scene_model = Some(model);
+    }
+    provider.model = scene_model.cloned();
+    if provider.model.is_none() {
+        return Err(format!(
+            "LLM provider `{provider_id}` has no default model and no referencing Scene supplies one."
+        ));
+    }
+    Ok(provider)
 }
 
 fn llm_provider_test_scene(provider: &LlmProviderConfig) -> SceneDefinition {
