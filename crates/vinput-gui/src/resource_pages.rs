@@ -90,10 +90,11 @@ impl App {
 
     pub(super) fn llm_page(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
+        let adapter_controls_busy = busy || self.llm_provider_editor.is_some();
         let mut body = column![
             text("LLM").size(30),
             text("Managed text adapters").size(22),
-            self.adapter_install_controls(busy),
+            self.adapter_install_controls(adapter_controls_busy),
         ]
         .spacing(12);
         if let Some(notice) = self.operation_notice() {
@@ -106,7 +107,7 @@ impl App {
                 body = body.push(text("Adapters").size(22));
                 for adapter in &document.config.llm.adapters {
                     let managed = managed_adapter_script_path(adapter).is_some();
-                    body = body.push(adapter_row(&adapter.id, busy, managed));
+                    body = body.push(adapter_row(&adapter.id, adapter_controls_busy, managed));
                 }
                 if document.config.llm.adapters.is_empty() {
                     body = body.push(text("No text adapters configured."));

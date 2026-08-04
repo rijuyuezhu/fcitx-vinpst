@@ -656,6 +656,10 @@ impl App {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
+        if let Err(error) = self.ensure_no_open_llm_provider_editor() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
         let Ok(document) = &self.config else {
             let error = self
                 .config
@@ -697,6 +701,10 @@ impl App {
             return Task::none();
         }
         if let Err(error) = self.ensure_no_open_scene_editor() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_no_open_llm_provider_editor() {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
@@ -755,6 +763,10 @@ impl App {
             return Task::none();
         }
         if let Err(error) = self.ensure_no_open_scene_editor() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_no_open_llm_provider_editor() {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }

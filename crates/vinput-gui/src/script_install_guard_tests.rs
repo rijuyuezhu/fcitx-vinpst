@@ -80,3 +80,45 @@ fn open_scene_editor_blocks_script_install_without_losing_input() {
     assert_eq!(format!("{:?}", app.scene_editor), editor_before);
     assert!(editor_before.contains("Unsaved meeting scene"));
 }
+
+#[test]
+fn open_llm_provider_editor_blocks_adapter_changes_without_losing_input() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = vinput_config::VinputConfig::bundled_default().expect("bundled config");
+    app.config = Ok(ConfigDocument {
+        path: "/tmp/vinput-gui-provider-adapter-draft.json".into(),
+        from_disk: false,
+        config: config.clone(),
+    });
+    app.draft = Some(crate::ConfigDraft::from_config(&config));
+    app.adapter_selector = "fixture".to_owned();
+    drop(app.update(Message::LlmProvider(crate::LlmProviderMessage::BeginAdd)));
+    drop(app.update(Message::LlmProvider(
+        crate::LlmProviderMessage::EditorChanged {
+            field: crate::LlmProviderEditorField::Id,
+            value: SecretInput::new("unsaved-provider".to_owned()),
+        },
+    )));
+    let editor_before = format!("{:?}", app.llm_provider_editor);
+
+    drop(app.begin_script_install(LiveScriptKind::LlmAdapter));
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("open LLM provider form")
+    ));
+    assert!(matches!(app.script_install, ScriptInstallState::Idle));
+    assert_eq!(format!("{:?}", app.llm_provider_editor), editor_before);
+
+    app.operation = OperationState::Idle;
+    drop(app.begin_script_remove(
+        LiveScriptKind::LlmAdapter,
+        "adapter.fixture.command".to_owned(),
+    ));
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("open LLM provider form")
+    ));
+    assert_eq!(format!("{:?}", app.llm_provider_editor), editor_before);
+    assert!(editor_before.contains("unsaved-provider"));
+}

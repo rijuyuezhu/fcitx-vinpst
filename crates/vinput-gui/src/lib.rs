@@ -366,6 +366,16 @@ impl App {
         Ok(())
     }
 
+    pub(crate) fn ensure_no_open_llm_provider_editor(&self) -> Result<(), String> {
+        if self.llm_provider_editor.is_some() {
+            return Err(
+                "Save or cancel the open LLM provider form before modifying provider or adapter scripts."
+                    .to_owned(),
+            );
+        }
+        Ok(())
+    }
+
     fn reload_config(&mut self) {
         let path = self
             .config
