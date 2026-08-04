@@ -648,6 +648,10 @@ impl App {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
+        if let Err(error) = self.ensure_no_open_scene_editor() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
         let Ok(document) = &self.config else {
             let error = self
                 .config
@@ -685,6 +689,10 @@ impl App {
             return Task::none();
         }
         if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_no_open_scene_editor() {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
@@ -739,6 +747,10 @@ impl App {
 
     fn begin_resolved_script_install(&mut self, plan: ScriptInstallPlan) -> Task<Message> {
         if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_no_open_scene_editor() {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
@@ -921,6 +933,10 @@ fn progress_label(kind: LiveScriptKind, progress: &RegistryOperationProgress) ->
 }
 
 #[cfg(test)]
+#[path = "script_install_guard_tests.rs"]
+mod guard_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -964,53 +980,6 @@ mod tests {
             state.retry_request(),
             Some(ScriptRetryRequest::Prepare { .. })
         ));
-    }
-
-    #[test]
-    fn dirty_control_draft_blocks_script_install_and_removal_entry_points() {
-        let (mut app, boot_task) = App::boot();
-        drop(boot_task);
-        let config = vinput_config::VinputConfig::bundled_default().expect("bundled config");
-        app.config = Ok(ConfigDocument {
-            path: "/tmp/vinput-gui-dirty-script-draft.json".into(),
-            from_disk: false,
-            config: config.clone(),
-        });
-        let mut draft = crate::ConfigDraft::from_config(&config);
-        draft.default_language = "zh-CN".to_owned();
-        app.draft = Some(draft);
-        app.provider_selector = "fixture".to_owned();
-
-        drop(app.begin_script_install(LiveScriptKind::AsrProvider));
-        assert!(matches!(
-            app.operation,
-            OperationState::Failed(ref error) if error.contains("Save or reset")
-        ));
-        assert!(matches!(app.script_install, ScriptInstallState::Idle));
-        assert_eq!(
-            app.draft
-                .as_ref()
-                .expect("preserved draft")
-                .default_language,
-            "zh-CN"
-        );
-
-        app.operation = OperationState::Idle;
-        drop(app.begin_script_remove(
-            LiveScriptKind::AsrProvider,
-            "provider.fixture.batch".to_owned(),
-        ));
-        assert!(matches!(
-            app.operation,
-            OperationState::Failed(ref error) if error.contains("Save or reset")
-        ));
-        assert_eq!(
-            app.draft
-                .as_ref()
-                .expect("preserved draft")
-                .default_language,
-            "zh-CN"
-        );
     }
 
     #[test]

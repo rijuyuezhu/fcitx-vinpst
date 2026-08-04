@@ -345,6 +345,16 @@ impl App {
         ensure_resource_mutation_draft_clean(&self.config, self.draft.as_ref())
     }
 
+    pub(crate) fn ensure_no_open_scene_editor(&self) -> Result<(), String> {
+        if self.scene_editor.is_some() {
+            return Err(
+                "Save or cancel the open Scene form before modifying providers or adapters."
+                    .to_owned(),
+            );
+        }
+        Ok(())
+    }
+
     fn reload_config(&mut self) {
         let path = self
             .config
