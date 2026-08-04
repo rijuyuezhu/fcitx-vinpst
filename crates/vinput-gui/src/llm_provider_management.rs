@@ -591,7 +591,7 @@ fn llm_provider_editor_view(editor: &LlmProviderEditorState, busy: bool) -> Elem
             "https://provider.example/v1",
             &editor.fields.base_url,
             LlmProviderEditorField::BaseUrl,
-            false,
+            base_url_input_is_secure(&editor.fields.base_url),
         ),
         labeled_input(
             "API key",
@@ -634,6 +634,23 @@ fn llm_provider_editor_view(editor: &LlmProviderEditorState, busy: bool) -> Elem
     ]
     .spacing(10)
     .into()
+}
+
+fn base_url_input_is_secure(value: &str) -> bool {
+    let Some((_, remainder)) = value.split_once("://") else {
+        return false;
+    };
+    let authority_end = remainder.find(['/', '?', '#']).unwrap_or(remainder.len());
+    if remainder[..authority_end].contains('@') {
+        return true;
+    }
+    let query_present = value
+        .split_once('?')
+        .is_some_and(|(_, query)| !query.split('#').next().unwrap_or_default().is_empty());
+    let fragment_present = value
+        .split_once('#')
+        .is_some_and(|(_, fragment)| !fragment.is_empty());
+    query_present || fragment_present
 }
 
 fn labeled_input<'a>(
@@ -896,6 +913,25 @@ mod tests {
         assert!(!debug.contains("body-secret"));
         assert!(!debug.contains("user:secret"));
         assert!(!debug.contains("hidden"));
+    }
+
+    #[test]
+    fn base_url_input_masks_only_parseable_urls_with_sensitive_components() {
+        assert!(!base_url_input_is_secure(""));
+        assert!(!base_url_input_is_secure("https://example.invalid/v1"));
+        assert!(!base_url_input_is_secure(
+            "https://example.invalid/incomplete?"
+        ));
+        assert!(!base_url_input_is_secure("not yet a URL"));
+        assert!(base_url_input_is_secure(
+            "https://user:secret@example.invalid/v1"
+        ));
+        assert!(base_url_input_is_secure(
+            "https://example.invalid/v1?api_key=secret"
+        ));
+        assert!(base_url_input_is_secure(
+            "https://example.invalid/v1#secret-fragment"
+        ));
     }
 
     #[test]
