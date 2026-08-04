@@ -22,6 +22,8 @@ pub enum SceneEditorField {
     Label,
     /// Optional prompt template.
     Prompt,
+    /// Optional LLM provider id retained for message compatibility.
+    ProviderId,
     /// Optional model override.
     Model,
     /// Number of requested candidates.
@@ -154,6 +156,7 @@ impl SceneEditorState {
             SceneEditorField::Id => {}
             SceneEditorField::Label => self.label = value,
             SceneEditorField::Prompt => self.prompt = value,
+            SceneEditorField::ProviderId => self.provider_id = value,
             SceneEditorField::Model => self.model = value,
             SceneEditorField::CandidateCount => self.candidate_count = value,
             SceneEditorField::TimeoutMs => self.timeout_ms = value,
