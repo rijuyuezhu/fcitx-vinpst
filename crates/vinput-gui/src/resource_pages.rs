@@ -4,7 +4,7 @@ use iced::{
     Element, Length,
     widget::{button, column, row, scrollable, text, text_input},
 };
-use vinput_config::{AsrProviderKind, redact_url_for_diagnostics};
+use vinput_config::AsrProviderKind;
 use vinput_registry::InstalledModelInfo;
 
 use crate::{
@@ -90,10 +90,11 @@ impl App {
 
     pub(super) fn llm_page(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
+        let adapter_controls_busy = busy || self.llm_provider_editor.is_some();
         let mut body = column![
             text("LLM").size(30),
             text("Managed text adapters").size(22),
-            self.adapter_install_controls(busy),
+            self.adapter_install_controls(adapter_controls_busy),
         ]
         .spacing(12);
         if let Some(notice) = self.operation_notice() {
@@ -101,31 +102,12 @@ impl App {
         }
         match &self.config {
             Ok(document) => {
-                body = body.push(text("Providers").size(22));
-                for provider in &document.config.llm.providers {
-                    let endpoint = if provider.base_url.is_empty() {
-                        "adapter/local".to_owned()
-                    } else {
-                        redact_url_for_diagnostics(&provider.base_url)
-                    };
-                    body = body.push(llm_provider_row(
-                        format!(
-                            "{} · {} · {}",
-                            provider.id,
-                            provider.model.as_deref().unwrap_or("default model"),
-                            endpoint
-                        ),
-                        &provider.id,
-                    ));
-                }
-                if document.config.llm.providers.is_empty() {
-                    body = body.push(text("No LLM providers configured."));
-                }
+                body = body.push(self.llm_provider_management_view(busy));
 
                 body = body.push(text("Adapters").size(22));
                 for adapter in &document.config.llm.adapters {
                     let managed = managed_adapter_script_path(adapter).is_some();
-                    body = body.push(adapter_row(&adapter.id, busy, managed));
+                    body = body.push(adapter_row(&adapter.id, adapter_controls_busy, managed));
                 }
                 if document.config.llm.adapters.is_empty() {
                     body = body.push(text("No text adapters configured."));
@@ -206,15 +188,6 @@ fn provider_row(
             (!busy && managed && !active)
                 .then_some(Message::RemoveProvider(provider_id.to_owned())),
         ),
-    ]
-    .spacing(10)
-    .into()
-}
-
-fn llm_provider_row(label: String, provider_id: &str) -> Element<'static, Message> {
-    row![
-        text(label).width(Length::Fill),
-        button("Details").on_press(Message::SelectLlmProviderDetail(provider_id.to_owned())),
     ]
     .spacing(10)
     .into()

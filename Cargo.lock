@@ -4309,9 +4309,11 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "url",
  "vinput-config",
  "vinput-protocol",
  "vinput-registry",
+ "vinput-text",
  "zbus",
 ]
 

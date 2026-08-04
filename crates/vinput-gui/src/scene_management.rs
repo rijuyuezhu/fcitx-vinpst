@@ -177,12 +177,20 @@ impl App {
         if self.is_busy() || self.scene_editor.is_some() {
             return;
         }
+        if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
+            return;
+        }
         self.scene_editor = Some(SceneEditorState::add());
         self.operation = OperationState::Idle;
     }
 
     pub(super) fn begin_edit_scene(&mut self, scene_id: &str) {
         if self.is_busy() || self.scene_editor.is_some() {
+            return;
+        }
+        if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
             return;
         }
         let Some(scene) = self

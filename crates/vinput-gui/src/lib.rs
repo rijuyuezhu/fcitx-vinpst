@@ -20,6 +20,7 @@ use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
 mod daemon_owner_monitor;
+mod llm_provider_management;
 mod message;
 mod model_install;
 mod model_management;
@@ -36,6 +37,10 @@ mod script_transaction;
 
 pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
+use llm_provider_management::LlmProviderEditorState;
+pub use llm_provider_management::{
+    LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome, LlmProviderTestOutcome,
+};
 pub use message::Message;
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
@@ -167,6 +172,8 @@ pub struct App {
     installed_models: Result<Vec<InstalledModelInfo>, String>,
     selected_resource: Option<ResourceSelection>,
     scene_editor: Option<SceneEditorState>,
+    llm_provider_editor: Option<LlmProviderEditorState>,
+    llm_provider_test_text: SecretInput,
 }
 
 impl App {
@@ -197,6 +204,8 @@ impl App {
             installed_models: load_installed_models(),
             selected_resource: None,
             scene_editor: None,
+            llm_provider_editor: None,
+            llm_provider_test_text: SecretInput::new("Connectivity test".to_owned()),
         };
         let task = app.begin_daemon_refresh(true);
         (app, task)
@@ -251,6 +260,7 @@ impl App {
                 draft.active_scene = value;
             }),
             Message::Scene(message) => return self.handle_scene_message(message),
+            Message::LlmProvider(message) => return self.handle_llm_provider_message(message),
             Message::ResetConfigDraft => self.reset_config_draft(),
             Message::SaveConfig => return self.begin_config_save(),
             Message::ConfigSaved(result) => return self.finish_config_save(result),
@@ -312,9 +322,13 @@ impl App {
     }
 
     fn select_page(&mut self, page: Page) {
+        if self.page == page {
+            return;
+        }
         self.page = page;
         self.selected_resource = None;
         self.scene_editor = None;
+        self.llm_provider_editor = None;
     }
 
     /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
@@ -349,6 +363,16 @@ impl App {
         if self.scene_editor.is_some() {
             return Err(
                 "Save or cancel the open Scene form before modifying providers or adapters."
+                    .to_owned(),
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn ensure_no_open_llm_provider_editor(&self) -> Result<(), String> {
+        if self.llm_provider_editor.is_some() {
+            return Err(
+                "Save or cancel the open LLM provider form before modifying provider or adapter scripts."
                     .to_owned(),
             );
         }
@@ -511,6 +535,7 @@ impl App {
             .map(|document| ConfigDraft::from_config(&document.config));
         self.config = config;
         self.scene_editor = None;
+        self.llm_provider_editor = None;
     }
 
     /// Renders the GUI.
