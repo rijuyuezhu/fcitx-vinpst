@@ -19,21 +19,34 @@ use vinput_config::{VinputConfig, config_backup_path, write_config_file};
 use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
+mod daemon_owner_monitor;
+mod message;
 mod model_install;
 mod model_management;
 mod page;
+mod provider_script_edit;
+mod resource_details;
 mod resource_pages;
+mod scene_management;
 mod script_install;
 mod script_management;
+mod script_recovery;
 mod script_removal;
+mod script_transaction;
 
+pub use daemon_owner_monitor::DaemonOwnerEvent;
+use daemon_owner_monitor::DaemonOwnerMonitorState;
+pub use message::Message;
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
 pub use model_management::default_model_root;
 use model_management::{load_installed_models, model_is_active, remove_installed_model};
 pub use page::Page;
-pub use script_install::ScriptInstallOutcome;
+use resource_details::ResourceSelection;
+use scene_management::SceneEditorState;
+pub use scene_management::{SceneEditorField, SceneMessage, SceneMutationOutcome};
 use script_install::ScriptInstallState;
+pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretInput};
 
 /// Product display name.
 pub const APPLICATION_TITLE: &str = "Vinput Configuration";
@@ -82,6 +95,10 @@ impl ConfigDraft {
             active_provider: config.asr.active_provider.clone(),
             active_scene: config.scenes.active_scene.clone(),
         }
+    }
+
+    fn is_dirty(&self, config: &VinputConfig) -> bool {
+        self != &Self::from_config(config)
     }
 
     fn apply_to(&self, config: &mut VinputConfig) {
@@ -136,7 +153,9 @@ pub struct App {
     config: Result<ConfigDocument, String>,
     draft: Option<ConfigDraft>,
     daemon: DaemonLoadState,
-    daemon_refresh_in_flight: bool,
+    active_daemon_refresh_id: Option<u64>,
+    next_daemon_refresh_id: u64,
+    daemon_owner_monitor: DaemonOwnerMonitorState,
     operation: OperationState,
     model_selector: String,
     model_install: ModelInstallState,
@@ -146,101 +165,8 @@ pub struct App {
     script_install: ScriptInstallState,
     next_script_install_id: u64,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
-}
-
-/// GUI messages.
-#[derive(Debug, Clone)]
-pub enum Message {
-    /// Select a main page.
-    SelectPage(Page),
-    /// Update the current resource filter.
-    FilterChanged(String),
-    /// Refresh daemon state over D-Bus.
-    RefreshDaemon,
-    /// Result of an asynchronous daemon refresh.
-    DaemonLoaded(Result<DaemonSnapshot, String>),
-    /// Periodic non-activating daemon-owner poll.
-    DaemonPollTick,
-    /// Result of a periodic non-activating daemon-owner poll.
-    DaemonPolled(Result<Option<DaemonSnapshot>, String>),
-    /// Reload config from disk.
-    ReloadConfig,
-    /// Update the default recognition language draft.
-    DefaultLanguageChanged(String),
-    /// Update the capture target draft.
-    CaptureDeviceChanged(String),
-    /// Toggle output ducking in the draft.
-    DuckOutputChanged(bool),
-    /// Update the output ducking volume in the draft.
-    DuckVolumeChanged(f32),
-    /// Toggle VAD in the draft.
-    VadEnabledChanged(bool),
-    /// Update the VAD threshold in the draft.
-    VadThresholdChanged(f32),
-    /// Select the active ASR provider in the draft.
-    ActiveProviderChanged(String),
-    /// Select the active scene in the draft.
-    ActiveSceneChanged(String),
-    /// Restore editable fields from the loaded config.
-    ResetConfigDraft,
-    /// Validate, back up, and atomically save the config draft.
-    SaveConfig,
-    /// Result of an asynchronous config save.
-    ConfigSaved(Result<ConfigSaveOutcome, String>),
-    /// Start normal recording over D-Bus.
-    StartRecording,
-    /// Stop recording over D-Bus.
-    StopRecording,
-    /// Result of an asynchronous recording action.
-    RecordingActionFinished(Result<String, String>),
-    /// Update the live registry model id or short id to install.
-    ModelSelectorChanged(String),
-    /// Install or update the selected live registry model.
-    InstallModel,
-    /// Request cancellation of the active model installation.
-    CancelModelInstall,
-    /// Retry the last failed or cancelled model installation.
-    RetryModelInstall,
-    /// Refresh progress from the active model installation worker.
-    ModelInstallProgressTick,
-    /// Result of a live registry model installation.
-    ModelInstalled {
-        /// Operation generation used to reject stale completions.
-        operation_id: u64,
-        /// Typed worker outcome.
-        outcome: ModelInstallOutcome,
-    },
-    /// Remove one inactive installed model directory.
-    RemoveInstalledModel(PathBuf),
-    /// Result of an installed model removal.
-    ModelRemoved(Result<String, String>),
-    /// Update the live registry ASR provider id or short id to install.
-    ProviderSelectorChanged(String),
-    /// Update the live registry text adapter id or short id to install.
-    AdapterSelectorChanged(String),
-    /// Install or update the selected command ASR provider.
-    InstallProvider,
-    /// Install or update the selected text adapter.
-    InstallAdapter,
-    /// Request cancellation of the active provider or adapter installation.
-    CancelScriptInstall,
-    /// Retry the last failed or cancelled provider or adapter installation.
-    RetryScriptInstall,
-    /// Refresh progress from the active provider or adapter worker.
-    ScriptInstallProgressTick,
-    /// Result of a live provider or adapter installation.
-    ScriptInstalled {
-        /// Operation generation used to reject stale completions.
-        operation_id: u64,
-        /// Typed worker outcome.
-        outcome: ScriptInstallOutcome,
-    },
-    /// Remove one inactive managed command ASR provider.
-    RemoveProvider(String),
-    /// Remove one managed text adapter.
-    RemoveAdapter(String),
-    /// Result of a provider or adapter removal.
-    ScriptRemoved(Result<String, String>),
+    selected_resource: Option<ResourceSelection>,
+    scene_editor: Option<SceneEditorState>,
 }
 
 impl App {
@@ -251,46 +177,54 @@ impl App {
             .as_ref()
             .ok()
             .map(|document| ConfigDraft::from_config(&document.config));
-        (
-            Self {
-                page: Page::Control,
-                filter: String::new(),
-                config,
-                draft,
-                daemon: DaemonLoadState::Loading,
-                daemon_refresh_in_flight: true,
-                operation: OperationState::Idle,
-                model_selector: String::new(),
-                model_install: ModelInstallState::default(),
-                next_model_install_id: 1,
-                provider_selector: String::new(),
-                adapter_selector: String::new(),
-                script_install: ScriptInstallState::default(),
-                next_script_install_id: 1,
-                installed_models: load_installed_models(),
-            },
-            daemon_refresh_task(),
-        )
+        let mut app = Self {
+            page: Page::Control,
+            filter: String::new(),
+            config,
+            draft,
+            daemon: DaemonLoadState::Loading,
+            active_daemon_refresh_id: None,
+            next_daemon_refresh_id: 1,
+            daemon_owner_monitor: DaemonOwnerMonitorState::Connecting,
+            operation: OperationState::Idle,
+            model_selector: String::new(),
+            model_install: ModelInstallState::default(),
+            next_model_install_id: 1,
+            provider_selector: String::new(),
+            adapter_selector: String::new(),
+            script_install: ScriptInstallState::default(),
+            next_script_install_id: 1,
+            installed_models: load_installed_models(),
+            selected_resource: None,
+            scene_editor: None,
+        };
+        let task = app.begin_daemon_refresh(true);
+        (app, task)
     }
 
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if self.is_busy() && message.blocked_while_busy() {
+            return Task::none();
+        }
+        self.update_unblocked(message)
+    }
+
+    fn update_unblocked(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::SelectPage(page) => self.page = page,
+            Message::SelectPage(page) => self.select_page(page),
             Message::FilterChanged(filter) => self.filter = filter,
             Message::RefreshDaemon => return self.begin_daemon_refresh(true),
-            Message::DaemonLoaded(result) => {
-                self.daemon_refresh_in_flight = false;
-                self.daemon = match result {
-                    Ok(snapshot) => DaemonLoadState::Ready(snapshot),
-                    Err(error) => DaemonLoadState::Failed(error),
-                };
-            }
-            Message::DaemonPollTick => return self.begin_daemon_poll(),
-            Message::DaemonPolled(result) => {
-                self.daemon_refresh_in_flight = false;
-                self.daemon = daemon_state_from_poll(result);
-            }
+            Message::DaemonLoaded {
+                operation_id,
+                result,
+            } => self.finish_daemon_refresh(operation_id, result),
+            Message::DaemonFallbackPollTick => return self.begin_daemon_fallback_poll(),
+            Message::DaemonFallbackPolled {
+                operation_id,
+                result,
+            } => self.finish_daemon_fallback_poll(operation_id, result),
+            Message::DaemonOwnerEvent(event) => return self.handle_daemon_owner_event(event),
             Message::ReloadConfig => self.reload_config(),
             Message::DefaultLanguageChanged(value) => self.update_draft(|draft| {
                 draft.default_language = value;
@@ -316,6 +250,7 @@ impl App {
             Message::ActiveSceneChanged(value) => self.update_draft(|draft| {
                 draft.active_scene = value;
             }),
+            Message::Scene(message) => return self.handle_scene_message(message),
             Message::ResetConfigDraft => self.reset_config_draft(),
             Message::SaveConfig => return self.begin_config_save(),
             Message::ConfigSaved(result) => return self.finish_config_save(result),
@@ -331,10 +266,13 @@ impl App {
             Message::ModelInstalled {
                 operation_id,
                 outcome,
-            } => {
-                return self.finish_model_install(operation_id, outcome);
-            }
+            } => return self.finish_model_install(operation_id, outcome),
             Message::ModelRemoved(result) => return self.finish_model_remove(result),
+            Message::SelectInstalledModelDetail(path) => self.select_installed_model_detail(path),
+            Message::SelectAsrProviderDetail(id) => self.select_asr_provider_detail(id),
+            Message::SelectLlmProviderDetail(id) => self.select_llm_provider_detail(id),
+            Message::SelectLlmAdapterDetail(id) => self.select_llm_adapter_detail(id),
+            Message::ClearResourceDetail => self.clear_resource_detail(),
             Message::ProviderSelectorChanged(value) => self.provider_selector = value,
             Message::AdapterSelectorChanged(value) => self.adapter_selector = value,
             Message::InstallProvider => {
@@ -343,13 +281,25 @@ impl App {
             Message::InstallAdapter => {
                 return self.begin_script_install(LiveScriptKind::LlmAdapter);
             }
+            Message::ScriptPrepared {
+                operation_id,
+                outcome,
+            } => return self.finish_script_preparation(operation_id, outcome.into_inner()),
+            Message::ScriptEnvironmentChanged { name, value } => {
+                self.update_script_environment(&name, value);
+            }
+            Message::ConfirmScriptInstall => return self.confirm_script_install(),
             Message::CancelScriptInstall => self.script_install.cancel(),
             Message::RetryScriptInstall => return self.retry_script_install(),
+            Message::RetryScriptConfigUpdate => return self.retry_script_config_update(),
+            Message::DismissScriptRecovery => self.dismiss_script_recovery(),
             Message::ScriptInstallProgressTick => self.script_install.refresh_progress(),
             Message::ScriptInstalled {
                 operation_id,
                 outcome,
             } => return self.finish_script_install(operation_id, outcome),
+            Message::EditProviderScript(id) => return self.begin_provider_script_edit(&id),
+            Message::ProviderScriptEdited(result) => self.finish_provider_script_edit(result),
             Message::RemoveProvider(id) => {
                 return self.begin_script_remove(LiveScriptKind::AsrProvider, id);
             }
@@ -361,39 +311,22 @@ impl App {
         Task::none()
     }
 
-    fn begin_daemon_refresh(&mut self, show_loading: bool) -> Task<Message> {
-        if self.daemon_refresh_in_flight {
-            return Task::none();
-        }
-        self.daemon_refresh_in_flight = true;
-        if show_loading {
-            self.daemon = DaemonLoadState::Loading;
-        }
-        daemon_refresh_task()
+    fn select_page(&mut self, page: Page) {
+        self.page = page;
+        self.selected_resource = None;
+        self.scene_editor = None;
     }
 
-    fn begin_daemon_poll(&mut self) -> Task<Message> {
-        if self.daemon_refresh_in_flight {
-            return Task::none();
-        }
-        self.daemon_refresh_in_flight = true;
-        daemon_poll_task()
-    }
-
-    /// Polls daemon ownership without activating a missing service.
+    /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
     pub fn subscription(&self) -> Subscription<Message> {
-        let mut subscriptions = Vec::new();
-        if !self.daemon_refresh_in_flight {
-            subscriptions
-                .push(iced::time::every(Duration::from_secs(2)).map(|_| Message::DaemonPollTick));
-        }
+        let mut subscriptions = self.daemon_reconciliation_subscriptions();
         if self.model_install.is_active() {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
                     .map(|_| Message::ModelInstallProgressTick),
             );
         }
-        if self.script_install.is_active() {
+        if self.script_install.has_worker() {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
                     .map(|_| Message::ScriptInstallProgressTick),
@@ -406,6 +339,20 @@ impl App {
         if let Some(draft) = &mut self.draft {
             update(draft);
         }
+    }
+
+    pub(crate) fn ensure_no_unsaved_config_draft(&self) -> Result<(), String> {
+        ensure_resource_mutation_draft_clean(&self.config, self.draft.as_ref())
+    }
+
+    pub(crate) fn ensure_no_open_scene_editor(&self) -> Result<(), String> {
+        if self.scene_editor.is_some() {
+            return Err(
+                "Save or cancel the open Scene form before modifying providers or adapters."
+                    .to_owned(),
+            );
+        }
+        Ok(())
     }
 
     fn reload_config(&mut self) {
@@ -563,18 +510,20 @@ impl App {
             .ok()
             .map(|document| ConfigDraft::from_config(&document.config));
         self.config = config;
+        self.scene_editor = None;
     }
 
     /// Renders the GUI.
     #[must_use]
     pub fn view(&self) -> Element<'_, Message> {
+        let busy = self.is_busy();
         let navigation = Page::ALL.into_iter().fold(
             column![text(APPLICATION_TITLE).size(24)].spacing(10),
             |navigation, page| {
                 navigation.push(
                     button(text(page.label()))
                         .width(Length::Fill)
-                        .on_press(Message::SelectPage(page)),
+                        .on_press_maybe((!busy).then_some(Message::SelectPage(page))),
                 )
             },
         );
@@ -631,18 +580,29 @@ impl App {
     }
 
     fn daemon_status_view(&self) -> Element<'_, Message> {
-        match &self.daemon {
+        let daemon = match &self.daemon {
             DaemonLoadState::Loading => text("Daemon: loading…"),
             DaemonLoadState::Ready(snapshot) => text(format!("Daemon: {}", snapshot.status)),
             DaemonLoadState::Failed(error) => text(format!("Daemon unavailable: {error}")),
-        }
-        .into()
+        };
+        let monitor = match &self.daemon_owner_monitor {
+            DaemonOwnerMonitorState::Connecting => {
+                "Owner monitoring: connecting to D-Bus signals…".to_owned()
+            }
+            DaemonOwnerMonitorState::Ready => {
+                "Owner monitoring: signal-driven reconciliation active.".to_owned()
+            }
+            DaemonOwnerMonitorState::Failed(error) => format!(
+                "Owner monitoring degraded; using a 30-second non-activating fallback: {error}"
+            ),
+        };
+        column![daemon, text(monitor)].spacing(5).into()
     }
 
     fn is_busy(&self) -> bool {
         matches!(self.operation, OperationState::Running(_))
             || self.model_install.is_active()
-            || self.script_install.is_active()
+            || self.script_install.blocks_operations()
     }
 
     fn operation_notice(&self) -> Option<Element<'_, Message>> {
@@ -681,9 +641,9 @@ impl App {
                 }
             )),
             text("General").size(22),
-            Self::general_config_editor(document, draft),
+            Self::general_config_editor(document, draft, busy),
             text("Audio and VAD").size(22),
-            Self::audio_vad_editor(draft),
+            Self::audio_vad_editor(draft, busy),
             Self::config_save_controls(document, draft, busy),
         ]
         .spacing(12)
@@ -693,6 +653,7 @@ impl App {
     fn general_config_editor<'a>(
         document: &'a ConfigDocument,
         draft: &'a ConfigDraft,
+        busy: bool,
     ) -> Element<'a, Message> {
         let provider_options = document
             .config
@@ -708,78 +669,98 @@ impl App {
             .iter()
             .map(|scene| scene.id.clone())
             .collect::<Vec<_>>();
+        let provider_control: Element<'a, Message> = if busy {
+            text(&draft.active_provider).width(Length::Fill).into()
+        } else {
+            pick_list(
+                provider_options,
+                Some(draft.active_provider.clone()),
+                Message::ActiveProviderChanged,
+            )
+            .width(Length::Fill)
+            .into()
+        };
+        let scene_control: Element<'a, Message> = if busy {
+            text(&draft.active_scene).width(Length::Fill).into()
+        } else {
+            pick_list(
+                scene_options,
+                Some(draft.active_scene.clone()),
+                Message::ActiveSceneChanged,
+            )
+            .width(Length::Fill)
+            .into()
+        };
         column![
             row![
                 text("Default language").width(180),
                 text_input("for example en-US or zh-CN", &draft.default_language)
-                    .on_input(Message::DefaultLanguageChanged)
+                    .on_input_maybe((!busy).then_some(Message::DefaultLanguageChanged))
                     .width(Length::Fill),
             ]
             .spacing(12),
             row![
                 text("Capture device").width(180),
                 text_input("PipeWire target", &draft.capture_device)
-                    .on_input(Message::CaptureDeviceChanged)
+                    .on_input_maybe((!busy).then_some(Message::CaptureDeviceChanged))
                     .width(Length::Fill),
             ]
             .spacing(12),
-            row![
-                text("Active ASR provider").width(180),
-                pick_list(
-                    provider_options,
-                    Some(draft.active_provider.clone()),
-                    Message::ActiveProviderChanged,
-                )
-                .width(Length::Fill),
-            ]
-            .spacing(12),
-            row![
-                text("Active scene").width(180),
-                pick_list(
-                    scene_options,
-                    Some(draft.active_scene.clone()),
-                    Message::ActiveSceneChanged,
-                )
-                .width(Length::Fill),
-            ]
-            .spacing(12),
+            row![text("Active ASR provider").width(180), provider_control,].spacing(12),
+            row![text("Active scene").width(180), scene_control,].spacing(12),
         ]
         .spacing(12)
         .into()
     }
 
-    fn audio_vad_editor(draft: &ConfigDraft) -> Element<'_, Message> {
+    fn audio_vad_editor(draft: &ConfigDraft, busy: bool) -> Element<'_, Message> {
+        let duck_volume_control: Element<'_, Message> = if busy {
+            text("Locked while operation finishes")
+                .width(Length::Fill)
+                .into()
+        } else {
+            slider(
+                0.0_f32..=1.0_f32,
+                draft.duck_output_volume,
+                Message::DuckVolumeChanged,
+            )
+            .step(0.05_f32)
+            .width(Length::Fill)
+            .into()
+        };
+        let vad_threshold_control: Element<'_, Message> = if busy {
+            text("Locked while operation finishes")
+                .width(Length::Fill)
+                .into()
+        } else {
+            slider(
+                0.05_f32..=0.95_f32,
+                draft.vad_threshold,
+                Message::VadThresholdChanged,
+            )
+            .step(0.05_f32)
+            .width(Length::Fill)
+            .into()
+        };
         column![
             checkbox(draft.duck_output_while_recording)
                 .label("Duck output while recording")
-                .on_toggle(Message::DuckOutputChanged),
+                .on_toggle_maybe((!busy).then_some(Message::DuckOutputChanged)),
             row![
                 text(format!(
                     "Duck volume: {:.0}%",
                     draft.duck_output_volume * 100.0
                 ))
                 .width(180),
-                slider(
-                    0.0_f32..=1.0_f32,
-                    draft.duck_output_volume,
-                    Message::DuckVolumeChanged,
-                )
-                .step(0.05_f32)
-                .width(Length::Fill),
+                duck_volume_control,
             ]
             .spacing(12),
             checkbox(draft.vad_enabled)
                 .label("Enable voice activity detection")
-                .on_toggle(Message::VadEnabledChanged),
+                .on_toggle_maybe((!busy).then_some(Message::VadEnabledChanged)),
             row![
                 text(format!("VAD threshold: {:.2}", draft.vad_threshold)).width(180),
-                slider(
-                    0.05_f32..=0.95_f32,
-                    draft.vad_threshold,
-                    Message::VadThresholdChanged,
-                )
-                .step(0.05_f32)
-                .width(Length::Fill),
+                vad_threshold_control,
             ]
             .spacing(12),
         ]
@@ -792,7 +773,7 @@ impl App {
         draft: &'a ConfigDraft,
         busy: bool,
     ) -> Element<'a, Message> {
-        let dirty = *draft != ConfigDraft::from_config(&document.config);
+        let dirty = draft.is_dirty(&document.config);
         row![
             button("Save configuration")
                 .on_press_maybe((dirty && !busy).then_some(Message::SaveConfig)),
@@ -918,6 +899,21 @@ fn ensure_config_save_allowed(snapshot: &DaemonSnapshot) -> Result<(), String> {
     Ok(())
 }
 
+fn ensure_resource_mutation_draft_clean(
+    config: &Result<ConfigDocument, String>,
+    draft: Option<&ConfigDraft>,
+) -> Result<(), String> {
+    let (Ok(document), Some(draft)) = (config, draft) else {
+        return Ok(());
+    };
+    if draft.is_dirty(&document.config) {
+        return Err(
+            "Save or reset the Control page changes before modifying resources.".to_owned(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 fn persist_config_draft(
     document: &ConfigDocument,
@@ -1001,12 +997,39 @@ pub(crate) fn save_updated_config_with_daemon(
     let mut outcome = persist_updated_config(document, updated)?;
     outcome.daemon_reload = match daemon {
         Ok(_) => match reload_asr_backend() {
-            Ok(()) => "daemon ASR reload requested".to_owned(),
-            Err(error) => format!("config saved; daemon reload failed: {error}"),
+            Ok(()) => "daemon config reload requested".to_owned(),
+            Err(error) => {
+                let rollback = restore_config_document(document);
+                return Err(match rollback {
+                    Ok(()) => {
+                        format!("Daemon config reload failed: {error}; previous config restored.")
+                    }
+                    Err(rollback_error) => format!(
+                        "Daemon config reload failed: {error}; restoring previous config also failed: {rollback_error}"
+                    ),
+                });
+            }
         },
         Err(error) => format!("config saved; daemon reload skipped: {error}"),
     };
     Ok(outcome)
+}
+
+fn restore_config_document(document: &ConfigDocument) -> Result<(), String> {
+    if document.from_disk {
+        write_config_file(&document.config, &document.path, None)
+            .map(|_| ())
+            .map_err(|error| format!("Restore config {}: {error}", document.path.display()))
+    } else {
+        match std::fs::remove_file(&document.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "Remove newly created config {}: {error}",
+                document.path.display()
+            )),
+        }
+    }
 }
 
 fn save_config_with_daemon(
@@ -1080,17 +1103,6 @@ pub fn headless_snapshot(path: Option<&Path>, probe_daemon: bool) -> Result<Valu
     }))
 }
 
-fn daemon_refresh_task() -> Task<Message> {
-    Task::perform(async { query_daemon_snapshot() }, Message::DaemonLoaded)
-}
-
-fn daemon_poll_task() -> Task<Message> {
-    Task::perform(
-        async { query_daemon_snapshot_if_owned() },
-        Message::DaemonPolled,
-    )
-}
-
 #[cfg(test)]
 fn filtered_asr_rows(config: &VinputConfig, filter: &str) -> Vec<String> {
     let filter = filter.to_ascii_lowercase();
@@ -1111,6 +1123,7 @@ fn filtered_asr_rows(config: &VinputConfig, filter: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn filtered_scene_rows(config: &VinputConfig, filter: &str) -> Vec<String> {
     let filter = filter.to_ascii_lowercase();
     config

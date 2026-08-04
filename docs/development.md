@@ -7,14 +7,19 @@ This file defines repository workflow, validation tiers, and commit style. Progr
 Keep the workspace split by responsibility:
 
 - `vinput-protocol`: public D-Bus and JSON wire contracts.
-- `vinput-config`: typed config, defaults, normalization, validation, and shared diagnostic redaction.
+- `vinput-config`: typed config, defaults, normalization, validation, persistence, and shared diagnostic redaction.
 - `vinput-http`: shared provider HTTP client construction, bounded additional-CA loading, and URL-free transport error categories.
+- `vinput-process`: shared Unix process-group supervision, deadlines, descendant cleanup, and bounded output capture.
 - `vinput-audio`: PCM types, pure processing, recorder traits, and audio backends.
-- `vinput-asr`: ASR traits, sessions, command backends, and native backends.
+- `vinput-asr`: ASR traits, sessions, command backends, remote backends, and native backends.
 - `vinput-text`: prompts, context cache, text adapters, and provider transports.
-- `vinput-registry`: registry schemas, safe downloads, extraction, and installation.
+- `vinput-registry`: registry schemas, safe downloads, extraction, and managed publication.
 - `vinput-daemon`: runtime orchestration and D-Bus service facade.
+- `vinput-fcitx-core`: safe, Fcitx-independent frontend state machines and presentation policy.
+- `vinput-fcitx-dbus`: safe blocking zbus transport with typed reply decoding and the legacy 60-second call deadline.
+- `vinput-fcitx-ffi`: the narrow static C ABI consumed by the retained addon.
 - `vinput-cli`: user-facing commands and diagnostics over library crates.
+- `vinput-gui`: the standalone Rust/Iced management application over shared typed APIs.
 
 The retained C++ frontend owns Fcitx API integration, menus, preedit/commit presentation, selected-text handling, notifications, and the bus bridge. Backend state and processing belong in Rust.
 
@@ -35,7 +40,8 @@ Keep public facades thin and place use-case logic behind domain modules:
 - Preserve service names, method and signal names, status strings, recognition JSON, config semantics, and frontend expectations.
 - Add focused compatibility tests when a public contract changes.
 - Prefer `pub(crate)` for implementation helpers and keep public APIs small.
-- Workspace Rust uses edition 2024, MSRV 1.88, `unsafe_code = "forbid"`, and Clippy pedantic warnings.
+- Workspace Rust uses edition 2024, MSRV 1.88, and Clippy pedantic warnings. Safe crates inherit `unsafe_code = "forbid"`. `vinput-fcitx-ffi` is the only exception: the crate denies unsafe by default and explicitly allows it only in raw-pointer translation modules; safe frontend policy and D-Bus transport remain in `vinput-fcitx-core` and `vinput-fcitx-dbus`.
+- Every C ABI mutation must keep the public header, built archive symbols, C++ adapters, and focused behavior tests aligned. `scripts/tests/check_fcitx_ffi_abi.py` compares the published header with the actual static-library exports; do not replace that contract with source-text assertions.
 - Keep code, comments, test names, documentation identifiers, and commit messages in English.
 - Prefer milestone-enabling work over generic cleanup.
 - Never treat deterministic seams as live desktop proof.
@@ -98,14 +104,14 @@ scripts/tests/cpp/run-cpp-dbus-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-asr-menu-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-activation-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-configured-activation-smoke.sh
-scripts/tests/cpp/run-cpp-dbus-adapter-lifecycle-smoke.sh
+scripts/tests/daemon/run-dbus-adapter-lifecycle-smoke.sh
 scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh
 scripts/tests/daemon/run-daemon-handoff-diagnostics-smoke.sh
 scripts/tests/daemon/run-daemon-handoff-smoke.sh
 scripts/tests/install/run-ime-e2e-smoke.sh
 ```
 
-`scripts/tests/install/run-ime-e2e-smoke.sh` includes fake outcome sink coverage. `scripts/tests/cpp/run-cpp-dbus-adapter-lifecycle-smoke.sh` verifies configured text adapter start/duplicate-start/stop diagnostics over DBus. `scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh` launches the normal daemon in a private session, proves its HTTP health endpoint, D-Bus owner, and redacted endpoint diagnostics, sends `SIGTERM`, and verifies listener release. `scripts/tests/daemon/run-daemon-handoff-diagnostics-smoke.sh` proves that `daemon status` detects both a D-Bus owner running from a different daemon path and a replaced executable whose old inode appears as ` (deleted)`, while remaining non-mutating. `scripts/tests/daemon/run-daemon-handoff-smoke.sh` proves the explicit conditional restart command: current owners never invoke systemctl, stale owners restart and pass a fresh owner-path check, and failed service control leaves the old owner alive.
+`scripts/tests/install/run-ime-e2e-smoke.sh` includes fake outcome sink coverage. `scripts/tests/daemon/run-dbus-adapter-lifecycle-smoke.sh` verifies configured text adapter start/duplicate-start/stop diagnostics through the Rust CLI and daemon D-Bus API. `scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh` launches the normal daemon in a private session, proves its HTTP health endpoint, D-Bus owner, and redacted endpoint diagnostics, sends `SIGTERM`, and verifies listener release. `scripts/tests/daemon/run-daemon-handoff-diagnostics-smoke.sh` proves that `daemon status` detects both a D-Bus owner running from a different daemon path and a replaced executable whose old inode appears as ` (deleted)`, while remaining non-mutating. `scripts/tests/daemon/run-daemon-handoff-smoke.sh` proves the explicit conditional restart command: current owners never invoke systemctl, stale owners restart and pass a fresh owner-path check, and failed service control leaves the old owner alive.
 
 ### User installation
 

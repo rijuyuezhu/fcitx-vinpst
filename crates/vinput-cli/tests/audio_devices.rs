@@ -4,7 +4,7 @@ mod common;
 
 use std::fs;
 
-use common::{assert_json_success, vinput_command, write_temp_json};
+use common::{assert_json_success, isolated_vinput_command, vinput_command, write_temp_json};
 
 fn assert_daemon_owner_probe(value: &serde_json::Value) {
     assert_eq!(
@@ -498,7 +498,8 @@ fn device_list_json_reports_config_source_and_audio_summary() {
 
 #[test]
 fn device_list_text_includes_default_target() {
-    let output = vinput_command()
+    let (_home, mut command) = isolated_vinput_command("vinput-device-list-text");
+    let output = command
         .args(["device", "list"])
         .output()
         .expect("run vinput device list text");
@@ -533,6 +534,38 @@ fn device_use_dry_run_json_validates_without_writing() {
     assert_eq!(value["wrote_config"], false);
     assert_eq!(
         fs::read_to_string(&config_path).expect("read unchanged config"),
+        before
+    );
+}
+
+#[test]
+fn device_use_materializes_omitted_global_defaults() {
+    let root = unique_temp_dir("vinput-device-use-omitted-global");
+    let config_path = copy_default_config(&root);
+    let mut document = read_json(&config_path);
+    document
+        .as_object_mut()
+        .expect("default config root")
+        .remove("global");
+    let before = serde_json::to_string_pretty(&document).expect("serialize compact config");
+    fs::write(&config_path, &before).expect("write compact config");
+
+    let output = vinput_command()
+        .args(["device", "use", "alsa_input.virtual-source", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinput device use with omitted global defaults");
+
+    let value = assert_json_success(output, "device use omitted global json");
+    assert_eq!(value["before"], "default");
+    assert_eq!(value["after"], "alsa_input.virtual-source");
+    assert_eq!(
+        read_json(&config_path)["global"]["capture_device"],
+        "alsa_input.virtual-source"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("config.json.bak")).expect("read compact backup"),
         before
     );
 }

@@ -1,13 +1,60 @@
 #include "vinput_fcitx_bridge/fcitx_menu_filter.h"
+#include "vinput_fcitx_bridge/fcitx_menu_paging.h"
+#include "vinput_fcitx_bridge/rust_string.h"
+
+#include "vinput_fcitx_ffi.h"
 
 #include <algorithm>
 #include <cctype>
-#include <sstream>
-#include <utility>
-#include <vector>
+#include <cstdint>
+#include <string>
 
 namespace vinput_fcitx_bridge {
 namespace {
+
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Other) ==
+              VINPUT_FCITX_MENU_KEY_OTHER);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Passive) ==
+              VINPUT_FCITX_MENU_KEY_PASSIVE);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Escape) ==
+              VINPUT_FCITX_MENU_KEY_ESCAPE);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Slash) ==
+              VINPUT_FCITX_MENU_KEY_SLASH);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Backspace) ==
+              VINPUT_FCITX_MENU_KEY_BACKSPACE);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::DeleteWord) ==
+              VINPUT_FCITX_MENU_KEY_DELETE_WORD);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::ClearFilter) ==
+              VINPUT_FCITX_MENU_KEY_CLEAR_FILTER);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Text) ==
+              VINPUT_FCITX_MENU_KEY_TEXT);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Page) ==
+              VINPUT_FCITX_MENU_KEY_PAGE);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Digit) ==
+              VINPUT_FCITX_MENU_KEY_DIGIT);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::MovePrevious) ==
+              VINPUT_FCITX_MENU_KEY_MOVE_PREVIOUS);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::MoveNext) ==
+              VINPUT_FCITX_MENU_KEY_MOVE_NEXT);
+static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Enter) ==
+              VINPUT_FCITX_MENU_KEY_ENTER);
+static_assert(static_cast<std::uint8_t>(MenuKeyAction::Pass) ==
+              VINPUT_FCITX_MENU_ACTION_PASS);
+static_assert(static_cast<std::uint8_t>(MenuKeyAction::Consume) ==
+              VINPUT_FCITX_MENU_ACTION_CONSUME);
+static_assert(static_cast<std::uint8_t>(MenuKeyAction::CloseAndPass) ==
+              VINPUT_FCITX_MENU_ACTION_CLOSE_AND_PASS);
+static_assert(static_cast<std::uint8_t>(MenuKeyAction::CloseAndConsume) ==
+              VINPUT_FCITX_MENU_ACTION_CLOSE_AND_CONSUME);
+static_assert(static_cast<std::uint8_t>(MenuKeyAction::Rebuild) ==
+              VINPUT_FCITX_MENU_ACTION_REBUILD);
+static_assert(static_cast<std::uint8_t>(MenuKeyAction::MovePrevious) ==
+              VINPUT_FCITX_MENU_ACTION_MOVE_PREVIOUS);
+static_assert(static_cast<std::uint8_t>(MenuKeyAction::MoveNext) ==
+              VINPUT_FCITX_MENU_ACTION_MOVE_NEXT);
+static_assert(static_cast<std::uint8_t>(MenuKeyAction::Select) ==
+              VINPUT_FCITX_MENU_ACTION_SELECT);
+static_assert(kMenuPageSize == VINPUT_FCITX_MENU_PAGE_SIZE);
 
 bool HasNoModifiers(const fcitx::Key &key) {
   return key.normalize().states() == fcitx::KeyStates();
@@ -24,108 +71,114 @@ bool IsOneOfKeySymbols(const fcitx::Key &key,
                      [&key](fcitx::KeySym symbol) { return IsKeySymbol(key, symbol); });
 }
 
-std::string NormalizeSearchText(std::string text) {
-  std::transform(text.begin(), text.end(), text.begin(),
-                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
-  return text;
+std::optional<MenuKeyAction> ActionFromWire(std::uint8_t action) {
+  switch (action) {
+  case VINPUT_FCITX_MENU_ACTION_PASS:
+    return MenuKeyAction::Pass;
+  case VINPUT_FCITX_MENU_ACTION_CONSUME:
+    return MenuKeyAction::Consume;
+  case VINPUT_FCITX_MENU_ACTION_CLOSE_AND_PASS:
+    return MenuKeyAction::CloseAndPass;
+  case VINPUT_FCITX_MENU_ACTION_CLOSE_AND_CONSUME:
+    return MenuKeyAction::CloseAndConsume;
+  case VINPUT_FCITX_MENU_ACTION_REBUILD:
+    return MenuKeyAction::Rebuild;
+  case VINPUT_FCITX_MENU_ACTION_MOVE_PREVIOUS:
+    return MenuKeyAction::MovePrevious;
+  case VINPUT_FCITX_MENU_ACTION_MOVE_NEXT:
+    return MenuKeyAction::MoveNext;
+  case VINPUT_FCITX_MENU_ACTION_SELECT:
+    return MenuKeyAction::Select;
+  default:
+    return std::nullopt;
+  }
 }
 
-std::vector<std::string> SplitSearchTerms(std::string_view text) {
-  std::vector<std::string> terms;
-  std::istringstream stream(NormalizeSearchText(std::string(text)));
-  std::string term;
-  while (stream >> term) {
-    terms.push_back(std::move(term));
-  }
-  return terms;
-}
-
-void PopLastUtf8Character(std::string *text) {
-  if (text == nullptr || text->empty()) {
-    return;
-  }
-  std::size_t position = text->size();
-  do {
-    --position;
-  } while (position > 0 &&
-           (static_cast<unsigned char>((*text)[position]) & 0xc0U) == 0x80U);
-  text->erase(position);
+bool IsMenuEnterKey(const fcitx::Key &key) {
+  return IsOneOfKeySymbols(key, {FcitxKey_Return, FcitxKey_KP_Enter});
 }
 
 } // namespace
 
-void MenuFilterState::Reset() {
-  active_ = false;
-  query_.clear();
+MenuSessionState::MenuSessionState()
+    : state_(StateHandle::Adopt(vinput_fcitx_menu_session_new())) {}
+
+void MenuSessionState::Open() {
+  static_cast<void>(vinput_fcitx_menu_session_open(state_.mutable_raw_handle()));
 }
 
-void MenuFilterState::Activate() {
-  active_ = true;
+void MenuSessionState::Close() {
+  static_cast<void>(vinput_fcitx_menu_session_close(state_.mutable_raw_handle()));
 }
 
-void MenuFilterState::ClearAndDeactivate() {
-  Reset();
+std::optional<bool> MenuSessionState::is_open() const {
+  std::uint8_t open = 0;
+  if (vinput_fcitx_menu_session_is_open(state_.raw_handle(), &open) == 0) {
+    return std::nullopt;
+  }
+  return open != 0;
 }
 
-void MenuFilterState::Backspace() {
-  if (!active_) {
-    return;
-  }
-  if (query_.empty()) {
-    active_ = false;
-    return;
-  }
-  PopLastUtf8Character(&query_);
+bool MenuSessionState::SetPage(int page) {
+  return vinput_fcitx_menu_session_set_page(state_.mutable_raw_handle(), page) != 0;
 }
 
-void MenuFilterState::DeleteLastWord() {
-  if (!active_) {
-    return;
+std::optional<bool> MenuSessionState::active() const {
+  std::uint8_t active = 0;
+  if (vinput_fcitx_menu_session_filter_active(state_.raw_handle(), &active) == 0) {
+    return std::nullopt;
   }
-  while (!query_.empty() && static_cast<unsigned char>(query_.back()) < 0x80U &&
-         std::isspace(static_cast<unsigned char>(query_.back())) != 0) {
-    query_.pop_back();
-  }
-  while (!query_.empty()) {
-    const auto last = static_cast<unsigned char>(query_.back());
-    if (last < 0x80U && std::isspace(last) != 0) {
-      break;
-    }
-    PopLastUtf8Character(&query_);
-  }
-  if (query_.empty()) {
-    active_ = false;
-  }
+  return active != 0;
 }
 
-void MenuFilterState::AppendText(std::string_view text) {
-  if (active_) {
-    query_.append(text);
-  }
-}
-
-bool MenuFilterState::Matches(std::string_view search_text) const {
-  if (query_.empty()) {
-    return true;
-  }
-  const auto normalized_haystack = NormalizeSearchText(std::string(search_text));
-  for (const auto &term : SplitSearchTerms(query_)) {
-    if (normalized_haystack.find(term) == std::string::npos) {
-      return false;
-    }
-  }
-  return true;
-}
-
-std::string MenuFilterState::DecorateTitle(std::string_view base_title) const {
-  if (!active_ && query_.empty()) {
+std::string MenuSessionState::DecorateTitle(std::string_view base_title) {
+  VinputFcitxStringView title{};
+  if (vinput_fcitx_menu_session_decorate_title(state_.mutable_raw_handle(),
+                                               RustBytes(base_title), base_title.size(),
+                                               &title) == 0) {
     return std::string(base_title);
   }
-  if (base_title.size() >= 2 && base_title.substr(base_title.size() - 2) == " /") {
-    return std::string(base_title) + query_;
-  }
-  return std::string(base_title) + " / " + query_;
+  return CopyRustString(title);
 }
+
+std::optional<MenuKeyDecision>
+MenuSessionState::HandleKey(bool release, const MenuSemanticKey &key,
+                            bool cursor_available, int current_selection,
+                            std::size_t visible_item_count) {
+  const VinputFcitxMenuKeyInputView input{
+      .release = static_cast<std::uint8_t>(release),
+      .key_kind = static_cast<std::uint8_t>(key.kind),
+      .key_value = key.value,
+      .text = ToRustStringView(key.text),
+      .cursor_available = static_cast<std::uint8_t>(cursor_available),
+      .current_selection = current_selection,
+      .visible_item_count = visible_item_count,
+  };
+  VinputFcitxMenuKeyDecisionView decision{};
+  if (vinput_fcitx_menu_session_handle_key(state_.mutable_raw_handle(), &input,
+                                           &decision) == 0) {
+    return std::nullopt;
+  }
+  const auto action = ActionFromWire(decision.action);
+  if (!action.has_value()) {
+    return std::nullopt;
+  }
+  return MenuKeyDecision{*action, decision.value};
+}
+
+const ::VinputFcitxMenuSession *MenuSessionState::raw_handle() const {
+  return state_.raw_handle();
+}
+
+void SetMenuCandidatePage(fcitx::CommonCandidateList &candidates, int requested_page) {
+  const auto page =
+      vinput_fcitx_clamp_menu_page(candidates.totalPages(), requested_page);
+  if (page >= 0) {
+    candidates.setPage(page);
+  }
+}
+
+namespace {
 
 bool IsMenuCtrlShortcut(const fcitx::Key &key, fcitx::KeySym symbol) {
   const auto matches = [symbol](const fcitx::Key &candidate) {
@@ -186,6 +239,54 @@ bool IsPrintableMenuInput(const fcitx::Key &key, bool filter_active,
 
 std::string MenuKeyToUtf8(const fcitx::Key &key) {
   return fcitx::Key::keySymToUTF8(key.normalize().sym());
+}
+
+} // namespace
+
+MenuSemanticKey ClassifyMenuKey(const fcitx::Key &key, bool passive, bool filter_active,
+                                const fcitx::KeyList &page_prev_keys,
+                                const fcitx::KeyList &page_next_keys) {
+  if (passive || IsMenuPureModifierKey(key)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Passive};
+  }
+  if (IsKeySymbol(key, FcitxKey_Escape)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Escape};
+  }
+  if (IsMenuSlashKey(key)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Slash};
+  }
+  if (IsMenuBackspaceKey(key)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Backspace};
+  }
+  if (IsMenuCtrlShortcut(key, FcitxKey_w)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::DeleteWord};
+  }
+  if (IsMenuCtrlShortcut(key, FcitxKey_u)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::ClearFilter};
+  }
+  if (IsPrintableMenuInput(key, filter_active, page_prev_keys, page_next_keys)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Text, 0, MenuKeyToUtf8(key)};
+  }
+  if (key.checkKeyList(page_prev_keys)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Page, -1};
+  }
+  if (key.checkKeyList(page_next_keys)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Page, 1};
+  }
+  const int digit = key.digitSelection();
+  if (digit >= 0) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Digit, digit};
+  }
+  if (IsKeySymbol(key, FcitxKey_Up)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::MovePrevious};
+  }
+  if (IsKeySymbol(key, FcitxKey_Down)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::MoveNext};
+  }
+  if (IsMenuEnterKey(key)) {
+    return MenuSemanticKey{MenuSemanticKeyKind::Enter};
+  }
+  return {};
 }
 
 } // namespace vinput_fcitx_bridge

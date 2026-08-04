@@ -2,10 +2,14 @@
 
 #include "vinput_fcitx_bridge/dbus_contract.h"
 #include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_bridge/rust_string.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <fcitx-utils/dbus/matchrule.h>
 #include <fcitx-utils/dbus/message.h>
 
+#include <cstdint>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -14,7 +18,6 @@
 namespace vinput_fcitx_bridge {
 namespace {
 
-constexpr std::string_view kUnknownErrorCode = "unknown";
 constexpr std::string_view kDbusService = "org.freedesktop.DBus";
 constexpr std::string_view kDbusPath = "/org/freedesktop/DBus";
 constexpr std::string_view kDbusInterface = "org.freedesktop.DBus";
@@ -37,6 +40,30 @@ Rule SignalMatchRule(std::string service, std::string path, std::string interfac
     return Rule{std::move(service), std::move(path), std::move(interface),
                 std::move(name), std::move(argument_match)};
   }
+}
+
+std::string RenderPlan(const VinputFcitxDaemonSignalPlanView &plan) {
+  const auto text = CopyRustString(plan.text);
+  return plan.translate != 0 ? FrontendText(text) : text;
+}
+
+std::pair<FrontendNotificationKind, std::string>
+PresentDaemonNotification(std::string_view code, std::string_view subject,
+                          std::string_view detail, std::string_view raw_message) {
+  const VinputFcitxDaemonNotificationView notification{
+      .code = ToRustStringView(code),
+      .subject = ToRustStringView(subject),
+      .detail = ToRustStringView(detail),
+      .raw = ToRustStringView(raw_message),
+  };
+  VinputFcitxDaemonSignalPlanView plan{};
+  if (vinput_fcitx_daemon_notification_plan(&notification, &plan) == 0) {
+    return {FrontendNotificationKind::Error, FrontendText("Unknown error.")};
+  }
+  const auto kind = plan.kind == VINPUT_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO
+                        ? FrontendNotificationKind::Info
+                        : FrontendNotificationKind::Error;
+  return {kind, RenderPlan(plan)};
 }
 
 std::unique_ptr<fcitx::dbus::Slot>
@@ -64,50 +91,69 @@ AddStringSignalMatch(fcitx::dbus::Bus *bus, std::string_view signal,
 
 } // namespace
 
-bool DaemonNotificationPayload::empty() const {
-  return code.empty() && subject.empty() && detail.empty() && raw_message.empty();
+struct DaemonLivePresentationState::Impl {
+  using Handle =
+      RustOwnedHandle<VinputFcitxDaemonLiveState, vinput_fcitx_daemon_live_state_free>;
+
+  Impl() : state(Handle::Adopt(vinput_fcitx_daemon_live_state_new())) {}
+
+  Handle state;
+};
+
+DaemonLivePresentationState::DaemonLivePresentationState()
+    : impl_(std::make_unique<Impl>()) {}
+
+DaemonLivePresentationState::~DaemonLivePresentationState() = default;
+
+void DaemonLivePresentationState::Reset() {
+  static_cast<void>(
+      vinput_fcitx_daemon_live_state_reset(impl_->state.mutable_raw_handle()));
 }
 
-FrontendNotificationKind
-ClassifyDaemonNotification(const DaemonNotificationPayload &payload) {
-  if ((!payload.code.empty() && payload.code != kUnknownErrorCode) ||
-      !payload.subject.empty() || !payload.detail.empty()) {
-    return FrontendNotificationKind::Error;
-  }
-  return FrontendNotificationKind::Info;
+void DaemonLivePresentationState::BeginStatus(std::string_view status,
+                                              bool command_mode) {
+  static_cast<void>(vinput_fcitx_daemon_live_state_begin_status(
+      impl_->state.mutable_raw_handle(), RustBytes(status), status.size(),
+      static_cast<std::uint8_t>(command_mode)));
 }
 
-std::string RenderDaemonNotification(const DaemonNotificationPayload &payload) {
-  if (!payload.raw_message.empty()) {
-    return payload.raw_message;
+void DaemonLivePresentationState::UpdateStatus(std::string_view status) {
+  static_cast<void>(vinput_fcitx_daemon_live_state_update_status(
+      impl_->state.mutable_raw_handle(), RustBytes(status), status.size()));
+}
+
+bool DaemonLivePresentationState::UpdatePartial(std::string_view partial_text,
+                                                bool recording) {
+  return vinput_fcitx_daemon_live_state_update_partial(
+             impl_->state.mutable_raw_handle(), RustBytes(partial_text),
+             partial_text.size(), static_cast<std::uint8_t>(recording)) != 0;
+}
+
+bool DaemonLivePresentationState::CommandMode() const {
+  return vinput_fcitx_daemon_live_state_command_mode(impl_->state.raw_handle()) != 0;
+}
+
+std::string DaemonLivePresentationState::Preedit() const {
+  VinputFcitxDaemonSignalPlanView plan{};
+  if (vinput_fcitx_daemon_live_state_preedit_plan(impl_->state.raw_handle(), &plan) ==
+      0) {
+    return {};
   }
-  if (!payload.detail.empty()) {
-    return payload.detail;
-  }
-  if (!payload.subject.empty()) {
-    return payload.subject;
-  }
-  if (!payload.code.empty() && payload.code != kUnknownErrorCode) {
-    return payload.code;
-  }
-  return FrontendText("Unknown error.");
+  return RenderPlan(plan);
 }
 
 std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
                                        std::string_view partial_text) {
-  if (!partial_text.empty()) {
-    return std::string(partial_text);
+  const VinputFcitxDaemonStatusView status_view{
+      .status = ToRustStringView(status),
+      .command_mode = static_cast<std::uint8_t>(command_mode),
+      .partial = ToRustStringView(partial_text),
+  };
+  VinputFcitxDaemonSignalPlanView plan{};
+  if (vinput_fcitx_daemon_status_preedit_plan(&status_view, &plan) == 0) {
+    return {};
   }
-  if (status == dbus::kStatusRecording) {
-    return FrontendText(command_mode ? "... Commanding ..." : "... Recording ...");
-  }
-  if (status == dbus::kStatusInferring) {
-    return FrontendText("... Recognizing ...");
-  }
-  if (status == dbus::kStatusPostprocessing) {
-    return FrontendText("... Postprocessing ...");
-  }
-  return {};
+  return RenderPlan(plan);
 }
 
 FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
@@ -153,14 +199,12 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
           return true;
         }
 
-        auto payload = DaemonNotificationPayload{
-            .code = std::move(std::get<0>(wire_payload)),
-            .subject = std::move(std::get<1>(wire_payload)),
-            .detail = std::move(std::get<2>(wire_payload)),
-            .raw_message = std::move(std::get<3>(wire_payload)),
-        };
-        if (!payload.empty()) {
-          callbacks_.notification(payload);
+        const auto &[code, subject, detail, raw_message] = wire_payload;
+        if (!code.empty() || !subject.empty() || !detail.empty() ||
+            !raw_message.empty()) {
+          auto [kind, rendered] =
+              PresentDaemonNotification(code, subject, detail, raw_message);
+          callbacks_.notification(kind, rendered);
         }
         return true;
       });

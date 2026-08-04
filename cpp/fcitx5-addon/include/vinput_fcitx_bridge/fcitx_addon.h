@@ -4,11 +4,11 @@
 #include "vinput_fcitx_bridge/fcitx_daemon_signal_monitor.h"
 #include "vinput_fcitx_bridge/fcitx_key_trigger.h"
 #include "vinput_fcitx_bridge/fcitx_menu_filter.h"
+#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
 #include "vinput_fcitx_bridge/fcitx_notifications.h"
 #include "vinput_fcitx_bridge/fcitx_outcome.h"
 #include "vinput_fcitx_bridge/fcitx_trigger_mode.h"
 #include "vinput_fcitx_bridge/frontend_bridge.h"
-#include "vinput_fcitx_bridge/scene_defaults.h"
 #include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
 
 #include <memory>
@@ -26,6 +26,12 @@
 
 namespace vinput_fcitx_bridge {
 
+struct FcitxProjectedMenuState {
+  MenuSessionState session;
+  std::shared_ptr<MenuProjection> projection;
+  fcitx::InputContext *input_context = nullptr;
+};
+
 class FcitxVinputAddon final : public fcitx::AddonInstance {
 public:
   explicit FcitxVinputAddon(fcitx::Instance *instance);
@@ -42,27 +48,23 @@ public:
   const fcitx::Configuration *getConfig() const override;
   void setConfig(const fcitx::RawConfig &config) override;
 
-  fcitx::Instance *instance() const {
-    return instance_;
-  }
-  const FrontendBridge &bridge() const {
-    return bridge_;
-  }
-  const std::string &active_scene_id() const {
-    return active_scene_id_;
-  }
-  AppliedOutcome TriggerNormal(fcitx::InputContext *ic,
-                               std::string_view scene_id = kDefaultNormalSceneId);
-  AppliedOutcome TriggerCommand(fcitx::InputContext *ic, std::string_view selected_text,
-                                std::string_view scene_id = kDefaultCommandSceneId);
   AppliedOutcome ApplyTriggerAction(fcitx::InputContext *ic, FcitxTriggerAction action,
                                     std::string_view selected_text = "");
 
 private:
+  AppliedOutcome StartNormalRecording(fcitx::InputContext *ic);
+  AppliedOutcome StartCommandRecording(fcitx::InputContext *ic,
+                                       std::string_view selected_text,
+                                       std::string_view scene_id = {});
+  AppliedOutcome StopRecording(fcitx::InputContext *ic);
   SdBusDaemonClient *EnsureDaemonClient(std::string *error);
   AppliedOutcome ApplyDaemonUnavailable(fcitx::InputContext *ic, std::string error);
   AppliedOutcome ApplyBridgeOutcome(fcitx::InputContext *ic,
                                     const BridgeOutcome &outcome);
+  std::optional<AppliedOutcome> ExecuteDaemonControl(std::uint8_t event,
+                                                     fcitx::InputContext *ic,
+                                                     std::string_view status, bool flag,
+                                                     bool command_mode);
   std::optional<AppliedOutcome>
   ReconcileDaemonStatusBeforeStart(fcitx::InputContext *ic, TriggerKind kind);
   AppliedOutcome PresentRemoteDaemonStatus(fcitx::InputContext *ic,
@@ -74,22 +76,23 @@ private:
   void HideSceneMenu();
   bool RefreshSceneState(std::string *error);
   bool HandleSceneMenuKeyEvent(fcitx::KeyEvent &event);
-  void SelectScene(std::size_t index, fcitx::InputContext *ic);
   void ShowAsrMenu(fcitx::InputContext *ic);
   void RebuildAsrMenu(int page = 0);
   void HideAsrMenu();
   bool RefreshAsrMenuState(std::string *error);
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
-  void SelectAsrTarget(std::size_t index, fcitx::InputContext *ic);
+  void ExecuteMenuControl(const ProjectedMenuControl &control, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
   void SetupDaemonSignalMonitor();
   void SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus);
   void HandleDaemonAvailability(bool available);
   void HandleDaemonStatus(std::string_view status);
   void HandleRecognitionPartial(std::string_view partial_text);
-  void HandleDaemonNotification(const DaemonNotificationPayload &payload);
+  void HandleDaemonNotification(FrontendNotificationKind kind,
+                                std::string_view message);
   void UpdateLivePreedit();
   void ResetLiveSignalState();
+  void ResetActiveRecording(fcitx::InputContext *ic);
   void Notify(FrontendNotificationKind kind, std::string_view message);
   void HandleTriggerModeAction(fcitx::InputContext *ic, TriggerModeAction action);
   void ScheduleTriggerStart(fcitx::InputContext *ic);
@@ -104,29 +107,18 @@ private:
   FcitxKeyTriggerPolicy trigger_policy_;
   TriggerModeController trigger_mode_controller_;
   mutable std::unique_ptr<VinputFrontendConfig> frontend_config_;
-  SceneStateSnapshot scene_state_;
-  MenuFilterState scene_menu_filter_;
-  std::vector<std::size_t> scene_menu_indices_;
-  int scene_menu_page_ = 0;
-  std::string active_scene_id_{kDefaultNormalSceneId};
-  fcitx::InputContext *scene_menu_ic_ = nullptr;
-  bool scene_menu_visible_ = false;
-  AsrDisplayMenuStateSnapshot asr_menu_state_;
-  MenuFilterState asr_menu_filter_;
-  std::vector<std::size_t> asr_menu_indices_;
-  int asr_menu_page_ = 0;
-  fcitx::InputContext *asr_menu_ic_ = nullptr;
-  bool asr_menu_visible_ = false;
+  SceneMenuController scene_menu_controller_;
+  FcitxProjectedMenuState scene_menu_;
+  AsrMenuController asr_menu_controller_;
+  FcitxProjectedMenuState asr_menu_;
   std::unique_ptr<fcitx::EventSourceTime> pending_trigger_start_event_;
   std::unique_ptr<fcitx::EventSourceTime> pending_trigger_stop_event_;
   fcitx::TrackableObjectReference<fcitx::InputContext> pending_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> remote_status_ic_;
-  bool remote_status_command_mode_ = false;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::unique_ptr<FcitxDaemonSignalMonitor> daemon_signal_monitor_;
-  std::string live_daemon_status_;
-  std::string live_partial_text_;
+  DaemonLivePresentationState live_daemon_state_;
   std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
       event_handlers_;
 };

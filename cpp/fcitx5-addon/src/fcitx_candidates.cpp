@@ -29,7 +29,7 @@ void DeleteSelectedTextIfAny(fcitx::InputContext *input_context) {
 
 class ResultCandidateWord final : public fcitx::CandidateWord {
 public:
-  ResultCandidateWord(Candidate candidate, std::string_view comment,
+  ResultCandidateWord(PresentedCandidate candidate, std::string_view comment,
                       ResultCandidateSelectCallback on_select)
       : fcitx::CandidateWord(fcitx::Text(candidate.text)),
         candidate_(std::move(candidate)), on_select_(std::move(on_select)) {
@@ -49,7 +49,7 @@ public:
   }
 
 private:
-  Candidate candidate_;
+  PresentedCandidate candidate_;
   ResultCandidateSelectCallback on_select_;
 };
 
@@ -57,28 +57,6 @@ private:
 
 std::string ResultCandidateMenuTitle(std::size_t count) {
   return FrontendCountText("Choose Result (%zu)", count);
-}
-
-const ResultCandidateSelectCallback &DefaultResultCandidateSelectCallback() {
-  static const ResultCandidateSelectCallback kCallback =
-      [](fcitx::InputContext *input_context, const Candidate &candidate) {
-        ApplyResultCandidateSelection(input_context, candidate);
-      };
-  return kCallback;
-}
-
-std::string ResultCandidateComment(const Candidate &candidate, std::size_t llm_index) {
-  switch (candidate.source) {
-  case CandidateSource::Raw:
-    return FrontendText("Original");
-  case CandidateSource::Asr:
-    return FrontendText("Voice Command");
-  case CandidateSource::Llm:
-    return std::to_string(llm_index);
-  case CandidateSource::Cancel:
-    return FrontendText("Cancel");
-  }
-  return {};
 }
 
 void ClearResultCandidateMenu(fcitx::InputContext *input_context) {
@@ -93,12 +71,8 @@ void ClearResultCandidateMenu(fcitx::InputContext *input_context) {
 }
 
 void ApplyResultCandidateSelection(fcitx::InputContext *input_context,
-                                   const Candidate &candidate) {
-  ApplyResultCandidateSelection(input_context, candidate, false);
-}
-
-void ApplyResultCandidateSelection(fcitx::InputContext *input_context,
-                                   const Candidate &candidate, bool replace_selection) {
+                                   const PresentedCandidate &candidate,
+                                   bool replace_selection) {
   if (input_context == nullptr) {
     return;
   }
@@ -108,7 +82,7 @@ void ApplyResultCandidateSelection(fcitx::InputContext *input_context,
   input_context->inputPanel().setPreedit(empty);
   input_context->updatePreedit();
 
-  if (candidate.source == CandidateSource::Cancel || candidate.text.empty()) {
+  if (!candidate.commit) {
     return;
   }
   if (replace_selection) {
@@ -119,9 +93,9 @@ void ApplyResultCandidateSelection(fcitx::InputContext *input_context,
 }
 
 std::unique_ptr<fcitx::CommonCandidateList>
-BuildResultCandidateList(const RecognitionPayload &payload,
+BuildResultCandidateList(const CandidatePresentation &payload,
                          const ResultCandidateSelectCallback &on_select) {
-  if (payload.candidates.empty()) {
+  if (payload.candidate_count == 0 || !payload.candidate_at) {
     return nullptr;
   }
 
@@ -131,19 +105,17 @@ BuildResultCandidateList(const RecognitionPayload &payload,
   candidate_list->setCursorPositionAfterPaging(
       fcitx::CursorPositionAfterPaging::ResetToFirst);
 
-  int cursor_index = 0;
-  std::size_t llm_index = 0;
-  for (const auto &candidate : payload.candidates) {
-    if (candidate.source == CandidateSource::Llm) {
-      ++llm_index;
+  for (std::size_t index = 0; index < payload.candidate_count; ++index) {
+    auto candidate = payload.candidate(index);
+    if (!candidate.has_value()) {
+      return nullptr;
     }
-    if (candidate.text == payload.commit_text) {
-      cursor_index = candidate_list->totalSize();
-    }
-    candidate_list->append<ResultCandidateWord>(
-        candidate, ResultCandidateComment(candidate, llm_index), on_select);
+    candidate_list->append<ResultCandidateWord>(*candidate, candidate->comment,
+                                                on_select);
   }
-  candidate_list->setGlobalCursorIndex(cursor_index);
+  const auto cursor_index =
+      payload.cursor_index < payload.candidate_count ? payload.cursor_index : 0;
+  candidate_list->setGlobalCursorIndex(static_cast<int>(cursor_index));
   return candidate_list;
 }
 

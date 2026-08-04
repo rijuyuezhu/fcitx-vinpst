@@ -1,9 +1,9 @@
 use super::{
-    AsrProviderConfig, AsrProviderKind, Context, InstalledProviderResolution, LiveScriptKind, Path,
-    PathBuf, ProcessCommand, ProviderEditOutcome, ProviderEditRequest, ProviderEditScriptOutcome,
-    ProviderEditScriptRequest, VinputConfig, asr_provider_kind_label, config_set_write_target,
-    default_config_path, fs, load_config_json, normalize_provider_id, split_editor_argv, user_home,
-    validate_config_json_value, write_config_set_document,
+    Context, InstalledProviderResolution, LiveScriptKind, Path, PathBuf, ProviderEditOutcome,
+    ProviderEditRequest, ProviderEditScriptOutcome, ProviderEditScriptRequest, VinputConfig,
+    asr_provider_kind_label, config_set_write_target, default_config_path, load_config_json,
+    normalize_provider_id, prepare_provider_script_edit, validate_config_json_value,
+    write_config_set_document,
 };
 use super::{
     catalog::{load_live_provider_registry, load_provider_list_context},
@@ -163,32 +163,14 @@ fn run_provider_edit_script(
         request.registry_path,
         request.config_path,
     )?;
-    if resolution.provider.kind != AsrProviderKind::Command {
-        anyhow::bail!(
-            "ASR provider `{}` is not a command provider and has no editable script",
-            resolution.provider.id
-        );
-    }
-    let script_path =
-        resolve_editable_provider_script(&resolution.provider)?.with_context(|| {
-            format!(
-                "ASR provider `{}` does not reference an existing editable script file",
-                resolution.provider.id
-            )
-        })?;
-    let editor_argv = resolve_provider_editor(request.editor)?;
+    let plan = prepare_provider_script_edit(&resolution.provider, request.editor)?;
+    let script_path = plan.script_path.clone();
+    let editor_argv = plan.editor.argv().to_vec();
     let mut edited = false;
     let mut exit_status = None;
     if !request.dry_run {
-        let status = run_provider_editor(&editor_argv, &script_path)?;
-        exit_status = status.code();
-        if !status.success() {
-            anyhow::bail!(
-                "provider editor `{}` exited with status {}",
-                editor_argv.join(" "),
-                exit_status.map_or_else(|| "signal".to_owned(), |code| code.to_string())
-            );
-        }
+        let outcome = plan.execute()?;
+        exit_status = outcome.exit_status;
         edited = true;
     }
     Ok(ProviderEditScriptOutcome {
@@ -251,85 +233,6 @@ fn resolve_installed_provider_selector(
         source: context.source,
         registry_source,
     })
-}
-
-fn resolve_editable_provider_script(
-    provider: &AsrProviderConfig,
-) -> anyhow::Result<Option<PathBuf>> {
-    if let Some(command) = provider.command.as_deref()
-        && is_path_like_command(command)
-        && let Some(path) = resolve_existing_regular_file(command)?
-    {
-        return Ok(Some(path));
-    }
-    for argument in &provider.args {
-        if let Some(path) = resolve_existing_regular_file(argument)? {
-            return Ok(Some(path));
-        }
-    }
-    Ok(None)
-}
-
-fn is_path_like_command(command: &str) -> bool {
-    command.contains('/') || command.starts_with('.') || command.starts_with('~')
-}
-
-fn resolve_existing_regular_file(candidate: &str) -> anyhow::Result<Option<PathBuf>> {
-    let candidate = candidate.trim();
-    if candidate.is_empty() {
-        return Ok(None);
-    }
-    let path = if candidate == "~" {
-        user_home()?
-    } else if let Some(relative) = candidate.strip_prefix("~/") {
-        user_home()?.join(relative)
-    } else if candidate.starts_with('~') {
-        return Ok(None);
-    } else {
-        PathBuf::from(candidate)
-    };
-    let path = if path.is_absolute() {
-        path
-    } else {
-        std::env::current_dir()
-            .context("resolve current directory for provider script")?
-            .join(path)
-    };
-    match fs::metadata(&path) {
-        Ok(metadata) if metadata.is_file() => Ok(Some(path)),
-        Ok(_) => Ok(None),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error)
-            .with_context(|| format!("inspect provider script candidate `{}`", path.display())),
-    }
-}
-
-fn resolve_provider_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
-    let editor = editor
-        .map(str::to_owned)
-        .or_else(|| std::env::var("VINPUT_PROVIDER_EDITOR").ok())
-        .or_else(|| std::env::var("VISUAL").ok())
-        .or_else(|| std::env::var("EDITOR").ok())
-        .unwrap_or_else(|| "vi".to_owned());
-    let argv = split_editor_argv(&editor);
-    if argv.is_empty() {
-        anyhow::bail!("provider editor command is empty");
-    }
-    Ok(argv)
-}
-
-fn run_provider_editor(
-    editor_argv: &[String],
-    path: &Path,
-) -> anyhow::Result<std::process::ExitStatus> {
-    let (program, args) = editor_argv
-        .split_first()
-        .with_context(|| "provider editor command is empty")?;
-    ProcessCommand::new(program)
-        .args(args)
-        .arg(path)
-        .status()
-        .with_context(|| format!("run provider editor `{}`", editor_argv.join(" ")))
 }
 
 fn provider_edit_script_outcome_json(outcome: &ProviderEditScriptOutcome) -> serde_json::Value {

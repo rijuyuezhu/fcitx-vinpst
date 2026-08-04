@@ -106,6 +106,76 @@ fn config_draft_applies_every_editable_field() {
 }
 
 #[test]
+fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    app.config = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-in-flight-config.json"),
+        from_disk: false,
+        config: config.clone(),
+    });
+    app.draft = Some(ConfigDraft::from_config(&config));
+    app.page = Page::Resources;
+    app.begin_add_scene();
+    let editor_before = format!("{:?}", app.scene_editor);
+    let language_before = app
+        .draft
+        .as_ref()
+        .expect("config draft")
+        .default_language
+        .clone();
+    app.operation = OperationState::Running("Saving scene…");
+
+    drop(app.update(Message::DefaultLanguageChanged("zh-CN".to_owned())));
+    drop(app.update(Message::SelectPage(Page::Control)));
+    drop(app.update(Message::ReloadConfig));
+    drop(app.update(Message::Scene(SceneMessage::EditorChanged {
+        field: SceneEditorField::Label,
+        value: "late editor change".to_owned(),
+    })));
+
+    assert_eq!(app.page, Page::Resources);
+    assert_eq!(
+        app.draft
+            .as_ref()
+            .expect("preserved config draft")
+            .default_language,
+        language_before
+    );
+    assert_eq!(format!("{:?}", app.scene_editor), editor_before);
+
+    drop(
+        app.update(Message::Scene(SceneMessage::MutationFinished(Err(
+            "fixture completion".to_owned(),
+        )))),
+    );
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error == "fixture completion"
+    ));
+}
+
+#[test]
+fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    let document = ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-dirty-draft.json"),
+        from_disk: false,
+        config: config.clone(),
+    };
+    let clean = ConfigDraft::from_config(&config);
+    assert!(ensure_resource_mutation_draft_clean(&Ok(document.clone()), Some(&clean)).is_ok());
+
+    let mut dirty = clean;
+    dirty.default_language = "zh-CN".to_owned();
+    let error = ensure_resource_mutation_draft_clean(&Ok(document), Some(&dirty))
+        .expect_err("dirty Control draft must block resource mutation");
+    assert!(error.contains("Save or reset"));
+    assert_eq!(dirty.default_language, "zh-CN");
+}
+
+#[test]
 fn config_draft_creates_missing_user_file_without_backup() {
     let directory = tempfile::tempdir().expect("create temp dir");
     let path = directory.path().join("nested/config.json");
@@ -162,6 +232,45 @@ fn config_draft_replaces_existing_file_with_backup() {
 }
 
 #[test]
+fn config_reload_failure_restore_reinstates_existing_document() {
+    let directory = tempfile::tempdir().expect("create temp dir");
+    let path = directory.path().join("config.json");
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    write_config_file(&config, &path, None).expect("write original config");
+    let document = load_config_document(Some(&path)).expect("load original config");
+    let mut updated = config.clone();
+    updated.global.capture_device = "new-source".to_owned();
+    persist_updated_config(&document, &updated).expect("persist candidate config");
+
+    restore_config_document(&document).expect("restore prior config");
+
+    assert_eq!(
+        VinputConfig::from_json_file(&path).expect("restored config"),
+        config
+    );
+}
+
+#[test]
+fn config_reload_failure_restore_removes_new_document() {
+    let directory = tempfile::tempdir().expect("create temp dir");
+    let path = directory.path().join("config.json");
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    let document = ConfigDocument {
+        path: path.clone(),
+        from_disk: false,
+        config: config.clone(),
+    };
+    let mut updated = config;
+    updated.global.capture_device = "new-source".to_owned();
+    persist_updated_config(&document, &updated).expect("persist candidate config");
+    assert!(path.exists());
+
+    restore_config_document(&document).expect("remove candidate config");
+
+    assert!(!path.exists());
+}
+
+#[test]
 fn config_draft_rejects_external_changes_without_overwrite() {
     let directory = tempfile::tempdir().expect("create temp dir");
     let path = directory.path().join("config.json");
@@ -210,7 +319,7 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
 }
 
 #[test]
-fn daemon_poll_state_distinguishes_owner_loss_and_recovery() {
+fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
@@ -230,25 +339,83 @@ fn daemon_poll_state_distinguishes_owner_loss_and_recovery() {
 }
 
 #[test]
-fn daemon_polling_serializes_refreshes_and_recovers() {
+fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
     let (mut app, _) = App::boot();
-    assert!(app.daemon_refresh_in_flight);
+    assert_eq!(app.active_daemon_refresh_id, Some(1));
 
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
     };
-    let _ = app.update(Message::DaemonLoaded(Ok(snapshot.clone())));
-    assert!(!app.daemon_refresh_in_flight);
+    let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Connected {
+        owned: true,
+    }));
+    assert_eq!(task.units(), 1);
+    assert_eq!(app.daemon_owner_monitor, DaemonOwnerMonitorState::Ready);
+    assert_eq!(app.active_daemon_refresh_id, Some(2));
+
+    let _ = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Changed {
+        owned: false,
+    }));
+    assert_eq!(app.active_daemon_refresh_id, None);
+    assert_eq!(
+        app.daemon,
+        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
+    );
+
+    let _ = app.update(Message::DaemonLoaded {
+        operation_id: 1,
+        result: Ok(snapshot.clone()),
+    });
+    let _ = app.update(Message::DaemonLoaded {
+        operation_id: 2,
+        result: Ok(snapshot.clone()),
+    });
+    assert!(matches!(app.daemon, DaemonLoadState::Failed(_)));
+
+    let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Changed {
+        owned: true,
+    }));
+    assert_eq!(task.units(), 1);
+    assert_eq!(app.active_daemon_refresh_id, Some(3));
+    let _ = app.update(Message::DaemonLoaded {
+        operation_id: 3,
+        result: Ok(snapshot.clone()),
+    });
+    assert_eq!(app.active_daemon_refresh_id, None);
     assert_eq!(app.daemon, DaemonLoadState::Ready(snapshot));
+}
 
-    let _ = app.update(Message::DaemonPollTick);
-    assert!(app.daemon_refresh_in_flight);
-    let _ = app.update(Message::DaemonPollTick);
-    assert!(app.daemon_refresh_in_flight);
+#[test]
+fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
+    let (mut app, _) = App::boot();
+    let snapshot = DaemonSnapshot {
+        status: "idle".to_owned(),
+        runtime: json!({"active_session": false}),
+    };
+    let _ = app.update(Message::DaemonLoaded {
+        operation_id: 1,
+        result: Ok(snapshot.clone()),
+    });
 
-    let _ = app.update(Message::DaemonPolled(Ok(None)));
-    assert!(!app.daemon_refresh_in_flight);
+    let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Failed(
+        "session bus signal stream failed".to_owned(),
+    )));
+    assert_eq!(task.units(), 1);
+    assert!(matches!(
+        app.daemon_owner_monitor,
+        DaemonOwnerMonitorState::Failed(_)
+    ));
+    assert_eq!(app.daemon, DaemonLoadState::Ready(snapshot));
+    assert_eq!(app.active_daemon_refresh_id, Some(2));
+
+    let task = app.update(Message::DaemonFallbackPollTick);
+    assert_eq!(task.units(), 0);
+    let _ = app.update(Message::DaemonFallbackPolled {
+        operation_id: 2,
+        result: Ok(None),
+    });
+    assert_eq!(app.active_daemon_refresh_id, None);
     assert_eq!(
         app.daemon,
         DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())

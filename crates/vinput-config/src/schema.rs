@@ -11,6 +11,12 @@ use crate::defaults::{
     default_vad_threshold,
 };
 
+/// Forward-compatible extra key containing the installed managed script SHA-256.
+pub const MANAGED_SCRIPT_REVISION_KEY: &str = "x-vinput-managed-script-sha256";
+
+/// Forward-compatible extra key identifying the script revision stored in the rollback artifact.
+pub const MANAGED_SCRIPT_ROLLBACK_REVISION_KEY: &str = "x-vinput-managed-script-rollback-sha256";
+
 /// Built-in raw scene id used by the legacy project.
 pub const RAW_SCENE_ID: &str = "__raw__";
 

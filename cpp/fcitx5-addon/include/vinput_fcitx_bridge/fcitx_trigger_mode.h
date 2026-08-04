@@ -1,6 +1,8 @@
 #pragma once
 
 #include "vinput_fcitx_bridge/fcitx_config.h"
+#include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <chrono>
 #include <cstdint>
@@ -37,11 +39,14 @@ public:
   using TimePoint = Clock::time_point;
 
   explicit TriggerModeController(TriggerMode mode = TriggerMode::Both);
+  ~TriggerModeController() = default;
+
+  TriggerModeController(const TriggerModeController &) = delete;
+  TriggerModeController &operator=(const TriggerModeController &) = delete;
+  TriggerModeController(TriggerModeController &&) = delete;
+  TriggerModeController &operator=(TriggerModeController &&) = delete;
 
   void SetMode(TriggerMode mode);
-  TriggerMode mode() const {
-    return mode_;
-  }
 
   TriggerModeAction OnPress(TriggerKind kind, const fcitx::Key &key, TimePoint now,
                             bool recording);
@@ -51,30 +56,16 @@ public:
   void ConfirmStart(bool recording_started);
   void RecordingStopped();
 
-  bool has_pending_start() const {
-    return pending_start_.has_value();
-  }
-  bool has_active_trigger() const {
-    return active_trigger_.has_value();
-  }
-
 private:
-  struct TriggerPress {
-    TriggerKind kind;
-    fcitx::Key key;
-    TimePoint pressed_at;
-    bool released = false;
-  };
-
-  static TriggerModeAction StartAction(TriggerKind kind);
-  static TriggerModeAction ScheduleStartAction(TriggerKind kind);
   static bool IsReleaseOfTrigger(const fcitx::Key &release, const fcitx::Key &trigger);
+  static std::int64_t ToNanoseconds(TimePoint now);
 
-  TriggerMode mode_;
-  std::optional<TimePoint> last_press_time_;
-  std::optional<TriggerPress> pending_start_;
-  std::optional<TriggerPress> active_trigger_;
-  bool stop_pending_ = false;
+  using StateHandle =
+      RustOwnedHandle<::VinputFcitxTriggerState, vinput_fcitx_trigger_state_free>;
+
+  StateHandle state_;
+  std::optional<fcitx::Key> pending_key_;
+  std::optional<fcitx::Key> active_key_;
 };
 
 } // namespace vinput_fcitx_bridge

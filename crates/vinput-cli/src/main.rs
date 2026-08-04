@@ -73,7 +73,8 @@ use vinput_registry::{
     LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, PlannedAsset, RegistryIndex,
     ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model, install_live_script,
     load_installed_model_info as load_registry_installed_model_info, managed_script_relative_path,
-    materialize_asr_provider, materialize_llm_adapter, scan_installed_models,
+    materialize_asr_provider, materialize_llm_adapter, prepare_provider_script_edit,
+    scan_installed_models,
 };
 use vinput_text::{
     OpenAiCompatibleTextAdapter, ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,

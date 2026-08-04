@@ -4275,6 +4275,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "vinput-fcitx-core"
+version = "0.1.0"
+dependencies = [
+ "vinput-protocol",
+]
+
+[[package]]
+name = "vinput-fcitx-dbus"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "vinput-fcitx-core",
+ "vinput-protocol",
+ "zbus",
+]
+
+[[package]]
+name = "vinput-fcitx-ffi"
+version = "0.1.0"
+dependencies = [
+ "vinput-fcitx-core",
+ "vinput-fcitx-dbus",
+]
+
+[[package]]
 name = "vinput-gui"
 version = "0.1.0"
 dependencies = [

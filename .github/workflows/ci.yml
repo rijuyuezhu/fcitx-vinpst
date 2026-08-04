@@ -40,7 +40,7 @@ jobs:
       - name: Run deterministic IME e2e smoke
         run: scripts/tests/install/run-ime-e2e-smoke.sh
       - name: Run adapter lifecycle smoke
-        run: scripts/tests/cpp/run-cpp-dbus-adapter-lifecycle-smoke.sh
+        run: scripts/tests/daemon/run-dbus-adapter-lifecycle-smoke.sh
       - name: Run optional PipeWire checks
         run: scripts/tests/pipewire-check.sh
 

@@ -338,6 +338,62 @@ async fn dbus_facade_reload_rebuilds_configured_backend() {
 }
 
 #[tokio::test]
+async fn dbus_facade_reload_synchronizes_scene_state_from_config_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.asr.active_provider = "mock".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: None,
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let mut runtime = RuntimeState::with_asr_backend(
+        config.clone(),
+        Box::new(MockAsrBackend::buffered("injected final")),
+    )
+    .unwrap();
+    runtime.set_config_path(Some(config_path.clone()));
+    let service = VinputDbusService::new(runtime);
+
+    config.scenes.active_scene = "meeting".to_owned();
+    config
+        .scenes
+        .definitions
+        .push(vinput_config::SceneDefinition {
+            id: "meeting".to_owned(),
+            label: "Meeting".to_owned(),
+            prompt: None,
+            provider_id: None,
+            model: None,
+            candidate_count: 0,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+    config.validate().unwrap();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+
+    service.reload_asr_backend().await.unwrap();
+    let scene_state = service.get_scene_state().await;
+    assert_eq!(scene_state.0, "meeting");
+    assert!(
+        scene_state
+            .1
+            .contains(&("meeting".to_owned(), "Meeting".to_owned()))
+    );
+    let state = wait_for_asr_reload(&service).await;
+    assert_eq!(state.2, "mock");
+    assert!(!state.5);
+}
+
+#[tokio::test]
 async fn dbus_facade_preserves_early_final_events() {
     let config = VinputConfig::bundled_default().unwrap();
     let runtime = RuntimeState::with_asr_backend(
@@ -604,6 +660,123 @@ async fn dbus_facade_supervises_configured_adapter() {
     );
     service.stop_adapter("mock-adapter").await.unwrap();
     assert!(!pid_path.exists());
+    service.stop_adapter("mock-adapter").await.unwrap();
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[tokio::test]
+async fn dbus_facade_reload_stops_adapter_removed_from_config_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let runtime_dir = unique_adapter_runtime_dir("dbus-reload-removal");
+    let pid_path = runtime_dir.join("mock-adapter.pid");
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.asr.active_provider = "mock".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: None,
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    config.llm.adapters.push(LlmAdapterConfig {
+        id: "mock-adapter".to_owned(),
+        command: "sleep".to_owned(),
+        args: vec!["30".to_owned()],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    });
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(vinput_text::AdapterRuntimePaths::new(runtime_dir.clone()));
+    runtime.set_config_path(Some(config_path.clone()));
+    let service = VinputDbusService::new(runtime);
+
+    service.start_adapter("mock-adapter").await.unwrap();
+    assert!(pid_path.exists());
+
+    config.llm.adapters.clear();
+    config.validate().unwrap();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    service.reload_asr_backend().await.unwrap();
+
+    assert!(!pid_path.exists());
+    let state_json = service.get_text_adapter_state().await.unwrap();
+    let state: TextAdapterState = serde_json::from_str(&state_json).unwrap();
+    assert_eq!(state.adapter_count, 0);
+    let stop_error = service
+        .stop_adapter("mock-adapter")
+        .await
+        .expect_err("removed adapter must no longer be configured");
+    assert!(stop_error.to_string().contains("is not configured"));
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[tokio::test]
+async fn dbus_facade_reload_restarts_adapter_when_managed_revision_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let runtime_dir = unique_adapter_runtime_dir("dbus-reload-revision");
+    let runtime_paths = vinput_text::AdapterRuntimePaths::new(runtime_dir.clone());
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.asr.active_provider = "mock".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: None,
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    config.llm.adapters.push(LlmAdapterConfig {
+        id: "mock-adapter".to_owned(),
+        command: "sleep".to_owned(),
+        args: vec!["30".to_owned()],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::from([(
+            "x-vinput-managed-script-sha256".to_owned(),
+            serde_json::json!("revision-1"),
+        )]),
+    });
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(runtime_paths.clone());
+    runtime.set_config_path(Some(config_path.clone()));
+    let service = VinputDbusService::new(runtime);
+
+    service.start_adapter("mock-adapter").await.unwrap();
+    let old_pid = runtime_paths
+        .read_pid("mock-adapter")
+        .unwrap()
+        .expect("old adapter pid");
+
+    config.llm.adapters[0].extra.insert(
+        "x-vinput-managed-script-sha256".to_owned(),
+        serde_json::json!("revision-2"),
+    );
+    config.validate().unwrap();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    service.reload_asr_backend().await.unwrap();
+
+    let new_pid = runtime_paths
+        .read_pid("mock-adapter")
+        .unwrap()
+        .expect("restarted adapter pid");
+    assert_ne!(new_pid, old_pid);
+    let state_json = service.get_text_adapter_state().await.unwrap();
+    let state: TextAdapterState = serde_json::from_str(&state_json).unwrap();
+    assert!(state.adapters[0].is_running);
     service.stop_adapter("mock-adapter").await.unwrap();
     let _ = std::fs::remove_dir_all(runtime_dir);
 }

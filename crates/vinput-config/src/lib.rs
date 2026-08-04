@@ -22,6 +22,6 @@ pub use persistence::{
 pub use schema::{
     AsrConfig, AsrProviderConfig, AsrProviderKind, COMMAND_SCENE_ID, CURRENT_CONFIG_VERSION,
     DEFAULT_SCENE_TIMEOUT_MS, GlobalConfig, LlmAdapterConfig, LlmConfig, LlmProviderConfig,
-    RAW_SCENE_ID, RegistryConfig, SceneDefinition, ScenesConfig, VadConfig, VinputConfig,
-    VinputConfigSummary,
+    MANAGED_SCRIPT_REVISION_KEY, MANAGED_SCRIPT_ROLLBACK_REVISION_KEY, RAW_SCENE_ID,
+    RegistryConfig, SceneDefinition, ScenesConfig, VadConfig, VinputConfig, VinputConfigSummary,
 };

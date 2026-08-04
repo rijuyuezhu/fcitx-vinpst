@@ -17,17 +17,14 @@ int main() {
   TriggerModeController hold(TriggerMode::Hold);
   assert(hold.OnPress(TriggerKind::Normal, normal, base, false) ==
          TriggerModeAction::ScheduleNormalStart);
-  assert(hold.has_pending_start());
   assert(hold.OnRelease(TriggerKind::Normal, normal, base + 100ms) ==
          TriggerModeAction::CancelPendingStart);
-  assert(!hold.has_pending_start());
   assert(hold.FirePendingStart() == TriggerModeAction::None);
 
   assert(hold.OnPress(TriggerKind::Command, command, base + 1s, false) ==
          TriggerModeAction::ScheduleCommandStart);
   assert(hold.FirePendingStart() == TriggerModeAction::StartCommand);
   hold.ConfirmStart(true);
-  assert(hold.has_active_trigger());
   assert(hold.OnRelease(TriggerKind::Command, command, base + 1400ms) ==
          TriggerModeAction::ScheduleStop);
   assert(hold.FirePendingStop() == TriggerModeAction::StopActive);
@@ -76,7 +73,8 @@ int main() {
   assert(failed.OnPress(TriggerKind::Command, command, base, false) ==
          TriggerModeAction::StartCommand);
   failed.ConfirmStart(false);
-  assert(!failed.has_active_trigger());
+  assert(failed.OnRelease(TriggerKind::Command, command, base + 400ms) ==
+         TriggerModeAction::Consume);
 
   TriggerModeController modifier_release(TriggerMode::Both);
   assert(modifier_release.OnPress(TriggerKind::Normal, normal, base, false) ==

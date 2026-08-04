@@ -26,8 +26,6 @@ struct FrontendNotification {
   std::string summary;
   std::string body;
   int timeout_ms = 0;
-
-  bool operator==(const FrontendNotification &) const = default;
 };
 
 FrontendNotification BuildFrontendNotification(FrontendNotificationKind kind,

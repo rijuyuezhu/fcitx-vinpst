@@ -6,7 +6,7 @@ use vinput_asr::{AsrBackend, AsrBackendFactory};
 use vinput_config::VinputConfig;
 use vinput_protocol::{AsrBackendState, ServiceStatus};
 
-use super::{RuntimeError, RuntimeState};
+use super::{RuntimeError, RuntimeState, configured_text_processor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PendingAsrReload {
@@ -56,6 +56,13 @@ pub(crate) enum AsrReloadWorkerStep {
     Wait,
     /// Prepare the selected config outside the runtime mutex.
     Prepare(Box<AsrReloadRequest>),
+    /// Config reconciliation failed before backend preparation.
+    Failed {
+        /// Reload generation that failed.
+        generation: u64,
+        /// Failure raised while applying the validated config.
+        error: RuntimeError,
+    },
     /// No queued work remains; the worker may exit.
     Stop,
 }
@@ -115,28 +122,46 @@ impl RuntimeState {
         )
     }
 
-    /// Queues a validated config for the single background reload worker.
+    /// Reconciles safe runtime resources and queues one validated config reload.
     ///
-    /// Returns whether the caller must spawn the worker task.
-    pub(crate) fn queue_configured_asr_reload(&mut self, config: VinputConfig) -> bool {
+    /// Returns whether the caller must spawn the worker task. An idle runtime
+    /// rejects the reload before publishing the new config when a removed or
+    /// changed adapter process cannot be stopped safely.
+    pub(crate) fn queue_configured_asr_reload(
+        &mut self,
+        config: VinputConfig,
+    ) -> Result<bool, RuntimeError> {
+        if self.status == ServiceStatus::Idle {
+            self.apply_reloaded_config(&config)?;
+        } else {
+            self.config.asr.clone_from(&config.asr);
+            self.config
+                .global
+                .default_language
+                .clone_from(&config.global.default_language);
+        }
+
         self.asr_reload_generation = self.asr_reload_generation.wrapping_add(1);
         let generation = self.asr_reload_generation;
-
-        self.config.asr.clone_from(&config.asr);
-        self.config
-            .global
-            .default_language
-            .clone_from(&config.global.default_language);
         self.pending_asr_reload = Some(PendingAsrReload::ConfiguredBackend);
         self.pending_asr_reload_config = Some((generation, config));
         self.asr_reload_last_error = None;
 
         if self.asr_reload_worker_running {
-            false
+            Ok(false)
         } else {
             self.asr_reload_worker_running = true;
-            true
+            Ok(true)
         }
+    }
+
+    fn apply_reloaded_config(&mut self, config: &VinputConfig) -> Result<(), RuntimeError> {
+        self.reconcile_reconfigured_text_adapters(config)?;
+        self.config.clone_from(config);
+        if self.reload_configured_text {
+            self.text_processor = configured_text_processor(config);
+        }
+        Ok(())
     }
 
     /// Selects the next background reload action.
@@ -156,6 +181,10 @@ impl RuntimeState {
                     return AsrReloadWorkerStep::Stop;
                 };
                 self.pending_asr_reload = None;
+                if let Err(error) = self.apply_reloaded_config(&config) {
+                    self.asr_reload_worker_running = false;
+                    return AsrReloadWorkerStep::Failed { generation, error };
+                }
                 self.asr_reload_preparing = true;
                 AsrReloadWorkerStep::Prepare(Box::new(AsrReloadRequest { generation, config }))
             }

@@ -19,6 +19,11 @@ cmake --build "${build_dir}" --parallel
 rm -rf "${stage}"
 DESTDIR="${PWD}/${stage}" cmake --install "${build_dir}"
 test -f "${stage}/usr/local/lib/fcitx5/fcitx5-vinput.so"
+addon_module="${stage}/usr/local/lib/fcitx5/fcitx5-vinput.so"
+! nm -D --defined-only "${addon_module}" | awk '{print $3}' | grep -q '^vinput_fcitx_'
+! nm -D --defined-only "${addon_module}" | awk '{print $3}' | grep -q '^_R'
+! nm -D --defined-only "${addon_module}" | awk '{print $3}' | \
+  grep -qE '^_ZN.*(vinput_fcitx_core|vinput_fcitx_ffi|vinput_fcitx_dbus)'
 test -f "${stage}/usr/local/share/fcitx5/addon/vinput.conf"
 test -f "${stage}/usr/local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
 grep -qx 'Library=fcitx5-vinput' "${stage}/usr/local/share/fcitx5/addon/vinput.conf"

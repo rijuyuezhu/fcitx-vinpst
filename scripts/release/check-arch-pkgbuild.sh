@@ -46,6 +46,10 @@ bash -n "${check_root}/PKGBUILD"
 bash -n "${check_root}/fcitx-vinput-rs.install"
 grep -Fq 'install -Dm644 LICENSE' "${check_root}/PKGBUILD"
 grep -Fq '/usr/share/licenses/${pkgname}/LICENSE' "${check_root}/PKGBUILD"
+grep -Fq -- '-DVINPUT_FCITX_RUST_BUILD_PROFILE=release' \
+  "${check_root}/PKGBUILD"
+grep -Fq -- '-DVINPUT_FCITX_RUST_TARGET_DIR="${srcdir}/cargo-target"' \
+  "${check_root}/PKGBUILD"
 cmp packaging/arch/fcitx-vinput-rs.install \
   "${check_root}/fcitx-vinput-rs.install"
 (

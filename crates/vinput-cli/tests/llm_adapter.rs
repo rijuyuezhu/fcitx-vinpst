@@ -4,7 +4,10 @@ mod common;
 
 use std::fs;
 
-use common::{assert_json_success, assert_stdout_success, vinput_command, write_temp_json};
+use common::{
+    assert_json_success, assert_stdout_success, isolated_vinput_command, vinput_command,
+    write_temp_json,
+};
 
 fn assert_daemon_owner_probe_plan(value: &serde_json::Value) {
     assert_eq!(value["owner_probe"]["target_name"], "org.fcitx.Vinput");
@@ -26,7 +29,8 @@ fn assert_daemon_owner_probe_plan(value: &serde_json::Value) {
 
 #[test]
 fn llm_list_json_reports_bundled_default_empty_providers() {
-    let output = vinput_command()
+    let (_home, mut command) = isolated_vinput_command("vinput-llm-list-default");
+    let output = command
         .args(["llm", "list", "--json"])
         .output()
         .expect("run vinput llm list --json");
@@ -1896,7 +1900,8 @@ fn adapter_install_refuses_user_defined_adapter_before_download() {
 
 #[test]
 fn adapter_list_json_reports_bundled_default_empty_adapters() {
-    let output = vinput_command()
+    let (_home, mut command) = isolated_vinput_command("vinput-adapter-list-default");
+    let output = command
         .args(["adapter", "list", "--json"])
         .output()
         .expect("run vinput adapter list --json");

@@ -4,6 +4,7 @@
 
 #include <fcitx-utils/dbus/bus.h>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -11,27 +12,38 @@
 
 namespace vinput_fcitx_bridge {
 
-struct DaemonNotificationPayload {
-  std::string code;
-  std::string subject;
-  std::string detail;
-  std::string raw_message;
-
-  bool empty() const;
-  bool operator==(const DaemonNotificationPayload &) const = default;
-};
-
-FrontendNotificationKind
-ClassifyDaemonNotification(const DaemonNotificationPayload &payload);
-std::string RenderDaemonNotification(const DaemonNotificationPayload &payload);
 std::string ComposeDaemonStatusPreedit(std::string_view status, bool command_mode,
                                        std::string_view partial_text);
+
+class DaemonLivePresentationState final {
+public:
+  DaemonLivePresentationState();
+  ~DaemonLivePresentationState();
+
+  DaemonLivePresentationState(const DaemonLivePresentationState &) = delete;
+  DaemonLivePresentationState &operator=(const DaemonLivePresentationState &) = delete;
+  DaemonLivePresentationState(DaemonLivePresentationState &&) = delete;
+  DaemonLivePresentationState &operator=(DaemonLivePresentationState &&) = delete;
+
+  void Reset();
+  void BeginStatus(std::string_view status, bool command_mode);
+  void UpdateStatus(std::string_view status);
+  bool UpdatePartial(std::string_view partial_text, bool recording);
+  bool CommandMode() const;
+  std::string Preedit() const;
+
+private:
+  struct Impl;
+
+  std::unique_ptr<Impl> impl_;
+};
 
 struct DaemonSignalCallbacks {
   std::function<void(bool available)> service_availability_changed;
   std::function<void(std::string_view status)> status_changed;
   std::function<void(std::string_view partial_text)> recognition_partial;
-  std::function<void(const DaemonNotificationPayload &payload)> notification;
+  std::function<void(FrontendNotificationKind kind, std::string_view message)>
+      notification;
 };
 
 class FcitxDaemonSignalMonitor final {

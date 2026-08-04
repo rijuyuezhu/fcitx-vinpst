@@ -16,7 +16,9 @@ The supervisor returns a stdin-write error alongside a completed process result.
 
 The crate also exposes the process-group primitives used by long-running command text adapters. `configure_process_group` creates the same isolated group boundary as `run_piped_command`. Signaling targets the group first and falls back to the direct child only when the group operation fails, avoiding a redundant PID signal after successful whole-group delivery. Tracked children use `try_wait_child_and_cleanup` and `terminate_child_process_group`; on Linux the same `waitid(WNOWAIT)` reservation keeps the direct child PID/PGID unavailable for reuse until remaining descendants are terminated and the child is reaped.
 
-These primitives do not define adapter PID-file ownership or restart policy. `vinput-text` owns those compatibility decisions and supplies the legacy TERM/KILL timing.
+`process_group_exists` retains the ordinary signal-zero meaning. `process_group_has_live_members` is the cleanup predicate for long-lived recovery: on Linux it scans `/proc` after the group probe, returns false for a group containing only `Z`/`X` members, and remains true while any non-zombie descendant is still present. This prevents an unreaped zombie from producing a false force-kill timeout without treating a reaped leader as proof that its background descendants are gone. Other Unix targets conservatively use process-group existence.
+
+These primitives do not define adapter PID-file ownership, runtime-directory creation, or restart policy. `vinput-text` owns those compatibility decisions and supplies the legacy TERM/KILL timing.
 
 ## Consumer contracts
 
@@ -26,7 +28,7 @@ Legacy batch ASR, legacy streaming ASR, JSON command ASR, and JSON command text 
 
 ## Deterministic evidence
 
-Shared tests prove stdin/stdout/stderr roundtrips, deadline cancellation, and prompt rejection of oversized output. Consumer tests additionally prove:
+Shared tests prove stdin/stdout/stderr roundtrips, deadline cancellation, prompt rejection of oversized output, zombie-only group completion, and continued liveness while a reaped leader still has a running descendant. Consumer tests additionally prove:
 
 - a helper that ignores a large stdin request is cancelled at its configured deadline;
 - timeout kills a background descendant;

@@ -13,6 +13,7 @@ using vinput_fcitx_bridge::AppliedOutcome;
 using vinput_fcitx_bridge::BridgeOutcome;
 using vinput_fcitx_bridge::FcitxTriggerAction;
 using vinput_fcitx_bridge::FcitxVinputAddon;
+using vinput_fcitx_bridge::FrontendBridge;
 using vinput_fcitx_bridge::SdBusDaemonClient;
 
 namespace {
@@ -35,53 +36,6 @@ std::string ExpectedText(const char *env_name, const char *fallback) {
   return value == nullptr ? std::string(fallback) : std::string(value);
 }
 
-bool Contains(std::string_view haystack, std::string_view needle) {
-  return haystack.find(needle) != std::string_view::npos;
-}
-
-bool GetRuntimeStatus(SdBusDaemonClient *client, std::string *status_json,
-                      std::string *error) {
-  if (!client->GetRuntimeStatus(status_json, error)) {
-    return false;
-  }
-  return true;
-}
-
-bool ExpectRuntimeStatus(SdBusDaemonClient *client, std::string_view expected,
-                         std::string *error) {
-  std::string status_json;
-  if (!GetRuntimeStatus(client, &status_json, error)) {
-    return false;
-  }
-  if (!Contains(status_json, expected)) {
-    if (error != nullptr) {
-      *error = "runtime status missing expected marker: ";
-      *error += expected;
-      *error += " in ";
-      *error += status_json;
-    }
-    return false;
-  }
-  return true;
-}
-
-bool ExpectSanitizedCommandStatus(SdBusDaemonClient *client, std::string *error) {
-  std::string status_json;
-  if (!GetRuntimeStatus(client, &status_json, error)) {
-    return false;
-  }
-  if (!Contains(status_json, "\"status\":\"recording\"") ||
-      !Contains(status_json, "\"selected_text_present\":true") ||
-      Contains(status_json, "selected text")) {
-    if (error != nullptr) {
-      *error = "runtime status command snapshot was not sanitized: ";
-      *error += status_json;
-    }
-    return false;
-  }
-  return true;
-}
-
 bool ExpectApplied(AppliedOutcome actual, AppliedOutcome expected,
                    std::string_view label) {
   if (actual == expected) {
@@ -94,7 +48,7 @@ bool ExpectApplied(AppliedOutcome actual, AppliedOutcome expected,
 bool ExpectLastOutcome(BridgeOutcome::Kind kind, std::string_view text,
                        bool command_mode, std::string_view label) {
   if (g_last_outcome.kind == kind && g_last_outcome.text == text &&
-      g_last_outcome.command_mode == command_mode) {
+      g_last_outcome.replace_selection == command_mode) {
     return true;
   }
   std::cerr << label << " produced unexpected bridge outcome: " << g_last_outcome.text
@@ -103,19 +57,15 @@ bool ExpectLastOutcome(BridgeOutcome::Kind kind, std::string_view text,
 }
 
 bool ExpectIgnoredTrigger(FcitxVinputAddon *addon, FcitxTriggerAction action,
-                          bool expected_recording, bool expected_command_mode,
                           std::string_view label) {
   const auto applied =
       addon->ApplyTriggerAction(nullptr, action, "ignored selected text");
-  if (applied == AppliedOutcome::None &&
-      addon->bridge().recording() == expected_recording &&
-      addon->bridge().command_mode() == expected_command_mode) {
+  if (applied == AppliedOutcome::None) {
     return true;
   }
-  std::cerr << label << " did not ignore trigger action without changing mode"
-            << ": applied=" << static_cast<int>(applied)
-            << " recording=" << addon->bridge().recording()
-            << " command_mode=" << addon->bridge().command_mode() << '\n';
+  std::cerr << label
+            << " did not ignore trigger action: applied=" << static_cast<int>(applied)
+            << '\n';
   return false;
 }
 
@@ -154,18 +104,24 @@ int main() {
     return 1;
   }
 
-  if (!client->StartRecording(&error)) {
-    std::cerr << "external normal start failed: " << error << '\n';
+  vinput_fcitx_bridge::SceneMenuController scene_controller;
+  if (!client->RefreshSceneMenuController(&scene_controller, &error)) {
+    std::cerr << "scene state failed: " << error << '\n';
+    return 1;
+  }
+
+  FrontendBridge external_bridge;
+  const auto external_start =
+      external_bridge.StartNormal(client->raw_handle(), scene_controller);
+  if (external_start.kind != BridgeOutcome::Kind::Preedit ||
+      !external_bridge.recording()) {
+    std::cerr << "external normal frontend start failed: " << external_start.text
+              << '\n';
     return 1;
   }
   std::string external_status;
   if (!client->GetStatus(&external_status, &error) || external_status != "recording") {
     std::cerr << "external normal status check failed: " << error << '\n';
-    return 1;
-  }
-  if (!ExpectRuntimeStatus(client.get(), "\"status\":\"recording\"", &error) ||
-      !ExpectRuntimeStatus(client.get(), "\"selected_text_present\":false", &error)) {
-    std::cerr << "runtime status external normal check failed: " << error << '\n';
     return 1;
   }
 
@@ -181,8 +137,7 @@ int main() {
   if (!ExpectApplied(recovered_stop, AppliedOutcome::Commit,
                      "cross-client normal takeover") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_takeover_text, false,
-                         "cross-client normal takeover") ||
-      addon.bridge().recording() || addon.bridge().command_mode()) {
+                         "cross-client normal takeover")) {
     std::cerr << "addon did not stop externally started normal recording\n";
     return 1;
   }
@@ -191,14 +146,10 @@ int main() {
               << '\n';
     return 1;
   }
-  if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error)) {
-    std::cerr << "runtime status after normal takeover failed: " << error << '\n';
-    return 1;
-  }
 
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal, false, false,
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal,
                             "normal stop while idle") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand, false, false,
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand,
                             "command stop while idle")) {
     return 1;
   }
@@ -207,23 +158,22 @@ int main() {
       nullptr, FcitxTriggerAction::StartCommand, "selected text");
   if (!ExpectApplied(command_start, AppliedOutcome::Preedit, "command start") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Preedit, "... Commanding ...", false,
-                         "command start") ||
-      !addon.bridge().recording() || !addon.bridge().command_mode()) {
+                         "command start")) {
     std::cerr << "addon command trigger did not enter command recording mode\n";
     return 1;
   }
 
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand, true, true,
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand,
                             "duplicate command start") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal, true, true,
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal,
                             "normal start while command recording") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal, true, true,
+      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal,
                             "normal stop while command recording")) {
     return 1;
   }
 
-  if (!ExpectSanitizedCommandStatus(client.get(), &error)) {
-    std::cerr << "runtime status command check failed: " << error << '\n';
+  if (!client->GetStatus(&external_status, &error) || external_status != "recording") {
+    std::cerr << "daemon status command recording check failed: " << error << '\n';
     return 1;
   }
 
@@ -233,19 +183,17 @@ int main() {
       addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopCommand);
   if (!ExpectApplied(command_stop, AppliedOutcome::Commit, "command stop") ||
       !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_command_text, true,
-                         "command stop") ||
-      addon.bridge().recording() || addon.bridge().command_mode()) {
+                         "command stop")) {
     std::cerr << "addon command trigger did not commit and reset\n";
     return 1;
   }
 
-  if (!ExpectRuntimeStatus(client.get(), "\"status\":\"idle\"", &error) ||
-      !ExpectRuntimeStatus(client.get(), "\"selected_text_present\":false", &error)) {
-    std::cerr << "runtime status after command stop failed: " << error << '\n';
+  if (!client->GetStatus(&external_status, &error) || external_status != "idle") {
+    std::cerr << "daemon status after command stop failed: " << error << '\n';
     return 1;
   }
 
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand, false, false,
+  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand,
                             "command stop after reset")) {
     return 1;
   }

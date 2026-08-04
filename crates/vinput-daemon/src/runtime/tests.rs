@@ -893,6 +893,214 @@ fn dropping_runtime_cleans_up_supervised_adapter() {
 }
 
 #[test]
+fn configured_reload_stops_adapter_removed_from_config() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-removal");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let config = config_with_sleep_adapter("cmd-adapter");
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    assert!(process_is_runnable(pid));
+    assert!(pid_path.exists());
+
+    let mut updated = config;
+    updated.llm.adapters.clear();
+    updated.validate().unwrap();
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
+
+    assert!(!runtime.is_text_adapter_running("cmd-adapter"));
+    assert_eq!(runtime.text_adapter_pid("cmd-adapter"), None);
+    assert_eq!(
+        runtime
+            .configured_text_adapter_state_for_runtime()
+            .adapter_count,
+        0
+    );
+    assert!(!pid_path.exists());
+    wait_until_process_stops_running(pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn configured_reload_restarts_adapter_whose_definition_changed() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-update");
+    let config = config_with_sleep_adapter("cmd-adapter");
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let old_pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    let mut updated = config;
+    updated.llm.adapters[0].args = vec!["60".to_owned()];
+    updated.validate().unwrap();
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
+
+    let new_pid = runtime
+        .text_adapter_pid("cmd-adapter")
+        .expect("restarted adapter pid");
+    assert_ne!(new_pid, old_pid);
+    assert!(process_is_runnable(new_pid));
+    wait_until_process_stops_running(old_pid);
+    assert_eq!(
+        runtime.configured_text_adapter_state_for_runtime().adapters[0].args_count,
+        1
+    );
+    runtime.stop_text_adapter("cmd-adapter").unwrap();
+    wait_until_process_stops_running(new_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn configured_reload_restarts_adapter_when_only_managed_revision_changes() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-revision");
+    let config = config_with_sleep_adapter("cmd-adapter");
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let old_pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    let mut updated = config;
+    updated.llm.adapters[0].extra.insert(
+        "x-vinput-managed-script-sha256".to_owned(),
+        serde_json::json!("revision-2"),
+    );
+    updated.validate().unwrap();
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
+
+    let new_pid = runtime
+        .text_adapter_pid("cmd-adapter")
+        .expect("revision restart pid");
+    assert_ne!(new_pid, old_pid);
+    assert!(process_is_runnable(new_pid));
+    wait_until_process_stops_running(old_pid);
+    runtime.stop_text_adapter("cmd-adapter").unwrap();
+    wait_until_process_stops_running(new_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn configured_reload_rolls_back_prior_stops_when_later_stop_fails() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-rollback");
+    let mut config = config_with_sleep_adapter("first-adapter");
+    config.llm.adapters.push(
+        config_with_sleep_adapter("second-adapter")
+            .llm
+            .adapters
+            .remove(0),
+    );
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let old_pid = runtime.start_text_adapter("first-adapter").unwrap();
+    let invalid_pid_path = runtime_dir.join("second-adapter.pid");
+    std::fs::write(&invalid_pid_path, "{not-json").unwrap();
+    let mut updated = config;
+    updated.llm.adapters.clear();
+    updated.validate().unwrap();
+
+    let error = runtime
+        .queue_configured_asr_reload(updated)
+        .expect_err("later invalid pid must reject reload");
+    assert!(error.to_string().contains("pid file is invalid"));
+    assert_eq!(
+        runtime
+            .configured_text_adapter_state_for_runtime()
+            .adapter_count,
+        2
+    );
+    let restored_pid = runtime
+        .text_adapter_pid("first-adapter")
+        .expect("rolled-back adapter pid");
+    assert_ne!(restored_pid, old_pid);
+    assert!(process_is_runnable(restored_pid));
+    wait_until_process_stops_running(old_pid);
+
+    std::fs::remove_file(invalid_pid_path).unwrap();
+    runtime.stop_text_adapter("first-adapter").unwrap();
+    wait_until_process_stops_running(restored_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn configured_reload_rolls_back_from_preserved_script_when_replacement_start_fails() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-start-rollback");
+    let script_path = runtime_dir.join("adapter.sh");
+    let rollback_path = vinput_registry::managed_script_rollback_path(&script_path);
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    std::fs::write(
+        &script_path,
+        "sleep 30
+",
+    )
+    .unwrap();
+    std::fs::write(
+        &rollback_path,
+        "sleep 30
+",
+    )
+    .unwrap();
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.llm.adapters.push(vinput_config::LlmAdapterConfig {
+        id: "cmd-adapter".to_owned(),
+        command: "/bin/sh".to_owned(),
+        args: vec![script_path.to_string_lossy().into_owned()],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::from([(
+            vinput_config::MANAGED_SCRIPT_REVISION_KEY.to_owned(),
+            serde_json::json!("revision-1"),
+        )]),
+    });
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let old_pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    std::fs::write(
+        &script_path,
+        "exit 99
+",
+    )
+    .unwrap();
+    let mut updated = config;
+    updated.llm.adapters[0].command = "/definitely/missing/vinput-adapter".to_owned();
+    updated.llm.adapters[0].extra.insert(
+        vinput_config::MANAGED_SCRIPT_REVISION_KEY.to_owned(),
+        serde_json::json!("revision-2"),
+    );
+    updated.llm.adapters[0].extra.insert(
+        vinput_config::MANAGED_SCRIPT_ROLLBACK_REVISION_KEY.to_owned(),
+        serde_json::json!("revision-1"),
+    );
+    updated.validate().unwrap();
+
+    let error = runtime
+        .queue_configured_asr_reload(updated)
+        .expect_err("replacement start must reject reload");
+    assert!(error.to_string().contains("failed to spawn text adapter"));
+    assert_eq!(runtime.config.llm.adapters[0].command, "/bin/sh");
+    let restored_pid = runtime
+        .text_adapter_pid("cmd-adapter")
+        .expect("restored old adapter pid");
+    assert_ne!(restored_pid, old_pid);
+    assert!(process_is_runnable(restored_pid));
+    wait_until_process_stops_running(old_pid);
+    let cmdline = std::fs::read(format!("/proc/{restored_pid}/cmdline")).unwrap();
+    assert!(
+        cmdline
+            .windows(rollback_path.as_os_str().as_encoded_bytes().len())
+            .any(|window| window == rollback_path.as_os_str().as_encoded_bytes())
+    );
+
+    runtime.stop_text_adapter("cmd-adapter").unwrap();
+    wait_until_process_stops_running(restored_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
 fn refresh_text_adapters_reaps_exited_processes_and_descendants() {
     let runtime_dir = unique_adapter_runtime_dir("refresh-exited");
     let pid_path = runtime_dir.join("cmd-adapter.pid");
@@ -992,7 +1200,11 @@ fn background_asr_reload_reports_pending_and_physical_preparation() {
     )
     .unwrap();
 
-    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    assert!(
+        runtime
+            .queue_configured_asr_reload(config_with_mock_asr())
+            .unwrap()
+    );
     let pending = runtime.asr_backend_state();
     assert!(pending.reload_in_progress);
     assert_eq!(pending.target_provider_id, "mock");
@@ -1024,7 +1236,11 @@ fn background_asr_reload_discards_stale_prepared_generation() {
     )
     .unwrap();
 
-    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    assert!(
+        runtime
+            .queue_configured_asr_reload(config_with_mock_asr())
+            .unwrap()
+    );
     let AsrReloadWorkerStep::Prepare(first) = runtime.next_asr_reload_worker_step() else {
         panic!("first queued reload should enter preparation");
     };
@@ -1032,7 +1248,7 @@ fn background_asr_reload_discards_stale_prepared_generation() {
 
     let mut latest = config_with_mock_asr();
     latest.global.default_language = "en-US".to_owned();
-    assert!(!runtime.queue_configured_asr_reload(latest));
+    assert!(!runtime.queue_configured_asr_reload(latest).unwrap());
     runtime.complete_prepared_asr_reload(first);
     let stale = runtime.asr_backend_state();
     assert_eq!(stale.effective_model_id, "mock-buffered");
@@ -1056,14 +1272,18 @@ fn background_asr_reload_failure_notifies_only_for_current_generation() {
     )
     .unwrap();
 
-    assert!(runtime.queue_configured_asr_reload(config_with_mock_asr()));
+    assert!(
+        runtime
+            .queue_configured_asr_reload(config_with_mock_asr())
+            .unwrap()
+    );
     let AsrReloadWorkerStep::Prepare(first) = runtime.next_asr_reload_worker_step() else {
         panic!("first queued reload should enter preparation");
     };
 
     let mut latest = config_with_mock_asr();
     latest.global.default_language = "en-US".to_owned();
-    assert!(!runtime.queue_configured_asr_reload(latest));
+    assert!(!runtime.queue_configured_asr_reload(latest).unwrap());
     let error = RuntimeError::BackgroundTask("stale failure".to_owned());
     assert!(
         runtime
@@ -1179,6 +1399,73 @@ fn reload_configured_asr_backend_is_deferred_and_applied_when_idle() {
     runtime.start_recording().unwrap();
     let payload = runtime.stop_recording(None).unwrap();
     assert_eq!(payload.commit_text.trim(), "runtime deferred command final");
+}
+
+#[test]
+fn queued_configured_reload_updates_idle_runtime_config_and_text_policy() {
+    let config = VinputConfig::bundled_default().unwrap();
+    let backend = MockAsrBackend::streaming("mock partial", "mock recognition result");
+    let audio = super::default_mock_audio_source();
+    let mut runtime =
+        RuntimeState::with_configured_text(config.clone(), Box::new(backend), Box::new(audio))
+            .unwrap();
+
+    let mut updated = config;
+    updated.global.capture_device = "virtual.source".to_owned();
+    updated.scenes.active_scene = "reload-scene".to_owned();
+    updated
+        .scenes
+        .definitions
+        .push(vinput_config::SceneDefinition {
+            id: "reload-scene".to_owned(),
+            label: "Reload scene".to_owned(),
+            prompt: Some("polish text".to_owned()),
+            provider_id: None,
+            model: None,
+            candidate_count: 1,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+    updated.llm.adapters.push(vinput_config::LlmAdapterConfig {
+        id: "reload-adapter".to_owned(),
+        command: "sh".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            r#"cat >/dev/null; printf '%s\n' '{"text":"reloaded configured final"}'"#.to_owned(),
+        ],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    });
+    updated.validate().unwrap();
+
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
+    assert_eq!(runtime.scene_state().0, "reload-scene");
+    assert_eq!(runtime.capture_device(), "virtual.source");
+
+    runtime.start_recording().unwrap();
+    let payload = runtime.stop_recording(None).unwrap();
+    assert_eq!(payload.commit_text, "reloaded configured final");
+}
+
+#[test]
+fn queued_configured_reload_defers_scene_changes_until_busy_runtime_is_idle() {
+    let config = VinputConfig::bundled_default().unwrap();
+    let mut runtime = RuntimeState::new(config.clone()).unwrap();
+    runtime.start_recording().unwrap();
+
+    let mut updated = config;
+    updated.scenes.active_scene = vinput_config::COMMAND_SCENE_ID.to_owned();
+    updated.validate().unwrap();
+
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
+    assert_eq!(runtime.scene_state().0, vinput_config::RAW_SCENE_ID);
+    runtime.stop_recording(None).unwrap();
+    assert!(matches!(
+        runtime.next_asr_reload_worker_step(),
+        AsrReloadWorkerStep::Prepare(_)
+    ));
+    assert_eq!(runtime.scene_state().0, vinput_config::COMMAND_SCENE_ID);
 }
 
 #[test]

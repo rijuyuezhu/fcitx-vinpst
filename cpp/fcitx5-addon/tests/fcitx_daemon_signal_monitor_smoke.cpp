@@ -7,19 +7,29 @@
 #include <cassert>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
+
+namespace {
+
+struct WireNotification {
+  std::string code;
+  std::string subject;
+  std::string detail;
+  std::string raw_message;
+};
+
+} // namespace
 
 int main() {
   using fcitx::dbus::Bus;
   using fcitx::dbus::BusType;
   using fcitx::dbus::RequestNameFlag;
-  using vinput_fcitx_bridge::ClassifyDaemonNotification;
   using vinput_fcitx_bridge::ComposeDaemonStatusPreedit;
-  using vinput_fcitx_bridge::DaemonNotificationPayload;
+  using vinput_fcitx_bridge::DaemonLivePresentationState;
   using vinput_fcitx_bridge::DaemonSignalCallbacks;
   using vinput_fcitx_bridge::FcitxDaemonSignalMonitor;
   using vinput_fcitx_bridge::FrontendNotificationKind;
-  using vinput_fcitx_bridge::RenderDaemonNotification;
   namespace dbus = vinput_fcitx_bridge::dbus;
 
   assert(ComposeDaemonStatusPreedit("recording", false, "") == "... Recording ...");
@@ -31,25 +41,37 @@ int main() {
   assert(ComposeDaemonStatusPreedit("recording", false, "live partial") ==
          "live partial");
 
-  const DaemonNotificationPayload info{
+  DaemonLivePresentationState live_state;
+  live_state.BeginStatus("recording", true);
+  assert(live_state.CommandMode());
+  assert(live_state.Preedit() == "... Commanding ...");
+  assert(!live_state.UpdatePartial("live partial", false));
+  assert(live_state.UpdatePartial("live partial", true));
+  assert(!live_state.UpdatePartial("live partial", true));
+  assert(live_state.Preedit() == "live partial");
+  live_state.UpdateStatus("inferring");
+  assert(live_state.CommandMode());
+  assert(live_state.Preedit() == "live partial");
+  live_state.BeginStatus("postprocessing", false);
+  assert(!live_state.CommandMode());
+  assert(live_state.Preedit() == "... Postprocessing ...");
+  live_state.Reset();
+  assert(!live_state.CommandMode());
+  assert(live_state.Preedit().empty());
+
+  const WireNotification info{
       .code = "unknown",
       .subject = "",
       .detail = "",
       .raw_message = "registry cache refreshed",
   };
-  assert(!info.empty());
-  assert(ClassifyDaemonNotification(info) == FrontendNotificationKind::Info);
-  assert(RenderDaemonNotification(info) == "registry cache refreshed");
 
-  const DaemonNotificationPayload error{
+  const WireNotification error{
       .code = "asr_backend_reload_failed",
       .subject = "sherpa-onnx",
       .detail = "model metadata is invalid",
       .raw_message = "",
   };
-  assert(ClassifyDaemonNotification(error) == FrontendNotificationKind::Error);
-  assert(RenderDaemonNotification(error) == "model metadata is invalid");
-  assert(RenderDaemonNotification({}) == "Unknown error.");
 
   fcitx::EventLoop loop;
   Bus receiver(BusType::Session);
@@ -63,7 +85,7 @@ int main() {
   std::vector<bool> service_availability;
   std::vector<std::string> statuses;
   std::vector<std::string> partials;
-  std::vector<DaemonNotificationPayload> notifications;
+  std::vector<std::pair<FrontendNotificationKind, std::string>> notifications;
   auto finish_when_complete = [&] {
     if (service_availability.size() == 2 && statuses.size() == 1 &&
         partials.size() == 1 && notifications.size() == 2) {
@@ -88,12 +110,11 @@ int main() {
                            finish_when_complete();
                          },
                      .notification =
-                         [&](const DaemonNotificationPayload &payload) {
-                           notifications.push_back(payload);
+                         [&](FrontendNotificationKind kind, std::string_view message) {
+                           notifications.emplace_back(kind, message);
                            finish_when_complete();
                          },
                  });
-  assert(monitor.active());
   assert(sender.requestName(
       std::string(dbus::kServiceBusName),
       {RequestNameFlag::AllowReplacement, RequestNameFlag::ReplaceExisting}));
@@ -144,7 +165,9 @@ int main() {
   assert((statuses == std::vector<std::string>{"recording"}));
   assert((partials == std::vector<std::string>{"live partial"}));
   assert(notifications.size() == 2);
-  assert(notifications[0] == info);
-  assert(notifications[1] == error);
+  assert(notifications[0].first == FrontendNotificationKind::Info);
+  assert(notifications[0].second == "registry cache refreshed");
+  assert(notifications[1].first == FrontendNotificationKind::Error);
+  assert(notifications[1].second == "model metadata is invalid");
   return 0;
 }

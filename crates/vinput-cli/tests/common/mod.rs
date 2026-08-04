@@ -30,6 +30,21 @@ pub fn vinput_command() -> Command {
 }
 
 #[allow(dead_code)]
+pub fn isolated_vinput_command(prefix: &str) -> (tempfile::TempDir, Command) {
+    let root = tempfile::Builder::new()
+        .prefix(prefix)
+        .tempdir()
+        .expect("create isolated CLI home");
+    let mut command = vinput_command();
+    command
+        .env("HOME", root.path().join("home"))
+        .env("XDG_CONFIG_HOME", root.path().join("config"))
+        .env("XDG_DATA_HOME", root.path().join("data"))
+        .env("XDG_CACHE_HOME", root.path().join("cache"));
+    (root, command)
+}
+
+#[allow(dead_code)]
 pub fn assert_json_success(output: Output, context: &str) -> serde_json::Value {
     let Output {
         status,

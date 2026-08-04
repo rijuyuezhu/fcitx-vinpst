@@ -4,11 +4,15 @@ mod common;
 
 use std::{fs, path::Path};
 
-use common::{assert_json_success, assert_stdout_success, vinput_command, write_temp_json};
+use common::{
+    assert_json_success, assert_stdout_success, isolated_vinput_command, vinput_command,
+    write_temp_json,
+};
 
 #[test]
 fn hotword_get_json_reports_bundled_default_active_provider() {
-    let output = vinput_command()
+    let (_home, mut command) = isolated_vinput_command("vinput-hotword-get-default");
+    let output = command
         .args(["hotword", "get", "--json"])
         .output()
         .expect("run vinput hotword get --json");

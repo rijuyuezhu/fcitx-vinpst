@@ -13,12 +13,14 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 export LC_ALL=C
+# shellcheck source=scripts/release/gpg-session-common.sh
+source "${script_dir}/gpg-session-common.sh"
 
 if [[ "$#" -ne 3 ]]; then
   echo "usage: $0 BUNDLE PUBLIC_KEY EXPECTED_FINGERPRINT" >&2
   exit 2
 fi
-for command in gpg mktemp realpath; do
+for command in gpg gpgconf mktemp realpath; do
   command -v "${command}" >/dev/null
 done
 
@@ -56,6 +58,7 @@ fi
 
 verification_home="$(mktemp -d)"
 cleanup() {
+  gpg_session_stop "${verification_home}"
   rm -rf "${verification_home}"
 }
 trap cleanup EXIT

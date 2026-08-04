@@ -1,6 +1,9 @@
 [workspace]
 members = [
     "crates/vinput-protocol",
+    "crates/vinput-fcitx-core",
+    "crates/vinput-fcitx-dbus",
+    "crates/vinput-fcitx-ffi",
     "crates/vinput-config",
     "crates/vinput-http",
     "crates/vinput-process",

@@ -12,23 +12,27 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 for command in dbus-run-session jq readlink timeout; do
   command -v "${command}" >/dev/null
 done
 
 root="${repo_root}/target/tmp/package-remove-handoff-smoke"
+service_dir="${root}/data-home/dbus-1/services"
 rm -rf "${root}"
-mkdir -p "${root}/data-home/dbus-1/services" "${root}/data-dirs"
+mkdir -p "${service_dir}" "${root}/data-dirs"
 printf '[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/removed/vinput-daemon --dbus\n' \
-  >"${root}/data-home/dbus-1/services/org.fcitx.Vinput.service"
+  >"${service_dir}/org.fcitx.Vinput.service"
+write_isolated_dbus_session_config "${root}/session.conf" "${service_dir}"
 
 cargo build -q -p vinput-cli --bin vinput -p vinput-daemon --bin vinput-daemon
 
 XDG_DATA_HOME="${root}/data-home" \
 XDG_DATA_DIRS="${root}/data-dirs" \
 VINPUT_REMOVE_ROOT="${root}" \
-  timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 30s dbus-run-session --config-file="${root}/session.conf" -- \
+  bash -euo pipefail <<'INNER'
 root="${VINPUT_REMOVE_ROOT}"
 uid="$(id -u)"
 runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinput-remove-runtime.XXXXXX")"
@@ -143,17 +147,20 @@ INNER
 echo "package removal cross-user handoff smoke passed"
 
 busy_root="${repo_root}/target/tmp/package-remove-handoff-busy-smoke"
+busy_service_dir="${busy_root}/data-home/dbus-1/services"
 rm -rf "${busy_root}"
-mkdir -p "${busy_root}/data-home/dbus-1/services" "${busy_root}/data-dirs"
+mkdir -p "${busy_service_dir}" "${busy_root}/data-dirs"
 printf '[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/removed/vinput-daemon --dbus\n' \
-  >"${busy_root}/data-home/dbus-1/services/org.fcitx.Vinput.service"
-cp "${busy_root}/data-home/dbus-1/services/org.fcitx.Vinput.service" \
+  >"${busy_service_dir}/org.fcitx.Vinput.service"
+cp "${busy_service_dir}/org.fcitx.Vinput.service" \
   "${busy_root}/activation-before.service"
+write_isolated_dbus_session_config "${busy_root}/session.conf" "${busy_service_dir}"
 
 XDG_DATA_HOME="${busy_root}/data-home" \
 XDG_DATA_DIRS="${busy_root}/data-dirs" \
 VINPUT_REMOVE_ROOT="${busy_root}" \
-  timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 30s dbus-run-session --config-file="${busy_root}/session.conf" -- \
+  bash -euo pipefail <<'INNER'
 root="${VINPUT_REMOVE_ROOT}"
 uid="$(id -u)"
 runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinput-remove-busy-runtime.XXXXXX")"

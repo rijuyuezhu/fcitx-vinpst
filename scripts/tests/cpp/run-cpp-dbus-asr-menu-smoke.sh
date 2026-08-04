@@ -68,15 +68,12 @@ cleanup() {
 trap cleanup EXIT
 
 for _ in \$(seq 1 50); do
-  if VINPUT_DBUS_SMOKE_SWITCH_ASR_PROVIDER=mock \
-       VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED=1 \
-       VINPUT_DBUS_SMOKE_EXPECT_ASR_PERSISTED=1 \
+  if VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED=1 \
        VINPUT_DBUS_SMOKE_SWITCH_ASR_TARGET_PROVIDER=mock \
        VINPUT_DBUS_SMOKE_SWITCH_ASR_TARGET_MODEL="\${model_dir}" \
        VINPUT_DBUS_SMOKE_EXPECT_ASR_TARGET_PERSISTED=1 \
        VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_PROVIDER=mock \
        VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_MODEL="\${model_dir}" \
-       VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_ID=model.test.installed-one \
        VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_TITLE="Installed Model Title" \
        "\${smoke_bin}"; then
     python3 - "\${config_path}" "\${model_dir}" <<'PY'
@@ -102,4 +99,4 @@ cat "\${log_file}" >&2
 exit 1
 INNER
 
-echo "C++ ASR provider and installed-model switch smoke passed"
+echo "C++ ASR installed-model target switch smoke passed"

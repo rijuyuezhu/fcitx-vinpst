@@ -1,164 +1,146 @@
 #include "vinput_fcitx_bridge/frontend_bridge.h"
 
+#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
+#include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_bridge/rust_string.h"
+
+#include "vinput_fcitx_ffi.h"
+
+#include <memory>
 #include <utility>
 
 namespace vinput_fcitx_bridge {
 namespace {
 
-constexpr std::string_view kRecordingPreedit = "... Recording ...";
-constexpr std::string_view kCommandingPreedit = "... Commanding ...";
-constexpr std::string_view kNoSelectionError = "Please select text first.";
-constexpr std::string_view kDaemonUnavailableError =
-    "Voice input daemon is unavailable.";
+static_assert(static_cast<std::uint8_t>(FrontendTriggerRequest::None) ==
+              VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_NONE);
+static_assert(
+    static_cast<std::uint8_t>(FrontendTriggerRequest::ConsumeAsrMenuRelease) ==
+    VINPUT_FCITX_FRONTEND_TRIGGER_REQUEST_CONSUME_ASR_MENU_RELEASE);
+static_assert(static_cast<std::uint8_t>(FrontendTriggerIntent::None) ==
+              VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_NONE);
+static_assert(static_cast<std::uint8_t>(FrontendTriggerIntent::ShowAsrMenu) ==
+              VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU);
 
-BridgeOutcome Preedit(std::string_view text) {
-  return BridgeOutcome{BridgeOutcome::Kind::Preedit, std::string(text), {}};
-}
+using FrontendOutcomeHandle =
+    RustOwnedHandle<VinputFcitxFrontendOutcome, vinput_fcitx_frontend_outcome_free>;
+using FrontendPresentationHandle =
+    RustOwnedHandle<VinputFcitxFrontendPresentation,
+                    vinput_fcitx_frontend_presentation_free>;
 
-BridgeOutcome Error(std::string_view text) {
-  return BridgeOutcome{BridgeOutcome::Kind::Error, std::string(text), {}};
-}
-
-BridgeOutcome Clear(bool command_mode) {
-  return BridgeOutcome{BridgeOutcome::Kind::Clear, {}, {}, command_mode};
-}
-
-BridgeOutcome Commit(std::string text, RecognitionPayload payload, bool command_mode) {
-  return BridgeOutcome{BridgeOutcome::Kind::Commit, std::move(text), std::move(payload),
-                       command_mode};
-}
-
-BridgeOutcome CandidateMenu(RecognitionPayload payload, bool command_mode) {
+BridgeOutcome FfiFailure() {
   return BridgeOutcome{
-      BridgeOutcome::Kind::CandidateMenu, {}, std::move(payload), command_mode};
+      BridgeOutcome::Kind::Error, "Voice input daemon is unavailable.", {}};
 }
 
-std::string FallbackError(const std::string &error) {
-  return error.empty() ? std::string(kDaemonUnavailableError) : error;
+BridgeOutcome TakeOutcome(VinputFcitxFrontendOutcome *raw_outcome,
+                          std::string_view original, std::string_view voice_command,
+                          std::string_view cancel) {
+  auto outcome = FrontendOutcomeHandle::Adopt(raw_outcome);
+  const VinputFcitxFrontendPresentationTextView text{
+      .original = ToRustStringView(original),
+      .voice_command = ToRustStringView(voice_command),
+      .cancel = ToRustStringView(cancel),
+  };
+  auto presentation =
+      std::make_shared<FrontendPresentationHandle>(FrontendPresentationHandle::Adopt(
+          vinput_fcitx_frontend_presentation_new(outcome.raw_handle(), &text)));
+  VinputFcitxFrontendPresentationView view{};
+  if (vinput_fcitx_frontend_presentation_view(presentation->raw_handle(), &view) == 0 ||
+      view.kind > VINPUT_FCITX_FRONTEND_OUTCOME_ERROR) {
+    return FfiFailure();
+  }
+
+  CandidatePresentation candidate_menu{
+      .candidate_count = view.candidate_count,
+      .cursor_index = view.cursor_index,
+      .candidate_at =
+          [presentation](std::size_t index) -> std::optional<PresentedCandidate> {
+        VinputFcitxPresentedCandidateView candidate{};
+        if (vinput_fcitx_frontend_presentation_candidate(presentation->raw_handle(),
+                                                         index, &candidate) == 0) {
+          return std::nullopt;
+        }
+        return PresentedCandidate{CopyRustString(candidate.text),
+                                  CopyRustString(candidate.comment),
+                                  candidate.commit != 0};
+      },
+  };
+  return BridgeOutcome{static_cast<BridgeOutcome::Kind>(view.kind),
+                       CopyRustString(view.text), std::move(candidate_menu),
+                       view.replace_selection != 0};
 }
 
 } // namespace
 
-BridgeOutcome FrontendBridge::StartNormal(DaemonClient *client) {
-  return StartNormalWithScene(client, std::nullopt);
-}
+FrontendBridge::FrontendBridge()
+    : controller_(ControllerHandle::Adopt(vinput_fcitx_frontend_controller_new())) {}
 
-BridgeOutcome FrontendBridge::StartNormal(DaemonClient *client,
-                                          std::string_view scene_id) {
-  return StartNormalWithScene(client, std::optional<std::string_view>(scene_id));
-}
-
-BridgeOutcome
-FrontendBridge::StartNormalWithScene(DaemonClient *client,
-                                     std::optional<std::string_view> scene_id) {
-  if (!client) {
-    Reset();
-    return Error(kDaemonUnavailableError);
+FrontendTriggerIntent
+FrontendBridge::PlanTrigger(FrontendTriggerRequest request) const {
+  std::uint8_t intent = VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_NONE;
+  if (vinput_fcitx_frontend_controller_plan_trigger(
+          controller_.raw_handle(), static_cast<std::uint8_t>(request), &intent) == 0 ||
+      intent > VINPUT_FCITX_FRONTEND_TRIGGER_INTENT_SHOW_ASR_MENU) {
+    return FrontendTriggerIntent::None;
   }
-
-  std::string error;
-  if (!client->StartRecording(&error)) {
-    Reset();
-    return Error(FallbackError(error));
-  }
-
-  recording_ = true;
-  command_mode_ = false;
-  selected_text_.clear();
-  if (scene_id.has_value()) {
-    active_scene_id_ = std::string(*scene_id);
-  } else {
-    active_scene_id_.reset();
-  }
-  return Preedit(kRecordingPreedit);
+  return static_cast<FrontendTriggerIntent>(intent);
 }
 
-BridgeOutcome FrontendBridge::StartCommand(DaemonClient *client,
-                                           std::string_view selected_text) {
-  return StartCommandWithScene(client, selected_text, std::nullopt);
+bool FrontendBridge::recording() const {
+  return vinput_fcitx_frontend_controller_recording(controller_.raw_handle()) != 0;
 }
 
-BridgeOutcome FrontendBridge::StartCommand(DaemonClient *client,
+bool FrontendBridge::command_mode() const {
+  return vinput_fcitx_frontend_controller_command_mode(controller_.raw_handle()) != 0;
+}
+
+BridgeOutcome FrontendBridge::StartNormal(const VinputFcitxDaemonClient *client,
+                                          const SceneMenuController &scene_controller) {
+  return TakeOutcome(
+      vinput_fcitx_frontend_controller_start_normal_with_daemon(
+          controller_.mutable_raw_handle(), client, scene_controller.raw_handle()),
+      original_text_, voice_command_text_, cancel_text_);
+}
+
+BridgeOutcome FrontendBridge::StartCommand(const VinputFcitxDaemonClient *client,
                                            std::string_view selected_text,
                                            std::string_view scene_id) {
-  return StartCommandWithScene(client, selected_text,
-                               std::optional<std::string_view>(scene_id));
+  return TakeOutcome(vinput_fcitx_frontend_controller_start_command_with_daemon(
+                         controller_.mutable_raw_handle(), client,
+                         RustBytes(selected_text), selected_text.size(),
+                         RustBytes(scene_id), scene_id.size()),
+                     original_text_, voice_command_text_, cancel_text_);
+}
+
+BridgeOutcome FrontendBridge::Stop(const VinputFcitxDaemonClient *client,
+                                   const SceneMenuController &scene_controller) {
+  return TakeOutcome(
+      vinput_fcitx_frontend_controller_stop_with_daemon(
+          controller_.mutable_raw_handle(), client, scene_controller.raw_handle()),
+      original_text_, voice_command_text_, cancel_text_);
 }
 
 BridgeOutcome
-FrontendBridge::StartCommandWithScene(DaemonClient *client,
-                                      std::string_view selected_text,
-                                      std::optional<std::string_view> scene_id) {
-  if (selected_text.empty()) {
-    Reset();
-    return Error(kNoSelectionError);
-  }
-  if (!client) {
-    Reset();
-    return Error(kDaemonUnavailableError);
-  }
-
-  std::string error;
-  if (!client->StartCommandRecording(selected_text, &error)) {
-    Reset();
-    return Error(FallbackError(error));
-  }
-
-  recording_ = true;
-  command_mode_ = true;
-  selected_text_ = std::string(selected_text);
-  if (scene_id.has_value()) {
-    active_scene_id_ = std::string(*scene_id);
-  } else {
-    active_scene_id_.reset();
-  }
-  return Preedit(kCommandingPreedit);
+FrontendBridge::AdoptAndStop(const VinputFcitxDaemonClient *client, bool command_mode,
+                             const SceneMenuController &scene_controller) {
+  return TakeOutcome(vinput_fcitx_frontend_controller_adopt_and_stop_with_daemon(
+                         controller_.mutable_raw_handle(), client,
+                         command_mode ? 1U : 0U, scene_controller.raw_handle()),
+                     original_text_, voice_command_text_, cancel_text_);
 }
 
-BridgeOutcome FrontendBridge::Stop(DaemonClient *client, std::string_view scene_id) {
-  if (!recording_) {
-    return BridgeOutcome{};
-  }
-  if (!client) {
-    Reset();
-    return Error(kDaemonUnavailableError);
-  }
-
-  const bool was_command_mode = command_mode_;
-
-  const std::string stop_scene_id = active_scene_id_.value_or(std::string(scene_id));
-
-  std::string payload_json;
-  std::string error;
-  if (!client->StopRecording(stop_scene_id, &payload_json, &error)) {
-    Reset();
-    return Error(FallbackError(error));
-  }
-
-  auto plan = MakeCommitPlan(payload_json, was_command_mode);
-  Reset();
-  if (plan.payload.commit_text.empty()) {
-    return Clear(was_command_mode);
-  }
-  if (plan.show_candidate_menu) {
-    return CandidateMenu(std::move(plan.payload), was_command_mode);
-  }
-  auto commit_text = plan.payload.commit_text;
-  return Commit(std::move(commit_text), std::move(plan.payload), was_command_mode);
-}
-
-void FrontendBridge::AdoptRecording(bool command_mode, std::string_view scene_id) {
-  recording_ = true;
-  command_mode_ = command_mode;
-  selected_text_.clear();
-  active_scene_id_ = std::string(scene_id);
+void FrontendBridge::SetPresentationText(std::string original,
+                                         std::string voice_command,
+                                         std::string cancel) {
+  original_text_ = std::move(original);
+  voice_command_text_ = std::move(voice_command);
+  cancel_text_ = std::move(cancel);
 }
 
 void FrontendBridge::Reset() {
-  recording_ = false;
-  command_mode_ = false;
-  selected_text_.clear();
-  active_scene_id_.reset();
+  static_cast<void>(
+      vinput_fcitx_frontend_controller_reset(controller_.mutable_raw_handle()));
 }
 
 } // namespace vinput_fcitx_bridge

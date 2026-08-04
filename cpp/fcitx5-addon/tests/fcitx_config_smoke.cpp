@@ -10,12 +10,12 @@
 
 namespace {
 
-std::filesystem::path UniqueConfigPath() {
+std::filesystem::path UniqueConfigRoot() {
   auto root = std::filesystem::temp_directory_path() /
               ("vinput-fcitx-config-smoke-" + std::to_string(getpid()));
   std::filesystem::remove_all(root);
   std::filesystem::create_directories(root);
-  return root / "vinput.conf";
+  return root;
 }
 
 bool Contains(const std::string &text, const std::string &needle) {
@@ -33,13 +33,20 @@ bool HasValueByPath(const fcitx::RawConfig &config, const std::string &path,
 int main() {
   using vinput_fcitx_bridge::FrontendSettings;
   using vinput_fcitx_bridge::InitFrontendI18n;
-  using vinput_fcitx_bridge::LoadFrontendSettingsFromPath;
-  using vinput_fcitx_bridge::SaveFrontendSettingsToPath;
+  using vinput_fcitx_bridge::kFrontendConfigPath;
+  using vinput_fcitx_bridge::LoadFrontendSettings;
+  using vinput_fcitx_bridge::SaveFrontendSettings;
   using vinput_fcitx_bridge::VinputFrontendConfig;
 
+  const auto root = UniqueConfigRoot();
+  const auto system_root = root / "system";
+  std::filesystem::create_directories(system_root);
+  assert(setenv("XDG_CONFIG_HOME", root.c_str(), 1) == 0);
+  assert(setenv("XDG_CONFIG_DIRS", system_root.c_str(), 1) == 0);
+  const auto path = root / "fcitx5" / kFrontendConfigPath;
+
   InitFrontendI18n();
-  const auto path = UniqueConfigPath();
-  const auto defaults = LoadFrontendSettingsFromPath(path);
+  const auto defaults = LoadFrontendSettings();
   assert(defaults == FrontendSettings{});
 
   FrontendSettings settings;
@@ -50,8 +57,8 @@ int main() {
   settings.page_prev_keys = {fcitx::Key(FcitxKey_F5), fcitx::Key(FcitxKey_KP_Page_Up)};
   settings.page_next_keys = {fcitx::Key(FcitxKey_F6), fcitx::Key(FcitxKey_KP_Next)};
   settings.trigger_mode = vinput_fcitx_bridge::TriggerMode::Hold;
-  assert(SaveFrontendSettingsToPath(settings, path));
-  assert(LoadFrontendSettingsFromPath(path) == settings);
+  assert(SaveFrontendSettings(settings));
+  assert(LoadFrontendSettings() == settings);
 
   std::ifstream input(path);
   const std::string contents((std::istreambuf_iterator<char>(input)),
@@ -75,7 +82,7 @@ int main() {
             << contents << "\n[LegacySearchKeys]\n0=Control+F\n";
   }
   settings.command_triggers = {fcitx::Key(FcitxKey_F10)};
-  assert(SaveFrontendSettingsToPath(settings, path));
+  assert(SaveFrontendSettings(settings));
   std::ifstream merged_input(path);
   const std::string merged_contents((std::istreambuf_iterator<char>(merged_input)),
                                     std::istreambuf_iterator<char>());
@@ -83,7 +90,7 @@ int main() {
   assert(Contains(merged_contents, "LegacySearchMode=enabled"));
   assert(Contains(merged_contents, "[LegacySearchKeys]"));
   assert(Contains(merged_contents, "0=Control+F"));
-  assert(LoadFrontendSettingsFromPath(path) == settings);
+  assert(LoadFrontendSettings() == settings);
 
   VinputFrontendConfig config(settings);
   fcitx::RawConfig raw;
@@ -102,6 +109,6 @@ int main() {
   assert(HasValueByPath(description, std::string(prefix) + "EnumI18n/1", "长按"));
   assert(HasValueByPath(description, std::string(prefix) + "EnumI18n/2", "两者"));
 
-  std::filesystem::remove_all(path.parent_path());
+  std::filesystem::remove_all(root);
   return 0;
 }

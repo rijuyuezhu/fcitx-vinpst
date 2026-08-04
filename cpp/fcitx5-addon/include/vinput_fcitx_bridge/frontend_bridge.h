@@ -1,23 +1,37 @@
 #pragma once
 
-#include "vinput_fcitx_bridge/recognition_payload.h"
+#include "vinput_fcitx_bridge/frontend_presentation.h"
+#include "vinput_fcitx_bridge/rust_handle.h"
+#include "vinput_fcitx_ffi.h"
 
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
 
 namespace vinput_fcitx_bridge {
 
-class DaemonClient {
-public:
-  virtual ~DaemonClient() = default;
+class SceneMenuController;
 
-  virtual bool StartRecording(std::string *error) = 0;
-  virtual bool StartCommandRecording(std::string_view selected_text,
-                                     std::string *error) = 0;
-  virtual bool StopRecording(std::string_view scene_id, std::string *payload_json,
-                             std::string *error) = 0;
+enum class FrontendTriggerRequest : std::uint8_t {
+  None,
+  StartNormal,
+  StopNormal,
+  StartCommand,
+  StopCommand,
+  ShowSceneMenu,
+  ConsumeSceneMenuRelease,
+  ShowAsrMenu,
+  ConsumeAsrMenuRelease,
+};
+
+enum class FrontendTriggerIntent : std::uint8_t {
+  None,
+  StartNormal,
+  StopNormal,
+  StartCommand,
+  StopCommand,
+  ShowSceneMenu,
+  ShowAsrMenu,
 };
 
 struct BridgeOutcome {
@@ -25,39 +39,44 @@ struct BridgeOutcome {
 
   Kind kind = Kind::None;
   std::string text;
-  RecognitionPayload payload;
-  bool command_mode = false;
+  CandidatePresentation candidate_menu;
+  bool replace_selection = false;
 };
 
 class FrontendBridge {
 public:
-  BridgeOutcome StartNormal(DaemonClient *client);
-  BridgeOutcome StartNormal(DaemonClient *client, std::string_view scene_id);
-  BridgeOutcome StartCommand(DaemonClient *client, std::string_view selected_text);
-  BridgeOutcome StartCommand(DaemonClient *client, std::string_view selected_text,
-                             std::string_view scene_id);
-  BridgeOutcome Stop(DaemonClient *client, std::string_view scene_id);
-  void AdoptRecording(bool command_mode, std::string_view scene_id);
+  FrontendBridge();
+  ~FrontendBridge() = default;
+
+  FrontendBridge(const FrontendBridge &) = delete;
+  FrontendBridge &operator=(const FrontendBridge &) = delete;
+  FrontendBridge(FrontendBridge &&) = delete;
+  FrontendBridge &operator=(FrontendBridge &&) = delete;
+
+  BridgeOutcome StartNormal(const ::VinputFcitxDaemonClient *client,
+                            const SceneMenuController &scene_controller);
+  BridgeOutcome StartCommand(const ::VinputFcitxDaemonClient *client,
+                             std::string_view selected_text, std::string_view scene_id);
+  BridgeOutcome Stop(const ::VinputFcitxDaemonClient *client,
+                     const SceneMenuController &scene_controller);
+  BridgeOutcome AdoptAndStop(const ::VinputFcitxDaemonClient *client, bool command_mode,
+                             const SceneMenuController &scene_controller);
+  void SetPresentationText(std::string original, std::string voice_command,
+                           std::string cancel);
   void Reset();
 
-  bool recording() const {
-    return recording_;
-  }
-  bool command_mode() const {
-    return command_mode_;
-  }
+  FrontendTriggerIntent PlanTrigger(FrontendTriggerRequest request) const;
+  bool recording() const;
+  bool command_mode() const;
 
 private:
-  BridgeOutcome StartNormalWithScene(DaemonClient *client,
-                                     std::optional<std::string_view> scene_id);
-  BridgeOutcome StartCommandWithScene(DaemonClient *client,
-                                      std::string_view selected_text,
-                                      std::optional<std::string_view> scene_id);
+  using ControllerHandle = RustOwnedHandle<::VinputFcitxFrontendController,
+                                           vinput_fcitx_frontend_controller_free>;
 
-  bool recording_ = false;
-  bool command_mode_ = false;
-  std::string selected_text_;
-  std::optional<std::string> active_scene_id_;
+  ControllerHandle controller_;
+  std::string original_text_ = "Original";
+  std::string voice_command_text_ = "Voice Command";
+  std::string cancel_text_ = "Cancel";
 };
 
 } // namespace vinput_fcitx_bridge

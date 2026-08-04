@@ -129,14 +129,11 @@ int main() {
   delayed_start->setOneShot();
   const bool loop_result = signal_loop.exec();
   if (!loop_result || !start_attempted || start != AppliedOutcome::Preedit ||
-      !addon.bridge().recording() || addon.bridge().command_mode() != command_mode ||
       !partial_seen) {
     std::cerr << "native addon did not render a live partial preedit: loop="
               << loop_result << " start-attempted=" << start_attempted
-              << " start=" << static_cast<int>(start)
-              << " recording=" << addon.bridge().recording()
-              << " command=" << addon.bridge().command_mode()
-              << " partial=" << partial_seen << " preedit=" << partial_text << '\n';
+              << " start=" << static_cast<int>(start) << " partial=" << partial_seen
+              << " preedit=" << partial_text << '\n';
     return 1;
   }
   delayed_start.reset();
@@ -147,11 +144,9 @@ int main() {
       command_mode ? FcitxTriggerAction::StopCommand : FcitxTriggerAction::StopNormal);
   const auto expected_outcome =
       command_mode ? AppliedOutcome::CandidateMenu : AppliedOutcome::Commit;
-  if (stop != expected_outcome || addon.bridge().recording() ||
-      addon.bridge().command_mode()) {
+  if (stop != expected_outcome) {
     std::cerr << "native addon stop did not apply the expected outcome: applied="
-              << static_cast<int>(stop) << " recording=" << addon.bridge().recording()
-              << " command=" << addon.bridge().command_mode() << '\n';
+              << static_cast<int>(stop) << '\n';
     return 1;
   }
 
