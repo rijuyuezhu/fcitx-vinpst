@@ -673,20 +673,13 @@ const fn extra_body_input_is_secure() -> bool {
 }
 
 fn base_url_input_is_secure(value: &str) -> bool {
-    let Some((_, remainder)) = value.split_once("://") else {
+    let Ok(url) = url::Url::parse(value) else {
         return false;
     };
-    let authority_end = remainder.find(['/', '?', '#']).unwrap_or(remainder.len());
-    if remainder[..authority_end].contains('@') {
-        return true;
-    }
-    let query_present = value
-        .split_once('?')
-        .is_some_and(|(_, query)| !query.split('#').next().unwrap_or_default().is_empty());
-    let fragment_present = value
-        .split_once('#')
-        .is_some_and(|(_, fragment)| !fragment.is_empty());
-    query_present || fragment_present
+    !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some_and(|query| !query.is_empty())
+        || url.fragment().is_some_and(|fragment| !fragment.is_empty())
 }
 
 fn labeled_input<'a>(
@@ -973,6 +966,9 @@ mod tests {
         ));
         assert!(base_url_input_is_secure(
             "https://example.invalid/v1?api_key=secret"
+        ));
+        assert!(base_url_input_is_secure(
+            "https:example.invalid/v1?api_key=secret"
         ));
         assert!(base_url_input_is_secure(
             "https://example.invalid/v1#secret-fragment"
