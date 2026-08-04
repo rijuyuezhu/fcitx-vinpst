@@ -391,6 +391,14 @@ fn hotword_changes_block_navigation_and_reload_until_reset() {
 }
 
 #[test]
+fn hotword_activation_retry_is_blocked_while_busy() {
+    assert!(
+        Message::Hotword(HotwordMessage::RetryActivation).blocked_while_busy(),
+        "a queued retry must not start a second daemon reload"
+    );
+}
+
+#[test]
 fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
     let config = VinputConfig::bundled_default().expect("bundled config");
     let document = ConfigDocument {

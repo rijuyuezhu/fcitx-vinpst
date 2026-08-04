@@ -201,6 +201,7 @@ impl Message {
                         | HotwordMessage::ContentAction(_)
                         | HotwordMessage::SaveContent
                         | HotwordMessage::ResetChanges
+                        | HotwordMessage::RetryActivation
                 )
         )
     }
