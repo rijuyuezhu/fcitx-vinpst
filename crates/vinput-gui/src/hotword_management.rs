@@ -380,7 +380,6 @@ impl App {
             }
             HotwordMessage::PathChanged(value) => {
                 self.hotword_editor.path_input = value.into_inner();
-                self.hotword_editor.pending_activation = None;
             }
             HotwordMessage::SetPath => return self.begin_hotword_path_set(),
             HotwordMessage::ClearPath => return self.begin_hotword_path_clear(),
@@ -392,7 +391,6 @@ impl App {
             HotwordMessage::ContentAction(action) => {
                 if self.hotword_editor.baseline.is_some() {
                     self.hotword_editor.content.perform(action);
-                    self.hotword_editor.pending_activation = None;
                 }
             }
             HotwordMessage::SaveContent => return self.begin_hotword_content_save(),

@@ -159,6 +159,34 @@ fn content_save_rejects_external_config_target_changes_before_write() {
 }
 
 #[test]
+fn resetting_temporary_edits_preserves_pending_activation() {
+    let mut config = VinputConfig::bundled_default().expect("bundled config");
+    config.asr.providers[0].hotwords_file = Some("/tmp/hotwords.txt".to_owned());
+    let mut editor = HotwordEditorState::from_config(&config, None);
+    editor.pending_activation = Some(PendingHotwordActivation::for_config(
+        config.asr.active_provider.clone(),
+    ));
+    editor.path_input = "/tmp/temporary-edit.txt".to_owned();
+    assert!(editor.path_is_dirty());
+
+    editor.reset_changes();
+    assert!(!editor.path_is_dirty());
+    assert!(editor.pending_activation.is_some());
+
+    editor.loaded_path = editor.content_path.clone();
+    editor.baseline = Some(HotwordContentSnapshot {
+        existed: true,
+        content: "alpha\n".to_owned(),
+        version: None,
+    });
+    editor.content = text_editor::Content::with_text("temporary content\n");
+    assert!(editor.content_is_dirty());
+    editor.reset_changes();
+    assert!(!editor.content_is_dirty());
+    assert!(editor.pending_activation.is_some());
+}
+
+#[test]
 fn hotword_messages_redact_paths_and_loaded_content() {
     let path_message = HotwordMessage::PathChanged(SecretInput::new(
         "/home/user/private/hotwords.txt".to_owned(),
