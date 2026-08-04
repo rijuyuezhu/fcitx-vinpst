@@ -395,7 +395,7 @@ fn compare_and_swap_hotword_file(
         }
         let recovery_path = claim_current_hotword_file(path, parent, file_name)?;
         synchronize_claim_or_restore(&recovery_path, path, parent, sync_directory)?;
-        let claimed = read_hotword_snapshot(&recovery_path)?;
+        let claimed = read_claimed_hotword_or_restore(&recovery_path, path, parent)?;
         if !claimed.matches_after_claim(expected) {
             let restored = restore_claimed_file(&recovery_path, path, parent)?;
             return Err(if restored {
@@ -478,6 +478,27 @@ fn claim_current_hotword_file(
         }
     }
     Err("Could not allocate an adjacent hotword recovery file.".to_owned())
+}
+
+fn read_claimed_hotword_or_restore(
+    recovery_path: &Path,
+    path: &Path,
+    parent: &Path,
+) -> Result<HotwordContentSnapshot, String> {
+    match read_hotword_snapshot(recovery_path) {
+        Ok(snapshot) => Ok(snapshot),
+        Err(validation_error) => match restore_claimed_file(recovery_path, path, parent) {
+            Ok(true) => Err(format!(
+                "{validation_error} The claimed external hotword target was restored to its configured path."
+            )),
+            Ok(false) => Err(format!(
+                "{validation_error} The configured path was recreated externally, so it and the adjacent recovery copy were both preserved."
+            )),
+            Err(restore_error) => Err(format!(
+                "{validation_error} Restoring the claimed external hotword target also failed: {restore_error}"
+            )),
+        },
+    }
 }
 
 fn finish_published_hotword(
@@ -812,6 +833,36 @@ mod tests {
                 .durability_error
                 .as_deref()
                 .is_some_and(|error| error.contains("was published"))
+        );
+    }
+
+    #[test]
+    fn claimed_symlink_validation_failure_restores_configured_path() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+        let external = directory.path().join("external.txt");
+        fs::write(&path, "alpha\n").expect("initial content");
+        fs::write(&external, "external\n").expect("external target");
+        let baseline = read_hotword_snapshot(&path).expect("baseline");
+
+        let error = compare_and_swap_hotword_file(&path, &baseline, b"beta\n", || {
+            fs::remove_file(&path).expect("remove loaded target");
+            symlink(&external, &path).expect("external symlink replacement");
+        })
+        .expect_err("reject and restore claimed symlink");
+        assert!(error.contains("symbolic link"));
+        assert!(error.contains("restored to its configured path"));
+        assert!(
+            fs::symlink_metadata(&path)
+                .expect("restored metadata")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_to_string(&path).expect("restored symlink target"),
+            "external\n"
         );
     }
 
