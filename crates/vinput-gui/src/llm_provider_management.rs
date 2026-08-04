@@ -607,10 +607,10 @@ fn llm_provider_editor_view(editor: &LlmProviderEditorState, busy: bool) -> Elem
         ),
         labeled_input(
             "Extra body",
-            "JSON object; blank means {}",
+            "masked JSON object; blank means {}",
             &editor.fields.extra_body,
             LlmProviderEditorField::ExtraBody,
-            false,
+            extra_body_input_is_secure(),
         ),
         row![
             button(editor.action_label()).on_press_maybe(
@@ -632,6 +632,10 @@ fn llm_provider_editor_view(editor: &LlmProviderEditorState, busy: bool) -> Elem
     ]
     .spacing(10)
     .into()
+}
+
+const fn extra_body_input_is_secure() -> bool {
+    true
 }
 
 fn base_url_input_is_secure(value: &str) -> bool {
@@ -911,6 +915,11 @@ mod tests {
         assert!(!debug.contains("body-secret"));
         assert!(!debug.contains("user:secret"));
         assert!(!debug.contains("hidden"));
+    }
+
+    #[test]
+    fn extra_body_input_is_always_secure() {
+        assert!(extra_body_input_is_secure());
     }
 
     #[test]
