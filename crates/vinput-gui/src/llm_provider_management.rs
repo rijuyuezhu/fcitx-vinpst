@@ -179,13 +179,11 @@ impl LlmProviderEditorState {
     }
 
     fn provider(&self) -> Result<LlmProviderConfig, String> {
-        let id = self
-            .original_id
-            .as_deref()
-            .unwrap_or(&self.fields.id)
-            .trim()
-            .to_owned();
-        if id.is_empty() {
+        let id = self.original_id.as_ref().map_or_else(
+            || self.fields.id.trim().to_owned(),
+            std::clone::Clone::clone,
+        );
+        if id.trim().is_empty() {
             return Err("LLM provider id cannot be empty.".to_owned());
         }
         let base_url = self.fields.base_url.trim().to_owned();
@@ -1025,6 +1023,56 @@ mod tests {
                 .providers
                 .iter()
                 .any(|provider| provider.id == "renamed")
+        );
+    }
+
+    #[test]
+    fn edit_provider_preserves_exact_immutable_id_and_scene_reference() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        config.llm.providers.push(provider(" cloud "));
+        config.scenes.definitions.push(SceneDefinition {
+            id: "cloud-scene".to_owned(),
+            label: "Cloud scene".to_owned(),
+            prompt: Some("Polish the text".to_owned()),
+            provider_id: Some(" cloud ".to_owned()),
+            model: None,
+            candidate_count: 1,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+        config.validate().expect("valid whitespace provider id");
+        let configured = config.llm.providers.last().expect("configured provider");
+        let mut editor = LlmProviderEditorState::edit(configured);
+        editor.update(
+            LlmProviderEditorField::Model,
+            SecretInput::new("model-b".to_owned()),
+        );
+
+        let updated = edit_llm_provider(&config, &editor).expect("edit provider");
+
+        updated.validate().expect("edited config remains valid");
+        assert!(
+            updated
+                .llm
+                .providers
+                .iter()
+                .any(|provider| provider.id == " cloud ")
+        );
+        assert!(
+            !updated
+                .llm
+                .providers
+                .iter()
+                .any(|provider| provider.id == "cloud")
+        );
+        assert_eq!(
+            updated
+                .scenes
+                .definitions
+                .iter()
+                .find(|scene| scene.id == "cloud-scene")
+                .and_then(|scene| scene.provider_id.as_deref()),
+            Some(" cloud ")
         );
     }
 
