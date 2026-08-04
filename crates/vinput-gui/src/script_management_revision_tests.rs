@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use super::*;
-use vinput_registry::{RegistryAssetSource, RegistryTextSource};
+use vinput_config::MANAGED_SCRIPT_REVISION_KEY;
+use vinput_registry::{RegistryAssetSource, RegistryTextSource, sha256_hex};
 
 struct FixtureTextSource(&'static str);
 
@@ -98,4 +99,98 @@ fn adapter_update_changes_managed_script_revision() {
     assert_eq!(first_revision, sha256_hex(first_bytes));
     assert_eq!(second_revision, sha256_hex(second_bytes));
     assert_ne!(first_revision, second_revision);
+    let adapter = &second_config.llm.adapters[0];
+    assert_eq!(
+        adapter
+            .extra
+            .get(vinput_config::MANAGED_SCRIPT_ROLLBACK_REVISION_KEY)
+            .and_then(serde_json::Value::as_str),
+        Some(first_revision.as_str())
+    );
+    assert_eq!(
+        std::fs::read(vinput_registry::managed_script_rollback_path(
+            &second_plan.script_path
+        ))
+        .expect("rollback script"),
+        first_bytes
+    );
+}
+
+#[test]
+fn rejected_adapter_update_restores_previous_script() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let config_path = directory.path().join("config.json");
+    let root = directory.path().join("adapters");
+    let registry = FixtureTextSource(
+        r#"{
+            "version": 1,
+            "items": [{
+                "id": "adapter.fixture.command",
+                "short_id": "fixture",
+                "command": "python3",
+                "script_urls": ["https://example.invalid/adapter.py"]
+            }]
+        }"#,
+    );
+    let initial_document = ConfigDocument {
+        path: config_path.clone(),
+        from_disk: false,
+        config: VinputConfig::bundled_default().expect("bundled config"),
+    };
+    let initial_plan = prepared_plan(prepare_registry_script_from_source(
+        &initial_document,
+        LiveScriptKind::LlmAdapter,
+        "fixture",
+        &RegistryOperationControl::default(),
+        &registry,
+        &root,
+    ));
+    let old_bytes = b"#!/usr/bin/env python3\nprint('old')\n";
+    let initial = install_registry_script_from_source(
+        &initial_document,
+        &initial_plan,
+        &RegistryOperationControl::default(),
+        &FixtureAssetSource(old_bytes),
+    );
+    assert!(matches!(initial, ScriptInstallOutcome::Installed(_)));
+    let installed_config = VinputConfig::from_json_file(&config_path).expect("installed config");
+    let update_document = ConfigDocument {
+        path: config_path,
+        from_disk: true,
+        config: installed_config,
+    };
+    let update_plan = prepared_plan(prepare_registry_script_from_source(
+        &update_document,
+        LiveScriptKind::LlmAdapter,
+        "fixture",
+        &RegistryOperationControl::default(),
+        &registry,
+        &root,
+    ));
+    let new_bytes = b"#!/usr/bin/env python3\nprint('new')\n";
+
+    let outcome = install_registry_script_from_source_and_save(
+        &update_document,
+        &update_plan,
+        &RegistryOperationControl::default(),
+        &FixtureAssetSource(new_bytes),
+        |_, _| Err("daemon reload rejected replacement".to_owned()),
+    );
+
+    assert!(matches!(
+        outcome,
+        ScriptInstallOutcome::Failed(ref error)
+            if error.contains("Previous managed adapter script restored")
+    ));
+    assert_eq!(
+        std::fs::read(&update_plan.script_path).expect("restored canonical script"),
+        old_bytes
+    );
+    assert_eq!(
+        std::fs::read(vinput_registry::managed_script_rollback_path(
+            &update_plan.script_path
+        ))
+        .expect("retained rollback script"),
+        old_bytes
+    );
 }

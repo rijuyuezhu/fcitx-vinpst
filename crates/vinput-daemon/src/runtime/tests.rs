@@ -1025,29 +1025,75 @@ fn configured_reload_rolls_back_prior_stops_when_later_stop_fails() {
 }
 
 #[test]
-fn configured_reload_rolls_back_when_replacement_start_fails() {
+fn configured_reload_rolls_back_from_preserved_script_when_replacement_start_fails() {
     let runtime_dir = unique_adapter_runtime_dir("reload-start-rollback");
-    let config = config_with_sleep_adapter("cmd-adapter");
+    let script_path = runtime_dir.join("adapter.sh");
+    let rollback_path = vinput_registry::managed_script_rollback_path(&script_path);
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    std::fs::write(
+        &script_path,
+        "sleep 30
+",
+    )
+    .unwrap();
+    std::fs::write(
+        &rollback_path,
+        "sleep 30
+",
+    )
+    .unwrap();
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.llm.adapters.push(vinput_config::LlmAdapterConfig {
+        id: "cmd-adapter".to_owned(),
+        command: "/bin/sh".to_owned(),
+        args: vec![script_path.to_string_lossy().into_owned()],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::from([(
+            vinput_config::MANAGED_SCRIPT_REVISION_KEY.to_owned(),
+            serde_json::json!("revision-1"),
+        )]),
+    });
     let mut runtime = RuntimeState::new(config.clone())
         .unwrap()
         .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
 
     let old_pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    std::fs::write(
+        &script_path,
+        "exit 99
+",
+    )
+    .unwrap();
     let mut updated = config;
     updated.llm.adapters[0].command = "/definitely/missing/vinput-adapter".to_owned();
+    updated.llm.adapters[0].extra.insert(
+        vinput_config::MANAGED_SCRIPT_REVISION_KEY.to_owned(),
+        serde_json::json!("revision-2"),
+    );
+    updated.llm.adapters[0].extra.insert(
+        vinput_config::MANAGED_SCRIPT_ROLLBACK_REVISION_KEY.to_owned(),
+        serde_json::json!("revision-1"),
+    );
     updated.validate().unwrap();
 
     let error = runtime
         .queue_configured_asr_reload(updated)
         .expect_err("replacement start must reject reload");
     assert!(error.to_string().contains("failed to spawn text adapter"));
-    assert_eq!(runtime.config.llm.adapters[0].command, "sleep");
+    assert_eq!(runtime.config.llm.adapters[0].command, "/bin/sh");
     let restored_pid = runtime
         .text_adapter_pid("cmd-adapter")
         .expect("restored old adapter pid");
     assert_ne!(restored_pid, old_pid);
     assert!(process_is_runnable(restored_pid));
     wait_until_process_stops_running(old_pid);
+    let cmdline = std::fs::read(format!("/proc/{restored_pid}/cmdline")).unwrap();
+    assert!(
+        cmdline
+            .windows(rollback_path.as_os_str().as_encoded_bytes().len())
+            .any(|window| window == rollback_path.as_os_str().as_encoded_bytes())
+    );
 
     runtime.stop_text_adapter("cmd-adapter").unwrap();
     wait_until_process_stops_running(restored_pid);

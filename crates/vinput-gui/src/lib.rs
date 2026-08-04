@@ -32,6 +32,7 @@ mod script_install;
 mod script_management;
 mod script_recovery;
 mod script_removal;
+mod script_transaction;
 
 pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
@@ -986,12 +987,39 @@ pub(crate) fn save_updated_config_with_daemon(
     let mut outcome = persist_updated_config(document, updated)?;
     outcome.daemon_reload = match daemon {
         Ok(_) => match reload_asr_backend() {
-            Ok(()) => "daemon ASR reload requested".to_owned(),
-            Err(error) => format!("config saved; daemon reload failed: {error}"),
+            Ok(()) => "daemon config reload requested".to_owned(),
+            Err(error) => {
+                let rollback = restore_config_document(document);
+                return Err(match rollback {
+                    Ok(()) => {
+                        format!("Daemon config reload failed: {error}; previous config restored.")
+                    }
+                    Err(rollback_error) => format!(
+                        "Daemon config reload failed: {error}; restoring previous config also failed: {rollback_error}"
+                    ),
+                });
+            }
         },
         Err(error) => format!("config saved; daemon reload skipped: {error}"),
     };
     Ok(outcome)
+}
+
+fn restore_config_document(document: &ConfigDocument) -> Result<(), String> {
+    if document.from_disk {
+        write_config_file(&document.config, &document.path, None)
+            .map(|_| ())
+            .map_err(|error| format!("Restore config {}: {error}", document.path.display()))
+    } else {
+        match std::fs::remove_file(&document.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "Remove newly created config {}: {error}",
+                document.path.display()
+            )),
+        }
+    }
 }
 
 fn save_config_with_daemon(

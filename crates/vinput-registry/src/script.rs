@@ -261,6 +261,15 @@ pub enum AsrProviderMaterializationError {
     UserDefinedProvider(String),
 }
 
+/// Returns the deterministic adjacent rollback artifact for a managed script.
+#[must_use]
+pub fn managed_script_rollback_path(script_path: impl AsRef<Path>) -> PathBuf {
+    let script_path = script_path.as_ref();
+    let mut rollback = script_path.as_os_str().to_os_string();
+    rollback.push(".rollback");
+    PathBuf::from(rollback)
+}
+
 /// Returns the legacy-compatible managed relative path for a registry id.
 ///
 /// The first segment names the resource kind, the second segment is a directory,

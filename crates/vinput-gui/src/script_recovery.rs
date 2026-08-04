@@ -7,9 +7,9 @@ use crate::{
     save_updated_config_with_daemon,
     script_install::ScriptInstallPlan,
     script_management::{
-        apply_managed_script_revision, apply_plan_environment, materialize_config, resource_label,
-        validate_plan_environment,
+        apply_plan_environment, materialize_config, resource_label, validate_plan_environment,
     },
+    script_transaction::apply_managed_script_revision,
 };
 
 pub(crate) fn recover_registry_script_config(
@@ -31,7 +31,13 @@ fn recover_registry_script_config_with_save(
         let (mut updated, _) =
             materialize_config(&document.config, plan.kind, &plan.entry, &plan.script_path)?;
         apply_plan_environment(&mut updated, plan);
-        apply_managed_script_revision(&mut updated, plan.kind, &plan.entry.id, &plan.script_path)?;
+        apply_managed_script_revision(
+            &mut updated,
+            plan.kind,
+            &plan.entry.id,
+            &plan.script_path,
+            None,
+        )?;
         updated.validate().map_err(|error| {
             format!(
                 "Validate recovered {} configuration: {error}",
@@ -235,7 +241,7 @@ mod tests {
         assert_eq!(
             adapter
                 .extra
-                .get(crate::script_management::MANAGED_SCRIPT_REVISION_KEY)
+                .get(vinput_config::MANAGED_SCRIPT_REVISION_KEY)
                 .and_then(serde_json::Value::as_str),
             Some(vinput_registry::sha256_hex(bytes).as_str())
         );

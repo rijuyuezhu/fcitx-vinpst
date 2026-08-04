@@ -232,6 +232,45 @@ fn config_draft_replaces_existing_file_with_backup() {
 }
 
 #[test]
+fn config_reload_failure_restore_reinstates_existing_document() {
+    let directory = tempfile::tempdir().expect("create temp dir");
+    let path = directory.path().join("config.json");
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    write_config_file(&config, &path, None).expect("write original config");
+    let document = load_config_document(Some(&path)).expect("load original config");
+    let mut updated = config.clone();
+    updated.global.capture_device = "new-source".to_owned();
+    persist_updated_config(&document, &updated).expect("persist candidate config");
+
+    restore_config_document(&document).expect("restore prior config");
+
+    assert_eq!(
+        VinputConfig::from_json_file(&path).expect("restored config"),
+        config
+    );
+}
+
+#[test]
+fn config_reload_failure_restore_removes_new_document() {
+    let directory = tempfile::tempdir().expect("create temp dir");
+    let path = directory.path().join("config.json");
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    let document = ConfigDocument {
+        path: path.clone(),
+        from_disk: false,
+        config: config.clone(),
+    };
+    let mut updated = config;
+    updated.global.capture_device = "new-source".to_owned();
+    persist_updated_config(&document, &updated).expect("persist candidate config");
+    assert!(path.exists());
+
+    restore_config_document(&document).expect("remove candidate config");
+
+    assert!(!path.exists());
+}
+
+#[test]
 fn config_draft_rejects_external_changes_without_overwrite() {
     let directory = tempfile::tempdir().expect("create temp dir");
     let path = directory.path().join("config.json");

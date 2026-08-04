@@ -6,8 +6,8 @@ use vinput_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, Vinput
 use vinput_registry::{
     LiveScriptKind, LiveScriptRegistry, RegistryOperationControl, RegistryOperationProgress,
     RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
-    install_live_script_controlled, managed_script_relative_path, materialize_asr_provider,
-    materialize_llm_adapter, sha256_hex,
+    install_live_script_controlled, managed_script_relative_path, managed_script_rollback_path,
+    materialize_asr_provider, materialize_llm_adapter,
 };
 
 use crate::{
@@ -16,11 +16,11 @@ use crate::{
     script_install::{
         ScriptEnvironmentValue, ScriptInstallOutcome, ScriptInstallPlan, ScriptPrepareOutcome,
     },
+    script_transaction::{
+        ManagedScriptRollback, apply_managed_script_revision, failed_after_publication,
+        failed_with_script_restore,
+    },
 };
-
-/// Forward-compatible config marker used to restart a managed adapter after
-/// its executable script is atomically replaced at the same path.
-pub(crate) const MANAGED_SCRIPT_REVISION_KEY: &str = "x-vinput-managed-script-sha256";
 
 pub(crate) fn prepare_registry_script_controlled(
     document: &ConfigDocument,
@@ -145,6 +145,10 @@ pub(crate) fn install_registry_script_from_source_and_save(
             Err(error) => return ScriptInstallOutcome::Failed(error),
         };
     apply_plan_environment(&mut updated, plan);
+    let rollback = match ManagedScriptRollback::prepare(plan.kind, replacing, &plan.script_path) {
+        Ok(rollback) => rollback,
+        Err(error) => return ScriptInstallOutcome::Failed(error),
+    };
     if let Err(error) = updated.validate() {
         return ScriptInstallOutcome::Failed(format!(
             "Validate installed {} configuration: {error}",
@@ -165,34 +169,34 @@ pub(crate) fn install_registry_script_from_source_and_save(
         Ok(installed) => installed,
         Err(_) if control.is_cancelled() => return ScriptInstallOutcome::Cancelled,
         Err(error) => {
-            return ScriptInstallOutcome::Failed(format!(
-                "{} installation failed: {error}",
-                resource_title(plan.kind)
-            ));
+            let primary = format!("{} installation failed: {error}", resource_title(plan.kind));
+            return failed_with_script_restore(primary, rollback.as_ref());
         }
     };
     if installed.script_path != plan.script_path {
-        return ScriptInstallOutcome::Failed(format!(
-            "Installed script path `{}` did not match planned path `{}`.",
-            installed.script_path.display(),
-            plan.script_path.display()
-        ));
+        return failed_with_script_restore(
+            format!(
+                "Installed script path `{}` did not match planned path `{}`.",
+                installed.script_path.display(),
+                plan.script_path.display()
+            ),
+            rollback.as_ref(),
+        );
     }
     if let Err(error) = apply_managed_script_revision(
         &mut updated,
         plan.kind,
         &plan.entry.id,
         &installed.script_path,
+        rollback.as_ref(),
     ) {
-        return ScriptInstallOutcome::PublishedButConfigFailed { error };
+        return failed_after_publication(error, rollback.as_ref());
     }
 
     control.report(RegistryOperationProgress::UpdatingConfiguration);
     let saved = match save(document, &updated) {
         Ok(saved) => saved,
-        Err(error) => {
-            return ScriptInstallOutcome::PublishedButConfigFailed { error };
-        }
+        Err(error) => return failed_after_publication(error, rollback.as_ref()),
     };
     control.report(RegistryOperationProgress::Completed);
     let action = if replacing { "Updated" } else { "Installed" };
@@ -203,36 +207,6 @@ pub(crate) fn install_registry_script_from_source_and_save(
         plan.script_path.display(),
         saved.daemon_reload
     ))
-}
-
-pub(crate) fn apply_managed_script_revision(
-    config: &mut VinputConfig,
-    kind: LiveScriptKind,
-    resource_id: &str,
-    script_path: &std::path::Path,
-) -> Result<(), String> {
-    if kind != LiveScriptKind::LlmAdapter {
-        return Ok(());
-    }
-    let bytes = std::fs::read(script_path).map_err(|error| {
-        format!(
-            "Read published text adapter script `{}` for revision: {error}",
-            script_path.display()
-        )
-    })?;
-    let adapter = config
-        .llm
-        .adapters
-        .iter_mut()
-        .find(|adapter| adapter.id == resource_id)
-        .ok_or_else(|| {
-            format!("Installed text adapter `{resource_id}` is missing from prepared config.")
-        })?;
-    adapter.extra.insert(
-        MANAGED_SCRIPT_REVISION_KEY.to_owned(),
-        serde_json::Value::String(sha256_hex(&bytes)),
-    );
-    Ok(())
 }
 
 pub(crate) fn validate_plan_environment(plan: &ScriptInstallPlan) -> Result<(), String> {
@@ -511,19 +485,27 @@ fn remove_managed_script_entry_from_root(
         .map_err(|error| format!("Validate configuration after removing {id}: {error}"))?;
     let saved = save_updated_config_with_daemon(document, &updated)?;
     let cleanup = cleanup_managed_script(&script_path);
+    let rollback_cleanup = (kind == LiveScriptKind::LlmAdapter)
+        .then(|| cleanup_managed_script(&managed_script_rollback_path(&script_path)));
     let label = resource_label(kind);
-    Ok(match cleanup {
-        Ok(true) => format!(
+    let cleanup_error = cleanup.as_ref().err().map(ToString::to_string).or_else(|| {
+        rollback_cleanup
+            .as_ref()
+            .and_then(|result| result.as_ref().err())
+            .map(ToString::to_string)
+    });
+    Ok(match cleanup_error {
+        Some(error) => format!(
+            "Removed {label} `{id}` from config; managed script cleanup failed: {error}; {}.",
+            saved.daemon_reload
+        ),
+        None if cleanup == Ok(true) => format!(
             "Removed {label} `{id}` and managed script {}; {}.",
             script_path.display(),
             saved.daemon_reload
         ),
-        Ok(false) => format!(
+        None => format!(
             "Removed {label} `{id}`; managed script was already absent; {}.",
-            saved.daemon_reload
-        ),
-        Err(error) => format!(
-            "Removed {label} `{id}` from config; managed script cleanup failed: {error}; {}.",
             saved.daemon_reload
         ),
     })
@@ -593,7 +575,8 @@ mod tests {
     use std::{fs, path::Path};
 
     use super::*;
-    use vinput_registry::{LiveScriptEntry, RegistryAssetSource};
+    use vinput_config::MANAGED_SCRIPT_REVISION_KEY;
+    use vinput_registry::{LiveScriptEntry, RegistryAssetSource, sha256_hex};
 
     struct FixtureTextSource(&'static str);
 
@@ -1157,7 +1140,10 @@ mod tests {
             config,
         };
         fs::create_dir_all(root.join("fixture")).expect("adapter dir");
-        fs::write(root.join("fixture/command"), b"adapter").expect("adapter script");
+        let script_path = root.join("fixture/command");
+        let rollback_path = managed_script_rollback_path(&script_path);
+        fs::write(&script_path, b"adapter").expect("adapter script");
+        fs::write(&rollback_path, b"previous adapter").expect("rollback script");
 
         let summary = remove_managed_script_entry_from_root(
             &document,
@@ -1168,7 +1154,8 @@ mod tests {
         .expect("remove adapter");
 
         assert!(summary.contains("Removed text adapter"));
-        assert!(!root.join("fixture/command").exists());
+        assert!(!script_path.exists());
+        assert!(!rollback_path.exists());
         let saved = VinputConfig::from_json_file(&document.path).expect("saved config");
         assert!(
             saved

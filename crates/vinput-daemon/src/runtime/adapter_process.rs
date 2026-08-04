@@ -1,6 +1,10 @@
 //! Supervised command text adapter process lifecycle.
 
-use vinput_config::{LlmAdapterConfig, VinputConfig};
+use vinput_config::{
+    LlmAdapterConfig, MANAGED_SCRIPT_REVISION_KEY, MANAGED_SCRIPT_ROLLBACK_REVISION_KEY,
+    VinputConfig,
+};
+use vinput_registry::managed_script_rollback_path;
 use vinput_text::{
     AdapterProcessSpec, AdapterRuntimePaths, AdapterStopOutcome, StartedAdapterProcess, TextError,
     start_adapter_process, stop_adapter_process, stop_started_adapter_process,
@@ -199,11 +203,37 @@ fn adapter_restart_plans(
                 .iter()
                 .find(|candidate| candidate.id == current_adapter.id);
             (next_adapter != Some(current_adapter)).then(|| AdapterRestartPlan {
-                old_spec: AdapterProcessSpec::from_config(current_adapter),
+                old_spec: adapter_rollback_spec(current_adapter, next_adapter),
                 new_spec: next_adapter.map(AdapterProcessSpec::from_config),
             })
         })
         .collect()
+}
+
+fn adapter_rollback_spec(
+    current: &LlmAdapterConfig,
+    next: Option<&LlmAdapterConfig>,
+) -> AdapterProcessSpec {
+    let mut spec = AdapterProcessSpec::from_config(current);
+    let Some(next) = next else {
+        return spec;
+    };
+    let current_revision = current
+        .extra
+        .get(MANAGED_SCRIPT_REVISION_KEY)
+        .and_then(serde_json::Value::as_str);
+    let rollback_revision = next
+        .extra
+        .get(MANAGED_SCRIPT_ROLLBACK_REVISION_KEY)
+        .and_then(serde_json::Value::as_str);
+    let revision_matches = rollback_revision.is_some()
+        && (current_revision.is_none() || rollback_revision == current_revision);
+    if revision_matches && current.args.len() == 1 && next.args == current.args {
+        spec.args[0] = managed_script_rollback_path(&current.args[0])
+            .to_string_lossy()
+            .into_owned();
+    }
+    spec
 }
 
 fn reconciliation_error(
