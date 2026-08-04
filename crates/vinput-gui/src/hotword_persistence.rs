@@ -141,14 +141,22 @@ fn with_prepared_hotword_file<T>(
 }
 
 fn prepare_missing_hotword_file(path: Option<&Path>) -> Result<bool, String> {
+    prepare_missing_hotword_file_with(path, || {})
+}
+
+fn prepare_missing_hotword_file_with(
+    path: Option<&Path>,
+    before_publish: impl FnOnce(),
+) -> Result<bool, String> {
     let Some(path) = path else {
         return Ok(false);
     };
-    if read_hotword_snapshot(path)?.existed {
+    let expected = read_hotword_snapshot(path)?;
+    if expected.existed {
         return Ok(false);
     }
-    atomic_write_hotword_file(path, b"")?;
-    Ok(true)
+    before_publish();
+    compare_and_swap_hotword_file(path, &expected, b"", || {}).map(|_| true)
 }
 
 pub(super) fn read_hotword_snapshot(path: &Path) -> Result<HotwordContentSnapshot, String> {
@@ -337,11 +345,6 @@ fn append_activation_error(outcome: &mut HotwordContentSaveOutcome, error: Strin
         None => error,
     });
     "Hotword content was saved to disk.".clone_into(&mut outcome.summary);
-}
-
-fn atomic_write_hotword_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let expected = read_hotword_snapshot(path)?;
-    compare_and_swap_hotword_file(path, &expected, bytes, || {}).map(|_| ())
 }
 
 fn ensure_no_hotword_extended_attributes(file: &fs::File) -> Result<(), String> {
@@ -640,6 +643,30 @@ mod tests {
         .expect("commit prepared file");
 
         assert!(path.is_file());
+    }
+
+    #[test]
+    fn missing_prerequisite_rejects_external_creation_after_snapshot() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+
+        let error = prepare_missing_hotword_file_with(Some(&path), || {
+            fs::write(&path, "external\n").expect("external creation");
+        })
+        .expect_err("reject raced external creation");
+
+        assert!(error.contains("created outside the GUI"));
+        assert_eq!(
+            fs::read_to_string(&path).expect("external content"),
+            "external\n"
+        );
+        assert_eq!(
+            fs::read_dir(directory.path())
+                .expect("directory entries")
+                .filter_map(Result::ok)
+                .count(),
+            1
+        );
     }
 
     #[test]
