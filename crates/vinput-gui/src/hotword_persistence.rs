@@ -416,7 +416,17 @@ fn compare_and_swap_hotword_file(
     path: &Path,
     expected: &HotwordContentSnapshot,
     bytes: &[u8],
-    before_claim: impl FnOnce(),
+    before_preserve: impl FnOnce(),
+) -> Result<HotwordPublishOutcome, String> {
+    compare_and_swap_hotword_file_with_exchange_hook(path, expected, bytes, before_preserve, || {})
+}
+
+fn compare_and_swap_hotword_file_with_exchange_hook(
+    path: &Path,
+    expected: &HotwordContentSnapshot,
+    bytes: &[u8],
+    before_preserve: impl FnOnce(),
+    before_exchange: impl FnOnce(),
 ) -> Result<HotwordPublishOutcome, String> {
     if bytes.len() > MAX_HOTWORD_FILE_BYTES {
         return Err(format!(
@@ -432,6 +442,7 @@ fn compare_and_swap_hotword_file(
         .file_name()
         .ok_or_else(|| "Hotword path must name a file.".to_owned())?;
     let (temporary_path, mut temporary_file) = create_sibling_file(parent, file_name, "tmp")?;
+    let mut cleanup_temporary = true;
     let result = (|| -> Result<HotwordPublishOutcome, String> {
         prepare_temporary_hotword_metadata(&temporary_file, expected)?;
         temporary_file
@@ -442,7 +453,8 @@ fn compare_and_swap_hotword_file(
             .sync_all()
             .map_err(|error| format!("Synchronize temporary hotword file: {error}"))?;
         drop(temporary_file);
-        before_claim();
+        let prepared = read_hotword_snapshot(&temporary_path)?;
+        before_preserve();
         if !expected.existed {
             publish_noreplace(&temporary_path, path).map_err(|error| {
                 if error == Errno::EXIST {
@@ -454,39 +466,116 @@ fn compare_and_swap_hotword_file(
             })?;
             return Ok(finish_published_hotword(parent, false, sync_directory));
         }
-        let recovery_path = claim_current_hotword_file(path, parent, file_name)?;
-        synchronize_claim_or_restore(&recovery_path, path, parent, sync_directory)?;
-        let claimed = read_claimed_hotword_or_restore(&recovery_path, path, parent)?;
-        if !claimed.matches_after_claim(expected) {
-            let restored = restore_claimed_file(&recovery_path, path, parent)?;
-            return Err(if restored {
-                "Configured hotword file changed outside the GUI before atomic publication; the external version was restored."
-                    .to_owned()
-            } else {
-                "Configured hotword file changed outside the GUI before atomic publication; the current path and an adjacent recovery copy were both preserved."
-                    .to_owned()
-            });
-        }
-        if let Err(error) = publish_noreplace(&temporary_path, path) {
-            let restored = restore_claimed_file(&recovery_path, path, parent)?;
-            return Err(if error == Errno::EXIST {
-                if restored {
-                    "Configured hotword file was recreated outside the GUI during atomic publication; the external version was preserved and the loaded version was restored."
-                        .to_owned()
-                } else {
-                    "Configured hotword file was recreated outside the GUI during atomic publication; the external version and an adjacent recovery copy were both preserved."
-                        .to_owned()
-                }
-            } else {
-                format!("Publish claimed hotword file without replacement: {error}")
-            });
-        }
-        Ok(finish_published_hotword(parent, true, sync_directory))
+        publish_existing_hotword(
+            path,
+            parent,
+            &temporary_path,
+            expected,
+            &prepared,
+            before_exchange,
+            &mut cleanup_temporary,
+        )
     })();
-    if temporary_path.exists() {
+    if cleanup_temporary && temporary_path.exists() {
         let _ = fs::remove_file(&temporary_path);
     }
     result
+}
+
+fn publish_existing_hotword(
+    path: &Path,
+    parent: &Path,
+    temporary_path: &Path,
+    expected: &HotwordContentSnapshot,
+    prepared: &HotwordContentSnapshot,
+    before_exchange: impl FnOnce(),
+    cleanup_temporary: &mut bool,
+) -> Result<HotwordPublishOutcome, String> {
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| "Hotword path must name a file.".to_owned())?;
+    let recovery_path = preserve_current_hotword_file(path, parent, file_name)?;
+    synchronize_recovery_or_remove(&recovery_path, parent, sync_directory)?;
+    let preserved = read_preserved_hotword_or_remove(&recovery_path, parent)?;
+    let current = read_current_hotword_or_preserve_recovery(path, &recovery_path)?;
+    if !preserved.matches_after_claim(expected) || !current.matches_after_claim(expected) {
+        remove_recovery_file(&recovery_path, parent)?;
+        return Err(
+            "Configured hotword file changed outside the GUI before atomic publication; the external version remained at the configured path."
+                .to_owned(),
+        );
+    }
+
+    before_exchange();
+    if let Err(error) = exchange_paths(temporary_path, path) {
+        let cleanup = remove_recovery_file(&recovery_path, parent);
+        return Err(format!(
+            "Atomically exchange the hotword file while keeping the configured path available: {error}. The recovery link was {}.",
+            cleanup_description(&cleanup)
+        ));
+    }
+    *cleanup_temporary = false;
+
+    let published_matches = read_hotword_snapshot(path)
+        .as_ref()
+        .is_ok_and(|published| published.matches_after_claim(prepared));
+    let displaced_matches = read_hotword_snapshot(temporary_path)
+        .as_ref()
+        .is_ok_and(|displaced| displaced.matches_after_claim(expected));
+    if !published_matches || !displaced_matches {
+        return handle_invalid_exchange(
+            temporary_path,
+            path,
+            prepared,
+            parent,
+            &recovery_path,
+            cleanup_temporary,
+        );
+    }
+
+    let cleanup_error = fs::remove_file(temporary_path)
+        .err()
+        .map(|error| format!("Remove displaced hotword transaction file: {error}"));
+    let mut outcome = finish_published_hotword(parent, true, sync_directory);
+    if let Some(error) = cleanup_error {
+        append_publish_durability_error(&mut outcome, error);
+    }
+    Ok(outcome)
+}
+
+fn handle_invalid_exchange(
+    temporary_path: &Path,
+    path: &Path,
+    prepared: &HotwordContentSnapshot,
+    parent: &Path,
+    recovery_path: &Path,
+    cleanup_temporary: &mut bool,
+) -> Result<HotwordPublishOutcome, String> {
+    match rollback_exchanged_hotword(temporary_path, path, prepared, parent) {
+        Ok(true) => {
+            *cleanup_temporary = true;
+            remove_recovery_file(recovery_path, parent)?;
+            Err(
+                "Configured hotword file changed outside the GUI during atomic publication; the external version was restored to the configured path."
+                    .to_owned(),
+            )
+        }
+        Ok(false) => Err(
+            "Configured hotword file changed during atomic publication and the published path was also changed externally; the current path, displaced file, and recovery link were all preserved."
+                .to_owned(),
+        ),
+        Err(error) => Err(format!(
+            "Configured hotword file changed during atomic publication, and restoring the atomic exchange failed: {error}. The configured path, displaced file, and recovery link were all preserved."
+        )),
+    }
+}
+
+fn cleanup_description(result: &Result<(), String>) -> &'static str {
+    if result.is_ok() {
+        "removed"
+    } else {
+        "preserved because cleanup failed"
+    }
 }
 
 fn create_sibling_file(
@@ -514,7 +603,7 @@ fn create_sibling_file(
     Err("Could not allocate a sibling hotword file.".to_owned())
 }
 
-fn claim_current_hotword_file(
+fn preserve_current_hotword_file(
     path: &Path,
     parent: &Path,
     file_name: &std::ffi::OsStr,
@@ -526,39 +615,55 @@ fn claim_current_hotword_file(
             file_name.to_string_lossy(),
             std::process::id()
         ));
-        match publish_noreplace(path, &candidate) {
+        match fs::hard_link(path, &candidate) {
             Ok(()) => return Ok(candidate),
-            Err(Errno::EXIST) => {}
-            Err(Errno::NOENT) => {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return Err(
-                    "Configured hotword file disappeared before atomic publication; no file was overwritten."
+                    "Configured hotword file disappeared before its recovery link was created; no file was overwritten."
                         .to_owned(),
                 );
             }
-            Err(error) => return Err(format!("Claim current hotword file: {error}")),
+            Err(error) => return Err(format!("Preserve current hotword file: {error}")),
         }
     }
     Err("Could not allocate an adjacent hotword recovery file.".to_owned())
 }
 
-fn read_claimed_hotword_or_restore(
+fn read_preserved_hotword_or_remove(
     recovery_path: &Path,
-    path: &Path,
     parent: &Path,
 ) -> Result<HotwordContentSnapshot, String> {
     match read_hotword_snapshot(recovery_path) {
         Ok(snapshot) => Ok(snapshot),
-        Err(validation_error) => match restore_claimed_file(recovery_path, path, parent) {
-            Ok(true) => Err(format!(
-                "{validation_error} The claimed external hotword target was restored to its configured path."
-            )),
-            Ok(false) => Err(format!(
-                "{validation_error} The configured path was recreated externally, so it and the adjacent recovery copy were both preserved."
-            )),
-            Err(restore_error) => Err(format!(
-                "{validation_error} Restoring the claimed external hotword target also failed: {restore_error}"
-            )),
-        },
+        Err(validation_error) => {
+            let cleanup = remove_recovery_file(recovery_path, parent);
+            Err(format!(
+                "{validation_error} The configured path remained in place and the invalid recovery link was {}.",
+                if cleanup.is_ok() {
+                    "removed"
+                } else {
+                    "preserved because cleanup failed"
+                }
+            ))
+        }
+    }
+}
+
+fn read_current_hotword_or_preserve_recovery(
+    path: &Path,
+    recovery_path: &Path,
+) -> Result<HotwordContentSnapshot, String> {
+    match read_hotword_snapshot(path) {
+        Ok(snapshot) if snapshot.existed => Ok(snapshot),
+        Ok(_) => Err(format!(
+            "The configured hotword file disappeared after its recovery link was created; the previous version was preserved at the adjacent recovery path `{}`.",
+            recovery_path.display()
+        )),
+        Err(error) => Err(format!(
+            "{error} The configured path changed after its recovery link was created; the previous version was preserved at the adjacent recovery path `{}`.",
+            recovery_path.display()
+        )),
     }
 }
 
@@ -578,39 +683,56 @@ fn finish_published_hotword(
     }
 }
 
-fn synchronize_claim_or_restore(
+fn append_publish_durability_error(outcome: &mut HotwordPublishOutcome, error: String) {
+    outcome.durability_error = Some(match outcome.durability_error.take() {
+        Some(existing) => format!("{existing} {error}"),
+        None => error,
+    });
+}
+
+fn synchronize_recovery_or_remove(
     recovery_path: &Path,
-    path: &Path,
     parent: &Path,
     synchronize: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
     let Err(sync_error) = synchronize(parent) else {
         return Ok(());
     };
-    match restore_claimed_file(recovery_path, path, parent) {
-        Ok(true) => Err(format!(
-            "Synchronizing the hotword directory after claiming the loaded file failed: {sync_error}; the loaded file was restored to its configured path."
-        )),
-        Ok(false) => Err(format!(
-            "Synchronizing the hotword directory after claiming the loaded file failed: {sync_error}; an external file occupied the configured path, so it and the adjacent recovery copy were both preserved."
-        )),
-        Err(restore_error) => Err(format!(
-            "Synchronizing the hotword directory after claiming the loaded file failed: {sync_error}; restoring the configured path also failed: {restore_error}"
-        )),
+    let cleanup = remove_recovery_file(recovery_path, parent);
+    Err(format!(
+        "Synchronizing the hotword directory after preserving the loaded file failed: {sync_error}; the configured path remained available and the recovery link was {}.",
+        if cleanup.is_ok() {
+            "removed"
+        } else {
+            "preserved because cleanup failed"
+        }
+    ))
+}
+
+fn remove_recovery_file(recovery_path: &Path, parent: &Path) -> Result<(), String> {
+    match fs::remove_file(recovery_path) {
+        Ok(()) => sync_directory(parent),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Remove hotword recovery link: {error}")),
     }
 }
 
-fn restore_claimed_file(recovery_path: &Path, path: &Path, parent: &Path) -> Result<bool, String> {
-    match publish_noreplace(recovery_path, path) {
-        Ok(()) => {
-            sync_directory(parent)?;
-            Ok(true)
-        }
-        Err(Errno::EXIST) => Ok(false),
-        Err(error) => Err(format!(
-            "Restore claimed hotword file while preserving external changes: {error}"
-        )),
+fn rollback_exchanged_hotword(
+    temporary_path: &Path,
+    path: &Path,
+    prepared: &HotwordContentSnapshot,
+    parent: &Path,
+) -> Result<bool, String> {
+    let Ok(current) = read_hotword_snapshot(path) else {
+        return Ok(false);
+    };
+    if !current.matches_after_claim(prepared) {
+        return Ok(false);
     }
+    exchange_paths(temporary_path, path)
+        .map_err(|error| format!("Rollback hotword atomic exchange: {error}"))?;
+    sync_directory(parent)?;
+    Ok(true)
 }
 
 fn next_hotword_file_id() -> u64 {
@@ -621,6 +743,10 @@ fn publish_noreplace(source: &Path, target: &Path) -> rustix::io::Result<()> {
     renameat_with(CWD, source, CWD, target, RenameFlags::NOREPLACE)
 }
 
+fn exchange_paths(left: &Path, right: &Path) -> rustix::io::Result<()> {
+    renameat_with(CWD, left, CWD, right, RenameFlags::EXCHANGE)
+}
+
 fn sync_directory(parent: &Path) -> Result<(), String> {
     fs::File::open(parent)
         .and_then(|directory| directory.sync_all())
@@ -628,486 +754,5 @@ fn sync_directory(parent: &Path) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn missing_prerequisite_exists_before_commit() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-
-        with_prepared_hotword_file(Some(&path), || {
-            assert_eq!(fs::read_to_string(&path).expect("prepared file"), "");
-            Ok(())
-        })
-        .expect("commit prepared file");
-
-        assert!(path.is_file());
-    }
-
-    #[test]
-    fn missing_prerequisite_rejects_external_creation_after_snapshot() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-
-        let error = prepare_missing_hotword_file_with(Some(&path), || {
-            fs::write(&path, "external\n").expect("external creation");
-        })
-        .expect_err("reject raced external creation");
-
-        assert!(error.contains("created outside the GUI"));
-        assert_eq!(
-            fs::read_to_string(&path).expect("external content"),
-            "external\n"
-        );
-        assert_eq!(
-            fs::read_dir(directory.path())
-                .expect("directory entries")
-                .filter_map(Result::ok)
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn failed_commit_preserves_prepared_and_existing_files() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let missing = directory.path().join("missing.txt");
-        let modified = directory.path().join("modified.txt");
-        let existing = directory.path().join("existing.txt");
-        fs::write(&existing, "keep\n").expect("existing fixture");
-
-        let missing_error = with_prepared_hotword_file(Some(&missing), || {
-            assert!(missing.is_file());
-            Err::<(), _>("fixture commit failure".to_owned())
-        })
-        .expect_err("preserve missing prerequisite");
-        assert!(missing_error.contains("prepared for this update was preserved"));
-        assert_eq!(fs::read_to_string(&missing).expect("prepared content"), "");
-
-        let modified_error = with_prepared_hotword_file(Some(&modified), || {
-            fs::write(&modified, "external\n").expect("modify prepared file");
-            Err::<(), _>("fixture commit failure".to_owned())
-        })
-        .expect_err("preserve externally modified prerequisite");
-        assert!(modified_error.contains("prepared for this update was preserved"));
-        assert_eq!(
-            fs::read_to_string(&modified).expect("modified content"),
-            "external\n"
-        );
-
-        let existing_error = with_prepared_hotword_file(Some(&existing), || {
-            Err::<(), _>("fixture commit failure".to_owned())
-        })
-        .expect_err("preserve existing prerequisite");
-        assert_eq!(existing_error, "fixture commit failure");
-        assert_eq!(
-            fs::read_to_string(&existing).expect("existing content"),
-            "keep\n"
-        );
-    }
-    #[test]
-    fn content_save_is_atomic_conflict_aware_and_retryable_after_reload_failure() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "alpha\n").expect("write fixture");
-        let baseline = read_hotword_snapshot(&path).expect("read baseline");
-
-        let outcome = save_hotword_content_with_reload(&path, &baseline, "beta\n", || {
-            Ok("fixture reload".to_owned())
-        })
-        .expect("save content");
-        assert!(outcome.summary.contains("fixture reload"));
-        assert_eq!(outcome.activation_error, None);
-        assert_eq!(
-            outcome
-                .baseline
-                .as_ref()
-                .map(|snapshot| snapshot.content.as_str()),
-            Some("beta\n")
-        );
-        assert_eq!(fs::read_to_string(&path).expect("saved content"), "beta\n");
-
-        let loaded = read_hotword_snapshot(&path).expect("read saved content");
-        fs::write(&path, "external\n").expect("external update");
-        let conflict = save_hotword_content_with_reload(&path, &loaded, "gamma\n", || {
-            Ok("unreachable reload".to_owned())
-        })
-        .expect_err("reject external update");
-        assert!(conflict.contains("changed outside"));
-        assert_eq!(
-            fs::read_to_string(&path).expect("external content"),
-            "external\n"
-        );
-
-        let external = read_hotword_snapshot(&path).expect("read external content");
-        let reload_outcome = save_hotword_content_with_reload(&path, &external, "delta\n", || {
-            Err("fixture reload failure".to_owned())
-        })
-        .expect("preserve published content after reload failure");
-        assert!(
-            reload_outcome
-                .activation_error
-                .as_deref()
-                .is_some_and(|error| error.contains("rollback was skipped"))
-        );
-        assert!(reload_outcome.retry_activation);
-        assert_eq!(
-            fs::read_to_string(&path).expect("published content"),
-            "delta\n"
-        );
-    }
-
-    #[test]
-    fn content_save_disables_retry_after_reload_window_file_changes() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "delta\n").expect("write fixture");
-        let concurrent_baseline = read_hotword_snapshot(&path).expect("read concurrent baseline");
-        let concurrent_outcome =
-            save_hotword_content_with_reload(&path, &concurrent_baseline, "gui-write\n", || {
-                fs::write(&path, "concurrent-write\n").expect("concurrent update");
-                Err("fixture reload failure".to_owned())
-            })
-            .expect("preserve concurrent reload-window update");
-        assert!(concurrent_outcome.activation_error.is_some());
-        assert!(!concurrent_outcome.retry_activation);
-        assert!(concurrent_outcome.baseline.is_none());
-
-        let same_content_baseline =
-            read_hotword_snapshot(&path).expect("read same-content baseline");
-        let replacement = directory.path().join("replacement.txt");
-        let same_content_outcome = save_hotword_content_with_reload(
-            &path,
-            &same_content_baseline,
-            "gui-same-content\n",
-            || {
-                fs::write(&replacement, "gui-same-content\n").expect("replacement content");
-                fs::rename(&replacement, &path).expect("replace with same content");
-                Err("fixture reload failure".to_owned())
-            },
-        )
-        .expect("detect same-content external replacement");
-        assert!(same_content_outcome.activation_error.is_some());
-        assert!(!same_content_outcome.retry_activation);
-        assert!(same_content_outcome.baseline.is_none());
-        assert_eq!(
-            fs::read_to_string(&path).expect("same replacement content"),
-            "gui-same-content\n"
-        );
-
-        let missing_path = directory.path().join("new-hotwords.txt");
-        let missing_baseline = read_hotword_snapshot(&missing_path).expect("read missing baseline");
-        let missing_outcome = save_hotword_content_with_reload(
-            &missing_path,
-            &missing_baseline,
-            "gui-create\n",
-            || {
-                fs::write(&missing_path, "concurrent-create\n").expect("concurrent create");
-                Err("fixture reload failure".to_owned())
-            },
-        )
-        .expect("preserve concurrent creation");
-        assert!(missing_outcome.activation_error.is_some());
-        assert!(!missing_outcome.retry_activation);
-        assert!(missing_outcome.baseline.is_none());
-        assert_eq!(
-            fs::read_to_string(&missing_path).expect("concurrent created content"),
-            "concurrent-create\n"
-        );
-    }
-
-    #[test]
-    fn atomic_publication_claims_loaded_version_and_preserves_recovery() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "alpha\n").expect("initial content");
-        let baseline = read_hotword_snapshot(&path).expect("baseline");
-
-        let published = compare_and_swap_hotword_file(&path, &baseline, b"beta\n", || {})
-            .expect("publish loaded version");
-        assert!(published.previous_version_preserved);
-        assert_eq!(
-            fs::read_to_string(&path).expect("published content"),
-            "beta\n"
-        );
-        let recovery_files = fs::read_dir(directory.path())
-            .expect("recovery directory")
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|candidate| {
-                candidate
-                    .file_name()
-                    .is_some_and(|name| name.to_string_lossy().ends_with(".recovery"))
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(recovery_files.len(), 1);
-        assert_eq!(
-            fs::read_to_string(&recovery_files[0]).expect("recovery content"),
-            "alpha\n"
-        );
-    }
-
-    #[test]
-    fn hotword_snapshot_rejects_extended_attributes() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        let file = fs::File::create(&path).expect("hotword fixture");
-        file.set_xattr("user.vinput-test", b"fixture")
-            .expect("set fixture xattr");
-
-        let error = read_hotword_snapshot(&path).expect_err("reject extended metadata");
-        assert!(error.contains("extended attributes or ACL metadata"));
-    }
-
-    #[test]
-    fn temporary_publication_rejects_owner_or_group_mismatch() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "alpha\n").expect("hotword fixture");
-        let mut baseline = read_hotword_snapshot(&path).expect("baseline");
-        let (_, temporary_file) = create_sibling_file(
-            directory.path(),
-            path.file_name().expect("file name"),
-            "tmp",
-        )
-        .expect("temporary file");
-        prepare_temporary_hotword_metadata(&temporary_file, &baseline)
-            .expect("matching owner and group");
-
-        baseline.version.as_mut().expect("version").uid =
-            baseline.version.expect("version").uid.wrapping_add(1);
-        let error = prepare_temporary_hotword_metadata(&temporary_file, &baseline)
-            .expect_err("reject ownership mismatch");
-        assert!(error.contains("ownership cannot be preserved"));
-    }
-
-    #[test]
-    fn atomic_publication_restores_special_mode_bits_after_writing() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "alpha\n").expect("hotword fixture");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o6755))
-            .expect("special mode fixture");
-        let baseline = read_hotword_snapshot(&path).expect("baseline");
-
-        compare_and_swap_hotword_file(&path, &baseline, b"beta\n", || {})
-            .expect("publish with special mode");
-        assert_eq!(
-            fs::metadata(&path).expect("published metadata").mode() & 0o7777,
-            0o6755
-        );
-    }
-
-    #[test]
-    fn atomic_publication_rejects_changes_after_preparation() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "alpha\n").expect("initial content");
-        let baseline = read_hotword_snapshot(&path).expect("baseline");
-
-        let direct_write_error =
-            compare_and_swap_hotword_file(&path, &baseline, b"gui-write\n", || {
-                fs::write(&path, "external-write\n").expect("external write");
-            })
-            .expect_err("reject write after preparation");
-        assert!(direct_write_error.contains("changed outside"));
-        assert_eq!(
-            fs::read_to_string(&path).expect("external content"),
-            "external-write\n"
-        );
-
-        let same_content_baseline = read_hotword_snapshot(&path).expect("same baseline");
-        let replacement = directory.path().join("same-content-replacement.txt");
-        let same_content_error =
-            compare_and_swap_hotword_file(&path, &same_content_baseline, b"gui-write\n", || {
-                fs::write(&replacement, "external-write\n").expect("replacement content");
-                fs::rename(&replacement, &path).expect("atomic external replacement");
-            })
-            .expect_err("reject same-content replacement after preparation");
-        assert!(same_content_error.contains("changed outside"));
-        assert_eq!(
-            fs::read_to_string(&path).expect("same-content external file"),
-            "external-write\n"
-        );
-    }
-
-    #[test]
-    fn post_publication_target_validation_marks_result_unapplied() {
-        let mut outcome = HotwordContentSaveOutcome {
-            summary: "Hotword content saved; daemon ASR backend applied.".to_owned(),
-            activation_error: None,
-            baseline: None,
-            retry_activation: false,
-        };
-        append_activation_error(
-            &mut outcome,
-            "The configured hotword target changed after publication.".to_owned(),
-        );
-        assert_eq!(outcome.summary, "Hotword content was saved to disk.");
-        assert!(!outcome.retry_activation);
-        assert!(
-            outcome
-                .activation_error
-                .as_deref()
-                .is_some_and(|error| error.contains("target changed"))
-        );
-    }
-
-    #[test]
-    fn published_directory_sync_failure_is_reported_as_committed() {
-        let outcome = finish_published_hotword(Path::new("."), true, |_| {
-            Err("fixture final sync failure".to_owned())
-        });
-        assert!(outcome.previous_version_preserved);
-        assert!(
-            outcome
-                .durability_error
-                .as_deref()
-                .is_some_and(|error| error.contains("was published"))
-        );
-    }
-
-    #[test]
-    fn claimed_symlink_validation_failure_restores_configured_path() {
-        use std::os::unix::fs::symlink;
-
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        let external = directory.path().join("external.txt");
-        fs::write(&path, "alpha\n").expect("initial content");
-        fs::write(&external, "external\n").expect("external target");
-        let baseline = read_hotword_snapshot(&path).expect("baseline");
-
-        let error = compare_and_swap_hotword_file(&path, &baseline, b"beta\n", || {
-            fs::remove_file(&path).expect("remove loaded target");
-            symlink(&external, &path).expect("external symlink replacement");
-        })
-        .expect_err("reject and restore claimed symlink");
-        assert!(error.contains("symbolic link"));
-        assert!(error.contains("restored to its configured path"));
-        assert!(
-            fs::symlink_metadata(&path)
-                .expect("restored metadata")
-                .file_type()
-                .is_symlink()
-        );
-        assert_eq!(
-            fs::read_to_string(&path).expect("restored symlink target"),
-            "external\n"
-        );
-    }
-
-    #[test]
-    fn atomic_publication_rejects_permission_changes_after_loading() {
-        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
-
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "alpha\n").expect("initial content");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("initial permissions");
-        let baseline = read_hotword_snapshot(&path).expect("baseline");
-
-        let error = compare_and_swap_hotword_file(&path, &baseline, b"beta\n", || {
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).expect("external chmod");
-        })
-        .expect_err("reject permission change after loading");
-        assert!(error.contains("changed outside"));
-        assert_eq!(
-            fs::metadata(&path).expect("restored metadata").mode() & 0o777,
-            0o640
-        );
-        assert_eq!(
-            fs::read_to_string(&path).expect("restored content"),
-            "alpha\n"
-        );
-    }
-
-    #[test]
-    fn path_reload_confirmation_rejects_external_config_changes() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let config_path = directory.path().join("config.json");
-        let mut updated = VinputConfig::bundled_default().expect("bundled config");
-        updated.asr.providers[0].hotwords_file = Some(
-            directory
-                .path()
-                .join("old.txt")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&updated).expect("serialize updated config"),
-        )
-        .expect("write updated config");
-        ensure_hotword_path_update_current(&config_path, &updated)
-            .expect("unchanged path config is current");
-
-        let mut superseding = updated.clone();
-        superseding.asr.providers[0].hotwords_file = Some(
-            directory
-                .path()
-                .join("new.txt")
-                .to_string_lossy()
-                .into_owned(),
-        );
-        fs::write(
-            &config_path,
-            serde_json::to_vec_pretty(&superseding).expect("serialize superseding config"),
-        )
-        .expect("write superseding config");
-        let error = ensure_hotword_path_update_current(&config_path, &updated)
-            .expect_err("reject superseding path config");
-        assert!(error.contains("changed during reload"));
-    }
-
-    #[test]
-    fn claim_sync_failure_restores_configured_path() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "alpha\n").expect("initial content");
-        let recovery = claim_current_hotword_file(
-            &path,
-            directory.path(),
-            path.file_name().expect("file name"),
-        )
-        .expect("claim configured file");
-        assert!(!path.exists());
-
-        let error = synchronize_claim_or_restore(&recovery, &path, directory.path(), |_| {
-            Err("fixture directory sync failure".to_owned())
-        })
-        .expect_err("sync failure must abort publication");
-        assert!(error.contains("restored to its configured path"));
-        assert_eq!(
-            fs::read_to_string(&path).expect("restored content"),
-            "alpha\n"
-        );
-        assert!(!recovery.exists());
-    }
-
-    #[test]
-    fn repeated_publication_keeps_allocating_recovery_files() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "revision-0\n").expect("initial revision");
-
-        for revision in 1..=70_u8 {
-            let baseline = read_hotword_snapshot(&path).expect("revision baseline");
-            let content = format!("revision-{revision}\n");
-            compare_and_swap_hotword_file(&path, &baseline, content.as_bytes(), || {})
-                .expect("publish revision");
-        }
-
-        assert_eq!(
-            fs::read_to_string(&path).expect("latest revision"),
-            "revision-70\n"
-        );
-        let recovery_count = fs::read_dir(directory.path())
-            .expect("recovery directory")
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".recovery"))
-            .count();
-        assert_eq!(recovery_count, 70);
-    }
-}
+#[path = "hotword_persistence/tests.rs"]
+mod tests;
