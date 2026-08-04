@@ -286,12 +286,20 @@ impl App {
         if self.is_busy() || self.llm_provider_editor.is_some() {
             return;
         }
+        if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
+            return;
+        }
         self.llm_provider_editor = Some(LlmProviderEditorState::add());
         self.operation = OperationState::Idle;
     }
 
     fn begin_edit_llm_provider(&mut self, provider_id: &str) {
         if self.is_busy() || self.llm_provider_editor.is_some() {
+            return;
+        }
+        if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
             return;
         }
         let Some(provider) = self

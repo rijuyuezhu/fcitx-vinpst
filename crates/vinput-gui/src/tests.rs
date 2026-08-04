@@ -157,7 +157,7 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
 }
 
 #[test]
-fn llm_provider_mutations_reject_dirty_control_draft_and_preserve_form() {
+fn llm_provider_forms_and_mutations_reject_dirty_control_draft() {
     let (mut app, boot_task) = App::boot();
     drop(boot_task);
     let mut config = VinputConfig::bundled_default().expect("bundled config");
@@ -180,39 +180,25 @@ fn llm_provider_mutations_reject_dirty_control_draft_and_preserve_form() {
     app.page = Page::Llm;
 
     drop(app.update(Message::LlmProvider(LlmProviderMessage::BeginAdd)));
-    drop(
-        app.update(Message::LlmProvider(LlmProviderMessage::EditorChanged {
-            field: LlmProviderEditorField::Id,
-            value: SecretInput::new("new-provider".to_owned()),
-        })),
-    );
-    drop(
-        app.update(Message::LlmProvider(LlmProviderMessage::EditorChanged {
-            field: LlmProviderEditorField::BaseUrl,
-            value: SecretInput::new("https://new.example.invalid/v1".to_owned()),
-        })),
-    );
-    let editor_before = format!("{:?}", app.llm_provider_editor);
-
-    drop(app.update(Message::LlmProvider(LlmProviderMessage::Save)));
-
     assert!(matches!(
         app.operation,
         OperationState::Failed(ref error) if error.contains("Save or reset")
     ));
-    assert_eq!(format!("{:?}", app.llm_provider_editor), editor_before);
-    assert_eq!(
-        app.config
-            .as_ref()
-            .expect("config")
-            .config
-            .llm
-            .providers
-            .len(),
-        1
-    );
+    assert!(app.llm_provider_editor.is_none());
 
-    drop(app.update(Message::LlmProvider(LlmProviderMessage::CancelEdit)));
+    app.operation = OperationState::Idle;
+    drop(
+        app.update(Message::LlmProvider(LlmProviderMessage::BeginEdit(
+            "existing".to_owned(),
+        ))),
+    );
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("Save or reset")
+    ));
+    assert!(app.llm_provider_editor.is_none());
+
+    app.operation = OperationState::Idle;
     drop(app.update(Message::LlmProvider(LlmProviderMessage::Remove(
         "existing".to_owned(),
     ))));
@@ -223,6 +209,52 @@ fn llm_provider_mutations_reject_dirty_control_draft_and_preserve_form() {
     assert_eq!(
         app.config.as_ref().expect("config").config.llm.providers[0].id,
         "existing"
+    );
+    assert_eq!(
+        app.draft
+            .as_ref()
+            .expect("preserved dirty draft")
+            .default_language,
+        "zh-CN"
+    );
+}
+
+#[test]
+fn scene_forms_reject_dirty_control_draft() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    let scene_id = config.scenes.definitions[0].id.clone();
+    app.config = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-dirty-scene-form.json"),
+        from_disk: false,
+        config: config.clone(),
+    });
+    let mut draft = ConfigDraft::from_config(&config);
+    draft.default_language = "zh-CN".to_owned();
+    app.draft = Some(draft);
+    app.page = Page::Resources;
+
+    drop(app.update(Message::Scene(SceneMessage::BeginAdd)));
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("Save or reset")
+    ));
+    assert!(app.scene_editor.is_none());
+
+    app.operation = OperationState::Idle;
+    drop(app.update(Message::Scene(SceneMessage::BeginEdit(scene_id))));
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("Save or reset")
+    ));
+    assert!(app.scene_editor.is_none());
+    assert_eq!(
+        app.draft
+            .as_ref()
+            .expect("preserved dirty draft")
+            .default_language,
+        "zh-CN"
     );
 }
 
