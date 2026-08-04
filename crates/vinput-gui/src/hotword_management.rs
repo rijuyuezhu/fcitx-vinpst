@@ -155,6 +155,7 @@ pub struct HotwordMutationOutcome {
     save: ConfigSaveOutcome,
     summary: String,
     activation_error: Option<String>,
+    pending_activation: Option<PendingHotwordActivation>,
 }
 
 /// Result of publishing one hotword file and applying it to the active daemon backend.
@@ -321,10 +322,15 @@ impl HotwordEditorState {
     }
 
     fn apply_loaded(&mut self, loaded: LoadedHotwordContent) {
+        let keep_pending = self.pending_activation.as_ref().is_some_and(|pending| {
+            pending.matches_loaded_file(&loaded.provider_id, &loaded.path, &loaded.snapshot)
+        });
         self.content = text_editor::Content::with_text(&loaded.snapshot.content);
         self.loaded_path = Some(loaded.path);
         self.baseline = Some(loaded.snapshot);
-        self.pending_activation = None;
+        if !keep_pending {
+            self.pending_activation = None;
+        }
     }
 
     fn path_is_dirty(&self) -> bool {
@@ -512,27 +518,40 @@ impl App {
                     &updated,
                     prerequisite_path.as_deref(),
                 )?;
-                let activation_error =
-                    if should_confirm && save.daemon_reload == DAEMON_RELOAD_REQUESTED {
+                let (activation_error, pending_activation) = if should_confirm {
+                    if save.daemon_reload == DAEMON_RELOAD_REQUESTED {
                         match wait_for_requested_asr_backend(&provider_id) {
                             Ok(summary) => {
                                 match ensure_hotword_path_update_current(&save.path, &updated) {
                                     Ok(()) => {
                                         save.daemon_reload = summary;
-                                        None
+                                        (None, None)
                                     }
-                                    Err(error) => Some(error),
+                                    Err(error) => (Some(error), None),
                                 }
                             }
-                            Err(error) => Some(error),
+                            Err(error) => (
+                                Some(error),
+                                Some(PendingHotwordActivation::for_config(provider_id.clone())),
+                            ),
                         }
                     } else {
-                        None
-                    };
+                        (
+                            Some(
+                                "The saved hotword path configuration was not applied to the active daemon; activation can be retried."
+                                    .to_owned(),
+                            ),
+                            Some(PendingHotwordActivation::for_config(provider_id.clone())),
+                        )
+                    }
+                } else {
+                    (None, None)
+                };
                 Ok(HotwordMutationOutcome {
                     save,
                     summary,
                     activation_error,
+                    pending_activation,
                 })
             },
             |result| Message::Hotword(HotwordMessage::MutationFinished(result)),
@@ -554,7 +573,9 @@ impl App {
             || "no previous file".to_owned(),
             |path| format!("backup {}", path.display()),
         );
+        let pending_activation = outcome.pending_activation;
         self.replace_config(load_config_document(Some(&outcome.save.path)));
+        self.hotword_editor.pending_activation = pending_activation;
         let summary = format!(
             "{} Saved {} ({backup}); {}",
             outcome.summary,
@@ -733,7 +754,7 @@ impl App {
                 if let Some(baseline) = baseline {
                     self.hotword_editor.baseline = Some(baseline.clone());
                     self.hotword_editor.pending_activation = retry_activation.then(|| {
-                        PendingHotwordActivation::new(
+                        PendingHotwordActivation::for_file(
                             self.hotword_editor
                                 .selected_provider
                                 .clone()
@@ -947,10 +968,10 @@ impl App {
     }
 
     fn hotword_content_status(&self, content_dirty: bool) -> &str {
-        if let Some(error) = &self.hotword_editor.content_path_error {
+        if self.hotword_editor.pending_activation.is_some() {
+            "Hotword configuration is saved; daemon activation can be retried"
+        } else if let Some(error) = &self.hotword_editor.content_path_error {
             error
-        } else if self.hotword_editor.pending_activation.is_some() {
-            "Hotword content is saved; daemon activation can be retried"
         } else if self.hotword_editor.baseline.is_some() {
             if content_dirty {
                 "Unsaved hotword content"
