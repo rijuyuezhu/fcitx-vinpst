@@ -719,6 +719,69 @@ async fn dbus_facade_reload_stops_adapter_removed_from_config_file() {
 }
 
 #[tokio::test]
+async fn dbus_facade_reload_restarts_adapter_when_managed_revision_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.json");
+    let runtime_dir = unique_adapter_runtime_dir("dbus-reload-revision");
+    let runtime_paths = vinput_text::AdapterRuntimePaths::new(runtime_dir.clone());
+    let mut config = VinputConfig::bundled_default().unwrap();
+    config.asr.active_provider = "mock".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: None,
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    config.llm.adapters.push(LlmAdapterConfig {
+        id: "mock-adapter".to_owned(),
+        command: "sleep".to_owned(),
+        args: vec!["30".to_owned()],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::from([(
+            "x-vinput-managed-script-sha256".to_owned(),
+            serde_json::json!("revision-1"),
+        )]),
+    });
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(runtime_paths.clone());
+    runtime.set_config_path(Some(config_path.clone()));
+    let service = VinputDbusService::new(runtime);
+
+    service.start_adapter("mock-adapter").await.unwrap();
+    let old_pid = runtime_paths
+        .read_pid("mock-adapter")
+        .unwrap()
+        .expect("old adapter pid");
+
+    config.llm.adapters[0].extra.insert(
+        "x-vinput-managed-script-sha256".to_owned(),
+        serde_json::json!("revision-2"),
+    );
+    config.validate().unwrap();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    service.reload_asr_backend().await.unwrap();
+
+    let new_pid = runtime_paths
+        .read_pid("mock-adapter")
+        .unwrap()
+        .expect("restarted adapter pid");
+    assert_ne!(new_pid, old_pid);
+    let state_json = service.get_text_adapter_state().await.unwrap();
+    let state: TextAdapterState = serde_json::from_str(&state_json).unwrap();
+    assert!(state.adapters[0].is_running);
+    service.stop_adapter("mock-adapter").await.unwrap();
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[tokio::test]
 async fn dbus_facade_returns_text_adapter_state_json() {
     let mut config = VinputConfig::bundled_default().unwrap();
     config.llm.adapters.push(LlmAdapterConfig {

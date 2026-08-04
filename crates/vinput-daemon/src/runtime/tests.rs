@@ -924,27 +924,133 @@ fn configured_reload_stops_adapter_removed_from_config() {
 }
 
 #[test]
-fn configured_reload_stops_adapter_whose_definition_changed() {
+fn configured_reload_restarts_adapter_whose_definition_changed() {
     let runtime_dir = unique_adapter_runtime_dir("reload-update");
-    let pid_path = runtime_dir.join("cmd-adapter.pid");
     let config = config_with_sleep_adapter("cmd-adapter");
     let mut runtime = RuntimeState::new(config.clone())
         .unwrap()
         .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
 
-    let pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    let old_pid = runtime.start_text_adapter("cmd-adapter").unwrap();
     let mut updated = config;
     updated.llm.adapters[0].args = vec!["60".to_owned()];
     updated.validate().unwrap();
     assert!(runtime.queue_configured_asr_reload(updated).unwrap());
 
-    assert!(!runtime.is_text_adapter_running("cmd-adapter"));
-    assert!(!pid_path.exists());
-    wait_until_process_stops_running(pid);
+    let new_pid = runtime
+        .text_adapter_pid("cmd-adapter")
+        .expect("restarted adapter pid");
+    assert_ne!(new_pid, old_pid);
+    assert!(process_is_runnable(new_pid));
+    wait_until_process_stops_running(old_pid);
     assert_eq!(
         runtime.configured_text_adapter_state_for_runtime().adapters[0].args_count,
         1
     );
+    runtime.stop_text_adapter("cmd-adapter").unwrap();
+    wait_until_process_stops_running(new_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn configured_reload_restarts_adapter_when_only_managed_revision_changes() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-revision");
+    let config = config_with_sleep_adapter("cmd-adapter");
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let old_pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    let mut updated = config;
+    updated.llm.adapters[0].extra.insert(
+        "x-vinput-managed-script-sha256".to_owned(),
+        serde_json::json!("revision-2"),
+    );
+    updated.validate().unwrap();
+    assert!(runtime.queue_configured_asr_reload(updated).unwrap());
+
+    let new_pid = runtime
+        .text_adapter_pid("cmd-adapter")
+        .expect("revision restart pid");
+    assert_ne!(new_pid, old_pid);
+    assert!(process_is_runnable(new_pid));
+    wait_until_process_stops_running(old_pid);
+    runtime.stop_text_adapter("cmd-adapter").unwrap();
+    wait_until_process_stops_running(new_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn configured_reload_rolls_back_prior_stops_when_later_stop_fails() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-rollback");
+    let mut config = config_with_sleep_adapter("first-adapter");
+    config.llm.adapters.push(
+        config_with_sleep_adapter("second-adapter")
+            .llm
+            .adapters
+            .remove(0),
+    );
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let old_pid = runtime.start_text_adapter("first-adapter").unwrap();
+    let invalid_pid_path = runtime_dir.join("second-adapter.pid");
+    std::fs::write(&invalid_pid_path, "{not-json").unwrap();
+    let mut updated = config;
+    updated.llm.adapters.clear();
+    updated.validate().unwrap();
+
+    let error = runtime
+        .queue_configured_asr_reload(updated)
+        .expect_err("later invalid pid must reject reload");
+    assert!(error.to_string().contains("pid file is invalid"));
+    assert_eq!(
+        runtime
+            .configured_text_adapter_state_for_runtime()
+            .adapter_count,
+        2
+    );
+    let restored_pid = runtime
+        .text_adapter_pid("first-adapter")
+        .expect("rolled-back adapter pid");
+    assert_ne!(restored_pid, old_pid);
+    assert!(process_is_runnable(restored_pid));
+    wait_until_process_stops_running(old_pid);
+
+    std::fs::remove_file(invalid_pid_path).unwrap();
+    runtime.stop_text_adapter("first-adapter").unwrap();
+    wait_until_process_stops_running(restored_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn configured_reload_rolls_back_when_replacement_start_fails() {
+    let runtime_dir = unique_adapter_runtime_dir("reload-start-rollback");
+    let config = config_with_sleep_adapter("cmd-adapter");
+    let mut runtime = RuntimeState::new(config.clone())
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    let old_pid = runtime.start_text_adapter("cmd-adapter").unwrap();
+    let mut updated = config;
+    updated.llm.adapters[0].command = "/definitely/missing/vinput-adapter".to_owned();
+    updated.validate().unwrap();
+
+    let error = runtime
+        .queue_configured_asr_reload(updated)
+        .expect_err("replacement start must reject reload");
+    assert!(error.to_string().contains("failed to spawn text adapter"));
+    assert_eq!(runtime.config.llm.adapters[0].command, "sleep");
+    let restored_pid = runtime
+        .text_adapter_pid("cmd-adapter")
+        .expect("restored old adapter pid");
+    assert_ne!(restored_pid, old_pid);
+    assert!(process_is_runnable(restored_pid));
+    wait_until_process_stops_running(old_pid);
+
+    runtime.stop_text_adapter("cmd-adapter").unwrap();
+    wait_until_process_stops_running(restored_pid);
     let _ = std::fs::remove_dir_all(runtime_dir);
 }
 

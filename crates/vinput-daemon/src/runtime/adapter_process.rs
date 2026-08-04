@@ -1,44 +1,114 @@
 //! Supervised command text adapter process lifecycle.
 
+use vinput_config::{LlmAdapterConfig, VinputConfig};
 use vinput_text::{
-    AdapterProcessSpec, AdapterRuntimePaths, AdapterStopOutcome, start_adapter_process,
-    stop_adapter_process, stop_started_adapter_process,
+    AdapterProcessSpec, AdapterRuntimePaths, AdapterStopOutcome, StartedAdapterProcess, TextError,
+    start_adapter_process, stop_adapter_process, stop_started_adapter_process,
 };
 
 use super::{RuntimeError, RuntimeState};
 
-impl RuntimeState {
-    /// Stops supervised adapters whose definitions will disappear or change.
-    ///
-    /// The current config remains published when any safe stop fails, so the
-    /// process stays diagnosable and can still be targeted by `StopAdapter`.
-    pub(super) fn stop_reconfigured_text_adapters(
-        &mut self,
-        next_config: &vinput_config::VinputConfig,
-    ) -> Result<(), RuntimeError> {
-        let stale_adapter_ids = self
-            .config
-            .llm
-            .adapters
-            .iter()
-            .filter(|current| !next_config.llm.adapters.iter().any(|next| next == *current))
-            .map(|adapter| adapter.id.clone())
-            .collect::<Vec<_>>();
+#[derive(Debug)]
+struct AdapterRestartPlan {
+    old_spec: AdapterProcessSpec,
+    new_spec: Option<AdapterProcessSpec>,
+}
 
-        for adapter_id in stale_adapter_ids {
-            if let Some(mut process) = self.adapter_processes.remove(&adapter_id) {
-                if let Err(error) =
-                    stop_started_adapter_process(&mut process, &self.adapter_runtime_paths)
-                {
-                    self.adapter_processes.insert(adapter_id, process);
-                    return Err(RuntimeError::TextAdapterSupervisor(error));
+impl RuntimeState {
+    /// Reconciles supervised adapters whose definitions will disappear or change.
+    ///
+    /// Running adapters that remain configured are prestarted from the new
+    /// definition before the config is published. Any stop or start failure
+    /// rolls back the prior running set and leaves the old config visible.
+    pub(super) fn reconcile_reconfigured_text_adapters(
+        &mut self,
+        next_config: &VinputConfig,
+    ) -> Result<(), RuntimeError> {
+        let plans = adapter_restart_plans(&self.config.llm.adapters, &next_config.llm.adapters);
+        let mut stopped = Vec::new();
+
+        for plan in plans {
+            match self.stop_adapter_for_reload(&plan.old_spec.id) {
+                Ok(AdapterStopOutcome::Stopped { .. }) => stopped.push(plan),
+                Ok(AdapterStopOutcome::NotRunning) => {}
+                Err(error) => {
+                    let rollback_errors = self.restart_old_adapters(&stopped);
+                    return Err(reconciliation_error(
+                        "stop reconfigured adapters",
+                        error,
+                        &rollback_errors,
+                    ));
                 }
-            } else {
-                stop_adapter_process(&adapter_id, &self.adapter_runtime_paths)
-                    .map_err(RuntimeError::TextAdapterSupervisor)?;
             }
         }
+
+        let mut replacements = Vec::new();
+        for spec in stopped.iter().filter_map(|plan| plan.new_spec.as_ref()) {
+            match start_adapter_process(spec, &self.adapter_runtime_paths) {
+                Ok(process) => replacements.push(process),
+                Err(error) => {
+                    let mut rollback_errors = self.stop_prestarted_adapters(&mut replacements);
+                    rollback_errors.extend(self.restart_old_adapters(&stopped));
+                    return Err(reconciliation_error(
+                        "start reconfigured adapters",
+                        error,
+                        &rollback_errors,
+                    ));
+                }
+            }
+        }
+
+        for process in replacements {
+            self.adapter_processes.insert(process.id.clone(), process);
+        }
         Ok(())
+    }
+
+    fn stop_adapter_for_reload(
+        &mut self,
+        adapter_id: &str,
+    ) -> Result<AdapterStopOutcome, TextError> {
+        if let Some(mut process) = self.adapter_processes.remove(adapter_id) {
+            return match stop_started_adapter_process(&mut process, &self.adapter_runtime_paths) {
+                Ok(outcome) => Ok(outcome),
+                Err(error) => {
+                    self.adapter_processes
+                        .insert(adapter_id.to_owned(), process);
+                    Err(error)
+                }
+            };
+        }
+        stop_adapter_process(adapter_id, &self.adapter_runtime_paths)
+    }
+
+    fn restart_old_adapters(&mut self, plans: &[AdapterRestartPlan]) -> Vec<String> {
+        let mut errors = Vec::new();
+        for plan in plans {
+            match start_adapter_process(&plan.old_spec, &self.adapter_runtime_paths) {
+                Ok(process) => {
+                    self.adapter_processes.insert(process.id.clone(), process);
+                }
+                Err(error) => errors.push(format!("{}: {error}", plan.old_spec.id)),
+            }
+        }
+        errors
+    }
+
+    fn stop_prestarted_adapters(
+        &mut self,
+        processes: &mut Vec<StartedAdapterProcess>,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+        for mut process in processes.drain(..) {
+            let id = process.id.clone();
+            if let Err(error) =
+                stop_started_adapter_process(&mut process, &self.adapter_runtime_paths)
+            {
+                self.adapter_processes.insert(id.clone(), process);
+                errors.push(format!("{id}: {error}"));
+            }
+        }
+        errors
     }
 
     /// Overrides adapter runtime paths for tests or embedded callers.
@@ -116,4 +186,36 @@ impl RuntimeState {
         stop_adapter_process(adapter_id, &self.adapter_runtime_paths)
             .map_err(RuntimeError::TextAdapterSupervisor)
     }
+}
+
+fn adapter_restart_plans(
+    current: &[LlmAdapterConfig],
+    next: &[LlmAdapterConfig],
+) -> Vec<AdapterRestartPlan> {
+    current
+        .iter()
+        .filter_map(|current_adapter| {
+            let next_adapter = next
+                .iter()
+                .find(|candidate| candidate.id == current_adapter.id);
+            (next_adapter != Some(current_adapter)).then(|| AdapterRestartPlan {
+                old_spec: AdapterProcessSpec::from_config(current_adapter),
+                new_spec: next_adapter.map(AdapterProcessSpec::from_config),
+            })
+        })
+        .collect()
+}
+
+fn reconciliation_error(
+    action: &str,
+    primary: TextError,
+    rollback_errors: &[String],
+) -> RuntimeError {
+    if rollback_errors.is_empty() {
+        return RuntimeError::TextAdapterSupervisor(primary);
+    }
+    RuntimeError::TextAdapterSupervisor(TextError::AdapterRuntimeIo(format!(
+        "{action} failed: {primary}; rollback failures: {}",
+        rollback_errors.join("; ")
+    )))
 }
