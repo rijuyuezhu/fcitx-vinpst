@@ -19,6 +19,15 @@ fn provider(id: &str, kind: AsrProviderKind) -> AsrProviderConfig {
     }
 }
 
+fn configured_value(config: &VinputConfig, provider_id: &str) -> Option<String> {
+    config
+        .asr
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .and_then(|provider| provider.hotwords_file.clone())
+}
+
 #[test]
 fn provider_options_include_only_hotword_capable_backends() {
     let mut config = VinputConfig::bundled_default().expect("bundled config");
@@ -90,6 +99,11 @@ fn content_path_refuses_cross_process_relative_ambiguity() {
         resolved_hotword_content_path(&config, "local").expect("absolute local hotwords"),
         Some(PathBuf::from("/tmp/local-hotwords.txt"))
     );
+    config.asr.providers[0].hotwords_file = Some("https://example.invalid/hotwords.txt".to_owned());
+    let url_error = resolved_hotword_content_path(&config, "local")
+        .expect_err("URL-like local hotwords are not filesystem paths");
+    assert!(url_error.contains("URL-like"));
+    config.asr.providers[0].hotwords_file = Some("/tmp/local-hotwords.txt".to_owned());
 
     let command_error = resolved_hotword_content_path(&config, "command")
         .expect_err("relative command path is external");
@@ -169,6 +183,7 @@ fn provider_selection_hides_and_restores_its_pending_activation() {
     let mut editor = HotwordEditorState::from_config(&config, Some(&active_provider));
     editor.pending_activation = Some(PendingHotwordActivation::for_config(
         active_provider.clone(),
+        configured_value(&config, &active_provider),
     ));
     assert!(editor.pending_activation_for_selected_provider());
 
@@ -181,12 +196,49 @@ fn provider_selection_hides_and_restores_its_pending_activation() {
 }
 
 #[test]
+fn config_refresh_preserves_only_current_pending_activation() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let config_path = directory.path().join("config.json");
+    let hotword_path = directory.path().join("hotwords.txt");
+    fs::write(&hotword_path, "alpha\n").expect("hotword fixture");
+
+    let mut config = VinputConfig::bundled_default().expect("bundled config");
+    config.asr.providers[0].hotwords_file = Some(hotword_path.to_string_lossy().into_owned());
+    fs::write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize config"),
+    )
+    .expect("config fixture");
+    let document = Ok(ConfigDocument {
+        path: config_path,
+        from_disk: true,
+        config: config.clone(),
+    });
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    app.refresh_hotword_editor(&document);
+    app.hotword_editor.pending_activation = Some(PendingHotwordActivation::for_file(
+        config.asr.active_provider.clone(),
+        hotword_path.clone(),
+        read_hotword_snapshot(&hotword_path).expect("pending baseline"),
+    ));
+
+    app.refresh_hotword_editor(&document);
+    assert!(app.hotword_editor.pending_activation.is_some());
+
+    fs::write(&hotword_path, "external\n").expect("external hotword update");
+    app.refresh_hotword_editor(&document);
+    assert!(app.hotword_editor.pending_activation.is_none());
+}
+
+#[test]
 fn resetting_temporary_edits_preserves_pending_activation() {
     let mut config = VinputConfig::bundled_default().expect("bundled config");
     config.asr.providers[0].hotwords_file = Some("/tmp/hotwords.txt".to_owned());
     let mut editor = HotwordEditorState::from_config(&config, None);
     editor.pending_activation = Some(PendingHotwordActivation::for_config(
         config.asr.active_provider.clone(),
+        configured_value(&config, &config.asr.active_provider),
     ));
     editor.path_input = "/tmp/temporary-edit.txt".to_owned();
     assert!(editor.path_is_dirty());
@@ -223,6 +275,7 @@ fn unsafe_post_reload_snapshot_requires_a_fresh_load() {
     editor.content = text_editor::Content::with_text("gui-write\n");
     editor.pending_activation = Some(PendingHotwordActivation::for_config(
         active_provider.clone(),
+        configured_value(&config, &active_provider),
     ));
 
     editor.apply_saved_content_baseline(&active_provider, None, false);

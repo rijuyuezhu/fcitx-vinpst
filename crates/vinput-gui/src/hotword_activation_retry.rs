@@ -4,14 +4,16 @@ use std::{fmt, path::PathBuf};
 
 use crate::{
     ConfigDocument, ensure_config_document_current,
-    hotword_management::resolved_hotword_content_path,
+    hotword_path::resolved_hotword_content_path,
     hotword_persistence::{HotwordContentSnapshot, read_hotword_snapshot},
     reload_asr_backend_and_wait,
 };
 
 #[derive(Clone, PartialEq, Eq)]
 enum PendingHotwordTarget {
-    ConfigOnly,
+    ConfigOnly {
+        configured_path: Option<String>,
+    },
     File {
         path: PathBuf,
         baseline: HotwordContentSnapshot,
@@ -25,10 +27,10 @@ pub(super) struct PendingHotwordActivation {
 }
 
 impl PendingHotwordActivation {
-    pub(super) fn for_config(provider_id: String) -> Self {
+    pub(super) fn for_config(provider_id: String, configured_path: Option<String>) -> Self {
         Self {
             provider_id,
-            target: PendingHotwordTarget::ConfigOnly,
+            target: PendingHotwordTarget::ConfigOnly { configured_path },
         }
     }
 
@@ -57,7 +59,7 @@ impl PendingHotwordActivation {
             return false;
         }
         match &self.target {
-            PendingHotwordTarget::ConfigOnly => true,
+            PendingHotwordTarget::ConfigOnly { .. } => true,
             PendingHotwordTarget::File {
                 path: pending_path,
                 baseline: pending_baseline,
@@ -74,7 +76,7 @@ impl fmt::Debug for PendingHotwordActivation {
             .field(
                 "target",
                 &match self.target {
-                    PendingHotwordTarget::ConfigOnly => "config",
+                    PendingHotwordTarget::ConfigOnly { .. } => "config",
                     PendingHotwordTarget::File { .. } => "file",
                 },
             )
@@ -92,7 +94,7 @@ pub(super) fn retry_hotword_activation(
     Ok(format!("Hotword activation retried; {summary}."))
 }
 
-fn validate_pending_activation(
+pub(super) fn validate_pending_activation(
     document: &ConfigDocument,
     pending: &PendingHotwordActivation,
 ) -> Result<(), String> {
@@ -103,23 +105,53 @@ fn validate_pending_activation(
                 .to_owned(),
         );
     }
-    if let PendingHotwordTarget::File { path, baseline } = &pending.target {
-        let current_path = resolved_hotword_content_path(&document.config, &pending.provider_id)?;
-        if current_path.as_deref() != Some(path) {
-            return Err(
-                "The configured hotword target changed after the file was saved; reload configuration and content before retrying activation."
-                    .to_owned(),
-            );
+    match &pending.target {
+        PendingHotwordTarget::ConfigOnly { configured_path } => {
+            let current = configured_hotword_value(&document.config, &pending.provider_id)?;
+            if &current != configured_path {
+                return Err(
+                    "The configured hotword path changed after activation became pending; save the current provider before retrying activation."
+                        .to_owned(),
+                );
+            }
         }
-        let current = read_hotword_snapshot(path)?;
-        if &current != baseline {
-            return Err(
-                "The saved hotword file changed before activation could be retried; reload its content before continuing."
-                    .to_owned(),
-            );
+        PendingHotwordTarget::File { path, baseline } => {
+            let current_path =
+                resolved_hotword_content_path(&document.config, &pending.provider_id)?;
+            if current_path.as_deref() != Some(path) {
+                return Err(
+                    "The configured hotword target changed after the file was saved; reload configuration and content before retrying activation."
+                        .to_owned(),
+                );
+            }
+            let current = read_hotword_snapshot(path)?;
+            if &current != baseline {
+                return Err(
+                    "The saved hotword file changed before activation could be retried; reload its content before continuing."
+                        .to_owned(),
+                );
+            }
         }
     }
     Ok(())
+}
+
+fn configured_hotword_value(
+    config: &vinput_config::VinputConfig,
+    provider_id: &str,
+) -> Result<Option<String>, String> {
+    let provider = config
+        .asr
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .ok_or_else(|| format!("ASR provider `{provider_id}` is no longer configured."))?;
+    Ok(provider
+        .hotwords_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned))
 }
 
 #[cfg(test)]
@@ -155,8 +187,11 @@ mod tests {
             read_hotword_snapshot(&hotword_path).expect("baseline"),
         );
         validate_pending_activation(&document, &pending).expect("current retry state");
-        let config_only =
-            PendingHotwordActivation::for_config(document.config.asr.active_provider.clone());
+        let config_only = PendingHotwordActivation::for_config(
+            document.config.asr.active_provider.clone(),
+            configured_hotword_value(&document.config, &document.config.asr.active_provider)
+                .expect("configured target"),
+        );
         validate_pending_activation(&document, &config_only)
             .expect("current config-only retry state");
 
@@ -192,6 +227,17 @@ mod tests {
             validate_pending_activation(&document, &config_only)
                 .expect_err("config-only retry also rejects superseding config")
                 .contains("changed on disk")
+        );
+
+        let superseding_document = ConfigDocument {
+            path: config_path,
+            from_disk: true,
+            config: superseding,
+        };
+        assert!(
+            validate_pending_activation(&superseding_document, &config_only)
+                .expect_err("config-only retry rejects a new current target")
+                .contains("configured hotword path changed")
         );
     }
 }

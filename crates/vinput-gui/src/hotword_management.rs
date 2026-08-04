@@ -17,7 +17,10 @@ use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 use crate::{
     App, ConfigDocument, ConfigSaveOutcome, DAEMON_RELOAD_REQUESTED, Message, OperationState,
     SecretInput, ensure_config_document_current,
-    hotword_activation_retry::{PendingHotwordActivation, retry_hotword_activation},
+    hotword_activation_retry::{
+        PendingHotwordActivation, retry_hotword_activation, validate_pending_activation,
+    },
+    hotword_path::resolved_hotword_content_path,
     hotword_persistence::{
         HotwordContentSnapshot, ensure_hotword_path_update_current, read_hotword_snapshot,
         save_hotword_content_with_daemon, save_hotword_path_with_daemon,
@@ -409,7 +412,14 @@ impl App {
             .hotword_editor
             .selected_provider_id()
             .map(str::to_owned);
-        self.hotword_editor = HotwordEditorState::from_document(config, preferred.as_deref());
+        let pending = self.hotword_editor.pending_activation.clone();
+        let mut refreshed = HotwordEditorState::from_document(config, preferred.as_deref());
+        if let (Ok(document), Some(pending)) = (config.as_ref(), pending)
+            && validate_pending_activation(document, &pending).is_ok()
+        {
+            refreshed.pending_activation = Some(pending);
+        }
+        self.hotword_editor = refreshed;
         self.active_hotword_operation_id = None;
     }
 
@@ -541,6 +551,12 @@ impl App {
         } else {
             None
         };
+        let pending_config_path = updated
+            .asr
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+            .and_then(|provider| provider.hotwords_file.clone());
         let summary = if path.is_some() {
             format!("Updated hotword path for provider `{provider_id}`.")
         } else {
@@ -570,7 +586,10 @@ impl App {
                             }
                             Err(error) => (
                                 Some(error),
-                                Some(PendingHotwordActivation::for_config(provider_id.clone())),
+                                Some(PendingHotwordActivation::for_config(
+                                    provider_id.clone(),
+                                    pending_config_path.clone(),
+                                )),
                             ),
                         }
                     } else {
@@ -579,7 +598,10 @@ impl App {
                                 "The saved hotword path configuration was not applied to the active daemon; activation can be retried."
                                     .to_owned(),
                             ),
-                            Some(PendingHotwordActivation::for_config(provider_id.clone())),
+                            Some(PendingHotwordActivation::for_config(
+                                provider_id.clone(),
+                                pending_config_path.clone(),
+                            )),
                         )
                     }
                 } else {
@@ -1096,64 +1118,6 @@ fn save_hotword_content_for_document(
         }
         Ok(())
     })
-}
-
-pub(super) fn resolved_hotword_content_path(
-    config: &VinputConfig,
-    provider_id: &str,
-) -> Result<Option<PathBuf>, String> {
-    let provider = config
-        .asr
-        .providers
-        .iter()
-        .find(|provider| provider.id == provider_id)
-        .ok_or_else(|| format!("ASR provider `{provider_id}` is no longer configured."))?;
-    let Some(configured) = provider
-        .hotwords_file
-        .as_deref()
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-    else {
-        return Ok(None);
-    };
-    let configured = Path::new(configured);
-    if configured.is_absolute() {
-        return Ok(Some(configured.to_path_buf()));
-    }
-    match provider.kind {
-        AsrProviderKind::Local => {
-            let model = provider
-                .model
-                .as_deref()
-                .map(str::trim)
-                .filter(|model| !model.is_empty())
-                .ok_or_else(|| {
-                    "The selected local provider has no model directory for resolving its relative hotword path."
-                        .to_owned()
-                })?;
-            if model.contains("://") {
-                return Err(
-                    "The selected local provider model is not a filesystem path, so the GUI cannot resolve its relative hotword path."
-                        .to_owned(),
-                );
-            }
-            let model = Path::new(model);
-            if !model.is_absolute() {
-                return Err(
-                    "The selected local provider uses both a relative model path and a relative hotword path. Their effective target depends on the daemon process environment and working directory; configure an absolute hotword path or an absolute model path before editing content in the GUI."
-                        .to_owned(),
-                );
-            }
-            Ok(Some(model.join(configured)))
-        }
-        AsrProviderKind::Command => Err(
-            "Relative hotword paths for command providers are resolved by the external command; configure an absolute path to edit content in the GUI."
-                .to_owned(),
-        ),
-        AsrProviderKind::Remote => Err(format!(
-            "ASR provider `{provider_id}` does not support hotword files."
-        )),
-    }
 }
 
 fn update_hotword_path(
