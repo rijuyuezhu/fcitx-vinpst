@@ -7,7 +7,7 @@ use vinput_registry::{
     LiveScriptKind, LiveScriptRegistry, RegistryOperationControl, RegistryOperationProgress,
     RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
     install_live_script_controlled, managed_script_relative_path, materialize_asr_provider,
-    materialize_llm_adapter,
+    materialize_llm_adapter, sha256_hex,
 };
 
 use crate::{
@@ -17,6 +17,10 @@ use crate::{
         ScriptEnvironmentValue, ScriptInstallOutcome, ScriptInstallPlan, ScriptPrepareOutcome,
     },
 };
+
+/// Forward-compatible config marker used to restart a managed adapter after
+/// its executable script is atomically replaced at the same path.
+pub(crate) const MANAGED_SCRIPT_REVISION_KEY: &str = "x-vinput-managed-script-sha256";
 
 pub(crate) fn prepare_registry_script_controlled(
     document: &ConfigDocument,
@@ -174,6 +178,14 @@ pub(crate) fn install_registry_script_from_source_and_save(
             plan.script_path.display()
         ));
     }
+    if let Err(error) = apply_managed_script_revision(
+        &mut updated,
+        plan.kind,
+        &plan.entry.id,
+        &installed.script_path,
+    ) {
+        return ScriptInstallOutcome::PublishedButConfigFailed { error };
+    }
 
     control.report(RegistryOperationProgress::UpdatingConfiguration);
     let saved = match save(document, &updated) {
@@ -191,6 +203,36 @@ pub(crate) fn install_registry_script_from_source_and_save(
         plan.script_path.display(),
         saved.daemon_reload
     ))
+}
+
+pub(crate) fn apply_managed_script_revision(
+    config: &mut VinputConfig,
+    kind: LiveScriptKind,
+    resource_id: &str,
+    script_path: &std::path::Path,
+) -> Result<(), String> {
+    if kind != LiveScriptKind::LlmAdapter {
+        return Ok(());
+    }
+    let bytes = std::fs::read(script_path).map_err(|error| {
+        format!(
+            "Read published text adapter script `{}` for revision: {error}",
+            script_path.display()
+        )
+    })?;
+    let adapter = config
+        .llm
+        .adapters
+        .iter_mut()
+        .find(|adapter| adapter.id == resource_id)
+        .ok_or_else(|| {
+            format!("Installed text adapter `{resource_id}` is missing from prepared config.")
+        })?;
+    adapter.extra.insert(
+        MANAGED_SCRIPT_REVISION_KEY.to_owned(),
+        serde_json::Value::String(sha256_hex(&bytes)),
+    );
+    Ok(())
 }
 
 pub(crate) fn validate_plan_environment(plan: &ScriptInstallPlan) -> Result<(), String> {
@@ -541,6 +583,10 @@ const fn resource_title(kind: LiveScriptKind) -> &'static str {
         LiveScriptKind::LlmAdapter => "Text adapter",
     }
 }
+
+#[cfg(test)]
+#[path = "script_management_revision_tests.rs"]
+mod revision_tests;
 
 #[cfg(test)]
 mod tests {
@@ -954,6 +1000,13 @@ mod tests {
         assert_eq!(
             adapter.env.get("OPTIONAL_MODE").map(String::as_str),
             Some("")
+        );
+        assert_eq!(
+            adapter
+                .extra
+                .get(MANAGED_SCRIPT_REVISION_KEY)
+                .and_then(serde_json::Value::as_str),
+            Some(sha256_hex(b"#!/usr/bin/env python3\nprint('ok')\n").as_str())
         );
     }
 

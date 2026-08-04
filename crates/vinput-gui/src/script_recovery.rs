@@ -7,7 +7,8 @@ use crate::{
     save_updated_config_with_daemon,
     script_install::ScriptInstallPlan,
     script_management::{
-        apply_plan_environment, materialize_config, resource_label, validate_plan_environment,
+        apply_managed_script_revision, apply_plan_environment, materialize_config, resource_label,
+        validate_plan_environment,
     },
 };
 
@@ -30,6 +31,7 @@ fn recover_registry_script_config_with_save(
         let (mut updated, _) =
             materialize_config(&document.config, plan.kind, &plan.entry, &plan.script_path)?;
         apply_plan_environment(&mut updated, plan);
+        apply_managed_script_revision(&mut updated, plan.kind, &plan.entry.id, &plan.script_path)?;
         updated.validate().map_err(|error| {
             format!(
                 "Validate recovered {} configuration: {error}",
@@ -118,6 +120,25 @@ mod tests {
         plan
     }
 
+    fn managed_adapter_plan(root: &std::path::Path) -> ScriptInstallPlan {
+        ScriptInstallPlan {
+            kind: LiveScriptKind::LlmAdapter,
+            selector: "fixture".to_owned(),
+            entry: LiveScriptEntry {
+                id: "adapter.fixture.command".to_owned(),
+                short_id: Some("fixture".to_owned()),
+                stream: false,
+                command: "python3".to_owned(),
+                script_urls: vec!["https://example.invalid/adapter.py".to_owned()],
+                readme_url: None,
+                envs: Vec::new(),
+            },
+            script_root: root.to_path_buf(),
+            script_path: root.join("fixture/command"),
+            environment: Vec::new(),
+        }
+    }
+
     #[test]
     fn published_script_failure_can_recover_without_redownload() {
         let directory = tempfile::tempdir().expect("temp dir");
@@ -184,6 +205,39 @@ mod tests {
         assert_eq!(
             provider.env.get("TOKEN").map(String::as_str),
             Some("super-secret")
+        );
+    }
+
+    #[test]
+    fn adapter_recovery_persists_published_script_revision() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let root = directory.path().join("adapters");
+        let plan = managed_adapter_plan(&root);
+        std::fs::create_dir_all(plan.script_path.parent().expect("script parent"))
+            .expect("create script parent");
+        let bytes = b"#!/usr/bin/env python3\nprint('recovered')\n";
+        std::fs::write(&plan.script_path, bytes).expect("write published adapter");
+        let document = ConfigDocument {
+            path: directory.path().join("config.json"),
+            from_disk: false,
+            config: VinputConfig::bundled_default().expect("bundled config"),
+        };
+
+        let outcome = recover_registry_script_config(&document, &plan);
+        assert!(matches!(outcome, ScriptInstallOutcome::Installed(_)));
+        let saved = VinputConfig::from_json_file(&document.path).expect("saved config");
+        let adapter = saved
+            .llm
+            .adapters
+            .iter()
+            .find(|adapter| adapter.id == plan.entry.id)
+            .expect("recovered adapter");
+        assert_eq!(
+            adapter
+                .extra
+                .get(crate::script_management::MANAGED_SCRIPT_REVISION_KEY)
+                .and_then(serde_json::Value::as_str),
+            Some(vinput_registry::sha256_hex(bytes).as_str())
         );
     }
 
