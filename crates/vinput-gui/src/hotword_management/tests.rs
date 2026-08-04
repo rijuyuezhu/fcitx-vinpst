@@ -159,6 +159,28 @@ fn content_save_rejects_external_config_target_changes_before_write() {
 }
 
 #[test]
+fn provider_selection_hides_and_restores_its_pending_activation() {
+    let mut config = VinputConfig::bundled_default().expect("bundled config");
+    config
+        .asr
+        .providers
+        .push(provider("command", AsrProviderKind::Command));
+    let active_provider = config.asr.active_provider.clone();
+    let mut editor = HotwordEditorState::from_config(&config, Some(&active_provider));
+    editor.pending_activation = Some(PendingHotwordActivation::for_config(
+        active_provider.clone(),
+    ));
+    assert!(editor.pending_activation_for_selected_provider());
+
+    editor.select_provider(&config, "command");
+    assert!(editor.pending_activation.is_some());
+    assert!(!editor.pending_activation_for_selected_provider());
+
+    editor.select_provider(&config, &active_provider);
+    assert!(editor.pending_activation_for_selected_provider());
+}
+
+#[test]
 fn resetting_temporary_edits_preserves_pending_activation() {
     let mut config = VinputConfig::bundled_default().expect("bundled config");
     config.asr.providers[0].hotwords_file = Some("/tmp/hotwords.txt".to_owned());

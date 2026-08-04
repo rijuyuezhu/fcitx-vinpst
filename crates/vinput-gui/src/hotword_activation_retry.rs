@@ -43,6 +43,10 @@ impl PendingHotwordActivation {
         }
     }
 
+    pub(super) fn matches_provider(&self, provider_id: &str) -> bool {
+        self.provider_id == provider_id
+    }
+
     pub(super) fn matches_loaded_file(
         &self,
         provider_id: &str,

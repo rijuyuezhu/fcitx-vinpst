@@ -308,7 +308,6 @@ impl HotwordEditorState {
         self.content = text_editor::Content::new();
         self.loaded_path = None;
         self.baseline = None;
-        self.pending_activation = None;
     }
 
     fn reset_changes(&mut self) {
@@ -322,15 +321,23 @@ impl HotwordEditorState {
     }
 
     fn apply_loaded(&mut self, loaded: LoadedHotwordContent) {
-        let keep_pending = self.pending_activation.as_ref().is_some_and(|pending| {
-            pending.matches_loaded_file(&loaded.provider_id, &loaded.path, &loaded.snapshot)
+        let clear_pending = self.pending_activation.as_ref().is_some_and(|pending| {
+            pending.matches_provider(&loaded.provider_id)
+                && !pending.matches_loaded_file(&loaded.provider_id, &loaded.path, &loaded.snapshot)
         });
         self.content = text_editor::Content::with_text(&loaded.snapshot.content);
         self.loaded_path = Some(loaded.path);
         self.baseline = Some(loaded.snapshot);
-        if !keep_pending {
+        if clear_pending {
             self.pending_activation = None;
         }
+    }
+
+    fn pending_activation_for_selected_provider(&self) -> bool {
+        self.selected_provider
+            .as_deref()
+            .zip(self.pending_activation.as_ref())
+            .is_some_and(|(provider_id, pending)| pending.matches_provider(provider_id))
     }
 
     fn path_is_dirty(&self) -> bool {
@@ -571,7 +578,17 @@ impl App {
             || "no previous file".to_owned(),
             |path| format!("backup {}", path.display()),
         );
-        let pending_activation = outcome.pending_activation;
+        let mutated_provider = self.hotword_editor.selected_provider.clone();
+        let pending_activation = outcome.pending_activation.clone().or_else(|| {
+            self.hotword_editor
+                .pending_activation
+                .clone()
+                .filter(|pending| {
+                    mutated_provider
+                        .as_deref()
+                        .is_some_and(|provider_id| !pending.matches_provider(provider_id))
+                })
+        });
         self.replace_config(load_config_document(Some(&outcome.save.path)));
         self.hotword_editor.pending_activation = pending_activation;
         let summary = format!(
@@ -749,22 +766,37 @@ impl App {
                     baseline,
                     retry_activation,
                 } = outcome;
+                let selected_provider = self
+                    .hotword_editor
+                    .selected_provider
+                    .clone()
+                    .expect("content save requires a selected provider");
                 if let Some(baseline) = baseline {
                     self.hotword_editor.baseline = Some(baseline.clone());
-                    self.hotword_editor.pending_activation = retry_activation.then(|| {
-                        PendingHotwordActivation::for_file(
-                            self.hotword_editor
-                                .selected_provider
-                                .clone()
-                                .expect("content save requires a selected provider"),
-                            self.hotword_editor
-                                .content_path
-                                .clone()
-                                .expect("content save requires a resolved path"),
-                            baseline,
-                        )
-                    });
-                } else {
+                    if retry_activation {
+                        self.hotword_editor.pending_activation =
+                            Some(PendingHotwordActivation::for_file(
+                                selected_provider,
+                                self.hotword_editor
+                                    .content_path
+                                    .clone()
+                                    .expect("content save requires a resolved path"),
+                                baseline,
+                            ));
+                    } else if self
+                        .hotword_editor
+                        .pending_activation
+                        .as_ref()
+                        .is_some_and(|pending| pending.matches_provider(&selected_provider))
+                    {
+                        self.hotword_editor.pending_activation = None;
+                    }
+                } else if self
+                    .hotword_editor
+                    .pending_activation
+                    .as_ref()
+                    .is_some_and(|pending| pending.matches_provider(&selected_provider))
+                {
                     self.hotword_editor.pending_activation = None;
                 }
                 self.operation = match activation_error {
@@ -786,6 +818,16 @@ impl App {
                 OperationState::Failed("No saved hotword activation is pending retry.".to_owned());
             return Task::none();
         };
+        if !self
+            .hotword_editor
+            .pending_activation_for_selected_provider()
+        {
+            self.operation = OperationState::Failed(
+                "Select the provider with the pending hotword activation before retrying."
+                    .to_owned(),
+            );
+            return Task::none();
+        }
         let Ok(document) = &self.config else {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
@@ -940,7 +982,9 @@ impl App {
                 (!busy
                     && !path_dirty
                     && !content_dirty
-                    && self.hotword_editor.pending_activation.is_some())
+                    && self
+                        .hotword_editor
+                        .pending_activation_for_selected_provider())
                 .then_some(Message::Hotword(HotwordMessage::RetryActivation)),
             ),
             text(self.hotword_content_status(content_dirty)),
@@ -966,7 +1010,10 @@ impl App {
     }
 
     fn hotword_content_status(&self, content_dirty: bool) -> &str {
-        if self.hotword_editor.pending_activation.is_some() {
+        if self
+            .hotword_editor
+            .pending_activation_for_selected_provider()
+        {
             "Hotword configuration is saved; daemon activation can be retried"
         } else if let Some(error) = &self.hotword_editor.content_path_error {
             error
