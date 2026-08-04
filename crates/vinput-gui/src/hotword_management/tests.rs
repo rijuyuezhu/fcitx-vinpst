@@ -187,4 +187,23 @@ fn hotword_messages_redact_paths_and_loaded_content() {
         result: Err("config /home/user/private/config.json changed".to_owned()),
     };
     assert!(!format!("{retry_message:?}").contains("/home/user"));
+
+    let load_error = HotwordMessage::ContentLoaded {
+        operation_id: 9,
+        result: Err("read /home/user/private/hotwords.txt failed".to_owned()),
+    };
+    let save_error = HotwordMessage::ContentSaved {
+        operation_id: 10,
+        result: Err("config /home/user/private/config.json changed".to_owned()),
+    };
+    let mutation_error = HotwordMessage::MutationFinished(Err(
+        "save /home/user/private/config.json failed".to_owned(),
+    ));
+    for message in [
+        format!("{load_error:?}"),
+        format!("{save_error:?}"),
+        format!("{mutation_error:?}"),
+    ] {
+        assert!(!message.contains("/home/user"));
+    }
 }

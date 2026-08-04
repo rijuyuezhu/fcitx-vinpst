@@ -119,7 +119,7 @@ impl fmt::Debug for HotwordMessage {
             } => formatter
                 .debug_struct("ContentLoaded")
                 .field("operation_id", operation_id)
-                .field("result", &result.as_ref().map(|_| "<redacted content>"))
+                .field("result", &if result.is_ok() { "loaded" } else { "failed" })
                 .finish(),
             Self::ContentAction(_) => formatter.write_str("ContentAction(<redacted>)"),
             Self::SaveContent => formatter.write_str("SaveContent"),
@@ -139,11 +139,11 @@ impl fmt::Debug for HotwordMessage {
             } => formatter
                 .debug_struct("ContentSaved")
                 .field("operation_id", operation_id)
-                .field("result", result)
+                .field("result", &if result.is_ok() { "saved" } else { "failed" })
                 .finish(),
             Self::MutationFinished(result) => formatter
                 .debug_tuple("MutationFinished")
-                .field(&result.as_ref().map(|_| "<redacted outcome>"))
+                .field(&if result.is_ok() { "saved" } else { "failed" })
                 .finish(),
         }
     }

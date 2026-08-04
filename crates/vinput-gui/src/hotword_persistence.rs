@@ -377,9 +377,23 @@ fn prepare_temporary_hotword_metadata(
                 .to_owned(),
         );
     }
+    Ok(())
+}
+
+fn finalize_temporary_hotword_metadata(
+    temporary_file: &fs::File,
+    expected: &HotwordContentSnapshot,
+) -> Result<(), String> {
+    ensure_no_hotword_extended_attributes(temporary_file)?;
+    if !expected.existed {
+        return Ok(());
+    }
+    let expected_version = expected.version.ok_or_else(|| {
+        "Loaded hotword file metadata is unavailable; reload it before saving.".to_owned()
+    })?;
     temporary_file
         .set_permissions(fs::Permissions::from_mode(expected_version.mode & 0o7777))
-        .map_err(|error| format!("Preserve hotword file mode: {error}"))?;
+        .map_err(|error| format!("Preserve hotword file mode after writing: {error}"))?;
     let prepared = temporary_file
         .metadata()
         .map_err(|error| format!("Verify temporary hotword file metadata: {error}"))?;
@@ -388,7 +402,7 @@ fn prepare_temporary_hotword_metadata(
         || prepared.mode() & 0o7777 != expected_version.mode & 0o7777
     {
         return Err(
-            "Configured hotword file ownership or mode could not be preserved exactly; edit it externally instead."
+            "Configured hotword file ownership or mode could not be preserved exactly after writing; edit it externally instead."
                 .to_owned(),
         );
     }
@@ -419,8 +433,11 @@ fn compare_and_swap_hotword_file(
         prepare_temporary_hotword_metadata(&temporary_file, expected)?;
         temporary_file
             .write_all(bytes)
-            .and_then(|()| temporary_file.sync_all())
             .map_err(|error| format!("Write temporary hotword file: {error}"))?;
+        finalize_temporary_hotword_metadata(&temporary_file, expected)?;
+        temporary_file
+            .sync_all()
+            .map_err(|error| format!("Synchronize temporary hotword file: {error}"))?;
         drop(temporary_file);
         before_claim();
         if !expected.existed {
@@ -840,6 +857,23 @@ mod tests {
         let error = prepare_temporary_hotword_metadata(&temporary_file, &baseline)
             .expect_err("reject ownership mismatch");
         assert!(error.contains("ownership cannot be preserved"));
+    }
+
+    #[test]
+    fn atomic_publication_restores_special_mode_bits_after_writing() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+        fs::write(&path, "alpha\n").expect("hotword fixture");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o6755))
+            .expect("special mode fixture");
+        let baseline = read_hotword_snapshot(&path).expect("baseline");
+
+        compare_and_swap_hotword_file(&path, &baseline, b"beta\n", || {})
+            .expect("publish with special mode");
+        assert_eq!(
+            fs::metadata(&path).expect("published metadata").mode() & 0o7777,
+            0o6755
+        );
     }
 
     #[test]
