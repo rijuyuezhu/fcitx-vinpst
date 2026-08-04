@@ -964,7 +964,7 @@ pub(crate) fn ensure_config_mutation_allowed(document: &ConfigDocument) -> Resul
     ensure_config_document_current(document)
 }
 
-fn ensure_config_document_current(document: &ConfigDocument) -> Result<(), String> {
+pub(crate) fn ensure_config_document_current(document: &ConfigDocument) -> Result<(), String> {
     if document.from_disk {
         if !document.path.exists() {
             return Err(format!(

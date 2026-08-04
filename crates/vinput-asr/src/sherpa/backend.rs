@@ -1,6 +1,4 @@
-use std::path::PathBuf;
-
-use vinput_config::{AsrProviderConfig, VadConfig};
+use vinput_config::{AsrProviderConfig, VadConfig, sherpa_model_root};
 
 use crate::{
     AsrBackend, AsrError, BackendCapabilities, BackendDescriptor, RecognitionContext,
@@ -56,8 +54,7 @@ impl SherpaOnnxBackend {
         vad_config: Option<&VadConfig>,
     ) -> Result<Self, AsrError> {
         let spec = SherpaOnnxSpec::from_provider(provider)?;
-        let model_root = std::env::var_os("VINPUT_SHERPA_MODEL_ROOT")
-            .map_or_else(|| PathBuf::from("."), PathBuf::from);
+        let model_root = sherpa_model_root();
         let online = spec
             .uses_online_runtime(&model_root)
             .map_err(|error| AsrError::Backend(error.to_string()))?;

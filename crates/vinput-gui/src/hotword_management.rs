@@ -12,15 +12,16 @@ use iced::{
     Element, Length, Task,
     widget::{button, column, pick_list, row, scrollable, text, text_editor, text_input},
 };
-use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
+use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig, sherpa_model_root};
 
 use crate::{
     App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, SecretInput,
-    default_model_root,
+    ensure_config_document_current,
     hotword_persistence::{
         HotwordContentSnapshot, read_hotword_snapshot, save_hotword_content_with_daemon,
+        save_hotword_path_with_daemon,
     },
-    load_config_document, save_updated_config_with_daemon,
+    load_config_document,
 };
 
 #[cfg(test)]
@@ -442,6 +443,17 @@ impl App {
                 return Task::none();
             }
         };
+        let prerequisite_path = if path.is_some() {
+            match local_hotword_prerequisite_path(&updated, &provider_id) {
+                Ok(path) => path,
+                Err(error) => {
+                    self.operation = OperationState::Failed(error);
+                    return Task::none();
+                }
+            }
+        } else {
+            None
+        };
         let summary = if path.is_some() {
             format!("Updated hotword path for provider `{provider_id}`.")
         } else {
@@ -451,7 +463,7 @@ impl App {
         self.operation = OperationState::Running(progress);
         Task::perform(
             async move {
-                save_updated_config_with_daemon(&document, &updated)
+                save_hotword_path_with_daemon(&document, &updated, prerequisite_path.as_deref())
                     .map(|save| HotwordMutationOutcome { save, summary })
             },
             |result| Message::Hotword(HotwordMessage::MutationFinished(result)),
@@ -594,13 +606,31 @@ impl App {
             );
             return Task::none();
         };
+        let Some(provider_id) = self.hotword_editor.selected_provider.clone() else {
+            self.operation =
+                OperationState::Failed("No hotword-capable provider is selected.".to_owned());
+            return Task::none();
+        };
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        let document = document.clone();
         let content = self.hotword_editor.content.text();
         let operation_id = self.next_hotword_operation_id;
         self.next_hotword_operation_id = self.next_hotword_operation_id.saturating_add(1);
         self.active_hotword_operation_id = Some(operation_id);
         self.operation = OperationState::Running("Saving hotword content…");
         Task::perform(
-            async move { save_hotword_content_with_daemon(&path, &expected, &content) },
+            async move {
+                save_hotword_content_for_document(
+                    &document,
+                    &provider_id,
+                    &path,
+                    &expected,
+                    &content,
+                )
+            },
             move |result| {
                 Message::Hotword(HotwordMessage::ContentSaved {
                     operation_id,
@@ -803,11 +833,48 @@ fn configured_hotword_path(config: &VinputConfig, provider_id: &str) -> Option<P
         .map(PathBuf::from)
 }
 
+fn local_hotword_prerequisite_path(
+    config: &VinputConfig,
+    provider_id: &str,
+) -> Result<Option<PathBuf>, String> {
+    let provider = config
+        .asr
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .ok_or_else(|| format!("ASR provider `{provider_id}` is no longer configured."))?;
+    if provider.kind == AsrProviderKind::Local {
+        resolved_hotword_content_path(config, provider_id)
+    } else {
+        Ok(None)
+    }
+}
+
+fn save_hotword_content_for_document(
+    document: &ConfigDocument,
+    provider_id: &str,
+    expected_path: &Path,
+    expected: &HotwordContentSnapshot,
+    content: &str,
+) -> Result<String, String> {
+    save_hotword_content_with_daemon(expected_path, expected, content, || {
+        ensure_config_document_current(document)?;
+        let current_path = resolved_hotword_content_path(&document.config, provider_id)?;
+        if current_path.as_deref() != Some(expected_path) {
+            return Err(
+                "The configured hotword target changed after loading; reload configuration and content before saving."
+                    .to_owned(),
+            );
+        }
+        Ok(())
+    })
+}
+
 fn resolved_hotword_content_path(
     config: &VinputConfig,
     provider_id: &str,
 ) -> Result<Option<PathBuf>, String> {
-    resolve_hotword_content_path(config, provider_id, default_model_root)
+    resolve_hotword_content_path(config, provider_id, || Ok(sherpa_model_root()))
 }
 
 #[cfg(test)]
@@ -1046,6 +1113,61 @@ mod tests {
             fs::read_to_string(&path).expect("restored content"),
             "external\n"
         );
+    }
+
+    #[test]
+    fn content_save_rejects_external_config_target_changes_before_write() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let config_path = directory.path().join("config.json");
+        let old_path = directory.path().join("old-hotwords.txt");
+        let new_path = directory.path().join("new-hotwords.txt");
+        fs::write(&old_path, "alpha\n").expect("old hotwords fixture");
+
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        let mut local = provider("local", AsrProviderKind::Local);
+        local.model = Some(
+            directory
+                .path()
+                .join("model")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        local.hotwords_file = Some(old_path.to_string_lossy().into_owned());
+        config.asr.providers = vec![local];
+        config.asr.active_provider = "local".to_owned();
+        fs::write(
+            &config_path,
+            serde_json::to_vec_pretty(&config).expect("serialize config"),
+        )
+        .expect("write config");
+        let document = ConfigDocument {
+            path: config_path.clone(),
+            from_disk: true,
+            config: config.clone(),
+        };
+        let baseline = read_hotword_snapshot(&old_path).expect("read hotwords");
+
+        config.asr.providers[0].hotwords_file = Some(new_path.to_string_lossy().into_owned());
+        fs::write(
+            &config_path,
+            serde_json::to_vec_pretty(&config).expect("serialize external config"),
+        )
+        .expect("write external config");
+
+        let error = save_hotword_content_for_document(
+            &document,
+            "local",
+            &old_path,
+            &baseline,
+            "should-not-write\n",
+        )
+        .expect_err("reject external config change");
+        assert!(error.contains("changed on disk"));
+        assert_eq!(
+            fs::read_to_string(&old_path).expect("old content"),
+            "alpha\n"
+        );
+        assert!(!new_path.exists());
     }
 
     #[test]

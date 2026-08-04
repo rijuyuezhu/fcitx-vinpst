@@ -3,10 +3,15 @@
 use std::{
     fmt, fs,
     io::{self, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
-use crate::{ensure_config_save_allowed, query_daemon_snapshot, reload_asr_backend};
+use vinput_config::VinputConfig;
+
+use crate::{
+    ConfigDocument, ConfigSaveOutcome, ensure_config_save_allowed, query_daemon_snapshot,
+    reload_asr_backend, save_updated_config_with_daemon,
+};
 
 const MAX_HOTWORD_FILE_BYTES: usize = 1024 * 1024;
 
@@ -23,6 +28,54 @@ impl fmt::Debug for HotwordContentSnapshot {
             .field("existed", &self.existed)
             .field("content", &"<redacted>")
             .finish()
+    }
+}
+
+pub(super) fn save_hotword_path_with_daemon(
+    document: &ConfigDocument,
+    updated: &VinputConfig,
+    prerequisite_path: Option<&Path>,
+) -> Result<ConfigSaveOutcome, String> {
+    with_prepared_hotword_file(prerequisite_path, || {
+        save_updated_config_with_daemon(document, updated)
+    })
+}
+
+fn with_prepared_hotword_file<T>(
+    path: Option<&Path>,
+    action: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let created_path = prepare_missing_hotword_file(path)?;
+    match action() {
+        Ok(outcome) => Ok(outcome),
+        Err(error) => match rollback_created_hotword_file(created_path.as_deref()) {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(format!(
+                "{error} Removing the hotword file created for this update also failed: {rollback_error}"
+            )),
+        },
+    }
+}
+
+fn prepare_missing_hotword_file(path: Option<&Path>) -> Result<Option<PathBuf>, String> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    if read_hotword_snapshot(path)?.existed {
+        return Ok(None);
+    }
+    atomic_write_hotword_file(path, b"")?;
+    Ok(Some(path.to_path_buf()))
+}
+
+fn rollback_created_hotword_file(path: Option<&Path>) -> Result<(), String> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Remove newly created hotword file: {error}")),
     }
 }
 
@@ -69,11 +122,13 @@ pub(super) fn save_hotword_content_with_daemon(
     path: &Path,
     expected: &HotwordContentSnapshot,
     content: &str,
+    validate_target: impl FnOnce() -> Result<(), String>,
 ) -> Result<String, String> {
     let daemon = query_daemon_snapshot();
     if let Ok(snapshot) = &daemon {
         ensure_config_save_allowed(snapshot)?;
     }
+    validate_target()?;
     save_hotword_content_with_reload(path, expected, content, || match daemon {
         Ok(_) => reload_asr_backend().map(|()| "daemon config reload requested".to_owned()),
         Err(error) => Ok(format!("daemon reload skipped: {error}")),
@@ -194,4 +249,49 @@ fn atomic_write_hotword_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
         let _ = fs::remove_file(&temporary_path);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_prerequisite_exists_before_commit() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+
+        with_prepared_hotword_file(Some(&path), || {
+            assert_eq!(fs::read_to_string(&path).expect("prepared file"), "");
+            Ok(())
+        })
+        .expect("commit prepared file");
+
+        assert!(path.is_file());
+    }
+
+    #[test]
+    fn failed_commit_removes_only_new_prerequisite() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let missing = directory.path().join("missing.txt");
+        let existing = directory.path().join("existing.txt");
+        fs::write(&existing, "keep\n").expect("existing fixture");
+
+        let missing_error = with_prepared_hotword_file(Some(&missing), || {
+            assert!(missing.is_file());
+            Err::<(), _>("fixture commit failure".to_owned())
+        })
+        .expect_err("rollback missing prerequisite");
+        assert_eq!(missing_error, "fixture commit failure");
+        assert!(!missing.exists());
+
+        let existing_error = with_prepared_hotword_file(Some(&existing), || {
+            Err::<(), _>("fixture commit failure".to_owned())
+        })
+        .expect_err("preserve existing prerequisite");
+        assert_eq!(existing_error, "fixture commit failure");
+        assert_eq!(
+            fs::read_to_string(&existing).expect("existing content"),
+            "keep\n"
+        );
+    }
 }
