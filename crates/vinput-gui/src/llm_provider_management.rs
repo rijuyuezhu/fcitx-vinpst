@@ -9,7 +9,7 @@ use iced::{
 use vinput_config::{LlmProviderConfig, SceneDefinition, VinputConfig, redact_url_for_diagnostics};
 use vinput_text::{
     OpenAiCompatibleChatTransport, OpenAiCompatibleTextAdapter,
-    ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextRequest,
+    ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextError, TextRequest,
 };
 
 use crate::{
@@ -737,11 +737,51 @@ fn test_llm_provider_with_transport<T: OpenAiCompatibleChatTransport>(
     };
     let payload = OpenAiCompatibleTextAdapter::new(provider.clone(), transport)
         .finish(&request)
-        .map_err(|error| format!("Test LLM provider `{}`: {error}", provider.id))?;
+        .map_err(|error| llm_provider_test_error(&provider.id, &error))?;
     Ok(LlmProviderTestOutcome {
         provider_id: provider.id,
         candidate_count: payload.candidates.len(),
     })
+}
+
+fn llm_provider_test_error(provider_id: &str, error: &TextError) -> String {
+    let category = match error {
+        TextError::AdapterFailed(message) => safe_provider_failure_category(message),
+        _ => "provider test could not be completed".to_owned(),
+    };
+    format!("Test LLM provider `{provider_id}` failed: {category}.")
+}
+
+fn safe_provider_failure_category(message: &str) -> String {
+    const HTTP_PREFIX: &str = "OpenAI-compatible provider returned HTTP ";
+    if let Some(status_and_body) = message.strip_prefix(HTTP_PREFIX) {
+        let status = status_and_body
+            .split_once(':')
+            .map_or(status_and_body, |(status, _)| status)
+            .trim();
+        if !status.is_empty()
+            && status.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, ' ' | '-')
+            })
+        {
+            return format!("provider returned HTTP {status}");
+        }
+    }
+    if message.contains("timed out") {
+        "provider request timed out".to_owned()
+    } else if message.contains("exceeds") {
+        "provider response exceeded the size limit".to_owned()
+    } else if message.contains("not valid UTF-8") {
+        "provider response was not valid UTF-8".to_owned()
+    } else if message.contains("did not contain candidates") {
+        "provider response did not contain candidates".to_owned()
+    } else if message.contains("client setup failed") {
+        "HTTP client setup failed".to_owned()
+    } else if message.contains("response body read failed") {
+        "provider response could not be read".to_owned()
+    } else {
+        "provider request failed".to_owned()
+    }
 }
 
 fn remove_llm_provider(config: &VinputConfig, provider_id: &str) -> Result<VinputConfig, String> {
@@ -818,6 +858,22 @@ mod tests {
             *self.seen_request.lock().expect("request lock") = Some(request.clone());
             *self.seen_timeout_ms.lock().expect("timeout lock") = timeout_ms;
             Ok(self.response_body.clone())
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct SensitiveFailureTransport;
+
+    impl OpenAiCompatibleChatTransport for SensitiveFailureTransport {
+        fn send(
+            &self,
+            _request: &OpenAiCompatibleChatRequest,
+            _timeout_ms: Option<u64>,
+        ) -> Result<String, TextError> {
+            Err(TextError::AdapterFailed(
+                "OpenAI-compatible provider returned HTTP 401 Unauthorized: sensitive response body api-secret sensitive connectivity input"
+                    .to_owned(),
+            ))
         }
     }
 
@@ -982,6 +1038,23 @@ mod tests {
         let debug = format!("{outcome:?}");
         assert!(!debug.contains("sensitive connectivity input"));
         assert!(!debug.contains("api-secret"));
+    }
+
+    #[test]
+    fn connectivity_failure_exposes_only_safe_error_category() {
+        let error = test_llm_provider_with_transport(
+            provider("cloud"),
+            "sensitive connectivity input",
+            SensitiveFailureTransport,
+        )
+        .expect_err("connectivity failure");
+
+        assert!(error.contains("HTTP 401 Unauthorized"));
+        assert!(!error.contains("sensitive response body"));
+        assert!(!error.contains("sensitive connectivity input"));
+        assert!(!error.contains("api-secret"));
+        assert!(!error.contains("user:secret"));
+        assert!(!error.contains("hidden"));
     }
 
     #[test]
