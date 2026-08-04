@@ -280,31 +280,31 @@ pub(super) fn save_hotword_content_with_reload(
     if let Err(error) = &reload {
         activation_errors.push(error.clone());
     }
-    let baseline = if let Ok(snapshot) = final_snapshot {
-        if !snapshot.existed || snapshot.content != content {
+    let baseline = match (&published_snapshot, &final_snapshot) {
+        (Ok(published), Ok(final_snapshot))
+            if published == final_snapshot
+                && final_snapshot.existed
+                && final_snapshot.content == content =>
+        {
+            Some(final_snapshot.clone())
+        }
+        (Ok(_), Ok(_)) => {
             activation_errors.push(
                 "The hotword file changed while the daemon was applying the update; reload the file before editing it again."
                     .to_owned(),
             );
+            None
         }
-        Some(snapshot)
-    } else {
-        activation_errors.push(
-            "The saved hotword file could not be verified after the daemon reload; reload the file before editing it again."
-                .to_owned(),
-        );
-        None
+        (_, Err(_)) => {
+            activation_errors.push(
+                "The saved hotword file could not be verified after the daemon reload; reload the file before editing it again."
+                    .to_owned(),
+            );
+            None
+        }
+        (Err(_), Ok(_)) => None,
     };
-    let retry_activation = reload_failed
-        && published_snapshot
-            .as_ref()
-            .ok()
-            .zip(baseline.as_ref())
-            .is_some_and(|(published, final_snapshot)| {
-                published == final_snapshot
-                    && final_snapshot.existed
-                    && final_snapshot.content == content
-            });
+    let retry_activation = reload_failed && baseline.is_some();
     let activation_error = (!activation_errors.is_empty()).then(|| {
         format!(
             "{} Automatic file rollback was skipped to avoid overwriting concurrent external updates.",
@@ -745,13 +745,7 @@ mod tests {
             .expect("preserve concurrent reload-window update");
         assert!(concurrent_outcome.activation_error.is_some());
         assert!(!concurrent_outcome.retry_activation);
-        assert_eq!(
-            concurrent_outcome
-                .baseline
-                .as_ref()
-                .map(|snapshot| snapshot.content.as_str()),
-            Some("concurrent-write\n")
-        );
+        assert!(concurrent_outcome.baseline.is_none());
 
         let same_content_baseline =
             read_hotword_snapshot(&path).expect("read same-content baseline");
@@ -769,6 +763,7 @@ mod tests {
         .expect("detect same-content external replacement");
         assert!(same_content_outcome.activation_error.is_some());
         assert!(!same_content_outcome.retry_activation);
+        assert!(same_content_outcome.baseline.is_none());
         assert_eq!(
             fs::read_to_string(&path).expect("same replacement content"),
             "gui-same-content\n"
@@ -788,6 +783,7 @@ mod tests {
         .expect("preserve concurrent creation");
         assert!(missing_outcome.activation_error.is_some());
         assert!(!missing_outcome.retry_activation);
+        assert!(missing_outcome.baseline.is_none());
         assert_eq!(
             fs::read_to_string(&missing_path).expect("concurrent created content"),
             "concurrent-create\n"

@@ -333,6 +333,39 @@ impl HotwordEditorState {
         }
     }
 
+    fn apply_saved_content_baseline(
+        &mut self,
+        provider_id: &str,
+        baseline: Option<HotwordContentSnapshot>,
+        retry_activation: bool,
+    ) {
+        let clear_pending = self
+            .pending_activation
+            .as_ref()
+            .is_some_and(|pending| pending.matches_provider(provider_id));
+        if let Some(baseline) = baseline {
+            self.loaded_path.clone_from(&self.content_path);
+            self.baseline = Some(baseline.clone());
+            if retry_activation {
+                self.pending_activation = Some(PendingHotwordActivation::for_file(
+                    provider_id.to_owned(),
+                    self.content_path
+                        .clone()
+                        .expect("content save requires a resolved path"),
+                    baseline,
+                ));
+            } else if clear_pending {
+                self.pending_activation = None;
+            }
+        } else {
+            self.loaded_path = None;
+            self.baseline = None;
+            if clear_pending {
+                self.pending_activation = None;
+            }
+        }
+    }
+
     fn pending_activation_for_selected_provider(&self) -> bool {
         self.selected_provider
             .as_deref()
@@ -771,34 +804,11 @@ impl App {
                     .selected_provider
                     .clone()
                     .expect("content save requires a selected provider");
-                if let Some(baseline) = baseline {
-                    self.hotword_editor.baseline = Some(baseline.clone());
-                    if retry_activation {
-                        self.hotword_editor.pending_activation =
-                            Some(PendingHotwordActivation::for_file(
-                                selected_provider,
-                                self.hotword_editor
-                                    .content_path
-                                    .clone()
-                                    .expect("content save requires a resolved path"),
-                                baseline,
-                            ));
-                    } else if self
-                        .hotword_editor
-                        .pending_activation
-                        .as_ref()
-                        .is_some_and(|pending| pending.matches_provider(&selected_provider))
-                    {
-                        self.hotword_editor.pending_activation = None;
-                    }
-                } else if self
-                    .hotword_editor
-                    .pending_activation
-                    .as_ref()
-                    .is_some_and(|pending| pending.matches_provider(&selected_provider))
-                {
-                    self.hotword_editor.pending_activation = None;
-                }
+                self.hotword_editor.apply_saved_content_baseline(
+                    &selected_provider,
+                    baseline,
+                    retry_activation,
+                );
                 self.operation = match activation_error {
                     Some(error) => OperationState::Failed(format!("{summary} {error}")),
                     None => OperationState::Succeeded(summary),

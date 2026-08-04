@@ -209,6 +209,32 @@ fn resetting_temporary_edits_preserves_pending_activation() {
 }
 
 #[test]
+fn unsafe_post_reload_snapshot_requires_a_fresh_load() {
+    let mut config = VinputConfig::bundled_default().expect("bundled config");
+    config.asr.providers[0].hotwords_file = Some("/tmp/hotwords.txt".to_owned());
+    let active_provider = config.asr.active_provider.clone();
+    let mut editor = HotwordEditorState::from_config(&config, Some(&active_provider));
+    editor.loaded_path.clone_from(&editor.content_path);
+    editor.baseline = Some(HotwordContentSnapshot {
+        existed: true,
+        content: "loaded\n".to_owned(),
+        version: None,
+    });
+    editor.content = text_editor::Content::with_text("gui-write\n");
+    editor.pending_activation = Some(PendingHotwordActivation::for_config(
+        active_provider.clone(),
+    ));
+
+    editor.apply_saved_content_baseline(&active_provider, None, false);
+
+    assert!(editor.baseline.is_none());
+    assert!(editor.loaded_path.is_none());
+    assert_eq!(editor.content.text(), "gui-write\n");
+    assert!(editor.pending_activation.is_none());
+    assert!(!editor.content_is_dirty());
+}
+
+#[test]
 fn hotword_messages_redact_paths_and_loaded_content() {
     let path_message = HotwordMessage::PathChanged(SecretInput::new(
         "/home/user/private/hotwords.txt".to_owned(),
