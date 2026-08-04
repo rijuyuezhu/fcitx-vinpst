@@ -1175,6 +1175,7 @@ mod tests {
             snapshot: HotwordContentSnapshot {
                 existed: true,
                 content: "private phrase".to_owned(),
+                version: None,
             },
         };
         let message = HotwordMessage::ContentLoaded {

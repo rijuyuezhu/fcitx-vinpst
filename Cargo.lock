@@ -4306,6 +4306,7 @@ name = "vinput-gui"
 version = "0.1.0"
 dependencies = [
  "iced",
+ "rustix 1.1.4",
  "serde_json",
  "tempfile",
  "tokio",
