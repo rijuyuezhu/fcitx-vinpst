@@ -157,6 +157,128 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
 }
 
 #[test]
+fn llm_provider_mutations_reject_dirty_control_draft_and_preserve_form() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let mut config = VinputConfig::bundled_default().expect("bundled config");
+    config.llm.providers.push(vinput_config::LlmProviderConfig {
+        id: "existing".to_owned(),
+        base_url: "https://example.invalid/v1".to_owned(),
+        api_key: String::new(),
+        model: None,
+        extra_body: serde_json::json!({}),
+        extra: HashMap::new(),
+    });
+    app.config = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-dirty-llm-provider.json"),
+        from_disk: false,
+        config: config.clone(),
+    });
+    let mut draft = ConfigDraft::from_config(&config);
+    draft.default_language = "zh-CN".to_owned();
+    app.draft = Some(draft);
+    app.page = Page::Llm;
+
+    drop(app.update(Message::LlmProvider(LlmProviderMessage::BeginAdd)));
+    drop(
+        app.update(Message::LlmProvider(LlmProviderMessage::EditorChanged {
+            field: LlmProviderEditorField::Id,
+            value: SecretInput::new("new-provider".to_owned()),
+        })),
+    );
+    drop(
+        app.update(Message::LlmProvider(LlmProviderMessage::EditorChanged {
+            field: LlmProviderEditorField::BaseUrl,
+            value: SecretInput::new("https://new.example.invalid/v1".to_owned()),
+        })),
+    );
+    let editor_before = format!("{:?}", app.llm_provider_editor);
+
+    drop(app.update(Message::LlmProvider(LlmProviderMessage::Save)));
+
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("Save or reset")
+    ));
+    assert_eq!(format!("{:?}", app.llm_provider_editor), editor_before);
+    assert_eq!(
+        app.config
+            .as_ref()
+            .expect("config")
+            .config
+            .llm
+            .providers
+            .len(),
+        1
+    );
+
+    drop(app.update(Message::LlmProvider(LlmProviderMessage::CancelEdit)));
+    drop(app.update(Message::LlmProvider(LlmProviderMessage::Remove(
+        "existing".to_owned(),
+    ))));
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error.contains("Save or reset")
+    ));
+    assert_eq!(
+        app.config.as_ref().expect("config").config.llm.providers[0].id,
+        "existing"
+    );
+}
+
+#[test]
+fn in_flight_llm_provider_mutation_freezes_form_messages() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    app.config = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-in-flight-llm-provider.json"),
+        from_disk: false,
+        config: config.clone(),
+    });
+    app.draft = Some(ConfigDraft::from_config(&config));
+    app.page = Page::Llm;
+    drop(app.update(Message::LlmProvider(LlmProviderMessage::BeginAdd)));
+    drop(
+        app.update(Message::LlmProvider(LlmProviderMessage::EditorChanged {
+            field: LlmProviderEditorField::Id,
+            value: SecretInput::new("new-provider".to_owned()),
+        })),
+    );
+    let editor_before = format!("{:?}", app.llm_provider_editor);
+    let test_text_before = app.llm_provider_test_text.clone();
+    app.operation = OperationState::Running("Saving LLM provider…");
+
+    drop(
+        app.update(Message::LlmProvider(LlmProviderMessage::EditorChanged {
+            field: LlmProviderEditorField::Model,
+            value: SecretInput::new("late-model".to_owned()),
+        })),
+    );
+    drop(
+        app.update(Message::LlmProvider(LlmProviderMessage::TestInputChanged(
+            SecretInput::new("late test text".to_owned()),
+        ))),
+    );
+    drop(app.update(Message::LlmProvider(LlmProviderMessage::CancelEdit)));
+    drop(app.update(Message::SelectPage(Page::Control)));
+
+    assert_eq!(app.page, Page::Llm);
+    assert_eq!(format!("{:?}", app.llm_provider_editor), editor_before);
+    assert_eq!(app.llm_provider_test_text, test_text_before);
+
+    drop(
+        app.update(Message::LlmProvider(LlmProviderMessage::MutationFinished(
+            Err("fixture completion".to_owned()),
+        ))),
+    );
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if error == "fixture completion"
+    ));
+}
+
+#[test]
 fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
     let config = VinputConfig::bundled_default().expect("bundled config");
     let document = ConfigDocument {

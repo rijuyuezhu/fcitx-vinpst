@@ -177,6 +177,17 @@ impl Message {
                         | SceneMessage::Use(_)
                         | SceneMessage::Remove(_)
                 )
+                | Self::LlmProvider(
+                    LlmProviderMessage::BeginAdd
+                        | LlmProviderMessage::BeginEdit(_)
+                        | LlmProviderMessage::Remove(_)
+                        | LlmProviderMessage::TestInputChanged(_)
+                        | LlmProviderMessage::Test(_)
+                        | LlmProviderMessage::EditorChanged { .. }
+                        | LlmProviderMessage::ResetEdit
+                        | LlmProviderMessage::CancelEdit
+                        | LlmProviderMessage::Save
+                )
         )
     }
 }

@@ -289,6 +289,9 @@ impl App {
         if self.is_busy() || self.llm_provider_editor.is_some() {
             return Task::none();
         }
+        if !self.ensure_llm_provider_mutation_allowed() {
+            return Task::none();
+        }
         let Ok(document) = &self.config else {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
@@ -400,6 +403,9 @@ impl App {
         if !editor.is_dirty() {
             return Task::none();
         }
+        if !self.ensure_llm_provider_mutation_allowed() {
+            return Task::none();
+        }
         let Ok(document) = &self.config else {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
@@ -423,6 +429,18 @@ impl App {
             }
         };
         self.begin_llm_provider_mutation(document.clone(), updated, summary)
+    }
+
+    fn ensure_llm_provider_mutation_allowed(&mut self) -> bool {
+        if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
+            return false;
+        }
+        if let Err(error) = self.ensure_no_open_scene_editor() {
+            self.operation = OperationState::Failed(error);
+            return false;
+        }
+        true
     }
 
     fn begin_llm_provider_mutation(
