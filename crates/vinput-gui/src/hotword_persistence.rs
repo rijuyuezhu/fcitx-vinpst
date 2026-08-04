@@ -3,8 +3,7 @@
 use std::{
     fmt, fs,
     io::{self, Write},
-    os::unix::fs::MetadataExt,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use vinput_config::VinputConfig;
@@ -32,37 +31,6 @@ impl fmt::Debug for HotwordContentSnapshot {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct HotwordFileStamp {
-    device: u64,
-    inode: u64,
-    size: u64,
-    modified_seconds: i64,
-    modified_nanoseconds: i64,
-    changed_seconds: i64,
-    changed_nanoseconds: i64,
-}
-
-impl HotwordFileStamp {
-    fn from_metadata(metadata: &fs::Metadata) -> Self {
-        Self {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-            size: metadata.size(),
-            modified_seconds: metadata.mtime(),
-            modified_nanoseconds: metadata.mtime_nsec(),
-            changed_seconds: metadata.ctime(),
-            changed_nanoseconds: metadata.ctime_nsec(),
-        }
-    }
-}
-
-struct PublishedHotwordFile {
-    path: PathBuf,
-    content: String,
-    stamp: HotwordFileStamp,
-}
-
 pub(super) fn save_hotword_path_with_daemon(
     document: &ConfigDocument,
     updated: &VinputConfig,
@@ -77,46 +45,25 @@ fn with_prepared_hotword_file<T>(
     path: Option<&Path>,
     action: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    let created_file = prepare_missing_hotword_file(path)?;
+    let created = prepare_missing_hotword_file(path)?;
     match action() {
         Ok(outcome) => Ok(outcome),
-        Err(error) => match rollback_created_hotword_file(created_file.as_ref()) {
-            Ok(()) => Err(error),
-            Err(rollback_error) => Err(format!(
-                "{error} Removing the hotword file created for this update also failed: {rollback_error}"
-            )),
-        },
+        Err(error) if created => Err(format!(
+            "{error} The hotword file prepared for this update was preserved because rollback cannot safely exclude concurrent external changes."
+        )),
+        Err(error) => Err(error),
     }
 }
 
-fn prepare_missing_hotword_file(
-    path: Option<&Path>,
-) -> Result<Option<PublishedHotwordFile>, String> {
+fn prepare_missing_hotword_file(path: Option<&Path>) -> Result<bool, String> {
     let Some(path) = path else {
-        return Ok(None);
+        return Ok(false);
     };
     if read_hotword_snapshot(path)?.existed {
-        return Ok(None);
+        return Ok(false);
     }
     atomic_write_hotword_file(path, b"")?;
-    capture_published_hotword_file(path, "").map(Some)
-}
-
-fn rollback_created_hotword_file(file: Option<&PublishedHotwordFile>) -> Result<(), String> {
-    let Some(file) = file else {
-        return Ok(());
-    };
-    if !published_hotword_file_is_current(file)? {
-        return Err(
-            "The prepared hotword file changed while the daemon was reloading; current content was preserved and rollback was skipped."
-                .to_owned(),
-        );
-    }
-    match fs::remove_file(&file.path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("Remove newly created hotword file: {error}")),
-    }
+    Ok(true)
 }
 
 pub(super) fn read_hotword_snapshot(path: &Path) -> Result<HotwordContentSnapshot, String> {
@@ -188,98 +135,12 @@ pub(super) fn save_hotword_content_with_reload(
         );
     }
     atomic_write_hotword_file(path, content.as_bytes())?;
-    let published = capture_published_hotword_file(path, content)?;
     match reload() {
         Ok(reload_summary) => Ok(format!("Hotword content saved; {reload_summary}")),
-        Err(error) => {
-            match published_hotword_file_is_current(&published) {
-                Ok(true) => {}
-                Ok(false) => {
-                    return Err(format!(
-                        "Daemon reload failed after saving hotwords: {error}; the hotword file changed again during reload, so current content was preserved and rollback was skipped."
-                    ));
-                }
-                Err(verify_error) => {
-                    return Err(format!(
-                        "Daemon reload failed after saving hotwords: {error}; {verify_error}"
-                    ));
-                }
-            }
-            let rollback = if expected.existed {
-                atomic_write_hotword_file(path, expected.content.as_bytes())
-            } else {
-                match fs::remove_file(path) {
-                    Ok(()) => Ok(()),
-                    Err(remove_error) if remove_error.kind() == io::ErrorKind::NotFound => Ok(()),
-                    Err(remove_error) => {
-                        Err(format!("Remove newly created hotword file: {remove_error}"))
-                    }
-                }
-            };
-            Err(match rollback {
-                Ok(()) => format!(
-                    "Daemon reload failed after saving hotwords: {error}; previous content restored."
-                ),
-                Err(rollback_error) => format!(
-                    "Daemon reload failed after saving hotwords: {error}; restoring previous content also failed: {rollback_error}"
-                ),
-            })
-        }
+        Err(error) => Err(format!(
+            "Daemon reload failed after saving hotwords: {error}; the current hotword file was preserved and rollback was skipped to avoid overwriting concurrent external updates."
+        )),
     }
-}
-
-fn capture_published_hotword_file(
-    path: &Path,
-    expected_content: &str,
-) -> Result<PublishedHotwordFile, String> {
-    let snapshot = read_hotword_snapshot(path)?;
-    if !snapshot.existed || snapshot.content != expected_content {
-        return Err(
-            "The hotword file changed immediately after publication; current content was preserved."
-                .to_owned(),
-        );
-    }
-    let metadata = regular_hotword_metadata(path)?;
-    Ok(PublishedHotwordFile {
-        path: path.to_path_buf(),
-        content: expected_content.to_owned(),
-        stamp: HotwordFileStamp::from_metadata(&metadata),
-    })
-}
-
-fn published_hotword_file_is_current(file: &PublishedHotwordFile) -> Result<bool, String> {
-    let snapshot = match read_hotword_snapshot(&file.path) {
-        Ok(snapshot) => snapshot,
-        Err(error) => {
-            return Err(format!(
-                "Could not verify the hotword file before rollback: {error}; rollback was skipped."
-            ));
-        }
-    };
-    if !snapshot.existed || snapshot.content != file.content {
-        return Ok(false);
-    }
-    let metadata = match regular_hotword_metadata(&file.path) {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            return Err(format!(
-                "Could not verify the hotword file version before rollback: {error}; rollback was skipped."
-            ));
-        }
-    };
-    Ok(HotwordFileStamp::from_metadata(&metadata) == file.stamp)
-}
-
-fn regular_hotword_metadata(path: &Path) -> Result<fs::Metadata, String> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| format!("Inspect published hotword file: {error}"))?;
-    if metadata.file_type().is_symlink() {
-        return Err("Published hotword file became a symbolic link.".to_owned());
-    }
-    if !metadata.is_file() {
-        return Err("Published hotword path is no longer a regular file.".to_owned());
-    }
-    Ok(metadata)
 }
 
 fn atomic_write_hotword_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -378,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_commit_removes_only_new_prerequisite() {
+    fn failed_commit_preserves_prepared_and_existing_files() {
         let directory = tempfile::tempdir().expect("temp dir");
         let missing = directory.path().join("missing.txt");
         let modified = directory.path().join("modified.txt");
@@ -389,16 +250,16 @@ mod tests {
             assert!(missing.is_file());
             Err::<(), _>("fixture commit failure".to_owned())
         })
-        .expect_err("rollback missing prerequisite");
-        assert_eq!(missing_error, "fixture commit failure");
-        assert!(!missing.exists());
+        .expect_err("preserve missing prerequisite");
+        assert!(missing_error.contains("prepared for this update was preserved"));
+        assert_eq!(fs::read_to_string(&missing).expect("prepared content"), "");
 
         let modified_error = with_prepared_hotword_file(Some(&modified), || {
             fs::write(&modified, "external\n").expect("modify prepared file");
             Err::<(), _>("fixture commit failure".to_owned())
         })
         .expect_err("preserve externally modified prerequisite");
-        assert!(modified_error.contains("rollback was skipped"));
+        assert!(modified_error.contains("prepared for this update was preserved"));
         assert_eq!(
             fs::read_to_string(&modified).expect("modified content"),
             "external\n"
@@ -415,7 +276,7 @@ mod tests {
         );
     }
     #[test]
-    fn content_save_is_atomic_conflict_aware_and_rolls_back_reload_failures() {
+    fn content_save_is_atomic_conflict_aware_and_never_rolls_back_after_reload_failure() {
         let directory = tempfile::tempdir().expect("temp dir");
         let path = directory.path().join("hotwords.txt");
         fs::write(&path, "alpha\n").expect("write fixture");
@@ -444,11 +305,11 @@ mod tests {
         let reload_error = save_hotword_content_with_reload(&path, &external, "delta\n", || {
             Err("fixture reload failure".to_owned())
         })
-        .expect_err("rollback reload failure");
-        assert!(reload_error.contains("previous content restored"));
+        .expect_err("preserve published content after reload failure");
+        assert!(reload_error.contains("rollback was skipped"));
         assert_eq!(
-            fs::read_to_string(&path).expect("restored content"),
-            "external\n"
+            fs::read_to_string(&path).expect("published content"),
+            "delta\n"
         );
 
         let concurrent_baseline = read_hotword_snapshot(&path).expect("read concurrent baseline");
