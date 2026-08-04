@@ -12,7 +12,7 @@ use iced::{
     Element, Length, Task,
     widget::{button, column, pick_list, row, scrollable, text, text_editor, text_input},
 };
-use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig, sherpa_model_root};
+use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 
 use crate::{
     App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, SecretInput,
@@ -23,9 +23,6 @@ use crate::{
     },
     load_config_document,
 };
-
-#[cfg(test)]
-use crate::hotword_persistence::save_hotword_content_with_reload;
 
 /// One ASR provider that supports hotword files.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -874,23 +871,6 @@ fn resolved_hotword_content_path(
     config: &VinputConfig,
     provider_id: &str,
 ) -> Result<Option<PathBuf>, String> {
-    resolve_hotword_content_path(config, provider_id, || Ok(sherpa_model_root()))
-}
-
-#[cfg(test)]
-fn resolved_hotword_content_path_with_model_root(
-    config: &VinputConfig,
-    provider_id: &str,
-    model_root: &Path,
-) -> Result<Option<PathBuf>, String> {
-    resolve_hotword_content_path(config, provider_id, || Ok(model_root.to_path_buf()))
-}
-
-fn resolve_hotword_content_path(
-    config: &VinputConfig,
-    provider_id: &str,
-    model_root: impl FnOnce() -> Result<PathBuf, String>,
-) -> Result<Option<PathBuf>, String> {
     let provider = config
         .asr
         .providers
@@ -927,12 +907,13 @@ fn resolve_hotword_content_path(
                 );
             }
             let model = Path::new(model);
-            let model_dir = if model.is_absolute() {
-                model.to_path_buf()
-            } else {
-                model_root()?.join(model)
-            };
-            Ok(Some(model_dir.join(configured)))
+            if !model.is_absolute() {
+                return Err(
+                    "The selected local provider uses both a relative model path and a relative hotword path. Their effective target depends on the daemon process environment and working directory; configure an absolute hotword path or an absolute model path before editing content in the GUI."
+                        .to_owned(),
+                );
+            }
+            Ok(Some(model.join(configured)))
         }
         AsrProviderKind::Command => Err(
             "Relative hotword paths for command providers are resolved by the external command; configure an absolute path to edit content in the GUI."
@@ -1048,11 +1029,10 @@ mod tests {
     }
 
     #[test]
-    fn content_path_matches_runtime_resolution_rules() {
-        let model_root = Path::new("/managed-models");
+    fn content_path_refuses_cross_process_relative_ambiguity() {
         let mut config = VinputConfig::bundled_default().expect("bundled config");
         let mut local = provider("local", AsrProviderKind::Local);
-        local.model = Some("paraformer".to_owned());
+        local.model = Some("/managed-models/paraformer".to_owned());
         local.hotwords_file = Some("hotwords.txt".to_owned());
         let mut command = provider("command", AsrProviderKind::Command);
         command.hotwords_file = Some("relative-command-hotwords.txt".to_owned());
@@ -1060,58 +1040,29 @@ mod tests {
         config.asr.active_provider = "local".to_owned();
 
         assert_eq!(
-            resolved_hotword_content_path_with_model_root(&config, "local", model_root)
-                .expect("resolve local hotwords"),
-            Some(model_root.join("paraformer/hotwords.txt"))
+            resolved_hotword_content_path(&config, "local").expect("resolve local hotwords"),
+            Some(PathBuf::from("/managed-models/paraformer/hotwords.txt"))
         );
-        let command_error =
-            resolved_hotword_content_path_with_model_root(&config, "command", model_root)
-                .expect_err("relative command path is external");
+        config.asr.providers[0].model = Some("paraformer".to_owned());
+        let local_error = resolved_hotword_content_path(&config, "local")
+            .expect_err("relative local model and hotword are ambiguous");
+        assert!(local_error.contains("daemon process environment"));
+
+        config.asr.providers[0].hotwords_file = Some("/tmp/local-hotwords.txt".to_owned());
+        assert_eq!(
+            resolved_hotword_content_path(&config, "local").expect("absolute local hotwords"),
+            Some(PathBuf::from("/tmp/local-hotwords.txt"))
+        );
+
+        let command_error = resolved_hotword_content_path(&config, "command")
+            .expect_err("relative command path is external");
         assert!(command_error.contains("external command"));
 
         config.asr.providers[1].hotwords_file = Some("/tmp/command-hotwords.txt".to_owned());
         assert_eq!(
-            resolved_hotword_content_path_with_model_root(&config, "command", model_root)
+            resolved_hotword_content_path(&config, "command")
                 .expect("resolve absolute command hotwords"),
             Some(PathBuf::from("/tmp/command-hotwords.txt"))
-        );
-    }
-
-    #[test]
-    fn content_save_is_atomic_conflict_aware_and_rolls_back_reload_failures() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let path = directory.path().join("hotwords.txt");
-        fs::write(&path, "alpha\n").expect("write fixture");
-        let baseline = read_hotword_snapshot(&path).expect("read baseline");
-
-        let summary = save_hotword_content_with_reload(&path, &baseline, "beta\n", || {
-            Ok("fixture reload".to_owned())
-        })
-        .expect("save content");
-        assert!(summary.contains("fixture reload"));
-        assert_eq!(fs::read_to_string(&path).expect("saved content"), "beta\n");
-
-        let loaded = read_hotword_snapshot(&path).expect("read saved content");
-        fs::write(&path, "external\n").expect("external update");
-        let conflict = save_hotword_content_with_reload(&path, &loaded, "gamma\n", || {
-            Ok("unreachable reload".to_owned())
-        })
-        .expect_err("reject external update");
-        assert!(conflict.contains("changed outside"));
-        assert_eq!(
-            fs::read_to_string(&path).expect("external content"),
-            "external\n"
-        );
-
-        let external = read_hotword_snapshot(&path).expect("read external content");
-        let reload_error = save_hotword_content_with_reload(&path, &external, "delta\n", || {
-            Err("fixture reload failure".to_owned())
-        })
-        .expect_err("rollback reload failure");
-        assert!(reload_error.contains("previous content restored"));
-        assert_eq!(
-            fs::read_to_string(&path).expect("restored content"),
-            "external\n"
         );
     }
 

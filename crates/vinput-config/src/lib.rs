@@ -9,7 +9,6 @@ mod defaults;
 mod diagnostics;
 mod error;
 mod persistence;
-mod runtime_paths;
 mod schema;
 #[cfg(test)]
 mod tests;
@@ -20,7 +19,6 @@ pub use error::ConfigError;
 pub use persistence::{
     ConfigWriteError, ConfigWriteReceipt, config_backup_path, write_config_file,
 };
-pub use runtime_paths::{SHERPA_MODEL_ROOT_ENV, sherpa_model_root};
 pub use schema::{
     AsrConfig, AsrProviderConfig, AsrProviderKind, COMMAND_SCENE_ID, CURRENT_CONFIG_VERSION,
     DEFAULT_SCENE_TIMEOUT_MS, GlobalConfig, LlmAdapterConfig, LlmConfig, LlmProviderConfig,
