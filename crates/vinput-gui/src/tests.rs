@@ -279,6 +279,50 @@ fn in_flight_llm_provider_mutation_freezes_form_messages() {
 }
 
 #[test]
+fn same_page_navigation_preserves_page_local_editors() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    app.config = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-same-page-navigation.json"),
+        from_disk: false,
+        config: config.clone(),
+    });
+    app.draft = Some(ConfigDraft::from_config(&config));
+
+    app.page = Page::Llm;
+    drop(app.update(Message::LlmProvider(LlmProviderMessage::BeginAdd)));
+    drop(
+        app.update(Message::LlmProvider(LlmProviderMessage::EditorChanged {
+            field: LlmProviderEditorField::Id,
+            value: SecretInput::new("unsaved-provider".to_owned()),
+        })),
+    );
+    let provider_editor_before = format!("{:?}", app.llm_provider_editor);
+    drop(app.update(Message::SelectPage(Page::Llm)));
+    assert_eq!(
+        format!("{:?}", app.llm_provider_editor),
+        provider_editor_before
+    );
+    assert!(provider_editor_before.contains("unsaved-provider"));
+
+    drop(app.update(Message::SelectPage(Page::Resources)));
+    assert!(app.llm_provider_editor.is_none());
+    drop(app.update(Message::Scene(SceneMessage::BeginAdd)));
+    drop(app.update(Message::Scene(SceneMessage::EditorChanged {
+        field: SceneEditorField::Label,
+        value: "Unsaved scene".to_owned(),
+    })));
+    let scene_editor_before = format!("{:?}", app.scene_editor);
+    drop(app.update(Message::SelectPage(Page::Resources)));
+    assert_eq!(format!("{:?}", app.scene_editor), scene_editor_before);
+    assert!(scene_editor_before.contains("Unsaved scene"));
+
+    drop(app.update(Message::SelectPage(Page::Control)));
+    assert!(app.scene_editor.is_none());
+}
+
+#[test]
 fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
     let config = VinputConfig::bundled_default().expect("bundled config");
     let document = ConfigDocument {

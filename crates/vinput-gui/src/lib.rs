@@ -322,6 +322,9 @@ impl App {
     }
 
     fn select_page(&mut self, page: Page) {
+        if self.page == page {
+            return;
+        }
         self.page = page;
         self.selected_resource = None;
         self.scene_editor = None;
