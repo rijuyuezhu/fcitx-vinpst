@@ -79,6 +79,12 @@ fn classify_completed_asr_reload(
                 .to_owned(),
         ));
     }
+    if !state.last_error.is_empty() {
+        return Some(Err(
+            "The daemon could not apply the saved hotword update; the file was preserved and the previous backend may still be active."
+                .to_owned(),
+        ));
+    }
     let status =
         state.classify_requested_backend(&state.target_provider_id, &state.target_model_id);
     Some(match status {
@@ -109,6 +115,15 @@ mod tests {
 
         state.reload_in_progress = false;
         assert_eq!(classify_completed_asr_reload(&state, "local"), Some(Ok(())));
+
+        state.last_error = "same-backend fixture failure".to_owned();
+        assert!(
+            classify_completed_asr_reload(&state, "local")
+                .expect("same-backend failure")
+                .expect_err("same backend identifiers must not hide reload failure")
+                .contains("could not apply")
+        );
+        state.last_error.clear();
 
         state.target_provider_id = "local".to_owned();
         state.target_model_id = "new-model".to_owned();
