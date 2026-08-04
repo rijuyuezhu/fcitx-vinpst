@@ -28,6 +28,7 @@ pub(super) struct HotwordFileVersion {
     device: u64,
     inode: u64,
     size: u64,
+    mode: u32,
     modified_seconds: i64,
     modified_nanoseconds: i64,
     changed_seconds: i64,
@@ -40,6 +41,7 @@ impl HotwordFileVersion {
             device: metadata.dev(),
             inode: metadata.ino(),
             size: metadata.size(),
+            mode: metadata.mode(),
             modified_seconds: metadata.mtime(),
             modified_nanoseconds: metadata.mtime_nsec(),
             changed_seconds: metadata.ctime(),
@@ -51,6 +53,7 @@ impl HotwordFileVersion {
         self.device == expected.device
             && self.inode == expected.inode
             && self.size == expected.size
+            && self.mode == expected.mode
             && self.modified_seconds == expected.modified_seconds
             && self.modified_nanoseconds == expected.modified_nanoseconds
     }
@@ -63,9 +66,10 @@ pub(super) struct HotwordContentSnapshot {
     pub(super) version: Option<HotwordFileVersion>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct HotwordPublishOutcome {
     previous_version_preserved: bool,
+    durability_error: Option<String>,
 }
 
 impl fmt::Debug for HotwordContentSnapshot {
@@ -256,7 +260,7 @@ pub(super) fn save_hotword_content_with_reload(
     let publish = compare_and_swap_hotword_file(path, expected, content.as_bytes(), || {})?;
     let reload = reload();
     let final_snapshot = read_hotword_snapshot(path);
-    let mut activation_errors = Vec::new();
+    let mut activation_errors = publish.durability_error.into_iter().collect::<Vec<_>>();
     if let Err(error) = &reload {
         activation_errors.push(error.clone());
     }
@@ -367,10 +371,7 @@ fn compare_and_swap_hotword_file(
                     format!("Publish new hotword file without replacement: {error}")
                 }
             })?;
-            sync_directory(parent)?;
-            return Ok(HotwordPublishOutcome {
-                previous_version_preserved: false,
-            });
+            return Ok(finish_published_hotword(parent, false, sync_directory));
         }
         let recovery_path = claim_current_hotword_file(path, parent, file_name)?;
         synchronize_claim_or_restore(&recovery_path, path, parent, sync_directory)?;
@@ -399,10 +400,7 @@ fn compare_and_swap_hotword_file(
                 format!("Publish claimed hotword file without replacement: {error}")
             });
         }
-        sync_directory(parent)?;
-        Ok(HotwordPublishOutcome {
-            previous_version_preserved: true,
-        })
+        Ok(finish_published_hotword(parent, true, sync_directory))
     })();
     if temporary_path.exists() {
         let _ = fs::remove_file(&temporary_path);
@@ -460,6 +458,22 @@ fn claim_current_hotword_file(
         }
     }
     Err("Could not allocate an adjacent hotword recovery file.".to_owned())
+}
+
+fn finish_published_hotword(
+    parent: &Path,
+    previous_version_preserved: bool,
+    synchronize: impl FnOnce(&Path) -> Result<(), String>,
+) -> HotwordPublishOutcome {
+    let durability_error = synchronize(parent).err().map(|error| {
+        format!(
+            "The hotword file was published, but synchronizing its directory failed: {error}; durability and daemon activation were not confirmed."
+        )
+    });
+    HotwordPublishOutcome {
+        previous_version_preserved,
+        durability_error,
+    }
 }
 
 fn synchronize_claim_or_restore(
@@ -756,6 +770,45 @@ mod tests {
                 .activation_error
                 .as_deref()
                 .is_some_and(|error| error.contains("target changed"))
+        );
+    }
+
+    #[test]
+    fn published_directory_sync_failure_is_reported_as_committed() {
+        let outcome = finish_published_hotword(Path::new("."), true, |_| {
+            Err("fixture final sync failure".to_owned())
+        });
+        assert!(outcome.previous_version_preserved);
+        assert!(
+            outcome
+                .durability_error
+                .as_deref()
+                .is_some_and(|error| error.contains("was published"))
+        );
+    }
+
+    #[test]
+    fn atomic_publication_rejects_permission_changes_after_loading() {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("hotwords.txt");
+        fs::write(&path, "alpha\n").expect("initial content");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("initial permissions");
+        let baseline = read_hotword_snapshot(&path).expect("baseline");
+
+        let error = compare_and_swap_hotword_file(&path, &baseline, b"beta\n", || {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).expect("external chmod");
+        })
+        .expect_err("reject permission change after loading");
+        assert!(error.contains("changed outside"));
+        assert_eq!(
+            fs::metadata(&path).expect("restored metadata").mode() & 0o777,
+            0o640
+        );
+        assert_eq!(
+            fs::read_to_string(&path).expect("restored content"),
+            "alpha\n"
         );
     }
 
