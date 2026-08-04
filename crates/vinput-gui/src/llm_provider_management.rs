@@ -108,6 +108,7 @@ impl fmt::Debug for LlmProviderEditorFields {
 pub(super) struct LlmProviderEditorState {
     original_id: Option<String>,
     original_provider: Option<LlmProviderConfig>,
+    base_url_secure: bool,
     baseline: LlmProviderEditorFields,
     fields: LlmProviderEditorFields,
     preserved_extra: std::collections::HashMap<String, serde_json::Value>,
@@ -125,6 +126,7 @@ impl fmt::Debug for LlmProviderEditorState {
                     .as_ref()
                     .map(|_| "<redacted provider>"),
             )
+            .field("base_url_secure", &self.base_url_secure)
             .field("baseline", &self.baseline)
             .field("fields", &self.fields)
             .field("preserved_extra_count", &self.preserved_extra.len())
@@ -144,6 +146,7 @@ impl LlmProviderEditorState {
         Self {
             original_id: None,
             original_provider: None,
+            base_url_secure: false,
             baseline: fields.clone(),
             fields,
             preserved_extra: std::collections::HashMap::new(),
@@ -162,6 +165,7 @@ impl LlmProviderEditorState {
         Self {
             original_id: Some(provider.id.clone()),
             original_provider: Some(provider.clone()),
+            base_url_secure: base_url_input_is_secure(&provider.base_url),
             baseline: fields.clone(),
             fields,
             preserved_extra: provider.extra.clone(),
@@ -173,7 +177,10 @@ impl LlmProviderEditorState {
         match field {
             LlmProviderEditorField::Id if self.original_id.is_none() => self.fields.id = value,
             LlmProviderEditorField::Id => {}
-            LlmProviderEditorField::BaseUrl => self.fields.base_url = value,
+            LlmProviderEditorField::BaseUrl => {
+                self.base_url_secure |= base_url_input_is_secure(&value);
+                self.fields.base_url = value;
+            }
             LlmProviderEditorField::ApiKey => self.fields.api_key = SecretInput::new(value),
             LlmProviderEditorField::Model => self.fields.model = value,
             LlmProviderEditorField::ExtraBody => self.fields.extra_body = value,
@@ -182,6 +189,7 @@ impl LlmProviderEditorState {
 
     fn reset(&mut self) {
         self.fields = self.baseline.clone();
+        self.base_url_secure = base_url_input_is_secure(&self.baseline.base_url);
     }
 
     fn is_dirty(&self) -> bool {
@@ -631,7 +639,7 @@ fn llm_provider_editor_view(editor: &LlmProviderEditorState, busy: bool) -> Elem
             "https://provider.example/v1",
             &editor.fields.base_url,
             LlmProviderEditorField::BaseUrl,
-            base_url_input_is_secure(&editor.fields.base_url),
+            editor.base_url_secure,
         ),
         labeled_input(
             "API key",
@@ -681,13 +689,25 @@ const fn extra_body_input_is_secure() -> bool {
 }
 
 fn base_url_input_is_secure(value: &str) -> bool {
-    let Ok(url) = url::Url::parse(value) else {
-        return false;
-    };
-    !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some_and(|query| !query.is_empty())
-        || url.fragment().is_some_and(|fragment| !fragment.is_empty())
+    if let Ok(url) = url::Url::parse(value) {
+        return !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some_and(|query| !query.is_empty())
+            || url.fragment().is_some_and(|fragment| !fragment.is_empty());
+    }
+
+    let query_present = value
+        .split_once('?')
+        .is_some_and(|(_, query)| !query.split('#').next().unwrap_or_default().is_empty());
+    let fragment_present = value
+        .split_once('#')
+        .is_some_and(|(_, fragment)| !fragment.is_empty());
+    let authority = value
+        .split_once(':')
+        .map_or(value, |(_, remainder)| remainder.trim_start_matches('/'));
+    let authority_end = authority.find(['/', '?', '#']).unwrap_or(authority.len());
+    let userinfo_present = authority[..authority_end].contains('@');
+    query_present || fragment_present || userinfo_present
 }
 
 fn labeled_input<'a>(
@@ -959,28 +979,6 @@ mod tests {
     #[test]
     fn extra_body_input_is_always_secure() {
         assert!(extra_body_input_is_secure());
-    }
-
-    #[test]
-    fn base_url_input_masks_only_parseable_urls_with_sensitive_components() {
-        assert!(!base_url_input_is_secure(""));
-        assert!(!base_url_input_is_secure("https://example.invalid/v1"));
-        assert!(!base_url_input_is_secure(
-            "https://example.invalid/incomplete?"
-        ));
-        assert!(!base_url_input_is_secure("not yet a URL"));
-        assert!(base_url_input_is_secure(
-            "https://user:secret@example.invalid/v1"
-        ));
-        assert!(base_url_input_is_secure(
-            "https://example.invalid/v1?api_key=secret"
-        ));
-        assert!(base_url_input_is_secure(
-            "https:example.invalid/v1?api_key=secret"
-        ));
-        assert!(base_url_input_is_secure(
-            "https://example.invalid/v1#secret-fragment"
-        ));
     }
 
     #[test]

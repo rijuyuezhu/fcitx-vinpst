@@ -113,3 +113,54 @@ fn edit_provider_preserves_untouched_provider_values() {
     assert_eq!(edited.model.as_deref(), Some("model-b"));
     assert_eq!(edited.extra_body, configured.extra_body);
 }
+
+#[test]
+fn base_url_input_masks_sensitive_components_conservatively() {
+    assert!(!base_url_input_is_secure(""));
+    assert!(!base_url_input_is_secure("https://example.invalid/v1"));
+    assert!(!base_url_input_is_secure(
+        "https://example.invalid/incomplete?"
+    ));
+    assert!(!base_url_input_is_secure("not yet a URL"));
+    assert!(base_url_input_is_secure(
+        "https://user:secret@example.invalid/v1"
+    ));
+    assert!(base_url_input_is_secure(
+        "https://example.invalid/v1?api_key=secret"
+    ));
+    assert!(base_url_input_is_secure(
+        "https:example.invalid/v1?api_key=secret"
+    ));
+    assert!(base_url_input_is_secure(
+        "https://example.invalid/v1#secret-fragment"
+    ));
+    assert!(base_url_input_is_secure(
+        "https//example.invalid/v1?api_key=secret"
+    ));
+    assert!(base_url_input_is_secure(
+        "https//user:secret@example.invalid/v1"
+    ));
+}
+
+#[test]
+fn base_url_masking_stays_secure_during_invalid_edits() {
+    let mut configured = provider("cloud");
+    configured.base_url = "https://example.invalid/v1?api_key=secret".to_owned();
+    let mut editor = LlmProviderEditorState::edit(&configured);
+    assert!(editor.base_url_secure);
+
+    editor.update(
+        LlmProviderEditorField::BaseUrl,
+        SecretInput::new("https//example.invalid/v1?api_key=secret".to_owned()),
+    );
+    assert!(editor.base_url_secure);
+
+    editor.update(
+        LlmProviderEditorField::BaseUrl,
+        SecretInput::new("temporarily invalid URL".to_owned()),
+    );
+    assert!(editor.base_url_secure);
+
+    editor.reset();
+    assert!(editor.base_url_secure);
+}
