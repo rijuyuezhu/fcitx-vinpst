@@ -68,5 +68,11 @@ fn resolve_local_hotword_path(
                 .to_owned(),
         );
     }
+    if !model.is_dir() {
+        return Err(
+            "The selected local provider model directory does not exist or is not a directory; install or correct the model before editing a relative hotword path in the GUI."
+                .to_owned(),
+        );
+    }
     Ok(Some(model.join(configured_hotwords)))
 }

@@ -12,6 +12,21 @@ fn unsupported_extended_attribute_queries_are_treated_as_empty() {
 }
 
 #[test]
+fn publication_does_not_create_a_missing_parent_directory() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let parent = directory.path().join("missing-model");
+    let path = parent.join("hotwords.txt");
+    let baseline = HotwordContentSnapshot {
+        existed: false,
+        content: String::new(),
+        version: None,
+    };
+
+    assert!(compare_and_swap_hotword_file(&path, &baseline, b"alpha\n", || {}).is_err());
+    assert!(!parent.exists());
+}
+
+#[test]
 fn missing_prerequisite_exists_before_commit() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("hotwords.txt");

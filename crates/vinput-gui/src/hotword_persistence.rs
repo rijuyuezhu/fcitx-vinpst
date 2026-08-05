@@ -450,7 +450,11 @@ fn compare_and_swap_hotword_file_with_exchange_hook(
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent).map_err(|error| format!("Create hotword directory: {error}"))?;
+    let parent_metadata = fs::metadata(parent)
+        .map_err(|error| format!("Inspect hotword parent directory: {error}"))?;
+    if !parent_metadata.is_dir() {
+        return Err("Hotword parent path is not a directory.".to_owned());
+    }
     let file_name = path
         .file_name()
         .ok_or_else(|| "Hotword path must name a file.".to_owned())?;

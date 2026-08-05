@@ -377,11 +377,7 @@ impl HotwordEditorState {
     }
 
     fn path_is_dirty(&self) -> bool {
-        let proposed = self.path_input.trim();
-        match &self.configured_path {
-            Some(configured) => Path::new(proposed) != configured,
-            None => !proposed.is_empty(),
-        }
+        normalized_hotword_path(&self.path_input) != self.configured_path
     }
 
     fn content_is_dirty(&self) -> bool {
@@ -1078,9 +1074,12 @@ fn configured_hotword_path(config: &VinputConfig, provider_id: &str) -> Option<P
         .iter()
         .find(|provider| provider.id == provider_id)
         .and_then(|provider| provider.hotwords_file.as_deref())
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
+        .and_then(normalized_hotword_path)
+}
+
+fn normalized_hotword_path(value: &str) -> Option<PathBuf> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| PathBuf::from(value))
 }
 
 fn local_hotword_prerequisite_path(

@@ -90,9 +90,12 @@ fn configured_path_whitespace_is_normalized_before_dirty_comparison() {
 
 #[test]
 fn content_path_refuses_cross_process_relative_ambiguity() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let model_directory = directory.path().join("paraformer");
+    fs::create_dir(&model_directory).expect("model directory");
     let mut config = VinputConfig::bundled_default().expect("bundled config");
     let mut local = provider("local", AsrProviderKind::Local);
-    local.model = Some("/managed-models/paraformer".to_owned());
+    local.model = Some(model_directory.to_string_lossy().into_owned());
     local.hotwords_file = Some("hotwords.txt".to_owned());
     let mut command = provider("command", AsrProviderKind::Command);
     command.hotwords_file = Some("relative-command-hotwords.txt".to_owned());
@@ -101,8 +104,11 @@ fn content_path_refuses_cross_process_relative_ambiguity() {
 
     assert_eq!(
         resolved_hotword_content_path(&config, "local").expect("resolve local hotwords"),
-        Some(PathBuf::from("/managed-models/paraformer/hotwords.txt"))
+        Some(model_directory.join("hotwords.txt"))
     );
+    fs::remove_dir(&model_directory).expect("remove model directory");
+    assert!(resolved_hotword_content_path(&config, "local").is_err());
+    fs::create_dir(&model_directory).expect("restore model directory");
     config.asr.providers[0].model = Some("paraformer".to_owned());
     let local_error = resolved_hotword_content_path(&config, "local")
         .expect_err("relative local model and hotword are ambiguous");
