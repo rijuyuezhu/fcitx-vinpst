@@ -4227,6 +4227,7 @@ dependencies = [
  "vinput-asr",
  "vinput-audio",
  "vinput-config",
+ "vinput-daemon-control",
  "vinput-protocol",
  "vinput-registry",
  "vinput-text",
@@ -4275,6 +4276,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vinput-daemon-control"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "vinput-fcitx-core"
 version = "0.1.0"
 dependencies = [
@@ -4312,6 +4320,7 @@ dependencies = [
  "tokio",
  "url",
  "vinput-config",
+ "vinput-daemon-control",
  "vinput-protocol",
  "vinput-registry",
  "vinput-text",

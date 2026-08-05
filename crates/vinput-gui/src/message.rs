@@ -4,8 +4,9 @@ use std::path::PathBuf;
 
 use crate::{
     AdapterConfigMessage, AdapterRuntimeMessage, AsrProviderMessage, ConfigSaveOutcome,
-    DaemonOwnerEvent, DaemonSnapshot, HotwordMessage, LlmProviderMessage, ModelInstallOutcome,
-    Page, SceneMessage, ScriptInstallOutcome, ScriptPreparationResult, SecretInput,
+    DaemonControlMessage, DaemonOwnerEvent, DaemonSnapshot, HotwordMessage, LlmProviderMessage,
+    ModelInstallOutcome, Page, SceneMessage, ScriptInstallOutcome, ScriptPreparationResult,
+    SecretInput,
 };
 
 /// GUI messages.
@@ -35,6 +36,8 @@ pub enum Message {
     },
     /// Signal-monitor lifecycle or daemon owner transition.
     DaemonOwnerEvent(DaemonOwnerEvent),
+    /// Start, stop, or restart the daemon service.
+    DaemonControl(DaemonControlMessage),
     /// Reload config from disk.
     ReloadConfig,
     /// Update the default recognition language draft.
@@ -166,6 +169,11 @@ impl Message {
         matches!(
             self,
             Self::SelectPage(_)
+                | Self::DaemonControl(
+                    DaemonControlMessage::Start
+                        | DaemonControlMessage::Stop
+                        | DaemonControlMessage::Restart
+                )
                 | Self::ReloadConfig
                 | Self::DefaultLanguageChanged(_)
                 | Self::CaptureDeviceChanged(_)

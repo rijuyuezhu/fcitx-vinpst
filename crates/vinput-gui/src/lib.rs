@@ -24,6 +24,7 @@ mod adapter_runtime;
 mod asr_provider_management;
 mod asr_reload_confirmation;
 mod daemon_client;
+mod daemon_control;
 mod daemon_owner_monitor;
 mod form_guards;
 mod hotword_activation_retry;
@@ -62,6 +63,10 @@ pub(crate) use asr_reload_confirmation::{
 };
 pub use daemon_client::query_daemon_snapshot;
 pub(crate) use daemon_client::{daemon_proxy, query_daemon_snapshot_if_owned};
+pub use daemon_control::{
+    DaemonControlAction, DaemonControlConfirmation, DaemonControlFailure, DaemonControlMessage,
+    DaemonControlObservation, DaemonControlOutcome,
+};
 pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
 use hotword_management::HotwordEditorState;
@@ -197,6 +202,8 @@ pub struct App {
     active_daemon_refresh_id: Option<u64>,
     next_daemon_refresh_id: u64,
     daemon_owner_monitor: DaemonOwnerMonitorState,
+    active_daemon_control_id: Option<u64>,
+    next_daemon_control_id: u64,
     operation: OperationState,
     model_selector: String,
     model_install: ModelInstallState,
@@ -236,6 +243,8 @@ impl App {
             active_daemon_refresh_id: None,
             next_daemon_refresh_id: 1,
             daemon_owner_monitor: DaemonOwnerMonitorState::Connecting,
+            active_daemon_control_id: None,
+            next_daemon_control_id: 1,
             operation: OperationState::Idle,
             model_selector: String::new(),
             model_install: ModelInstallState::default(),
@@ -261,6 +270,9 @@ impl App {
 
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if let Some(task) = self.intercept_daemon_control_message(&message) {
+            return task;
+        }
         if let Some(task) = self.intercept_adapter_config_message(&message) {
             return task;
         }
@@ -370,10 +382,10 @@ impl App {
                 return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
             }
             Message::ScriptRemoved(result) => return self.finish_script_remove(result),
-            Message::AdapterRuntime(_) | Message::AdapterConfig(_) => {
-                unreachable!("adapter messages are intercepted")
-            }
-            Message::AsrProvider(_) => unreachable!("ASR provider messages are intercepted"),
+            Message::DaemonControl(_)
+            | Message::AdapterRuntime(_)
+            | Message::AdapterConfig(_)
+            | Message::AsrProvider(_) => unreachable!("domain messages are intercepted"),
         }
         Task::none()
     }
@@ -619,8 +631,11 @@ impl App {
         let busy = self.is_busy();
         let mut body = column![
             text("Control").size(30),
-            self.control_actions(busy),
+            text("Daemon service").size(22),
+            self.daemon_control_actions(busy),
             self.daemon_status_view(),
+            text("Recording").size(22),
+            self.recording_actions(busy),
         ]
         .spacing(14);
         if let Some(notice) = self.operation_notice() {
@@ -630,7 +645,7 @@ impl App {
         scrollable(body).into()
     }
 
-    fn control_actions(&self, busy: bool) -> Element<'_, Message> {
+    fn recording_actions(&self, busy: bool) -> Element<'_, Message> {
         let daemon_status = match &self.daemon {
             DaemonLoadState::Ready(snapshot) => Some(snapshot.status.as_str()),
             DaemonLoadState::Loading | DaemonLoadState::Failed(_) => None,
@@ -638,8 +653,7 @@ impl App {
         let can_start = !busy && daemon_status == Some("idle");
         let can_stop = !busy && daemon_status == Some("recording");
         row![
-            button("Refresh daemon").on_press(Message::RefreshDaemon),
-            button("Reload config").on_press(Message::ReloadConfig),
+            button("Reload config").on_press_maybe((!busy).then_some(Message::ReloadConfig)),
             button("Start recording").on_press_maybe(can_start.then_some(Message::StartRecording)),
             button("Stop recording").on_press_maybe(can_stop.then_some(Message::StopRecording)),
         ]
