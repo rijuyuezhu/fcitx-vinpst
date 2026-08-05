@@ -357,6 +357,62 @@ impl GuiLocale {
             }
         }
     }
+
+    pub(crate) fn provider_id_immutable(self, provider_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Provider id: {provider_id} (immutable)"),
+            Self::ZhCn => format!("提供商 ID：{provider_id}（不可修改）"),
+        }
+    }
+
+    pub(crate) fn adapter_id_immutable(self, adapter_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Adapter id: {adapter_id} (immutable)"),
+            Self::ZhCn => format!("适配器 ID：{adapter_id}（不可修改）"),
+        }
+    }
+
+    pub(crate) fn llm_provider_changed(self, action: &str, provider_id: &str) -> String {
+        match (self, action) {
+            (Self::EnUs, "add") => format!("Added LLM provider `{provider_id}`."),
+            (Self::EnUs, "update") => format!("Updated LLM provider `{provider_id}`."),
+            (Self::EnUs, _) => format!("Removed LLM provider `{provider_id}`."),
+            (Self::ZhCn, "add") => format!("已添加 LLM 提供商“{provider_id}”。"),
+            (Self::ZhCn, "update") => format!("已更新 LLM 提供商“{provider_id}”。"),
+            (Self::ZhCn, _) => format!("已移除 LLM 提供商“{provider_id}”。"),
+        }
+    }
+
+    pub(crate) fn llm_provider_test_succeeded(
+        self,
+        provider_id: &str,
+        candidate_count: usize,
+    ) -> String {
+        match self {
+            Self::EnUs => {
+                format!("LLM provider `{provider_id}` returned {candidate_count} candidate(s).")
+            }
+            Self::ZhCn => {
+                format!("LLM 提供商“{provider_id}”返回了 {candidate_count} 个候选结果。")
+            }
+        }
+    }
+
+    pub(crate) fn text_adapter_changed(self, created: bool, adapter_id: &str) -> String {
+        match (self, created) {
+            (Self::EnUs, true) => format!("Added text adapter `{adapter_id}`."),
+            (Self::EnUs, false) => format!("Updated text adapter `{adapter_id}`."),
+            (Self::ZhCn, true) => format!("已添加文本适配器“{adapter_id}”。"),
+            (Self::ZhCn, false) => format!("已更新文本适配器“{adapter_id}”。"),
+        }
+    }
+
+    pub(crate) fn text_adapter_removed(self, adapter_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Removed custom text adapter `{adapter_id}`."),
+            Self::ZhCn => format!("已移除自定义文本适配器“{adapter_id}”。"),
+        }
+    }
 }
 
 fn normalized_locale(value: &str) -> Option<GuiLocale> {
@@ -415,8 +471,16 @@ mod tests {
         assert!(chinese_provider.contains(provider_id));
         assert_ne!(english_provider, chinese_provider);
 
+        let adapter_id = "adapter-machine-id";
         for locale in [GuiLocale::EnUs, GuiLocale::ZhCn] {
-            let receipt = locale.save_receipt(&english_provider, path, None, reload);
+            let llm_summary = locale.llm_provider_changed("add", provider_id);
+            let test_summary = locale.llm_provider_test_succeeded(provider_id, 3);
+            let adapter_summary = locale.text_adapter_changed(true, adapter_id);
+            let receipt = locale.save_receipt(&llm_summary, path, None, reload);
+            assert!(llm_summary.contains(provider_id));
+            assert!(test_summary.contains(provider_id));
+            assert!(test_summary.contains('3'));
+            assert!(adapter_summary.contains(adapter_id));
             assert!(receipt.contains(provider_id));
             assert!(receipt.contains(path));
             assert!(receipt.contains(reload));

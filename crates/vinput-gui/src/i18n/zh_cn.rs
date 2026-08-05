@@ -11,8 +11,10 @@ pub(super) const fn text(key: GuiText) -> &'static str {
         simplified_chinese_desktop(key)
     } else if (key as u8) <= GuiText::AdapterLocal as u8 {
         simplified_chinese_resources(key)
-    } else {
+    } else if (key as u8) <= GuiText::RemoteTitle as u8 {
         simplified_chinese_forms(key)
+    } else {
+        simplified_chinese_llm_adapter_forms(key)
     }
 }
 
@@ -258,6 +260,43 @@ const fn simplified_chinese_forms(key: GuiText) -> &'static str {
         }
         GuiText::LocalTitle => "本地",
         GuiText::RemoteTitle => "远程",
+        _ => unreachable!(),
+    }
+}
+
+const fn simplified_chinese_llm_adapter_forms(key: GuiText) -> &'static str {
+    match key {
+        GuiText::ProvidersTitle => "提供商",
+        GuiText::TestInput => "测试输入",
+        GuiText::TestInputPlaceholder => "简短的连通性测试文本",
+        GuiText::DefaultModelFallback | GuiText::DefaultModel => "默认模型",
+        GuiText::NoLlmProviders => "未配置 LLM 提供商。",
+        GuiText::Test => "测试",
+        GuiText::BaseUrl => "基础 URL",
+        GuiText::BaseUrlPlaceholder => "https://provider.example/v1",
+        GuiText::ApiKey => "API 密钥",
+        GuiText::OptionalKeyExpression => "可选密钥或环境变量表达式",
+        GuiText::ExtraBody => "额外请求体",
+        GuiText::MaskedJsonObjectBlank => "已遮蔽的 JSON 对象；留空表示 {}",
+        GuiText::TestingLlmProvider => "正在测试 LLM 提供商…",
+        GuiText::ConnectivityInputRequired => "LLM 提供商连通性测试输入不能为空。",
+        GuiText::SavingLlmProvider => "正在保存 LLM 提供商…",
+        GuiText::AddCustomTextAdapter => "添加自定义文本适配器",
+        GuiText::EditTextAdapter => "编辑文本适配器",
+        GuiText::AdapterId => "适配器 ID",
+        GuiText::CustomAdapterPlaceholder => "custom-adapter",
+        GuiText::AdapterCommandPlaceholder => "/path/to/adapter",
+        GuiText::JsonStringObject => "JSON 字符串对象",
+        GuiText::OptionalWorkingDirectory => "可选绝对路径或已配置路径",
+        GuiText::AddAdapter => "添加适配器",
+        GuiText::UpdateAdapter => "更新适配器",
+        GuiText::UnsavedAdapterChanges => "适配器更改尚未保存",
+        GuiText::AdapterFormUnchanged => "适配器表单未更改",
+        GuiText::SavingTextAdapter => "正在保存文本适配器…",
+        GuiText::RemovingTextAdapter => "正在移除文本适配器…",
+        GuiText::SaveOrCancelAdapterBeforeRemoval => {
+            "移除适配器前，请先保存或取消当前文本适配器表单。"
+        }
         _ => unreachable!(),
     }
 }

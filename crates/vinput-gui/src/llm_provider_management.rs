@@ -1,11 +1,10 @@
-//! LLM provider form state, validation, persistence, and rendering.
+//! LLM provider form state, validation, and persistence.
+
+mod view;
 
 use std::fmt;
 
-use iced::{
-    Element, Length, Task,
-    widget::{button, column, row, text, text_input},
-};
+use iced::Task;
 use vinput_config::{LlmProviderConfig, SceneDefinition, VinputConfig, redact_url_for_diagnostics};
 use vinput_text::{
     OpenAiCompatibleChatTransport, OpenAiCompatibleTextAdapter,
@@ -13,7 +12,7 @@ use vinput_text::{
 };
 
 use crate::{
-    App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, SecretInput,
+    App, ConfigDocument, ConfigSaveOutcome, GuiText, Message, OperationState, SecretInput,
     load_config_document, save_updated_config_with_daemon,
 };
 
@@ -251,14 +250,6 @@ impl LlmProviderEditorState {
             extra: self.preserved_extra.clone(),
         })
     }
-
-    fn action_label(&self) -> &'static str {
-        if self.original_id.is_some() {
-            "Update provider"
-        } else {
-            "Add provider"
-        }
-    }
 }
 
 impl App {
@@ -341,7 +332,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let updated = match remove_llm_provider(&document.config, provider_id) {
@@ -354,7 +346,7 @@ impl App {
         self.begin_llm_provider_mutation(
             document.clone(),
             updated,
-            format!("Removed LLM provider `{provider_id}`."),
+            self.locale.llm_provider_changed("remove", provider_id),
         )
     }
 
@@ -365,12 +357,15 @@ impl App {
         let test_text = self.llm_provider_test_text.as_str().trim().to_owned();
         if test_text.is_empty() {
             self.operation = OperationState::Failed(
-                "LLM provider connectivity-test input cannot be empty.".to_owned(),
+                self.locale
+                    .text(GuiText::ConnectivityInputRequired)
+                    .to_owned(),
             );
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let provider = match llm_provider_test_target(&document.config, provider_id) {
@@ -381,7 +376,7 @@ impl App {
             }
         };
 
-        self.operation = OperationState::Running("Testing LLM provider…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::TestingLlmProvider));
         Task::perform(
             async move {
                 match tokio::task::spawn_blocking(move || test_llm_provider(provider, &test_text))
@@ -401,10 +396,10 @@ impl App {
     ) -> Task<Message> {
         match result {
             Ok(outcome) => {
-                self.operation = OperationState::Succeeded(format!(
-                    "LLM provider `{}` returned {} candidate(s).",
-                    outcome.provider_id, outcome.candidate_count
-                ));
+                self.operation = OperationState::Succeeded(
+                    self.locale
+                        .llm_provider_test_succeeded(&outcome.provider_id, outcome.candidate_count),
+                );
             }
             Err(error) => self.operation = OperationState::Failed(error),
         }
@@ -447,18 +442,25 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let result = if editor.original_id.is_some() {
             edit_llm_provider(&document.config, &editor).map(|updated| {
                 let provider_id = editor.original_id.clone().unwrap_or_default();
-                (updated, format!("Updated LLM provider `{provider_id}`."))
+                (
+                    updated,
+                    self.locale.llm_provider_changed("update", &provider_id),
+                )
             })
         } else {
             add_llm_provider(&document.config, &editor).map(|updated| {
                 let provider_id = editor.fields.id.trim();
-                (updated, format!("Added LLM provider `{provider_id}`."))
+                (
+                    updated,
+                    self.locale.llm_provider_changed("add", provider_id),
+                )
             })
         };
         let (updated, summary) = match result {
@@ -493,7 +495,7 @@ impl App {
         updated: VinputConfig,
         summary: String,
     ) -> Task<Message> {
-        self.operation = OperationState::Running("Saving LLM provider…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::SavingLlmProvider));
         Task::perform(
             async move {
                 save_updated_config_with_daemon(&document, &updated)
@@ -514,173 +516,24 @@ impl App {
                 return Task::none();
             }
         };
-        let backup = outcome.save.backup_path.as_ref().map_or_else(
-            || "no previous file".to_owned(),
-            |path| format!("backup {}", path.display()),
-        );
+        let path = outcome.save.path.display().to_string();
+        let backup = outcome
+            .save
+            .backup_path
+            .as_ref()
+            .map(|path| path.display().to_string());
         self.replace_config(load_config_document(Some(&outcome.save.path)));
-        self.operation = OperationState::Succeeded(format!(
-            "{} Saved {} ({backup}); {}",
-            outcome.summary,
-            outcome.save.path.display(),
-            outcome.save.daemon_reload
+        self.operation = OperationState::Succeeded(self.locale.save_receipt(
+            &outcome.summary,
+            &path,
+            backup.as_deref(),
+            &outcome.save.daemon_reload,
         ));
         self.begin_daemon_refresh(false)
     }
-
-    pub(super) fn llm_provider_management_view(&self, busy: bool) -> Element<'_, Message> {
-        let editor_open = self.llm_provider_editor.is_some();
-        let test_input_enabled = !busy && !editor_open;
-        let mut body = column![
-            row![
-                text("Providers").size(22).width(Length::Fill),
-                button("Add provider").on_press_maybe(
-                    (!busy && !editor_open)
-                        .then_some(Message::LlmProvider(LlmProviderMessage::BeginAdd)),
-                ),
-            ]
-            .spacing(10),
-            row![
-                text("Test input").width(160),
-                text_input(
-                    "short connectivity-test text",
-                    self.llm_provider_test_text.as_str()
-                )
-                .on_input_maybe(test_input_enabled.then_some(|value| {
-                    Message::LlmProvider(LlmProviderMessage::TestInputChanged(SecretInput::new(
-                        value,
-                    )))
-                }))
-                .width(Length::Fill),
-            ]
-            .spacing(10),
-        ]
-        .spacing(10);
-
-        match &self.config {
-            Ok(document) => {
-                for provider in &document.config.llm.providers {
-                    let endpoint = if provider.base_url.is_empty() {
-                        "adapter/local".to_owned()
-                    } else {
-                        redact_url_for_diagnostics(&provider.base_url)
-                    };
-                    body = body.push(llm_provider_row(
-                        format!(
-                            "{} · {} · {}",
-                            provider.id,
-                            provider.model.as_deref().unwrap_or("default model"),
-                            endpoint
-                        ),
-                        &provider.id,
-                        !busy && !editor_open,
-                        !self.llm_provider_test_text.as_str().trim().is_empty(),
-                    ));
-                }
-                if document.config.llm.providers.is_empty() {
-                    body = body.push(text("No LLM providers configured."));
-                }
-            }
-            Err(error) => body = body.push(text(format!("Config error: {error}"))),
-        }
-
-        if let Some(editor) = &self.llm_provider_editor {
-            body = body.push(llm_provider_editor_view(editor, busy));
-        }
-        body.into()
-    }
 }
 
-fn llm_provider_row(
-    label: String,
-    provider_id: &str,
-    controls_enabled: bool,
-    test_input_present: bool,
-) -> Element<'static, Message> {
-    row![
-        text(label).width(Length::Fill),
-        button("Details").on_press(Message::SelectLlmProviderDetail(provider_id.to_owned())),
-        button("Test").on_press_maybe((controls_enabled && test_input_present).then_some(
-            Message::LlmProvider(LlmProviderMessage::Test(provider_id.to_owned()),)
-        ),),
-        button("Edit").on_press_maybe(controls_enabled.then_some(Message::LlmProvider(
-            LlmProviderMessage::BeginEdit(provider_id.to_owned())
-        ))),
-        button("Remove").on_press_maybe(controls_enabled.then_some(Message::LlmProvider(
-            LlmProviderMessage::Remove(provider_id.to_owned())
-        ))),
-    ]
-    .spacing(10)
-    .into()
-}
-
-fn llm_provider_editor_view(editor: &LlmProviderEditorState, busy: bool) -> Element<'_, Message> {
-    let id_field: Element<'_, Message> = if editor.original_id.is_some() {
-        text(format!("Provider id: {} (immutable)", editor.fields.id)).into()
-    } else {
-        labeled_input(
-            "Provider id",
-            "stable unique id",
-            &editor.fields.id,
-            LlmProviderEditorField::Id,
-            false,
-        )
-    };
-    let dirty = editor.is_dirty();
-    column![
-        text(editor.action_label()).size(22),
-        id_field,
-        labeled_input(
-            "Base URL",
-            "https://provider.example/v1",
-            &editor.fields.base_url,
-            LlmProviderEditorField::BaseUrl,
-            editor.base_url_secure,
-        ),
-        labeled_input(
-            "API key",
-            "optional key or environment expression",
-            editor.fields.api_key.as_str(),
-            LlmProviderEditorField::ApiKey,
-            true,
-        ),
-        labeled_input(
-            "Default model",
-            "optional model id",
-            &editor.fields.model,
-            LlmProviderEditorField::Model,
-            false,
-        ),
-        labeled_input(
-            "Extra body",
-            "masked JSON object; blank means {}",
-            &editor.fields.extra_body,
-            LlmProviderEditorField::ExtraBody,
-            extra_body_input_is_secure(),
-        ),
-        row![
-            button(editor.action_label()).on_press_maybe(
-                (dirty && !busy).then_some(Message::LlmProvider(LlmProviderMessage::Save)),
-            ),
-            button("Reset form").on_press_maybe(
-                (dirty && !busy).then_some(Message::LlmProvider(LlmProviderMessage::ResetEdit)),
-            ),
-            button("Cancel").on_press_maybe(
-                (!busy).then_some(Message::LlmProvider(LlmProviderMessage::CancelEdit)),
-            ),
-            text(if dirty {
-                "Unsaved provider changes"
-            } else {
-                "Provider form is unchanged"
-            }),
-        ]
-        .spacing(10),
-    ]
-    .spacing(10)
-    .into()
-}
-
-const fn extra_body_input_is_secure() -> bool {
+pub(super) const fn extra_body_input_is_secure() -> bool {
     true
 }
 
@@ -704,29 +557,6 @@ fn base_url_input_is_secure(value: &str) -> bool {
     let authority_end = authority.find(['/', '?', '#']).unwrap_or(authority.len());
     let userinfo_present = authority[..authority_end].contains('@');
     query_present || fragment_present || userinfo_present
-}
-
-fn labeled_input<'a>(
-    label: &'static str,
-    placeholder: &'static str,
-    value: &'a str,
-    field: LlmProviderEditorField,
-    secure: bool,
-) -> Element<'a, Message> {
-    row![
-        text(label).width(160),
-        text_input(placeholder, value)
-            .secure(secure)
-            .on_input(move |value| {
-                Message::LlmProvider(LlmProviderMessage::EditorChanged {
-                    field,
-                    value: SecretInput::new(value),
-                })
-            })
-            .width(Length::Fill),
-    ]
-    .spacing(10)
-    .into()
 }
 
 fn add_llm_provider(

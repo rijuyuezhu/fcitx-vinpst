@@ -1,16 +1,15 @@
-//! Typed text-adapter configuration forms for the LLM page.
+//! Typed text-adapter configuration state and persistence for the LLM page.
+
+mod view;
 
 use std::{collections::HashMap, fmt};
 
-use iced::{
-    Element, Length, Task,
-    widget::{button, column, row, text, text_input},
-};
+use iced::Task;
 use vinput_config::{LlmAdapterConfig, VinputConfig};
 use vinput_text::validate_adapter_id;
 
 use crate::{
-    App, ConfigSaveOutcome, Message, OperationState, SecretInput, load_config_document,
+    App, ConfigSaveOutcome, GuiText, Message, OperationState, SecretInput, load_config_document,
     save_updated_config_with_daemon, script_management::managed_adapter_script_path,
 };
 
@@ -404,7 +403,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let updated = match upsert_adapter_config(&document.config, &editor) {
@@ -414,7 +414,7 @@ impl App {
                 return Task::none();
             }
         };
-        self.operation = OperationState::Running("Saving text adapter…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::SavingTextAdapter));
         let document = document.clone();
         let adapter_id = editor.fields.id.trim().to_owned();
         let created = editor.original.is_none();
@@ -443,17 +443,21 @@ impl App {
                 return Task::none();
             }
         };
-        let backup = outcome.save.backup_path.as_ref().map_or_else(
-            || "no previous file".to_owned(),
-            |path| format!("backup {}", path.display()),
-        );
+        let summary = self
+            .locale
+            .text_adapter_changed(outcome.created, &outcome.adapter_id);
+        let path = outcome.save.path.display().to_string();
+        let backup = outcome
+            .save
+            .backup_path
+            .as_ref()
+            .map(|path| path.display().to_string());
         self.replace_config(load_config_document(Some(&outcome.save.path)));
-        self.operation = OperationState::Succeeded(format!(
-            "{} text adapter `{}`. Saved {} ({backup}); {}",
-            if outcome.created { "Added" } else { "Updated" },
-            outcome.adapter_id,
-            outcome.save.path.display(),
-            outcome.save.daemon_reload
+        self.operation = OperationState::Succeeded(self.locale.save_receipt(
+            &summary,
+            &path,
+            backup.as_deref(),
+            &outcome.save.daemon_reload,
         ));
         self.begin_daemon_refresh(false)
     }
@@ -461,7 +465,9 @@ impl App {
     fn begin_custom_adapter_removal(&mut self, adapter_id: &str) -> Task<Message> {
         if self.adapter_config_editor.is_some() {
             self.operation = OperationState::Failed(
-                "Save or cancel the open text-adapter form before removing an adapter.".to_owned(),
+                self.locale
+                    .text(GuiText::SaveOrCancelAdapterBeforeRemoval)
+                    .to_owned(),
             );
             return Task::none();
         }
@@ -473,7 +479,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let updated = match remove_custom_adapter_config(&document.config, adapter_id) {
@@ -483,7 +490,7 @@ impl App {
                 return Task::none();
             }
         };
-        self.operation = OperationState::Running("Removing text adapter…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::RemovingTextAdapter));
         let document = document.clone();
         let adapter_id = adapter_id.to_owned();
         Task::perform(
@@ -506,16 +513,19 @@ impl App {
                 return Task::none();
             }
         };
-        let backup = outcome.save.backup_path.as_ref().map_or_else(
-            || "no previous file".to_owned(),
-            |path| format!("backup {}", path.display()),
-        );
+        let summary = self.locale.text_adapter_removed(&outcome.adapter_id);
+        let path = outcome.save.path.display().to_string();
+        let backup = outcome
+            .save
+            .backup_path
+            .as_ref()
+            .map(|path| path.display().to_string());
         self.replace_config(load_config_document(Some(&outcome.save.path)));
-        self.operation = OperationState::Succeeded(format!(
-            "Removed custom text adapter `{}`. Saved {} ({backup}); {}",
-            outcome.adapter_id,
-            outcome.save.path.display(),
-            outcome.save.daemon_reload
+        self.operation = OperationState::Succeeded(self.locale.save_receipt(
+            &summary,
+            &path,
+            backup.as_deref(),
+            &outcome.save.daemon_reload,
         ));
         self.begin_daemon_refresh(false)
     }
@@ -526,12 +536,6 @@ impl App {
         self.ensure_no_open_asr_provider_editor()?;
         self.ensure_no_open_llm_provider_editor()?;
         Ok(())
-    }
-
-    pub(super) fn adapter_config_editor_view(&self, busy: bool) -> Option<Element<'_, Message>> {
-        self.adapter_config_editor
-            .as_ref()
-            .map(|editor| adapter_config_editor_view(editor, busy))
     }
 }
 
@@ -614,113 +618,6 @@ fn remove_custom_adapter_config_with(
         .validate()
         .map_err(|error| format!("Validate configuration after removing {adapter_id}: {error}"))?;
     Ok(updated)
-}
-
-fn adapter_config_editor_view(
-    editor: &AdapterConfigEditorState,
-    busy: bool,
-) -> Element<'_, Message> {
-    let dirty = editor.is_dirty();
-    let adding = editor.original.is_none();
-    let mut body = column![
-        text(if adding {
-            "Add custom text adapter"
-        } else {
-            "Edit text adapter"
-        })
-        .size(22)
-    ]
-    .spacing(10);
-    body = if adding {
-        body.push(labeled_input(
-            "Adapter id",
-            "custom-adapter",
-            &editor.fields.id,
-            AdapterConfigEditorField::Id,
-            false,
-        ))
-    } else {
-        body.push(text(format!(
-            "Adapter id: {} (immutable)",
-            editor.fields.id
-        )))
-    };
-    body.push(labeled_input(
-        "Command",
-        "/path/to/adapter",
-        editor.fields.command.as_str(),
-        AdapterConfigEditorField::Command,
-        false,
-    ))
-    .push(labeled_input(
-        "Arguments",
-        "JSON string array",
-        editor.fields.args.as_str(),
-        AdapterConfigEditorField::Args,
-        true,
-    ))
-    .push(labeled_input(
-        "Environment",
-        "JSON string object",
-        editor.fields.environment.as_str(),
-        AdapterConfigEditorField::Environment,
-        true,
-    ))
-    .push(labeled_input(
-        "Working directory",
-        "optional absolute or configured path",
-        editor.fields.working_directory.as_str(),
-        AdapterConfigEditorField::WorkingDirectory,
-        false,
-    ))
-    .push(
-        row![
-            button(if adding {
-                "Add adapter"
-            } else {
-                "Update adapter"
-            })
-            .on_press_maybe(
-                (dirty && !busy).then_some(Message::AdapterConfig(AdapterConfigMessage::Save)),
-            ),
-            button("Reset form").on_press_maybe(
-                (dirty && !busy).then_some(Message::AdapterConfig(AdapterConfigMessage::ResetEdit)),
-            ),
-            button("Cancel").on_press_maybe(
-                (!busy).then_some(Message::AdapterConfig(AdapterConfigMessage::CancelEdit)),
-            ),
-            text(if dirty {
-                "Unsaved adapter changes"
-            } else {
-                "Adapter form is unchanged"
-            }),
-        ]
-        .spacing(10),
-    )
-    .into()
-}
-
-fn labeled_input<'a>(
-    label: &'static str,
-    placeholder: &'static str,
-    value: &'a str,
-    field: AdapterConfigEditorField,
-    secure: bool,
-) -> Element<'a, Message> {
-    row![
-        text(label).width(160),
-        text_input(placeholder, value)
-            .secure(secure)
-            .on_input(move |value| {
-                Message::AdapterConfig(AdapterConfigMessage::EditorChanged {
-                    field,
-                    value: SecretInput::new(value),
-                })
-            })
-            .width(Length::Fill),
-    ]
-    .spacing(10)
-    .into()
 }
 
 fn parse_string_array(value: &str) -> Result<Vec<String>, String> {

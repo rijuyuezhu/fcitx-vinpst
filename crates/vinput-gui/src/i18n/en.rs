@@ -11,8 +11,10 @@ pub(super) const fn text(key: GuiText) -> &'static str {
         english_desktop(key)
     } else if (key as u8) <= GuiText::AdapterLocal as u8 {
         english_resources(key)
-    } else {
+    } else if (key as u8) <= GuiText::RemoteTitle as u8 {
         english_forms(key)
+    } else {
+        english_llm_adapter_forms(key)
     }
 }
 
@@ -292,6 +294,46 @@ const fn english_forms(key: GuiText) -> &'static str {
         }
         GuiText::LocalTitle => "Local",
         GuiText::RemoteTitle => "Remote",
+        _ => unreachable!(),
+    }
+}
+
+const fn english_llm_adapter_forms(key: GuiText) -> &'static str {
+    match key {
+        GuiText::ProvidersTitle => "Providers",
+        GuiText::TestInput => "Test input",
+        GuiText::TestInputPlaceholder => "short connectivity-test text",
+        GuiText::DefaultModelFallback => "default model",
+        GuiText::NoLlmProviders => "No LLM providers configured.",
+        GuiText::Test => "Test",
+        GuiText::BaseUrl => "Base URL",
+        GuiText::BaseUrlPlaceholder => "https://provider.example/v1",
+        GuiText::ApiKey => "API key",
+        GuiText::OptionalKeyExpression => "optional key or environment expression",
+        GuiText::DefaultModel => "Default model",
+        GuiText::ExtraBody => "Extra body",
+        GuiText::MaskedJsonObjectBlank => "masked JSON object; blank means {}",
+        GuiText::TestingLlmProvider => "Testing LLM provider…",
+        GuiText::ConnectivityInputRequired => {
+            "LLM provider connectivity-test input cannot be empty."
+        }
+        GuiText::SavingLlmProvider => "Saving LLM provider…",
+        GuiText::AddCustomTextAdapter => "Add custom text adapter",
+        GuiText::EditTextAdapter => "Edit text adapter",
+        GuiText::AdapterId => "Adapter id",
+        GuiText::CustomAdapterPlaceholder => "custom-adapter",
+        GuiText::AdapterCommandPlaceholder => "/path/to/adapter",
+        GuiText::JsonStringObject => "JSON string object",
+        GuiText::OptionalWorkingDirectory => "optional absolute or configured path",
+        GuiText::AddAdapter => "Add adapter",
+        GuiText::UpdateAdapter => "Update adapter",
+        GuiText::UnsavedAdapterChanges => "Unsaved adapter changes",
+        GuiText::AdapterFormUnchanged => "Adapter form is unchanged",
+        GuiText::SavingTextAdapter => "Saving text adapter…",
+        GuiText::RemovingTextAdapter => "Removing text adapter…",
+        GuiText::SaveOrCancelAdapterBeforeRemoval => {
+            "Save or cancel the open text-adapter form before removing an adapter."
+        }
         _ => unreachable!(),
     }
 }
