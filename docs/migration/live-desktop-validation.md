@@ -325,6 +325,14 @@ scripts/live/niri/run-gui-desktop-integration-live.sh
 
 The runner copies the bundled config into a temporary user config root, serves one current-schema startup notification from loopback, and replaces the configured desktop opener with a repository fixture that records exactly one argv target. Escape clears widget focus before each deterministic traversal. The first launch proves Open Config receives the exact loaded file, Details receives the validated credential-free HTTPS URL, and the notification id is atomically persisted at the legacy cache path as a regular mode-0600 file. A second launch with the same isolated cache still fetches the feed but cannot expose Details again; Open Config remains available and no fourth opener call occurs. The fixture never starts a real browser, retains no remote title/text, touches no user config/cache, and leaves no GUI or fixture process. Evidence is written under `target/tmp/gui-desktop-integration-live/summary.json`.
 
+Run the private-session portal picker result gate:
+
+```sh
+scripts/live/niri/run-gui-portal-picker-live.sh
+```
+
+The runner starts a private `dbus-daemon` and repository-owned `org.freedesktop.portal.Desktop` service, then launches the GUI with that private session bus so the real `rfd` backend cannot contact the host portal. An isolated local provider begins with an existing configured hotword file. The fixture records two `FileChooser.OpenFile` requests and verifies the generated handle token, single-file/non-directory flags, current folder, and text/all filter patterns. The first response returns a percent-encoded `file://` URI whose path contains spaces and Chinese characters; clipboard inspection proves the GUI decodes it into the exact UTF-8 draft while the config SHA-256 remains unchanged. A fresh launch receives a cancellation response and retains the configured draft, again without writing config. The gate restores the previous niri window and text clipboard and leaves no GUI, portal, or private-bus process. Its summary records only structural booleans and retains no selected path.
+
 ## 8. Frontend behavior
 
 Verify in the real session:
