@@ -60,6 +60,7 @@ fn path_mutation_sets_clears_and_rejects_remote_providers() {
     config.asr.providers = vec![
         provider("local", AsrProviderKind::Local),
         provider("remote", AsrProviderKind::Remote),
+        provider("command", AsrProviderKind::Command),
     ];
     config.asr.active_provider = "local".to_owned();
 
@@ -72,6 +73,7 @@ fn path_mutation_sets_clears_and_rejects_remote_providers() {
     let cleared = update_hotword_path(&updated, "local", None).expect("clear hotword path");
     assert_eq!(cleared.asr.providers[0].hotwords_file, None);
     assert!(update_hotword_path(&config, "remote", Some("words.txt")).is_err());
+    assert!(update_hotword_path(&config, "command", Some("https://example/hotwords")).is_err());
 }
 
 #[test]

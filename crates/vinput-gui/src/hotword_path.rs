@@ -22,12 +22,7 @@ pub(super) fn resolved_hotword_content_path(
     else {
         return Ok(None);
     };
-    if configured.contains("://") {
-        return Err(
-            "The selected provider hotword value is URL-like, not a filesystem path; configure a local file path before editing content in the GUI."
-                .to_owned(),
-        );
-    }
+    reject_url_like_hotword_path(configured)?;
     let configured = Path::new(configured);
     if configured.is_absolute() {
         return Ok(Some(configured.to_path_buf()));
@@ -42,6 +37,16 @@ pub(super) fn resolved_hotword_content_path(
             "ASR provider `{provider_id}` does not support hotword files."
         )),
     }
+}
+
+pub(super) fn reject_url_like_hotword_path(value: &str) -> Result<(), String> {
+    if value.contains("://") {
+        return Err(
+            "The selected provider hotword value is URL-like, not a filesystem path; configure a local file path before editing content in the GUI."
+                .to_owned(),
+        );
+    }
+    Ok(())
 }
 
 fn resolve_local_hotword_path(

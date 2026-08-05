@@ -20,7 +20,7 @@ use crate::{
     hotword_activation_retry::{
         PendingHotwordActivation, retry_hotword_activation, validate_pending_activation,
     },
-    hotword_path::resolved_hotword_content_path,
+    hotword_path::{reject_url_like_hotword_path, resolved_hotword_content_path},
     hotword_persistence::{
         HotwordContentSnapshot, ensure_hotword_path_update_current, read_hotword_snapshot,
         save_hotword_content_with_daemon, save_hotword_path_with_daemon,
@@ -1144,6 +1144,9 @@ fn update_hotword_path(
         .map(str::to_owned);
     if path.is_some() && provider.hotwords_file.is_none() {
         return Err("Hotword file path cannot be empty.".to_owned());
+    }
+    if let Some(path) = provider.hotwords_file.as_deref() {
+        reject_url_like_hotword_path(path)?;
     }
     updated
         .validate()
