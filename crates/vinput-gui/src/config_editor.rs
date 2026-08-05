@@ -100,6 +100,7 @@ impl App {
             .iter()
             .map(|scene| scene.id.clone())
             .collect::<Vec<_>>();
+        let submit = (draft.is_dirty(&document.config) && !busy).then_some(Message::SaveConfig);
         let provider_control: Element<'a, Message> = if busy {
             text(&draft.active_provider).width(Length::Fill).into()
         } else {
@@ -139,6 +140,7 @@ impl App {
                 .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
                     ConfigDraftMessage::DefaultLanguage(value)
                 )))
+                .on_submit_maybe(submit.clone())
                 .width(Length::Fill),
             ]
             .spacing(12),
@@ -151,6 +153,7 @@ impl App {
                 .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
                     ConfigDraftMessage::CaptureDevice(value)
                 )))
+                .on_submit_maybe(submit)
                 .width(Length::Fill),
             ]
             .spacing(12),

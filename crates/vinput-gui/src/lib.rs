@@ -457,6 +457,9 @@ impl App {
                 OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
+        if !draft.is_dirty(&document.config) {
+            return Task::none();
+        }
         self.operation = OperationState::Running(self.locale.text(GuiText::SavingConfiguration));
         let document = document.clone();
         let draft = draft.clone();
