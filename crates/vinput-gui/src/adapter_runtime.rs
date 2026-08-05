@@ -208,11 +208,11 @@ impl App {
         };
         if outcome.owner_generation != self.daemon_owner_generation {
             self.operation = OperationState::Succeeded(format!(
-                "Text adapter `{}` {} request completed for a previous daemon owner; current runtime state was left unchanged.",
+                "Text adapter `{}` {} request completed for a previous daemon owner; refreshing the current runtime state.",
                 outcome.adapter_id,
                 outcome.action.verb()
             ));
-            return Task::none();
+            return self.restart_daemon_refresh(false);
         }
         self.operation = OperationState::Succeeded(match outcome.confirmation {
             AdapterRuntimeConfirmation::Confirmed => format!(
@@ -235,7 +235,7 @@ impl App {
                 outcome.action.verb()
             ),
         });
-        self.begin_daemon_refresh(false)
+        self.restart_daemon_refresh(false)
     }
 
     pub(super) fn adapter_runtime_view_state(&self, adapter_id: &str) -> AdapterRuntimeViewState {
@@ -581,11 +581,12 @@ mod tests {
     }
 
     #[test]
-    fn stale_owner_completion_does_not_restore_an_old_snapshot() {
+    fn stale_owner_completion_restarts_current_owner_refresh() {
         let (mut app, _) = App::boot();
         let old_generation = app.daemon_owner_generation;
         app.daemon_owner_generation = old_generation.wrapping_add(1);
         app.daemon = DaemonLoadState::Failed("owner changed".to_owned());
+        app.active_daemon_refresh_id = Some(77);
 
         let _ = app.finish_adapter_runtime_action(Ok(AdapterRuntimeOutcome {
             adapter_id: "adapter-a".to_owned(),
@@ -597,5 +598,7 @@ mod tests {
 
         assert!(matches!(app.daemon, DaemonLoadState::Failed(_)));
         assert!(matches!(app.operation, OperationState::Succeeded(_)));
+        assert!(app.active_daemon_refresh_id.is_some());
+        assert_ne!(app.active_daemon_refresh_id, Some(77));
     }
 }

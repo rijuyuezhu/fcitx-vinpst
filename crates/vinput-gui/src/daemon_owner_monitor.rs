@@ -51,6 +51,11 @@ impl App {
         daemon_refresh_task(operation_id)
     }
 
+    pub(crate) fn restart_daemon_refresh(&mut self, show_loading: bool) -> Task<Message> {
+        self.active_daemon_refresh_id = None;
+        self.begin_daemon_refresh(show_loading)
+    }
+
     pub(crate) fn begin_daemon_fallback_poll(&mut self) -> Task<Message> {
         if self.active_daemon_refresh_id.is_some() {
             return Task::none();
