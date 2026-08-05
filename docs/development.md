@@ -13,6 +13,7 @@ Keep the workspace split by responsibility:
 - `vinput-audio`: PCM types, pure processing, recorder traits, and audio backends.
 - `vinput-asr`: ASR traits, sessions, command backends, remote backends, and native backends.
 - `vinput-text`: prompts, context cache, text adapters, and provider transports.
+- `vinput-daemon-control`: shared typed user-service command construction and execution for CLI/GUI daemon lifecycle controls.
 - `vinput-registry`: registry schemas, safe downloads, extraction, and managed publication.
 - `vinput-daemon`: runtime orchestration and D-Bus service facade.
 - `vinput-fcitx-core`: safe, Fcitx-independent frontend state machines and presentation policy.

@@ -13,6 +13,7 @@ fcitx-vinput-rs/
     vinput-audio        # PipeWire capture and pure PCM transforms
     vinput-asr          # ASR traits, mock backend, command backend, sherpa-onnx backend
     vinput-text         # scene prompts, text adapters, command-mode text transforms
+    vinput-daemon-control # shared daemon user-service command and execution boundary
     vinput-registry     # registry metadata, download, safe extraction, materialization
     vinput-daemon       # async runtime, D-Bus service, orchestration actors
     vinput-fcitx-core   # pure frontend payload/session/control decisions without Fcitx types
