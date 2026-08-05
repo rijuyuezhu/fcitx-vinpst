@@ -186,6 +186,10 @@ impl Message {
                 | Self::AsrProvider(
                     AsrProviderMessage::BeginEdit(_)
                         | AsrProviderMessage::EditorChanged { .. }
+                        | AsrProviderMessage::EnvironmentKeyChanged { .. }
+                        | AsrProviderMessage::EnvironmentValueChanged { .. }
+                        | AsrProviderMessage::AddEnvironment
+                        | AsrProviderMessage::RemoveEnvironment(_)
                         | AsrProviderMessage::ResetEdit
                         | AsrProviderMessage::CancelEdit
                         | AsrProviderMessage::Save

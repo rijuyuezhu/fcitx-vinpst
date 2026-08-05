@@ -24,8 +24,6 @@ pub enum AsrProviderEditorField {
     Command,
     /// JSON array of command arguments.
     Args,
-    /// JSON object of command environment values.
-    Environment,
     /// Endpoint for remote providers.
     Endpoint,
 }
@@ -42,6 +40,24 @@ pub enum AsrProviderMessage {
         /// Redacted user-entered value.
         value: SecretInput,
     },
+    /// Update one visible environment-variable key.
+    EnvironmentKeyChanged {
+        /// Stable row index in the current form.
+        index: usize,
+        /// Visible environment-variable key.
+        key: String,
+    },
+    /// Update one redacted environment-variable value.
+    EnvironmentValueChanged {
+        /// Stable row index in the current form.
+        index: usize,
+        /// Secret environment-variable value.
+        value: SecretInput,
+    },
+    /// Append one empty environment-variable row.
+    AddEnvironment,
+    /// Remove one environment-variable row.
+    RemoveEnvironment(usize),
     /// Restore the form to its initially loaded values.
     ResetEdit,
     /// Close the provider form without saving.
@@ -62,12 +78,28 @@ pub struct AsrProviderMutationOutcome {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+struct AsrProviderEnvironmentEntry {
+    key: String,
+    value: SecretInput,
+}
+
+impl fmt::Debug for AsrProviderEnvironmentEntry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AsrProviderEnvironmentEntry")
+            .field("key", &self.key)
+            .field("value", &"<redacted>")
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 struct AsrProviderEditorFields {
     timeout_ms: String,
     model: String,
     command: SecretInput,
     args: SecretInput,
-    environment: SecretInput,
+    environment: Vec<AsrProviderEnvironmentEntry>,
     endpoint: SecretInput,
 }
 
@@ -79,7 +111,7 @@ impl fmt::Debug for AsrProviderEditorFields {
             .field("model", &self.model)
             .field("command", &"<redacted command>")
             .field("args", &"<redacted arguments>")
-            .field("environment", &"<redacted environment>")
+            .field("environment", &self.environment)
             .field(
                 "endpoint",
                 &redact_url_for_diagnostics(self.endpoint.as_str()),
@@ -121,9 +153,7 @@ impl AsrProviderEditorState {
             args: SecretInput::new(
                 serde_json::to_string_pretty(&provider.args).unwrap_or_else(|_| "[]".to_owned()),
             ),
-            environment: SecretInput::new(
-                serde_json::to_string_pretty(&provider.env).unwrap_or_else(|_| "{}".to_owned()),
-            ),
+            environment: environment_entries(&provider.env),
             endpoint: SecretInput::new(provider.endpoint.clone().unwrap_or_default()),
         };
         Self {
@@ -141,13 +171,35 @@ impl AsrProviderEditorState {
             AsrProviderEditorField::Model => self.fields.model = value,
             AsrProviderEditorField::Command => self.fields.command = SecretInput::new(value),
             AsrProviderEditorField::Args => self.fields.args = SecretInput::new(value),
-            AsrProviderEditorField::Environment => {
-                self.fields.environment = SecretInput::new(value);
-            }
             AsrProviderEditorField::Endpoint => {
                 self.endpoint_secure |= endpoint_input_is_secure(&value);
                 self.fields.endpoint = SecretInput::new(value);
             }
+        }
+    }
+
+    fn update_environment_key(&mut self, index: usize, key: String) {
+        if let Some(entry) = self.fields.environment.get_mut(index) {
+            entry.key = key;
+        }
+    }
+
+    fn update_environment_value(&mut self, index: usize, value: SecretInput) {
+        if let Some(entry) = self.fields.environment.get_mut(index) {
+            entry.value = value;
+        }
+    }
+
+    fn add_environment(&mut self) {
+        self.fields.environment.push(AsrProviderEnvironmentEntry {
+            key: String::new(),
+            value: SecretInput::new(String::new()),
+        });
+    }
+
+    fn remove_environment(&mut self, index: usize) {
+        if index < self.fields.environment.len() {
+            self.fields.environment.remove(index);
         }
     }
 
@@ -174,7 +226,7 @@ impl AsrProviderEditorState {
                 }
                 provider.command = Some(command.to_owned());
                 provider.args = parse_string_array(self.fields.args.as_str(), "arguments")?;
-                provider.env = parse_string_map(self.fields.environment.as_str())?;
+                provider.env = environment_map(&self.fields.environment)?;
             }
             AsrProviderKind::Remote => {
                 let endpoint = self.fields.endpoint.as_str().trim();
@@ -239,6 +291,26 @@ impl App {
             AsrProviderMessage::EditorChanged { field, value } => {
                 if let Some(editor) = &mut self.asr_provider_editor {
                     editor.update(field, value);
+                }
+            }
+            AsrProviderMessage::EnvironmentKeyChanged { index, key } => {
+                if let Some(editor) = &mut self.asr_provider_editor {
+                    editor.update_environment_key(index, key);
+                }
+            }
+            AsrProviderMessage::EnvironmentValueChanged { index, value } => {
+                if let Some(editor) = &mut self.asr_provider_editor {
+                    editor.update_environment_value(index, value);
+                }
+            }
+            AsrProviderMessage::AddEnvironment => {
+                if let Some(editor) = &mut self.asr_provider_editor {
+                    editor.add_environment();
+                }
+            }
+            AsrProviderMessage::RemoveEnvironment(index) => {
+                if let Some(editor) = &mut self.asr_provider_editor {
+                    editor.remove_environment(index);
                 }
             }
             AsrProviderMessage::ResetEdit => {
@@ -461,13 +533,7 @@ fn provider_editor_view(editor: &AsrProviderEditorState, busy: bool) -> Element<
                     AsrProviderEditorField::Args,
                     true,
                 ))
-                .push(labeled_input(
-                    "Environment",
-                    "JSON string object",
-                    editor.fields.environment.as_str(),
-                    AsrProviderEditorField::Environment,
-                    true,
-                ));
+                .push(environment_editor_view(&editor.fields.environment, busy));
         }
         AsrProviderKind::Remote => {
             body = body.push(labeled_input(
@@ -500,6 +566,50 @@ fn provider_editor_view(editor: &AsrProviderEditorState, busy: bool) -> Element<
         .spacing(10),
     )
     .into()
+}
+
+fn environment_editor_view(
+    entries: &[AsrProviderEnvironmentEntry],
+    busy: bool,
+) -> Element<'_, Message> {
+    let mut body = column![
+        row![
+            text("Environment").size(18).width(Length::Fill),
+            button("Add variable").on_press_maybe(
+                (!busy).then_some(Message::AsrProvider(AsrProviderMessage::AddEnvironment)),
+            ),
+        ]
+        .spacing(10)
+    ]
+    .spacing(8);
+    if entries.is_empty() {
+        body = body.push(text("No environment variables configured."));
+    }
+    for (index, entry) in entries.iter().enumerate() {
+        body = body.push(
+            row![
+                text_input("Variable name", &entry.key)
+                    .on_input(move |key| Message::AsrProvider(
+                        AsrProviderMessage::EnvironmentKeyChanged { index, key }
+                    ))
+                    .width(Length::FillPortion(2)),
+                text_input("Value", entry.value.as_str())
+                    .secure(true)
+                    .on_input(move |value| Message::AsrProvider(
+                        AsrProviderMessage::EnvironmentValueChanged {
+                            index,
+                            value: SecretInput::new(value),
+                        }
+                    ))
+                    .width(Length::FillPortion(3)),
+                button("Remove").on_press_maybe((!busy).then_some(Message::AsrProvider(
+                    AsrProviderMessage::RemoveEnvironment(index),
+                )),),
+            ]
+            .spacing(10),
+        );
+    }
+    body.into()
 }
 
 fn labeled_input<'a>(
@@ -548,13 +658,37 @@ fn parse_string_array(value: &str, label: &str) -> Result<Vec<String>, String> {
         .map_err(|error| format!("Parse command {label} as a JSON string array: {error}"))
 }
 
-fn parse_string_map(value: &str) -> Result<HashMap<String, String>, String> {
-    let value = value.trim();
-    if value.is_empty() {
-        return Ok(HashMap::new());
+fn environment_entries(environment: &HashMap<String, String>) -> Vec<AsrProviderEnvironmentEntry> {
+    let mut entries = environment
+        .iter()
+        .map(|(key, value)| AsrProviderEnvironmentEntry {
+            key: key.clone(),
+            value: SecretInput::new(value.clone()),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.key.cmp(&right.key));
+    entries
+}
+
+fn environment_map(
+    entries: &[AsrProviderEnvironmentEntry],
+) -> Result<HashMap<String, String>, String> {
+    let mut environment = HashMap::with_capacity(entries.len());
+    for entry in entries {
+        if entry.key.trim().is_empty() {
+            return Err("Command environment variable names cannot be empty.".to_owned());
+        }
+        if environment
+            .insert(entry.key.clone(), entry.value.as_str().to_owned())
+            .is_some()
+        {
+            return Err(format!(
+                "Command environment variable `{}` is duplicated.",
+                entry.key
+            ));
+        }
     }
-    serde_json::from_str::<HashMap<String, String>>(value)
-        .map_err(|error| format!("Parse command environment as a JSON string object: {error}"))
+    Ok(environment)
 }
 
 fn optional_trimmed(value: &str) -> Option<String> {
@@ -595,7 +729,10 @@ mod tests {
             hotwords_file: Some("/tmp/hotwords.txt".to_owned()),
             command: Some("/usr/bin/provider".to_owned()),
             args: vec!["--json".to_owned()],
-            env: HashMap::from([("TOKEN".to_owned(), "secret".to_owned())]),
+            env: HashMap::from([
+                ("OTHER".to_owned(), "keep".to_owned()),
+                ("TOKEN".to_owned(), "secret".to_owned()),
+            ]),
             endpoint: None,
         }
     }
@@ -616,10 +753,14 @@ mod tests {
             AsrProviderEditorField::Args,
             SecretInput::new("[\"--stream\", \"--lang=en\"]".to_owned()),
         );
-        editor.update(
-            AsrProviderEditorField::Environment,
-            SecretInput::new("{\"API_KEY\":\"value\"}".to_owned()),
-        );
+        let token_index = editor
+            .fields
+            .environment
+            .iter()
+            .position(|entry| entry.key == "TOKEN")
+            .expect("TOKEN row");
+        editor.update_environment_key(token_index, "API_KEY".to_owned());
+        editor.update_environment_value(token_index, SecretInput::new("value".to_owned()));
 
         let provider = editor.provider().expect("provider should validate");
         assert_eq!(provider.id, original.id);
@@ -632,6 +773,7 @@ mod tests {
             provider.env.get("API_KEY").map(String::as_str),
             Some("value")
         );
+        assert_eq!(provider.env.get("OTHER").map(String::as_str), Some("keep"));
     }
 
     #[test]
@@ -639,7 +781,26 @@ mod tests {
         assert!(parse_optional_timeout("0").is_err());
         assert!(parse_optional_timeout("1.5").is_err());
         assert!(parse_string_array("{\"not\":\"array\"}", "arguments").is_err());
-        assert!(parse_string_map("[\"not-object\"]").is_err());
+        assert!(
+            environment_map(&[AsrProviderEnvironmentEntry {
+                key: "   ".to_owned(),
+                value: SecretInput::new("value".to_owned()),
+            }])
+            .is_err()
+        );
+        assert!(
+            environment_map(&[
+                AsrProviderEnvironmentEntry {
+                    key: "DUPLICATE".to_owned(),
+                    value: SecretInput::new("one".to_owned()),
+                },
+                AsrProviderEnvironmentEntry {
+                    key: "DUPLICATE".to_owned(),
+                    value: SecretInput::new("two".to_owned()),
+                },
+            ])
+            .is_err()
+        );
 
         let mut command = AsrProviderEditorState::edit(&command_provider());
         command.update(
@@ -678,6 +839,12 @@ mod tests {
         assert!(!debug.contains("environment-secret"));
         assert!(!debug.contains("query-secret"));
         assert!(!debug.contains("pass"));
+
+        let message = AsrProviderMessage::EnvironmentValueChanged {
+            index: 0,
+            value: SecretInput::new("message-secret".to_owned()),
+        };
+        assert!(!format!("{message:?}").contains("message-secret"));
     }
 
     #[test]
