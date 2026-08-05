@@ -619,6 +619,14 @@ impl ScriptInstallState {
 }
 
 impl App {
+    pub(crate) fn begin_provider_install(&mut self) -> Task<Message> {
+        self.begin_script_install(LiveScriptKind::AsrProvider)
+    }
+
+    pub(crate) fn begin_adapter_install(&mut self) -> Task<Message> {
+        self.begin_script_install(LiveScriptKind::LlmAdapter)
+    }
+
     pub(crate) fn begin_script_install(&mut self, kind: LiveScriptKind) -> Task<Message> {
         let selector = match kind {
             LiveScriptKind::AsrProvider => self.provider_selector.trim(),
@@ -657,6 +665,10 @@ impl App {
             return Task::none();
         }
         if let Err(error) = self.ensure_no_open_llm_provider_editor() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_no_open_asr_provider_editor() {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
@@ -705,6 +717,10 @@ impl App {
             return Task::none();
         }
         if let Err(error) = self.ensure_no_open_llm_provider_editor() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_no_open_asr_provider_editor() {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
@@ -767,6 +783,10 @@ impl App {
             return Task::none();
         }
         if let Err(error) = self.ensure_no_open_llm_provider_editor() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_no_open_asr_provider_editor() {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }

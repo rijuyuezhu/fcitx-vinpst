@@ -476,6 +476,10 @@ impl App {
             self.operation = OperationState::Failed(error);
             return false;
         }
+        if let Err(error) = self.ensure_no_open_asr_provider_editor() {
+            self.operation = OperationState::Failed(error);
+            return false;
+        }
         if let Err(error) = self.ensure_no_open_scene_editor() {
             self.operation = OperationState::Failed(error);
             return false;

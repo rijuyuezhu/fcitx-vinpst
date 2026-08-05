@@ -26,6 +26,10 @@ impl App {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
+        if let Err(error) = self.ensure_no_open_asr_provider_editor() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
         let Ok(document) = &self.config else {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();

@@ -19,8 +19,10 @@ use vinput_config::{VinputConfig, config_backup_path, write_config_file};
 use vinput_protocol::dbus;
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
+mod asr_provider_management;
 mod asr_reload_confirmation;
 mod daemon_owner_monitor;
+mod form_guards;
 mod hotword_activation_retry;
 mod hotword_management;
 mod hotword_path;
@@ -40,6 +42,10 @@ mod script_recovery;
 mod script_removal;
 mod script_transaction;
 
+use asr_provider_management::AsrProviderEditorState;
+pub use asr_provider_management::{
+    AsrProviderEditorField, AsrProviderMessage, AsrProviderMutationOutcome,
+};
 pub(crate) use asr_reload_confirmation::{
     reload_asr_backend, reload_asr_backend_and_wait, wait_for_requested_asr_backend,
 };
@@ -186,6 +192,7 @@ pub struct App {
     installed_models: Result<Vec<InstalledModelInfo>, String>,
     selected_resource: Option<ResourceSelection>,
     scene_editor: Option<SceneEditorState>,
+    asr_provider_editor: Option<AsrProviderEditorState>,
     llm_provider_editor: Option<LlmProviderEditorState>,
     llm_provider_test_text: SecretInput,
     hotword_editor: HotwordEditorState,
@@ -222,6 +229,7 @@ impl App {
             installed_models: load_installed_models(),
             selected_resource: None,
             scene_editor: None,
+            asr_provider_editor: None,
             llm_provider_editor: None,
             llm_provider_test_text: SecretInput::new("Connectivity test".to_owned()),
             hotword_editor,
@@ -234,12 +242,14 @@ impl App {
 
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if let Some(task) = self.intercept_asr_provider_message(&message) {
+            return task;
+        }
         if self.is_busy() && message.blocked_while_busy() {
             return Task::none();
         }
         self.update_unblocked(message)
     }
-
     fn update_unblocked(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SelectPage(page) => self.select_page(page),
@@ -307,12 +317,8 @@ impl App {
             Message::ClearResourceDetail => self.clear_resource_detail(),
             Message::ProviderSelectorChanged(value) => self.provider_selector = value,
             Message::AdapterSelectorChanged(value) => self.adapter_selector = value,
-            Message::InstallProvider => {
-                return self.begin_script_install(LiveScriptKind::AsrProvider);
-            }
-            Message::InstallAdapter => {
-                return self.begin_script_install(LiveScriptKind::LlmAdapter);
-            }
+            Message::InstallProvider => return self.begin_provider_install(),
+            Message::InstallAdapter => return self.begin_adapter_install(),
             Message::ScriptPrepared {
                 operation_id,
                 outcome,
@@ -339,6 +345,7 @@ impl App {
                 return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
             }
             Message::ScriptRemoved(result) => return self.finish_script_remove(result),
+            Message::AsrProvider(_) => unreachable!("ASR provider messages are intercepted"),
         }
         Task::none()
     }
@@ -375,16 +382,6 @@ impl App {
         if self.scene_editor.is_some() {
             return Err(
                 "Save or cancel the open Scene form before modifying providers or adapters."
-                    .to_owned(),
-            );
-        }
-        Ok(())
-    }
-
-    pub(crate) fn ensure_no_open_llm_provider_editor(&self) -> Result<(), String> {
-        if self.llm_provider_editor.is_some() {
-            return Err(
-                "Save or cancel the open LLM provider form before modifying provider or adapter scripts."
                     .to_owned(),
             );
         }
@@ -551,6 +548,7 @@ impl App {
         self.refresh_hotword_editor(&config);
         self.config = config;
         self.scene_editor = None;
+        self.asr_provider_editor = None;
         self.llm_provider_editor = None;
     }
 

@@ -39,6 +39,7 @@ impl App {
         self.page = page;
         self.selected_resource = None;
         self.scene_editor = None;
+        self.asr_provider_editor = None;
         self.llm_provider_editor = None;
     }
 }

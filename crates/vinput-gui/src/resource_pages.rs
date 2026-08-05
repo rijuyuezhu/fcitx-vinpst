@@ -15,6 +15,7 @@ use crate::{
 impl App {
     pub(super) fn resources_page(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
+        let resource_controls_busy = busy || self.asr_provider_editor.is_some();
         let mut body = column![
             text("Resources").size(30),
             text_input("Filter providers and scenes", &self.filter)
@@ -25,13 +26,13 @@ impl App {
                     .on_input(Message::ModelSelectorChanged)
                     .width(Length::Fill),
                 button("Install or update").on_press_maybe(
-                    (!busy && !self.model_selector.trim().is_empty())
+                    (!resource_controls_busy && !self.model_selector.trim().is_empty())
                         .then_some(Message::InstallModel),
                 ),
             ]
             .spacing(10),
             text("Managed command ASR providers").size(22),
-            self.provider_install_controls(busy),
+            self.provider_install_controls(resource_controls_busy),
         ]
         .spacing(12);
 
@@ -49,7 +50,7 @@ impl App {
                         .config
                         .as_ref()
                         .is_ok_and(|document| model_is_active(&document.config, &model.model_dir));
-                    body = body.push(installed_model_row(model, active, busy));
+                    body = body.push(installed_model_row(model, active, resource_controls_busy));
                 }
             }
             Err(error) => {
@@ -74,9 +75,18 @@ impl App {
                     }
                     let active = provider.id == document.config.asr.active_provider;
                     let managed = managed_provider_script_path(provider).is_some();
-                    body = body.push(provider_row(label, &provider.id, busy, managed, active));
+                    body = body.push(provider_row(
+                        label,
+                        &provider.id,
+                        resource_controls_busy,
+                        managed,
+                        active,
+                    ));
                 }
-                body = body.push(self.scene_management_view(busy));
+                if let Some(editor) = self.asr_provider_editor_view(busy) {
+                    body = body.push(editor);
+                }
+                body = body.push(self.scene_management_view(resource_controls_busy));
             }
             Err(error) => body = body.push(text(format!("Config error: {error}"))),
         }
@@ -161,6 +171,9 @@ fn provider_row(
     row![
         text(label).width(Length::Fill),
         button("Details").on_press(Message::SelectAsrProviderDetail(provider_id.to_owned())),
+        button("Edit").on_press_maybe((!busy).then_some(Message::AsrProvider(
+            crate::AsrProviderMessage::BeginEdit(provider_id.to_owned()),
+        ))),
         button("Edit script").on_press_maybe(
             (!busy && managed).then_some(Message::EditProviderScript(provider_id.to_owned())),
         ),
