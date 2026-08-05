@@ -15,6 +15,10 @@ host lifecycle changes.
   host. It is not a portable generic desktop test suite. The GTK4 bounded-soak
   runner accepts 10-20 cycles and records bounded evidence separately from any
   future hour-scale soak.
+- `x11/` forces the Rust management GUI onto X11 through the same host's
+  xwayland-satellite instance. It verifies native X11 window properties,
+  clipboard delivery, keyboard control, and Fcitx5 XIM while using Wayland only
+  to focus the rootless client and restore the host clipboard exactly.
 
 Each live runner must fail closed when its prerequisites or restoration checks
 are not satisfied. Evidence under `target/tmp/` is diagnostic output, not a
