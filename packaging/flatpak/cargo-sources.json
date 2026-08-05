@@ -3433,6 +3433,19 @@
   },
   {
     "archive-type": "tar-gzip",
+    "dest": "cargo/vendor/pollster-0.4.0",
+    "sha256": "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3",
+    "type": "archive",
+    "url": "https://static.crates.io/crates/pollster/pollster-0.4.0.crate"
+  },
+  {
+    "contents": "{\"files\":{},\"package\":\"2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3\"}",
+    "dest": "cargo/vendor/pollster-0.4.0",
+    "dest-filename": ".cargo-checksum.json",
+    "type": "inline"
+  },
+  {
+    "archive-type": "tar-gzip",
     "dest": "cargo/vendor/potential_utf-0.1.5",
     "sha256": "0103b1cef7ec0cf76490e969665504990193874ea05c85ff9bab8b911d0a0564",
     "type": "archive",
@@ -3779,6 +3792,19 @@
   {
     "contents": "{\"files\":{},\"package\":\"eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147\"}",
     "dest": "cargo/vendor/reqwest-0.12.28",
+    "dest-filename": ".cargo-checksum.json",
+    "type": "inline"
+  },
+  {
+    "archive-type": "tar-gzip",
+    "dest": "cargo/vendor/rfd-0.17.2",
+    "sha256": "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220",
+    "type": "archive",
+    "url": "https://static.crates.io/crates/rfd/rfd-0.17.2.crate"
+  },
+  {
+    "contents": "{\"files\":{},\"package\":\"20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220\"}",
+    "dest": "cargo/vendor/rfd-0.17.2",
     "dest-filename": ".cargo-checksum.json",
     "type": "inline"
   },
