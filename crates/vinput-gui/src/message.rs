@@ -188,7 +188,9 @@ impl Message {
                         | SceneMessage::Remove(_)
                 )
                 | Self::AsrProvider(
-                    AsrProviderMessage::BeginEdit(_)
+                    AsrProviderMessage::BeginAdd
+                        | AsrProviderMessage::BeginEdit(_)
+                        | AsrProviderMessage::KindChanged(_)
                         | AsrProviderMessage::EditorChanged { .. }
                         | AsrProviderMessage::EnvironmentKeyChanged { .. }
                         | AsrProviderMessage::EnvironmentValueChanged { .. }

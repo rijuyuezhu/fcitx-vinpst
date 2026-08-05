@@ -60,7 +60,17 @@ impl App {
 
         match &self.config {
             Ok(document) => {
-                body = body.push(text("ASR providers").size(22));
+                body = body.push(
+                    row![
+                        text("ASR providers").size(22).width(Length::Fill),
+                        button("Add custom provider").on_press_maybe(
+                            (!resource_controls_busy).then_some(Message::AsrProvider(
+                                crate::AsrProviderMessage::BeginAdd,
+                            )),
+                        ),
+                    ]
+                    .spacing(10),
+                );
                 let filter = self.filter.to_ascii_lowercase();
                 for provider in &document.config.asr.providers {
                     let kind = match provider.kind {

@@ -16,6 +16,8 @@ use crate::{
 /// One editable field in the ASR provider form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AsrProviderEditorField {
+    /// Stable id for a new custom provider.
+    Id,
     /// Optional provider timeout in milliseconds.
     TimeoutMs,
     /// Optional provider model identifier.
@@ -31,8 +33,12 @@ pub enum AsrProviderEditorField {
 /// One ASR provider lifecycle interaction handled by the Resources page.
 #[derive(Debug, Clone)]
 pub enum AsrProviderMessage {
+    /// Open an empty custom provider form.
+    BeginAdd,
     /// Open one configured provider for editing.
     BeginEdit(String),
+    /// Select the provider kind while creating a custom entry.
+    KindChanged(AsrProviderKind),
     /// Update one field without exposing entered values through `Debug`.
     EditorChanged {
         /// Typed field being edited.
@@ -75,6 +81,8 @@ pub struct AsrProviderMutationOutcome {
     pub save: ConfigSaveOutcome,
     /// Stable provider id that was updated.
     pub provider_id: String,
+    /// Whether the mutation created a new custom provider.
+    pub created: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -95,6 +103,7 @@ impl fmt::Debug for AsrProviderEnvironmentEntry {
 
 #[derive(Clone, PartialEq, Eq)]
 struct AsrProviderEditorFields {
+    id: String,
     timeout_ms: String,
     model: String,
     command: SecretInput,
@@ -107,6 +116,7 @@ impl fmt::Debug for AsrProviderEditorFields {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("AsrProviderEditorFields")
+            .field("id", &self.id)
             .field("timeout_ms", &self.timeout_ms)
             .field("model", &self.model)
             .field("command", &"<redacted command>")
@@ -123,7 +133,8 @@ impl fmt::Debug for AsrProviderEditorFields {
 /// Active ASR provider editor state.
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct AsrProviderEditorState {
-    original: AsrProviderConfig,
+    original: Option<AsrProviderConfig>,
+    kind: AsrProviderKind,
     baseline: AsrProviderEditorFields,
     fields: AsrProviderEditorFields,
     endpoint_secure: bool,
@@ -133,8 +144,16 @@ impl fmt::Debug for AsrProviderEditorState {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("AsrProviderEditorState")
-            .field("provider_id", &self.original.id)
-            .field("provider_kind", &self.original.kind)
+            .field("provider_id", &self.fields.id)
+            .field("provider_kind", &self.kind)
+            .field(
+                "mode",
+                &if self.original.is_some() {
+                    "edit"
+                } else {
+                    "add"
+                },
+            )
             .field("baseline", &self.baseline)
             .field("fields", &self.fields)
             .field("endpoint_secure", &self.endpoint_secure)
@@ -143,8 +162,28 @@ impl fmt::Debug for AsrProviderEditorState {
 }
 
 impl AsrProviderEditorState {
+    fn add() -> Self {
+        let fields = AsrProviderEditorFields {
+            id: String::new(),
+            timeout_ms: String::new(),
+            model: String::new(),
+            command: SecretInput::new(String::new()),
+            args: SecretInput::new("[]".to_owned()),
+            environment: Vec::new(),
+            endpoint: SecretInput::new(String::new()),
+        };
+        Self {
+            original: None,
+            kind: AsrProviderKind::Command,
+            endpoint_secure: false,
+            baseline: fields.clone(),
+            fields,
+        }
+    }
+
     fn edit(provider: &AsrProviderConfig) -> Self {
         let fields = AsrProviderEditorFields {
+            id: provider.id.clone(),
             timeout_ms: provider
                 .timeout_ms
                 .map_or_else(String::new, |value| value.to_string()),
@@ -157,7 +196,8 @@ impl AsrProviderEditorState {
             endpoint: SecretInput::new(provider.endpoint.clone().unwrap_or_default()),
         };
         Self {
-            original: provider.clone(),
+            original: Some(provider.clone()),
+            kind: provider.kind.clone(),
             endpoint_secure: endpoint_input_is_secure(fields.endpoint.as_str()),
             baseline: fields.clone(),
             fields,
@@ -167,6 +207,8 @@ impl AsrProviderEditorState {
     fn update(&mut self, field: AsrProviderEditorField, value: SecretInput) {
         let value = value.into_inner();
         match field {
+            AsrProviderEditorField::Id if self.original.is_none() => self.fields.id = value,
+            AsrProviderEditorField::Id => {}
             AsrProviderEditorField::TimeoutMs => self.fields.timeout_ms = value,
             AsrProviderEditorField::Model => self.fields.model = value,
             AsrProviderEditorField::Command => self.fields.command = SecretInput::new(value),
@@ -203,22 +245,61 @@ impl AsrProviderEditorState {
         }
     }
 
+    fn set_kind(&mut self, kind: AsrProviderKind) {
+        if self.original.is_none() {
+            self.kind = kind;
+        }
+    }
+
     fn reset(&mut self) {
         self.fields = self.baseline.clone();
+        if let Some(original) = &self.original {
+            self.kind = original.kind.clone();
+        } else {
+            self.kind = AsrProviderKind::Command;
+        }
         self.endpoint_secure = endpoint_input_is_secure(self.baseline.endpoint.as_str());
     }
 
     fn is_dirty(&self) -> bool {
-        self.fields != self.baseline
+        let baseline_kind = self
+            .original
+            .as_ref()
+            .map_or(AsrProviderKind::Command, |provider| provider.kind.clone());
+        self.fields != self.baseline || self.kind != baseline_kind
     }
 
     fn provider(&self) -> Result<AsrProviderConfig, String> {
-        let mut provider = self.original.clone();
+        let id = self
+            .original
+            .as_ref()
+            .map_or_else(|| self.fields.id.trim(), |provider| provider.id.as_str());
+        if id.is_empty() {
+            return Err("ASR provider id cannot be empty.".to_owned());
+        }
+        let mut provider = self.original.clone().unwrap_or_else(|| AsrProviderConfig {
+            id: id.to_owned(),
+            kind: self.kind.clone(),
+            timeout_ms: None,
+            model: None,
+            hotwords_file: None,
+            command: None,
+            args: Vec::new(),
+            env: HashMap::new(),
+            endpoint: None,
+        });
+        id.clone_into(&mut provider.id);
+        provider.kind = self.kind.clone();
         provider.timeout_ms = parse_optional_timeout(&self.fields.timeout_ms)?;
         provider.model = optional_trimmed(&self.fields.model);
 
         match provider.kind {
-            AsrProviderKind::Local => {}
+            AsrProviderKind::Local => {
+                provider.command = None;
+                provider.args.clear();
+                provider.env.clear();
+                provider.endpoint = None;
+            }
             AsrProviderKind::Command => {
                 let command = self.fields.command.as_str().trim();
                 if command.is_empty() {
@@ -227,6 +308,7 @@ impl AsrProviderEditorState {
                 provider.command = Some(command.to_owned());
                 provider.args = parse_string_array(self.fields.args.as_str(), "arguments")?;
                 provider.env = environment_map(&self.fields.environment)?;
+                provider.endpoint = None;
             }
             AsrProviderKind::Remote => {
                 let endpoint = self.fields.endpoint.as_str().trim();
@@ -234,6 +316,9 @@ impl AsrProviderEditorState {
                     return Err("Remote ASR provider endpoint cannot be empty.".to_owned());
                 }
                 provider.endpoint = Some(endpoint.to_owned());
+                provider.command = None;
+                provider.args.clear();
+                provider.env.clear();
             }
         }
         Ok(provider)
@@ -287,7 +372,13 @@ impl App {
         message: AsrProviderMessage,
     ) -> Task<Message> {
         match message {
+            AsrProviderMessage::BeginAdd => self.begin_add_asr_provider(),
             AsrProviderMessage::BeginEdit(id) => self.begin_edit_asr_provider(&id),
+            AsrProviderMessage::KindChanged(kind) => {
+                if let Some(editor) = &mut self.asr_provider_editor {
+                    editor.set_kind(kind);
+                }
+            }
             AsrProviderMessage::EditorChanged { field, value } => {
                 if let Some(editor) = &mut self.asr_provider_editor {
                     editor.update(field, value);
@@ -333,6 +424,21 @@ impl App {
             }
         }
         Task::none()
+    }
+
+    fn begin_add_asr_provider(&mut self) {
+        if self.is_busy() || self.asr_provider_editor.is_some() {
+            return;
+        }
+        if let Err(error) = self.ensure_asr_provider_editor_allowed() {
+            self.operation = OperationState::Failed(error);
+            return;
+        }
+        if !self.guard_hotword_changes("adding an ASR provider") {
+            return;
+        }
+        self.asr_provider_editor = Some(AsrProviderEditorState::add());
+        self.operation = OperationState::Idle;
     }
 
     fn begin_edit_asr_provider(&mut self, provider_id: &str) {
@@ -390,14 +496,16 @@ impl App {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
         };
-        let updated = match edit_asr_provider(&document.config, &editor) {
+        let updated = match upsert_asr_provider(&document.config, &editor) {
             Ok(updated) => updated,
             Err(error) => {
                 self.operation = OperationState::Failed(error);
                 return Task::none();
             }
         };
-        self.begin_asr_provider_mutation(document.clone(), updated, editor.original.id)
+        let provider_id = editor.fields.id.trim().to_owned();
+        let created = editor.original.is_none();
+        self.begin_asr_provider_mutation(document.clone(), updated, provider_id, created)
     }
 
     fn ensure_asr_provider_editor_allowed(&self) -> Result<(), String> {
@@ -412,12 +520,18 @@ impl App {
         document: ConfigDocument,
         updated: VinputConfig,
         provider_id: String,
+        created: bool,
     ) -> Task<Message> {
         self.operation = OperationState::Running("Saving ASR provider…");
         Task::perform(
             async move {
-                save_updated_config_with_daemon(&document, &updated)
-                    .map(|save| AsrProviderMutationOutcome { save, provider_id })
+                save_updated_config_with_daemon(&document, &updated).map(|save| {
+                    AsrProviderMutationOutcome {
+                        save,
+                        provider_id,
+                        created,
+                    }
+                })
             },
             |result| Message::AsrProvider(AsrProviderMessage::MutationFinished(result)),
         )
@@ -440,7 +554,8 @@ impl App {
         );
         self.replace_config(load_config_document(Some(&outcome.save.path)));
         self.operation = OperationState::Succeeded(format!(
-            "Updated ASR provider `{}`. Saved {} ({backup}); {}",
+            "{} ASR provider `{}`. Saved {} ({backup}); {}",
+            if outcome.created { "Added" } else { "Updated" },
             outcome.provider_id,
             outcome.save.path.display(),
             outcome.save.daemon_reload
@@ -455,27 +570,45 @@ impl App {
     }
 }
 
-fn edit_asr_provider(
+fn upsert_asr_provider(
     config: &VinputConfig,
     editor: &AsrProviderEditorState,
 ) -> Result<VinputConfig, String> {
     let provider = editor.provider()?;
     let mut updated = config.clone();
+    let Some(original) = &editor.original else {
+        if updated
+            .asr
+            .providers
+            .iter()
+            .any(|candidate| candidate.id == provider.id)
+        {
+            return Err(format!(
+                "ASR provider `{}` is already configured.",
+                provider.id
+            ));
+        }
+        updated.asr.providers.push(provider);
+        updated
+            .validate()
+            .map_err(|error| format!("Validate new ASR provider config: {error}"))?;
+        return Ok(updated);
+    };
     let Some(index) = updated
         .asr
         .providers
         .iter()
-        .position(|candidate| candidate.id == editor.original.id)
+        .position(|candidate| candidate.id == original.id)
     else {
         return Err(format!(
             "ASR provider `{}` is no longer configured.",
-            editor.original.id
+            original.id
         ));
     };
-    if updated.asr.providers[index] != editor.original {
+    if updated.asr.providers[index] != *original {
         return Err(format!(
             "ASR provider `{}` changed after the form was opened; reopen it before saving.",
-            editor.original.id
+            original.id
         ));
     }
     updated.asr.providers[index] = provider;
@@ -487,13 +620,15 @@ fn edit_asr_provider(
 
 fn provider_editor_view(editor: &AsrProviderEditorState, busy: bool) -> Element<'_, Message> {
     let dirty = editor.is_dirty();
-    let kind = kind_label(&editor.original.kind);
-    let mut body = column![
-        text("Edit ASR provider").size(22),
-        text(format!(
-            "Provider id: {} (immutable) · type: {kind} (immutable)",
-            editor.original.id
-        )),
+    let adding = editor.original.is_none();
+    column![
+        text(if adding {
+            "Add custom ASR provider"
+        } else {
+            "Edit ASR provider"
+        })
+        .size(22),
+        provider_identity_view(editor, busy),
         labeled_input(
             "Timeout (ms)",
             "blank uses backend default",
@@ -508,47 +643,14 @@ fn provider_editor_view(editor: &AsrProviderEditorState, busy: bool) -> Element<
             AsrProviderEditorField::Model,
             false,
         ),
-    ]
-    .spacing(10);
-
-    match editor.original.kind {
-        AsrProviderKind::Local => {
-            body = body.push(text(
-                "Hotword path and content remain managed on the Hotwords page.",
-            ));
-        }
-        AsrProviderKind::Command => {
-            body = body
-                .push(labeled_input(
-                    "Command",
-                    "/path/to/provider",
-                    editor.fields.command.as_str(),
-                    AsrProviderEditorField::Command,
-                    false,
-                ))
-                .push(labeled_input(
-                    "Arguments",
-                    "JSON string array",
-                    editor.fields.args.as_str(),
-                    AsrProviderEditorField::Args,
-                    true,
-                ))
-                .push(environment_editor_view(&editor.fields.environment, busy));
-        }
-        AsrProviderKind::Remote => {
-            body = body.push(labeled_input(
-                "Endpoint",
-                "https://provider.example/v1/audio/transcriptions",
-                editor.fields.endpoint.as_str(),
-                AsrProviderEditorField::Endpoint,
-                editor.endpoint_secure,
-            ));
-        }
-    }
-
-    body.push(
+        provider_kind_fields(editor, busy),
         row![
-            button("Update provider").on_press_maybe(
+            button(if adding {
+                "Add provider"
+            } else {
+                "Update provider"
+            })
+            .on_press_maybe(
                 (dirty && !busy).then_some(Message::AsrProvider(AsrProviderMessage::Save)),
             ),
             button("Reset form").on_press_maybe(
@@ -564,8 +666,72 @@ fn provider_editor_view(editor: &AsrProviderEditorState, busy: bool) -> Element<
             }),
         ]
         .spacing(10),
-    )
+    ]
+    .spacing(10)
     .into()
+}
+
+fn provider_identity_view(editor: &AsrProviderEditorState, busy: bool) -> Element<'_, Message> {
+    if editor.original.is_some() {
+        return text(format!(
+            "Provider id: {} (immutable) · type: {} (immutable)",
+            editor.fields.id,
+            kind_label(&editor.kind)
+        ))
+        .into();
+    }
+    column![
+        labeled_input(
+            "Provider id",
+            "custom-provider",
+            &editor.fields.id,
+            AsrProviderEditorField::Id,
+            false,
+        ),
+        row![
+            text("Provider type").width(160),
+            kind_button("Local", AsrProviderKind::Local, &editor.kind, busy),
+            kind_button("Command", AsrProviderKind::Command, &editor.kind, busy),
+            kind_button("Remote", AsrProviderKind::Remote, &editor.kind, busy),
+        ]
+        .spacing(10),
+    ]
+    .spacing(10)
+    .into()
+}
+
+fn provider_kind_fields(editor: &AsrProviderEditorState, busy: bool) -> Element<'_, Message> {
+    match editor.kind {
+        AsrProviderKind::Local => {
+            text("Hotword path and content remain managed on the Hotwords page.").into()
+        }
+        AsrProviderKind::Command => column![
+            labeled_input(
+                "Command",
+                "/path/to/provider",
+                editor.fields.command.as_str(),
+                AsrProviderEditorField::Command,
+                false,
+            ),
+            labeled_input(
+                "Arguments",
+                "JSON string array",
+                editor.fields.args.as_str(),
+                AsrProviderEditorField::Args,
+                true,
+            ),
+            environment_editor_view(&editor.fields.environment, busy),
+        ]
+        .spacing(10)
+        .into(),
+        AsrProviderKind::Remote => labeled_input(
+            "Endpoint",
+            "https://provider.example/v1/audio/transcriptions",
+            editor.fields.endpoint.as_str(),
+            AsrProviderEditorField::Endpoint,
+            editor.endpoint_secure,
+        ),
+    }
 }
 
 fn environment_editor_view(
@@ -604,12 +770,29 @@ fn environment_editor_view(
                     .width(Length::FillPortion(3)),
                 button("Remove").on_press_maybe((!busy).then_some(Message::AsrProvider(
                     AsrProviderMessage::RemoveEnvironment(index),
-                )),),
+                ))),
             ]
             .spacing(10),
         );
     }
     body.into()
+}
+
+fn kind_button<'a>(
+    label: &'static str,
+    kind: AsrProviderKind,
+    selected: &AsrProviderKind,
+    busy: bool,
+) -> iced::widget::Button<'a, Message> {
+    button(text(if &kind == selected {
+        format!("{label} (selected)")
+    } else {
+        label.to_owned()
+    }))
+    .on_press_maybe(
+        (!busy && &kind != selected)
+            .then_some(Message::AsrProvider(AsrProviderMessage::KindChanged(kind))),
+    )
 }
 
 fn labeled_input<'a>(
@@ -777,6 +960,119 @@ mod tests {
     }
 
     #[test]
+    fn add_builds_kind_specific_providers_and_rejects_duplicates() {
+        let mut config = VinputConfig::bundled_default().expect("bundled config should validate");
+
+        let mut command = AsrProviderEditorState::add();
+        assert!(!command.is_dirty());
+        command.update(
+            AsrProviderEditorField::Id,
+            SecretInput::new(" custom-command ".to_owned()),
+        );
+        command.update(
+            AsrProviderEditorField::Command,
+            SecretInput::new(" /opt/custom-provider ".to_owned()),
+        );
+        command.update(
+            AsrProviderEditorField::Args,
+            SecretInput::new(r#"["--json"]"#.to_owned()),
+        );
+        command.add_environment();
+        command.update_environment_key(0, "TOKEN".to_owned());
+        command.update_environment_value(0, SecretInput::new("secret".to_owned()));
+        let command_provider = command
+            .provider()
+            .expect("command provider should validate");
+        assert_eq!(command_provider.id, "custom-command");
+        assert_eq!(command_provider.kind, AsrProviderKind::Command);
+        assert_eq!(
+            command_provider.command.as_deref(),
+            Some("/opt/custom-provider")
+        );
+        assert_eq!(command_provider.args, ["--json"]);
+        assert_eq!(
+            command_provider.env.get("TOKEN").map(String::as_str),
+            Some("secret")
+        );
+        assert!(command_provider.endpoint.is_none());
+
+        config =
+            upsert_asr_provider(&config, &command).expect("new command provider should persist");
+        assert!(upsert_asr_provider(&config, &command).is_err());
+
+        let mut local = AsrProviderEditorState::add();
+        local.set_kind(AsrProviderKind::Local);
+        local.update(
+            AsrProviderEditorField::Id,
+            SecretInput::new("local-provider".to_owned()),
+        );
+        local.update(
+            AsrProviderEditorField::Model,
+            SecretInput::new(" /models/asr ".to_owned()),
+        );
+        local.update(
+            AsrProviderEditorField::Command,
+            SecretInput::new("ignored-command".to_owned()),
+        );
+        local.update(
+            AsrProviderEditorField::Endpoint,
+            SecretInput::new("https://ignored.invalid".to_owned()),
+        );
+        let local_provider = local.provider().expect("local provider should validate");
+        assert_eq!(local_provider.kind, AsrProviderKind::Local);
+        assert_eq!(local_provider.model.as_deref(), Some("/models/asr"));
+        assert!(local_provider.command.is_none());
+        assert!(local_provider.args.is_empty());
+        assert!(local_provider.env.is_empty());
+        assert!(local_provider.endpoint.is_none());
+
+        let mut remote = AsrProviderEditorState::add();
+        remote.set_kind(AsrProviderKind::Remote);
+        remote.update(
+            AsrProviderEditorField::Id,
+            SecretInput::new("remote-provider".to_owned()),
+        );
+        remote.update(
+            AsrProviderEditorField::Endpoint,
+            SecretInput::new(" https://example.invalid/asr ".to_owned()),
+        );
+        remote.update(
+            AsrProviderEditorField::Command,
+            SecretInput::new("ignored-command".to_owned()),
+        );
+        remote.update(
+            AsrProviderEditorField::Args,
+            SecretInput::new(r#"["ignored"]"#.to_owned()),
+        );
+        let remote_provider = remote.provider().expect("remote provider should validate");
+        assert_eq!(remote_provider.kind, AsrProviderKind::Remote);
+        assert_eq!(
+            remote_provider.endpoint.as_deref(),
+            Some("https://example.invalid/asr")
+        );
+        assert!(remote_provider.command.is_none());
+        assert!(remote_provider.args.is_empty());
+        assert!(remote_provider.env.is_empty());
+    }
+
+    #[test]
+    fn edit_mode_ignores_identity_and_kind_messages() {
+        let original = command_provider();
+        let mut editor = AsrProviderEditorState::edit(&original);
+        editor.update(
+            AsrProviderEditorField::Id,
+            SecretInput::new("forged-id".to_owned()),
+        );
+        editor.set_kind(AsrProviderKind::Remote);
+
+        let provider = editor
+            .provider()
+            .expect("edited provider should remain valid");
+        assert_eq!(provider.id, original.id);
+        assert_eq!(provider.kind, original.kind);
+    }
+
+    #[test]
     fn provider_editor_rejects_invalid_timeout_args_environment_and_required_targets() {
         assert!(parse_optional_timeout("0").is_err());
         assert!(parse_optional_timeout("1.5").is_err());
@@ -855,7 +1151,7 @@ mod tests {
         config.asr.providers = vec![provider.clone()];
         config.asr.active_provider = provider.id.clone();
 
-        let updated = edit_asr_provider(&config, &editor).expect("unchanged provider is valid");
+        let updated = upsert_asr_provider(&config, &editor).expect("unchanged provider is valid");
         assert_eq!(
             updated.asr.providers.as_slice(),
             std::slice::from_ref(&provider)
@@ -863,7 +1159,7 @@ mod tests {
 
         let mut stale = config;
         stale.asr.providers[0].timeout_ms = Some(8_000);
-        assert!(edit_asr_provider(&stale, &editor).is_err());
+        assert!(upsert_asr_provider(&stale, &editor).is_err());
     }
 
     #[test]
