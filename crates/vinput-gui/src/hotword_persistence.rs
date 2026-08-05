@@ -16,7 +16,7 @@ use vinput_config::VinputConfig;
 use xattr::FileExt as _;
 
 use crate::{
-    ConfigDocument, ConfigSaveOutcome, ensure_config_save_allowed,
+    ConfigDocument, ConfigSaveOutcome, ensure_config_mutation_allowed, ensure_config_save_allowed,
     hotword_management::HotwordContentSaveOutcome, query_daemon_snapshot,
     reload_asr_backend_and_wait, save_updated_config_with_daemon,
 };
@@ -105,9 +105,20 @@ pub(super) fn save_hotword_path_with_daemon(
     updated: &VinputConfig,
     prerequisite_path: Option<&Path>,
 ) -> Result<ConfigSaveOutcome, String> {
-    with_prepared_hotword_file(prerequisite_path, || {
-        save_updated_config_with_daemon(document, updated)
-    })
+    with_hotword_path_preflight(
+        prerequisite_path,
+        || ensure_config_mutation_allowed(document),
+        || save_updated_config_with_daemon(document, updated),
+    )
+}
+
+fn with_hotword_path_preflight<T>(
+    prerequisite_path: Option<&Path>,
+    preflight: impl FnOnce() -> Result<(), String>,
+    action: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    preflight()?;
+    with_prepared_hotword_file(prerequisite_path, action)
 }
 
 pub(super) fn ensure_hotword_path_update_current(

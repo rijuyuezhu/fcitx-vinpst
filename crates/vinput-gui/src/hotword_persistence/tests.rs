@@ -27,6 +27,27 @@ fn publication_does_not_create_a_missing_parent_directory() {
 }
 
 #[test]
+fn failed_save_preflight_does_not_prepare_a_hotword_file() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path().join("hotwords.txt");
+    let action_called = std::cell::Cell::new(false);
+
+    let error = with_hotword_path_preflight(
+        Some(&path),
+        || Err("fixture preflight rejection".to_owned()),
+        || {
+            action_called.set(true);
+            Ok(())
+        },
+    )
+    .expect_err("reject before preparing the file");
+
+    assert_eq!(error, "fixture preflight rejection");
+    assert!(!path.exists());
+    assert!(!action_called.get());
+}
+
+#[test]
 fn missing_prerequisite_exists_before_commit() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("hotwords.txt");
