@@ -71,6 +71,8 @@ pub struct AdapterRuntimeOutcome {
     pub adapter_id: String,
     /// Submitted runtime action.
     pub action: AdapterRuntimeAction,
+    /// Daemon-owner generation captured before the lifecycle request.
+    pub owner_generation: u64,
     /// Typed confirmation derived from the post-action daemon snapshot.
     pub confirmation: AdapterRuntimeConfirmation,
     /// Fresh daemon snapshot when state could be read after the action.
@@ -186,8 +188,9 @@ impl App {
             AdapterRuntimeAction::Start => "Starting text adapter…",
             AdapterRuntimeAction::Stop => "Stopping text adapter…",
         });
+        let owner_generation = self.daemon_owner_generation;
         Task::perform(
-            async move { run_adapter_runtime_action(adapter_id, action) },
+            async move { run_adapter_runtime_action(adapter_id, action, owner_generation) },
             |result| Message::AdapterRuntime(AdapterRuntimeMessage::Finished(result)),
         )
     }
@@ -203,6 +206,14 @@ impl App {
                 return Task::none();
             }
         };
+        if outcome.owner_generation != self.daemon_owner_generation {
+            self.operation = OperationState::Succeeded(format!(
+                "Text adapter `{}` {} request completed for a previous daemon owner; current runtime state was left unchanged.",
+                outcome.adapter_id,
+                outcome.action.verb()
+            ));
+            return Task::none();
+        }
         if let Some(snapshot) = outcome.snapshot {
             self.daemon = DaemonLoadState::Ready(snapshot);
         }
@@ -272,19 +283,21 @@ impl App {
 fn run_adapter_runtime_action(
     adapter_id: String,
     action: AdapterRuntimeAction,
+    owner_generation: u64,
 ) -> Result<AdapterRuntimeOutcome, AdapterRuntimeError> {
     let connection = zbus::blocking::Connection::session().map_err(|_| AdapterRuntimeError {
         adapter_id: adapter_id.clone(),
         action,
         category: AdapterRuntimeErrorCategory::SessionBusUnavailable,
     })?;
-    run_adapter_runtime_action_on(&connection, adapter_id, action)
+    run_adapter_runtime_action_on(&connection, adapter_id, action, owner_generation)
 }
 
 fn run_adapter_runtime_action_on(
     connection: &zbus::blocking::Connection,
     adapter_id: String,
     action: AdapterRuntimeAction,
+    owner_generation: u64,
 ) -> Result<AdapterRuntimeOutcome, AdapterRuntimeError> {
     let proxy = daemon_proxy(connection).map_err(|_| AdapterRuntimeError {
         adapter_id: adapter_id.clone(),
@@ -323,6 +336,7 @@ fn run_adapter_runtime_action_on(
     Ok(AdapterRuntimeOutcome {
         adapter_id,
         action,
+        owner_generation,
         confirmation,
         snapshot,
     })
@@ -505,6 +519,7 @@ mod tests {
         let _ = app.finish_adapter_runtime_action(Ok(AdapterRuntimeOutcome {
             adapter_id: "adapter-a".to_owned(),
             action: AdapterRuntimeAction::Start,
+            owner_generation: app.daemon_owner_generation,
             confirmation: AdapterRuntimeConfirmation::Unavailable,
             snapshot: None,
         }));
@@ -537,6 +552,7 @@ mod tests {
             &client,
             "adapter-a".to_owned(),
             AdapterRuntimeAction::Start,
+            7,
         )
         .expect("start adapter");
         assert_eq!(started.confirmation, AdapterRuntimeConfirmation::Confirmed);
@@ -553,6 +569,7 @@ mod tests {
             &client,
             "adapter-a".to_owned(),
             AdapterRuntimeAction::Stop,
+            7,
         )
         .expect("stop adapter");
         assert_eq!(stopped.confirmation, AdapterRuntimeConfirmation::Confirmed);
@@ -564,5 +581,24 @@ mod tests {
                 .adapters[0]
                 .is_running
         );
+    }
+
+    #[test]
+    fn stale_owner_completion_does_not_restore_an_old_snapshot() {
+        let (mut app, _) = App::boot();
+        let old_generation = app.daemon_owner_generation;
+        app.daemon_owner_generation = old_generation.wrapping_add(1);
+        app.daemon = DaemonLoadState::Failed("owner changed".to_owned());
+
+        let _ = app.finish_adapter_runtime_action(Ok(AdapterRuntimeOutcome {
+            adapter_id: "adapter-a".to_owned(),
+            action: AdapterRuntimeAction::Start,
+            owner_generation: old_generation,
+            confirmation: AdapterRuntimeConfirmation::Confirmed,
+            snapshot: Some(snapshot("adapter-a", true, Some(42))),
+        }));
+
+        assert!(matches!(app.daemon, DaemonLoadState::Failed(_)));
+        assert!(matches!(app.operation, OperationState::Succeeded(_)));
     }
 }

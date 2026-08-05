@@ -88,6 +88,7 @@ impl App {
     }
 
     pub(crate) fn handle_daemon_owner_event(&mut self, event: DaemonOwnerEvent) -> Task<Message> {
+        self.daemon_owner_generation = self.daemon_owner_generation.wrapping_add(1).max(1);
         match event {
             DaemonOwnerEvent::Connected { owned } | DaemonOwnerEvent::Changed { owned } => {
                 self.daemon_owner_monitor = DaemonOwnerMonitorState::Ready;
