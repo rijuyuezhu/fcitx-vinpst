@@ -333,6 +333,14 @@ scripts/live/niri/run-gui-portal-picker-live.sh
 
 The runner starts a private `dbus-daemon` and repository-owned `org.freedesktop.portal.Desktop` service, then launches the GUI with that private session bus so the real `rfd` backend cannot contact the host portal. An isolated local provider begins with an existing configured hotword file. The fixture records two `FileChooser.OpenFile` requests and verifies the generated handle token, single-file/non-directory flags, current folder, and text/all filter patterns. The first response returns a percent-encoded `file://` URI whose path contains spaces and Chinese characters; clipboard inspection proves the GUI decodes it into the exact UTF-8 draft while the config SHA-256 remains unchanged. A fresh launch receives a cancellation response and retains the configured draft, again without writing config. The gate restores the previous niri window and text clipboard and leaves no GUI, portal, or private-bus process. Its summary records only structural booleans and retains no selected path.
 
+Run the private-daemon Control mutation gate:
+
+```sh
+scripts/live/niri/run-gui-config-mutation-live.sh
+```
+
+The runner owns `org.fcitx.Vinput` on a private session bus and exposes only typed idle status, inactive-session runtime state, empty adapter diagnostics, and a counted `ReloadAsrBackend`. It launches the real GUI against isolated success and conflict config roots. Clipboard paste changes the default-language draft without invoking the input method, a freshly rendered dirty text field submits through Enter, and the success path proves an atomic replacement, exact original-byte `.bak`, mode-0600 config and backup, one reload request, and the saved value after a second launch. The conflict path edits a separate draft, atomically publishes a different valid disk version outside the GUI, then proves Enter submission preserves the external bytes and still-visible draft, creates no backup, and sends no second reload. The shared writer's Unix tests separately begin with a legacy mode-0644 file and prove both replacement and backup are tightened to 0600. The live summary retains no configured values or paths, restores the previous niri window and text clipboard, does not contact the real daemon, and leaves no GUI, fixture, or private-bus process.
+
 ## 8. Frontend behavior
 
 Verify in the real session:

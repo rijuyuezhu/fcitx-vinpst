@@ -13,7 +13,7 @@ host lifecycle changes.
   LAN, or true cross-device evidence.
 - `niri/` contains desktop automation tied to the project's niri/Wayland test
   host. It includes complete-control, isolated desktop-opener/startup-notification,
-  private-session XDG FileChooser portal, retained-Fcitx, and bounded-soak gates;
+  private-session XDG FileChooser portal and daemon/config-mutation gates, retained-Fcitx, and bounded-soak gates;
   it is not a portable generic desktop test suite. The GTK4 bounded-soak runner
   accepts 10-20 cycles and records bounded evidence separately from any future
   hour-scale soak.
