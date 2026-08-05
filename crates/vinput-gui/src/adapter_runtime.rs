@@ -214,9 +214,6 @@ impl App {
             ));
             return Task::none();
         }
-        if let Some(snapshot) = outcome.snapshot {
-            self.daemon = DaemonLoadState::Ready(snapshot);
-        }
         self.operation = OperationState::Succeeded(match outcome.confirmation {
             AdapterRuntimeConfirmation::Confirmed => format!(
                 "Text adapter `{}` {} state confirmed.",
@@ -238,7 +235,7 @@ impl App {
                 outcome.action.verb()
             ),
         });
-        Task::none()
+        self.begin_daemon_refresh(false)
     }
 
     pub(super) fn adapter_runtime_view_state(&self, adapter_id: &str) -> AdapterRuntimeViewState {
@@ -506,24 +503,24 @@ mod tests {
         let debug = format!("{:?}", AdapterRuntimeMessage::Finished(Err(error.clone())));
         assert!(!debug.contains("command"));
         assert!(!debug.contains("environment"));
-        assert_eq!(
-            error.message(),
-            "Cannot start text adapter `adapter-a`: daemon rejected the request."
-        );
+        assert_eq!(error.category, AdapterRuntimeErrorCategory::ActionRejected);
     }
 
     #[test]
-    fn accepted_action_preserves_unconfirmed_semantics() {
+    fn accepted_action_refreshes_current_owner_without_installing_worker_snapshot() {
         let (mut app, _) = App::boot();
+        app.daemon = DaemonLoadState::Failed("refresh pending".to_owned());
         app.operation = OperationState::Running("Starting text adapter…");
         let _ = app.finish_adapter_runtime_action(Ok(AdapterRuntimeOutcome {
             adapter_id: "adapter-a".to_owned(),
             action: AdapterRuntimeAction::Start,
             owner_generation: app.daemon_owner_generation,
-            confirmation: AdapterRuntimeConfirmation::Unavailable,
-            snapshot: None,
+            confirmation: AdapterRuntimeConfirmation::Confirmed,
+            snapshot: Some(snapshot("adapter-a", true, Some(42))),
         }));
         assert!(matches!(app.operation, OperationState::Succeeded(_)));
+        assert!(matches!(app.daemon, DaemonLoadState::Failed(_)));
+        assert!(app.active_daemon_refresh_id.is_some());
     }
 
     #[test]
