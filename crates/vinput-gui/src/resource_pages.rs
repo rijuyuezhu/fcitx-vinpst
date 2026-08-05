@@ -1,8 +1,10 @@
 //! Resources and LLM page rendering.
 
+use crate::keyboard_action::keyboard_button;
+
 use iced::{
     Element, Length,
-    widget::{button, column, row, scrollable, text, text_input},
+    widget::{column, row, scrollable, text, text_input},
 };
 use vinput_config::AsrProviderKind;
 use vinput_registry::InstalledModelInfo;
@@ -31,7 +33,7 @@ impl App {
                 )
                 .on_input(Message::ModelSelectorChanged)
                 .width(Length::Fill),
-                button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
+                keyboard_button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
                     (!resource_controls_busy && !self.model_selector.trim().is_empty())
                         .then_some(Message::InstallModel),
                 ),
@@ -87,11 +89,10 @@ impl App {
                         text(self.locale.text(GuiText::AsrProviders))
                             .size(22)
                             .width(Length::Fill),
-                        button(self.locale.text(GuiText::AddCustomProvider)).on_press_maybe(
-                            (!resource_controls_busy).then_some(Message::AsrProvider(
-                                crate::AsrProviderMessage::BeginAdd,
-                            )),
-                        ),
+                        keyboard_button(self.locale.text(GuiText::AddCustomProvider))
+                            .on_press_maybe((!resource_controls_busy).then_some(
+                                Message::AsrProvider(crate::AsrProviderMessage::BeginAdd,)
+                            ),),
                     ]
                     .spacing(10),
                 );
@@ -153,12 +154,11 @@ impl App {
                         text(self.locale.text(GuiText::Adapters))
                             .size(22)
                             .width(Length::Fill),
-                        button(self.locale.text(GuiText::AddCustomAdapter)).on_press_maybe(
-                            (!adapter_controls_busy).then_some(Message::AdapterConfig(
-                                crate::AdapterConfigMessage::BeginAdd,
-                            )),
-                        ),
-                        button(self.locale.text(GuiText::RefreshRuntime)).on_press_maybe(
+                        keyboard_button(self.locale.text(GuiText::AddCustomAdapter))
+                            .on_press_maybe((!adapter_controls_busy).then_some(
+                                Message::AdapterConfig(crate::AdapterConfigMessage::BeginAdd,)
+                            ),),
+                        keyboard_button(self.locale.text(GuiText::RefreshRuntime)).on_press_maybe(
                             (!adapter_controls_busy).then_some(Message::RefreshDaemon),
                         ),
                     ]
@@ -208,9 +208,9 @@ fn installed_model_row(
     row![
         text(locale.installed_model_row(title, directory, model.file_count, active))
             .width(Length::Fill),
-        button(locale.text(GuiText::Details))
+        keyboard_button(locale.text(GuiText::Details))
             .on_press(Message::SelectInstalledModelDetail(model.model_dir.clone())),
-        button(locale.text(GuiText::Remove)).on_press_maybe(
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
             (!busy && !active).then_some(Message::RemoveInstalledModel(model.model_dir.clone())),
         ),
     ]
@@ -228,21 +228,23 @@ fn provider_row(
 ) -> Element<'static, Message> {
     row![
         text(label).width(Length::Fill),
-        button(locale.text(GuiText::Details))
+        keyboard_button(locale.text(GuiText::Details))
             .on_press(Message::SelectAsrProviderDetail(provider_id.to_owned())),
-        button(locale.text(GuiText::Edit)).on_press_maybe((!busy).then_some(Message::AsrProvider(
-            crate::AsrProviderMessage::BeginEdit(provider_id.to_owned()),
-        ))),
-        button(locale.text(GuiText::EditScript)).on_press_maybe(
+        keyboard_button(locale.text(GuiText::Edit)).on_press_maybe((!busy).then_some(
+            Message::AsrProvider(crate::AsrProviderMessage::BeginEdit(provider_id.to_owned()),)
+        )),
+        keyboard_button(locale.text(GuiText::EditScript)).on_press_maybe(
             (!busy && managed).then_some(Message::EditProviderScript(provider_id.to_owned())),
         ),
-        button(locale.text(GuiText::Remove)).on_press_maybe((!busy && !active).then(|| {
-            if managed {
-                Message::RemoveProvider(provider_id.to_owned())
-            } else {
-                Message::AsrProvider(crate::AsrProviderMessage::Remove(provider_id.to_owned()))
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy && !active).then(
+            || {
+                if managed {
+                    Message::RemoveProvider(provider_id.to_owned())
+                } else {
+                    Message::AsrProvider(crate::AsrProviderMessage::Remove(provider_id.to_owned()))
+                }
             }
-        })),
+        )),
     ]
     .spacing(10)
     .into()
@@ -259,20 +261,24 @@ fn adapter_row(
     let stop_id = adapter_id.to_owned();
     row![
         text(locale.adapter_row(adapter_id, &runtime.label)).width(Length::Fill),
-        button(locale.text(GuiText::Details))
+        keyboard_button(locale.text(GuiText::Details))
             .on_press(Message::SelectLlmAdapterDetail(adapter_id.to_owned())),
-        button(locale.text(GuiText::Edit)).on_press_maybe((!busy).then_some(
+        keyboard_button(locale.text(GuiText::Edit)).on_press_maybe((!busy).then_some(
             Message::AdapterConfig(crate::AdapterConfigMessage::BeginEdit(
                 adapter_id.to_owned()
             ),)
         )),
-        button(locale.text(GuiText::Start)).on_press_maybe((!busy && runtime.can_start).then_some(
-            Message::AdapterRuntime(crate::AdapterRuntimeMessage::Start(start_id),)
-        ),),
-        button(locale.text(GuiText::Stop)).on_press_maybe((!busy && runtime.can_stop).then_some(
-            Message::AdapterRuntime(crate::AdapterRuntimeMessage::Stop(stop_id),)
-        ),),
-        button(locale.text(GuiText::Remove)).on_press_maybe((!busy).then(|| {
+        keyboard_button(locale.text(GuiText::Start)).on_press_maybe(
+            (!busy && runtime.can_start).then_some(Message::AdapterRuntime(
+                crate::AdapterRuntimeMessage::Start(start_id),
+            )),
+        ),
+        keyboard_button(locale.text(GuiText::Stop)).on_press_maybe(
+            (!busy && runtime.can_stop).then_some(Message::AdapterRuntime(
+                crate::AdapterRuntimeMessage::Stop(stop_id),
+            )),
+        ),
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy).then(|| {
             if managed {
                 Message::RemoveAdapter(adapter_id.to_owned())
             } else {

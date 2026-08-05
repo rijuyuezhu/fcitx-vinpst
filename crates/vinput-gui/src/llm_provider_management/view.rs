@@ -1,8 +1,10 @@
 //! Localized LLM provider list, connectivity controls, and editor rendering.
 
+use crate::keyboard_action::keyboard_button;
+
 use iced::{
     Element, Length,
-    widget::{button, column, row, text, text_input},
+    widget::{column, row, text, text_input},
 };
 use vinput_config::redact_url_for_diagnostics;
 
@@ -20,7 +22,7 @@ impl App {
                 text(self.locale.text(GuiText::ProvidersTitle))
                     .size(22)
                     .width(Length::Fill),
-                button(self.locale.text(GuiText::AddProvider)).on_press_maybe(
+                keyboard_button(self.locale.text(GuiText::AddProvider)).on_press_maybe(
                     (!busy && !editor_open)
                         .then_some(Message::LlmProvider(LlmProviderMessage::BeginAdd)),
                 ),
@@ -90,17 +92,17 @@ fn llm_provider_row(
 ) -> Element<'static, Message> {
     row![
         text(label).width(Length::Fill),
-        button(locale.text(GuiText::Details))
+        keyboard_button(locale.text(GuiText::Details))
             .on_press(Message::SelectLlmProviderDetail(provider_id.to_owned())),
-        button(locale.text(GuiText::Test)).on_press_maybe(
+        keyboard_button(locale.text(GuiText::Test)).on_press_maybe(
             (controls_enabled && test_input_present).then_some(Message::LlmProvider(
                 LlmProviderMessage::Test(provider_id.to_owned()),
             )),
         ),
-        button(locale.text(GuiText::Edit)).on_press_maybe(controls_enabled.then_some(
+        keyboard_button(locale.text(GuiText::Edit)).on_press_maybe(controls_enabled.then_some(
             Message::LlmProvider(LlmProviderMessage::BeginEdit(provider_id.to_owned())),
         )),
-        button(locale.text(GuiText::Remove)).on_press_maybe(controls_enabled.then_some(
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(controls_enabled.then_some(
             Message::LlmProvider(LlmProviderMessage::Remove(provider_id.to_owned())),
         )),
     ]
@@ -163,13 +165,13 @@ fn llm_provider_editor_view(
             extra_body_input_is_secure(),
         ),
         row![
-            button(locale.text(action)).on_press_maybe(
+            keyboard_button(locale.text(action)).on_press_maybe(
                 (dirty && !busy).then_some(Message::LlmProvider(LlmProviderMessage::Save)),
             ),
-            button(locale.text(GuiText::ResetForm)).on_press_maybe(
+            keyboard_button(locale.text(GuiText::ResetForm)).on_press_maybe(
                 (dirty && !busy).then_some(Message::LlmProvider(LlmProviderMessage::ResetEdit)),
             ),
-            button(locale.text(GuiText::Cancel)).on_press_maybe(
+            keyboard_button(locale.text(GuiText::Cancel)).on_press_maybe(
                 (!busy).then_some(Message::LlmProvider(LlmProviderMessage::CancelEdit)),
             ),
             text(locale.text(if dirty {

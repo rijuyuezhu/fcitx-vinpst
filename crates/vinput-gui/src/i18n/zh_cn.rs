@@ -30,7 +30,7 @@ const fn simplified_chinese_core(key: GuiText) -> &'static str {
         GuiText::Llm => "LLM",
         GuiText::Hotwords => "热词",
         GuiText::OpenConfig => "打开配置",
-        GuiText::KeyboardHint => "Ctrl+1–4：切换页面 · Tab/Shift+Tab：文本字段",
+        GuiText::KeyboardHint => "Ctrl+1–4：页面 · Tab：控件 · Enter/Space：操作 · 方向键：调整",
         GuiText::DaemonService => "守护进程",
         GuiText::Recording => "录音",
         GuiText::ReloadConfig => "重新加载配置",

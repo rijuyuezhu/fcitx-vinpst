@@ -34,8 +34,12 @@ pub(crate) fn capability_snapshot() -> Value {
         },
         "keyboard": {
             "tab_focus_traversal": true,
-            "focus_scope": "text-controls",
-            "button_focus_traversal": false,
+            "focus_scope": "all-enabled-controls",
+            "button_focus_traversal": true,
+            "button_activation": ["Enter", "Space"],
+            "checkbox_activation": ["Enter", "Space"],
+            "selector_adjustment": ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"],
+            "slider_adjustment": ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"],
             "page_shortcuts": ["Command+1", "Command+2", "Command+3", "Command+4"],
         },
         "input_method": {
@@ -168,7 +172,10 @@ mod tests {
         let snapshot = capability_snapshot();
         assert_eq!(snapshot["accessibility_tree"]["available"], false);
         assert_eq!(snapshot["keyboard"]["tab_focus_traversal"], true);
-        assert_eq!(snapshot["keyboard"]["button_focus_traversal"], false);
+        assert_eq!(snapshot["keyboard"]["focus_scope"], "all-enabled-controls");
+        assert_eq!(snapshot["keyboard"]["button_focus_traversal"], true);
+        assert_eq!(snapshot["keyboard"]["button_activation"][0], "Enter");
+        assert_eq!(snapshot["keyboard"]["selector_adjustment"][1], "ArrowDown");
         assert_eq!(snapshot["input_method"]["preedit_commit"], true);
         assert_eq!(snapshot["clipboard"]["standard_text_editing"], true);
     }

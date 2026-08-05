@@ -1,10 +1,12 @@
 //! GUI state and task ownership for cancellable model installation.
 
+use crate::keyboard_action::keyboard_button;
+
 use std::sync::{Arc, Mutex};
 
 use iced::{
     Element, Task,
-    widget::{button, column, progress_bar, row, text},
+    widget::{column, progress_bar, row, text},
 };
 use vinput_config::VinputConfig;
 use vinput_registry::{RegistryOperationControl, RegistryOperationProgress};
@@ -151,7 +153,8 @@ impl ModelInstallState {
             Self::Cancelled { .. } => Some(
                 row![
                     text(locale.text(GuiText::ModelInstallationCancelled)),
-                    button(locale.text(GuiText::Retry)).on_press(Message::RetryModelInstall),
+                    keyboard_button(locale.text(GuiText::Retry))
+                        .on_press(Message::RetryModelInstall),
                 ]
                 .spacing(10)
                 .into(),
@@ -159,7 +162,8 @@ impl ModelInstallState {
             Self::Failed { error, .. } => Some(
                 column![
                     text(locale.operation_error(error)),
-                    button(locale.text(GuiText::Retry)).on_press(Message::RetryModelInstall),
+                    keyboard_button(locale.text(GuiText::Retry))
+                        .on_press(Message::RetryModelInstall),
                 ]
                 .spacing(8)
                 .into(),
@@ -186,7 +190,7 @@ impl ActiveModelInstall {
             body = body.push(progress_bar(0.0..=1.0, f32::from(permille) / 1000.0));
         }
         body = body.push(
-            button(locale.text(if self.cancelling {
+            keyboard_button(locale.text(if self.cancelling {
                 GuiText::Cancelling
             } else {
                 GuiText::Cancel

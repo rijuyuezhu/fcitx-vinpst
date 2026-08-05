@@ -1,8 +1,10 @@
 //! Localized Hotwords page rendering.
 
+use crate::keyboard_action::{adjacent_values, keyboard_button, keyboard_select};
+
 use iced::{
     Element, Length,
-    widget::{button, column, pick_list, row, scrollable, text, text_editor, text_input},
+    widget::{column, pick_list, row, scrollable, text, text_editor, text_input},
 };
 
 use super::{HotwordMessage, HotwordProviderSelection, hotword_provider_options};
@@ -53,11 +55,16 @@ impl App {
             .width(Length::Fill)
             .into()
         } else {
-            pick_list(provider_options.to_vec(), selected, |selection| {
-                Message::Hotword(HotwordMessage::ProviderSelected(selection))
-            })
-            .width(Length::Fill)
-            .into()
+            let (previous, next) = adjacent_values(provider_options, selected.as_ref());
+            keyboard_select(
+                pick_list(provider_options.to_vec(), selected, |selection| {
+                    Message::Hotword(HotwordMessage::ProviderSelected(selection))
+                })
+                .width(Length::Fill),
+                previous
+                    .map(|selection| Message::Hotword(HotwordMessage::ProviderSelected(selection))),
+                next.map(|selection| Message::Hotword(HotwordMessage::ProviderSelected(selection))),
+            )
         };
         row![
             text(self.locale.text(GuiText::AsrProvider)).width(160),
@@ -81,18 +88,18 @@ impl App {
                 Message::Hotword(HotwordMessage::PathChanged(SecretInput::new(value)))
             }))
             .width(Length::Fill),
-            button(self.locale.text(GuiText::Browse)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::Browse)).on_press_maybe(
                 (!busy && self.hotword_editor.selected_provider.is_some() && !content_dirty)
                     .then_some(Message::Hotword(HotwordMessage::BrowsePath)),
             ),
-            button(self.locale.text(GuiText::SetPath)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::SetPath)).on_press_maybe(
                 (!busy
                     && path_dirty
                     && !content_dirty
                     && !self.hotword_editor.path_input.trim().is_empty())
                 .then_some(Message::Hotword(HotwordMessage::SetPath)),
             ),
-            button(self.locale.text(GuiText::ClearPath)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::ClearPath)).on_press_maybe(
                 (!busy && self.hotword_editor.configured_path.is_some() && !content_dirty)
                     .then_some(Message::Hotword(HotwordMessage::ClearPath)),
             ),
@@ -106,25 +113,25 @@ impl App {
         let path_dirty = self.hotword_editor.path_is_dirty();
         let content_dirty = self.hotword_editor.content_is_dirty();
         row![
-            button(self.locale.text(GuiText::LoadContent)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::LoadContent)).on_press_maybe(
                 (!busy
                     && self.hotword_editor.content_path.is_some()
                     && !path_dirty
                     && !content_dirty)
                     .then_some(Message::Hotword(HotwordMessage::LoadContent)),
             ),
-            button(self.locale.text(GuiText::SaveContent)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::SaveContent)).on_press_maybe(
                 (!busy
                     && !path_dirty
                     && content_dirty
                     && self.hotword_editor.content_matches_target())
                 .then_some(Message::Hotword(HotwordMessage::SaveContent)),
             ),
-            button(self.locale.text(GuiText::ResetChanges)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::ResetChanges)).on_press_maybe(
                 (!busy && self.hotword_editor.has_unsaved_changes())
                     .then_some(Message::Hotword(HotwordMessage::ResetChanges)),
             ),
-            button(self.locale.text(GuiText::RetryActivation)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::RetryActivation)).on_press_maybe(
                 (!busy
                     && !path_dirty
                     && !content_dirty

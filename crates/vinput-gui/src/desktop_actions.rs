@@ -1,5 +1,7 @@
 //! Desktop file-opening actions shared by the management GUI.
 
+use crate::keyboard_action::keyboard_button;
+
 use std::{
     ffi::{OsStr, OsString},
     fmt,
@@ -9,7 +11,7 @@ use std::{
     thread,
 };
 
-use iced::{Element, Task, widget::button};
+use iced::{Element, Task};
 use vinput_daemon_control::{FLATPAK_INFO_PATH_ENV, FLATPAK_SPAWN_ENV};
 
 use crate::{App, GuiLocale, GuiText, Message, OperationState};
@@ -134,7 +136,7 @@ impl DesktopOpenEnvironment {
 
 impl App {
     pub(super) fn desktop_action_button(&self, busy: bool) -> Element<'_, Message> {
-        button(self.locale.text(GuiText::OpenConfig))
+        keyboard_button(self.locale.text(GuiText::OpenConfig))
             .on_press_maybe(
                 (!busy && self.config.is_ok())
                     .then_some(Message::DesktopAction(DesktopActionMessage::OpenConfig)),

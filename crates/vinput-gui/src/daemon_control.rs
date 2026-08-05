@@ -1,11 +1,10 @@
 //! Typed daemon Start/Stop/Restart lifecycle controls for the Control page.
 
+use crate::keyboard_action::keyboard_button;
+
 use std::fmt;
 
-use iced::{
-    Element, Task,
-    widget::{button, row},
-};
+use iced::{Element, Task, widget::row};
 use vinput_daemon_control::{UserServiceAction, run_user_service_command, user_service_command};
 
 use crate::{
@@ -130,15 +129,15 @@ impl App {
         let running = matches!(self.daemon, DaemonLoadState::Ready(_));
         let stopped = matches!(self.daemon, DaemonLoadState::Failed(_));
         row![
-            button(self.locale.text(GuiText::RefreshDaemon))
+            keyboard_button(self.locale.text(GuiText::RefreshDaemon))
                 .on_press_maybe((!busy).then_some(Message::RefreshDaemon)),
-            button(self.locale.text(GuiText::StartDaemon)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::StartDaemon)).on_press_maybe(
                 (!busy && stopped).then_some(Message::DaemonControl(DaemonControlMessage::Start)),
             ),
-            button(self.locale.text(GuiText::StopDaemon)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::StopDaemon)).on_press_maybe(
                 (!busy && running).then_some(Message::DaemonControl(DaemonControlMessage::Stop)),
             ),
-            button(self.locale.text(GuiText::RestartDaemon)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::RestartDaemon)).on_press_maybe(
                 (!busy && running).then_some(Message::DaemonControl(DaemonControlMessage::Restart)),
             ),
         ]

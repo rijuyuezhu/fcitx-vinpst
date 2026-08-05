@@ -1,5 +1,7 @@
 //! Rust management GUI state, data loading, and D-Bus integration.
 
+use crate::keyboard_action::keyboard_button;
+
 use std::{
     env,
     path::{Path, PathBuf},
@@ -8,7 +10,7 @@ use std::{
 
 use iced::{
     Element, Length, Subscription, Task, Theme,
-    widget::{button, column, container, row, scrollable, text},
+    widget::{column, container, row, scrollable, text},
 };
 use serde_json::{Value, json};
 #[cfg(test)]
@@ -34,6 +36,7 @@ mod hotword_path;
 mod hotword_persistence;
 mod i18n;
 mod interaction;
+mod keyboard_action;
 mod llm_provider_management;
 mod message;
 mod model_install;
@@ -670,11 +673,11 @@ impl App {
         let can_start = !busy && daemon_status == Some("idle");
         let can_stop = !busy && daemon_status == Some("recording");
         row![
-            button(self.locale.text(GuiText::ReloadConfig))
+            keyboard_button(self.locale.text(GuiText::ReloadConfig))
                 .on_press_maybe((!busy).then_some(Message::ReloadConfig)),
-            button(self.locale.text(GuiText::StartRecording))
+            keyboard_button(self.locale.text(GuiText::StartRecording))
                 .on_press_maybe(can_start.then_some(Message::StartRecording)),
-            button(self.locale.text(GuiText::StopRecording))
+            keyboard_button(self.locale.text(GuiText::StopRecording))
                 .on_press_maybe(can_stop.then_some(Message::StopRecording)),
         ]
         .spacing(10)

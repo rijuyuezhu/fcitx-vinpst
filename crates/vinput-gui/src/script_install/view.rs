@@ -1,8 +1,10 @@
 //! Localized provider and adapter installation rendering.
 
+use crate::keyboard_action::keyboard_button;
+
 use iced::{
     Element, Length,
-    widget::{button, column, progress_bar, row, text, text_input},
+    widget::{column, progress_bar, row, text, text_input},
 };
 use vinput_registry::{LiveScriptKind, RegistryOperationProgress};
 
@@ -41,9 +43,10 @@ impl ScriptInstallPlan {
         let can_install = self.missing_required_environment().is_none();
         body.push(
             row![
-                button(locale.text(GuiText::InstallOrUpdate))
+                keyboard_button(locale.text(GuiText::InstallOrUpdate))
                     .on_press_maybe(can_install.then_some(Message::ConfirmScriptInstall)),
-                button(locale.text(GuiText::Cancel)).on_press(Message::CancelScriptInstall),
+                keyboard_button(locale.text(GuiText::Cancel))
+                    .on_press(Message::CancelScriptInstall),
             ]
             .spacing(10),
         )
@@ -81,11 +84,11 @@ impl ScriptInstallState {
                         text(locale.configuration_error(error)),
                         text(locale.text(GuiText::RecoveryInstructions)),
                         row![
-                            button(locale.text(GuiText::ReloadConfig))
+                            keyboard_button(locale.text(GuiText::ReloadConfig))
                                 .on_press(Message::ReloadConfig),
-                            button(locale.text(GuiText::RetryConfigurationUpdate))
+                            keyboard_button(locale.text(GuiText::RetryConfigurationUpdate))
                                 .on_press(Message::RetryScriptConfigUpdate),
-                            button(locale.text(GuiText::DismissKeepScript))
+                            keyboard_button(locale.text(GuiText::DismissKeepScript))
                                 .on_press(Message::DismissScriptRecovery),
                         ]
                         .spacing(10),
@@ -98,7 +101,8 @@ impl ScriptInstallState {
             Self::Cancelled { .. } => Some(
                 row![
                     text(locale.text(GuiText::ScriptInstallationCancelled)),
-                    button(locale.text(GuiText::Retry)).on_press(Message::RetryScriptInstall),
+                    keyboard_button(locale.text(GuiText::Retry))
+                        .on_press(Message::RetryScriptInstall),
                 ]
                 .spacing(10)
                 .into(),
@@ -106,7 +110,8 @@ impl ScriptInstallState {
             Self::Failed { error, .. } => Some(
                 column![
                     text(locale.operation_error(error)),
-                    button(locale.text(GuiText::Retry)).on_press(Message::RetryScriptInstall),
+                    keyboard_button(locale.text(GuiText::Retry))
+                        .on_press(Message::RetryScriptInstall),
                 ]
                 .spacing(8)
                 .into(),
@@ -129,7 +134,7 @@ impl App {
         };
         row![
             input,
-            button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
                 (!busy && !self.provider_selector.trim().is_empty())
                     .then_some(Message::InstallProvider),
             ),
@@ -151,7 +156,7 @@ impl App {
         };
         row![
             input,
-            button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
+            keyboard_button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
                 (!busy && !self.adapter_selector.trim().is_empty())
                     .then_some(Message::InstallAdapter),
             ),
@@ -166,7 +171,7 @@ impl ActiveScriptPreparation {
         let resource = localized_resource_label(locale, self.kind);
         row![
             text(locale.resolving_script_catalog(resource, &self.selector)),
-            button(locale.text(if self.cancelling {
+            keyboard_button(locale.text(if self.cancelling {
                 GuiText::Cancelling
             } else {
                 GuiText::Cancel
@@ -201,7 +206,7 @@ impl ActiveScriptInstall {
             RegistryOperationProgress::UpdatingConfiguration | RegistryOperationProgress::Completed
         );
         body = body.push(
-            button(locale.text(if self.cancelling {
+            keyboard_button(locale.text(if self.cancelling {
                 GuiText::Cancelling
             } else if commit_started {
                 GuiText::Finishing

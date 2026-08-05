@@ -1,8 +1,10 @@
 //! Localized text-adapter configuration editor rendering.
 
+use crate::keyboard_action::keyboard_button;
+
 use iced::{
     Element, Length,
-    widget::{button, column, row, text, text_input},
+    widget::{column, row, text, text_input},
 };
 
 use super::{AdapterConfigEditorField, AdapterConfigEditorState, AdapterConfigMessage};
@@ -73,7 +75,7 @@ fn adapter_config_editor_view(
     ))
     .push(
         row![
-            button(locale.text(if adding {
+            keyboard_button(locale.text(if adding {
                 GuiText::AddAdapter
             } else {
                 GuiText::UpdateAdapter
@@ -81,10 +83,10 @@ fn adapter_config_editor_view(
             .on_press_maybe(
                 (dirty && !busy).then_some(Message::AdapterConfig(AdapterConfigMessage::Save)),
             ),
-            button(locale.text(GuiText::ResetForm)).on_press_maybe(
+            keyboard_button(locale.text(GuiText::ResetForm)).on_press_maybe(
                 (dirty && !busy).then_some(Message::AdapterConfig(AdapterConfigMessage::ResetEdit)),
             ),
-            button(locale.text(GuiText::Cancel)).on_press_maybe(
+            keyboard_button(locale.text(GuiText::Cancel)).on_press_maybe(
                 (!busy).then_some(Message::AdapterConfig(AdapterConfigMessage::CancelEdit)),
             ),
             text(locale.text(if dirty {

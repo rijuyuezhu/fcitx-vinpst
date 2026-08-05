@@ -1,8 +1,10 @@
 //! Localized ASR provider editor rendering.
 
+use crate::keyboard_action::keyboard_button;
+
 use iced::{
     Element, Length,
-    widget::{button, column, row, text, text_input},
+    widget::{column, row, text, text_input},
 };
 use vinput_config::AsrProviderKind;
 
@@ -50,7 +52,7 @@ fn provider_editor_view(
         ),
         provider_kind_fields(locale, editor, busy),
         row![
-            button(locale.text(if adding {
+            keyboard_button(locale.text(if adding {
                 GuiText::AddProvider
             } else {
                 GuiText::UpdateProvider
@@ -58,10 +60,10 @@ fn provider_editor_view(
             .on_press_maybe(
                 (dirty && !busy).then_some(Message::AsrProvider(AsrProviderMessage::Save)),
             ),
-            button(locale.text(GuiText::ResetForm)).on_press_maybe(
+            keyboard_button(locale.text(GuiText::ResetForm)).on_press_maybe(
                 (dirty && !busy).then_some(Message::AsrProvider(AsrProviderMessage::ResetEdit)),
             ),
-            button(locale.text(GuiText::Cancel)).on_press_maybe(
+            keyboard_button(locale.text(GuiText::Cancel)).on_press_maybe(
                 (!busy).then_some(Message::AsrProvider(AsrProviderMessage::CancelEdit)),
             ),
             text(locale.text(if dirty {
@@ -153,7 +155,7 @@ fn environment_editor_view(
             text(locale.text(GuiText::Environment))
                 .size(18)
                 .width(Length::Fill),
-            button(locale.text(GuiText::AddVariable)).on_press_maybe(
+            keyboard_button(locale.text(GuiText::AddVariable)).on_press_maybe(
                 (!busy).then_some(Message::AsrProvider(AsrProviderMessage::AddEnvironment)),
             ),
         ]
@@ -180,7 +182,7 @@ fn environment_editor_view(
                         }
                     ))
                     .width(Length::FillPortion(3)),
-                button(locale.text(GuiText::Remove)).on_press_maybe((!busy).then_some(
+                keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy).then_some(
                     Message::AsrProvider(AsrProviderMessage::RemoveEnvironment(index),)
                 ),),
             ]
@@ -195,9 +197,9 @@ fn kind_button<'a>(
     kind: AsrProviderKind,
     selected: &AsrProviderKind,
     busy: bool,
-) -> iced::widget::Button<'a, Message> {
+) -> Element<'a, Message> {
     let label = locale.text(kind_title(&kind));
-    button(text(if &kind == selected {
+    keyboard_button(text(if &kind == selected {
         locale.selected_label(label)
     } else {
         label.to_owned()
@@ -206,6 +208,7 @@ fn kind_button<'a>(
         (!busy && &kind != selected)
             .then_some(Message::AsrProvider(AsrProviderMessage::KindChanged(kind))),
     )
+    .into()
 }
 
 fn labeled_input<'a>(

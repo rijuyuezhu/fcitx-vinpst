@@ -1,10 +1,12 @@
 //! Secret-safe typed summaries for selectable GUI resources.
 
+use crate::keyboard_action::keyboard_button;
+
 use std::path::PathBuf;
 
 use iced::{
     Element, Length,
-    widget::{button, column, row, text},
+    widget::{column, row, text},
 };
 use vinput_config::{
     AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, LlmProviderConfig, VinputConfig,
@@ -57,7 +59,8 @@ impl ResourceDetail {
         let mut body = column![
             row![
                 text(self.title).size(20).width(Length::Fill),
-                button(locale.text(GuiText::CloseDetails)).on_press(Message::ClearResourceDetail),
+                keyboard_button(locale.text(GuiText::CloseDetails))
+                    .on_press(Message::ClearResourceDetail),
             ]
             .spacing(10),
         ]
@@ -111,7 +114,7 @@ impl App {
                         text(self.locale.text(GuiText::ResourceDetailsUnavailable))
                             .size(20)
                             .width(Length::Fill),
-                        button(self.locale.text(GuiText::CloseDetails))
+                        keyboard_button(self.locale.text(GuiText::CloseDetails))
                             .on_press(Message::ClearResourceDetail),
                     ]
                     .spacing(10),

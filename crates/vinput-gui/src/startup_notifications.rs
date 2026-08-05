@@ -1,5 +1,7 @@
 //! Current upstream startup notification feed and persistent read state.
 
+use crate::keyboard_action::keyboard_button;
+
 use std::{
     fmt,
     fs::{self, File, OpenOptions},
@@ -12,7 +14,7 @@ use std::{
 
 use iced::{
     Element, Length, Task,
-    widget::{button, column, container, row, text},
+    widget::{column, container, row, text},
 };
 use rustix::fs::{Mode, OFlags};
 use serde_json::Value;
@@ -181,11 +183,13 @@ impl App {
         };
         let mut actions = row![];
         if notification.details_url.is_some() {
-            actions = actions.push(button(self.locale.text(GuiText::Details)).on_press(
-                Message::StartupNotification(StartupNotificationMessage::OpenDetails),
-            ));
+            actions = actions.push(
+                keyboard_button(self.locale.text(GuiText::Details)).on_press(
+                    Message::StartupNotification(StartupNotificationMessage::OpenDetails),
+                ),
+            );
         }
-        actions = actions.push(button(self.locale.text(GuiText::Ok)).on_press(
+        actions = actions.push(keyboard_button(self.locale.text(GuiText::Ok)).on_press(
             Message::StartupNotification(StartupNotificationMessage::Acknowledge),
         ));
         Some(

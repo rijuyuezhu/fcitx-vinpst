@@ -1,8 +1,10 @@
 //! Top-level management GUI page identifiers.
 
+use crate::keyboard_action::keyboard_button;
+
 use iced::{
     Element, Length,
-    widget::{button, column, text},
+    widget::{column, text},
 };
 
 use crate::{App, GuiLocale, GuiText, Message};
@@ -56,7 +58,7 @@ impl App {
             column![text(self.locale.text(GuiText::ApplicationTitle)).size(24)].spacing(10),
             |navigation, page| {
                 navigation.push(
-                    button(text(page.display_label(self.locale)))
+                    keyboard_button(text(page.display_label(self.locale)))
                         .width(Length::Fill)
                         .on_press_maybe((!busy).then_some(Message::SelectPage(page))),
                 )

@@ -1,10 +1,12 @@
 //! Localized scene list and editor rendering.
 
+use crate::keyboard_action::{adjacent_values, keyboard_button, keyboard_select};
+
 use std::fmt;
 
 use iced::{
     Element, Length,
-    widget::{button, column, pick_list, row, text, text_input},
+    widget::{column, pick_list, row, text, text_input},
 };
 use vinput_config::VinputConfig;
 
@@ -46,7 +48,7 @@ impl App {
                 text(self.locale.text(GuiText::Scenes))
                     .size(22)
                     .width(Length::Fill),
-                button(self.locale.text(GuiText::AddScene)).on_press_maybe(
+                keyboard_button(self.locale.text(GuiText::AddScene)).on_press_maybe(
                     (!busy && !editor_open).then_some(Message::Scene(SceneMessage::BeginAdd)),
                 ),
             ]
@@ -115,15 +117,15 @@ fn scene_row(
 ) -> Element<'static, Message> {
     row![
         text(label).width(Length::Fill),
-        button(locale.text(GuiText::Use)).on_press_maybe(
+        keyboard_button(locale.text(GuiText::Use)).on_press_maybe(
             (controls_enabled && !active)
                 .then_some(Message::Scene(SceneMessage::Use(scene_id.to_owned()))),
         ),
-        button(locale.text(GuiText::Edit)).on_press_maybe(
+        keyboard_button(locale.text(GuiText::Edit)).on_press_maybe(
             controls_enabled
                 .then_some(Message::Scene(SceneMessage::BeginEdit(scene_id.to_owned()))),
         ),
-        button(locale.text(GuiText::Remove)).on_press_maybe(
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
             (controls_enabled && !active)
                 .then_some(Message::Scene(SceneMessage::Remove(scene_id.to_owned()))),
         ),
@@ -161,11 +163,15 @@ fn scene_editor_view(
     let provider_control: Element<'_, Message> = if busy {
         text(selected.to_string()).width(Length::Fill).into()
     } else {
-        pick_list(provider_options, Some(selected), |choice| {
-            Message::Scene(SceneMessage::ProviderSelected(choice.selection))
-        })
-        .width(Length::Fill)
-        .into()
+        let (previous, next) = adjacent_values(&provider_options, Some(&selected));
+        keyboard_select(
+            pick_list(provider_options, Some(selected), |choice| {
+                Message::Scene(SceneMessage::ProviderSelected(choice.selection))
+            })
+            .width(Length::Fill),
+            previous.map(|choice| Message::Scene(SceneMessage::ProviderSelected(choice.selection))),
+            next.map(|choice| Message::Scene(SceneMessage::ProviderSelected(choice.selection))),
+        )
     };
     column![
         text(locale.text(action)).size(22),
@@ -218,9 +224,9 @@ fn scene_editor_view(
             busy,
         ),
         row![
-            button(locale.text(action))
+            keyboard_button(locale.text(action))
                 .on_press_maybe((!busy).then_some(Message::Scene(SceneMessage::Save))),
-            button(locale.text(GuiText::Cancel))
+            keyboard_button(locale.text(GuiText::Cancel))
                 .on_press_maybe((!busy).then_some(Message::Scene(SceneMessage::CancelEdit))),
         ]
         .spacing(10),

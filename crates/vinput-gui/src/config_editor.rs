@@ -1,8 +1,10 @@
 //! Control-page typed config draft updates and editor rendering.
 
+use crate::keyboard_action::{adjacent_values, keyboard_action, keyboard_button, keyboard_select};
+
 use iced::{
     Element, Length,
-    widget::{button, checkbox, column, pick_list, row, slider, text, text_input},
+    widget::{checkbox, column, pick_list, row, slider, text, text_input},
 };
 
 use crate::{App, ConfigDocument, ConfigDraft, ConfigDraftMessage, GuiText, Message};
@@ -101,22 +103,31 @@ impl App {
         let provider_control: Element<'a, Message> = if busy {
             text(&draft.active_provider).width(Length::Fill).into()
         } else {
-            pick_list(
-                provider_options,
-                Some(draft.active_provider.clone()),
-                |value| Message::ConfigDraft(ConfigDraftMessage::ActiveProvider(value)),
+            let (previous, next) = adjacent_values(&provider_options, Some(&draft.active_provider));
+            keyboard_select(
+                pick_list(
+                    provider_options,
+                    Some(draft.active_provider.clone()),
+                    |value| Message::ConfigDraft(ConfigDraftMessage::ActiveProvider(value)),
+                )
+                .width(Length::Fill),
+                previous
+                    .map(|value| Message::ConfigDraft(ConfigDraftMessage::ActiveProvider(value))),
+                next.map(|value| Message::ConfigDraft(ConfigDraftMessage::ActiveProvider(value))),
             )
-            .width(Length::Fill)
-            .into()
         };
         let scene_control: Element<'a, Message> = if busy {
             text(&draft.active_scene).width(Length::Fill).into()
         } else {
-            pick_list(scene_options, Some(draft.active_scene.clone()), |value| {
-                Message::ConfigDraft(ConfigDraftMessage::ActiveScene(value))
-            })
-            .width(Length::Fill)
-            .into()
+            let (previous, next) = adjacent_values(&scene_options, Some(&draft.active_scene));
+            keyboard_select(
+                pick_list(scene_options, Some(draft.active_scene.clone()), |value| {
+                    Message::ConfigDraft(ConfigDraftMessage::ActiveScene(value))
+                })
+                .width(Length::Fill),
+                previous.map(|value| Message::ConfigDraft(ConfigDraftMessage::ActiveScene(value))),
+                next.map(|value| Message::ConfigDraft(ConfigDraftMessage::ActiveScene(value))),
+            )
         };
         column![
             row![
@@ -164,41 +175,81 @@ impl App {
                 .width(Length::Fill)
                 .into()
         } else {
-            slider(0.0_f32..=1.0_f32, draft.duck_output_volume, |value| {
-                Message::ConfigDraft(ConfigDraftMessage::DuckVolume(value))
-            })
-            .step(0.05_f32)
-            .width(Length::Fill)
-            .into()
+            let previous = (draft.duck_output_volume > 0.0).then(|| {
+                Message::ConfigDraft(ConfigDraftMessage::DuckVolume(
+                    (draft.duck_output_volume - 0.05).max(0.0),
+                ))
+            });
+            let next = (draft.duck_output_volume < 1.0).then(|| {
+                Message::ConfigDraft(ConfigDraftMessage::DuckVolume(
+                    (draft.duck_output_volume + 0.05).min(1.0),
+                ))
+            });
+            keyboard_select(
+                slider(0.0_f32..=1.0_f32, draft.duck_output_volume, |value| {
+                    Message::ConfigDraft(ConfigDraftMessage::DuckVolume(value))
+                })
+                .step(0.05_f32)
+                .width(Length::Fill),
+                previous,
+                next,
+            )
         };
         let vad_threshold_control: Element<'_, Message> = if busy {
             text(self.locale.text(GuiText::LockedWhileFinishing))
                 .width(Length::Fill)
                 .into()
         } else {
-            slider(0.05_f32..=0.95_f32, draft.vad_threshold, |value| {
-                Message::ConfigDraft(ConfigDraftMessage::VadThreshold(value))
-            })
-            .step(0.05_f32)
-            .width(Length::Fill)
-            .into()
+            let previous = (draft.vad_threshold > 0.05).then(|| {
+                Message::ConfigDraft(ConfigDraftMessage::VadThreshold(
+                    (draft.vad_threshold - 0.05).max(0.05),
+                ))
+            });
+            let next = (draft.vad_threshold < 0.95).then(|| {
+                Message::ConfigDraft(ConfigDraftMessage::VadThreshold(
+                    (draft.vad_threshold + 0.05).min(0.95),
+                ))
+            });
+            keyboard_select(
+                slider(0.05_f32..=0.95_f32, draft.vad_threshold, |value| {
+                    Message::ConfigDraft(ConfigDraftMessage::VadThreshold(value))
+                })
+                .step(0.05_f32)
+                .width(Length::Fill),
+                previous,
+                next,
+            )
         };
-        column![
+        let duck_action = (!busy).then_some(Message::ConfigDraft(ConfigDraftMessage::DuckOutput(
+            !draft.duck_output_while_recording,
+        )));
+        let duck_checkbox = keyboard_action(
             checkbox(draft.duck_output_while_recording)
                 .label(self.locale.text(GuiText::DuckOutput))
-                .on_toggle_maybe((!busy).then_some(|value| Message::ConfigDraft(
-                    ConfigDraftMessage::DuckOutput(value)
-                ))),
+                .on_toggle_maybe((!busy).then_some(|value| {
+                    Message::ConfigDraft(ConfigDraftMessage::DuckOutput(value))
+                })),
+            duck_action,
+        );
+        let vad_action = (!busy).then_some(Message::ConfigDraft(ConfigDraftMessage::VadEnabled(
+            !draft.vad_enabled,
+        )));
+        let vad_checkbox = keyboard_action(
+            checkbox(draft.vad_enabled)
+                .label(self.locale.text(GuiText::EnableVad))
+                .on_toggle_maybe((!busy).then_some(|value| {
+                    Message::ConfigDraft(ConfigDraftMessage::VadEnabled(value))
+                })),
+            vad_action,
+        );
+        column![
+            duck_checkbox,
             row![
                 text(self.locale.duck_volume(draft.duck_output_volume * 100.0),).width(180),
                 duck_volume_control,
             ]
             .spacing(12),
-            checkbox(draft.vad_enabled)
-                .label(self.locale.text(GuiText::EnableVad))
-                .on_toggle_maybe((!busy).then_some(|value| Message::ConfigDraft(
-                    ConfigDraftMessage::VadEnabled(value)
-                ))),
+            vad_checkbox,
             row![
                 text(self.locale.vad_threshold(draft.vad_threshold)).width(180),
                 vad_threshold_control,
@@ -217,9 +268,9 @@ impl App {
     ) -> Element<'a, Message> {
         let dirty = draft.is_dirty(&document.config);
         row![
-            button(self.locale.text(GuiText::SaveConfiguration))
+            keyboard_button(self.locale.text(GuiText::SaveConfiguration))
                 .on_press_maybe((dirty && !busy).then_some(Message::SaveConfig)),
-            button(self.locale.text(GuiText::ResetChanges))
+            keyboard_button(self.locale.text(GuiText::ResetChanges))
                 .on_press_maybe((dirty && !busy).then_some(Message::ResetConfigDraft)),
             text(if dirty {
                 self.locale.text(GuiText::UnsavedChanges)
