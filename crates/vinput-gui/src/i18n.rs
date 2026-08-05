@@ -413,6 +413,356 @@ impl GuiLocale {
             Self::ZhCn => format!("已移除自定义文本适配器“{adapter_id}”。"),
         }
     }
+
+    pub(crate) fn model_download_progress(self, downloaded: &str, total: Option<&str>) -> String {
+        match (self, total) {
+            (Self::EnUs, None) => format!("Downloading model… {downloaded} received"),
+            (Self::EnUs, Some(total)) => format!("Downloading model… {downloaded} of {total}"),
+            (Self::ZhCn, None) => format!("正在下载模型… 已接收 {downloaded}"),
+            (Self::ZhCn, Some(total)) => format!("正在下载模型… {downloaded} / {total}"),
+        }
+    }
+
+    pub(crate) fn model_extraction_progress(
+        self,
+        processed_entries: u64,
+        extracted: &str,
+    ) -> String {
+        match self {
+            Self::EnUs => {
+                format!("Extracting model… {processed_entries} entries, {extracted}")
+            }
+            Self::ZhCn => format!("正在解压模型… {processed_entries} 个条目，{extracted}"),
+        }
+    }
+
+    pub(crate) fn configure_script_before_install(self, resource: &str, entry_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Configure {resource} `{entry_id}` before installation"),
+            Self::ZhCn => format!("安装前配置{resource}“{entry_id}”"),
+        }
+    }
+
+    pub(crate) fn environment_requirement(self, name: &str, required: bool) -> String {
+        let requirement = self.text(if required {
+            GuiText::Required
+        } else {
+            GuiText::Optional
+        });
+        match self {
+            Self::EnUs => format!("{name} ({requirement})"),
+            Self::ZhCn => format!("{name}（{requirement}）"),
+        }
+    }
+
+    pub(crate) fn resolving_script_catalog(self, resource: &str, selector: &str) -> String {
+        match self {
+            Self::EnUs => format!("Resolving {resource} catalog for `{selector}`…"),
+            Self::ZhCn => format!("正在为“{selector}”解析{resource}目录…"),
+        }
+    }
+
+    pub(crate) fn retrying_script_configuration(self, resource: &str, entry_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Retrying configuration for {resource} `{entry_id}`…"),
+            Self::ZhCn => format!("正在重试{resource}“{entry_id}”的配置…"),
+        }
+    }
+
+    pub(crate) fn script_published_at(self, resource: &str, entry_id: &str, path: &str) -> String {
+        match self {
+            Self::EnUs => format!("{resource} `{entry_id}` was published at {path}."),
+            Self::ZhCn => format!("{resource}“{entry_id}”已发布到 {path}。"),
+        }
+    }
+
+    pub(crate) fn configuration_error(self, error: &str) -> String {
+        match self {
+            Self::EnUs => format!("Configuration error: {error}"),
+            Self::ZhCn => format!("配置错误：{error}"),
+        }
+    }
+
+    pub(crate) fn script_progress(
+        self,
+        phase: &str,
+        resource: &str,
+        downloaded_bytes: Option<u64>,
+        total_bytes: Option<u64>,
+    ) -> String {
+        match (self, phase, downloaded_bytes, total_bytes) {
+            (Self::EnUs, "preparing", _, _) => format!("Preparing {resource} installation…"),
+            (Self::ZhCn, "preparing", _, _) => format!("正在准备{resource}安装…"),
+            (Self::EnUs, "resolving", _, _) => format!("Resolving {resource} catalog…"),
+            (Self::ZhCn, "resolving", _, _) => format!("正在解析{resource}目录…"),
+            (Self::EnUs, "downloading", Some(received), None) => {
+                format!("Downloading {resource} script… {received} bytes received")
+            }
+            (Self::ZhCn, "downloading", Some(received), None) => {
+                format!("正在下载{resource}脚本… 已接收 {received} 字节")
+            }
+            (Self::EnUs, "downloading", Some(received), Some(total)) => {
+                format!("Downloading {resource} script… {received} of {total} bytes")
+            }
+            (Self::ZhCn, "downloading", Some(received), Some(total)) => {
+                format!("正在下载{resource}脚本… {received} / {total} 字节")
+            }
+            (Self::EnUs, "verifying", _, _) => format!("Verifying {resource} script…"),
+            (Self::ZhCn, "verifying", _, _) => format!("正在校验{resource}脚本…"),
+            (Self::EnUs, "extracting", _, _) => format!("Extracting {resource} resources…"),
+            (Self::ZhCn, "extracting", _, _) => format!("正在解压{resource}资源…"),
+            (Self::EnUs, "metadata", _, _) => format!("Writing {resource} metadata…"),
+            (Self::ZhCn, "metadata", _, _) => format!("正在写入{resource}元数据…"),
+            (Self::EnUs, "publishing", _, _) => format!("Publishing {resource} script…"),
+            (Self::ZhCn, "publishing", _, _) => format!("正在发布{resource}脚本…"),
+            (Self::EnUs, "configuration", _, _) => {
+                format!("Updating configuration for {resource}…")
+            }
+            (Self::ZhCn, "configuration", _, _) => format!("正在更新{resource}配置…"),
+            (Self::EnUs, _, _, _) => format!("{resource} installation completed."),
+            (Self::ZhCn, _, _, _) => format!("{resource}安装已完成。"),
+        }
+    }
+
+    pub(crate) fn adapter_runtime_progress(self, start: bool) -> &'static str {
+        self.text(if start {
+            GuiText::StartingTextAdapter
+        } else {
+            GuiText::StoppingTextAdapter
+        })
+    }
+
+    pub(crate) fn adapter_runtime_previous_owner(self, adapter_id: &str, start: bool) -> String {
+        match (self, start) {
+            (Self::EnUs, true) => format!(
+                "Text adapter `{adapter_id}` start request completed for a previous daemon owner; refreshing the current runtime state."
+            ),
+            (Self::EnUs, false) => format!(
+                "Text adapter `{adapter_id}` stop request completed for a previous daemon owner; refreshing the current runtime state."
+            ),
+            (Self::ZhCn, true) => format!(
+                "文本适配器“{adapter_id}”的启动请求在先前守护进程所有者上完成；正在刷新当前运行状态。"
+            ),
+            (Self::ZhCn, false) => format!(
+                "文本适配器“{adapter_id}”的停止请求在先前守护进程所有者上完成；正在刷新当前运行状态。"
+            ),
+        }
+    }
+
+    pub(crate) fn adapter_runtime_confirmed(self, adapter_id: &str, running: bool) -> String {
+        match (self, running) {
+            (Self::EnUs, true) => {
+                format!("Text adapter `{adapter_id}` running state confirmed.")
+            }
+            (Self::EnUs, false) => {
+                format!("Text adapter `{adapter_id}` stopped state confirmed.")
+            }
+            (Self::ZhCn, true) => format!("已确认文本适配器“{adapter_id}”正在运行。"),
+            (Self::ZhCn, false) => format!("已确认文本适配器“{adapter_id}”已停止。"),
+        }
+    }
+
+    pub(crate) fn adapter_runtime_unconfirmed(
+        self,
+        adapter_id: &str,
+        start: bool,
+        unavailable: bool,
+    ) -> String {
+        match (self, start, unavailable) {
+            (Self::EnUs, true, false) => format!(
+                "Text adapter `{adapter_id}` start request was accepted, but the refreshed state did not confirm it."
+            ),
+            (Self::EnUs, false, false) => format!(
+                "Text adapter `{adapter_id}` stop request was accepted, but the refreshed state did not confirm it."
+            ),
+            (Self::EnUs, true, true) => format!(
+                "Text adapter `{adapter_id}` start request was accepted; current state is unavailable. Refresh daemon status to confirm it."
+            ),
+            (Self::EnUs, false, true) => format!(
+                "Text adapter `{adapter_id}` stop request was accepted; current state is unavailable. Refresh daemon status to confirm it."
+            ),
+            (Self::ZhCn, true, false) => {
+                format!("文本适配器“{adapter_id}”的启动请求已接受，但刷新后的状态未能确认结果。")
+            }
+            (Self::ZhCn, false, false) => {
+                format!("文本适配器“{adapter_id}”的停止请求已接受，但刷新后的状态未能确认结果。")
+            }
+            (Self::ZhCn, true, true) => format!(
+                "文本适配器“{adapter_id}”的启动请求已接受；当前状态不可用。请刷新守护进程状态进行确认。"
+            ),
+            (Self::ZhCn, false, true) => format!(
+                "文本适配器“{adapter_id}”的停止请求已接受；当前状态不可用。请刷新守护进程状态进行确认。"
+            ),
+        }
+    }
+
+    pub(crate) fn provider_script_edited(
+        self,
+        provider_id: &str,
+        path: &str,
+        editor: &str,
+    ) -> String {
+        match self {
+            Self::EnUs => format!(
+                "Edited managed ASR provider `{provider_id}` script at {path} with {editor}."
+            ),
+            Self::ZhCn => {
+                format!("已使用 {editor} 编辑托管 ASR 提供商“{provider_id}”位于 {path} 的脚本。")
+            }
+        }
+    }
+
+    pub(crate) fn config_save_receipt(
+        self,
+        path: &str,
+        backup: Option<&str>,
+        daemon_reload: &str,
+    ) -> String {
+        self.save_receipt(
+            self.text(GuiText::ConfigurationSaved),
+            path,
+            backup,
+            daemon_reload,
+        )
+    }
+
+    pub(crate) fn model_installed(
+        self,
+        title: &str,
+        model_name: &str,
+        checksum_verified: bool,
+    ) -> String {
+        let checksum = self.text(if checksum_verified {
+            GuiText::ChecksumVerified
+        } else {
+            GuiText::RegistryNoChecksum
+        });
+        match self {
+            Self::EnUs => {
+                format!("Installed {title} into managed model `{model_name}` ({checksum}).")
+            }
+            Self::ZhCn => {
+                format!("已将 {title} 安装到托管模型“{model_name}”（{checksum}）。")
+            }
+        }
+    }
+
+    pub(crate) fn model_removed(self, directory: &str) -> String {
+        match self {
+            Self::EnUs => format!("Removed inactive managed model `{directory}`."),
+            Self::ZhCn => format!("已移除未激活的托管模型“{directory}”。"),
+        }
+    }
+
+    pub(crate) fn script_installed(
+        self,
+        updated: bool,
+        resource: &str,
+        entry_id: &str,
+        path: &str,
+        daemon_reload: &str,
+    ) -> String {
+        match (self, updated) {
+            (Self::EnUs, true) => {
+                format!("Updated {resource} `{entry_id}` at {path}; {daemon_reload}.")
+            }
+            (Self::EnUs, false) => {
+                format!("Installed {resource} `{entry_id}` at {path}; {daemon_reload}.")
+            }
+            (Self::ZhCn, true) => {
+                format!("已更新{resource}“{entry_id}”，路径为 {path}；{daemon_reload}。")
+            }
+            (Self::ZhCn, false) => {
+                format!("已安装{resource}“{entry_id}”，路径为 {path}；{daemon_reload}。")
+            }
+        }
+    }
+
+    pub(crate) fn script_removed(
+        self,
+        resource: &str,
+        entry_id: &str,
+        script_path: &str,
+        cleanup_error: Option<&str>,
+        removed_file: bool,
+        daemon_reload: &str,
+    ) -> String {
+        match (self, cleanup_error, removed_file) {
+            (Self::EnUs, Some(error), _) => format!(
+                "Removed {resource} `{entry_id}` from config; managed script cleanup failed: {error}; {daemon_reload}."
+            ),
+            (Self::EnUs, None, true) => format!(
+                "Removed {resource} `{entry_id}` and managed script {script_path}; {daemon_reload}."
+            ),
+            (Self::EnUs, None, false) => format!(
+                "Removed {resource} `{entry_id}`; managed script was already absent; {daemon_reload}."
+            ),
+            (Self::ZhCn, Some(error), _) => format!(
+                "已从配置中移除{resource}“{entry_id}”；清理托管脚本失败：{error}；{daemon_reload}。"
+            ),
+            (Self::ZhCn, None, true) => {
+                format!("已移除{resource}“{entry_id}”及托管脚本 {script_path}；{daemon_reload}。")
+            }
+            (Self::ZhCn, None, false) => {
+                format!("已移除{resource}“{entry_id}”；托管脚本此前已不存在；{daemon_reload}。")
+            }
+        }
+    }
+
+    pub(crate) fn hotword_path_changed(self, provider_id: &str, set: bool) -> String {
+        match (self, set) {
+            (Self::EnUs, true) => {
+                format!("Updated hotword path for provider `{provider_id}`.")
+            }
+            (Self::EnUs, false) => {
+                format!("Cleared hotword path for provider `{provider_id}`.")
+            }
+            (Self::ZhCn, true) => format!("已更新提供商“{provider_id}”的热词路径。"),
+            (Self::ZhCn, false) => format!("已清除提供商“{provider_id}”的热词路径。"),
+        }
+    }
+
+    pub(crate) fn script_configuration_completed(
+        self,
+        resource: &str,
+        entry_id: &str,
+        path: &str,
+        daemon_reload: &str,
+    ) -> String {
+        match self {
+            Self::EnUs => format!(
+                "Completed configuration for {resource} `{entry_id}` using the existing script at {path}; {daemon_reload}."
+            ),
+            Self::ZhCn => format!(
+                "已使用位于 {path} 的现有脚本完成{resource}“{entry_id}”的配置；{daemon_reload}。"
+            ),
+        }
+    }
+
+    pub(crate) fn script_removal_worker_failed(self, resource: &str) -> String {
+        match self {
+            Self::EnUs => format!("{resource} removal worker stopped unexpectedly."),
+            Self::ZhCn => format!("{resource}移除 worker 意外停止。"),
+        }
+    }
+
+    pub(crate) fn registry_selector_required(self, resource: &str) -> String {
+        match self {
+            Self::EnUs => {
+                format!("Enter a {resource} registry id or short id before installing.")
+            }
+            Self::ZhCn => format!("安装前请输入{resource}注册表 ID 或短 ID。"),
+        }
+    }
+
+    pub(crate) fn required_environment_value(self, name: &str) -> String {
+        match self {
+            Self::EnUs => format!(
+                "Enter a value for required environment variable `{name}` before installing."
+            ),
+            Self::ZhCn => format!("安装前请输入必填环境变量“{name}”的值。"),
+        }
+    }
 }
 
 fn normalized_locale(value: &str) -> Option<GuiLocale> {
@@ -484,6 +834,42 @@ mod tests {
             assert!(receipt.contains(provider_id));
             assert!(receipt.contains(path));
             assert!(receipt.contains(reload));
+
+            let model_progress = locale.model_download_progress("2 MiB", Some("8 MiB"));
+            let script_progress = locale.script_progress(
+                "downloading",
+                locale.text(GuiText::AsrProviderResource),
+                Some(2048),
+                Some(8192),
+            );
+            let recovery = locale.script_configuration_completed(
+                locale.text(GuiText::TextAdapterResource),
+                adapter_id,
+                path,
+                reload,
+            );
+            let removal = locale.script_removed(
+                locale.text(GuiText::AsrProviderResource),
+                provider_id,
+                path,
+                Some("raw cleanup detail"),
+                false,
+                reload,
+            );
+            let edit = locale.provider_script_edited(provider_id, path, "editor-command");
+            assert!(model_progress.contains("2 MiB"));
+            assert!(model_progress.contains("8 MiB"));
+            assert!(script_progress.contains("2048"));
+            assert!(script_progress.contains("8192"));
+            assert!(recovery.contains(adapter_id));
+            assert!(recovery.contains(path));
+            assert!(recovery.contains(reload));
+            assert!(removal.contains(provider_id));
+            assert!(removal.contains("raw cleanup detail"));
+            assert!(removal.contains(reload));
+            assert!(edit.contains(provider_id));
+            assert!(edit.contains(path));
+            assert!(edit.contains("editor-command"));
         }
     }
 

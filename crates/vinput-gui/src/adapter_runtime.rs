@@ -6,7 +6,7 @@ use iced::Task;
 use vinput_protocol::dbus;
 
 use crate::{
-    App, DaemonLoadState, DaemonSnapshot, GuiText, Message, OperationState,
+    App, DaemonLoadState, DaemonSnapshot, GuiLocale, GuiText, Message, OperationState,
     daemon_client::query_daemon_snapshot_on, daemon_proxy,
 };
 
@@ -115,18 +115,38 @@ pub enum AdapterRuntimeErrorCategory {
 }
 
 impl AdapterRuntimeError {
-    fn message(&self) -> String {
-        let detail = match self.category {
-            AdapterRuntimeErrorCategory::NotConfigured => "is no longer configured",
-            AdapterRuntimeErrorCategory::SessionBusUnavailable => "cannot reach the session bus",
-            AdapterRuntimeErrorCategory::DaemonUnavailable => "cannot reach the daemon",
-            AdapterRuntimeErrorCategory::ActionRejected => "daemon rejected the request",
-        };
-        format!(
-            "Cannot {} text adapter `{}`: {detail}.",
-            self.action.verb(),
-            self.adapter_id
-        )
+    fn message(&self, locale: GuiLocale) -> String {
+        match (locale, self.action, self.category) {
+            (GuiLocale::EnUs, action, category) => {
+                let detail = match category {
+                    AdapterRuntimeErrorCategory::NotConfigured => "is no longer configured",
+                    AdapterRuntimeErrorCategory::SessionBusUnavailable => {
+                        "cannot reach the session bus"
+                    }
+                    AdapterRuntimeErrorCategory::DaemonUnavailable => "cannot reach the daemon",
+                    AdapterRuntimeErrorCategory::ActionRejected => "daemon rejected the request",
+                };
+                format!(
+                    "Cannot {} text adapter `{}`: {detail}.",
+                    action.verb(),
+                    self.adapter_id
+                )
+            }
+            (GuiLocale::ZhCn, action, category) => {
+                let action = if action == AdapterRuntimeAction::Start {
+                    "启动"
+                } else {
+                    "停止"
+                };
+                let detail = match category {
+                    AdapterRuntimeErrorCategory::NotConfigured => "已不在配置中",
+                    AdapterRuntimeErrorCategory::SessionBusUnavailable => "无法访问会话总线",
+                    AdapterRuntimeErrorCategory::DaemonUnavailable => "无法访问守护进程",
+                    AdapterRuntimeErrorCategory::ActionRejected => "守护进程拒绝了请求",
+                };
+                format!("无法{action}文本适配器“{}”：{detail}。", self.adapter_id)
+            }
+        }
     }
 }
 
@@ -184,10 +204,10 @@ impl App {
                 category: AdapterRuntimeErrorCategory::NotConfigured,
             }));
         }
-        self.operation = OperationState::Running(match action {
-            AdapterRuntimeAction::Start => "Starting text adapter…",
-            AdapterRuntimeAction::Stop => "Stopping text adapter…",
-        });
+        self.operation = OperationState::Running(
+            self.locale
+                .adapter_runtime_progress(action == AdapterRuntimeAction::Start),
+        );
         let owner_generation = self.daemon_owner_generation;
         Task::perform(
             async move { run_adapter_runtime_action(adapter_id, action, owner_generation) },
@@ -202,38 +222,30 @@ impl App {
         let outcome = match result {
             Ok(outcome) => outcome,
             Err(error) => {
-                self.operation = OperationState::Failed(error.message());
+                self.operation = OperationState::Failed(error.message(self.locale));
                 return Task::none();
             }
         };
+        let start = outcome.action == AdapterRuntimeAction::Start;
         if outcome.owner_generation != self.daemon_owner_generation {
-            self.operation = OperationState::Succeeded(format!(
-                "Text adapter `{}` {} request completed for a previous daemon owner; refreshing the current runtime state.",
-                outcome.adapter_id,
-                outcome.action.verb()
-            ));
+            self.operation = OperationState::Succeeded(
+                self.locale
+                    .adapter_runtime_previous_owner(&outcome.adapter_id, start),
+            );
             return self.restart_daemon_refresh(false);
         }
         self.operation = OperationState::Succeeded(match outcome.confirmation {
-            AdapterRuntimeConfirmation::Confirmed => format!(
-                "Text adapter `{}` {} state confirmed.",
-                outcome.adapter_id,
-                if outcome.action.expected_running() {
-                    "running"
-                } else {
-                    "stopped"
-                }
-            ),
-            AdapterRuntimeConfirmation::NotConfirmed => format!(
-                "Text adapter `{}` {} request was accepted, but the refreshed state did not confirm it.",
-                outcome.adapter_id,
-                outcome.action.verb()
-            ),
-            AdapterRuntimeConfirmation::Unavailable => format!(
-                "Text adapter `{}` {} request was accepted; current state is unavailable. Refresh daemon status to confirm it.",
-                outcome.adapter_id,
-                outcome.action.verb()
-            ),
+            AdapterRuntimeConfirmation::Confirmed => self
+                .locale
+                .adapter_runtime_confirmed(&outcome.adapter_id, outcome.action.expected_running()),
+            AdapterRuntimeConfirmation::NotConfirmed => {
+                self.locale
+                    .adapter_runtime_unconfirmed(&outcome.adapter_id, start, false)
+            }
+            AdapterRuntimeConfirmation::Unavailable => {
+                self.locale
+                    .adapter_runtime_unconfirmed(&outcome.adapter_id, start, true)
+            }
         });
         self.restart_daemon_refresh(false)
     }

@@ -9,7 +9,10 @@ use vinput_registry::{
     prepare_provider_script_edit_with,
 };
 
-use crate::{App, Message, OperationState, script_management::managed_provider_script_path};
+use crate::{
+    App, GuiLocale, GuiText, Message, OperationState,
+    script_management::managed_provider_script_path,
+};
 
 impl App {
     pub(crate) fn begin_provider_script_edit(&mut self, provider_id: &str) -> Task<Message> {
@@ -37,11 +40,13 @@ impl App {
             ));
             return Task::none();
         };
-        self.operation = OperationState::Running("Editing managed provider script…");
+        self.operation =
+            OperationState::Running(self.locale.text(GuiText::EditingManagedProviderScript));
+        let self_locale = self.locale;
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    edit_managed_provider_script(&provider, &managed_path)
+                    edit_managed_provider_script(&provider, &managed_path, self_locale)
                 })
                 .await
                 .unwrap_or_else(|_| {
@@ -63,6 +68,7 @@ impl App {
 fn edit_managed_provider_script(
     provider: &AsrProviderConfig,
     managed_path: &Path,
+    locale: GuiLocale,
 ) -> Result<String, String> {
     let context =
         ProviderScriptResolutionContext::from_environment().map_err(|error| error.to_string())?;
@@ -70,11 +76,10 @@ fn edit_managed_provider_script(
         ProviderEditorCommand::from_environment(None).map_err(|error| error.to_string())?;
     let plan = prepare_managed_provider_script_edit_with(provider, managed_path, &context, editor)?;
     let outcome = plan.execute().map_err(|error| error.to_string())?;
-    Ok(format!(
-        "Edited managed ASR provider `{}` script at {} with {}.",
-        outcome.provider_id,
-        outcome.script_path.display(),
-        outcome.editor_argv.join(" ")
+    Ok(locale.provider_script_edited(
+        &outcome.provider_id,
+        &outcome.script_path.display().to_string(),
+        &outcome.editor_argv.join(" "),
     ))
 }
 

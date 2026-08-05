@@ -466,15 +466,16 @@ impl App {
                 return Task::none();
             }
         };
-        let backup = outcome.backup_path.as_ref().map_or_else(
-            || "no previous file".to_owned(),
-            |path| format!("backup {}", path.display()),
-        );
+        let path = outcome.path.display().to_string();
+        let backup = outcome
+            .backup_path
+            .as_ref()
+            .map(|path| path.display().to_string());
         self.replace_config(load_config_document(Some(&outcome.path)));
-        self.operation = OperationState::Succeeded(format!(
-            "Saved {} ({backup}); {}",
-            outcome.path.display(),
-            outcome.daemon_reload
+        self.operation = OperationState::Succeeded(self.locale.config_save_receipt(
+            &path,
+            backup.as_deref(),
+            &outcome.daemon_reload,
         ));
         self.begin_daemon_refresh(false)
     }
@@ -527,12 +528,15 @@ impl App {
     fn begin_model_install_for(&mut self, selector: String) -> Task<Message> {
         if selector.is_empty() {
             self.operation = OperationState::Failed(
-                "Enter a registry model id or short id before installing.".to_owned(),
+                self.locale
+                    .text(GuiText::EnterRegistryModelSelector)
+                    .to_owned(),
             );
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         if self.model_install.is_active() || matches!(self.operation, OperationState::Running(_)) {
@@ -541,7 +545,7 @@ impl App {
         let operation_id = self.next_model_install_id;
         self.next_model_install_id = self.next_model_install_id.wrapping_add(1).max(1);
         let (state, task) =
-            ModelInstallState::start(document.config.clone(), selector, operation_id);
+            ModelInstallState::start(document.config.clone(), selector, operation_id, self.locale);
         self.operation = OperationState::Idle;
         self.model_install = state;
         task
@@ -549,13 +553,15 @@ impl App {
 
     fn begin_model_remove(&mut self, target_path: PathBuf) -> Task<Message> {
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
-        self.operation = OperationState::Running("Removing model…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::RemovingModel));
         let config = document.config.clone();
+        let locale = self.locale;
         Task::perform(
-            async move { remove_installed_model(&config, &target_path) },
+            async move { remove_installed_model(&config, &target_path, locale) },
             Message::ModelRemoved,
         )
     }
@@ -688,8 +694,8 @@ impl App {
         match &self.operation {
             OperationState::Idle => self
                 .model_install
-                .view()
-                .or_else(|| self.script_install.view()),
+                .view(self.locale)
+                .or_else(|| self.script_install.view(self.locale)),
             OperationState::Running(message) => Some(text(*message).into()),
             OperationState::Succeeded(message) => {
                 Some(text(self.locale.operation_success(message)).into())

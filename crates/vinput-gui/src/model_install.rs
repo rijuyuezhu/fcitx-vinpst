@@ -9,7 +9,7 @@ use iced::{
 use vinput_config::VinputConfig;
 use vinput_registry::{RegistryOperationControl, RegistryOperationProgress};
 
-use crate::{Message, model_management::install_registry_model_controlled};
+use crate::{GuiLocale, GuiText, Message, model_management::install_registry_model_controlled};
 
 /// Final typed outcome of a GUI model installation worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +62,7 @@ impl ModelInstallState {
         config: VinputConfig,
         selector: String,
         operation_id: u64,
+        locale: GuiLocale,
     ) -> (Self, Task<Message>) {
         let initial_progress = RegistryOperationProgress::ResolvingRegistry;
         let shared_progress = Arc::new(Mutex::new(initial_progress.clone()));
@@ -76,7 +77,12 @@ impl ModelInstallState {
         let task = Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    install_registry_model_controlled(&config, &worker_selector, &worker_control)
+                    install_registry_model_controlled(
+                        &config,
+                        &worker_selector,
+                        &worker_control,
+                        locale,
+                    )
                 })
                 .await
                 .unwrap_or_else(|_| {
@@ -140,23 +146,23 @@ impl ModelInstallState {
         }
     }
 
-    pub(crate) fn view(&self) -> Option<Element<'_, Message>> {
+    pub(crate) fn view(&self, locale: GuiLocale) -> Option<Element<'_, Message>> {
         match self {
             Self::Idle => None,
-            Self::Active(active) => Some(active.view()),
-            Self::Succeeded(summary) => Some(text(format!("Success: {summary}")).into()),
+            Self::Active(active) => Some(active.view(locale)),
+            Self::Succeeded(summary) => Some(text(locale.operation_success(summary)).into()),
             Self::Cancelled { .. } => Some(
                 row![
-                    text("Model installation cancelled."),
-                    button("Retry").on_press(Message::RetryModelInstall),
+                    text(locale.text(GuiText::ModelInstallationCancelled)),
+                    button(locale.text(GuiText::Retry)).on_press(Message::RetryModelInstall),
                 ]
                 .spacing(10)
                 .into(),
             ),
             Self::Failed { error, .. } => Some(
                 column![
-                    text(format!("Error: {error}")),
-                    button("Retry").on_press(Message::RetryModelInstall),
+                    text(locale.operation_error(error)),
+                    button(locale.text(GuiText::Retry)).on_press(Message::RetryModelInstall),
                 ]
                 .spacing(8)
                 .into(),
@@ -166,8 +172,8 @@ impl ModelInstallState {
 }
 
 impl ActiveModelInstall {
-    fn view(&self) -> Element<'_, Message> {
-        let mut body = column![text(progress_label(&self.progress))].spacing(8);
+    fn view(&self, locale: GuiLocale) -> Element<'_, Message> {
+        let mut body = column![text(progress_label(locale, &self.progress))].spacing(8);
         if let RegistryOperationProgress::Downloading {
             downloaded_bytes,
             total_bytes: Some(total_bytes),
@@ -183,51 +189,52 @@ impl ActiveModelInstall {
             body = body.push(progress_bar(0.0..=1.0, f32::from(permille) / 1000.0));
         }
         body = body.push(
-            button(if self.cancelling {
-                "Cancelling…"
+            button(locale.text(if self.cancelling {
+                GuiText::Cancelling
             } else {
-                "Cancel"
-            })
+                GuiText::Cancel
+            }))
             .on_press_maybe((!self.cancelling).then_some(Message::CancelModelInstall)),
         );
         body.into()
     }
 }
 
-fn progress_label(progress: &RegistryOperationProgress) -> String {
+fn progress_label(locale: GuiLocale, progress: &RegistryOperationProgress) -> String {
     match progress {
-        RegistryOperationProgress::Preparing => "Preparing model installation…".to_owned(),
-        RegistryOperationProgress::ResolvingRegistry => "Resolving model catalog…".to_owned(),
+        RegistryOperationProgress::Preparing => {
+            locale.text(GuiText::PreparingModelInstallation).to_owned()
+        }
+        RegistryOperationProgress::ResolvingRegistry => {
+            locale.text(GuiText::ResolvingModelCatalog).to_owned()
+        }
         RegistryOperationProgress::Downloading {
             downloaded_bytes,
             total_bytes,
-        } => total_bytes.map_or_else(
-            || {
-                format!(
-                    "Downloading model… {} received",
-                    format_bytes(*downloaded_bytes)
-                )
-            },
-            |total| {
-                format!(
-                    "Downloading model… {} of {}",
-                    format_bytes(*downloaded_bytes),
-                    format_bytes(total)
-                )
-            },
-        ),
-        RegistryOperationProgress::VerifyingChecksum => "Verifying model checksum…".to_owned(),
+        } => {
+            let downloaded = format_bytes(*downloaded_bytes);
+            let total = total_bytes.map(format_bytes);
+            locale.model_download_progress(&downloaded, total.as_deref())
+        }
+        RegistryOperationProgress::VerifyingChecksum => {
+            locale.text(GuiText::VerifyingModelChecksum).to_owned()
+        }
         RegistryOperationProgress::Extracting {
             processed_entries,
             extracted_bytes,
-        } => format!(
-            "Extracting model… {processed_entries} entries, {}",
-            format_bytes(*extracted_bytes)
-        ),
-        RegistryOperationProgress::WritingMetadata => "Writing model metadata…".to_owned(),
-        RegistryOperationProgress::Publishing => "Publishing model atomically…".to_owned(),
-        RegistryOperationProgress::UpdatingConfiguration => "Updating configuration…".to_owned(),
-        RegistryOperationProgress::Completed => "Model installation completed.".to_owned(),
+        } => locale.model_extraction_progress(*processed_entries, &format_bytes(*extracted_bytes)),
+        RegistryOperationProgress::WritingMetadata => {
+            locale.text(GuiText::WritingModelMetadata).to_owned()
+        }
+        RegistryOperationProgress::Publishing => {
+            locale.text(GuiText::PublishingModelAtomically).to_owned()
+        }
+        RegistryOperationProgress::UpdatingConfiguration => locale
+            .text(GuiText::UpdatingConfigurationProgress)
+            .to_owned(),
+        RegistryOperationProgress::Completed => {
+            locale.text(GuiText::ModelInstallationCompleted).to_owned()
+        }
     }
 }
 
@@ -258,7 +265,8 @@ mod tests {
     #[test]
     fn active_state_cancels_when_dropped() {
         let config = VinputConfig::bundled_default().expect("bundled config");
-        let (state, task) = ModelInstallState::start(config, "fixture".to_owned(), 7);
+        let (state, task) =
+            ModelInstallState::start(config, "fixture".to_owned(), 7, GuiLocale::EnUs);
         assert_eq!(task.units(), 1);
         let control = match &state {
             ModelInstallState::Active(active) => active.control.clone(),
@@ -273,7 +281,8 @@ mod tests {
     #[test]
     fn cancel_requests_cooperative_worker_shutdown() {
         let config = VinputConfig::bundled_default().expect("bundled config");
-        let (mut state, _) = ModelInstallState::start(config, "fixture".to_owned(), 8);
+        let (mut state, _) =
+            ModelInstallState::start(config, "fixture".to_owned(), 8, GuiLocale::EnUs);
         let control = match &state {
             ModelInstallState::Active(active) => active.control.clone(),
             _ => panic!("active install state"),
@@ -294,7 +303,8 @@ mod tests {
     #[test]
     fn stale_completion_does_not_replace_active_operation() {
         let config = VinputConfig::bundled_default().expect("bundled config");
-        let (mut state, _) = ModelInstallState::start(config, "fixture".to_owned(), 9);
+        let (mut state, _) =
+            ModelInstallState::start(config, "fixture".to_owned(), 9, GuiLocale::EnUs);
 
         assert!(!state.finish(8, ModelInstallOutcome::Cancelled));
         assert!(state.is_active());

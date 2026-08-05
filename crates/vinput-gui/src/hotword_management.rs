@@ -405,11 +405,10 @@ impl HotwordEditorState {
 }
 
 impl App {
-    pub(super) fn guard_hotword_changes(&mut self, blocked_action: &str) -> bool {
+    pub(super) fn guard_hotword_changes(&mut self, _blocked_action: &str) -> bool {
         if self.hotword_editor.has_unsaved_changes() {
-            self.operation = OperationState::Failed(format!(
-                "Save or reset hotword changes before {blocked_action}."
-            ));
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::HotwordChangesBlocked).to_owned());
             false
         } else {
             true
@@ -585,13 +584,12 @@ impl App {
             .iter()
             .find(|provider| provider.id == provider_id)
             .and_then(|provider| provider.hotwords_file.clone());
-        let summary = if path.is_some() {
-            format!("Updated hotword path for provider `{provider_id}`.")
-        } else {
-            format!("Cleared hotword path for provider `{provider_id}`.")
-        };
+        let summary = self
+            .locale
+            .hotword_path_changed(&provider_id, path.is_some());
         let document = document.clone();
-        self.operation = OperationState::Running(self.locale.text(progress));
+        let locale = self.locale;
+        self.operation = OperationState::Running(locale.text(progress));
         Task::perform(
             async move {
                 let should_confirm = updated.asr.active_provider == provider_id;
@@ -622,10 +620,7 @@ impl App {
                         }
                     } else {
                         (
-                            Some(
-                                "The saved hotword path configuration was not applied to the active daemon; activation can be retried."
-                                    .to_owned(),
-                            ),
+                            Some(locale.text(GuiText::HotwordActivationNotApplied).to_owned()),
                             Some(PendingHotwordActivation::for_config(
                                 provider_id.clone(),
                                 pending_config_path.clone(),
@@ -657,10 +652,12 @@ impl App {
                 return Task::none();
             }
         };
-        let backup = outcome.save.backup_path.as_ref().map_or_else(
-            || "no previous file".to_owned(),
-            |path| format!("backup {}", path.display()),
-        );
+        let path = outcome.save.path.display().to_string();
+        let backup = outcome
+            .save
+            .backup_path
+            .as_ref()
+            .map(|path| path.display().to_string());
         let mutated_provider = self.hotword_editor.selected_provider.clone();
         let pending_activation = outcome.pending_activation.clone().or_else(|| {
             self.hotword_editor
@@ -674,11 +671,11 @@ impl App {
         });
         self.replace_config(load_config_document(Some(&outcome.save.path)));
         self.hotword_editor.pending_activation = pending_activation;
-        let summary = format!(
-            "{} Saved {} ({backup}); {}",
-            outcome.summary,
-            outcome.save.path.display(),
-            outcome.save.daemon_reload
+        let summary = self.locale.save_receipt(
+            &outcome.summary,
+            &path,
+            backup.as_deref(),
+            &outcome.save.daemon_reload,
         );
         self.operation = match outcome.activation_error {
             Some(error) => OperationState::Failed(format!("{summary}. {error}")),

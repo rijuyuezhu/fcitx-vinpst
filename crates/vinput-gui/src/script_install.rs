@@ -1,23 +1,20 @@
 //! GUI state and task ownership for provider and adapter installation.
 
+mod view;
+
 use std::{
     fmt,
     sync::{Arc, Mutex},
 };
 
-use iced::{
-    Element, Length, Task,
-    widget::{button, column, progress_bar, row, text, text_input},
-};
+use iced::Task;
 use vinput_registry::{
     LiveScriptEntry, LiveScriptKind, RegistryOperationControl, RegistryOperationProgress,
 };
 
 use crate::{
-    App, ConfigDocument, Message, OperationState, load_config_document,
-    script_management::{
-        install_registry_script_controlled, prepare_registry_script_controlled, resource_label,
-    },
+    App, ConfigDocument, GuiLocale, GuiText, Message, OperationState, load_config_document,
+    script_management::{install_registry_script_controlled, prepare_registry_script_controlled},
     script_recovery::recover_registry_script_config,
 };
 
@@ -105,52 +102,6 @@ impl ScriptInstallPlan {
         {
             environment.value = value;
         }
-    }
-
-    fn view(&self) -> Element<'_, Message> {
-        let mut body = column![
-            text(format!(
-                "Configure {} `{}` before installation",
-                resource_label(self.kind),
-                self.entry.id
-            ))
-            .size(18),
-            text("Values are stored in the user configuration and hidden in diagnostics."),
-        ]
-        .spacing(8);
-
-        for environment in &self.environment {
-            let name = environment.name.clone();
-            let requirement = if environment.required {
-                "required"
-            } else {
-                "optional"
-            };
-            body = body.push(
-                column![
-                    text(format!("{} ({requirement})", environment.name)),
-                    text_input("Enter environment value", &environment.value)
-                        .secure(true)
-                        .on_input(move |value| Message::ScriptEnvironmentChanged {
-                            name: name.clone(),
-                            value: SecretInput::new(value),
-                        })
-                        .width(Length::Fill),
-                ]
-                .spacing(4),
-            );
-        }
-
-        let can_install = self.missing_required_environment().is_none();
-        body.push(
-            row![
-                button("Install or update")
-                    .on_press_maybe(can_install.then_some(Message::ConfirmScriptInstall)),
-                button("Cancel").on_press(Message::CancelScriptInstall),
-            ]
-            .spacing(10),
-        )
-        .into()
     }
 }
 
@@ -326,6 +277,7 @@ impl ScriptInstallState {
         document: ConfigDocument,
         plan: ScriptInstallPlan,
         operation_id: u64,
+        locale: GuiLocale,
     ) -> (Self, Task<Message>) {
         let initial_progress = RegistryOperationProgress::Preparing;
         let shared_progress = Arc::new(Mutex::new(initial_progress.clone()));
@@ -340,7 +292,12 @@ impl ScriptInstallState {
         let task = Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    install_registry_script_controlled(&document, &worker_plan, &worker_control)
+                    install_registry_script_controlled(
+                        &document,
+                        &worker_plan,
+                        &worker_control,
+                        locale,
+                    )
                 })
                 .await
                 .unwrap_or_else(|_| {
@@ -371,12 +328,13 @@ impl ScriptInstallState {
         document: ConfigDocument,
         plan: ScriptInstallPlan,
         operation_id: u64,
+        locale: GuiLocale,
     ) -> (Self, Task<Message>) {
         let worker_plan = plan.clone();
         let task = Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    recover_registry_script_config(&document, &worker_plan)
+                    recover_registry_script_config(&document, &worker_plan, locale)
                 })
                 .await
                 .unwrap_or_else(|_| {
@@ -553,69 +511,6 @@ impl ScriptInstallState {
             | Self::Succeeded(_) => None,
         }
     }
-
-    pub(crate) fn view(&self) -> Option<Element<'_, Message>> {
-        match self {
-            Self::Idle => None,
-            Self::Preparing(active) => Some(active.view()),
-            Self::AwaitingEnvironment(plan) => Some(plan.view()),
-            Self::Active(active) => Some(active.view()),
-            Self::Recovering(active) => Some(
-                column![
-                    text(format!(
-                        "Retrying configuration for {} `{}`…",
-                        resource_label(active.plan.kind),
-                        active.plan.entry.id
-                    )),
-                    text("The published script is being reused; no download is running."),
-                ]
-                .spacing(6)
-                .into(),
-            ),
-            Self::RecoveryRequired { plan, error } => Some(
-                column![
-                    text("Script published; configuration incomplete").size(18),
-                    text(format!(
-                        "{} `{}` was published at {}.",
-                        resource_label(plan.kind),
-                        plan.entry.id,
-                        plan.script_path.display()
-                    )),
-                    text(format!("Configuration error: {error}")),
-                    text(
-                        "Reload after resolving external changes or permissions, then retry. The script will not be downloaded again; dismissing keeps the published file."
-                    ),
-                    row![
-                        button("Reload config").on_press(Message::ReloadConfig),
-                        button("Retry configuration update")
-                            .on_press(Message::RetryScriptConfigUpdate),
-                        button("Dismiss (keep script)")
-                            .on_press(Message::DismissScriptRecovery),
-                    ]
-                    .spacing(10),
-                ]
-                .spacing(8)
-                .into(),
-            ),
-            Self::Succeeded(summary) => Some(text(format!("Success: {summary}")).into()),
-            Self::Cancelled { .. } => Some(
-                row![
-                    text("Script installation cancelled."),
-                    button("Retry").on_press(Message::RetryScriptInstall),
-                ]
-                .spacing(10)
-                .into(),
-            ),
-            Self::Failed { error, .. } => Some(
-                column![
-                    text(format!("Error: {error}")),
-                    button("Retry").on_press(Message::RetryScriptInstall),
-                ]
-                .spacing(8)
-                .into(),
-            ),
-        }
-    }
 }
 
 impl App {
@@ -685,7 +580,8 @@ impl App {
         };
         let document = document.clone();
         let operation_id = self.next_script_operation_id();
-        let (state, task) = ScriptInstallState::start_recovery(document, plan, operation_id);
+        let (state, task) =
+            ScriptInstallState::start_recovery(document, plan, operation_id, self.locale);
         self.operation = OperationState::Idle;
         self.script_install = state;
         task
@@ -702,10 +598,12 @@ impl App {
         selector: String,
     ) -> Task<Message> {
         if selector.is_empty() {
-            self.operation = OperationState::Failed(format!(
-                "Enter a {} registry id or short id before installing.",
-                resource_label(kind)
-            ));
+            let resource = self.locale.text(match kind {
+                LiveScriptKind::AsrProvider => GuiText::AsrProviderResource,
+                LiveScriptKind::LlmAdapter => GuiText::TextAdapterResource,
+            });
+            self.operation =
+                OperationState::Failed(self.locale.registry_selector_required(resource));
             return Task::none();
         }
         if let Err(error) = self.ensure_no_unsaved_config_draft() {
@@ -725,7 +623,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let document = document.clone();
@@ -791,7 +690,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let document = document.clone();
@@ -804,14 +704,13 @@ impl App {
             return Task::none();
         }
         if let Some(name) = plan.missing_required_environment() {
-            self.operation = OperationState::Failed(format!(
-                "Enter a value for required environment variable `{name}` before installing."
-            ));
+            self.operation = OperationState::Failed(self.locale.required_environment_value(name));
             self.script_install = ScriptInstallState::AwaitingEnvironment(Box::new(plan));
             return Task::none();
         }
         let operation_id = self.next_script_operation_id();
-        let (state, task) = ScriptInstallState::start_install(document, plan, operation_id);
+        let (state, task) =
+            ScriptInstallState::start_install(document, plan, operation_id, self.locale);
         self.operation = OperationState::Idle;
         self.script_install = state;
         task
@@ -841,130 +740,6 @@ impl App {
             return self.begin_daemon_refresh(false);
         }
         Task::none()
-    }
-
-    pub(crate) fn provider_install_controls(&self, busy: bool) -> Element<'_, Message> {
-        let input = text_input("Registry provider id or short id", &self.provider_selector)
-            .width(Length::Fill);
-        let input = if busy {
-            input
-        } else {
-            input.on_input(Message::ProviderSelectorChanged)
-        };
-        row![
-            input,
-            button("Install or update").on_press_maybe(
-                (!busy && !self.provider_selector.trim().is_empty())
-                    .then_some(Message::InstallProvider),
-            ),
-        ]
-        .spacing(10)
-        .into()
-    }
-
-    pub(crate) fn adapter_install_controls(&self, busy: bool) -> Element<'_, Message> {
-        let input = text_input("Registry adapter id or short id", &self.adapter_selector)
-            .width(Length::Fill);
-        let input = if busy {
-            input
-        } else {
-            input.on_input(Message::AdapterSelectorChanged)
-        };
-        row![
-            input,
-            button("Install or update").on_press_maybe(
-                (!busy && !self.adapter_selector.trim().is_empty())
-                    .then_some(Message::InstallAdapter),
-            ),
-        ]
-        .spacing(10)
-        .into()
-    }
-}
-
-impl ActiveScriptPreparation {
-    fn view(&self) -> Element<'_, Message> {
-        row![
-            text(format!(
-                "Resolving {} catalog for `{}`…",
-                resource_label(self.kind),
-                self.selector
-            )),
-            button(if self.cancelling {
-                "Cancelling…"
-            } else {
-                "Cancel"
-            })
-            .on_press_maybe((!self.cancelling).then_some(Message::CancelScriptInstall)),
-        ]
-        .spacing(10)
-        .into()
-    }
-}
-
-impl ActiveScriptInstall {
-    fn view(&self) -> Element<'_, Message> {
-        let mut body = column![text(progress_label(self.plan.kind, &self.progress))].spacing(8);
-        if let RegistryOperationProgress::Downloading {
-            downloaded_bytes,
-            total_bytes: Some(total_bytes),
-        } = self.progress
-            && total_bytes > 0
-        {
-            let permille = downloaded_bytes
-                .saturating_mul(1000)
-                .checked_div(total_bytes)
-                .unwrap_or(0)
-                .min(1000);
-            let permille = u16::try_from(permille).unwrap_or(1000);
-            body = body.push(progress_bar(0.0..=1.0, f32::from(permille) / 1000.0));
-        }
-        let commit_started = matches!(
-            self.progress,
-            RegistryOperationProgress::UpdatingConfiguration | RegistryOperationProgress::Completed
-        );
-        body = body.push(
-            button(if self.cancelling {
-                "Cancelling…"
-            } else if commit_started {
-                "Finishing…"
-            } else {
-                "Cancel"
-            })
-            .on_press_maybe(
-                (!self.cancelling && !commit_started).then_some(Message::CancelScriptInstall),
-            ),
-        );
-        body.into()
-    }
-}
-
-fn progress_label(kind: LiveScriptKind, progress: &RegistryOperationProgress) -> String {
-    let label = resource_label(kind);
-    match progress {
-        RegistryOperationProgress::Preparing => format!("Preparing {label} installation…"),
-        RegistryOperationProgress::ResolvingRegistry => format!("Resolving {label} catalog…"),
-        RegistryOperationProgress::Downloading {
-            downloaded_bytes,
-            total_bytes,
-        } => total_bytes.map_or_else(
-            || format!("Downloading {label} script… {downloaded_bytes} bytes received"),
-            |total| format!("Downloading {label} script… {downloaded_bytes} of {total} bytes"),
-        ),
-        RegistryOperationProgress::VerifyingChecksum => {
-            format!("Verifying {label} script…")
-        }
-        RegistryOperationProgress::Extracting { .. } => {
-            format!("Extracting {label} resources…")
-        }
-        RegistryOperationProgress::WritingMetadata => {
-            format!("Writing {label} metadata…")
-        }
-        RegistryOperationProgress::Publishing => format!("Publishing {label} script…"),
-        RegistryOperationProgress::UpdatingConfiguration => {
-            format!("Updating configuration for {label}…")
-        }
-        RegistryOperationProgress::Completed => format!("{label} installation completed."),
     }
 }
 
@@ -1048,7 +823,8 @@ mod tests {
             required: true,
             value: "super-secret".to_owned(),
         }]);
-        let (mut state, _) = ScriptInstallState::start_install(document, install_plan, 13);
+        let (mut state, _) =
+            ScriptInstallState::start_install(document, install_plan, 13, GuiLocale::EnUs);
 
         assert!(state.finish_install(
             13,
@@ -1070,7 +846,8 @@ mod tests {
             from_disk: false,
             config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
         };
-        let (mut state, _) = ScriptInstallState::start_install(document, plan(Vec::new()), 15);
+        let (mut state, _) =
+            ScriptInstallState::start_install(document, plan(Vec::new()), 15, GuiLocale::EnUs);
 
         assert!(!state.finish_install(14, ScriptInstallOutcome::Cancelled));
         assert!(state.has_worker());
@@ -1093,7 +870,8 @@ mod tests {
             required: true,
             value: "super-secret".to_owned(),
         }]);
-        let (mut state, _) = ScriptInstallState::start_install(document, install_plan, 16);
+        let (mut state, _) =
+            ScriptInstallState::start_install(document, install_plan, 16, GuiLocale::EnUs);
 
         assert!(state.finish_install(
             16,
@@ -1115,7 +893,8 @@ mod tests {
             from_disk: false,
             config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
         };
-        let (mut state, _) = ScriptInstallState::start_recovery(document, plan(Vec::new()), 17);
+        let (mut state, _) =
+            ScriptInstallState::start_recovery(document, plan(Vec::new()), 17, GuiLocale::EnUs);
 
         assert!(!state.finish_install(
             16,
@@ -1156,7 +935,8 @@ mod tests {
             from_disk: false,
             config: vinput_config::VinputConfig::bundled_default().expect("bundled config"),
         };
-        let (state, _) = ScriptInstallState::start_install(document, plan(Vec::new()), 14);
+        let (state, _) =
+            ScriptInstallState::start_install(document, plan(Vec::new()), 14, GuiLocale::EnUs);
         let control = match &state {
             ScriptInstallState::Active(active) => active.control.clone(),
             _ => panic!("active script install state"),

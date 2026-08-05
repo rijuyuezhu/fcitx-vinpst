@@ -380,13 +380,14 @@ fn hotword_changes_block_navigation_and_reload_until_reset() {
     assert_eq!(app.page, Page::Hotwords);
     assert!(matches!(
         app.operation,
-        OperationState::Failed(ref error) if error.contains("leaving the Hotwords page")
+        OperationState::Failed(ref error) if !error.is_empty()
     ));
 
     drop(app.update(Message::ReloadConfig));
+    assert_eq!(app.page, Page::Hotwords);
     assert!(matches!(
         app.operation,
-        OperationState::Failed(ref error) if error.contains("reloading configuration")
+        OperationState::Failed(ref error) if !error.is_empty()
     ));
 
     drop(app.update(Message::Hotword(HotwordMessage::ResetChanges)));

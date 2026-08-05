@@ -1,10 +1,11 @@
 //! Recovery for scripts published before their config entry could be committed.
 
 use vinput_config::VinputConfig;
+use vinput_registry::LiveScriptKind;
 
 use crate::{
-    ConfigDocument, ConfigSaveOutcome, ScriptInstallOutcome, ensure_config_mutation_allowed,
-    save_updated_config_with_daemon,
+    ConfigDocument, ConfigSaveOutcome, GuiLocale, GuiText, ScriptInstallOutcome,
+    ensure_config_mutation_allowed, save_updated_config_with_daemon,
     script_install::ScriptInstallPlan,
     script_management::{
         apply_plan_environment, materialize_config, resource_label, validate_plan_environment,
@@ -15,13 +16,20 @@ use crate::{
 pub(crate) fn recover_registry_script_config(
     document: &ConfigDocument,
     plan: &ScriptInstallPlan,
+    locale: GuiLocale,
 ) -> ScriptInstallOutcome {
-    recover_registry_script_config_with_save(document, plan, save_updated_config_with_daemon)
+    recover_registry_script_config_with_save(
+        document,
+        plan,
+        locale,
+        save_updated_config_with_daemon,
+    )
 }
 
 fn recover_registry_script_config_with_save(
     document: &ConfigDocument,
     plan: &ScriptInstallPlan,
+    locale: GuiLocale,
     save: impl FnOnce(&ConfigDocument, &VinputConfig) -> Result<ConfigSaveOutcome, String>,
 ) -> ScriptInstallOutcome {
     let result = (|| {
@@ -48,13 +56,18 @@ fn recover_registry_script_config_with_save(
     })();
 
     match result {
-        Ok(saved) => ScriptInstallOutcome::Installed(format!(
-            "Completed configuration for {} `{}` using the existing script at {}; {}.",
-            resource_label(plan.kind),
-            plan.entry.id,
-            plan.script_path.display(),
-            saved.daemon_reload
-        )),
+        Ok(saved) => {
+            let resource = locale.text(match plan.kind {
+                LiveScriptKind::AsrProvider => GuiText::AsrProviderResource,
+                LiveScriptKind::LlmAdapter => GuiText::TextAdapterResource,
+            });
+            ScriptInstallOutcome::Installed(locale.script_configuration_completed(
+                resource,
+                &plan.entry.id,
+                &plan.script_path.display().to_string(),
+                &saved.daemon_reload,
+            ))
+        }
         Err(error) => ScriptInstallOutcome::PublishedButConfigFailed { error },
     }
 }
@@ -161,6 +174,7 @@ mod tests {
             &plan,
             &RegistryOperationControl::default(),
             &source,
+            GuiLocale::EnUs,
             |_, _| Err("permission denied".to_owned()),
         );
 
@@ -173,7 +187,7 @@ mod tests {
         assert!(!document.path.exists());
         let published = std::fs::read_to_string(&plan.script_path).expect("published script");
 
-        let recovered = recover_registry_script_config(&document, &plan);
+        let recovered = recover_registry_script_config(&document, &plan, GuiLocale::EnUs);
 
         assert!(matches!(recovered, ScriptInstallOutcome::Installed(_)));
         assert_eq!(
@@ -194,7 +208,8 @@ mod tests {
             config: VinputConfig::bundled_default().expect("bundled config"),
         };
 
-        let outcome = recover_registry_script_config(&document, &plan(script_path.clone()));
+        let outcome =
+            recover_registry_script_config(&document, &plan(script_path.clone()), GuiLocale::EnUs);
 
         assert!(matches!(outcome, ScriptInstallOutcome::Installed(_)));
         assert_eq!(
@@ -229,7 +244,7 @@ mod tests {
             config: VinputConfig::bundled_default().expect("bundled config"),
         };
 
-        let outcome = recover_registry_script_config(&document, &plan);
+        let outcome = recover_registry_script_config(&document, &plan, GuiLocale::EnUs);
         assert!(matches!(outcome, ScriptInstallOutcome::Installed(_)));
         let saved = VinputConfig::from_json_file(&document.path).expect("saved config");
         let adapter = saved
@@ -257,7 +272,8 @@ mod tests {
             config: VinputConfig::bundled_default().expect("bundled config"),
         };
 
-        let missing_outcome = recover_registry_script_config(&document, &plan(missing.clone()));
+        let missing_outcome =
+            recover_registry_script_config(&document, &plan(missing.clone()), GuiLocale::EnUs);
         assert!(matches!(
             missing_outcome,
             ScriptInstallOutcome::PublishedButConfigFailed { error }
@@ -265,7 +281,8 @@ mod tests {
         ));
 
         std::fs::create_dir(&missing).expect("create directory");
-        let directory_outcome = recover_registry_script_config(&document, &plan(missing));
+        let directory_outcome =
+            recover_registry_script_config(&document, &plan(missing), GuiLocale::EnUs);
         assert!(matches!(
             directory_outcome,
             ScriptInstallOutcome::PublishedButConfigFailed { error }
@@ -285,6 +302,7 @@ mod tests {
                 config: VinputConfig::bundled_default().expect("bundled config"),
             },
             &plan(script_path),
+            GuiLocale::EnUs,
             |_, _| Err("fixture failure".to_owned()),
         );
 

@@ -3,18 +3,22 @@
 use super::GuiText;
 
 pub(super) const fn text(key: GuiText) -> &'static str {
-    if (key as u8) <= GuiText::SourceBundledDefault as u8 {
+    if (key as u16) <= GuiText::SourceBundledDefault as u16 {
         english_core(key)
-    } else if (key as u8) <= GuiText::InvalidUtf8HotwordPath as u8 {
+    } else if (key as u16) <= GuiText::InvalidUtf8HotwordPath as u16 {
         english_hotwords(key)
-    } else if (key as u8) <= GuiText::DetailsOpenedOnHost as u8 {
+    } else if (key as u16) <= GuiText::DetailsOpenedOnHost as u16 {
         english_desktop(key)
-    } else if (key as u8) <= GuiText::AdapterLocal as u8 {
+    } else if (key as u16) <= GuiText::AdapterLocal as u16 {
         english_resources(key)
-    } else if (key as u8) <= GuiText::RemoteTitle as u8 {
+    } else if (key as u16) <= GuiText::RemoteTitle as u16 {
         english_forms(key)
-    } else {
+    } else if (key as u16) <= GuiText::SaveOrCancelAdapterBeforeRemoval as u16 {
         english_llm_adapter_forms(key)
+    } else if (key as u16) <= GuiText::StoppingTextAdapter as u16 {
+        english_install(key)
+    } else {
+        english_install_tail(key)
     }
 }
 
@@ -334,6 +338,67 @@ const fn english_llm_adapter_forms(key: GuiText) -> &'static str {
         GuiText::SaveOrCancelAdapterBeforeRemoval => {
             "Save or cancel the open text-adapter form before removing an adapter."
         }
+        _ => unreachable!(),
+    }
+}
+
+const fn english_install(key: GuiText) -> &'static str {
+    match key {
+        GuiText::Retry => "Retry",
+        GuiText::Cancelling => "Cancelling…",
+        GuiText::Finishing => "Finishing…",
+        GuiText::ModelInstallationCancelled => "Model installation cancelled.",
+        GuiText::PreparingModelInstallation => "Preparing model installation…",
+        GuiText::ResolvingModelCatalog => "Resolving model catalog…",
+        GuiText::VerifyingModelChecksum => "Verifying model checksum…",
+        GuiText::WritingModelMetadata => "Writing model metadata…",
+        GuiText::PublishingModelAtomically => "Publishing model atomically…",
+        GuiText::UpdatingConfigurationProgress => "Updating configuration…",
+        GuiText::ModelInstallationCompleted => "Model installation completed.",
+        GuiText::ValuesStoredHidden => {
+            "Values are stored in the user configuration and hidden in diagnostics."
+        }
+        GuiText::Required => "required",
+        GuiText::Optional => "optional",
+        GuiText::EnterEnvironmentValue => "Enter environment value",
+        GuiText::ReusingPublishedScript => {
+            "The published script is being reused; no download is running."
+        }
+        GuiText::ScriptPublishedConfigurationIncomplete => {
+            "Script published; configuration incomplete"
+        }
+        GuiText::RecoveryInstructions => {
+            "Reload after resolving external changes or permissions, then retry. The script will not be downloaded again; dismissing keeps the published file."
+        }
+        GuiText::RetryConfigurationUpdate => "Retry configuration update",
+        GuiText::DismissKeepScript => "Dismiss (keep script)",
+        GuiText::ScriptInstallationCancelled => "Script installation cancelled.",
+        GuiText::RegistryProviderSelector => "Registry provider id or short id",
+        GuiText::RegistryAdapterSelector => "Registry adapter id or short id",
+        GuiText::AsrProviderResource => "ASR provider",
+        GuiText::TextAdapterResource => "text adapter",
+        GuiText::EditingManagedProviderScript => "Editing managed provider script…",
+        GuiText::StartingTextAdapter => "Starting text adapter…",
+        GuiText::StoppingTextAdapter => "Stopping text adapter…",
+        _ => unreachable!(),
+    }
+}
+
+const fn english_install_tail(key: GuiText) -> &'static str {
+    match key {
+        GuiText::ConfigurationSaved => "Configuration saved.",
+        GuiText::EnterRegistryModelSelector => {
+            "Enter a registry model id or short id before installing."
+        }
+        GuiText::RemovingModel => "Removing model…",
+        GuiText::RemovingProvider => "Removing provider…",
+        GuiText::RemovingAdapter => "Removing adapter…",
+        GuiText::HotwordChangesBlocked => "Save or reset hotword changes before continuing.",
+        GuiText::HotwordActivationNotApplied => {
+            "The saved hotword path configuration was not applied to the active daemon; activation can be retried."
+        }
+        GuiText::ChecksumVerified => "checksum verified",
+        GuiText::RegistryNoChecksum => "registry provided no checksum",
         _ => unreachable!(),
     }
 }

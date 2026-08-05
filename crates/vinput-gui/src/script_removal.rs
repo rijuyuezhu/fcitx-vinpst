@@ -4,8 +4,8 @@ use iced::Task;
 use vinput_registry::LiveScriptKind;
 
 use crate::{
-    App, Message, OperationState, load_config_document,
-    script_management::{remove_managed_script_entry, resource_label},
+    App, GuiText, Message, OperationState, load_config_document,
+    script_management::remove_managed_script_entry,
 };
 
 impl App {
@@ -31,28 +31,31 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         if self.is_busy() {
             return Task::none();
         }
-        self.operation = OperationState::Running(match kind {
-            LiveScriptKind::AsrProvider => "Removing provider…",
-            LiveScriptKind::LlmAdapter => "Removing adapter…",
-        });
+        self.operation = OperationState::Running(self.locale.text(match kind {
+            LiveScriptKind::AsrProvider => GuiText::RemovingProvider,
+            LiveScriptKind::LlmAdapter => GuiText::RemovingAdapter,
+        }));
         let document = document.clone();
+        let locale = self.locale;
         Task::perform(
             async move {
                 tokio::task::spawn_blocking(move || {
-                    remove_managed_script_entry(&document, kind, &id)
+                    remove_managed_script_entry(&document, kind, &id, locale)
                 })
                 .await
                 .unwrap_or_else(|_| {
-                    Err(format!(
-                        "{} removal worker stopped unexpectedly.",
-                        resource_label(kind)
-                    ))
+                    let resource = locale.text(match kind {
+                        LiveScriptKind::AsrProvider => GuiText::AsrProviderResource,
+                        LiveScriptKind::LlmAdapter => GuiText::TextAdapterResource,
+                    });
+                    Err(locale.script_removal_worker_failed(resource))
                 })
             },
             Message::ScriptRemoved,

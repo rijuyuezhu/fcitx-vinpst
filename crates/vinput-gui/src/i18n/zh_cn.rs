@@ -3,18 +3,22 @@
 use super::GuiText;
 
 pub(super) const fn text(key: GuiText) -> &'static str {
-    if (key as u8) <= GuiText::SourceBundledDefault as u8 {
+    if (key as u16) <= GuiText::SourceBundledDefault as u16 {
         simplified_chinese_core(key)
-    } else if (key as u8) <= GuiText::InvalidUtf8HotwordPath as u8 {
+    } else if (key as u16) <= GuiText::InvalidUtf8HotwordPath as u16 {
         simplified_chinese_hotwords(key)
-    } else if (key as u8) <= GuiText::DetailsOpenedOnHost as u8 {
+    } else if (key as u16) <= GuiText::DetailsOpenedOnHost as u16 {
         simplified_chinese_desktop(key)
-    } else if (key as u8) <= GuiText::AdapterLocal as u8 {
+    } else if (key as u16) <= GuiText::AdapterLocal as u16 {
         simplified_chinese_resources(key)
-    } else if (key as u8) <= GuiText::RemoteTitle as u8 {
+    } else if (key as u16) <= GuiText::RemoteTitle as u16 {
         simplified_chinese_forms(key)
-    } else {
+    } else if (key as u16) <= GuiText::SaveOrCancelAdapterBeforeRemoval as u16 {
         simplified_chinese_llm_adapter_forms(key)
+    } else if (key as u16) <= GuiText::StoppingTextAdapter as u16 {
+        simplified_chinese_install(key)
+    } else {
+        simplified_chinese_install_tail(key)
     }
 }
 
@@ -297,6 +301,59 @@ const fn simplified_chinese_llm_adapter_forms(key: GuiText) -> &'static str {
         GuiText::SaveOrCancelAdapterBeforeRemoval => {
             "移除适配器前，请先保存或取消当前文本适配器表单。"
         }
+        _ => unreachable!(),
+    }
+}
+
+const fn simplified_chinese_install(key: GuiText) -> &'static str {
+    match key {
+        GuiText::Retry => "重试",
+        GuiText::Cancelling => "正在取消…",
+        GuiText::Finishing => "正在完成…",
+        GuiText::ModelInstallationCancelled => "模型安装已取消。",
+        GuiText::PreparingModelInstallation => "正在准备模型安装…",
+        GuiText::ResolvingModelCatalog => "正在解析模型目录…",
+        GuiText::VerifyingModelChecksum => "正在校验模型校验和…",
+        GuiText::WritingModelMetadata => "正在写入模型元数据…",
+        GuiText::PublishingModelAtomically => "正在原子发布模型…",
+        GuiText::UpdatingConfigurationProgress => "正在更新配置…",
+        GuiText::ModelInstallationCompleted => "模型安装已完成。",
+        GuiText::ValuesStoredHidden => "这些值将保存在用户配置中，并在诊断信息里隐藏。",
+        GuiText::Required => "必填",
+        GuiText::Optional => "可选",
+        GuiText::EnterEnvironmentValue => "输入环境变量值",
+        GuiText::ReusingPublishedScript => "正在复用已发布脚本；不会重新下载。",
+        GuiText::ScriptPublishedConfigurationIncomplete => "脚本已发布，但配置尚未完成",
+        GuiText::RecoveryInstructions => {
+            "解决外部更改或权限问题后重新加载配置并重试。脚本不会再次下载；关闭恢复面板将保留已发布文件。"
+        }
+        GuiText::RetryConfigurationUpdate => "重试配置更新",
+        GuiText::DismissKeepScript => "关闭（保留脚本）",
+        GuiText::ScriptInstallationCancelled => "脚本安装已取消。",
+        GuiText::RegistryProviderSelector => "注册表提供商 ID 或短 ID",
+        GuiText::RegistryAdapterSelector => "注册表适配器 ID 或短 ID",
+        GuiText::AsrProviderResource => "ASR 提供商",
+        GuiText::TextAdapterResource => "文本适配器",
+        GuiText::EditingManagedProviderScript => "正在编辑托管提供商脚本…",
+        GuiText::StartingTextAdapter => "正在启动文本适配器…",
+        GuiText::StoppingTextAdapter => "正在停止文本适配器…",
+        _ => unreachable!(),
+    }
+}
+
+const fn simplified_chinese_install_tail(key: GuiText) -> &'static str {
+    match key {
+        GuiText::ConfigurationSaved => "配置已保存。",
+        GuiText::EnterRegistryModelSelector => "安装前请输入注册表模型 ID 或短 ID。",
+        GuiText::RemovingModel => "正在移除模型…",
+        GuiText::RemovingProvider => "正在移除提供商…",
+        GuiText::RemovingAdapter => "正在移除适配器…",
+        GuiText::HotwordChangesBlocked => "继续前，请先保存或重置热词更改。",
+        GuiText::HotwordActivationNotApplied => {
+            "已保存的热词路径配置尚未应用到当前守护进程；可以重试激活。"
+        }
+        GuiText::ChecksumVerified => "校验和已验证",
+        GuiText::RegistryNoChecksum => "注册表未提供校验和",
         _ => unreachable!(),
     }
 }
