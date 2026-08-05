@@ -16,6 +16,8 @@ use crate::{
 /// One editable text-adapter field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AdapterConfigEditorField {
+    /// Stable adapter id for a new custom adapter.
+    Id,
     /// Executable path or command name.
     Command,
     /// JSON array of command arguments.
@@ -29,6 +31,8 @@ pub enum AdapterConfigEditorField {
 /// One text-adapter configuration interaction.
 #[derive(Clone)]
 pub enum AdapterConfigMessage {
+    /// Open an empty form for a custom adapter.
+    BeginAdd,
     /// Open one configured adapter for editing.
     BeginEdit(String),
     /// Update one editor field with a redacted value wrapper.
@@ -51,6 +55,7 @@ pub enum AdapterConfigMessage {
 impl fmt::Debug for AdapterConfigMessage {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::BeginAdd => formatter.write_str("BeginAdd"),
             Self::BeginEdit(id) => formatter.debug_tuple("BeginEdit").field(id).finish(),
             Self::EditorChanged { field, .. } => formatter
                 .debug_struct("EditorChanged")
@@ -80,10 +85,13 @@ pub struct AdapterConfigMutationOutcome {
     pub save: ConfigSaveOutcome,
     /// Stable adapter id that was updated.
     pub adapter_id: String,
+    /// Whether the operation created a new custom adapter.
+    pub created: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
 struct AdapterConfigEditorFields {
+    id: String,
     command: SecretInput,
     args: SecretInput,
     environment: SecretInput,
@@ -105,7 +113,7 @@ impl fmt::Debug for AdapterConfigEditorFields {
 /// Active text-adapter editor state.
 #[derive(Clone, PartialEq)]
 pub(super) struct AdapterConfigEditorState {
-    original: LlmAdapterConfig,
+    original: Option<LlmAdapterConfig>,
     baseline: AdapterConfigEditorFields,
     fields: AdapterConfigEditorFields,
 }
@@ -114,7 +122,15 @@ impl fmt::Debug for AdapterConfigEditorState {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("AdapterConfigEditorState")
-            .field("adapter_id", &self.original.id)
+            .field("adapter_id", &self.fields.id)
+            .field(
+                "mode",
+                &if self.original.is_some() {
+                    "edit"
+                } else {
+                    "add"
+                },
+            )
             .field("baseline", &self.baseline)
             .field("fields", &self.fields)
             .finish()
@@ -122,8 +138,24 @@ impl fmt::Debug for AdapterConfigEditorState {
 }
 
 impl AdapterConfigEditorState {
+    fn add() -> Self {
+        let fields = AdapterConfigEditorFields {
+            id: String::new(),
+            command: SecretInput::new(String::new()),
+            args: SecretInput::new("[]".to_owned()),
+            environment: SecretInput::new("{}".to_owned()),
+            working_directory: SecretInput::new(String::new()),
+        };
+        Self {
+            original: None,
+            baseline: fields.clone(),
+            fields,
+        }
+    }
+
     fn edit(adapter: &LlmAdapterConfig) -> Self {
         let fields = AdapterConfigEditorFields {
+            id: adapter.id.clone(),
             command: SecretInput::new(adapter.command.clone()),
             args: SecretInput::new(
                 serde_json::to_string_pretty(&adapter.args).unwrap_or_else(|_| "[]".to_owned()),
@@ -134,7 +166,7 @@ impl AdapterConfigEditorState {
             working_directory: SecretInput::new(adapter.working_dir.clone().unwrap_or_default()),
         };
         Self {
-            original: adapter.clone(),
+            original: Some(adapter.clone()),
             baseline: fields.clone(),
             fields,
         }
@@ -142,6 +174,10 @@ impl AdapterConfigEditorState {
 
     fn update(&mut self, field: AdapterConfigEditorField, value: SecretInput) {
         match field {
+            AdapterConfigEditorField::Id if self.original.is_none() => {
+                self.fields.id = value.into_inner();
+            }
+            AdapterConfigEditorField::Id => {}
             AdapterConfigEditorField::Command => self.fields.command = value,
             AdapterConfigEditorField::Args => self.fields.args = value,
             AdapterConfigEditorField::Environment => self.fields.environment = value,
@@ -158,11 +194,26 @@ impl AdapterConfigEditorState {
     }
 
     fn adapter(&self) -> Result<LlmAdapterConfig, String> {
+        let id = self
+            .original
+            .as_ref()
+            .map_or_else(|| self.fields.id.trim(), |adapter| adapter.id.as_str());
+        if id.is_empty() {
+            return Err("Text adapter id cannot be empty.".to_owned());
+        }
         let command = self.fields.command.as_str().trim();
         if command.is_empty() {
             return Err("Text adapter command cannot be empty.".to_owned());
         }
-        let mut adapter = self.original.clone();
+        let mut adapter = self.original.clone().unwrap_or_else(|| LlmAdapterConfig {
+            id: id.to_owned(),
+            command: String::new(),
+            args: Vec::new(),
+            env: HashMap::new(),
+            working_dir: None,
+            extra: HashMap::new(),
+        });
+        id.clone_into(&mut adapter.id);
         command.clone_into(&mut adapter.command);
         adapter.args = parse_string_array(self.fields.args.as_str())?;
         adapter.env = parse_string_map(self.fields.environment.as_str())?;
@@ -217,6 +268,10 @@ impl App {
 
     fn handle_adapter_config_message(&mut self, message: AdapterConfigMessage) -> Task<Message> {
         match message {
+            AdapterConfigMessage::BeginAdd => {
+                self.begin_add_adapter_config();
+                Task::none()
+            }
             AdapterConfigMessage::BeginEdit(adapter_id) => {
                 self.begin_edit_adapter_config(&adapter_id);
                 Task::none()
@@ -244,6 +299,21 @@ impl App {
                 self.finish_adapter_config_mutation(result)
             }
         }
+    }
+
+    fn begin_add_adapter_config(&mut self) {
+        if self.adapter_config_editor.is_some() {
+            return;
+        }
+        if let Err(error) = self.ensure_adapter_config_editor_allowed() {
+            self.operation = OperationState::Failed(error);
+            return;
+        }
+        if !self.guard_hotword_changes("adding a text adapter") {
+            return;
+        }
+        self.adapter_config_editor = Some(AdapterConfigEditorState::add());
+        self.operation = OperationState::Idle;
     }
 
     fn begin_edit_adapter_config(&mut self, adapter_id: &str) {
@@ -298,7 +368,7 @@ impl App {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
         };
-        let updated = match edit_adapter_config(&document.config, &editor) {
+        let updated = match upsert_adapter_config(&document.config, &editor) {
             Ok(updated) => updated,
             Err(error) => {
                 self.operation = OperationState::Failed(error);
@@ -307,11 +377,17 @@ impl App {
         };
         self.operation = OperationState::Running("Saving text adapter…");
         let document = document.clone();
-        let adapter_id = editor.original.id;
+        let adapter_id = editor.fields.id.trim().to_owned();
+        let created = editor.original.is_none();
         Task::perform(
             async move {
-                save_updated_config_with_daemon(&document, &updated)
-                    .map(|save| AdapterConfigMutationOutcome { save, adapter_id })
+                save_updated_config_with_daemon(&document, &updated).map(|save| {
+                    AdapterConfigMutationOutcome {
+                        save,
+                        adapter_id,
+                        created,
+                    }
+                })
             },
             |result| Message::AdapterConfig(AdapterConfigMessage::MutationFinished(result)),
         )
@@ -334,7 +410,8 @@ impl App {
         );
         self.replace_config(load_config_document(Some(&outcome.save.path)));
         self.operation = OperationState::Succeeded(format!(
-            "Updated text adapter `{}`. Saved {} ({backup}); {}",
+            "{} text adapter `{}`. Saved {} ({backup}); {}",
+            if outcome.created { "Added" } else { "Updated" },
             outcome.adapter_id,
             outcome.save.path.display(),
             outcome.save.daemon_reload
@@ -357,27 +434,45 @@ impl App {
     }
 }
 
-fn edit_adapter_config(
+fn upsert_adapter_config(
     config: &VinputConfig,
     editor: &AdapterConfigEditorState,
 ) -> Result<VinputConfig, String> {
     let adapter = editor.adapter()?;
     let mut updated = config.clone();
+    let Some(original) = &editor.original else {
+        if updated
+            .llm
+            .adapters
+            .iter()
+            .any(|candidate| candidate.id == adapter.id)
+        {
+            return Err(format!(
+                "Text adapter `{}` is already configured.",
+                adapter.id
+            ));
+        }
+        updated.llm.adapters.push(adapter);
+        updated
+            .validate()
+            .map_err(|error| format!("Validate new text-adapter config: {error}"))?;
+        return Ok(updated);
+    };
     let Some(index) = updated
         .llm
         .adapters
         .iter()
-        .position(|candidate| candidate.id == editor.original.id)
+        .position(|candidate| candidate.id == original.id)
     else {
         return Err(format!(
             "Text adapter `{}` is no longer configured.",
-            editor.original.id
+            original.id
         ));
     };
-    if updated.llm.adapters[index] != editor.original {
+    if updated.llm.adapters[index] != *original {
         return Err(format!(
             "Text adapter `{}` changed after the form was opened; reopen it before saving.",
-            editor.original.id
+            original.id
         ));
     }
     updated.llm.adapters[index] = adapter;
@@ -392,39 +487,66 @@ fn adapter_config_editor_view(
     busy: bool,
 ) -> Element<'_, Message> {
     let dirty = editor.is_dirty();
-    column![
-        text("Edit text adapter").size(22),
-        text(format!("Adapter id: {} (immutable)", editor.original.id)),
-        labeled_input(
-            "Command",
-            "/path/to/adapter",
-            editor.fields.command.as_str(),
-            AdapterConfigEditorField::Command,
+    let adding = editor.original.is_none();
+    let mut body = column![
+        text(if adding {
+            "Add custom text adapter"
+        } else {
+            "Edit text adapter"
+        })
+        .size(22)
+    ]
+    .spacing(10);
+    body = if adding {
+        body.push(labeled_input(
+            "Adapter id",
+            "custom-adapter",
+            &editor.fields.id,
+            AdapterConfigEditorField::Id,
             false,
-        ),
-        labeled_input(
-            "Arguments",
-            "JSON string array",
-            editor.fields.args.as_str(),
-            AdapterConfigEditorField::Args,
-            true,
-        ),
-        labeled_input(
-            "Environment",
-            "JSON string object",
-            editor.fields.environment.as_str(),
-            AdapterConfigEditorField::Environment,
-            true,
-        ),
-        labeled_input(
-            "Working directory",
-            "optional absolute or configured path",
-            editor.fields.working_directory.as_str(),
-            AdapterConfigEditorField::WorkingDirectory,
-            false,
-        ),
+        ))
+    } else {
+        body.push(text(format!(
+            "Adapter id: {} (immutable)",
+            editor.fields.id
+        )))
+    };
+    body.push(labeled_input(
+        "Command",
+        "/path/to/adapter",
+        editor.fields.command.as_str(),
+        AdapterConfigEditorField::Command,
+        false,
+    ))
+    .push(labeled_input(
+        "Arguments",
+        "JSON string array",
+        editor.fields.args.as_str(),
+        AdapterConfigEditorField::Args,
+        true,
+    ))
+    .push(labeled_input(
+        "Environment",
+        "JSON string object",
+        editor.fields.environment.as_str(),
+        AdapterConfigEditorField::Environment,
+        true,
+    ))
+    .push(labeled_input(
+        "Working directory",
+        "optional absolute or configured path",
+        editor.fields.working_directory.as_str(),
+        AdapterConfigEditorField::WorkingDirectory,
+        false,
+    ))
+    .push(
         row![
-            button("Update adapter").on_press_maybe(
+            button(if adding {
+                "Add adapter"
+            } else {
+                "Update adapter"
+            })
+            .on_press_maybe(
                 (dirty && !busy).then_some(Message::AdapterConfig(AdapterConfigMessage::Save)),
             ),
             button("Reset form").on_press_maybe(
@@ -440,8 +562,7 @@ fn adapter_config_editor_view(
             }),
         ]
         .spacing(10),
-    ]
-    .spacing(10)
+    )
     .into()
 }
 
@@ -575,14 +696,57 @@ mod tests {
         let editor = AdapterConfigEditorState::edit(&original);
         let mut config = VinputConfig::bundled_default().expect("bundled config");
         config.llm.adapters = vec![original.clone()];
-        let updated = edit_adapter_config(&config, &editor).expect("current adapter is valid");
+        let updated = upsert_adapter_config(&config, &editor).expect("current adapter is valid");
         assert_eq!(
             updated.llm.adapters.as_slice(),
             std::slice::from_ref(&original)
         );
 
         config.llm.adapters[0].command = "/external/change".to_owned();
-        assert!(edit_adapter_config(&config, &editor).is_err());
+        assert!(upsert_adapter_config(&config, &editor).is_err());
+    }
+
+    #[test]
+    fn add_builds_trimmed_adapter_and_rejects_duplicate_id() {
+        let mut editor = AdapterConfigEditorState::add();
+        editor.update(
+            AdapterConfigEditorField::Id,
+            SecretInput::new(" custom-adapter ".to_owned()),
+        );
+        editor.update(
+            AdapterConfigEditorField::Command,
+            SecretInput::new(" /opt/custom-adapter ".to_owned()),
+        );
+        editor.update(
+            AdapterConfigEditorField::Args,
+            SecretInput::new("[\"--json\"]".to_owned()),
+        );
+
+        let config = VinputConfig::bundled_default().expect("bundled config");
+        let updated = upsert_adapter_config(&config, &editor).expect("add custom adapter");
+        let added = updated
+            .llm
+            .adapters
+            .iter()
+            .find(|adapter| adapter.id == "custom-adapter")
+            .expect("custom adapter should be added");
+        assert_eq!(added.command, "/opt/custom-adapter");
+        assert_eq!(added.args, ["--json"]);
+        assert!(added.extra.is_empty());
+
+        assert!(upsert_adapter_config(&updated, &editor).is_err());
+    }
+
+    #[test]
+    fn edit_mode_ignores_id_messages_and_preserves_identity() {
+        let original = adapter();
+        let mut editor = AdapterConfigEditorState::edit(&original);
+        editor.update(
+            AdapterConfigEditorField::Id,
+            SecretInput::new("renamed-adapter".to_owned()),
+        );
+        assert_eq!(editor.adapter().expect("valid edit").id, original.id);
+        assert_eq!(editor.fields.id, original.id);
     }
 
     #[test]

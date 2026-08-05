@@ -118,6 +118,11 @@ impl App {
                 body = body.push(
                     row![
                         text("Adapters").size(22).width(Length::Fill),
+                        button("Add custom adapter").on_press_maybe(
+                            (!adapter_controls_busy).then_some(Message::AdapterConfig(
+                                crate::AdapterConfigMessage::BeginAdd,
+                            )),
+                        ),
                         button("Refresh runtime").on_press_maybe(
                             (!adapter_controls_busy).then_some(Message::RefreshDaemon),
                         ),
