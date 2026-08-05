@@ -100,7 +100,8 @@ impl App {
 
     pub(super) fn llm_page(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
-        let adapter_controls_busy = busy || self.llm_provider_editor.is_some();
+        let adapter_controls_busy =
+            busy || self.llm_provider_editor.is_some() || self.adapter_config_editor.is_some();
         let mut body = column![
             text("LLM").size(30),
             text("Managed text adapters").size(22),
@@ -131,6 +132,9 @@ impl App {
                         adapter_controls_busy,
                         managed,
                     ));
+                }
+                if let Some(editor) = self.adapter_config_editor_view(busy) {
+                    body = body.push(editor);
                 }
                 if document.config.llm.adapters.is_empty() {
                     body = body.push(text("No text adapters configured."));
@@ -214,6 +218,9 @@ fn adapter_row(
         ))
         .width(Length::Fill),
         button("Details").on_press(Message::SelectLlmAdapterDetail(adapter_id.to_owned())),
+        button("Edit").on_press_maybe((!busy).then_some(Message::AdapterConfig(
+            crate::AdapterConfigMessage::BeginEdit(adapter_id.to_owned()),
+        ))),
         button("Start").on_press_maybe((!busy && runtime.can_start).then_some(
             Message::AdapterRuntime(crate::AdapterRuntimeMessage::Start(start_id),)
         ),),

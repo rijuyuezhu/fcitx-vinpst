@@ -19,6 +19,7 @@ use vinput_config::{VinputConfig, config_backup_path, write_config_file};
 use vinput_protocol::{TextAdapterState, dbus};
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
+mod adapter_config_management;
 mod adapter_runtime;
 mod asr_provider_management;
 mod asr_reload_confirmation;
@@ -44,6 +45,10 @@ mod script_recovery;
 mod script_removal;
 mod script_transaction;
 
+use adapter_config_management::AdapterConfigEditorState;
+pub use adapter_config_management::{
+    AdapterConfigEditorField, AdapterConfigMessage, AdapterConfigMutationOutcome,
+};
 pub use adapter_runtime::{
     AdapterRuntimeAction, AdapterRuntimeConfirmation, AdapterRuntimeError,
     AdapterRuntimeErrorCategory, AdapterRuntimeMessage, AdapterRuntimeOutcome,
@@ -205,6 +210,7 @@ pub struct App {
     scene_editor: Option<SceneEditorState>,
     asr_provider_editor: Option<AsrProviderEditorState>,
     llm_provider_editor: Option<LlmProviderEditorState>,
+    adapter_config_editor: Option<AdapterConfigEditorState>,
     llm_provider_test_text: SecretInput,
     hotword_editor: HotwordEditorState,
     active_hotword_operation_id: Option<u64>,
@@ -243,6 +249,7 @@ impl App {
             scene_editor: None,
             asr_provider_editor: None,
             llm_provider_editor: None,
+            adapter_config_editor: None,
             llm_provider_test_text: SecretInput::new("Connectivity test".to_owned()),
             hotword_editor,
             active_hotword_operation_id: None,
@@ -254,6 +261,9 @@ impl App {
 
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if let Some(task) = self.intercept_adapter_config_message(&message) {
+            return task;
+        }
         if let Some(task) = self.intercept_adapter_runtime_message(&message) {
             return task;
         }
@@ -360,8 +370,8 @@ impl App {
                 return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
             }
             Message::ScriptRemoved(result) => return self.finish_script_remove(result),
-            Message::AdapterRuntime(_) => {
-                unreachable!("adapter runtime messages are intercepted")
+            Message::AdapterRuntime(_) | Message::AdapterConfig(_) => {
+                unreachable!("adapter messages are intercepted")
             }
             Message::AsrProvider(_) => unreachable!("ASR provider messages are intercepted"),
         }
@@ -568,6 +578,7 @@ impl App {
         self.scene_editor = None;
         self.asr_provider_editor = None;
         self.llm_provider_editor = None;
+        self.adapter_config_editor = None;
     }
 
     /// Renders the GUI.

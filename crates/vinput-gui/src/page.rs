@@ -41,5 +41,6 @@ impl App {
         self.scene_editor = None;
         self.asr_provider_editor = None;
         self.llm_provider_editor = None;
+        self.adapter_config_editor = None;
     }
 }
