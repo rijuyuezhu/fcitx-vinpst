@@ -1,9 +1,9 @@
 //! Desktop file-opening actions shared by the management GUI.
 
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fmt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Child, Command, Stdio},
     sync::mpsc,
     thread,
@@ -23,7 +23,21 @@ pub enum DesktopActionMessage {
     /// Open the loaded configuration file in the desktop's associated application.
     OpenConfig,
     /// Complete one asynchronous desktop-open request.
-    ConfigOpened(Result<DesktopOpenOutcome, DesktopOpenFailure>),
+    Opened {
+        /// Kind of desktop target handed to the opener.
+        kind: DesktopOpenKind,
+        /// Secret-free launcher outcome.
+        result: Result<DesktopOpenOutcome, DesktopOpenFailure>,
+    },
+}
+
+/// Kind of target handed to the desktop opener.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DesktopOpenKind {
+    /// Loaded configuration file.
+    Config,
+    /// Remote startup-notification details URL.
+    NotificationDetails,
 }
 
 /// Successful handoff to the configured desktop opener.
@@ -42,13 +56,19 @@ pub enum DesktopOpenFailure {
 }
 
 impl DesktopOpenFailure {
-    fn message(self) -> &'static str {
-        match self {
-            Self::LaunchFailed => {
+    fn message(self, kind: DesktopOpenKind) -> &'static str {
+        match (self, kind) {
+            (Self::LaunchFailed, DesktopOpenKind::Config) => {
                 "Cannot open the config file: the desktop opener could not be started."
             }
-            Self::ReaperFailed => {
+            (Self::ReaperFailed, DesktopOpenKind::Config) => {
                 "Cannot open the config file: the desktop opener could not be supervised safely."
+            }
+            (Self::LaunchFailed, DesktopOpenKind::NotificationDetails) => {
+                "Cannot open notification details: the desktop opener could not be started."
+            }
+            (Self::ReaperFailed, DesktopOpenKind::NotificationDetails) => {
+                "Cannot open notification details: the desktop opener could not be supervised safely."
             }
         }
     }
@@ -133,7 +153,7 @@ impl App {
         let Message::DesktopAction(message) = message else {
             return None;
         };
-        if self.is_busy() && !matches!(message, DesktopActionMessage::ConfigOpened(_)) {
+        if self.is_busy() && !matches!(message, DesktopActionMessage::Opened { .. }) {
             return Some(Task::none());
         }
         Some(self.handle_desktop_action_message(*message))
@@ -142,14 +162,10 @@ impl App {
     fn handle_desktop_action_message(&mut self, message: DesktopActionMessage) -> Task<Message> {
         match message {
             DesktopActionMessage::OpenConfig => self.begin_open_config(),
-            DesktopActionMessage::ConfigOpened(result) => {
+            DesktopActionMessage::Opened { kind, result } => {
                 self.operation = match result {
-                    Ok(outcome) => OperationState::Succeeded(if outcome.host_wrapped {
-                        "Passed the config file to the host desktop opener.".to_owned()
-                    } else {
-                        "Passed the config file to the desktop opener.".to_owned()
-                    }),
-                    Err(error) => OperationState::Failed(error.message().to_owned()),
+                    Ok(outcome) => OperationState::Succeeded(open_success_message(kind, outcome)),
+                    Err(error) => OperationState::Failed(error.message(kind).to_owned()),
                 };
                 Task::none()
             }
@@ -161,39 +177,76 @@ impl App {
             self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
             return Task::none();
         };
-        let path = document.path.clone();
-        self.operation = OperationState::Running("Opening config file…");
+        let target = document.path.as_os_str().to_owned();
+        self.begin_desktop_open(DesktopOpenKind::Config, target, "Opening config file…")
+    }
+
+    pub(super) fn begin_notification_details_open(&mut self, url: String) -> Task<Message> {
+        self.begin_desktop_open(
+            DesktopOpenKind::NotificationDetails,
+            OsString::from(url),
+            "Opening notification details…",
+        )
+    }
+
+    fn begin_desktop_open(
+        &mut self,
+        kind: DesktopOpenKind,
+        target: OsString,
+        progress: &'static str,
+    ) -> Task<Message> {
+        self.operation = OperationState::Running(progress);
         Task::perform(
-            async move { spawn_desktop_open(&path, &DesktopOpenEnvironment::from_process()) },
-            |result| Message::DesktopAction(DesktopActionMessage::ConfigOpened(result)),
+            async move { spawn_desktop_open_target(&target, &DesktopOpenEnvironment::from_process()) },
+            move |result| Message::DesktopAction(DesktopActionMessage::Opened { kind, result }),
         )
     }
 }
 
-fn desktop_open_command(path: &Path, environment: &DesktopOpenEnvironment) -> DesktopOpenCommand {
+fn open_success_message(kind: DesktopOpenKind, outcome: DesktopOpenOutcome) -> String {
+    match (kind, outcome.host_wrapped) {
+        (DesktopOpenKind::Config, true) => {
+            "Passed the config file to the host desktop opener.".to_owned()
+        }
+        (DesktopOpenKind::Config, false) => {
+            "Passed the config file to the desktop opener.".to_owned()
+        }
+        (DesktopOpenKind::NotificationDetails, true) => {
+            "Passed notification details to the host desktop opener.".to_owned()
+        }
+        (DesktopOpenKind::NotificationDetails, false) => {
+            "Passed notification details to the desktop opener.".to_owned()
+        }
+    }
+}
+
+fn desktop_open_command(
+    target: &OsStr,
+    environment: &DesktopOpenEnvironment,
+) -> DesktopOpenCommand {
     if environment.is_flatpak() {
         return DesktopOpenCommand {
             program: environment.flatpak_spawn_program.clone(),
             args: vec![
                 OsString::from("--host"),
                 environment.opener_program.clone(),
-                path.as_os_str().to_owned(),
+                target.to_owned(),
             ],
             host_wrapped: true,
         };
     }
     DesktopOpenCommand {
         program: environment.opener_program.clone(),
-        args: vec![path.as_os_str().to_owned()],
+        args: vec![target.to_owned()],
         host_wrapped: false,
     }
 }
 
-fn spawn_desktop_open(
-    path: &Path,
+fn spawn_desktop_open_target(
+    target: &OsStr,
     environment: &DesktopOpenEnvironment,
 ) -> Result<DesktopOpenOutcome, DesktopOpenFailure> {
-    let command = desktop_open_command(path, environment);
+    let command = desktop_open_command(target, environment);
     let mut child = Command::new(&command.program)
         .args(&command.args)
         .stdin(Stdio::null())
@@ -234,7 +287,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("desktop fixture");
         let path = directory.path().join("config with spaces.json");
         let native = desktop_open_command(
-            &path,
+            path.as_os_str(),
             &DesktopOpenEnvironment::new("/usr/bin/xdg-open", "/missing", "flatpak-spawn"),
         );
         assert_eq!(native.program, std::ffi::OsStr::new("/usr/bin/xdg-open"));
@@ -245,7 +298,7 @@ mod tests {
         let flatpak_info = directory.path().join("flatpak-info");
         std::fs::write(&flatpak_info, "fixture").expect("flatpak marker");
         let wrapped = desktop_open_command(
-            &path,
+            path.as_os_str(),
             &DesktopOpenEnvironment::new(
                 "/custom/xdg-open",
                 &flatpak_info,
@@ -270,7 +323,7 @@ mod tests {
     #[test]
     fn opener_spawn_accepts_a_successful_direct_launcher() {
         let environment = DesktopOpenEnvironment::new("/bin/true", "/missing", "flatpak-spawn");
-        let outcome = spawn_desktop_open(Path::new("/tmp/config.json"), &environment)
+        let outcome = spawn_desktop_open_target(OsStr::new("/tmp/config.json"), &environment)
             .expect("direct opener should start");
         assert!(!outcome.host_wrapped);
     }
@@ -282,7 +335,7 @@ mod tests {
             "/missing",
             "flatpak-spawn",
         );
-        let error = spawn_desktop_open(Path::new("/secret/config.json"), &environment)
+        let error = spawn_desktop_open_target(OsStr::new("/secret/config.json"), &environment)
             .expect_err("missing opener should fail");
         assert_eq!(error, DesktopOpenFailure::LaunchFailed);
         assert!(!format!("{error:?}").contains("secret"));

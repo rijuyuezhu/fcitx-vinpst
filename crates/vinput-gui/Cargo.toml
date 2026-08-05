@@ -23,6 +23,7 @@ tokio.workspace = true
 url.workspace = true
 vinput-config = { path = "../vinput-config" }
 vinput-daemon-control = { path = "../vinput-daemon-control" }
+vinput-http = { path = "../vinput-http" }
 vinput-protocol = { path = "../vinput-protocol" }
 vinput-registry = { path = "../vinput-registry" }
 vinput-text = { path = "../vinput-text" }

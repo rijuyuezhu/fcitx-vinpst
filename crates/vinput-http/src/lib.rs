@@ -4,6 +4,7 @@ use std::{
     env, fs,
     io::{self, Read},
     path::Path,
+    time::Duration,
 };
 
 /// Environment variable containing an additional PEM certificate bundle.
@@ -58,6 +59,29 @@ pub enum HttpClientError {
     ClientBuild,
 }
 
+/// Errors produced while fetching bounded JSON text over the shared client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum JsonTextFetchError {
+    /// The shared client could not be built from the trust environment.
+    #[error("HTTP client setup failed")]
+    Client(#[from] HttpClientError),
+    /// The request exceeded its configured deadline.
+    #[error("HTTP request timed out")]
+    TimedOut,
+    /// The remote endpoint could not be reached.
+    #[error("HTTP connection failed")]
+    ConnectionFailed,
+    /// The request failed for another transport reason.
+    #[error("HTTP request failed")]
+    RequestFailed,
+    /// The endpoint returned a non-success status, including redirects.
+    #[error("HTTP endpoint returned status {0}")]
+    Status(u16),
+    /// The bounded response body could not be read as UTF-8.
+    #[error("HTTP response body failed: {0}")]
+    Body(#[from] ResponseBodyError),
+}
+
 /// Builds the blocking provider client using the process trust environment.
 ///
 /// Reqwest's built-in `WebPKI` roots remain enabled. When `SSL_CERT_FILE` names a
@@ -70,6 +94,41 @@ pub fn blocking_client_from_environment() -> Result<reqwest::blocking::Client, H
         .filter(|value| !value.is_empty())
         .map(std::path::PathBuf::from);
     blocking_client_with_extra_ca_path(certificate_path.as_deref())
+}
+
+/// Fetches one bounded JSON text document with redirects disabled.
+///
+/// Diagnostics intentionally omit the request URL and response body. The shared
+/// trust environment and built-in roots remain active.
+pub fn fetch_json_text(url: &str, timeout: Duration) -> Result<String, JsonTextFetchError> {
+    let client = blocking_client_from_environment()?;
+    fetch_json_text_with_client(&client, url, timeout)
+}
+
+fn fetch_json_text_with_client(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    timeout: Duration,
+) -> Result<String, JsonTextFetchError> {
+    let response = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .timeout(timeout)
+        .send()
+        .map_err(|error| {
+            if error.is_timeout() {
+                JsonTextFetchError::TimedOut
+            } else if error.is_connect() {
+                JsonTextFetchError::ConnectionFailed
+            } else {
+                JsonTextFetchError::RequestFailed
+            }
+        })?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(JsonTextFetchError::Status(status.as_u16()));
+    }
+    read_provider_response_text(response).map_err(JsonTextFetchError::from)
 }
 
 /// Returns a stable, URL-free category for a reqwest transport error.
@@ -206,14 +265,68 @@ mod tests {
     use std::{
         fs,
         io::{self, Cursor, Read, Write},
+        net::TcpListener,
+        thread,
+        time::Duration,
     };
 
     use tempfile::tempdir;
 
     use super::{
-        HttpClientError, MAX_EXTRA_CA_BUNDLE_BYTES, ResponseBodyError,
-        blocking_client_with_extra_ca_path, read_utf8_bounded,
+        HttpClientError, JsonTextFetchError, MAX_EXTRA_CA_BUNDLE_BYTES, ResponseBodyError,
+        blocking_client_with_extra_ca_path, fetch_json_text_with_client, read_utf8_bounded,
     };
+
+    fn serve_once(response: Vec<u8>) -> String {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind HTTP fixture");
+        let address = listener.local_addr().expect("HTTP fixture address");
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept HTTP fixture");
+            let mut request = [0_u8; 2048];
+            let _ = stream.read(&mut request);
+            stream.write_all(&response).expect("write HTTP fixture");
+        });
+        format!("http://{address}/notification.json")
+    }
+
+    #[test]
+    fn bounded_json_fetch_accepts_success_and_rejects_redirect_status() {
+        let client = blocking_client_with_extra_ca_path(None).expect("HTTP fixture client");
+        let body = br#"{"id":"notice"}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK
+Content-Length: {}
+Connection: close
+
+",
+            body.len()
+        )
+        .into_bytes()
+        .into_iter()
+        .chain(body.iter().copied())
+        .collect();
+        let url = serve_once(response);
+        assert_eq!(
+            fetch_json_text_with_client(&client, &url, Duration::from_secs(1))
+                .expect("fetch JSON fixture"),
+            r#"{"id":"notice"}"#
+        );
+
+        let redirect = serve_once(
+            b"HTTP/1.1 302 Found
+Location: http://127.0.0.1:9/blocked
+Content-Length: 0
+Connection: close
+
+"
+            .to_vec(),
+        );
+        assert_eq!(
+            fetch_json_text_with_client(&client, &redirect, Duration::from_secs(1))
+                .expect_err("redirect must remain a non-success status"),
+            JsonTextFetchError::Status(302)
+        );
+    }
 
     struct FailingReader {
         kind: io::ErrorKind,

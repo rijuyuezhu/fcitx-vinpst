@@ -4357,6 +4357,7 @@ dependencies = [
  "url",
  "vinput-config",
  "vinput-daemon-control",
+ "vinput-http",
  "vinput-protocol",
  "vinput-registry",
  "vinput-text",

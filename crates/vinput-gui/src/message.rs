@@ -6,7 +6,7 @@ use crate::{
     AdapterConfigMessage, AdapterRuntimeMessage, AsrProviderMessage, ConfigSaveOutcome,
     DaemonControlMessage, DaemonOwnerEvent, DaemonSnapshot, DesktopActionMessage, HotwordMessage,
     LlmProviderMessage, ModelInstallOutcome, Page, SceneMessage, ScriptInstallOutcome,
-    ScriptPreparationResult, SecretInput,
+    ScriptPreparationResult, SecretInput, StartupNotificationMessage,
 };
 
 /// Editable Control-page configuration fields.
@@ -37,6 +37,8 @@ pub enum Message {
     SelectPage(Page),
     /// Update the current resource filter.
     FilterChanged(String),
+    /// Apply one startup-notification interaction.
+    StartupNotification(StartupNotificationMessage),
     /// Apply one global desktop integration action.
     DesktopAction(DesktopActionMessage),
     /// Refresh daemon state over D-Bus.

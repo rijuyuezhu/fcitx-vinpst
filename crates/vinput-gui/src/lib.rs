@@ -8,9 +8,7 @@ use std::{
 
 use iced::{
     Element, Length, Subscription, Task, Theme,
-    widget::{
-        button, checkbox, column, container, pick_list, row, scrollable, slider, text, text_input,
-    },
+    widget::{button, column, container, row, scrollable, text},
 };
 use serde_json::{Value, json};
 #[cfg(test)]
@@ -23,6 +21,7 @@ mod adapter_config_management;
 mod adapter_runtime;
 mod asr_provider_management;
 mod asr_reload_confirmation;
+mod config_editor;
 mod daemon_client;
 mod daemon_control;
 mod daemon_owner_monitor;
@@ -46,6 +45,7 @@ mod script_management;
 mod script_recovery;
 mod script_removal;
 mod script_transaction;
+mod startup_notifications;
 
 use adapter_config_management::AdapterConfigEditorState;
 pub use adapter_config_management::{
@@ -90,6 +90,10 @@ pub use scene_management::{
 };
 use script_install::ScriptInstallState;
 pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretInput};
+use startup_notifications::StartupNotificationState;
+pub use startup_notifications::{
+    StartupNotification, StartupNotificationLoadOutcome, StartupNotificationMessage,
+};
 
 /// Product display name.
 pub const APPLICATION_TITLE: &str = "Vinput Configuration";
@@ -207,6 +211,7 @@ pub struct App {
     active_daemon_control_id: Option<u64>,
     next_daemon_control_id: u64,
     operation: OperationState,
+    startup_notification: StartupNotificationState,
     model_selector: String,
     model_install: ModelInstallState,
     next_model_install_id: u64,
@@ -248,6 +253,7 @@ impl App {
             active_daemon_control_id: None,
             next_daemon_control_id: 1,
             operation: OperationState::Idle,
+            startup_notification: StartupNotificationState::Loading,
             model_selector: String::new(),
             model_install: ModelInstallState::default(),
             next_model_install_id: 1,
@@ -266,12 +272,16 @@ impl App {
             active_hotword_operation_id: None,
             next_hotword_operation_id: 1,
         };
-        let task = app.begin_daemon_refresh(true);
-        (app, task)
+        let daemon_task = app.begin_daemon_refresh(true);
+        let notification_task = app.begin_startup_notification_load();
+        (app, Task::batch([daemon_task, notification_task]))
     }
 
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if let Some(task) = self.intercept_startup_notification_message(&message) {
+            return task;
+        }
         if let Some(task) = self.intercept_desktop_action_message(&message) {
             return task;
         }
@@ -364,7 +374,8 @@ impl App {
                 return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
             }
             Message::ScriptRemoved(result) => return self.finish_script_remove(result),
-            Message::DesktopAction(_)
+            Message::StartupNotification(_)
+            | Message::DesktopAction(_)
             | Message::DaemonControl(_)
             | Message::AdapterRuntime(_)
             | Message::AdapterConfig(_)
@@ -389,41 +400,6 @@ impl App {
             );
         }
         Subscription::batch(subscriptions)
-    }
-
-    fn update_config_draft(&mut self, message: ConfigDraftMessage) {
-        match message {
-            ConfigDraftMessage::DefaultLanguage(value) => {
-                self.update_draft(|draft| draft.default_language = value);
-            }
-            ConfigDraftMessage::CaptureDevice(value) => {
-                self.update_draft(|draft| draft.capture_device = value);
-            }
-            ConfigDraftMessage::DuckOutput(value) => {
-                self.update_draft(|draft| draft.duck_output_while_recording = value);
-            }
-            ConfigDraftMessage::DuckVolume(value) => {
-                self.update_draft(|draft| draft.duck_output_volume = value);
-            }
-            ConfigDraftMessage::VadEnabled(value) => {
-                self.update_draft(|draft| draft.vad_enabled = value);
-            }
-            ConfigDraftMessage::VadThreshold(value) => {
-                self.update_draft(|draft| draft.vad_threshold = value);
-            }
-            ConfigDraftMessage::ActiveProvider(value) => {
-                self.update_draft(|draft| draft.active_provider = value);
-            }
-            ConfigDraftMessage::ActiveScene(value) => {
-                self.update_draft(|draft| draft.active_scene = value);
-            }
-        }
-    }
-
-    fn update_draft(&mut self, update: impl FnOnce(&mut ConfigDraft)) {
-        if let Some(draft) = &mut self.draft {
-            update(draft);
-        }
     }
 
     pub(crate) fn ensure_no_unsaved_config_draft(&self) -> Result<(), String> {
@@ -611,11 +587,15 @@ impl App {
         let busy = self.is_busy();
         let navigation = self.navigation_view(busy);
 
-        let content = match self.page {
+        let page_content = match self.page {
             Page::Control => self.control_page(),
             Page::Resources => self.resources_page(),
             Page::Llm => self.llm_page(),
             Page::Hotwords => self.hotwords_page(),
+        };
+        let content = match self.startup_notification_view() {
+            Some(notification) => column![notification, page_content].spacing(12),
+            None => column![page_content],
         };
 
         container(
@@ -700,180 +680,6 @@ impl App {
             OperationState::Succeeded(message) => Some(text(format!("Success: {message}")).into()),
             OperationState::Failed(message) => Some(text(format!("Error: {message}")).into()),
         }
-    }
-
-    fn config_editor(&self, busy: bool) -> Element<'_, Message> {
-        match (&self.config, &self.draft) {
-            (Ok(document), Some(draft)) => Self::loaded_config_editor(document, draft, busy),
-            (Err(error), _) => text(format!("Config error: {error}")).into(),
-            (Ok(_), None) => text("Config draft is unavailable.").into(),
-        }
-    }
-
-    fn loaded_config_editor<'a>(
-        document: &'a ConfigDocument,
-        draft: &'a ConfigDraft,
-        busy: bool,
-    ) -> Element<'a, Message> {
-        column![
-            text(format!("Config: {}", document.path.display())),
-            text(format!(
-                "Source: {}",
-                if document.from_disk {
-                    "user file"
-                } else {
-                    "bundled default; Save creates the user file"
-                }
-            )),
-            text("General").size(22),
-            Self::general_config_editor(document, draft, busy),
-            text("Audio and VAD").size(22),
-            Self::audio_vad_editor(draft, busy),
-            Self::config_save_controls(document, draft, busy),
-        ]
-        .spacing(12)
-        .into()
-    }
-
-    fn general_config_editor<'a>(
-        document: &'a ConfigDocument,
-        draft: &'a ConfigDraft,
-        busy: bool,
-    ) -> Element<'a, Message> {
-        let provider_options = document
-            .config
-            .asr
-            .providers
-            .iter()
-            .map(|provider| provider.id.clone())
-            .collect::<Vec<_>>();
-        let scene_options = document
-            .config
-            .scenes
-            .definitions
-            .iter()
-            .map(|scene| scene.id.clone())
-            .collect::<Vec<_>>();
-        let provider_control: Element<'a, Message> = if busy {
-            text(&draft.active_provider).width(Length::Fill).into()
-        } else {
-            pick_list(
-                provider_options,
-                Some(draft.active_provider.clone()),
-                |value| Message::ConfigDraft(ConfigDraftMessage::ActiveProvider(value)),
-            )
-            .width(Length::Fill)
-            .into()
-        };
-        let scene_control: Element<'a, Message> = if busy {
-            text(&draft.active_scene).width(Length::Fill).into()
-        } else {
-            pick_list(scene_options, Some(draft.active_scene.clone()), |value| {
-                Message::ConfigDraft(ConfigDraftMessage::ActiveScene(value))
-            })
-            .width(Length::Fill)
-            .into()
-        };
-        column![
-            row![
-                text("Default language").width(180),
-                text_input("for example en-US or zh-CN", &draft.default_language)
-                    .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
-                        ConfigDraftMessage::DefaultLanguage(value)
-                    )))
-                    .width(Length::Fill),
-            ]
-            .spacing(12),
-            row![
-                text("Capture device").width(180),
-                text_input("PipeWire target", &draft.capture_device)
-                    .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
-                        ConfigDraftMessage::CaptureDevice(value)
-                    )))
-                    .width(Length::Fill),
-            ]
-            .spacing(12),
-            row![text("Active ASR provider").width(180), provider_control,].spacing(12),
-            row![text("Active scene").width(180), scene_control,].spacing(12),
-        ]
-        .spacing(12)
-        .into()
-    }
-
-    fn audio_vad_editor(draft: &ConfigDraft, busy: bool) -> Element<'_, Message> {
-        let duck_volume_control: Element<'_, Message> = if busy {
-            text("Locked while operation finishes")
-                .width(Length::Fill)
-                .into()
-        } else {
-            slider(0.0_f32..=1.0_f32, draft.duck_output_volume, |value| {
-                Message::ConfigDraft(ConfigDraftMessage::DuckVolume(value))
-            })
-            .step(0.05_f32)
-            .width(Length::Fill)
-            .into()
-        };
-        let vad_threshold_control: Element<'_, Message> = if busy {
-            text("Locked while operation finishes")
-                .width(Length::Fill)
-                .into()
-        } else {
-            slider(0.05_f32..=0.95_f32, draft.vad_threshold, |value| {
-                Message::ConfigDraft(ConfigDraftMessage::VadThreshold(value))
-            })
-            .step(0.05_f32)
-            .width(Length::Fill)
-            .into()
-        };
-        column![
-            checkbox(draft.duck_output_while_recording)
-                .label("Duck output while recording")
-                .on_toggle_maybe((!busy).then_some(|value| Message::ConfigDraft(
-                    ConfigDraftMessage::DuckOutput(value)
-                ))),
-            row![
-                text(format!(
-                    "Duck volume: {:.0}%",
-                    draft.duck_output_volume * 100.0
-                ))
-                .width(180),
-                duck_volume_control,
-            ]
-            .spacing(12),
-            checkbox(draft.vad_enabled)
-                .label("Enable voice activity detection")
-                .on_toggle_maybe((!busy).then_some(|value| Message::ConfigDraft(
-                    ConfigDraftMessage::VadEnabled(value)
-                ))),
-            row![
-                text(format!("VAD threshold: {:.2}", draft.vad_threshold)).width(180),
-                vad_threshold_control,
-            ]
-            .spacing(12),
-        ]
-        .spacing(12)
-        .into()
-    }
-
-    fn config_save_controls<'a>(
-        document: &'a ConfigDocument,
-        draft: &'a ConfigDraft,
-        busy: bool,
-    ) -> Element<'a, Message> {
-        let dirty = draft.is_dirty(&document.config);
-        row![
-            button("Save configuration")
-                .on_press_maybe((dirty && !busy).then_some(Message::SaveConfig)),
-            button("Reset changes")
-                .on_press_maybe((dirty && !busy).then_some(Message::ResetConfigDraft)),
-            text(if dirty {
-                "Unsaved changes"
-            } else {
-                "Configuration is up to date"
-            }),
-        ]
-        .spacing(10)
-        .into()
     }
 }
 
