@@ -1,6 +1,17 @@
 use super::*;
 
 #[test]
+fn unsupported_extended_attribute_queries_are_treated_as_empty() {
+    for errno in [Errno::NOTSUP, Errno::OPNOTSUPP] {
+        let error = io::Error::from_raw_os_error(errno.raw_os_error());
+        assert!(extended_attribute_query_is_unsupported(&error));
+    }
+    assert!(!extended_attribute_query_is_unsupported(&io::Error::from(
+        io::ErrorKind::PermissionDenied
+    )));
+}
+
+#[test]
 fn missing_prerequisite_exists_before_commit() {
     let directory = tempfile::tempdir().expect("temp dir");
     let path = directory.path().join("hotwords.txt");

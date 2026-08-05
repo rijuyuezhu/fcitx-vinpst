@@ -348,9 +348,13 @@ fn append_activation_error(outcome: &mut HotwordContentSaveOutcome, error: Strin
 }
 
 fn ensure_no_hotword_extended_attributes(file: &fs::File) -> Result<(), String> {
-    let mut attributes = file
-        .list_xattr()
-        .map_err(|error| format!("Inspect hotword file extended attributes: {error}"))?;
+    let mut attributes = match file.list_xattr() {
+        Ok(attributes) => attributes,
+        Err(error) if extended_attribute_query_is_unsupported(&error) => return Ok(()),
+        Err(error) => {
+            return Err(format!("Inspect hotword file extended attributes: {error}"));
+        }
+    };
     if attributes.next().is_some() {
         return Err(
             "Configured hotword file has extended attributes or ACL metadata that the GUI cannot safely preserve; edit it externally instead."
@@ -358,6 +362,15 @@ fn ensure_no_hotword_extended_attributes(file: &fs::File) -> Result<(), String> 
         );
     }
     Ok(())
+}
+
+fn extended_attribute_query_is_unsupported(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(code)
+            if code == Errno::NOTSUP.raw_os_error()
+                || code == Errno::OPNOTSUPP.raw_os_error()
+    )
 }
 
 fn prepare_temporary_hotword_metadata(
