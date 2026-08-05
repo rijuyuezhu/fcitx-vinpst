@@ -43,6 +43,14 @@ impl Page {
 }
 
 impl App {
+    pub(crate) fn window_title(&self) -> String {
+        format!(
+            "{} — {}",
+            self.locale.text(GuiText::ApplicationTitle),
+            self.page.display_label(self.locale),
+        )
+    }
+
     pub(super) fn navigation_view(&self, busy: bool) -> Element<'_, Message> {
         let navigation = Page::ALL.into_iter().fold(
             column![text(self.locale.text(GuiText::ApplicationTitle)).size(24)].spacing(10),
@@ -54,7 +62,10 @@ impl App {
                 )
             },
         );
-        navigation.push(self.desktop_action_button(busy)).into()
+        navigation
+            .push(self.desktop_action_button(busy))
+            .push(text(self.locale.text(GuiText::KeyboardHint)).size(12))
+            .into()
     }
 
     pub(super) fn select_page(&mut self, page: Page) {

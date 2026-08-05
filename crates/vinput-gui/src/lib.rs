@@ -21,6 +21,7 @@ mod adapter_config_management;
 mod adapter_runtime;
 mod asr_provider_management;
 mod asr_reload_confirmation;
+mod blocking_task;
 mod config_editor;
 mod daemon_client;
 mod daemon_control;
@@ -32,6 +33,7 @@ mod hotword_management;
 mod hotword_path;
 mod hotword_persistence;
 mod i18n;
+mod interaction;
 mod llm_provider_management;
 mod message;
 mod model_install;
@@ -76,6 +78,7 @@ use hotword_management::HotwordEditorState;
 pub use hotword_management::{HotwordMessage, HotwordMutationOutcome, HotwordProviderSelection};
 pub use i18n::GuiLocale;
 pub(crate) use i18n::{DaemonActionName, GuiText};
+pub use interaction::InteractionMessage;
 use llm_provider_management::LlmProviderEditorState;
 pub use llm_provider_management::{
     LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome, LlmProviderTestOutcome,
@@ -308,6 +311,7 @@ impl App {
         match message {
             Message::SelectPage(page) => self.select_page(page),
             Message::FilterChanged(filter) => self.filter = filter,
+            Message::Interaction(message) => return self.handle_interaction_message(message),
             Message::RefreshDaemon => return self.begin_daemon_refresh(true),
             Message::DaemonLoaded {
                 operation_id,
@@ -391,6 +395,7 @@ impl App {
     /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = self.daemon_reconciliation_subscriptions();
+        subscriptions.push(interaction::subscription());
         if self.model_install.is_active() {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
@@ -962,6 +967,7 @@ pub fn headless_snapshot(path: Option<&Path>, probe_daemon: bool) -> Result<Valu
             "adapter_count": document.config.llm.adapters.len(),
         },
         "daemon": daemon,
+        "interaction": interaction::capability_snapshot(),
         "pages": Page::ALL.map(Page::machine_label),
     }))
 }
@@ -1018,7 +1024,7 @@ fn llm_adapter_rows(config: &VinputConfig) -> Vec<String> {
 /// Runs the native GUI application.
 pub fn run() -> iced::Result {
     iced::application(App::boot, App::update, App::view)
-        .title(GuiLocale::detect().text(GuiText::ApplicationTitle))
+        .title(App::window_title)
         .subscription(App::subscription)
         .theme(Theme::TokyoNight)
         .window_size((960.0, 640.0))

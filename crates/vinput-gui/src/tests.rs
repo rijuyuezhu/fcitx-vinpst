@@ -12,6 +12,14 @@ fn bundled_snapshot_is_redacted_and_has_legacy_pages() {
         json!(["Control", "Resources", "LLM", "Hotwords"])
     );
     assert_eq!(snapshot["daemon"]["skipped"], true);
+    assert_eq!(
+        snapshot["interaction"]["keyboard"]["tab_focus_traversal"],
+        true
+    );
+    assert_eq!(
+        snapshot["interaction"]["accessibility_tree"]["available"],
+        false
+    );
     assert!(!snapshot.to_string().contains("api_key"));
 }
 

@@ -30,6 +30,7 @@ const fn english_core(key: GuiText) -> &'static str {
         GuiText::Llm => "LLM",
         GuiText::Hotwords => "Hotwords",
         GuiText::OpenConfig => "Open config",
+        GuiText::KeyboardHint => "Ctrl+1–4: pages · Tab/Shift+Tab: text fields",
         GuiText::DaemonService => "Daemon service",
         GuiText::Recording => "Recording",
         GuiText::ReloadConfig => "Reload config",

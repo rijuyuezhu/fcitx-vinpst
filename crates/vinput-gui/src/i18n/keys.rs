@@ -8,6 +8,7 @@ pub(crate) enum GuiText {
     Llm,
     Hotwords,
     OpenConfig,
+    KeyboardHint,
     DaemonService,
     Recording,
     ReloadConfig,
@@ -285,13 +286,14 @@ pub(crate) enum GuiText {
 }
 #[cfg(test)]
 impl GuiText {
-    pub(super) const ALL: [Self; 280] = [
+    pub(super) const ALL: [Self; 281] = [
         Self::ApplicationTitle,
         Self::Control,
         Self::Resources,
         Self::Llm,
         Self::Hotwords,
         Self::OpenConfig,
+        Self::KeyboardHint,
         Self::DaemonService,
         Self::Recording,
         Self::ReloadConfig,

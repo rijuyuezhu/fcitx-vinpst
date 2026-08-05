@@ -232,11 +232,9 @@ impl App {
 }
 
 async fn load_startup_notification() -> StartupNotificationLoadOutcome {
-    tokio::task::spawn_blocking(|| {
-        load_startup_notification_with(
-            &HttpNotificationTextSource,
-            &NotificationEnvironment::from_process(),
-        )
+    let environment = NotificationEnvironment::from_process();
+    crate::blocking_task::run("vinput-gui-notification-fetch", move || {
+        load_startup_notification_with(&HttpNotificationTextSource, &environment)
     })
     .await
     .unwrap_or(StartupNotificationLoadOutcome::Hidden)

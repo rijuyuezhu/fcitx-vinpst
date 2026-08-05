@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use crate::{
     AdapterConfigMessage, AdapterRuntimeMessage, AsrProviderMessage, ConfigSaveOutcome,
     DaemonControlMessage, DaemonOwnerEvent, DaemonSnapshot, DesktopActionMessage, HotwordMessage,
-    LlmProviderMessage, ModelInstallOutcome, Page, SceneMessage, ScriptInstallOutcome,
-    ScriptPreparationResult, SecretInput, StartupNotificationMessage,
+    InteractionMessage, LlmProviderMessage, ModelInstallOutcome, Page, SceneMessage,
+    ScriptInstallOutcome, ScriptPreparationResult, SecretInput, StartupNotificationMessage,
 };
 
 /// Editable Control-page configuration fields.
@@ -37,6 +37,8 @@ pub enum Message {
     SelectPage(Page),
     /// Update the current resource filter.
     FilterChanged(String),
+    /// Apply an ignored keyboard interaction owned by the application shell.
+    Interaction(InteractionMessage),
     /// Apply one startup-notification interaction.
     StartupNotification(StartupNotificationMessage),
     /// Apply one global desktop integration action.
@@ -185,6 +187,7 @@ impl Message {
         matches!(
             self,
             Self::SelectPage(_)
+                | Self::Interaction(InteractionMessage::SelectPage(_))
                 | Self::DaemonControl(
                     DaemonControlMessage::Start
                         | DaemonControlMessage::Stop
