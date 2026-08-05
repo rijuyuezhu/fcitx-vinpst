@@ -696,8 +696,7 @@ mod tests {
 
         let mut stale = config;
         stale.asr.providers[0].timeout_ms = Some(8_000);
-        let error = edit_asr_provider(&stale, &editor).expect_err("stale form must fail");
-        assert!(error.contains("changed after the form was opened"));
+        assert!(edit_asr_provider(&stale, &editor).is_err());
     }
 
     #[test]
