@@ -297,7 +297,7 @@ cargo build -p vinput-gui
 scripts/live/niri/run-gui-interaction-live.sh
 ```
 
-The gate requires one live niri socket, a writable `/dev/uinput`, Fcitx5 with a `rime` input method, and `wl-copy`/`wl-paste`. It never saves a GUI draft. Separate temporary XDG roots are used for English and zh_CN launches; the notification URL is redirected to a fail-fast loopback endpoint. Repository-owned uinput probes perform Ctrl+1–4, Tab/Shift+Tab, Ctrl+A/C, bounded ASCII typing, and Rime candidate commit. Page-shortcut checks explicitly refocus the target window and use bounded retries to reject compositor focus races without weakening the final localized-title assertion. Cleanup restores the prior Fcitx active state, input-method name, and standard text clipboard, terminates both GUI instances, and removes temporary XDG state.
+The gate requires one live niri socket, a writable `/dev/uinput`, Fcitx5 with a `rime` input method, and `wl-copy`/`wl-paste`. It never saves a GUI draft. Separate temporary XDG roots are used for English and zh_CN launches; the notification URL is redirected to a fail-fast loopback endpoint. Repository-owned uinput probes perform Ctrl+1–4, Tab/Shift+Tab, Ctrl+A/C, bounded ASCII typing, and Rime candidate commit. Page-shortcut checks explicitly refocus the target window and use bounded retries to reject compositor focus races without weakening the final localized-title assertion. Cleanup restores the previously focused niri window and standard text clipboard, terminates both GUI instances, and removes temporary XDG state. If a focused Fcitx input context existed before the gate, its active state and input-method name are restored exactly; otherwise the runner preserves and verifies the controller, current group, and group default without inventing a new context.
 
 Evidence under `target/tmp/gui-interaction-live/summary.json` must report:
 
@@ -315,7 +315,15 @@ Run the independent forced-X11 gate on the same niri host:
 scripts/live/x11/run-gui-interaction-live.sh
 ```
 
-The X11 runner removes `WAYLAND_DISPLAY` from each GUI process, sets `WINIT_UNIX_BACKEND=x11`, and requires the resulting client to expose a matching `_NET_WM_PID` and UTF-8 `_NET_WM_NAME` through `xprop`. It repeats the English/zh_CN title transitions, complete keyboard traversal/activation, and Fcitx5/Rime commit while reading copied text through `xclip`; the input-method transport is recorded as XIM. Wayland is used only to focus the rootless Xwayland client and restore the host clipboard. Evidence under `target/tmp/gui-x11-interaction-live/summary.json` retains only booleans, titles, transport names, and the committed UTF-8 byte count. This proves the Iced X11 backend under xwayland-satellite, not a standalone non-composited Xorg session and not a screen-reader tree.
+The X11 runner removes `WAYLAND_DISPLAY` from each GUI process, sets `WINIT_UNIX_BACKEND=x11`, and requires the resulting client to expose a matching `_NET_WM_PID` and UTF-8 `_NET_WM_NAME` through `xprop`. It repeats the English/zh_CN title transitions, complete keyboard traversal/activation, and Fcitx5/Rime commit while reading copied text through `xclip`; the input-method transport is recorded as XIM. Wayland is used only to focus the rootless Xwayland client, restore the pre-test niri window, and restore the host clipboard; Fcitx restoration follows the same context-aware state/IM versus group/default rule as the native-Wayland gate. Evidence under `target/tmp/gui-x11-interaction-live/summary.json` retains only booleans, titles, transport names, and the committed UTF-8 byte count. This proves the Iced X11 backend under xwayland-satellite, not a standalone non-composited Xorg session and not a screen-reader tree.
+
+Run the reversible desktop-integration result gate:
+
+```sh
+scripts/live/niri/run-gui-desktop-integration-live.sh
+```
+
+The runner copies the bundled config into a temporary user config root, serves one current-schema startup notification from loopback, and replaces the configured desktop opener with a repository fixture that records exactly one argv target. Escape clears widget focus before each deterministic traversal. The first launch proves Open Config receives the exact loaded file, Details receives the validated credential-free HTTPS URL, and the notification id is atomically persisted at the legacy cache path as a regular mode-0600 file. A second launch with the same isolated cache still fetches the feed but cannot expose Details again; Open Config remains available and no fourth opener call occurs. The fixture never starts a real browser, retains no remote title/text, touches no user config/cache, and leaves no GUI or fixture process. Evidence is written under `target/tmp/gui-desktop-integration-live/summary.json`.
 
 ## 8. Frontend behavior
 

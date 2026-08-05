@@ -12,9 +12,10 @@ host lifecycle changes.
   the installed user profile; each gate states whether it is loopback, same-host
   LAN, or true cross-device evidence.
 - `niri/` contains desktop automation tied to the project's niri/Wayland test
-  host. It is not a portable generic desktop test suite. The GTK4 bounded-soak
-  runner accepts 10-20 cycles and records bounded evidence separately from any
-  future hour-scale soak.
+  host. It includes complete-control, isolated desktop-opener/startup-notification,
+  retained-Fcitx, and bounded-soak gates; it is not a portable generic desktop
+  test suite. The GTK4 bounded-soak runner accepts 10-20 cycles and records
+  bounded evidence separately from any future hour-scale soak.
 - `x11/` forces the Rust management GUI onto X11 through the same host's
   xwayland-satellite instance. It verifies native X11 window properties,
   clipboard delivery, keyboard control, and Fcitx5 XIM while using Wayland only
