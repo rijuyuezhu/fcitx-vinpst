@@ -9,8 +9,10 @@ pub(super) const fn text(key: GuiText) -> &'static str {
         english_hotwords(key)
     } else if (key as u8) <= GuiText::DetailsOpenedOnHost as u8 {
         english_desktop(key)
-    } else {
+    } else if (key as u8) <= GuiText::AdapterLocal as u8 {
         english_resources(key)
+    } else {
+        english_forms(key)
     }
 }
 
@@ -232,6 +234,64 @@ const fn english_resources(key: GuiText) -> &'static str {
         GuiText::Yes => "yes",
         GuiText::No => "no",
         GuiText::AdapterLocal => "adapter/local",
+        _ => unreachable!(),
+    }
+}
+
+const fn english_forms(key: GuiText) -> &'static str {
+    match key {
+        GuiText::Scenes => "Scenes",
+        GuiText::AddScene => "Add scene",
+        GuiText::Available => "available",
+        GuiText::NoScenesMatch => "No scenes match the current filter.",
+        GuiText::Use => "Use",
+        GuiText::SceneId => "Scene id",
+        GuiText::StableUniqueId => "stable unique id",
+        GuiText::LabelField => "Label",
+        GuiText::DisplayLabelPlaceholder => "display label",
+        GuiText::PromptField => "Prompt",
+        GuiText::OptionalPromptTemplate => "optional prompt template",
+        GuiText::NoProviderClearBinding => "No provider (clear binding)",
+        GuiText::ModelOverride => "Model override",
+        GuiText::OptionalModelId => "optional model id",
+        GuiText::CandidateCount => "Candidate count",
+        GuiText::ZeroTo32 => "0 to 32",
+        GuiText::TimeoutMsLabel => "Timeout (ms)",
+        GuiText::BlankLegacyDefault => "blank uses the legacy default",
+        GuiText::ContextLines => "Context lines",
+        GuiText::UpdateScene => "Update scene",
+        GuiText::Cancel => "Cancel",
+        GuiText::SavingSceneConfiguration => "Saving scene configuration…",
+        GuiText::SelectingScene => "Selecting scene…",
+        GuiText::RemovingScene => "Removing scene…",
+        GuiText::AddCustomAsrProvider => "Add custom ASR provider",
+        GuiText::EditAsrProvider => "Edit ASR provider",
+        GuiText::AddProvider => "Add provider",
+        GuiText::UpdateProvider => "Update provider",
+        GuiText::ResetForm => "Reset form",
+        GuiText::UnsavedProviderChanges => "Unsaved provider changes",
+        GuiText::ProviderFormUnchanged => "Provider form is unchanged",
+        GuiText::ProviderId => "Provider id",
+        GuiText::CustomProviderPlaceholder => "custom-provider",
+        GuiText::ProviderType => "Provider type",
+        GuiText::BlankBackendDefault => "blank uses backend default",
+        GuiText::HotwordsManagedOnPage => {
+            "Hotword path and content remain managed on the Hotwords page."
+        }
+        GuiText::CommandField | GuiText::CommandTitle => "Command",
+        GuiText::ProviderCommandPlaceholder => "/path/to/provider",
+        GuiText::JsonStringArray => "JSON string array",
+        GuiText::AddVariable => "Add variable",
+        GuiText::NoEnvironmentVariables => "No environment variables configured.",
+        GuiText::VariableName => "Variable name",
+        GuiText::Value => "Value",
+        GuiText::SavingAsrProvider => "Saving ASR provider…",
+        GuiText::RemovingAsrProvider => "Removing ASR provider…",
+        GuiText::SaveOrCancelProviderBeforeRemoval => {
+            "Save or cancel the open ASR provider form before removing a provider."
+        }
+        GuiText::LocalTitle => "Local",
+        GuiText::RemoteTitle => "Remote",
         _ => unreachable!(),
     }
 }

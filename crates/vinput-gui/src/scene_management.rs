@@ -1,15 +1,12 @@
-//! Scene lifecycle state, validation, persistence, and rendering.
+//! Scene lifecycle state, validation, and persistence.
 
-use std::fmt;
+mod view;
 
-use iced::{
-    Element, Length, Task,
-    widget::{button, column, pick_list, row, text, text_input},
-};
+use iced::Task;
 use vinput_config::{COMMAND_SCENE_ID, RAW_SCENE_ID, SceneDefinition, VinputConfig};
 
 use crate::{
-    App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, load_config_document,
+    App, ConfigDocument, ConfigSaveOutcome, GuiText, Message, OperationState, load_config_document,
     save_updated_config_with_daemon,
 };
 
@@ -56,15 +53,6 @@ impl SceneProviderSelection {
         match self {
             Self::None => String::new(),
             Self::Configured(provider_id) => provider_id,
-        }
-    }
-}
-
-impl fmt::Display for SceneProviderSelection {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::None => formatter.write_str("No provider (clear binding)"),
-            Self::Configured(provider_id) => write!(formatter, "Provider: {provider_id}"),
         }
     }
 }
@@ -185,14 +173,6 @@ impl SceneEditorState {
             context_lines,
         })
     }
-
-    fn action_label(&self) -> &'static str {
-        if self.original_id.is_some() {
-            "Update scene"
-        } else {
-            "Add scene"
-        }
-    }
 }
 
 impl App {
@@ -284,18 +264,19 @@ impl App {
             return Task::none();
         };
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let result = if editor.original_id.is_some() {
             edit_scene(&document.config, &editor).map(|updated| {
                 let scene_id = editor.original_id.clone().unwrap_or_default();
-                (updated, format!("Updated scene `{scene_id}`."))
+                (updated, self.locale.scene_updated(&scene_id))
             })
         } else {
             add_scene(&document.config, &editor).map(|updated| {
                 let scene_id = editor.id.trim();
-                (updated, format!("Added scene `{scene_id}`."))
+                (updated, self.locale.scene_added(scene_id))
             })
         };
         let (updated, summary) = match result {
@@ -309,7 +290,7 @@ impl App {
             document.clone(),
             updated,
             summary,
-            "Saving scene configuration…",
+            self.locale.text(GuiText::SavingSceneConfiguration),
         )
     }
 
@@ -318,7 +299,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let updated = match use_scene(&document.config, scene_id) {
@@ -331,8 +313,8 @@ impl App {
         self.begin_scene_mutation(
             document.clone(),
             updated,
-            format!("Selected scene `{scene_id}`."),
-            "Selecting scene…",
+            self.locale.scene_selected(scene_id),
+            self.locale.text(GuiText::SelectingScene),
         )
     }
 
@@ -341,7 +323,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let updated = match remove_scene(&document.config, scene_id) {
@@ -354,8 +337,8 @@ impl App {
         self.begin_scene_mutation(
             document.clone(),
             updated,
-            format!("Removed scene `{scene_id}`."),
-            "Removing scene…",
+            self.locale.scene_removed(scene_id),
+            self.locale.text(GuiText::RemovingScene),
         )
     }
 
@@ -391,180 +374,24 @@ impl App {
                 return Task::none();
             }
         };
-        let backup = outcome.save.backup_path.as_ref().map_or_else(
-            || "no previous file".to_owned(),
-            |path| format!("backup {}", path.display()),
-        );
+        let path = outcome.save.path.display().to_string();
+        let backup = outcome
+            .save
+            .backup_path
+            .as_ref()
+            .map(|path| path.display().to_string());
         self.replace_config(load_config_document(Some(&outcome.save.path)));
-        self.operation = OperationState::Succeeded(format!(
-            "{} Saved {} ({backup}); {}",
-            outcome.summary,
-            outcome.save.path.display(),
-            outcome.save.daemon_reload
+        self.operation = OperationState::Succeeded(self.locale.save_receipt(
+            &outcome.summary,
+            &path,
+            backup.as_deref(),
+            &outcome.save.daemon_reload,
         ));
         self.begin_daemon_refresh(false)
     }
-
-    pub(super) fn scene_management_view(&self, busy: bool) -> Element<'_, Message> {
-        let editor_open = self.scene_editor.is_some();
-        let mut body = column![
-            row![
-                text("Scenes").size(22).width(Length::Fill),
-                button("Add scene").on_press_maybe(
-                    (!busy && !editor_open).then_some(Message::Scene(SceneMessage::BeginAdd)),
-                ),
-            ]
-            .spacing(10),
-        ]
-        .spacing(10);
-
-        match &self.config {
-            Ok(document) => {
-                let filter = self.filter.to_ascii_lowercase();
-                let mut visible = 0_usize;
-                for scene in &document.config.scenes.definitions {
-                    let active = scene.id == document.config.scenes.active_scene;
-                    let marker = if active { "active" } else { "available" };
-                    let label = format!("{} · {} · {marker}", scene.id, scene.label);
-                    if !label.to_ascii_lowercase().contains(&filter) {
-                        continue;
-                    }
-                    visible += 1;
-                    let controls_enabled = !busy && !editor_open;
-                    body = body.push(scene_row(label, &scene.id, active, controls_enabled));
-                }
-                if visible == 0 {
-                    body = body.push(text("No scenes match the current filter."));
-                }
-            }
-            Err(error) => {
-                body = body.push(text(format!("Config error: {error}")));
-            }
-        }
-
-        if let Some(editor) = &self.scene_editor {
-            let provider_options = self.config.as_ref().map_or_else(
-                |_| vec![SceneProviderSelection::None],
-                |document| scene_provider_options(&document.config),
-            );
-            body = body.push(scene_editor_view(editor, busy, provider_options));
-        }
-        body.into()
-    }
 }
 
-fn scene_row(
-    label: String,
-    scene_id: &str,
-    active: bool,
-    controls_enabled: bool,
-) -> Element<'static, Message> {
-    row![
-        text(label).width(Length::Fill),
-        button("Use").on_press_maybe(
-            (controls_enabled && !active)
-                .then_some(Message::Scene(SceneMessage::Use(scene_id.to_owned())),)
-        ),
-        button("Edit").on_press_maybe(
-            controls_enabled
-                .then_some(Message::Scene(SceneMessage::BeginEdit(scene_id.to_owned()))),
-        ),
-        button("Remove").on_press_maybe(
-            (controls_enabled && !active)
-                .then_some(Message::Scene(SceneMessage::Remove(scene_id.to_owned())),)
-        ),
-    ]
-    .spacing(10)
-    .into()
-}
-
-fn scene_editor_view(
-    editor: &SceneEditorState,
-    busy: bool,
-    provider_options: Vec<SceneProviderSelection>,
-) -> Element<'_, Message> {
-    let id_field: Element<'_, Message> = if editor.original_id.is_some() {
-        text(format!("Scene id: {} (immutable)", editor.id)).into()
-    } else {
-        labeled_input(
-            "Scene id",
-            "stable unique id",
-            &editor.id,
-            SceneEditorField::Id,
-            busy,
-        )
-    };
-    let provider_selection = SceneProviderSelection::from_provider_id(&editor.provider_id);
-    let provider_control: Element<'_, Message> = if busy {
-        text(provider_selection.to_string())
-            .width(Length::Fill)
-            .into()
-    } else {
-        pick_list(provider_options, Some(provider_selection), |selection| {
-            Message::Scene(SceneMessage::ProviderSelected(selection))
-        })
-        .width(Length::Fill)
-        .into()
-    };
-    column![
-        text(editor.action_label()).size(22),
-        id_field,
-        labeled_input(
-            "Label",
-            "display label",
-            &editor.label,
-            SceneEditorField::Label,
-            busy,
-        ),
-        labeled_input(
-            "Prompt",
-            "optional prompt template",
-            &editor.prompt,
-            SceneEditorField::Prompt,
-            busy,
-        ),
-        row![text("LLM provider").width(160), provider_control].spacing(10),
-        labeled_input(
-            "Model override",
-            "optional model id",
-            &editor.model,
-            SceneEditorField::Model,
-            busy,
-        ),
-        labeled_input(
-            "Candidate count",
-            "0 to 32",
-            &editor.candidate_count,
-            SceneEditorField::CandidateCount,
-            busy,
-        ),
-        labeled_input(
-            "Timeout (ms)",
-            "blank uses the legacy default",
-            &editor.timeout_ms,
-            SceneEditorField::TimeoutMs,
-            busy,
-        ),
-        labeled_input(
-            "Context lines",
-            "0 to 32",
-            &editor.context_lines,
-            SceneEditorField::ContextLines,
-            busy,
-        ),
-        row![
-            button(editor.action_label())
-                .on_press_maybe((!busy).then_some(Message::Scene(SceneMessage::Save))),
-            button("Cancel")
-                .on_press_maybe((!busy).then_some(Message::Scene(SceneMessage::CancelEdit)),),
-        ]
-        .spacing(10),
-    ]
-    .spacing(10)
-    .into()
-}
-
-fn scene_provider_options(config: &VinputConfig) -> Vec<SceneProviderSelection> {
+fn scene_provider_selections(config: &VinputConfig) -> Vec<SceneProviderSelection> {
     std::iter::once(SceneProviderSelection::None)
         .chain(
             config
@@ -574,25 +401,6 @@ fn scene_provider_options(config: &VinputConfig) -> Vec<SceneProviderSelection> 
                 .map(|provider| SceneProviderSelection::Configured(provider.id.clone())),
         )
         .collect()
-}
-
-fn labeled_input<'a>(
-    label: &'static str,
-    placeholder: &'static str,
-    value: &'a str,
-    field: SceneEditorField,
-    busy: bool,
-) -> Element<'a, Message> {
-    row![
-        text(label).width(160),
-        text_input(placeholder, value)
-            .on_input_maybe((!busy).then_some(move |value| {
-                Message::Scene(SceneMessage::EditorChanged { field, value })
-            }))
-            .width(Length::Fill),
-    ]
-    .spacing(10)
-    .into()
 }
 
 fn add_scene(config: &VinputConfig, editor: &SceneEditorState) -> Result<VinputConfig, String> {
@@ -809,15 +617,15 @@ mod tests {
         });
 
         assert_eq!(
-            scene_provider_options(&config),
+            scene_provider_selections(&config),
             vec![
                 SceneProviderSelection::None,
                 SceneProviderSelection::Configured("cloud".to_owned()),
             ]
         );
         assert_ne!(
-            SceneProviderSelection::None.to_string(),
-            SceneProviderSelection::Configured("No provider".to_owned()).to_string()
+            crate::GuiLocale::EnUs.scene_provider_choice(None),
+            crate::GuiLocale::EnUs.scene_provider_choice(Some("No provider"))
         );
 
         let (mut app, boot_task) = App::boot();

@@ -255,6 +255,108 @@ impl GuiLocale {
             Self::ZhCn => format!("已配置 {count} 项"),
         }
     }
+
+    pub(crate) fn scene_provider_choice(self, provider_id: Option<&str>) -> String {
+        match provider_id {
+            None => self.text(GuiText::NoProviderClearBinding).to_owned(),
+            Some(provider_id) => match self {
+                Self::EnUs => format!("Provider: {provider_id}"),
+                Self::ZhCn => format!("提供商：{provider_id}"),
+            },
+        }
+    }
+
+    pub(crate) fn scene_id_immutable(self, scene_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Scene id: {scene_id} (immutable)"),
+            Self::ZhCn => format!("场景 ID：{scene_id}（不可修改）"),
+        }
+    }
+
+    pub(crate) fn provider_identity(self, provider_id: &str, kind: &str) -> String {
+        match self {
+            Self::EnUs => {
+                format!("Provider id: {provider_id} (immutable) · type: {kind} (immutable)")
+            }
+            Self::ZhCn => {
+                format!("提供商 ID：{provider_id}（不可修改）· 类型：{kind}（不可修改）")
+            }
+        }
+    }
+
+    pub(crate) fn selected_label(self, label: &str) -> String {
+        match self {
+            Self::EnUs => format!("{label} (selected)"),
+            Self::ZhCn => format!("{label}（已选择）"),
+        }
+    }
+
+    pub(crate) fn scene_added(self, scene_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Added scene `{scene_id}`."),
+            Self::ZhCn => format!("已添加场景“{scene_id}”。"),
+        }
+    }
+
+    pub(crate) fn scene_updated(self, scene_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Updated scene `{scene_id}`."),
+            Self::ZhCn => format!("已更新场景“{scene_id}”。"),
+        }
+    }
+
+    pub(crate) fn scene_selected(self, scene_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Selected scene `{scene_id}`."),
+            Self::ZhCn => format!("已选择场景“{scene_id}”。"),
+        }
+    }
+
+    pub(crate) fn scene_removed(self, scene_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Removed scene `{scene_id}`."),
+            Self::ZhCn => format!("已移除场景“{scene_id}”。"),
+        }
+    }
+
+    pub(crate) fn asr_provider_changed(self, created: bool, provider_id: &str) -> String {
+        match (self, created) {
+            (Self::EnUs, true) => format!("Added ASR provider `{provider_id}`."),
+            (Self::EnUs, false) => format!("Updated ASR provider `{provider_id}`."),
+            (Self::ZhCn, true) => format!("已添加 ASR 提供商“{provider_id}”。"),
+            (Self::ZhCn, false) => format!("已更新 ASR 提供商“{provider_id}”。"),
+        }
+    }
+
+    pub(crate) fn asr_provider_removed(self, provider_id: &str) -> String {
+        match self {
+            Self::EnUs => format!("Removed custom ASR provider `{provider_id}`."),
+            Self::ZhCn => format!("已移除自定义 ASR 提供商“{provider_id}”。"),
+        }
+    }
+
+    pub(crate) fn save_receipt(
+        self,
+        summary: &str,
+        path: &str,
+        backup: Option<&str>,
+        daemon_reload: &str,
+    ) -> String {
+        match (self, backup) {
+            (Self::EnUs, Some(backup)) => {
+                format!("{summary} Saved {path} (backup {backup}); {daemon_reload}")
+            }
+            (Self::EnUs, None) => {
+                format!("{summary} Saved {path} (no previous file); {daemon_reload}")
+            }
+            (Self::ZhCn, Some(backup)) => {
+                format!("{summary} 已保存 {path}（备份 {backup}）；{daemon_reload}")
+            }
+            (Self::ZhCn, None) => {
+                format!("{summary} 已保存 {path}（此前无文件）；{daemon_reload}")
+            }
+        }
+    }
 }
 
 fn normalized_locale(value: &str) -> Option<GuiLocale> {
@@ -292,6 +394,33 @@ mod tests {
         assert_eq!(GuiLocale::from_name("zh-Hans@variant"), GuiLocale::ZhCn);
         assert_eq!(GuiLocale::from_name("en_US.UTF-8"), GuiLocale::EnUs);
         assert_eq!(GuiLocale::from_name("C.UTF-8"), GuiLocale::EnUs);
+    }
+
+    #[test]
+    fn localized_form_templates_preserve_machine_ids_and_raw_details() {
+        let scene_id = "scene-machine-id";
+        let provider_id = "provider-machine-id";
+        let path = "/tmp/config-machine-path";
+        let reload = "raw daemon reload detail";
+
+        let english_scene = GuiLocale::EnUs.scene_added(scene_id);
+        let chinese_scene = GuiLocale::ZhCn.scene_added(scene_id);
+        assert!(english_scene.contains(scene_id));
+        assert!(chinese_scene.contains(scene_id));
+        assert_ne!(english_scene, chinese_scene);
+
+        let english_provider = GuiLocale::EnUs.asr_provider_changed(true, provider_id);
+        let chinese_provider = GuiLocale::ZhCn.asr_provider_changed(true, provider_id);
+        assert!(english_provider.contains(provider_id));
+        assert!(chinese_provider.contains(provider_id));
+        assert_ne!(english_provider, chinese_provider);
+
+        for locale in [GuiLocale::EnUs, GuiLocale::ZhCn] {
+            let receipt = locale.save_receipt(&english_provider, path, None, reload);
+            assert!(receipt.contains(provider_id));
+            assert!(receipt.contains(path));
+            assert!(receipt.contains(reload));
+        }
     }
 
     #[test]

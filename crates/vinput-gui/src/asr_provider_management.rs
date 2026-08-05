@@ -1,15 +1,14 @@
-//! Typed ASR provider editor state, validation, persistence, and rendering.
+//! Typed ASR provider editor state, validation, and persistence.
+
+mod view;
 
 use std::{collections::HashMap, fmt};
 
-use iced::{
-    Element, Length, Task,
-    widget::{button, column, row, text, text_input},
-};
+use iced::Task;
 use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig, redact_url_for_diagnostics};
 
 use crate::{
-    App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, SecretInput,
+    App, ConfigDocument, ConfigSaveOutcome, GuiText, Message, OperationState, SecretInput,
     load_config_document, save_updated_config_with_daemon,
     script_management::managed_provider_script_path,
 };
@@ -519,7 +518,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let updated = match upsert_asr_provider(&document.config, &editor) {
@@ -548,7 +548,7 @@ impl App {
         provider_id: String,
         created: bool,
     ) -> Task<Message> {
-        self.operation = OperationState::Running("Saving ASR provider…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::SavingAsrProvider));
         Task::perform(
             async move {
                 save_updated_config_with_daemon(&document, &updated).map(|save| {
@@ -574,17 +574,21 @@ impl App {
                 return Task::none();
             }
         };
-        let backup = outcome.save.backup_path.as_ref().map_or_else(
-            || "no previous file".to_owned(),
-            |path| format!("backup {}", path.display()),
-        );
+        let summary = self
+            .locale
+            .asr_provider_changed(outcome.created, &outcome.provider_id);
+        let path = outcome.save.path.display().to_string();
+        let backup = outcome
+            .save
+            .backup_path
+            .as_ref()
+            .map(|path| path.display().to_string());
         self.replace_config(load_config_document(Some(&outcome.save.path)));
-        self.operation = OperationState::Succeeded(format!(
-            "{} ASR provider `{}`. Saved {} ({backup}); {}",
-            if outcome.created { "Added" } else { "Updated" },
-            outcome.provider_id,
-            outcome.save.path.display(),
-            outcome.save.daemon_reload
+        self.operation = OperationState::Succeeded(self.locale.save_receipt(
+            &summary,
+            &path,
+            backup.as_deref(),
+            &outcome.save.daemon_reload,
         ));
         self.begin_daemon_refresh(false)
     }
@@ -592,7 +596,9 @@ impl App {
     fn begin_custom_asr_provider_removal(&mut self, provider_id: &str) -> Task<Message> {
         if self.asr_provider_editor.is_some() {
             self.operation = OperationState::Failed(
-                "Save or cancel the open ASR provider form before removing a provider.".to_owned(),
+                self.locale
+                    .text(GuiText::SaveOrCancelProviderBeforeRemoval)
+                    .to_owned(),
             );
             return Task::none();
         }
@@ -604,7 +610,8 @@ impl App {
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let updated = match remove_custom_asr_provider_config(&document.config, provider_id) {
@@ -614,7 +621,7 @@ impl App {
                 return Task::none();
             }
         };
-        self.operation = OperationState::Running("Removing ASR provider…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::RemovingAsrProvider));
         let document = document.clone();
         let provider_id = provider_id.to_owned();
         Task::perform(
@@ -637,24 +644,21 @@ impl App {
                 return Task::none();
             }
         };
-        let backup = outcome.save.backup_path.as_ref().map_or_else(
-            || "no previous file".to_owned(),
-            |path| format!("backup {}", path.display()),
-        );
+        let summary = self.locale.asr_provider_removed(&outcome.provider_id);
+        let path = outcome.save.path.display().to_string();
+        let backup = outcome
+            .save
+            .backup_path
+            .as_ref()
+            .map(|path| path.display().to_string());
         self.replace_config(load_config_document(Some(&outcome.save.path)));
-        self.operation = OperationState::Succeeded(format!(
-            "Removed custom ASR provider `{}`. Saved {} ({backup}); {}",
-            outcome.provider_id,
-            outcome.save.path.display(),
-            outcome.save.daemon_reload
+        self.operation = OperationState::Succeeded(self.locale.save_receipt(
+            &summary,
+            &path,
+            backup.as_deref(),
+            &outcome.save.daemon_reload,
         ));
         self.begin_daemon_refresh(false)
-    }
-
-    pub(super) fn asr_provider_editor_view(&self, busy: bool) -> Option<Element<'_, Message>> {
-        self.asr_provider_editor
-            .as_ref()
-            .map(|editor| provider_editor_view(editor, busy))
     }
 }
 
@@ -744,206 +748,6 @@ fn remove_custom_asr_provider_config_with(
     Ok(updated)
 }
 
-fn provider_editor_view(editor: &AsrProviderEditorState, busy: bool) -> Element<'_, Message> {
-    let dirty = editor.is_dirty();
-    let adding = editor.original.is_none();
-    column![
-        text(if adding {
-            "Add custom ASR provider"
-        } else {
-            "Edit ASR provider"
-        })
-        .size(22),
-        provider_identity_view(editor, busy),
-        labeled_input(
-            "Timeout (ms)",
-            "blank uses backend default",
-            &editor.fields.timeout_ms,
-            AsrProviderEditorField::TimeoutMs,
-            false,
-        ),
-        labeled_input(
-            "Model",
-            "optional model id",
-            &editor.fields.model,
-            AsrProviderEditorField::Model,
-            false,
-        ),
-        provider_kind_fields(editor, busy),
-        row![
-            button(if adding {
-                "Add provider"
-            } else {
-                "Update provider"
-            })
-            .on_press_maybe(
-                (dirty && !busy).then_some(Message::AsrProvider(AsrProviderMessage::Save)),
-            ),
-            button("Reset form").on_press_maybe(
-                (dirty && !busy).then_some(Message::AsrProvider(AsrProviderMessage::ResetEdit)),
-            ),
-            button("Cancel").on_press_maybe(
-                (!busy).then_some(Message::AsrProvider(AsrProviderMessage::CancelEdit)),
-            ),
-            text(if dirty {
-                "Unsaved provider changes"
-            } else {
-                "Provider form is unchanged"
-            }),
-        ]
-        .spacing(10),
-    ]
-    .spacing(10)
-    .into()
-}
-
-fn provider_identity_view(editor: &AsrProviderEditorState, busy: bool) -> Element<'_, Message> {
-    if editor.original.is_some() {
-        return text(format!(
-            "Provider id: {} (immutable) · type: {} (immutable)",
-            editor.fields.id,
-            kind_label(&editor.kind)
-        ))
-        .into();
-    }
-    column![
-        labeled_input(
-            "Provider id",
-            "custom-provider",
-            &editor.fields.id,
-            AsrProviderEditorField::Id,
-            false,
-        ),
-        row![
-            text("Provider type").width(160),
-            kind_button("Local", AsrProviderKind::Local, &editor.kind, busy),
-            kind_button("Command", AsrProviderKind::Command, &editor.kind, busy),
-            kind_button("Remote", AsrProviderKind::Remote, &editor.kind, busy),
-        ]
-        .spacing(10),
-    ]
-    .spacing(10)
-    .into()
-}
-
-fn provider_kind_fields(editor: &AsrProviderEditorState, busy: bool) -> Element<'_, Message> {
-    match editor.kind {
-        AsrProviderKind::Local => {
-            text("Hotword path and content remain managed on the Hotwords page.").into()
-        }
-        AsrProviderKind::Command => column![
-            labeled_input(
-                "Command",
-                "/path/to/provider",
-                editor.fields.command.as_str(),
-                AsrProviderEditorField::Command,
-                false,
-            ),
-            labeled_input(
-                "Arguments",
-                "JSON string array",
-                editor.fields.args.as_str(),
-                AsrProviderEditorField::Args,
-                true,
-            ),
-            environment_editor_view(&editor.fields.environment, busy),
-        ]
-        .spacing(10)
-        .into(),
-        AsrProviderKind::Remote => labeled_input(
-            "Endpoint",
-            "https://provider.example/v1/audio/transcriptions",
-            editor.fields.endpoint.as_str(),
-            AsrProviderEditorField::Endpoint,
-            editor.endpoint_secure,
-        ),
-    }
-}
-
-fn environment_editor_view(
-    entries: &[AsrProviderEnvironmentEntry],
-    busy: bool,
-) -> Element<'_, Message> {
-    let mut body = column![
-        row![
-            text("Environment").size(18).width(Length::Fill),
-            button("Add variable").on_press_maybe(
-                (!busy).then_some(Message::AsrProvider(AsrProviderMessage::AddEnvironment)),
-            ),
-        ]
-        .spacing(10)
-    ]
-    .spacing(8);
-    if entries.is_empty() {
-        body = body.push(text("No environment variables configured."));
-    }
-    for (index, entry) in entries.iter().enumerate() {
-        body = body.push(
-            row![
-                text_input("Variable name", &entry.key)
-                    .on_input(move |key| Message::AsrProvider(
-                        AsrProviderMessage::EnvironmentKeyChanged { index, key }
-                    ))
-                    .width(Length::FillPortion(2)),
-                text_input("Value", entry.value.as_str())
-                    .secure(true)
-                    .on_input(move |value| Message::AsrProvider(
-                        AsrProviderMessage::EnvironmentValueChanged {
-                            index,
-                            value: SecretInput::new(value),
-                        }
-                    ))
-                    .width(Length::FillPortion(3)),
-                button("Remove").on_press_maybe((!busy).then_some(Message::AsrProvider(
-                    AsrProviderMessage::RemoveEnvironment(index),
-                ))),
-            ]
-            .spacing(10),
-        );
-    }
-    body.into()
-}
-
-fn kind_button<'a>(
-    label: &'static str,
-    kind: AsrProviderKind,
-    selected: &AsrProviderKind,
-    busy: bool,
-) -> iced::widget::Button<'a, Message> {
-    button(text(if &kind == selected {
-        format!("{label} (selected)")
-    } else {
-        label.to_owned()
-    }))
-    .on_press_maybe(
-        (!busy && &kind != selected)
-            .then_some(Message::AsrProvider(AsrProviderMessage::KindChanged(kind))),
-    )
-}
-
-fn labeled_input<'a>(
-    label: &'static str,
-    placeholder: &'static str,
-    value: &'a str,
-    field: AsrProviderEditorField,
-    secure: bool,
-) -> Element<'a, Message> {
-    row![
-        text(label).width(160),
-        text_input(placeholder, value)
-            .secure(secure)
-            .on_input(move |value| {
-                Message::AsrProvider(AsrProviderMessage::EditorChanged {
-                    field,
-                    value: SecretInput::new(value),
-                })
-            })
-            .width(Length::Fill),
-    ]
-    .spacing(10)
-    .into()
-}
-
 fn parse_optional_timeout(value: &str) -> Result<Option<u64>, String> {
     let value = value.trim();
     if value.is_empty() {
@@ -1013,14 +817,6 @@ fn endpoint_input_is_secure(value: &str) -> bool {
             || url.fragment().is_some_and(|fragment| !fragment.is_empty());
     }
     value.contains('@') || value.contains('?') || value.contains('#')
-}
-
-const fn kind_label(kind: &AsrProviderKind) -> &'static str {
-    match kind {
-        AsrProviderKind::Local => "local",
-        AsrProviderKind::Remote => "remote",
-        AsrProviderKind::Command => "command",
-    }
 }
 
 #[cfg(test)]

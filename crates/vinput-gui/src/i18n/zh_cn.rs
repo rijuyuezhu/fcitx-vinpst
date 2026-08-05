@@ -9,8 +9,10 @@ pub(super) const fn text(key: GuiText) -> &'static str {
         simplified_chinese_hotwords(key)
     } else if (key as u8) <= GuiText::DetailsOpenedOnHost as u8 {
         simplified_chinese_desktop(key)
-    } else {
+    } else if (key as u8) <= GuiText::AdapterLocal as u8 {
         simplified_chinese_resources(key)
+    } else {
+        simplified_chinese_forms(key)
     }
 }
 
@@ -200,6 +202,62 @@ const fn simplified_chinese_resources(key: GuiText) -> &'static str {
         GuiText::Yes => "是",
         GuiText::No => "否",
         GuiText::AdapterLocal => "适配器/本地",
+        _ => unreachable!(),
+    }
+}
+
+const fn simplified_chinese_forms(key: GuiText) -> &'static str {
+    match key {
+        GuiText::Scenes => "场景",
+        GuiText::AddScene => "添加场景",
+        GuiText::Available => "可用",
+        GuiText::NoScenesMatch => "没有场景匹配当前筛选条件。",
+        GuiText::Use => "使用",
+        GuiText::SceneId => "场景 ID",
+        GuiText::StableUniqueId => "稳定且唯一的 ID",
+        GuiText::LabelField => "标签",
+        GuiText::DisplayLabelPlaceholder => "显示标签",
+        GuiText::PromptField => "提示词",
+        GuiText::OptionalPromptTemplate => "可选提示词模板",
+        GuiText::NoProviderClearBinding => "不使用提供商（清除绑定）",
+        GuiText::ModelOverride => "模型覆盖",
+        GuiText::OptionalModelId => "可选模型 ID",
+        GuiText::CandidateCount => "候选数量",
+        GuiText::ZeroTo32 => "0 到 32",
+        GuiText::TimeoutMsLabel => "超时（毫秒）",
+        GuiText::BlankLegacyDefault => "留空使用旧版默认值",
+        GuiText::ContextLines => "上下文行数",
+        GuiText::UpdateScene => "更新场景",
+        GuiText::Cancel => "取消",
+        GuiText::SavingSceneConfiguration => "正在保存场景配置…",
+        GuiText::SelectingScene => "正在选择场景…",
+        GuiText::RemovingScene => "正在移除场景…",
+        GuiText::AddCustomAsrProvider => "添加自定义 ASR 提供商",
+        GuiText::EditAsrProvider => "编辑 ASR 提供商",
+        GuiText::AddProvider => "添加提供商",
+        GuiText::UpdateProvider => "更新提供商",
+        GuiText::ResetForm => "重置表单",
+        GuiText::UnsavedProviderChanges => "提供商更改尚未保存",
+        GuiText::ProviderFormUnchanged => "提供商表单未更改",
+        GuiText::ProviderId => "提供商 ID",
+        GuiText::CustomProviderPlaceholder => "custom-provider",
+        GuiText::ProviderType => "提供商类型",
+        GuiText::BlankBackendDefault => "留空使用后端默认值",
+        GuiText::HotwordsManagedOnPage => "热词路径和内容仍在“热词”页面管理。",
+        GuiText::CommandField | GuiText::CommandTitle => "命令",
+        GuiText::ProviderCommandPlaceholder => "/path/to/provider",
+        GuiText::JsonStringArray => "JSON 字符串数组",
+        GuiText::AddVariable => "添加变量",
+        GuiText::NoEnvironmentVariables => "未配置环境变量。",
+        GuiText::VariableName => "变量名",
+        GuiText::Value => "值",
+        GuiText::SavingAsrProvider => "正在保存 ASR 提供商…",
+        GuiText::RemovingAsrProvider => "正在移除 ASR 提供商…",
+        GuiText::SaveOrCancelProviderBeforeRemoval => {
+            "移除提供商前，请先保存或取消当前 ASR 提供商表单。"
+        }
+        GuiText::LocalTitle => "本地",
+        GuiText::RemoteTitle => "远程",
         _ => unreachable!(),
     }
 }
