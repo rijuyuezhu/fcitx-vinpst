@@ -5,7 +5,8 @@ This directory contains tracked architecture and compatibility contracts for the
 ## Reading order
 
 1. [`target-architecture.md`](target-architecture.md): crate boundaries, runtime actors, state machine target, and migration principles.
-2. Subsystem contract for the area being changed:
+2. [`identity-contract.md`](identity-contract.md): canonical project names and the explicit absence of rename compatibility.
+3. Subsystem contract for the area being changed:
    - [`dbus-service.md`](dbus-service.md): legacy D-Bus service facade, diagnostic extension, and compatibility rules.
    - [`config-contract.md`](config-contract.md): default config fixture, parsing, validation, and diagnostics behavior.
    - [`process-contract.md`](process-contract.md): shared command-helper process groups, deadlines, descendant cleanup, zombie-aware liveness, and bounded output capture.
@@ -16,10 +17,10 @@ This directory contains tracked architecture and compatibility contracts for the
    - [`remote-text-contract.md`](remote-text-contract.md): remote input settings, authentication, protocol state, HTTP/WebSocket runtime, daemon-owned lifecycle, and remaining endpoint/live-validation boundary.
    - [`packaging-contract.md`](packaging-contract.md): package identity, runtime contents, private native-library policy, lifecycle handoff, transaction evidence, and release validation.
    - [`gui-contract.md`](gui-contract.md): implemented Rust/Iced management baseline, package integration, and remaining parity criteria.
-3. [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), for current parity baseline.
-4. [`../migration/e2e-capability-matrix.md`](../migration/e2e-capability-matrix.md), for detailed native runtime/frontend/user-flow parity gaps.
-5. [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md), for active migration direction.
-6. `../plan/`, when present locally, for ignored scratch notes only.
+4. [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), for current parity baseline.
+5. [`../migration/e2e-capability-matrix.md`](../migration/e2e-capability-matrix.md), for detailed native runtime/frontend/user-flow parity gaps.
+6. [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md), for active migration direction.
+7. `../plan/`, when present locally, for ignored scratch notes only.
 
 ## Maintenance rules
 

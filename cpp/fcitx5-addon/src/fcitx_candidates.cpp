@@ -1,7 +1,7 @@
-#include "vinput_fcitx_bridge/fcitx_candidates.h"
+#include "vinpst_fcitx_bridge/fcitx_candidates.h"
 
-#include "vinput_fcitx_bridge/fcitx_i18n.h"
-#include "vinput_fcitx_bridge/fcitx_selection.h"
+#include "vinpst_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/fcitx_selection.h"
 
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputpanel.h>
@@ -11,7 +11,7 @@
 #include <string_view>
 #include <utility>
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 namespace {
 
 constexpr int kResultMenuPageSize = 5;
@@ -33,7 +33,7 @@ public:
                       ResultCandidateSelectCallback on_select)
       : fcitx::CandidateWord(fcitx::Text(candidate.text)),
         candidate_(std::move(candidate)), on_select_(std::move(on_select)) {
-#ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
+#ifdef VINPST_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
     if (!comment.empty()) {
       setComment(fcitx::Text(std::string(comment)));
     }
@@ -119,4 +119,4 @@ BuildResultCandidateList(const CandidatePresentation &payload,
   return candidate_list;
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

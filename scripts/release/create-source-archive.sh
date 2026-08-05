@@ -22,7 +22,7 @@ output="$1"
 version="${2:-}"
 if [[ -z "${version}" ]]; then
   version="$(cargo metadata --no-deps --format-version 1 \
-    | jq -r '.packages[] | select(.name == "vinput-cli") | .version')"
+    | jq -r '.packages[] | select(.name == "vinpst-cli") | .version')"
 fi
 if [[ ! "${version}" =~ ^[0-9][0-9A-Za-z.+~-]*$ ]]; then
   echo "invalid source archive version: ${version@Q}" >&2
@@ -41,7 +41,7 @@ case "${output}" in
   ;;
 esac
 
-source_dir="fcitx-vinput-rs-${version}"
+source_dir="fcitx-vinpst-${version}"
 temporary="${output}.tmp.$$"
 listing="${temporary}.list"
 rm -f "${temporary}" "${listing}"

@@ -1,17 +1,17 @@
 # Config contract
 
-`vinput-config` owns config parsing, normalization, defaults, and validation. CLI and daemon diagnostics consume the same typed config so file-backed checks stay deterministic.
+`vinpst-config` owns config parsing, normalization, defaults, and validation. CLI and daemon diagnostics consume the same typed config so file-backed checks stay deterministic.
 
 ## Baseline fixture
 
 `data/default-config.json` is the committed compatibility baseline copied from the original project. It is also the stable smoke fixture for explicit config CLI paths:
 
 ```sh
-cargo run -q -p vinput-cli -- config validate data/default-config.json --summary-only
-cargo run -q -p vinput-cli -- asr-state --config data/default-config.json
+cargo run -q -p vinpst-cli -- config validate data/default-config.json --summary-only
+cargo run -q -p vinpst-cli -- asr-state --config data/default-config.json
 ```
 
-Daemon config resolution preserves the legacy user-path behavior. An explicit `--config` path has highest priority. Without it, the daemon reads `$XDG_CONFIG_HOME/fcitx-vinput/config.json`, falling back to `$HOME/.config/fcitx-vinput/config.json`; only a missing user file falls back to the bundled default. A discovered user file is retained as the runtime persistence path, so D-Bus scene/provider selection and config reload update the same file. `scripts/tests/daemon/run-daemon-default-config-smoke.sh` starts the daemon on a private session bus without `--config`, switches the active scene, and verifies the discovered file is atomically updated.
+Daemon config resolution preserves the legacy user-path behavior. An explicit `--config` path has highest priority. Without it, the daemon reads `$XDG_CONFIG_HOME/fcitx-vinpst/config.json`, falling back to `$HOME/.config/fcitx-vinpst/config.json`; only a missing user file falls back to the bundled default. A discovered user file is retained as the runtime persistence path, so D-Bus scene/provider selection and config reload update the same file. `scripts/tests/daemon/run-daemon-default-config-smoke.sh` starts the daemon on a private session bus without `--config`, switches the active scene, and verifies the discovered file is atomically updated.
 
 Integration tests consume the same committed fixture directly, so changes to config parsing or defaults must keep the CLI summary and ASR diagnostics contracts stable.
 
@@ -28,7 +28,7 @@ Runtime availability is not implied by the fixture; local `sherpa-onnx` requires
 
 The legacy C++ project accepted or repaired some malformed user config shapes more loosely. The Rust contract is intentionally explicit: parsing may normalize missing builtin scenes and blank/missing `active_scene` to `__raw__`. The one numeric compatibility repair retained here is `global.duck_output_volume`, which clamps finite parsed values to `0.0..=1.0` like legacy. Validation still rejects programmatically constructed non-finite values and does not silently deduplicate or drop invalid entries.
 
-Pinned decisions, covered by `crates/vinput-config/tests/legacy_compat.rs`:
+Pinned decisions, covered by `crates/vinpst-config/tests/legacy_compat.rs`:
 
 - duplicate or blank registry mirrors are rejected, not deduplicated or dropped.
 - duplicate or blank LLM provider, LLM adapter, and ASR provider ids are rejected.
@@ -51,6 +51,6 @@ Provider removal follows the legacy config lifecycle: local providers are retain
 
 Config diagnostics parse local JSON only. They do not construct runtime ASR backends, launch helpers, download registry assets, or require the daemon to be running.
 
-`VinputConfig::summary()` is the compact config diagnostic surface. It reports validation status, schema version, active scene/provider ids, and counts only. It must not serialize secret-bearing config fields such as LLM API keys, provider or adapter environment values, command arguments, working directories, provider base URLs, or forward-compatible extra bodies. `redact_url_for_diagnostics` is the shared URL diagnostic boundary for ASR and text providers: it removes userinfo and fragments, preserves scheme/host/port/path plus query-key order and duplicates, and replaces every query value with `REDACTED`. Invalid URLs become the fixed marker `<invalid-url>`. This helper never mutates the configured URL used for an HTTP request.
+`VinpstConfig::summary()` is the compact config diagnostic surface. It reports validation status, schema version, active scene/provider ids, and counts only. It must not serialize secret-bearing config fields such as LLM API keys, provider or adapter environment values, command arguments, working directories, provider base URLs, or forward-compatible extra bodies. `redact_url_for_diagnostics` is the shared URL diagnostic boundary for ASR and text providers: it removes userinfo and fragments, preserves scheme/host/port/path plus query-key order and duplicates, and replaces every query value with `REDACTED`. Invalid URLs become the fixed marker `<invalid-url>`. This helper never mutates the configured URL used for an HTTP request.
 
-`vinput-daemon --config data/default-config.json print-config`, `asr-state`, `text-adapters`, and `audio-devices` are covered by integration tests to keep daemon diagnostics aligned with the same committed fixture. `audio-devices` reports the parsed capture target without constructing the runtime. In default builds it reports `backend: "unavailable"`; with `pipewire-backend` it may enumerate live PipeWire sources, but still succeeds with `live: false` and an `enumeration_error` when PipeWire client configuration or a server is unavailable.
+`vinpst-daemon --config data/default-config.json print-config`, `asr-state`, `text-adapters`, and `audio-devices` are covered by integration tests to keep daemon diagnostics aligned with the same committed fixture. `audio-devices` reports the parsed capture target without constructing the runtime. In default builds it reports `backend: "unavailable"`; with `pipewire-backend` it may enumerate live PipeWire sources, but still succeeds with `live: false` and an `enumeration_error` when PipeWire client configuration or a server is unavailable.

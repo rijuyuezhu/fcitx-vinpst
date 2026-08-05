@@ -13,8 +13,8 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_CROSS_PROVIDER_OUT_DIR:-target/tmp/ime-fcitx-cross-provider-live}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_CROSS_PROVIDER_OUT_DIR:-target/tmp/ime-fcitx-cross-provider-live}"
 if [[ "${out_dir}" == /* ]]; then
   out_dir_abs="${out_dir}"
 else
@@ -22,19 +22,19 @@ else
 fi
 selection_probe="scripts/live/niri/probes/fcitx-live-asr-selection-probe.py"
 bridge="${repo_root}/scripts/fixtures/legacy-command-asr-wav-bridge.py"
-service_path="${VINPUT_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service}"
-addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
-daemon_wrapper="${HOME}/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh"
+service_path="${VINPST_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service}"
+addon_config="${HOME}/.config/fcitx5/conf/vinpst.conf"
+daemon_wrapper="${HOME}/.local/share/fcitx-vinpst/vinpst-daemon-with-vinpst-env.sh"
 
-trigger_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
-external_recognizer="${VINPUT_LIVE_EXTERNAL_RECOGNIZER:-sherpa-one-shot}"
-external_provider="${VINPUT_LIVE_EXTERNAL_PROVIDER_ID:-external-command}"
-external_model="${VINPUT_LIVE_EXTERNAL_MODEL_ID:-external-one-shot}"
-recognition_wav="${VINPUT_LIVE_EXTERNAL_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
-whisper_binary="${VINPUT_LIVE_WHISPER_BINARY:-${repo_root}/target/third-party/whisper.cpp-v1.9.1/build/bin/whisper-cli}"
-whisper_source="${VINPUT_LIVE_WHISPER_SOURCE:-${repo_root}/target/third-party/whisper.cpp-v1.9.1/src}"
-whisper_model="${VINPUT_LIVE_WHISPER_MODEL:-${HOME}/.local/share/voxtype/models/ggml-base.bin}"
-whisper_language="${VINPUT_LIVE_WHISPER_LANGUAGE:-zh}"
+trigger_key="${VINPST_LIVE_ASR_MENU_KEY:-F8}"
+external_recognizer="${VINPST_LIVE_EXTERNAL_RECOGNIZER:-sherpa-one-shot}"
+external_provider="${VINPST_LIVE_EXTERNAL_PROVIDER_ID:-external-command}"
+external_model="${VINPST_LIVE_EXTERNAL_MODEL_ID:-external-one-shot}"
+recognition_wav="${VINPST_LIVE_EXTERNAL_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
+whisper_binary="${VINPST_LIVE_WHISPER_BINARY:-${repo_root}/target/third-party/whisper.cpp-v1.9.1/build/bin/whisper-cli}"
+whisper_source="${VINPST_LIVE_WHISPER_SOURCE:-${repo_root}/target/third-party/whisper.cpp-v1.9.1/src}"
+whisper_model="${VINPST_LIVE_WHISPER_MODEL:-${HOME}/.local/share/voxtype/models/ggml-base.bin}"
+whisper_language="${VINPST_LIVE_WHISPER_LANGUAGE:-zh}"
 whisper_commit="f049fff95a089aa9969deb009cdd4892b3e74916"
 underlying_recognizer="sherpa-onnx one-shot daemon using the original model"
 independent_recognizer=false
@@ -60,9 +60,9 @@ esac
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 wait_backend() {
@@ -100,13 +100,13 @@ restart_fcitx() {
     if [[ -n "${pid}" ]] && [[ "${pid}" != "${previous_pid}" ]] &&
       [[ ! -e "/proc/${previous_pid}" ]] &&
       fcitx5-remote --check >/dev/null 2>&1 &&
-      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinput.so" "/proc/${pid}/maps"; then
+      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so" "/proc/${pid}/maps"; then
       printf '%s\n' "${pid}"
       return 0
     fi
     sleep 0.1
   done
-  echo "restarted Fcitx did not load the user vinput addon" >&2
+  echo "restarted Fcitx did not load the user vinpst addon" >&2
   return 1
 }
 
@@ -272,31 +272,31 @@ native_path.write_text(
 if recognizer == "sherpa-one-shot":
     command = (
         'set -euo pipefail; printf "recognizer=sherpa-one-shot pid=%s wav=%s\\n" '
-        '"$$" "$VINPUT_ASR_WAV" >> "$VINPUT_EXTERNAL_TRACE"; '
-        '"$VINPUT_EXTERNAL_DAEMON" --configured-backends '
-        '--config "$VINPUT_EXTERNAL_CONFIG" --once --wav "$VINPUT_ASR_WAV" '
+        '"$$" "$VINPST_ASR_WAV" >> "$VINPST_EXTERNAL_TRACE"; '
+        '"$VINPST_EXTERNAL_DAEMON" --configured-backends '
+        '--config "$VINPST_EXTERNAL_CONFIG" --once --wav "$VINPST_ASR_WAV" '
         "| jq -er '.commit_text | select(type == \"string\" and length > 0)'"
     )
     provider_env = {
-        "VINPUT_EXTERNAL_DAEMON": daemon,
-        "VINPUT_EXTERNAL_CONFIG": str(native_path),
-        "VINPUT_EXTERNAL_TRACE": trace_path,
+        "VINPST_EXTERNAL_DAEMON": daemon,
+        "VINPST_EXTERNAL_CONFIG": str(native_path),
+        "VINPST_EXTERNAL_TRACE": trace_path,
     }
 elif recognizer == "whisper-cpp":
     command = (
         'set -euo pipefail; printf "recognizer=whisper-cpp pid=%s wav=%s\\n" '
-        '"$$" "$VINPUT_ASR_WAV" >> "$VINPUT_EXTERNAL_TRACE"; '
-        'export LD_LIBRARY_PATH="$VINPUT_WHISPER_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; '
-        '"$VINPUT_WHISPER_BINARY" --no-gpu --threads 8 '
-        '--language "$VINPUT_WHISPER_LANGUAGE" --no-timestamps --no-prints '
-        '--model "$VINPUT_WHISPER_MODEL" --file "$VINPUT_ASR_WAV"'
+        '"$$" "$VINPST_ASR_WAV" >> "$VINPST_EXTERNAL_TRACE"; '
+        'export LD_LIBRARY_PATH="$VINPST_WHISPER_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; '
+        '"$VINPST_WHISPER_BINARY" --no-gpu --threads 8 '
+        '--language "$VINPST_WHISPER_LANGUAGE" --no-timestamps --no-prints '
+        '--model "$VINPST_WHISPER_MODEL" --file "$VINPST_ASR_WAV"'
     )
     provider_env = {
-        "VINPUT_EXTERNAL_TRACE": trace_path,
-        "VINPUT_WHISPER_BINARY": whisper_binary,
-        "VINPUT_WHISPER_LIB_DIR": str(Path(whisper_binary).parent),
-        "VINPUT_WHISPER_MODEL": whisper_model,
-        "VINPUT_WHISPER_LANGUAGE": whisper_language,
+        "VINPST_EXTERNAL_TRACE": trace_path,
+        "VINPST_WHISPER_BINARY": whisper_binary,
+        "VINPST_WHISPER_LIB_DIR": str(Path(whisper_binary).parent),
+        "VINPST_WHISPER_MODEL": whisper_model,
+        "VINPST_WHISPER_LANGUAGE": whisper_language,
     }
 else:
     raise SystemExit(f"unsupported external recognizer: {recognizer}")
@@ -393,10 +393,10 @@ jq -s -e 'any(.[]; .event == "summary" and .ok == true and .selected == true and
 wait_backend "${external_provider}" "${external_model}" \
   "${out_dir_abs}/external-ready.json"
 
-VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
-VINPUT_LIVE_NATIVE_MODES=normal \
-VINPUT_LIVE_REQUIRE_PARTIAL=0 \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-recognition" \
+VINPST_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPST_LIVE_NATIVE_MODES=normal \
+VINPST_LIVE_REQUIRE_PARTIAL=0 \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-recognition" \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 jq -s -e 'any(.[]; .event == "summary" and .ok == true and .require_partial == false and (.commit | length) > 0)' \
   "${out_dir_abs}/external-recognition/fcitx/normal.jsonl" >/dev/null
@@ -426,9 +426,9 @@ restore_profile
 wait_backend "${original_provider}" "${original_model}" \
   "${out_dir_abs}/original-ready.json"
 
-VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
-VINPUT_LIVE_NATIVE_MODES=normal \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/original-recognition" \
+VINPST_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPST_LIVE_NATIVE_MODES=normal \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/original-recognition" \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 jq -s -e 'any(.[]; .event == "summary" and .ok == true and .require_partial == true and .partial_count > 0 and (.commit | length) > 0)' \
   "${out_dir_abs}/original-recognition/fcitx/normal.jsonl" >/dev/null

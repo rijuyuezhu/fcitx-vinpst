@@ -29,13 +29,13 @@ mkdir -p "${stub_bin}" "${home_dir}" "${out_dir}" "${runtime_bin}"
 cat >"${stub_bin}/cargo" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-: "${VINPUT_USER_CLI_BINARY:?}"
-: "${VINPUT_USER_DAEMON_BINARY:?}"
-mkdir -p "$(dirname "${VINPUT_USER_CLI_BINARY}")" "$(dirname "${VINPUT_USER_DAEMON_BINARY}")"
-cat >"${VINPUT_USER_CLI_BINARY}" <<'VINPUT'
+: "${VINPST_USER_CLI_BINARY:?}"
+: "${VINPST_USER_DAEMON_BINARY:?}"
+mkdir -p "$(dirname "${VINPST_USER_CLI_BINARY}")" "$(dirname "${VINPST_USER_DAEMON_BINARY}")"
+cat >"${VINPST_USER_CLI_BINARY}" <<'VINPST'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"${VINPUT_STUB_CALLS:?}"
+printf '%s\n' "$*" >>"${VINPST_STUB_CALLS:?}"
 case "${1:-}" in
   activation-service)
     service_dir="${XDG_DATA_HOME:-${HOME}/.local/share}/dbus-1/services"
@@ -47,10 +47,10 @@ case "${1:-}" in
         daemon="${args[$((index + 1))]}"
       fi
     done
-    cat >"${service_dir}/org.fcitx.Vinput.service" <<SERVICE
+    cat >"${service_dir}/org.fcitx.Vinpst.service" <<SERVICE
 [D-BUS Service]
-Name=org.fcitx.Vinput
-Exec=${daemon:-vinput-daemon} --dbus
+Name=org.fcitx.Vinpst
+Exec=${daemon:-vinpst-daemon} --dbus
 SERVICE
     printf '{"activation":"ok"}\n'
     ;;
@@ -61,13 +61,13 @@ SERVICE
     printf '{"ok":true}\n'
     ;;
 esac
-VINPUT
-chmod +x "${VINPUT_USER_CLI_BINARY}"
-cat >"${VINPUT_USER_DAEMON_BINARY}" <<'DAEMON'
+VINPST
+chmod +x "${VINPST_USER_CLI_BINARY}"
+cat >"${VINPST_USER_DAEMON_BINARY}" <<'DAEMON'
 #!/usr/bin/env sh
 exit 0
 DAEMON
-chmod +x "${VINPUT_USER_DAEMON_BINARY}"
+chmod +x "${VINPST_USER_DAEMON_BINARY}"
 SH
 chmod +x "${stub_bin}/cargo"
 
@@ -92,25 +92,25 @@ if [[ -z "${build_dir}" ]]; then
   exit 2
 fi
 mkdir -p "${build_dir}"
-printf 'stub module\n' >"${build_dir}/fcitx5-vinput.so"
+printf 'stub module\n' >"${build_dir}/fcitx5-vinpst.so"
 mkdir -p "${build_dir}/locale/zh_CN/LC_MESSAGES"
-printf 'stub zh_CN catalog\n' >"${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
-cat >"${build_dir}/vinput-addon.conf" <<'CONF'
-Name=Vinput
+printf 'stub zh_CN catalog\n' >"${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
+cat >"${build_dir}/vinpst-addon.conf" <<'CONF'
+Name=Vinpst
 Type=SharedLibrary
-Library=fcitx5-vinput
+Library=fcitx5-vinpst
 CONF
 SH
 chmod +x "${stub_bin}/cmake"
 
-calls_log="${out_dir}/vinput-calls.log"
+calls_log="${out_dir}/vinpst-calls.log"
 fake_asr="${out_dir}/fake-real-asr.py"
 cat >"${fake_asr}" <<'PY'
 #!/usr/bin/env python3
 import os
 import wave
 
-with wave.open(os.environ["VINPUT_ASR_WAV"]) as handle:
+with wave.open(os.environ["VINPST_ASR_WAV"]) as handle:
     print("real helper frames %d" % handle.getnframes())
 PY
 chmod +x "${fake_asr}"
@@ -119,18 +119,18 @@ external_command="python3 ${fake_asr}"
 PATH="${stub_bin}:${PATH}" \
 HOME="${home_dir}" \
 XDG_DATA_HOME="${home_dir}/.local/share" \
-VINPUT_STUB_CALLS="${calls_log}" \
-VINPUT_USER_CLI_BINARY="${runtime_bin}/vinput" \
-VINPUT_USER_DAEMON_BINARY="${runtime_bin}/vinput-daemon" \
-VINPUT_USER_PROFILE=real-command-asr-wav \
-VINPUT_USER_AUDIO_BACKEND=mock \
-VINPUT_USER_COMMAND_ASR_WAV_COMMAND="${external_command}" \
-VINPUT_USER_COMMAND_ASR_WAV_TIMEOUT_MS=5000 \
+VINPST_STUB_CALLS="${calls_log}" \
+VINPST_USER_CLI_BINARY="${runtime_bin}/vinpst" \
+VINPST_USER_DAEMON_BINARY="${runtime_bin}/vinpst-daemon" \
+VINPST_USER_PROFILE=real-command-asr-wav \
+VINPST_USER_AUDIO_BACKEND=mock \
+VINPST_USER_COMMAND_ASR_WAV_COMMAND="${external_command}" \
+VINPST_USER_COMMAND_ASR_WAV_TIMEOUT_MS=5000 \
 scripts/install/install-user-ime.sh >"${out_dir}/install.log" 2>&1
 
-config_path="${home_dir}/.local/share/fcitx-vinput/real-command-asr-wav.json"
-helper_path="${home_dir}/.local/bin/vinput-command-asr-wav-helper"
-service_path="${home_dir}/.local/share/dbus-1/services/org.fcitx.Vinput.service"
+config_path="${home_dir}/.local/share/fcitx-vinpst/real-command-asr-wav.json"
+helper_path="${home_dir}/.local/bin/vinpst-command-asr-wav-helper"
+service_path="${home_dir}/.local/share/dbus-1/services/org.fcitx.Vinpst.service"
 
 for path in "${config_path}" "${helper_path}" "${service_path}"; do
   if [[ ! -e "${path}" ]]; then
@@ -153,8 +153,8 @@ config = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 provider = config["asr"]["providers"][0]
 assert config["asr"]["active_provider"] == "real-command-asr-wav", config
 assert provider["command"] == sys.argv[2], provider
-assert provider["args"] == ["--timeout-ms", "5000", "--", "sh", "-c", "$VINPUT_REAL_ASR_COMMAND"], provider
-assert provider["env"] == {"VINPUT_REAL_ASR_COMMAND": sys.argv[3]}, provider
+assert provider["args"] == ["--timeout-ms", "5000", "--", "sh", "-c", "$VINPST_REAL_ASR_COMMAND"], provider
+assert provider["env"] == {"VINPST_REAL_ASR_COMMAND": sys.argv[3]}, provider
 assert provider["timeout_ms"] == 7000, provider
 assert config["scenes"]["active_scene"] == "raw", config
 PY

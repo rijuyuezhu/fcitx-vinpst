@@ -18,7 +18,7 @@ Rules:
 - Prefer product-spine work over generic cleanup.
 - Preserve public wire formats and frontend expectations with focused behavior and compatibility tests.
 - Do not add tests that assert source declarations, interface text, exact documentation wording, docstrings, recipe names, or other implementation prose.
-- Keep the retained Fcitx frontend thin. Backend logic belongs in Rust crates and `vinput-daemon`.
+- Keep the retained Fcitx frontend thin. Backend logic belongs in Rust crates and `vinpst-daemon`.
 - Keep the standalone GUI in Rust; do not port or restore the legacy Qt GUI as a C++ product component.
 - Distinguish `implemented`, `deterministic`, and `live-proven`; never count a smoke as desktop proof.
 - Never track files under ignored `docs/plan/`.

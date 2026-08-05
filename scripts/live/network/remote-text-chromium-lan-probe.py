@@ -70,7 +70,7 @@ def wait_for_page_ready(cdp: CdpClient) -> dict[str, Any]:
         if isinstance(value, dict):
             state = value
         if (
-            state.get("title") == "VInput Remote"
+            state.get("title") == "Vinpst Remote"
             and state.get("input") == "input connected"
             and state.get("output") == "output connected"
             and state.get("disabled") is False
@@ -172,9 +172,9 @@ def main() -> int:
     user_data.mkdir()
     browser_log_path = args.out_dir / "browser.log"
     browser_log = browser_log_path.open("w", encoding="utf-8")
-    api_key = os.environ.get("VINPUT_REMOTE_TEXT_API_KEY", "")
+    api_key = os.environ.get("VINPST_REMOTE_TEXT_API_KEY", "")
     if not api_key:
-        raise RuntimeError("VINPUT_REMOTE_TEXT_API_KEY is required")
+        raise RuntimeError("VINPST_REMOTE_TEXT_API_KEY is required")
     page_url = f"{args.endpoint}/#key={urllib.parse.quote(api_key)}"
     allow_origin = f"http://127.0.0.1:{args.debug_port}"
     command = [

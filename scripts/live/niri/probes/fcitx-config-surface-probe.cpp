@@ -60,10 +60,10 @@ void printJson(const QJsonObject &object) {
 
 int main(int argc, char **argv) {
   QApplication application(argc, argv);
-  application.setApplicationName("fcitx-vinput-config-surface-probe");
+  application.setApplicationName("fcitx-vinpst-config-surface-probe");
 
   const QString uri = argc > 1 ? QString::fromLocal8Bit(argv[1])
-                               : QStringLiteral("fcitx://config/addon/vinput");
+                               : QStringLiteral("fcitx://config/addon/vinpst");
   auto *dbus = new fcitx::kcm::DBusProvider(&application);
   QDialog *dialog = nullptr;
   bool changed = false;
@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
     }
     started = true;
     dialog = fcitx::kcm::ConfigWidget::configDialog(
-        nullptr, dbus, uri, QStringLiteral("Vinput Configuration"));
+        nullptr, dbus, uri, QStringLiteral("Vinpst Configuration"));
     QJsonObject startup;
     startup.insert("event", "startup");
     startup.insert("uri", uri);

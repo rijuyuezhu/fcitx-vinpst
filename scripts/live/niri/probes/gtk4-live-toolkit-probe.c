@@ -79,7 +79,7 @@ static void EmitTextEvent(const char *event, const char *text) {
 }
 
 static unsigned int TimeoutSeconds(void) {
-  const char *value = g_getenv("VINPUT_TOOLKIT_TIMEOUT_SECONDS");
+  const char *value = g_getenv("VINPST_TOOLKIT_TIMEOUT_SECONDS");
   if (value == NULL || *value == '\0') {
     return 60;
   }
@@ -87,14 +87,14 @@ static unsigned int TimeoutSeconds(void) {
   char *end = NULL;
   const unsigned long parsed = strtoul(value, &end, 10);
   if (errno != 0 || end == value || *end != '\0' || parsed == 0 || parsed > 3600) {
-    g_printerr("invalid VINPUT_TOOLKIT_TIMEOUT_SECONDS: %s\n", value);
+    g_printerr("invalid VINPST_TOOLKIT_TIMEOUT_SECONDS: %s\n", value);
     return 60;
   }
   return (unsigned int)parsed;
 }
 
 static unsigned int ExpectedCycles(void) {
-  const char *value = g_getenv("VINPUT_TOOLKIT_EXPECTED_CYCLES");
+  const char *value = g_getenv("VINPST_TOOLKIT_EXPECTED_CYCLES");
   if (value == NULL || *value == '\0') {
     return 1;
   }
@@ -102,7 +102,7 @@ static unsigned int ExpectedCycles(void) {
   char *end = NULL;
   const unsigned long parsed = strtoul(value, &end, 10);
   if (errno != 0 || end == value || *end != '\0' || parsed == 0 || parsed > 20) {
-    g_printerr("invalid VINPUT_TOOLKIT_EXPECTED_CYCLES: %s\n", value);
+    g_printerr("invalid VINPST_TOOLKIT_EXPECTED_CYCLES: %s\n", value);
     return 1;
   }
   return (unsigned int)parsed;
@@ -124,7 +124,7 @@ static bool DaemonIsRecording(Probe *probe) {
 
   GError *error = NULL;
   GVariant *reply = g_dbus_connection_call_sync(
-      probe->bus, "org.fcitx.Vinput", "/org/fcitx/Vinput", "org.fcitx.Vinput.Service",
+      probe->bus, "org.fcitx.Vinpst", "/org/fcitx/Vinpst", "org.fcitx.Vinpst.Service",
       "GetStatus", NULL, G_VARIANT_TYPE("(s)"), G_DBUS_CALL_FLAGS_NONE, 1000, NULL,
       &error);
   if (reply == NULL) {
@@ -329,7 +329,7 @@ int main(int argc, char **argv) {
   gtk_init();
 
   const ProbeMode mode = ParseMode(argv[1]);
-  const char *initial_text = g_getenv("VINPUT_TOOLKIT_INITIAL_TEXT");
+  const char *initial_text = g_getenv("VINPST_TOOLKIT_INITIAL_TEXT");
   if (initial_text == NULL || *initial_text == '\0') {
     initial_text = "selected text";
   }
@@ -346,16 +346,16 @@ int main(int argc, char **argv) {
       .timeout_source_id = 0,
       .mode = mode,
       .initial_text = initial_text,
-      .expected_commit_substring = g_getenv("VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING"),
+      .expected_commit_substring = g_getenv("VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING"),
       .expected_cycles = ExpectedCycles(),
       .completed_cycles = 0,
-      .require_partial = EnvFlag("VINPUT_TOOLKIT_REQUIRE_PARTIAL", true),
+      .require_partial = EnvFlag("VINPST_TOOLKIT_REQUIRE_PARTIAL", true),
       .partial_seen = false,
       .commit_seen = false,
       .replacement_seen = false,
       .selection_ready = mode == PROBE_MODE_NORMAL,
       .trust_external_window_focus =
-          EnvFlag("VINPUT_TOOLKIT_EXTERNAL_WINDOW_FOCUS", false),
+          EnvFlag("VINPST_TOOLKIT_EXTERNAL_WINDOW_FOCUS", false),
       .timed_out = false,
       .window_destroyed = false,
   };
@@ -371,14 +371,14 @@ int main(int argc, char **argv) {
     return 1;
   }
   probe.partial_subscription_id = g_dbus_connection_signal_subscribe(
-      probe.bus, "org.fcitx.Vinput", "org.fcitx.Vinput.Service", "RecognitionPartial",
-      "/org/fcitx/Vinput", NULL, G_DBUS_SIGNAL_FLAGS_NONE, OnRecognitionPartial, &probe,
+      probe.bus, "org.fcitx.Vinpst", "org.fcitx.Vinpst.Service", "RecognitionPartial",
+      "/org/fcitx/Vinpst", NULL, G_DBUS_SIGNAL_FLAGS_NONE, OnRecognitionPartial, &probe,
       NULL);
 
   GtkWidget *window = gtk_window_new();
   probe.window = window;
   gtk_window_set_default_size(GTK_WINDOW(window), 640, 140);
-  gtk_window_set_title(GTK_WINDOW(window), "fcitx-vinput GTK4 live probe");
+  gtk_window_set_title(GTK_WINDOW(window), "fcitx-vinpst GTK4 live probe");
   g_signal_connect(window, "close-request", G_CALLBACK(OnWindowCloseRequest), &probe);
 
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);

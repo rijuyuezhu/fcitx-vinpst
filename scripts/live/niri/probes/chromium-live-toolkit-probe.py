@@ -18,9 +18,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-DBUS_DEST = "org.fcitx.Vinput"
-DBUS_PATH = "/org/fcitx/Vinput"
-DBUS_INTERFACE = "org.fcitx.Vinput.Service"
+DBUS_DEST = "org.fcitx.Vinpst"
+DBUS_PATH = "/org/fcitx/Vinpst"
+DBUS_INTERFACE = "org.fcitx.Vinpst.Service"
 PARTIAL_RE = re.compile(r"RecognitionPartial\s+\('((?:\\.|[^'])*)'")
 
 
@@ -288,14 +288,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    timeout = int(os.environ.get("VINPUT_TOOLKIT_TIMEOUT_SECONDS", "120"))
-    initial_text = os.environ.get("VINPUT_TOOLKIT_INITIAL_TEXT", "selected text")
+    timeout = int(os.environ.get("VINPST_TOOLKIT_TIMEOUT_SECONDS", "120"))
+    initial_text = os.environ.get("VINPST_TOOLKIT_INITIAL_TEXT", "selected text")
     expected = os.environ.get(
-        "VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING",
+        "VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING",
         initial_text if args.mode == "command" else "",
     )
     require_partial = os.environ.get(
-        "VINPUT_TOOLKIT_REQUIRE_PARTIAL", "1"
+        "VINPST_TOOLKIT_REQUIRE_PARTIAL", "1"
     ).lower() not in {"0", "false", "no"}
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

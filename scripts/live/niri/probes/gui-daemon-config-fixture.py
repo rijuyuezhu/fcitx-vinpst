@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private-session vinput daemon fixture for GUI config-mutation live gates."""
+"""Private-session vinpst daemon fixture for GUI config-mutation live gates."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 
-SERVICE_NAME = "org.fcitx.Vinput"
-OBJECT_PATH = "/org/fcitx/Vinput"
-SERVICE_INTERFACE = "org.fcitx.Vinput.Service"
+SERVICE_NAME = "org.fcitx.Vinpst"
+OBJECT_PATH = "/org/fcitx/Vinpst"
+SERVICE_INTERFACE = "org.fcitx.Vinpst.Service"
 
 
 def write_atomic(path: Path, content: str) -> None:

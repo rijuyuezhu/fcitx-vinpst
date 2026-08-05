@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${VINPUT_RUN_OUTPUT_DUCKING_LIVE:-}" != 1 ]]; then
-  echo "set VINPUT_RUN_OUTPUT_DUCKING_LIVE=1 to run the output-ducking live gate" >&2
+if [[ "${VINPST_RUN_OUTPUT_DUCKING_LIVE:-}" != 1 ]]; then
+  echo "set VINPST_RUN_OUTPUT_DUCKING_LIVE=1 to run the output-ducking live gate" >&2
   exit 2
 fi
 
@@ -35,7 +35,7 @@ original_sink_volume="$(wpctl get-volume "${original_sink_id}" | awk '{print $2}
 [[ "${original_sink_id}" =~ ^[0-9]+$ ]]
 test -n "${original_sink_name}"
 
-prefix="vinput_output_ducking_$$"
+prefix="vinpst_output_ducking_$$"
 sink_name="${prefix}_sink"
 source_name="${prefix}_source"
 loopback_pid=""
@@ -64,8 +64,8 @@ pw-loopback \
   --name "${prefix}_loopback" \
   --channels 1 \
   --channel-map '[ MONO ]' \
-  --capture-props "media.class=Audio/Sink node.name=${sink_name} node.description=\"Vinput Output Ducking Sink\" audio.position=[ MONO ]" \
-  --playback-props "media.class=Audio/Source node.name=${source_name} node.description=\"Vinput Output Ducking Source\" audio.position=[ MONO ]" \
+  --capture-props "media.class=Audio/Sink node.name=${sink_name} node.description=\"Vinpst Output Ducking Sink\" audio.position=[ MONO ]" \
+  --playback-props "media.class=Audio/Source node.name=${source_name} node.description=\"Vinpst Output Ducking Source\" audio.position=[ MONO ]" \
   >"${root}/pw-loopback.log" 2>&1 &
 loopback_pid=$!
 
@@ -89,9 +89,9 @@ jq '
   | .global.duck_output_volume = 0.25
 ' data/default-config.json >"${config_path}"
 
-cargo build -q -p vinput-daemon --bin vinput-daemon
-RUST_LOG=vinput_daemon=debug \
-  target/debug/vinput-daemon \
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
+RUST_LOG=vinpst_daemon=debug \
+  target/debug/vinpst-daemon \
     --once \
     --record-ms 1500 \
     --config "${config_path}" \

@@ -16,7 +16,7 @@ source "${repo_root}/scripts/live/network/remote-text-common.sh"
 cd "${repo_root}"
 
 for command in curl ip jq python3 ss; do
-  vinput_network_require_command "${command}"
+  vinpst_network_require_command "${command}"
 done
 for command in /usr/bin/ip /usr/bin/ss; do
   [[ -x "${command}" ]] || {
@@ -32,21 +32,21 @@ if scripts/live/network/run-remote-text-external-device-live.sh \
   echo "external-device wrapper unexpectedly ran without physical-device confirmation" >&2
   exit 1
 fi
-grep -Fq 'VINPUT_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1' "${confirmation_log}"
+grep -Fq 'VINPST_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1' "${confirmation_log}"
 rm -f "${confirmation_log}"
 
-cargo build -q -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
 
-root="${VINPUT_REMOTE_TEXT_COLLECTOR_SMOKE_DIR:-target/tmp/remote-text-external-collector-smoke}"
+root="${VINPST_REMOTE_TEXT_COLLECTOR_SMOKE_DIR:-target/tmp/remote-text-external-collector-smoke}"
 rm -rf "${root}"
 mkdir -p "${root}"
-read -r port < <(vinput_network_reserve_ports 1)
-api_key="$(vinput_network_random_token)"
-challenge=vinput-external-collector-smoke
+read -r port < <(vinpst_network_reserve_ports 1)
+api_key="$(vinpst_network_random_token)"
+challenge=vinpst-external-collector-smoke
 config_path="${root}/config.json"
-vinput_remote_text_write_config "${config_path}" "${port}" "${api_key}" 600000
+vinpst_remote_text_write_config "${config_path}" "${port}" "${api_key}" 600000
 
-target/debug/vinput-daemon \
+target/debug/vinpst-daemon \
   --config "${config_path}" \
   remote-text-server --bind 127.0.0.1 \
   >"${root}/server.log" 2>&1 &
@@ -64,7 +64,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-vinput_remote_text_wait_health \
+vinpst_remote_text_wait_health \
   "${server_pid}" \
   "http://127.0.0.1:${port}/health" \
   "${root}/server.log" \
@@ -73,7 +73,7 @@ rm -f "${config_path}"
 
 # No input peer must time out without writing proof.
 set +e
-VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
+VINPST_REMOTE_TEXT_API_KEY="${api_key}" \
   python3 scripts/live/network/remote-text-external-device-collector.py \
   --endpoint "http://127.0.0.1:${port}" \
   --output-url "ws://127.0.0.1:${port}/v1/realtime" \
@@ -95,7 +95,7 @@ test ! -e "${root}/timeout/summary.json"
 
 # A completed challenge from this same host must still be rejected.
 set +e
-VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
+VINPST_REMOTE_TEXT_API_KEY="${api_key}" \
   python3 scripts/live/network/remote-text-external-device-collector.py \
   --endpoint "http://127.0.0.1:${port}" \
   --output-url "ws://127.0.0.1:${port}/v1/realtime" \
@@ -109,7 +109,7 @@ VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
 collector_pid=$!
 set -e
 sleep 0.1
-VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
+VINPST_REMOTE_TEXT_API_KEY="${api_key}" \
   python3 scripts/fixtures/remote-text-input-client.py \
   --url "ws://127.0.0.1:${port}/ws" \
   --text "${challenge}" \
@@ -149,7 +149,7 @@ SH
 chmod 755 "${fake_network_dir}/ip" "${fake_network_dir}/ss"
 
 set +e
-VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
+VINPST_REMOTE_TEXT_API_KEY="${api_key}" \
   python3 scripts/live/network/remote-text-external-device-collector.py \
   --endpoint "http://127.0.0.1:${port}" \
   --output-url "ws://127.0.0.1:${port}/v1/realtime" \
@@ -164,7 +164,7 @@ VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
 collector_pid=$!
 set -e
 sleep 0.1
-VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
+VINPST_REMOTE_TEXT_API_KEY="${api_key}" \
   python3 scripts/fixtures/remote-text-input-client.py \
   --url "ws://127.0.0.1:${port}/ws" \
   --text "${challenge}" \
@@ -193,6 +193,6 @@ fi
 kill -INT "${server_pid}"
 wait "${server_pid}"
 trap - EXIT INT TERM
-vinput_network_require_listener_released "${port}"
+vinpst_network_require_listener_released "${port}"
 rm -rf "${root}"
 echo "remote text external-device collector smoke passed"

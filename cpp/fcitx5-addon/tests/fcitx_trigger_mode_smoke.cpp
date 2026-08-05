@@ -1,14 +1,14 @@
-#include "vinput_fcitx_bridge/fcitx_trigger_mode.h"
+#include "vinpst_fcitx_bridge/fcitx_trigger_mode.h"
 
 #include <cassert>
 #include <chrono>
 
 int main() {
   using namespace std::chrono_literals;
-  using vinput_fcitx_bridge::TriggerKind;
-  using vinput_fcitx_bridge::TriggerMode;
-  using vinput_fcitx_bridge::TriggerModeAction;
-  using vinput_fcitx_bridge::TriggerModeController;
+  using vinpst_fcitx_bridge::TriggerKind;
+  using vinpst_fcitx_bridge::TriggerMode;
+  using vinpst_fcitx_bridge::TriggerModeAction;
+  using vinpst_fcitx_bridge::TriggerModeController;
 
   const auto base = TriggerModeController::TimePoint{};
   const fcitx::Key normal(FcitxKey_Control_R);

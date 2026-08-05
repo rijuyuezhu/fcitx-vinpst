@@ -19,9 +19,9 @@ FcitxG = importlib.import_module("gi.repository.FcitxG")
 Gdk = importlib.import_module("gi.repository.Gdk")
 GLib = importlib.import_module("gi.repository.GLib")
 
-DBUS_SERVICE = "org.fcitx.Vinput"
-DBUS_PATH = "/org/fcitx/Vinput"
-DBUS_INTERFACE = "org.fcitx.Vinput.Service"
+DBUS_SERVICE = "org.fcitx.Vinpst"
+DBUS_PATH = "/org/fcitx/Vinpst"
+DBUS_INTERFACE = "org.fcitx.Vinpst.Service"
 PAGE_SIZE = 10
 
 
@@ -137,7 +137,7 @@ class MenuPagingProbe:
         self.stage = 0
         self.loop = GLib.MainLoop()
         self.client = FcitxG.Client.new()
-        self.client.set_program(f"fcitx-vinput-{args.menu}-menu-paging-live-probe")
+        self.client.set_program(f"fcitx-vinpst-{args.menu}-menu-paging-live-probe")
         self.client.set_display(
             os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
         )

@@ -8,27 +8,27 @@ source "${script_dir}/remote-text-common.sh"
 cd "${repo_root}"
 
 for command in curl ip jq python3 ss; do
-  vinput_network_require_command "${command}"
+  vinpst_network_require_command "${command}"
 done
 
-browser="$(vinput_network_find_chromium "${VINPUT_REMOTE_TEXT_BROWSER:-}")"
+browser="$(vinpst_network_find_chromium "${VINPST_REMOTE_TEXT_BROWSER:-}")"
 lan_address="$(
-  vinput_network_select_lan_ipv4 "${VINPUT_REMOTE_TEXT_LAN_ADDRESS:-}"
+  vinpst_network_select_lan_ipv4 "${VINPST_REMOTE_TEXT_LAN_ADDRESS:-}"
 )"
-out_dir="${VINPUT_REMOTE_TEXT_LIVE_OUT_DIR:-target/tmp/remote-text-chromium-lan-live}"
+out_dir="${VINPST_REMOTE_TEXT_LIVE_OUT_DIR:-target/tmp/remote-text-chromium-lan-live}"
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
 
-read -r port debug_port < <(vinput_network_reserve_ports 2)
-api_key="$(vinput_network_random_token)"
-fixture_text="${VINPUT_REMOTE_TEXT_LIVE_TEXT:-remote text LAN browser fixture}"
+read -r port debug_port < <(vinpst_network_reserve_ports 2)
+api_key="$(vinpst_network_random_token)"
+fixture_text="${VINPST_REMOTE_TEXT_LIVE_TEXT:-remote text LAN browser fixture}"
 config_path="${out_dir}/config.json"
 server_log="${out_dir}/server.log"
-vinput_remote_text_write_config "${config_path}" "${port}" "${api_key}" 5000
+vinpst_remote_text_write_config "${config_path}" "${port}" "${api_key}" 5000
 
-cargo build -q -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
 
-target/debug/vinput-daemon \
+target/debug/vinpst-daemon \
   --config "${config_path}" \
   remote-text-server --bind 0.0.0.0 \
   >"${server_log}" 2>&1 &
@@ -48,14 +48,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-vinput_remote_text_wait_health \
+vinpst_remote_text_wait_health \
   "${server_pid}" \
   "http://${lan_address}:${port}/health" \
   "${server_log}" \
   "${out_dir}/health.json"
 rm -f "${config_path}"
 
-VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
+VINPST_REMOTE_TEXT_API_KEY="${api_key}" \
   python3 scripts/live/network/remote-text-chromium-lan-probe.py \
   --browser "${browser}" \
   --endpoint "http://${lan_address}:${port}" \
@@ -93,7 +93,7 @@ test ! -e "${out_dir}/chrome-profile"
 kill -INT "${server_pid}"
 wait "${server_pid}"
 server_stopped=1
-vinput_network_require_listener_released "${port}"
+vinpst_network_require_listener_released "${port}"
 
 jq -n \
   --arg event wrapper_summary \

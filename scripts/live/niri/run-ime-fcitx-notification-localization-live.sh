@@ -13,17 +13,17 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-out_dir="${VINPUT_LIVE_NOTIFICATION_LOCALIZATION_OUT_DIR:-target/tmp/ime-fcitx-notification-localization-live}"
-module_path="${HOME}/.local/lib/fcitx5/fcitx5-vinput.so"
-catalog_path="${HOME}/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
-fcitx_wrapper="${HOME}/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh"
-profile_path="${HOME}/.local/share/fcitx-vinput/sherpa-native-command-live.json"
-service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service"
-addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
-addon_metadata="${HOME}/.local/share/fcitx5/addon/vinput.conf"
-fcitx_env="${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env"
-cli_binary="${repo_root}/target/debug/vinput"
-fcitx_settle_seconds="${VINPUT_LIVE_FCITX_SETTLE_SECONDS:-1}"
+out_dir="${VINPST_LIVE_NOTIFICATION_LOCALIZATION_OUT_DIR:-target/tmp/ime-fcitx-notification-localization-live}"
+module_path="${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so"
+catalog_path="${HOME}/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
+fcitx_wrapper="${HOME}/.local/share/fcitx-vinpst/fcitx5-with-vinpst-env.sh"
+profile_path="${HOME}/.local/share/fcitx-vinpst/sherpa-native-command-live.json"
+service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service"
+addon_config="${HOME}/.config/fcitx5/conf/vinpst.conf"
+addon_metadata="${HOME}/.local/share/fcitx5/addon/vinpst.conf"
+fcitx_env="${HOME}/.local/share/fcitx-vinpst/fcitx-vinpst.env"
+cli_binary="${repo_root}/target/debug/vinpst"
+fcitx_settle_seconds="${VINPST_LIVE_FCITX_SETTLE_SECONDS:-1}"
 localized_fcitx=0
 success=0
 
@@ -206,20 +206,20 @@ trap cleanup EXIT INT TERM
 
 restart_fcitx_zh_cn | tee "${out_dir}/fcitx-zh-cn.pid"
 localized_fcitx=1
-VINPUT_LIVE_NOTIFICATION_OUT_DIR="${out_dir}/info-zh-cn" \
-VINPUT_LIVE_NOTIFICATION_EXPECTED_SUMMARY='语音输入' \
-VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_PREFIX='已切换场景到“' \
-VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_SUFFIX='”。' \
+VINPST_LIVE_NOTIFICATION_OUT_DIR="${out_dir}/info-zh-cn" \
+VINPST_LIVE_NOTIFICATION_EXPECTED_SUMMARY='语音输入' \
+VINPST_LIVE_NOTIFICATION_EXPECTED_BODY_PREFIX='已切换场景到“' \
+VINPST_LIVE_NOTIFICATION_EXPECTED_BODY_SUFFIX='”。' \
   scripts/live/niri/run-ime-fcitx-notification-live.sh
-VINPUT_LIVE_ERROR_NOTIFICATION_OUT_DIR="${out_dir}/error-zh-cn" \
-VINPUT_LIVE_ERROR_NOTIFICATION_EXPECTED_SUMMARY='语音输入' \
+VINPST_LIVE_ERROR_NOTIFICATION_OUT_DIR="${out_dir}/error-zh-cn" \
+VINPST_LIVE_ERROR_NOTIFICATION_EXPECTED_SUMMARY='语音输入' \
   scripts/live/niri/run-ime-fcitx-error-notification-live.sh
 
 restart_fcitx_english | tee "${out_dir}/fcitx-english.pid"
-VINPUT_LIVE_NOTIFICATION_OUT_DIR="${out_dir}/info-english" \
-VINPUT_LIVE_NOTIFICATION_EXPECTED_SUMMARY='Voice Input' \
-VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_PREFIX="Switched scene to '" \
-VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_SUFFIX="'." \
+VINPST_LIVE_NOTIFICATION_OUT_DIR="${out_dir}/info-english" \
+VINPST_LIVE_NOTIFICATION_EXPECTED_SUMMARY='Voice Input' \
+VINPST_LIVE_NOTIFICATION_EXPECTED_BODY_PREFIX="Switched scene to '" \
+VINPST_LIVE_NOTIFICATION_EXPECTED_BODY_SUFFIX="'." \
   scripts/live/niri/run-ime-fcitx-notification-live.sh
 
 restart_fcitx_original | tee "${out_dir}/fcitx-restored.pid"

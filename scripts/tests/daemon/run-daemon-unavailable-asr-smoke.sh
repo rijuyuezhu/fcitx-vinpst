@@ -15,12 +15,12 @@ cd "${repo_root}"
 
 stage_root="${repo_root}/target/tmp/daemon-unavailable-asr-smoke"
 config_home="${stage_root}/config"
-config_path="${config_home}/fcitx-vinput/config.json"
+config_path="${config_home}/fcitx-vinpst/config.json"
 daemon_log="${stage_root}/daemon.log"
 
 rm -rf "${stage_root}"
 install -Dm644 data/default-config.json "${config_path}"
-cargo build -q -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
 
 timeout 25s dbus-run-session -- bash -euo pipefail -c '
   daemon_path="$1"
@@ -39,9 +39,9 @@ timeout 25s dbus-run-session -- bash -euo pipefail -c '
 
   call() {
     gdbus call --session \
-      --dest org.fcitx.Vinput \
-      --object-path /org/fcitx/Vinput \
-      --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+      --dest org.fcitx.Vinpst \
+      --object-path /org/fcitx/Vinpst \
+      --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
   }
 
   for _ in $(seq 1 100); do
@@ -84,6 +84,6 @@ timeout 25s dbus-run-session -- bash -euo pipefail -c '
   result=$(call StopRecording "")
   grep -q "mock recognition result" <<<"${result}"
   test "$(call GetStatus)" = "('\''idle'\'',)"
-' bash "${repo_root}/target/debug/vinput-daemon" "${config_home}" "${config_path}" "${daemon_log}"
+' bash "${repo_root}/target/debug/vinpst-daemon" "${config_home}" "${config_path}" "${daemon_log}"
 
 echo "daemon unavailable ASR recovery smoke passed"

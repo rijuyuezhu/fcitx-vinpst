@@ -13,7 +13,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-mode="${1:-${VINPUT_LIVE_TOOLKIT_MODE:-normal}}"
+mode="${1:-${VINPST_LIVE_TOOLKIT_MODE:-normal}}"
 case "${mode}" in
 normal | command) ;;
 *)
@@ -22,8 +22,8 @@ normal | command) ;;
   ;;
 esac
 
-out_dir="${VINPUT_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-chromium-native-live}"
-browser="${VINPUT_CHROMIUM_BIN:-}"
+out_dir="${VINPST_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-chromium-native-live}"
+browser="${VINPST_CHROMIUM_BIN:-}"
 if [[ -z "${browser}" ]]; then
   for candidate in google-chrome-unstable google-chrome chromium; do
     if command -v "${candidate}" >/dev/null 2>&1; then
@@ -33,7 +33,7 @@ if [[ -z "${browser}" ]]; then
   done
 fi
 if [[ -z "${browser}" || ! -x "${browser}" ]]; then
-  echo "Chrome or Chromium is required; set VINPUT_CHROMIUM_BIN when needed" >&2
+  echo "Chrome or Chromium is required; set VINPST_CHROMIUM_BIN when needed" >&2
   exit 1
 fi
 command -v python3 >/dev/null 2>&1 || {

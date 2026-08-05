@@ -13,27 +13,27 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-model_dir="${VINPUT_SHERPA_MODEL:-}"
-wav_path="${VINPUT_SHERPA_WAV:-}"
-expected_family="${VINPUT_SHERPA_EXPECT_FAMILY:-}"
-expected_text="${VINPUT_SHERPA_EXPECT_TEXT:-}"
-hotwords_file="${VINPUT_SHERPA_HOTWORDS_FILE:-}"
-timeout_ms="${VINPUT_SHERPA_TIMEOUT_MS:-}"
-out_dir="${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-offline-local-smoke}"
+model_dir="${VINPST_SHERPA_MODEL:-}"
+wav_path="${VINPST_SHERPA_WAV:-}"
+expected_family="${VINPST_SHERPA_EXPECT_FAMILY:-}"
+expected_text="${VINPST_SHERPA_EXPECT_TEXT:-}"
+hotwords_file="${VINPST_SHERPA_HOTWORDS_FILE:-}"
+timeout_ms="${VINPST_SHERPA_TIMEOUT_MS:-}"
+out_dir="${VINPST_SHERPA_SMOKE_DIR:-target/tmp/sherpa-offline-local-smoke}"
 config_path="${out_dir}/sherpa-offline-local.json"
 family_path="${out_dir}/model-family.txt"
 once_output_path="${out_dir}/once-output.json"
 
 if [[ -z "${model_dir}" ]]; then
-  echo "VINPUT_SHERPA_MODEL is required and must point at a local offline model directory" >&2
+  echo "VINPST_SHERPA_MODEL is required and must point at a local offline model directory" >&2
   exit 2
 fi
 if [[ -z "${wav_path}" ]]; then
-  echo "VINPUT_SHERPA_WAV is required and must point at an uncompressed PCM16 WAV file" >&2
+  echo "VINPST_SHERPA_WAV is required and must point at an uncompressed PCM16 WAV file" >&2
   exit 2
 fi
 if [[ ! -f "${wav_path}" ]]; then
-  echo "VINPUT_SHERPA_WAV does not exist or is not a file: ${wav_path}" >&2
+  echo "VINPST_SHERPA_WAV does not exist or is not a file: ${wav_path}" >&2
   exit 2
 fi
 
@@ -58,9 +58,9 @@ hotwords_arg = sys.argv[5].strip()
 timeout_arg = sys.argv[6].strip()
 
 if not model_dir.is_dir():
-    raise SystemExit(f"VINPUT_SHERPA_MODEL must be an existing model directory: {model_dir}")
+    raise SystemExit(f"VINPST_SHERPA_MODEL must be an existing model directory: {model_dir}")
 
-metadata_path = model_dir / "vinput-model.json"
+metadata_path = model_dir / "vinpst-model.json"
 family = ""
 if metadata_path.is_file():
     try:
@@ -77,7 +77,7 @@ else:
     # upstream archives. Other families require registry-generated typed metadata.
     if not any((model_dir / name).is_file() for name in ("model.int8.onnx", "model.onnx")):
         raise SystemExit(
-            f"{model_dir} has no vinput-model.json and does not match the "
+            f"{model_dir} has no vinpst-model.json and does not match the "
             "metadata-free SenseVoice layout"
         )
     if not (model_dir / "tokens.txt").is_file():
@@ -98,12 +98,12 @@ if hotwords_arg:
         hotwords = model_dir / hotwords
     hotwords = hotwords.resolve()
     if not hotwords.is_file():
-        raise SystemExit(f"VINPUT_SHERPA_HOTWORDS_FILE must be a regular file: {hotwords}")
+        raise SystemExit(f"VINPST_SHERPA_HOTWORDS_FILE must be a regular file: {hotwords}")
     provider["hotwords_file"] = str(hotwords)
 if timeout_arg:
     timeout = int(timeout_arg)
     if timeout <= 0:
-        raise SystemExit("VINPUT_SHERPA_TIMEOUT_MS must be positive")
+        raise SystemExit("VINPST_SHERPA_TIMEOUT_MS must be positive")
     provider["timeout_ms"] = timeout
 
 config = {
@@ -123,9 +123,9 @@ config_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", 
 family_path.write_text(family + "\n", encoding="utf-8")
 PY
 
-cargo build -q -p vinput-daemon --features sherpa-onnx-backend
+cargo build -q -p vinpst-daemon --features sherpa-onnx-backend
 
-runtime_lib_dir="${VINPUT_SHERPA_RUNTIME_LIB_DIR:-${repo_root}/target/debug}"
+runtime_lib_dir="${VINPST_SHERPA_RUNTIME_LIB_DIR:-${repo_root}/target/debug}"
 if [[ -d "${runtime_lib_dir}" ]]; then
   export LD_LIBRARY_PATH="${runtime_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi
@@ -133,10 +133,10 @@ fi
 family="$(<"${family_path}")"
 echo "== native sherpa model family: ${family} =="
 echo "== native sherpa runtime status =="
-target/debug/vinput-daemon --configured-backends --config "${config_path}" runtime-status
+target/debug/vinpst-daemon --configured-backends --config "${config_path}" runtime-status
 
 echo "== native sherpa once result =="
-target/debug/vinput-daemon --configured-backends --config "${config_path}" --once --wav "${wav_path}" \
+target/debug/vinpst-daemon --configured-backends --config "${config_path}" --once --wav "${wav_path}" \
   | tee "${once_output_path}"
 if [[ -n "${expected_text}" ]]; then
   grep -Fq "${expected_text}" "${once_output_path}"

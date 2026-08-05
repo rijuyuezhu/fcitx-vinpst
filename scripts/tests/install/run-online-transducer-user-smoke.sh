@@ -18,20 +18,20 @@ case "${scenario}" in
   frontend)
     cmake -S cpp/fcitx5-addon -B target/cpp/fcitx5-addon \
       -DCMAKE_BUILD_TYPE=Debug \
-      -DVINPUT_FCITX_BRIDGE_ENABLE_FCITX_DEPS=OFF
+      -DVINPST_FCITX_BRIDGE_ENABLE_FCITX_DEPS=OFF
     cmake --build target/cpp/fcitx5-addon \
-      --target vinput_fcitx_bridge_native_dbus_smoke --parallel
-    frontend=(VINPUT_NATIVE_ACTIVATION_FRONTEND_BIN=target/cpp/fcitx5-addon/vinput_fcitx_bridge_native_dbus_smoke)
+      --target vinpst_fcitx_bridge_native_dbus_smoke --parallel
+    frontend=(VINPST_NATIVE_ACTIVATION_FRONTEND_BIN=target/cpp/fcitx5-addon/vinpst_fcitx_bridge_native_dbus_smoke)
     ;;
   addon|command-addon)
     cmake -S cpp/fcitx5-addon -B target/cpp/fcitx5-addon \
       -DCMAKE_BUILD_TYPE=Debug \
-      -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON
+      -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON
     cmake --build target/cpp/fcitx5-addon \
-      --target vinput_fcitx_native_addon_dbus_smoke --parallel
-    frontend=(VINPUT_NATIVE_ACTIVATION_FRONTEND_BIN=target/cpp/fcitx5-addon/vinput_fcitx_native_addon_dbus_smoke)
+      --target vinpst_fcitx_native_addon_dbus_smoke --parallel
+    frontend=(VINPST_NATIVE_ACTIVATION_FRONTEND_BIN=target/cpp/fcitx5-addon/vinpst_fcitx_native_addon_dbus_smoke)
     if [[ "${scenario}" == command-addon ]]; then
-      selected=(VINPUT_NATIVE_ADDON_SELECTED_TEXT='replace this text')
+      selected=(VINPST_NATIVE_ADDON_SELECTED_TEXT='replace this text')
     fi
     ;;
   *)
@@ -43,7 +43,7 @@ esac
 env \
   "${frontend[@]}" \
   "${selected[@]}" \
-  VINPUT_SHERPA_MODEL="${model}" \
-  VINPUT_SHERPA_WAV="${wav}" \
-  VINPUT_SHERPA_EXPECT_TEXT="${expected}" \
+  VINPST_SHERPA_MODEL="${model}" \
+  VINPST_SHERPA_WAV="${wav}" \
+  VINPST_SHERPA_EXPECT_TEXT="${expected}" \
   scripts/tests/install/run-user-ime-sherpa-native-activation-smoke.sh

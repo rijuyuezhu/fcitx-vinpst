@@ -107,7 +107,7 @@ import uuid
 from pathlib import Path
 
 base_url, api_key, model, language, prompt, wav_path, output_path = sys.argv[1:]
-boundary = "vinput-fixture-" + uuid.uuid4().hex
+boundary = "vinpst-fixture-" + uuid.uuid4().hex
 parts: list[bytes] = []
 
 

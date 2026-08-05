@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 
 manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-assert manifest["app-id"] == "org.fcitx.Fcitx5.Addon.Vinput"
+assert manifest["app-id"] == "org.fcitx.Fcitx5.Addon.Vinpst"
 assert manifest["runtime"] == "org.fcitx.Fcitx5"
 assert manifest["runtime-version"] == "stable"
 assert manifest["sdk"] == "org.kde.Sdk//6.10"
@@ -50,7 +50,7 @@ assert manifest["sdk-extensions"] == [
     "org.freedesktop.Sdk.Extension.llvm20",
 ]
 assert manifest["build-extension"] is True
-assert manifest["build-options"]["prefix"] == "/app/addons/Vinput"
+assert manifest["build-options"]["prefix"] == "/app/addons/Vinpst"
 assert manifest["build-options"]["env"]["LIBCLANG_PATH"] == "/usr/lib/sdk/llvm20/lib"
 assert manifest["build-options"]["env"]["BINDGEN_EXTRA_CLANG_ARGS"] == (
     "-isystem /usr/lib/sdk/llvm20/lib/clang/20/include"
@@ -61,17 +61,17 @@ assert manifest["build-options"]["env"]["RUSTFLAGS"] == (
 assert len(manifest["modules"]) == 2
 runtime, product = manifest["modules"]
 assert runtime["name"] == "sherpa-onnx-runtime"
-assert product["name"] == "fcitx-vinput-rs"
+assert product["name"] == "fcitx-vinpst"
 assert product["sources"][0]["type"] == "dir"
 assert product["build-options"]["env"]["CARGO_NET_OFFLINE"] == "true"
-assert product["build-options"]["env"]["SHERPA_ONNX_LIB_DIR"] == "/app/addons/Vinput/lib"
+assert product["build-options"]["env"]["SHERPA_ONNX_LIB_DIR"] == "/app/addons/Vinpst/lib"
 commands = "\n".join(product["build-commands"])
 for needle in (
     "cargo build --frozen --release",
     "pipewire-backend,sherpa-onnx-backend",
-    "vinput-gui",
-    "VINPUT_FCITX_MODULE_INSTALL_DIR=lib/fcitx5",
-    "VINPUT_SYSTEMD_USER_UNIT_DIR=share/systemd/user",
+    "vinpst-gui",
+    "VINPST_FCITX_MODULE_INSTALL_DIR=lib/fcitx5",
+    "VINPST_SYSTEMD_USER_UNIT_DIR=share/systemd/user",
     "package-revision",
 ):
     assert needle in commands, needle

@@ -37,9 +37,9 @@ def main() -> None:
 
     rendered = args.template.read_text(encoding="utf-8")
     replacements = {
-        "@VINPUT_VERSION@": version,
-        "@VINPUT_RELEASE@": release,
-        "@VINPUT_ARCHITECTURE@": architecture,
+        "@VINPST_VERSION@": version,
+        "@VINPST_RELEASE@": release,
+        "@VINPST_ARCHITECTURE@": architecture,
     }
     for placeholder, value in replacements.items():
         rendered = rendered.replace(placeholder, value)

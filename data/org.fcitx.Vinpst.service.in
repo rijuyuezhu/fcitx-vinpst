@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.fcitx.Vinpst
+Exec=@VINPST_DAEMON_EXECUTABLE@@VINPST_DAEMON_ARGS_SUFFIX@ --exit-when-executable-replaced
+@VINPST_DBUS_SYSTEMD_SERVICE_LINE@

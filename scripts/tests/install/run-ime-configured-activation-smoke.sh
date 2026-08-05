@@ -16,19 +16,19 @@ cd "${repo_root}"
 build_dir="target/cpp/fcitx5-ime-configured-activation"
 stage_dir="target/tmp/ime-act"
 stage_abs="${repo_root}/${stage_dir}"
-daemon_path="${stage_abs}/usr/local/bin/vinput-daemon"
-daemon_wrapper="${stage_abs}/usr/local/bin/vinput-daemon-activation"
+daemon_path="${stage_abs}/usr/local/bin/vinpst-daemon"
+daemon_wrapper="${stage_abs}/usr/local/bin/vinpst-daemon-activation"
 cargo_target_dir="${stage_abs}/cargo-target"
-daemon_log="${stage_abs}/usr/local/bin/vinput-daemon-activation.log"
-config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo-config.json"
-wav_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo.wav"
-smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
-addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
-service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinput.service"
+daemon_log="${stage_abs}/usr/local/bin/vinpst-daemon-activation.log"
+config_path="${stage_abs}/usr/local/share/fcitx-vinpst/e2e-command-demo-config.json"
+wav_path="${stage_abs}/usr/local/share/fcitx-vinpst/e2e-command-demo.wav"
+smoke_bin="${repo_root}/${build_dir}/vinpst_fcitx_bridge_dbus_smoke"
+addon_smoke_bin="${repo_root}/${build_dir}/vinpst_fcitx_addon_dbus_smoke"
+service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinpst.service"
 
 rm -rf "${build_dir}" "${stage_dir}"
-CARGO_TARGET_DIR="${cargo_target_dir}" cargo build -q -p vinput-daemon --bin vinput-daemon
-install -Dm755 "${cargo_target_dir}/debug/vinput-daemon" "${daemon_path}"
+CARGO_TARGET_DIR="${cargo_target_dir}" cargo build -q -p vinpst-daemon --bin vinpst-daemon
+install -Dm755 "${cargo_target_dir}/debug/vinpst-daemon" "${daemon_path}"
 install -Dm644 data/e2e-command-demo-config.json "${config_path}"
 python3 scripts/fixtures/write-demo-wav.py "${wav_path}"
 cat >"${daemon_wrapper}" <<EOF
@@ -38,13 +38,13 @@ if [[ -z "\${DBUS_SESSION_BUS_ADDRESS:-}" && -n "\${DBUS_STARTER_ADDRESS:-}" ]];
   export DBUS_SESSION_BUS_ADDRESS="\${DBUS_STARTER_ADDRESS}"
 fi
 export RUST_LOG="\${RUST_LOG:-info}"
-export VINPUT_DAEMON_TRACE_STARTUP=1
+export VINPST_DAEMON_TRACE_STARTUP=1
 echo "DBUS_SESSION_BUS_ADDRESS=\${DBUS_SESSION_BUS_ADDRESS:-}" >"${daemon_log}"
 echo "DBUS_STARTER_ADDRESS=\${DBUS_STARTER_ADDRESS:-}" >>"${daemon_log}"
 echo "RUST_LOG=\${RUST_LOG}" >>"${daemon_log}"
-echo "VINPUT_DAEMON_TRACE_STARTUP=\${VINPUT_DAEMON_TRACE_STARTUP}" >>"${daemon_log}"
+echo "VINPST_DAEMON_TRACE_STARTUP=\${VINPST_DAEMON_TRACE_STARTUP}" >>"${daemon_log}"
 echo "daemon_sha256=$(sha256sum "${daemon_path}" | awk '{print $1}')" >>"${daemon_log}"
-echo "daemon_has_startup_marker=$(strings "${daemon_path}" | grep -F -c 'vinput-daemon-startup')" >>"${daemon_log}"
+echo "daemon_has_startup_marker=$(strings "${daemon_path}" | grep -F -c 'vinpst-daemon-startup')" >>"${daemon_log}"
 echo "daemon_argv=${daemon_path} --dbus --configured-backends --config ${config_path} --wav ${wav_path}" >>"${daemon_log}"
 exec "${daemon_path}" --dbus --configured-backends --config "${config_path}" --wav "${wav_path}" >>"${daemon_log}" 2>&1
 EOF
@@ -53,31 +53,31 @@ timeout 20s "${daemon_path}" --dbus --configured-backends --config "${config_pat
 
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
-  -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-  -DVINPUT_DAEMON_EXECUTABLE="${daemon_wrapper}" \
-  -DVINPUT_DAEMON_ARGS=""
-cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
-cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
-cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
+  -DVINPST_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
+  -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+  -DVINPST_DAEMON_EXECUTABLE="${daemon_wrapper}" \
+  -DVINPST_DAEMON_ARGS=""
+cmake --build "${build_dir}" --target fcitx5_vinpst_addon --parallel
+cmake --build "${build_dir}" --target vinpst_fcitx_bridge_dbus_smoke --parallel
+cmake --build "${build_dir}" --target vinpst_fcitx_addon_dbus_smoke --parallel
 DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 test -x "${daemon_path}"
 test -x "${daemon_wrapper}"
 test -f "${config_path}"
 test -f "${wav_path}"
-test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinput.so"
-test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
-grep -qx "Name=org.fcitx.Vinput" "${service_file}"
+test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinpst.so"
+test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinpst.conf"
+grep -qx "Name=org.fcitx.Vinpst" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_wrapper} --exit-when-executable-replaced" "${service_file}"
 
 if XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
-  VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo final: demo heard 16 bytes" \
-  VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
-  VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
-  VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
-  VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
+  VINPST_DBUS_SMOKE_EXPECTED_NORMAL="demo final: demo heard 16 bytes" \
+  VINPST_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
+  VINPST_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
+  VINPST_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
+  VINPST_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 120s dbus-run-session -- bash -euo pipefail -c '
     "${1}" &
     daemon_pid="$!"
@@ -88,7 +88,7 @@ if XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share
     trap cleanup EXIT
     has_owner() {
       dbus-send --session --dest=org.freedesktop.DBus --type=method_call --print-reply \
-        /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner string:org.fcitx.Vinput \
+        /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner string:org.fcitx.Vinpst \
         2>/dev/null | grep -q "boolean true"
     }
     for _ in $(seq 1 60); do
@@ -98,13 +98,13 @@ if XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share
       if ! kill -0 "${daemon_pid}" 2>/dev/null; then
         daemon_status=0
         wait "${daemon_pid}" || daemon_status=$?
-        echo "staged daemon exited before owning org.fcitx.Vinput with status ${daemon_status}" >&2
+        echo "staged daemon exited before owning org.fcitx.Vinpst with status ${daemon_status}" >&2
         exit 1
       fi
       sleep 0.5
     done
     if ! has_owner; then
-      echo "staged daemon did not own org.fcitx.Vinput before smoke timeout" >&2
+      echo "staged daemon did not own org.fcitx.Vinpst before smoke timeout" >&2
       exit 1
     fi
     "${2}"

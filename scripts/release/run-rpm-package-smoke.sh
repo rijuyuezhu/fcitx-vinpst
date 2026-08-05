@@ -15,10 +15,10 @@ cd "${repo_root}"
 
 version="$(
   cargo metadata --no-deps --format-version 1 |
-    jq -r '.packages[] | select(.name == "vinput-cli") | .version'
+    jq -r '.packages[] | select(.name == "vinpst-cli") | .version'
 )"
 test -n "${version}"
-source_dir="fcitx-vinput-rs-${version}"
+source_dir="fcitx-vinpst-${version}"
 stage_root="${repo_root}/target/tmp/rpm-package-smoke"
 cache_root="${repo_root}/target/tmp/rpm-package-cache"
 topdir="${stage_root}/rpmbuild"
@@ -95,45 +95,46 @@ build_rpm() {
   rpmbuild -bb --nodeps \
     --define "_topdir ${topdir}" \
     --define "_smp_build_ncpus $(nproc)" \
-    --define "_vinput_cargo_home ${cache_root}/cargo-home" \
-    --define "_vinput_cargo_target ${cache_root}/cargo-target" \
-    --define "_vinput_cmake_build ${cache_root}/cmake-build" \
+    --define "_vinpst_cargo_home ${cache_root}/cargo-home" \
+    --define "_vinpst_cargo_target ${cache_root}/cargo-target" \
+    --define "_vinpst_cmake_build ${cache_root}/cmake-build" \
     "${spec}"
 }
 
-initial_spec="${spec_dir}/fcitx-vinput-rs.spec"
-upgrade_spec="${spec_dir}/fcitx-vinput-rs-upgrade.spec"
+initial_spec="${spec_dir}/fcitx-vinpst.spec"
+upgrade_spec="${spec_dir}/fcitx-vinpst-upgrade.spec"
 render_spec 1 "${initial_spec}"
 rpmspec -P "${initial_spec}" >"${stage_root}/expanded.spec"
 build_rpm "${initial_spec}"
 initial_rpm="$(find "${topdir}/RPMS" -type f \
-  -name "fcitx-vinput-rs-${version}-1.*.rpm" -print -quit)"
+  -name "fcitx-vinpst-${version}-1.*.rpm" -print -quit)"
 test -n "${initial_rpm}"
 
 render_spec 2 "${upgrade_spec}"
 build_rpm "${upgrade_spec}"
 upgrade_rpm="$(find "${topdir}/RPMS" -type f \
-  -name "fcitx-vinput-rs-${version}-2.*.rpm" -print -quit)"
+  -name "fcitx-vinpst-${version}-2.*.rpm" -print -quit)"
 test -n "${upgrade_rpm}"
 
 verify_db="${stage_root}/verify-rpmdb"
 mkdir -p "${verify_db}"
 rpm --dbpath "${verify_db}" --initdb
 rpm --dbpath "${verify_db}" -K --nosignature "${initial_rpm}"
-test "$(rpm --dbpath "${verify_db}" -qp --qf '%{NAME}' "${initial_rpm}")" = fcitx-vinput-rs
+test "$(rpm --dbpath "${verify_db}" -qp --qf '%{NAME}' "${initial_rpm}")" = fcitx-vinpst
 test "$(rpm --dbpath "${verify_db}" -qp --qf '%{VERSION}' "${initial_rpm}")" = "${version}"
 test "$(rpm --dbpath "${verify_db}" -qp --qf '%{RELEASE}' "${initial_rpm}")" = 1
 test "$(rpm --dbpath "${verify_db}" -qp --qf '%{ARCH}' "${initial_rpm}")" = x86_64
 test "$(rpm --dbpath "${verify_db}" -qp --qf '%{LICENSE}' "${initial_rpm}")" = \
   'GPL-3.0-or-later AND Apache-2.0 AND MIT'
-rpm --dbpath "${verify_db}" -qp --provides "${initial_rpm}" | grep -Eq '^fcitx5-vinput = '
-rpm --dbpath "${verify_db}" -qp --conflicts "${initial_rpm}" | grep -qx 'fcitx5-vinput'
+! rpm --dbpath "${verify_db}" -qp --provides "${initial_rpm}" | grep -Eq '^fcitx5-vinpst = '
+! rpm --dbpath "${verify_db}" -qp --conflicts "${initial_rpm}" | grep -q .
+! rpm --dbpath "${verify_db}" -qp --obsoletes "${initial_rpm}" | grep -q .
 rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx 'fcitx5'
 rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx 'pipewire-libs'
 rpm --dbpath "${verify_db}" -qp --scripts "${initial_rpm}" >"${stage_root}/scriptlets.txt"
-grep -Fq '/usr/lib/fcitx-vinput/package-upgrade-handoff' \
+grep -Fq '/usr/lib/fcitx-vinpst/package-upgrade-handoff' \
   "${stage_root}/scriptlets.txt"
-grep -Fq '/usr/lib/fcitx-vinput/package-remove-handoff' \
+grep -Fq '/usr/lib/fcitx-vinpst/package-remove-handoff' \
   "${stage_root}/scriptlets.txt"
 # shellcheck disable=SC2016
 grep -Fq '[[ "$1" -gt 1' "${stage_root}/scriptlets.txt"
@@ -145,33 +146,33 @@ grep -Fq '[[ "$1" -eq 0' "${stage_root}/scriptlets.txt"
   rpm2cpio "${initial_rpm}" | cpio -idm --quiet
 )
 required_files=(
-  usr/bin/vinput
-  usr/bin/vinput-daemon
-  usr/bin/vinput-gui
-  usr/lib/fcitx-vinput/package-session-common.sh
-  usr/lib/fcitx-vinput/package-upgrade-handoff
-  usr/lib/fcitx-vinput/package-remove-handoff
-  usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so
-  usr/lib/fcitx-vinput/libonnxruntime.so
-  usr/lib64/fcitx5/fcitx5-vinput.so
-  usr/lib/systemd/user/vinput-daemon.service
-  usr/share/applications/vinput-gui.desktop
-  usr/share/dbus-1/services/org.fcitx.Vinput.service
-  usr/share/fcitx5/addon/vinput.conf
-  usr/share/icons/hicolor/16x16/apps/vinput-gui.png
-  usr/share/icons/hicolor/128x128/apps/vinput-gui.png
-  usr/share/icons/hicolor/512x512/apps/vinput-gui.png
-  usr/share/fcitx-vinput/default-config.json
-  usr/share/fcitx-vinput/vad/silero_vad.onnx
-  usr/share/licenses/fcitx-vinput-rs/LICENSE
-  usr/share/licenses/fcitx-vinput-rs/silero-vad-LICENSE
-  usr/share/licenses/fcitx-vinput-rs/sherpa-onnx-LICENSE
-  usr/share/licenses/fcitx-vinput-rs/onnxruntime-LICENSE
+  usr/bin/vinpst
+  usr/bin/vinpst-daemon
+  usr/bin/vinpst-gui
+  usr/lib/fcitx-vinpst/package-session-common.sh
+  usr/lib/fcitx-vinpst/package-upgrade-handoff
+  usr/lib/fcitx-vinpst/package-remove-handoff
+  usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so
+  usr/lib/fcitx-vinpst/libonnxruntime.so
+  usr/lib64/fcitx5/fcitx5-vinpst.so
+  usr/lib/systemd/user/vinpst-daemon.service
+  usr/share/applications/vinpst-gui.desktop
+  usr/share/dbus-1/services/org.fcitx.Vinpst.service
+  usr/share/fcitx5/addon/vinpst.conf
+  usr/share/icons/hicolor/16x16/apps/vinpst-gui.png
+  usr/share/icons/hicolor/128x128/apps/vinpst-gui.png
+  usr/share/icons/hicolor/512x512/apps/vinpst-gui.png
+  usr/share/fcitx-vinpst/default-config.json
+  usr/share/fcitx-vinpst/vad/silero_vad.onnx
+  usr/share/licenses/fcitx-vinpst/LICENSE
+  usr/share/licenses/fcitx-vinpst/silero-vad-LICENSE
+  usr/share/licenses/fcitx-vinpst/sherpa-onnx-LICENSE
+  usr/share/licenses/fcitx-vinpst/onnxruntime-LICENSE
 )
 for relative in "${required_files[@]}"; do
   test -f "${package_root}/${relative}"
 done
-if test -e "${package_root}/usr/lib/fcitx-vinput/libsherpa-onnx-cxx-api.so"; then
+if test -e "${package_root}/usr/lib/fcitx-vinpst/libsherpa-onnx-cxx-api.so"; then
   echo "RPM unexpectedly includes the sherpa C++ API library" >&2
   exit 1
 fi
@@ -181,72 +182,72 @@ if find "${package_root}" -type f -print0 |
   exit 1
 fi
 
-expected_binary_rpath="\$ORIGIN/../lib/fcitx-vinput"
+expected_binary_rpath="\$ORIGIN/../lib/fcitx-vinpst"
 expected_native_rpath="\$ORIGIN"
-test "$(patchelf --print-rpath "${package_root}/usr/bin/vinput")" = \
+test "$(patchelf --print-rpath "${package_root}/usr/bin/vinpst")" = \
   "${expected_binary_rpath}"
-test "$(patchelf --print-rpath "${package_root}/usr/bin/vinput-daemon")" = \
+test "$(patchelf --print-rpath "${package_root}/usr/bin/vinpst-daemon")" = \
   "${expected_binary_rpath}"
-test "$(patchelf --print-rpath "${package_root}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so")" = \
+test "$(patchelf --print-rpath "${package_root}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so")" = \
   "${expected_native_rpath}"
-for binary in "${package_root}/usr/bin/vinput" "${package_root}/usr/bin/vinput-daemon"; do
+for binary in "${package_root}/usr/bin/vinpst" "${package_root}/usr/bin/vinpst-daemon"; do
   linkage="$(ldd "${binary}")"
   if grep -q 'not found' <<<"${linkage}"; then
     echo "RPM binary has unresolved dynamic libraries: ${binary}" >&2
     exit 1
   fi
-  grep -q "${package_root}/usr/bin/../lib/fcitx-vinput/libsherpa-onnx-c-api.so" \
+  grep -q "${package_root}/usr/bin/../lib/fcitx-vinpst/libsherpa-onnx-c-api.so" \
     <<<"${linkage}"
 done
-gui_linkage="$(ldd "${package_root}/usr/bin/vinput-gui")"
+gui_linkage="$(ldd "${package_root}/usr/bin/vinpst-gui")"
 if grep -q 'not found' <<<"${gui_linkage}"; then
   echo "RPM GUI has unresolved dynamic libraries" >&2
   exit 1
 fi
-ldd "${package_root}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so" |
-  grep -q "${package_root}/usr/lib/fcitx-vinput/libonnxruntime.so"
+ldd "${package_root}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so" |
+  grep -q "${package_root}/usr/lib/fcitx-vinpst/libonnxruntime.so"
 
-"${package_root}/usr/bin/vinput" --version | grep -q "${version}"
-"${package_root}/usr/bin/vinput-daemon" --help >/dev/null
-"${package_root}/usr/bin/vinput-gui" --version | grep -q "${version}"
+"${package_root}/usr/bin/vinpst" --version | grep -q "${version}"
+"${package_root}/usr/bin/vinpst-daemon" --help >/dev/null
+"${package_root}/usr/bin/vinpst-gui" --version | grep -q "${version}"
 isolated_config="${stage_root}/empty-config"
 mkdir -p "${isolated_config}"
 XDG_CONFIG_HOME="${isolated_config}" \
-  "${package_root}/usr/bin/vinput-gui" --check --offline |
-  jq -e '.ok and .application == "vinput-gui" and .daemon.skipped' >/dev/null
-grep -qx 'Exec=vinput-gui' \
-  "${package_root}/usr/share/applications/vinput-gui.desktop"
-grep -qx 'SystemdService=vinput-daemon.service' \
-  "${package_root}/usr/share/dbus-1/services/org.fcitx.Vinput.service"
-grep -qx 'ExecStart=/usr/bin/vinput-daemon --dbus --configured-backends --audio-backend pipewire --exit-when-executable-replaced' \
-  "${package_root}/usr/lib/systemd/user/vinput-daemon.service"
+  "${package_root}/usr/bin/vinpst-gui" --check --offline |
+  jq -e '.ok and .application == "vinpst-gui" and .daemon.skipped' >/dev/null
+grep -qx 'Exec=vinpst-gui' \
+  "${package_root}/usr/share/applications/vinpst-gui.desktop"
+grep -qx 'SystemdService=vinpst-daemon.service' \
+  "${package_root}/usr/share/dbus-1/services/org.fcitx.Vinpst.service"
+grep -qx 'ExecStart=/usr/bin/vinpst-daemon --dbus --configured-backends --audio-backend pipewire --exit-when-executable-replaced' \
+  "${package_root}/usr/lib/systemd/user/vinpst-daemon.service"
 
-mkdir -p "${rpm_root}/var/lib/rpm" "${rpm_root}/home/test/.config/fcitx-vinput"
-printf '%s\n' '{"schema_version":999}' >"${rpm_root}/home/test/.config/fcitx-vinput/config.json"
-config_sha256="$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinput/config.json" | awk '{print $1}')"
+mkdir -p "${rpm_root}/var/lib/rpm" "${rpm_root}/home/test/.config/fcitx-vinpst"
+printf '%s\n' '{"schema_version":999}' >"${rpm_root}/home/test/.config/fcitx-vinpst/config.json"
+config_sha256="$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')"
 unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm --initdb
 unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
   --nodeps --noscripts --nosignature -i "${initial_rpm}"
 test "$(unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm -q \
-  --qf '%{VERSION}-%{RELEASE}' fcitx-vinput-rs)" = "${version}-1"
+  --qf '%{VERSION}-%{RELEASE}' fcitx-vinpst)" = "${version}-1"
 unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
-  -V --nodeps fcitx-vinput-rs
+  -V --nodeps fcitx-vinpst
 unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
   --nodeps --noscripts --nosignature -U "${upgrade_rpm}"
 test "$(unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm -q \
-  --qf '%{VERSION}-%{RELEASE}' fcitx-vinput-rs)" = "${version}-2"
+  --qf '%{VERSION}-%{RELEASE}' fcitx-vinpst)" = "${version}-2"
 unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
-  -V --nodeps fcitx-vinput-rs
-test "$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinput/config.json" | awk '{print $1}')" = \
+  -V --nodeps fcitx-vinpst
+test "$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')" = \
   "${config_sha256}"
 unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
-  --nodeps --noscripts -e fcitx-vinput-rs
+  --nodeps --noscripts -e fcitx-vinpst
 if unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
-  -q fcitx-vinput-rs >/dev/null 2>&1; then
+  -q fcitx-vinpst >/dev/null 2>&1; then
   echo "RPM remained registered after removal" >&2
   exit 1
 fi
-test "$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinput/config.json" | awk '{print $1}')" = \
+test "$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')" = \
   "${config_sha256}"
 for relative in "${required_files[@]}"; do
   test ! -e "${rpm_root}/${relative}"

@@ -1,5 +1,5 @@
 {
-  "app-id": "org.fcitx.Fcitx5.Addon.Vinput",
+  "app-id": "org.fcitx.Fcitx5.Addon.Vinpst",
   "branch": "stable",
   "runtime": "org.fcitx.Fcitx5",
   "runtime-version": "stable",
@@ -11,9 +11,9 @@
   "build-extension": true,
   "separate-locales": false,
   "build-options": {
-    "prefix": "/app/addons/Vinput",
+    "prefix": "/app/addons/Vinpst",
     "prepend-path": "/usr/lib/sdk/rust-stable/bin",
-    "prepend-pkg-config-path": "/app/addons/Vinput/lib/pkgconfig",
+    "prepend-pkg-config-path": "/app/addons/Vinpst/lib/pkgconfig",
     "env": {
       "LIBCLANG_PATH": "/usr/lib/sdk/llvm20/lib",
       "BINDGEN_EXTRA_CLANG_ARGS": "-isystem /usr/lib/sdk/llvm20/lib/clang/20/include",

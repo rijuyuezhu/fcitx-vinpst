@@ -38,7 +38,7 @@ bool EnvFlag(const char *name, bool fallback) {
 int TimeoutMilliseconds() {
   bool ok = false;
   const int seconds =
-      qEnvironmentVariableIntValue("VINPUT_TOOLKIT_TIMEOUT_SECONDS", &ok);
+      qEnvironmentVariableIntValue("VINPST_TOOLKIT_TIMEOUT_SECONDS", &ok);
   if (!ok || seconds <= 0 || seconds > 3600) {
     return 60'000;
   }
@@ -80,13 +80,13 @@ int main(int argc, char **argv) {
 
   const auto mode_text = QString::fromUtf8(argv[1]);
   const auto mode = ParseMode(mode_text);
-  auto initial_text = qEnvironmentVariable("VINPUT_TOOLKIT_INITIAL_TEXT");
+  auto initial_text = qEnvironmentVariable("VINPST_TOOLKIT_INITIAL_TEXT");
   if (initial_text.isEmpty()) {
     initial_text = QStringLiteral("selected text");
   }
-  const bool require_partial = EnvFlag("VINPUT_TOOLKIT_REQUIRE_PARTIAL", true);
+  const bool require_partial = EnvFlag("VINPST_TOOLKIT_REQUIRE_PARTIAL", true);
   const auto expected_commit_substring =
-      qEnvironmentVariable("VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING");
+      qEnvironmentVariable("VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING");
 
   bool partial_seen = false;
   bool commit_seen = false;
@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
   QByteArray partial_monitor_buffer;
 
   QWidget window;
-  window.setWindowTitle(QStringLiteral("fcitx-vinput Qt6 live probe"));
+  window.setWindowTitle(QStringLiteral("fcitx-vinpst Qt6 live probe"));
   window.resize(640, 140);
 
   auto *layout = new QVBoxLayout(&window);
@@ -160,9 +160,9 @@ int main(int argc, char **argv) {
   });
   partial_monitor.start(QStringLiteral("gdbus"),
                         {QStringLiteral("monitor"), QStringLiteral("--session"),
-                         QStringLiteral("--dest"), QStringLiteral("org.fcitx.Vinput"),
+                         QStringLiteral("--dest"), QStringLiteral("org.fcitx.Vinpst"),
                          QStringLiteral("--object-path"),
-                         QStringLiteral("/org/fcitx/Vinput")});
+                         QStringLiteral("/org/fcitx/Vinpst")});
   if (!partial_monitor.waitForStarted(1000)) {
     fprintf(stderr, "failed to start gdbus partial monitor: %s\n",
             partial_monitor.errorString().toUtf8().constData());

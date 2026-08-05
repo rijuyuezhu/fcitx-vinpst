@@ -13,17 +13,17 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
-modes="${VINPUT_LIVE_NATIVE_MODES:-normal}"
-probe_kind="${VINPUT_LIVE_VIRTUAL_PROBE_KIND:-fcitx}"
-toolkit_mode="${VINPUT_LIVE_TOOLKIT_MODE:-normal}"
-toolkit_cycles="${VINPUT_TOOLKIT_EXPECTED_CYCLES:-1}"
-reload_before_probe="${VINPUT_LIVE_RELOAD_BEFORE_PROBE:-0}"
-require_partial="${VINPUT_LIVE_REQUIRE_PARTIAL:-1}"
-env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_VIRTUAL_OUT_DIR:-target/tmp/ime-fcitx-virtual-source-live}"
-node_prefix="vinput_e2e_${$}"
+wav_path="${VINPST_LIVE_NATIVE_WAV:-}"
+modes="${VINPST_LIVE_NATIVE_MODES:-normal}"
+probe_kind="${VINPST_LIVE_VIRTUAL_PROBE_KIND:-fcitx}"
+toolkit_mode="${VINPST_LIVE_TOOLKIT_MODE:-normal}"
+toolkit_cycles="${VINPST_TOOLKIT_EXPECTED_CYCLES:-1}"
+reload_before_probe="${VINPST_LIVE_RELOAD_BEFORE_PROBE:-0}"
+require_partial="${VINPST_LIVE_REQUIRE_PARTIAL:-1}"
+env_file="${VINPST_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinpst/fcitx-vinpst.env}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_VIRTUAL_OUT_DIR:-target/tmp/ime-fcitx-virtual-source-live}"
+node_prefix="vinpst_e2e_${$}"
 sink_name="${node_prefix}_sink"
 source_name="${node_prefix}_source"
 loopback_pid=""
@@ -38,9 +38,9 @@ primary_restore_proven=false
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 stop_verified_owner() {
@@ -50,13 +50,13 @@ stop_verified_owner() {
   [[ -z "${pid}" ]] && return 0
   exe="$(jq -r '.owner.process.exe // empty' <<<"${status}")"
   cmdline="$(jq -r '.owner.process.cmdline | join(" ")' <<<"${status}")"
-  if [[ "${exe}" != *vinput-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
-    echo "refusing to stop unexpected org.fcitx.Vinput owner: pid=${pid} exe=${exe}" >&2
+  if [[ "${exe}" != *vinpst-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
+    echo "refusing to stop unexpected org.fcitx.Vinpst owner: pid=${pid} exe=${exe}" >&2
     return 1
   fi
   proc_exe="$(readlink "/proc/${pid}/exe")"
   proc_cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline")"
-  if [[ "${proc_exe}" != *vinput-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
+  if [[ "${proc_exe}" != *vinpst-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
     echo "live owner changed during verification: pid=${pid} exe=${proc_exe}" >&2
     return 1
   fi
@@ -83,7 +83,7 @@ activate_and_wait() {
         --arg config_path "${config_path}" '
           .status == "idle" and
           .owner.ok == true and
-          (.owner.process.exe | endswith("vinput-daemon")) and
+          (.owner.process.exe | endswith("vinpst-daemon")) and
           (.owner.process.cmdline | index($config_path)) != null
         ' "${out_dir}/status-current.json" >/dev/null; then
       return 0
@@ -176,7 +176,7 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -z "${wav_path}" || ! -f "${wav_path}" ]]; then
-  echo "set VINPUT_LIVE_NATIVE_WAV to a validated speech WAV" >&2
+  echo "set VINPST_LIVE_NATIVE_WAV to a validated speech WAV" >&2
   exit 2
 fi
 if [[ -f "${env_file}" ]]; then
@@ -199,10 +199,10 @@ if ! fcitx5-remote --check; then
 fi
 
 if [[ "${require_partial}" != "0" && "${require_partial}" != "1" ]]; then
-  echo "VINPUT_LIVE_REQUIRE_PARTIAL must be 0 or 1" >&2
+  echo "VINPST_LIVE_REQUIRE_PARTIAL must be 0 or 1" >&2
   exit 2
 fi
-if [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 && "${require_partial}" == "0" ]]; then
+if [[ "${VINPST_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 && "${require_partial}" == "0" ]]; then
   echo "owner-loss validation requires streaming partial evidence" >&2
   exit 2
 fi
@@ -212,20 +212,20 @@ gtk4 | gnome-text-editor | kitty | chromium | vscode)
   case "${toolkit_mode}" in
   normal | command) ;;
   *)
-    echo "VINPUT_LIVE_TOOLKIT_MODE must be normal or command" >&2
+    echo "VINPST_LIVE_TOOLKIT_MODE must be normal or command" >&2
     exit 2
     ;;
   esac
   ;;
 *)
-  echo "VINPUT_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, gnome-text-editor, kitty, chromium, or vscode" >&2
+  echo "VINPST_LIVE_VIRTUAL_PROBE_KIND must be fcitx, gtk4, gnome-text-editor, kitty, chromium, or vscode" >&2
   exit 2
   ;;
 esac
 if [[ "${probe_kind}" == gtk4 ]] &&
   [[ ! "${toolkit_cycles}" =~ ^[0-9]+$ || "${toolkit_cycles}" -lt 1 ||
     "${toolkit_cycles}" -gt 20 ]]; then
-  echo "VINPUT_TOOLKIT_EXPECTED_CYCLES must be an integer from 1 to 20" >&2
+  echo "VINPST_TOOLKIT_EXPECTED_CYCLES must be an integer from 1 to 20" >&2
   exit 2
 fi
 if [[ ("${probe_kind}" == chromium || "${probe_kind}" == vscode) &&
@@ -267,8 +267,8 @@ pw-loopback \
   --name "${node_prefix}_loopback" \
   --channels 1 \
   --channel-map '[ MONO ]' \
-  --capture-props "media.class=Audio/Sink node.name=${sink_name} node.description=\"Vinput E2E Sink\" audio.position=[ MONO ]" \
-  --playback-props "media.class=Audio/Source node.name=${source_name} node.description=\"Vinput E2E Source\" audio.position=[ MONO ]" \
+  --capture-props "media.class=Audio/Sink node.name=${sink_name} node.description=\"Vinpst E2E Sink\" audio.position=[ MONO ]" \
+  --playback-props "media.class=Audio/Source node.name=${source_name} node.description=\"Vinpst E2E Source\" audio.position=[ MONO ]" \
   >"${out_dir}/pw-loopback.log" 2>&1 &
 loopback_pid=$!
 for _ in $(seq 1 100); do
@@ -386,16 +386,16 @@ if [[ "${reload_before_probe}" != 0 ]]; then
 fi
 
 if [[ "${probe_kind}" == fcitx ]]; then
-  VINPUT_LIVE_NATIVE_WAV="${wav_path}" \
-  VINPUT_LIVE_NATIVE_MODES="${modes}" \
-  VINPUT_LIVE_REQUIRE_PARTIAL="${require_partial}" \
-  VINPUT_LIVE_PLAYBACK_TARGET="${sink_name}" \
-  VINPUT_LIVE_NATIVE_OUT_DIR="${out_dir}/fcitx" \
+  VINPST_LIVE_NATIVE_WAV="${wav_path}" \
+  VINPST_LIVE_NATIVE_MODES="${modes}" \
+  VINPST_LIVE_REQUIRE_PARTIAL="${require_partial}" \
+  VINPST_LIVE_PLAYBACK_TARGET="${sink_name}" \
+  VINPST_LIVE_NATIVE_OUT_DIR="${out_dir}/fcitx" \
     scripts/live/niri/run-ime-fcitx-native-live.sh
 
   for mode in $(tr ',' ' ' <<<"${modes}"); do
-    if [[ "${VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}" != 0 ]]; then
-      jq -s -e --arg selected "${VINPUT_LIVE_SELECTED_TEXT:-}" '
+    if [[ "${VINPST_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}" != 0 ]]; then
+      jq -s -e --arg selected "${VINPST_LIVE_SELECTED_TEXT:-}" '
         any(.[];
           .event == "summary" and
           .ok == true and
@@ -407,7 +407,7 @@ if [[ "${probe_kind}" == fcitx ]]; then
           .final_buffer == $selected
         )
       ' "${out_dir}/fcitx/${mode}.jsonl" >/dev/null
-    elif [[ "${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 ]]; then
+    elif [[ "${VINPST_LIVE_NATIVE_OWNER_LOSS:-0}" != 0 ]]; then
       jq -s -e '
         any(.[];
           .event == "summary" and
@@ -433,17 +433,17 @@ if [[ "${probe_kind}" == fcitx ]]; then
     fi
   done
 elif [[ "${probe_kind}" == gtk4 ]]; then
-  toolkit_expected="${VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING:-}"
+  toolkit_expected="${VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING:-}"
   if [[ "${toolkit_mode}" == command && -z "${toolkit_expected}" ]]; then
     toolkit_expected="adapter-backed: selected text"
   fi
-  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
-  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
-  VINPUT_LIVE_TOOLKIT_AUTO_TRIGGER=1 \
-  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/gtk4" \
-  VINPUT_TOOLKIT_REQUIRE_PARTIAL="${require_partial}" \
-  VINPUT_TOOLKIT_EXPECTED_CYCLES="${toolkit_cycles}" \
-  VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING="${toolkit_expected}" \
+  VINPST_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPST_LIVE_TOOLKIT_AUTO_TRIGGER=1 \
+  VINPST_LIVE_TOOLKIT_OUT_DIR="${out_dir}/gtk4" \
+  VINPST_TOOLKIT_REQUIRE_PARTIAL="${require_partial}" \
+  VINPST_TOOLKIT_EXPECTED_CYCLES="${toolkit_cycles}" \
+  VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING="${toolkit_expected}" \
     scripts/live/niri/run-ime-gtk4-native-live.sh "${toolkit_mode}"
   jq -s -e --arg mode "${toolkit_mode}" --argjson cycles "${toolkit_cycles}" '
     any(.[];
@@ -474,9 +474,9 @@ elif [[ "${probe_kind}" == gtk4 ]]; then
     .ok == true
   ' "${out_dir}/gtk4/${toolkit_mode}.focus.json" >/dev/null
 elif [[ "${probe_kind}" == gnome-text-editor ]]; then
-  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
-  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
-  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/gnome-text-editor" \
+  VINPST_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPST_LIVE_TOOLKIT_OUT_DIR="${out_dir}/gnome-text-editor" \
     scripts/live/niri/run-ime-gnome-text-editor-live.sh "${toolkit_mode}"
   jq -e --arg mode "${toolkit_mode}" '
     .event == "summary" and
@@ -488,9 +488,9 @@ elif [[ "${probe_kind}" == gnome-text-editor ]]; then
     .ok == true
   ' "${out_dir}/gnome-text-editor/${toolkit_mode}.summary.json" >/dev/null
 elif [[ "${probe_kind}" == kitty ]]; then
-  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
-  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
-  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/kitty" \
+  VINPST_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPST_LIVE_TOOLKIT_OUT_DIR="${out_dir}/kitty" \
     scripts/live/niri/run-ime-kitty-live.sh "${toolkit_mode}"
   jq -e --arg mode "${toolkit_mode}" '
     .event == "summary" and
@@ -502,9 +502,9 @@ elif [[ "${probe_kind}" == kitty ]]; then
     .ok == true
   ' "${out_dir}/kitty/${toolkit_mode}.summary.json" >/dev/null
 elif [[ "${probe_kind}" == vscode ]]; then
-  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
-  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
-  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/vscode" \
+  VINPST_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPST_LIVE_TOOLKIT_OUT_DIR="${out_dir}/vscode" \
     scripts/live/niri/run-ime-vscode-live.sh "${toolkit_mode}"
   jq -e --arg mode "${toolkit_mode}" '
     .event == "summary" and
@@ -537,9 +537,9 @@ elif [[ "${probe_kind}" == vscode ]]; then
     primary_restore_proven=true
   fi
 else
-  VINPUT_LIVE_TOOLKIT_WAV="${wav_path}" \
-  VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
-  VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}/chromium" \
+  VINPST_LIVE_TOOLKIT_WAV="${wav_path}" \
+  VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET="${sink_name}" \
+  VINPST_LIVE_TOOLKIT_OUT_DIR="${out_dir}/chromium" \
     scripts/live/niri/run-ime-chromium-virtual-live.sh "${toolkit_mode}"
   jq -s -e --arg mode "${toolkit_mode}" '
     any(.[];

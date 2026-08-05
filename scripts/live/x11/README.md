@@ -8,7 +8,7 @@ GUI itself is forced onto X11 with `WINIT_UNIX_BACKEND=x11` and is launched with
 Run it after building the GUI:
 
 ```sh
-cargo build -p vinput-gui
+cargo build -p vinpst-gui
 scripts/live/x11/run-gui-interaction-live.sh
 ```
 

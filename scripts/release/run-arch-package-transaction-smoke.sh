@@ -21,11 +21,11 @@ initial_package="${1:-}"
 upgrade_package="${2:-}"
 if [[ -z "${initial_package}" ]]; then
   initial_package="$(find target/tmp/arch-package-smoke/build -maxdepth 1 -type f \
-    -name 'fcitx-vinput-rs-*-1-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
+    -name 'fcitx-vinpst-*-1-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
 fi
 if [[ -z "${upgrade_package}" ]]; then
   upgrade_package="$(find target/tmp/arch-package-smoke/build -maxdepth 1 -type f \
-    -name 'fcitx-vinput-rs-*-2-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
+    -name 'fcitx-vinpst-*-2-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
 fi
 
 if [[ ! -f "${initial_package}" || ! -f "${upgrade_package}" ]]; then
@@ -50,7 +50,7 @@ database_path="${transaction_root}/database"
 cache_path="${transaction_root}/cache"
 config_path="${transaction_root}/pacman.conf"
 log_path="${transaction_root}/pacman.log"
-user_config="${pacman_root}/home/test/.config/fcitx-vinput/config.json"
+user_config="${pacman_root}/home/test/.config/fcitx-vinpst/config.json"
 
 rm -rf "${transaction_root}"
 mkdir -p "${pacman_root}" "${database_path}" "${cache_path}" \
@@ -91,7 +91,7 @@ assert_future_config_rejected() {
   local stdout_path="${transaction_root}/${phase}-future-config.stdout"
   local status
   set +e
-  "${pacman_root}/usr/bin/vinput" config validate "${user_config}" --json \
+  "${pacman_root}/usr/bin/vinpst" config validate "${user_config}" --json \
     >"${stdout_path}" 2>"${stderr_path}"
   status=$?
   set -e
@@ -109,16 +109,16 @@ assert_package_files_present() {
   listing="$(fakeroot pacman "${pacman_args[@]}" -Ql "${package_name}")"
   listing="${listing//${pacman_root}/}"
   for path in \
-    /usr/bin/vinput \
-    /usr/bin/vinput-daemon \
-    /usr/bin/vinput-gui \
-    /usr/lib/fcitx-vinput/package-session-common.sh \
-    /usr/lib/fcitx-vinput/package-upgrade-handoff \
-    /usr/lib/fcitx-vinput/package-remove-handoff \
-    /usr/lib/fcitx5/fcitx5-vinput.so \
-    /usr/lib/systemd/user/vinput-daemon.service \
-    /usr/share/applications/vinput-gui.desktop \
-    /usr/share/dbus-1/services/org.fcitx.Vinput.service; do
+    /usr/bin/vinpst \
+    /usr/bin/vinpst-daemon \
+    /usr/bin/vinpst-gui \
+    /usr/lib/fcitx-vinpst/package-session-common.sh \
+    /usr/lib/fcitx-vinpst/package-upgrade-handoff \
+    /usr/lib/fcitx-vinpst/package-remove-handoff \
+    /usr/lib/fcitx5/fcitx5-vinpst.so \
+    /usr/lib/systemd/user/vinpst-daemon.service \
+    /usr/share/applications/vinpst-gui.desktop \
+    /usr/share/dbus-1/services/org.fcitx.Vinpst.service; do
     grep -qx "${package_name} ${path}" <<<"${listing}"
     test -e "${pacman_root}${path}"
   done
@@ -127,28 +127,28 @@ assert_package_files_present() {
 }
 
 fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -U "${initial_package}"
-test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
-  "fcitx-vinput-rs ${initial_version}"
-assert_package_files_present fcitx-vinput-rs
+test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst)" = \
+  "fcitx-vinpst ${initial_version}"
+assert_package_files_present fcitx-vinpst
 assert_user_config_unchanged
 assert_future_config_rejected installed
 
 fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -U "${upgrade_package}"
-test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
-  "fcitx-vinput-rs ${upgrade_version}"
-assert_package_files_present fcitx-vinput-rs
+test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst)" = \
+  "fcitx-vinpst ${upgrade_version}"
+assert_package_files_present fcitx-vinpst
 assert_user_config_unchanged
 assert_future_config_rejected upgraded
 
 fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -U "${initial_package}"
-test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
-  "fcitx-vinput-rs ${initial_version}"
-assert_package_files_present fcitx-vinput-rs
+test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst)" = \
+  "fcitx-vinpst ${initial_version}"
+assert_package_files_present fcitx-vinpst
 assert_user_config_unchanged
 assert_future_config_rejected rolled-back
 
-fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -R fcitx-vinput-rs
-! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs >/dev/null 2>&1
+fakeroot pacman "${pacman_args[@]}" -dd --noscriptlet -R fcitx-vinpst
+! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst >/dev/null 2>&1
 assert_user_config_unchanged
 test "$(cat "${transaction_root}/user-config.sha256")" = \
   "$(sha256sum "${user_config}" | awk '{print $1}')"

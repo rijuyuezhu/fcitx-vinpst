@@ -13,22 +13,22 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_EXTERNAL_TEXT_OUT_DIR:-target/tmp/ime-fcitx-external-text-provider-live}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_EXTERNAL_TEXT_OUT_DIR:-target/tmp/ime-fcitx-external-text-provider-live}"
 if [[ "${out_dir}" == /* ]]; then
   out_dir_abs="${out_dir}"
 else
   out_dir_abs="${repo_root}/${out_dir}"
 fi
 fixture="${repo_root}/scripts/fixtures/openai-compatible-text-provider-fixture.py"
-service_path="${VINPUT_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service}"
-addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
-recognition_wav="${VINPUT_LIVE_EXTERNAL_TEXT_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
-selected_text="${VINPUT_LIVE_EXTERNAL_SELECTED_TEXT:-This is live selected text.}"
-provider_id="${VINPUT_LIVE_EXTERNAL_TEXT_PROVIDER_ID:-external-http}"
-provider_model="${VINPUT_LIVE_EXTERNAL_TEXT_MODEL:-fixture-text-model}"
-api_key="${VINPUT_LIVE_EXTERNAL_TEXT_API_KEY:-live-fixture-token}"
-response_prefix="${VINPUT_LIVE_EXTERNAL_TEXT_RESPONSE_PREFIX:-external-http: }"
+service_path="${VINPST_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service}"
+addon_config="${HOME}/.config/fcitx5/conf/vinpst.conf"
+recognition_wav="${VINPST_LIVE_EXTERNAL_TEXT_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
+selected_text="${VINPST_LIVE_EXTERNAL_SELECTED_TEXT:-This is live selected text.}"
+provider_id="${VINPST_LIVE_EXTERNAL_TEXT_PROVIDER_ID:-external-http}"
+provider_model="${VINPST_LIVE_EXTERNAL_TEXT_MODEL:-fixture-text-model}"
+api_key="${VINPST_LIVE_EXTERNAL_TEXT_API_KEY:-live-fixture-token}"
+response_prefix="${VINPST_LIVE_EXTERNAL_TEXT_RESPONSE_PREFIX:-external-http: }"
 expected_prefix="${response_prefix}${selected_text} | command: "
 config_path=""
 original_provider=""
@@ -45,9 +45,9 @@ server_log="${out_dir_abs}/server.log"
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 stop_verified_owner() {
@@ -57,13 +57,13 @@ stop_verified_owner() {
   [[ -z "${pid}" ]] && return 0
   exe="$(jq -r '.owner.process.exe // empty' <<<"${status}")"
   cmdline="$(jq -r '.owner.process.cmdline | join(" ")' <<<"${status}")"
-  if [[ "${exe}" != *vinput-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
-    echo "refusing to stop unexpected org.fcitx.Vinput owner: pid=${pid} exe=${exe}" >&2
+  if [[ "${exe}" != *vinpst-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
+    echo "refusing to stop unexpected org.fcitx.Vinpst owner: pid=${pid} exe=${exe}" >&2
     return 1
   fi
   proc_exe="$(readlink "/proc/${pid}/exe")"
   proc_cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline")"
-  if [[ "${proc_exe}" != *vinput-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
+  if [[ "${proc_exe}" != *vinpst-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
     echo "owner process changed before stop: pid=${pid}" >&2
     return 1
   fi
@@ -87,7 +87,7 @@ activate_and_wait() {
         --arg model "${original_model}" '
           .status == "idle" and
           .owner.ok == true and
-          (.owner.process.exe | endswith("vinput-daemon")) and
+          (.owner.process.exe | endswith("vinpst-daemon")) and
           (.owner.process.cmdline | index($config_path)) != null and
           .asr_backend.reload_in_progress == false and
           .asr_backend.last_error == "" and
@@ -326,11 +326,11 @@ if config.get("active_scene") != "raw":
 print(json.dumps({"provider": provider_id, "model": model, "ok": True}))
 PY
 
-VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
-VINPUT_LIVE_NATIVE_MODES=command \
-VINPUT_LIVE_SELECTED_TEXT="${selected_text}" \
-VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR=1 \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-failure" \
+VINPST_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPST_LIVE_NATIVE_MODES=command \
+VINPST_LIVE_SELECTED_TEXT="${selected_text}" \
+VINPST_LIVE_EXPECT_UNCHANGED_ON_ERROR=1 \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-failure" \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 
 failure_server_pid="${server_pid}"
@@ -398,12 +398,12 @@ if [[ "${external_daemon_pid}" == "${post_failure_daemon_pid}" ]]; then
   exit 1
 fi
 
-VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
-VINPUT_LIVE_NATIVE_MODES=command \
-VINPUT_LIVE_SELECTED_TEXT="${selected_text}" \
-VINPUT_LIVE_EXPECTED_COMMIT_PREFIX="${expected_prefix}" \
-VINPUT_LIVE_CANDIDATE_DELAY_MS=0 \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-recognition" \
+VINPST_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPST_LIVE_NATIVE_MODES=command \
+VINPST_LIVE_SELECTED_TEXT="${selected_text}" \
+VINPST_LIVE_EXPECTED_COMMIT_PREFIX="${expected_prefix}" \
+VINPST_LIVE_CANDIDATE_DELAY_MS=0 \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-recognition" \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 
 external_server_pid="${server_pid}"
@@ -449,13 +449,13 @@ fi
 jq -s -e 'any(.[]; .event == "summary" and .ok == true and .selection_source == "surrounding" and .delete_count > 0 and .candidate_count >= 3 and (.commit | length) > 0)' \
   "${command_summary}" >/dev/null
 
-VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
-VINPUT_LIVE_NATIVE_MODES=command \
-VINPUT_LIVE_SELECTED_TEXT="" \
-VINPUT_LIVE_CLEAR_PRIMARY_SELECTION=1 \
-VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR=1 \
-VINPUT_LIVE_REQUIRE_PARTIAL=0 \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-no-selection" \
+VINPST_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPST_LIVE_NATIVE_MODES=command \
+VINPST_LIVE_SELECTED_TEXT="" \
+VINPST_LIVE_CLEAR_PRIMARY_SELECTION=1 \
+VINPST_LIVE_EXPECT_UNCHANGED_ON_ERROR=1 \
+VINPST_LIVE_REQUIRE_PARTIAL=0 \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/external-text-no-selection" \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 
 no_selection_summary="${out_dir_abs}/external-text-no-selection/fcitx/command.jsonl"

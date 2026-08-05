@@ -24,10 +24,10 @@ require_cmd curl
 require_cmd dbus-run-session
 require_cmd python3
 
-cargo build -q -p vinput-cli -p vinput-daemon
+cargo build -q -p vinpst-cli -p vinpst-daemon
 
-daemon_bin="${repo_root}/target/debug/vinput-daemon"
-cli_bin="${repo_root}/target/debug/vinput"
+daemon_bin="${repo_root}/target/debug/vinpst-daemon"
+cli_bin="${repo_root}/target/debug/vinpst"
 root="${repo_root}/target/tmp/remote-text-daemon-lifecycle-smoke"
 rm -rf "${root}"
 mkdir -p "${root}"
@@ -49,17 +49,17 @@ config_path, port = sys.argv[1:]
 config = {
     "version": 1,
     "asr": {
-        "active_provider": "provider.vinput.remote.streaming",
+        "active_provider": "provider.vinpst.remote.streaming",
         "providers": [
             {
-                "id": "provider.vinput.remote.streaming",
+                "id": "provider.vinpst.remote.streaming",
                 "type": "command",
                 "command": "python3",
                 "args": ["remote.py"],
                 "env": {
-                    "VINPUT_ASR_API_KEY": "fixture-key",
-                    "VINPUT_ASR_PORT": port,
-                    "VINPUT_ASR_DEBOUNCE_MS": "25",
+                    "VINPST_ASR_API_KEY": "fixture-key",
+                    "VINPST_ASR_PORT": port,
+                    "VINPST_ASR_DEBOUNCE_MS": "25",
                 },
             }
         ],
@@ -73,18 +73,18 @@ with open(config_path, "w", encoding="utf-8") as output:
     json.dump(config, output, indent=2)
 PY
 
-export VINPUT_REMOTE_LIFECYCLE_DAEMON_BIN="${daemon_bin}"
-export VINPUT_REMOTE_LIFECYCLE_CLI_BIN="${cli_bin}"
-export VINPUT_REMOTE_LIFECYCLE_CONFIG="${config_path}"
-export VINPUT_REMOTE_LIFECYCLE_LOG="${log_path}"
-export VINPUT_REMOTE_LIFECYCLE_PORT="${port}"
+export VINPST_REMOTE_LIFECYCLE_DAEMON_BIN="${daemon_bin}"
+export VINPST_REMOTE_LIFECYCLE_CLI_BIN="${cli_bin}"
+export VINPST_REMOTE_LIFECYCLE_CONFIG="${config_path}"
+export VINPST_REMOTE_LIFECYCLE_LOG="${log_path}"
+export VINPST_REMOTE_LIFECYCLE_PORT="${port}"
 
 timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
-daemon_bin="${VINPUT_REMOTE_LIFECYCLE_DAEMON_BIN}"
-cli_bin="${VINPUT_REMOTE_LIFECYCLE_CLI_BIN}"
-config_path="${VINPUT_REMOTE_LIFECYCLE_CONFIG}"
-log_path="${VINPUT_REMOTE_LIFECYCLE_LOG}"
-port="${VINPUT_REMOTE_LIFECYCLE_PORT}"
+daemon_bin="${VINPST_REMOTE_LIFECYCLE_DAEMON_BIN}"
+cli_bin="${VINPST_REMOTE_LIFECYCLE_CLI_BIN}"
+config_path="${VINPST_REMOTE_LIFECYCLE_CONFIG}"
+log_path="${VINPST_REMOTE_LIFECYCLE_LOG}"
+port="${VINPST_REMOTE_LIFECYCLE_PORT}"
 health_url="http://127.0.0.1:${port}/health"
 
 "${daemon_bin}" --config "${config_path}" --dbus >"${log_path}" 2>&1 &
@@ -126,7 +126,7 @@ status = json.loads(raw)
 assert status["status"] == "idle", status
 asr = status["asr_backend"]
 remote = status["runtime_status"]["remote_text"]
-assert asr["target_provider_id"] == "provider.vinput.remote.streaming", asr
+assert asr["target_provider_id"] == "provider.vinpst.remote.streaming", asr
 assert asr["remote_endpoints"] == [], asr
 assert remote["running"] is True, remote
 assert remote["listen_addr"] == f"0.0.0.0:{port}", remote

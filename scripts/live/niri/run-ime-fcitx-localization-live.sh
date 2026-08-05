@@ -14,19 +14,19 @@ done
 cd "${repo_root}"
 
 probe="${repo_root}/scripts/live/niri/probes/fcitx-live-localization-probe.py"
-out_dir="${VINPUT_LIVE_LOCALIZATION_OUT_DIR:-${repo_root}/target/tmp/ime-fcitx-localization-live}"
+out_dir="${VINPST_LIVE_LOCALIZATION_OUT_DIR:-${repo_root}/target/tmp/ime-fcitx-localization-live}"
 build_dir="${repo_root}/target/cpp/fcitx5-user-ime-localization-live"
-module_path="${HOME}/.local/lib/fcitx5/fcitx5-vinput.so"
-addon_metadata="${HOME}/.local/share/fcitx5/addon/vinput.conf"
+module_path="${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so"
+addon_metadata="${HOME}/.local/share/fcitx5/addon/vinpst.conf"
 catalog_root="${HOME}/.local/share/locale"
-catalog_path="${catalog_root}/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
-fcitx_env="${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env"
-fcitx_wrapper="${HOME}/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh"
-profile_path="${HOME}/.local/share/fcitx-vinput/sherpa-native-command-live.json"
-service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service"
-addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
-cli_binary="${repo_root}/target/debug/vinput"
-daemon_path="${HOME}/.local/bin/vinput-daemon"
+catalog_path="${catalog_root}/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
+fcitx_env="${HOME}/.local/share/fcitx-vinpst/fcitx-vinpst.env"
+fcitx_wrapper="${HOME}/.local/share/fcitx-vinpst/fcitx5-with-vinpst-env.sh"
+profile_path="${HOME}/.local/share/fcitx-vinpst/sherpa-native-command-live.json"
+service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service"
+addon_config="${HOME}/.config/fcitx5/conf/vinpst.conf"
+cli_binary="${repo_root}/target/debug/vinpst"
+daemon_path="${HOME}/.local/bin/vinpst-daemon"
 
 for command in cmake cmp fcitx5-remote gdbus grep install jq pgrep python3 ruff strings; do
   if ! command -v "${command}" >/dev/null 2>&1; then
@@ -204,14 +204,14 @@ python3 -m py_compile "${probe}"
 
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-  -DVINPUT_DAEMON_EXECUTABLE="${daemon_path}" \
-  -DVINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR= \
-  -DVINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR="${catalog_root}"
-cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
+  -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+  -DVINPST_DAEMON_EXECUTABLE="${daemon_path}" \
+  -DVINPST_FCITX_RUNTIME_BUILD_LOCALEDIR= \
+  -DVINPST_FCITX_RUNTIME_INSTALL_LOCALEDIR="${catalog_root}"
+cmake --build "${build_dir}" --target fcitx5_vinpst_addon --parallel
 
-module_candidate="${build_dir}/fcitx5-vinput.so"
-catalog_candidate="${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
+module_candidate="${build_dir}/fcitx5-vinpst.so"
+catalog_candidate="${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
 test -f "${module_candidate}"
 test -f "${catalog_candidate}"
 strings "${module_candidate}" >"${out_dir}/module-candidate-strings.txt"
@@ -227,8 +227,8 @@ module_installed=1
 sha256sum "${module_path}" "${catalog_path}" >"${out_dir}/installed-sha256.txt"
 
 restart_fcitx_zh_cn | tee "${out_dir}/fcitx-zh-cn.pid"
-if grep -q '^VINPUT_FCITX_LOCALEDIR=' "${out_dir}/fcitx-zh-cn.environ"; then
-  echo "localization proof must not use VINPUT_FCITX_LOCALEDIR override" >&2
+if grep -q '^VINPST_FCITX_LOCALEDIR=' "${out_dir}/fcitx-zh-cn.environ"; then
+  echo "localization proof must not use VINPST_FCITX_LOCALEDIR override" >&2
   exit 1
 fi
 

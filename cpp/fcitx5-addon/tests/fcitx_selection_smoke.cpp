@@ -1,12 +1,12 @@
-#include "vinput_fcitx_bridge/fcitx_selection.h"
+#include "vinpst_fcitx_bridge/fcitx_selection.h"
 
 #include <fcitx/surroundingtext.h>
 
 #include <cassert>
 #include <string>
 
-using vinput_fcitx_bridge::SelectedTextDeletionRange;
-using vinput_fcitx_bridge::SelectedTextWithPrimaryFallback;
+using vinpst_fcitx_bridge::SelectedTextDeletionRange;
+using vinpst_fcitx_bridge::SelectedTextWithPrimaryFallback;
 
 int main() {
   fcitx::SurroundingText invalid;

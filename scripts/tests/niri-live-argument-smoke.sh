@@ -44,12 +44,12 @@ expect_failure \
   "usage: scripts/live/niri/run-ime-gtk4-soak-virtual-live.sh [normal|command] [cycles: 10-20]" \
   scripts/live/niri/run-ime-gtk4-soak-virtual-live.sh invalid 10
 expect_failure \
-  "VINPUT_TOOLKIT_TIMEOUT_SECONDS must be an integer from 1 to 3600" \
-  env VINPUT_TOOLKIT_TIMEOUT_SECONDS=0 \
+  "VINPST_TOOLKIT_TIMEOUT_SECONDS must be an integer from 1 to 3600" \
+  env VINPST_TOOLKIT_TIMEOUT_SECONDS=0 \
   scripts/live/niri/run-ime-gtk4-native-live.sh normal
 expect_failure \
-  "VINPUT_TOOLKIT_TIMEOUT_SECONDS must be an integer from 1 to 3600" \
-  env VINPUT_TOOLKIT_TIMEOUT_SECONDS=3601 \
+  "VINPST_TOOLKIT_TIMEOUT_SECONDS must be an integer from 1 to 3600" \
+  env VINPST_TOOLKIT_TIMEOUT_SECONDS=3601 \
   scripts/live/niri/run-ime-gtk4-native-live.sh command
 
 printf 'niri live argument smoke passed\n'

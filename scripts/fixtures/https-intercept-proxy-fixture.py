@@ -189,7 +189,7 @@ class InterceptProxyHandler(socketserver.BaseRequestHandler):
             stage = "CONNECT response"
             request.sendall(
                 b"HTTP/1.1 200 Connection Established\r\n"
-                b"Proxy-Agent: vinput-fixture\r\n\r\n"
+                b"Proxy-Agent: vinpst-fixture\r\n\r\n"
             )
 
             stage = "client TLS handshake"

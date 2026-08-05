@@ -1,0 +1,13 @@
+[Unit]
+Description=Vinpst Voice Input Daemon
+After=pipewire.service
+
+[Service]
+Type=dbus
+BusName=org.fcitx.Vinpst
+ExecStart=@VINPST_DAEMON_EXECUTABLE@@VINPST_DAEMON_ARGS_SUFFIX@ --exit-when-executable-replaced
+Restart=on-failure
+RestartSec=1s
+
+[Install]
+WantedBy=default.target

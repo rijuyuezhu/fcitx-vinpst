@@ -25,11 +25,11 @@ DBUS_CALL = [
     "call",
     "--session",
     "--dest",
-    "org.fcitx.Vinput",
+    "org.fcitx.Vinpst",
     "--object-path",
-    "/org/fcitx/Vinput",
+    "/org/fcitx/Vinpst",
     "--method",
-    "org.fcitx.Vinput.Service.GetStatus",
+    "org.fcitx.Vinpst.Service.GetStatus",
 ]
 
 
@@ -81,7 +81,7 @@ class TriggerModeProbe:
         self.started_at = time.monotonic()
         self.loop = GLib.MainLoop()
         self.client = FcitxG.Client.new()
-        self.client.set_program(f"fcitx-vinput-trigger-{args.mode.lower()}-live-probe")
+        self.client.set_program(f"fcitx-vinpst-trigger-{args.mode.lower()}-live-probe")
         self.client.set_display(
             os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
         )

@@ -13,34 +13,34 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-fcitx5_bin="${VINPUT_LIVE_FCITX5_BIN:-fcitx5}"
-fcitx5_remote_bin="${VINPUT_LIVE_FCITX5_REMOTE_BIN:-fcitx5-remote}"
-gdbus_bin="${VINPUT_LIVE_GDBUS_BIN:-gdbus}"
-python_bin="${VINPUT_LIVE_PYTHON_BIN:-python3}"
+fcitx5_bin="${VINPST_LIVE_FCITX5_BIN:-fcitx5}"
+fcitx5_remote_bin="${VINPST_LIVE_FCITX5_REMOTE_BIN:-fcitx5-remote}"
+gdbus_bin="${VINPST_LIVE_GDBUS_BIN:-gdbus}"
+python_bin="${VINPST_LIVE_PYTHON_BIN:-python3}"
 
 home_dir="${HOME:?HOME must be set for live probe}"
 data_home="${XDG_DATA_HOME:-${home_dir}/.local/share}"
 default_data_home="${home_dir}/.local/share"
 config_home="${XDG_CONFIG_HOME:-${home_dir}/.config}"
-bin_dir="${VINPUT_USER_BIN_DIR:-${home_dir}/.local/bin}"
-lib_dir="${VINPUT_USER_FCITX_LIB_DIR:-${home_dir}/.local/lib/fcitx5}"
-addon_dir="${VINPUT_USER_FCITX_ADDON_DIR:-${data_home}/fcitx5/addon}"
-config_dir="${VINPUT_USER_CONFIG_DIR:-${data_home}/fcitx-vinput}"
-autostart_dir="${VINPUT_USER_AUTOSTART_DIR:-${config_home}/autostart}"
-env_file="${config_dir}/fcitx-vinput.env"
-fcitx_env_wrapper="${config_dir}/fcitx5-with-vinput-env.sh"
+bin_dir="${VINPST_USER_BIN_DIR:-${home_dir}/.local/bin}"
+lib_dir="${VINPST_USER_FCITX_LIB_DIR:-${home_dir}/.local/lib/fcitx5}"
+addon_dir="${VINPST_USER_FCITX_ADDON_DIR:-${data_home}/fcitx5/addon}"
+config_dir="${VINPST_USER_CONFIG_DIR:-${data_home}/fcitx-vinpst}"
+autostart_dir="${VINPST_USER_AUTOSTART_DIR:-${config_home}/autostart}"
+env_file="${config_dir}/fcitx-vinpst.env"
+fcitx_env_wrapper="${config_dir}/fcitx5-with-vinpst-env.sh"
 fcitx_autostart_file="${autostart_dir}/org.fcitx.Fcitx5.desktop"
-daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
-daemon_env_wrapper="${config_dir}/vinput-daemon-with-vinput-env.sh"
-module_path="${lib_dir}/fcitx5-vinput.so"
-addon_conf_path="${addon_dir}/vinput.conf"
-persistent_service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
-runtime_service_file="${XDG_RUNTIME_DIR:-}/dbus-1/services/org.fcitx.Vinput.service"
+daemon_path="${VINPST_USER_DAEMON:-${bin_dir}/vinpst-daemon}"
+daemon_env_wrapper="${config_dir}/vinpst-daemon-with-vinpst-env.sh"
+module_path="${lib_dir}/fcitx5-vinpst.so"
+addon_conf_path="${addon_dir}/vinpst.conf"
+persistent_service_file="${data_home}/dbus-1/services/org.fcitx.Vinpst.service"
+runtime_service_file="${XDG_RUNTIME_DIR:-}/dbus-1/services/org.fcitx.Vinpst.service"
 service_file="${persistent_service_file}"
 if [[ -n "${XDG_RUNTIME_DIR:-}" && -f "${runtime_service_file}" ]]; then
   service_file="${runtime_service_file}"
 fi
-status_log="${TMPDIR:-/tmp}/vinput-ime-live-status.$$.log"
+status_log="${TMPDIR:-/tmp}/vinpst-ime-live-status.$$.log"
 
 failures=()
 warnings=()
@@ -79,8 +79,8 @@ print_summary_and_exit_if_failed() {
       printf '  - %s\n' "${item}" >&2
     done
   fi
-  printf '\nSuggested next step: run VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe, then restart Fcitx5 with %s -dr. If your desktop ignores the generated autostart override, source %s before launching Fcitx5.\n' "${fcitx_env_wrapper}" "${env_file}" >&2
-  printf 'If stale-bus-owner is listed and the displayed process is safe to stop, rerun with VINPUT_LIVE_STOP_STALE_OWNER=1 to stop it before probing activation.\n' >&2
+  printf '\nSuggested next step: run VINPST_LIVE_INSTALL_COMMAND_DEMO=1 just ime-fcitx-live-probe, then restart Fcitx5 with %s -dr. If your desktop ignores the generated autostart override, source %s before launching Fcitx5.\n' "${fcitx_env_wrapper}" "${env_file}" >&2
+  printf 'If stale-bus-owner is listed and the displayed process is safe to stop, rerun with VINPST_LIVE_STOP_STALE_OWNER=1 to stop it before probing activation.\n' >&2
   exit 1
 }
 
@@ -222,7 +222,7 @@ describe_bus_owner_process() {
   fi
   exe="$(readlink "/proc/${pid}/exe" 2>/dev/null || true)"
   cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline" 2>/dev/null || true)"
-  printf 'Current org.fcitx.Vinput owner process: pid=%s exe=%s cmdline=%s\n' \
+  printf 'Current org.fcitx.Vinpst owner process: pid=%s exe=%s cmdline=%s\n' \
     "${pid}" "${exe:-<unavailable>}" "${cmdline:-<unavailable>}"
 }
 
@@ -230,7 +230,7 @@ stop_stale_bus_owner_if_requested() {
   local owner="$1"
   local pid="$2"
   local exe remaining owner_check owner_status
-  if [[ "${VINPUT_LIVE_STOP_STALE_OWNER:-}" != "1" && "${VINPUT_LIVE_STOP_STALE_OWNER:-}" != "true" ]]; then
+  if [[ "${VINPST_LIVE_STOP_STALE_OWNER:-}" != "1" && "${VINPST_LIVE_STOP_STALE_OWNER:-}" != "true" ]]; then
     return 1
   fi
   if [[ ! -f "${service_file}" ]]; then
@@ -251,10 +251,10 @@ stop_stale_bus_owner_if_requested() {
     return 1
   fi
   kill "${pid}" 2>/dev/null || {
-    add_warning "stale-owner-stop-failed" "failed to stop stale org.fcitx.Vinput owner pid ${pid} (${exe})"
+    add_warning "stale-owner-stop-failed" "failed to stop stale org.fcitx.Vinpst owner pid ${pid} (${exe})"
     return 1
   }
-  printf 'Stopped stale org.fcitx.Vinput owner process pid=%s exe=%s.\n' "${pid}" "${exe}"
+  printf 'Stopped stale org.fcitx.Vinpst owner process pid=%s exe=%s.\n' "${pid}" "${exe}"
   remaining=20
   while [[ "${remaining}" -gt 0 ]]; do
     set +e
@@ -262,7 +262,7 @@ stop_stale_bus_owner_if_requested() {
       --dest org.freedesktop.DBus \
       --object-path /org/freedesktop/DBus \
       --method org.freedesktop.DBus.GetNameOwner \
-      org.fcitx.Vinput 2>&1)"
+      org.fcitx.Vinpst 2>&1)"
     owner_status=$?
     set -e
     if [[ "${owner_status}" != "0" ]]; then
@@ -271,7 +271,7 @@ stop_stale_bus_owner_if_requested() {
     sleep 0.1
     remaining=$((remaining - 1))
   done
-  add_warning "stale-owner-stop-timeout" "stale org.fcitx.Vinput owner pid ${pid} was signalled but the bus name is still owned: ${owner_check}"
+  add_warning "stale-owner-stop-timeout" "stale org.fcitx.Vinpst owner pid ${pid} was signalled but the bus name is still owned: ${owner_check}"
   return 1
 }
 
@@ -284,8 +284,8 @@ check_install_shape() {
 
   if [[ -f "${addon_conf_path}" ]]; then
     printf 'User addon metadata: %s (present)\n' "${addon_conf_path}"
-    if ! grep -qx 'Library=fcitx5-vinput' "${addon_conf_path}"; then
-      add_failure "addon-metadata-library-mismatch" "addon metadata does not declare Library=fcitx5-vinput: ${addon_conf_path}"
+    if ! grep -qx 'Library=fcitx5-vinpst' "${addon_conf_path}"; then
+      add_failure "addon-metadata-library-mismatch" "addon metadata does not declare Library=fcitx5-vinpst: ${addon_conf_path}"
     fi
     if ! grep -qx 'Type=SharedLibrary' "${addon_conf_path}"; then
       add_failure "addon-metadata-type-mismatch" "addon metadata does not declare Type=SharedLibrary: ${addon_conf_path}"
@@ -304,8 +304,8 @@ check_install_shape() {
     printf 'User activation service: %s (present)\n' "${service_file}"
     local service_name
     service_name="$(service_field "${service_file}" Name)"
-    if [[ "${service_name}" != "org.fcitx.Vinput" ]]; then
-      add_failure "activation-service-name-mismatch" "activation service Name is '${service_name:-<missing>}' instead of org.fcitx.Vinput: ${service_file}"
+    if [[ "${service_name}" != "org.fcitx.Vinpst" ]]; then
+      add_failure "activation-service-name-mismatch" "activation service Name is '${service_name:-<missing>}' instead of org.fcitx.Vinpst: ${service_file}"
     fi
 
     local service_daemon
@@ -346,8 +346,8 @@ check_install_shape() {
     if ! grep -qx "Exec=${fcitx_env_wrapper}" "${fcitx_autostart_file}"; then
       add_failure "fcitx-autostart-exec-mismatch" "Fcitx autostart override does not Exec the generated wrapper: ${fcitx_autostart_file}"
     fi
-    if ! grep -qx 'X-fcitx-vinput-managed=true' "${fcitx_autostart_file}"; then
-      add_warning "fcitx-autostart-unmanaged" "Fcitx autostart override is not marked as managed by fcitx-vinput: ${fcitx_autostart_file}"
+    if ! grep -qx 'X-fcitx-vinpst-managed=true' "${fcitx_autostart_file}"; then
+      add_warning "fcitx-autostart-unmanaged" "Fcitx autostart override is not marked as managed by fcitx-vinpst: ${fcitx_autostart_file}"
     fi
   else
     add_failure "fcitx-autostart-missing" "generated Fcitx autostart override is missing: ${fcitx_autostart_file}"
@@ -355,7 +355,7 @@ check_install_shape() {
 }
 
 check_fcitx_process_env() {
-  if [[ "${VINPUT_LIVE_SKIP_FCITX_ENV_CHECK:-}" == "1" ]]; then
+  if [[ "${VINPST_LIVE_SKIP_FCITX_ENV_CHECK:-}" == "1" ]]; then
     return 0
   fi
   if [[ ! -f "${module_path}" || ! -f "${addon_conf_path}" ]]; then
@@ -408,7 +408,7 @@ probe_runtime_status() {
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.GetNameOwner \
-    org.fcitx.Vinput 2>&1)"
+    org.fcitx.Vinpst 2>&1)"
   owner_status=$?
   set -e
 
@@ -416,7 +416,7 @@ probe_runtime_status() {
   if [[ "${owner_status}" == "0" ]]; then
     owner="$(bus_owner_from_reply "${owner_output}")"
     if [[ -n "${owner}" ]]; then
-      add_warning "bus-name-owned" "org.fcitx.Vinput is already owned on the current session bus by ${owner}; probing it for Rust runtime diagnostics"
+      add_warning "bus-name-owned" "org.fcitx.Vinpst is already owned on the current session bus by ${owner}; probing it for Rust runtime diagnostics"
       owner_pid="$(query_bus_owner_pid "${owner}")"
       describe_bus_owner_process "${owner}" "${owner_pid}"
       if stop_stale_bus_owner_if_requested "${owner}" "${owner_pid}"; then
@@ -426,16 +426,16 @@ probe_runtime_status() {
   fi
 
   if [[ ! -f "${service_file}" && -z "${owner}" ]]; then
-    add_failure "runtime-status-skipped" "cannot activate org.fcitx.Vinput because the activation service is missing and no current bus owner exists"
+    add_failure "runtime-status-skipped" "cannot activate org.fcitx.Vinpst because the activation service is missing and no current bus owner exists"
     return 0
   fi
 
-  printf 'Probing org.fcitx.Vinput GetRuntimeStatus...\n'
+  printf 'Probing org.fcitx.Vinpst GetRuntimeStatus...\n'
   set +e
   runtime_output="$(${gdbus_bin} call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method org.fcitx.Vinput.Service.GetRuntimeStatus 2>&1)"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method org.fcitx.Vinpst.Service.GetRuntimeStatus 2>&1)"
   runtime_status=$?
   set -e
 
@@ -445,21 +445,21 @@ probe_runtime_status() {
   fi
 
   if grep -qiE 'UnknownMethod|No such method|GetRuntimeStatus' <<<"${runtime_output}"; then
-    add_failure "runtime-status-unavailable" "GetRuntimeStatus is unavailable on org.fcitx.Vinput; this usually means the current bus owner is the legacy/stale daemon, not the Rust daemon"
+    add_failure "runtime-status-unavailable" "GetRuntimeStatus is unavailable on org.fcitx.Vinpst; this usually means the current bus owner is the legacy/stale daemon, not the Rust daemon"
   else
     add_failure "runtime-status-call-failed" "GetRuntimeStatus call failed: ${runtime_output}"
   fi
 
   if [[ -n "${owner}" ]]; then
-    add_failure "stale-bus-owner" "org.fcitx.Vinput was already owned by ${owner} before activation and did not expose Rust runtime diagnostics"
+    add_failure "stale-bus-owner" "org.fcitx.Vinpst was already owned by ${owner} before activation and did not expose Rust runtime diagnostics"
   fi
 }
 
-if [[ "${VINPUT_LIVE_INSTALL_COMMAND_DEMO:-}" == "1" || "${VINPUT_LIVE_INSTALL_COMMAND_DEMO:-}" == "true" ]]; then
-  printf 'Installing command-demo user IME profile because VINPUT_LIVE_INSTALL_COMMAND_DEMO is set.\n'
-  VINPUT_USER_PROFILE=command-demo scripts/install/install-user-ime.sh
+if [[ "${VINPST_LIVE_INSTALL_COMMAND_DEMO:-}" == "1" || "${VINPST_LIVE_INSTALL_COMMAND_DEMO:-}" == "true" ]]; then
+  printf 'Installing command-demo user IME profile because VINPST_LIVE_INSTALL_COMMAND_DEMO is set.\n'
+  VINPST_USER_PROFILE=command-demo scripts/install/install-user-ime.sh
 else
-  printf 'Non-mutating live probe. Set VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 to install the command-demo user IME profile.\n'
+  printf 'Non-mutating live probe. Set VINPST_LIVE_INSTALL_COMMAND_DEMO=1 to install the command-demo user IME profile.\n'
 fi
 
 require_cmd "${fcitx5_bin}"
@@ -489,8 +489,8 @@ printf 'Current input method: %s\n' "$("${fcitx5_remote_bin}" -n 2>/dev/null || 
 check_install_shape
 check_fcitx_process_env
 
-if [[ "${VINPUT_LIVE_SKIP_USER_STATUS:-}" != "1" ]]; then
-  VINPUT_USER_STATUS=1 scripts/install/install-user-ime.sh >"${status_log}" 2>&1 || {
+if [[ "${VINPST_LIVE_SKIP_USER_STATUS:-}" != "1" ]]; then
+  VINPST_USER_STATUS=1 scripts/install/install-user-ime.sh >"${status_log}" 2>&1 || {
     cat "${status_log}" >&2
     add_failure "user-status-failed" "User IME install/status check failed"
   }
@@ -500,4 +500,4 @@ fi
 probe_runtime_status
 print_summary_and_exit_if_failed
 
-printf 'Live probe complete. Trigger keys are controlled by VINPUT_FCITX_NORMAL_TRIGGER and VINPUT_FCITX_COMMAND_TRIGGER before launching Fcitx5.\n'
+printf 'Live probe complete. Trigger keys are controlled by VINPST_FCITX_NORMAL_TRIGGER and VINPST_FCITX_COMMAND_TRIGGER before launching Fcitx5.\n'

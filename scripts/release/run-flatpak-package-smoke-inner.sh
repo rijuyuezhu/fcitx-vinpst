@@ -8,7 +8,7 @@ fi
 
 manifest="$1"
 work_dir="$2"
-app_id="org.fcitx.Fcitx5.Addon.Vinput"
+app_id="org.fcitx.Fcitx5.Addon.Vinpst"
 host_id="org.fcitx.Fcitx5"
 branch="stable"
 platform_id="org.kde.Platform"
@@ -21,7 +21,7 @@ extension_branch="25.08"
 repo="${work_dir}/repo"
 build1="${work_dir}/build-1"
 state_dir="${work_dir}/state"
-bundle="${work_dir}/fcitx-vinput-rs.flatpak"
+bundle="${work_dir}/fcitx-vinpst.flatpak"
 home="${work_dir}/home"
 
 for command in flatpak flatpak-builder ostree timeout; do
@@ -36,7 +36,7 @@ test -f "${manifest}" || {
 }
 
 rm -rf "${repo}" "${build1}" "${bundle}"
-if [[ "${VINPUT_FLATPAK_REUSE_HOME:-0}" != "1" ]]; then
+if [[ "${VINPST_FLATPAK_REUSE_HOME:-0}" != "1" ]]; then
   rm -rf "${state_dir}" "${home}"
 fi
 mkdir -p "${repo}" "${state_dir}" "${home}"
@@ -47,32 +47,32 @@ export XDG_DATA_HOME="${home}/.local/share"
 mkdir -p "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}" "${XDG_DATA_HOME}"
 
 flatpak uninstall --user -y "${app_id}//${branch}" >/dev/null 2>&1 || true
-flatpak remote-delete --user --force vinput-local >/dev/null 2>&1 || true
+flatpak remote-delete --user --force vinpst-local >/dev/null 2>&1 || true
 
 flathub_repo="${work_dir}/flathub.flatpakrepo"
 test -s "${flathub_repo}" || {
   echo "missing downloaded Flathub repository descriptor: ${flathub_repo}" >&2
   exit 1
 }
-if [[ -n "${VINPUT_FLATPAK_REMOTE_URL:-}" ]]; then
-  sed -i "s|^Url=.*|Url=${VINPUT_FLATPAK_REMOTE_URL}|" "${flathub_repo}"
+if [[ -n "${VINPST_FLATPAK_REMOTE_URL:-}" ]]; then
+  sed -i "s|^Url=.*|Url=${VINPST_FLATPAK_REMOTE_URL}|" "${flathub_repo}"
 fi
 flatpak remote-add --user --if-not-exists --no-enumerate --no-follow_redirect \
   --from flathub "${flathub_repo}"
-if [[ -n "${VINPUT_FLATPAK_REMOTE_URL:-}" ]]; then
-  flatpak remote-modify --user --url="${VINPUT_FLATPAK_REMOTE_URL}" \
+if [[ -n "${VINPST_FLATPAK_REMOTE_URL:-}" ]]; then
+  flatpak remote-modify --user --url="${VINPST_FLATPAK_REMOTE_URL}" \
     --no-follow-redirect flathub
   actual_remote_url="$(flatpak remotes --user --columns=name,url \
     | awk -F '\t' '$1 == "flathub" { print $2 }')"
-  [[ "${actual_remote_url}" == "${VINPUT_FLATPAK_REMOTE_URL}" ]] || {
-    echo "Flatpak remote URL mismatch: expected ${VINPUT_FLATPAK_REMOTE_URL}, got ${actual_remote_url}" >&2
+  [[ "${actual_remote_url}" == "${VINPST_FLATPAK_REMOTE_URL}" ]] || {
+    echo "Flatpak remote URL mismatch: expected ${VINPST_FLATPAK_REMOTE_URL}, got ${actual_remote_url}" >&2
     exit 1
   }
 fi
 
 retry_command() {
   local attempt
-  local max_attempts="${VINPUT_FLATPAK_RETRY_ATTEMPTS:-5}"
+  local max_attempts="${VINPST_FLATPAK_RETRY_ATTEMPTS:-5}"
   for ((attempt = 1; attempt <= max_attempts; attempt++)); do
     if "$@"; then
       return 0
@@ -97,9 +97,9 @@ retry_timed_command() {
     "$@"
 }
 
-dependency_timeout="${VINPUT_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS:-900}"
-build_timeout="${VINPUT_FLATPAK_BUILD_TIMEOUT_SECONDS:-3600}"
-transaction_timeout="${VINPUT_FLATPAK_TRANSACTION_TIMEOUT_SECONDS:-600}"
+dependency_timeout="${VINPST_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS:-900}"
+build_timeout="${VINPST_FLATPAK_BUILD_TIMEOUT_SECONDS:-3600}"
+transaction_timeout="${VINPST_FLATPAK_TRANSACTION_TIMEOUT_SECONDS:-600}"
 for dependency in \
   "${platform_id}//${platform_branch}" \
   "${sdk_id}//${sdk_branch}" \
@@ -133,7 +133,7 @@ verify_revision() {
   local expected="$1"
   local revision
   revision="$(run_in_host_app \
-    'cat /app/addons/Vinput/share/fcitx-vinput/package-revision')"
+    'cat /app/addons/Vinpst/share/fcitx-vinpst/package-revision')"
   [[ "${revision}" == "${expected}" ]] || {
     echo "Flatpak extension revision mismatch: expected ${expected}, got ${revision}" >&2
     exit 1
@@ -143,32 +143,32 @@ verify_revision() {
 verify_product() {
   run_in_host_app '
     set -eu
-    test -x /app/addons/Vinput/bin/vinput
-    test -x /app/addons/Vinput/bin/vinput-daemon
-    test -x /app/addons/Vinput/bin/vinput-gui
-    test -f /app/addons/Vinput/lib/fcitx5/fcitx5-vinput.so
-    test -f /app/addons/Vinput/lib/libsherpa-onnx-c-api.so
-    test -f /app/addons/Vinput/lib/libonnxruntime.so
-    test -f /app/addons/Vinput/share/fcitx5/addon/vinput.conf
-    test -f /app/addons/Vinput/share/systemd/user/vinput-daemon.service
-    test -f /app/addons/Vinput/share/dbus-1/services/org.fcitx.Vinput.service
-    test -f /app/addons/Vinput/share/applications/vinput-gui.desktop
-    test -f /app/addons/Vinput/share/fcitx-vinput/vad/silero_vad.onnx
-    test -f /app/addons/Vinput/share/licenses/fcitx-vinput-rs/LICENSE
-    grep -Fq /app/addons/Vinput/bin/vinput-daemon \
-      /app/addons/Vinput/share/systemd/user/vinput-daemon.service
-    /app/addons/Vinput/bin/vinput --version
-    /app/addons/Vinput/bin/vinput-daemon --version
-    /app/addons/Vinput/bin/vinput-gui --version
-    /app/addons/Vinput/bin/vinput-gui --check --offline
+    test -x /app/addons/Vinpst/bin/vinpst
+    test -x /app/addons/Vinpst/bin/vinpst-daemon
+    test -x /app/addons/Vinpst/bin/vinpst-gui
+    test -f /app/addons/Vinpst/lib/fcitx5/fcitx5-vinpst.so
+    test -f /app/addons/Vinpst/lib/libsherpa-onnx-c-api.so
+    test -f /app/addons/Vinpst/lib/libonnxruntime.so
+    test -f /app/addons/Vinpst/share/fcitx5/addon/vinpst.conf
+    test -f /app/addons/Vinpst/share/systemd/user/vinpst-daemon.service
+    test -f /app/addons/Vinpst/share/dbus-1/services/org.fcitx.Vinpst.service
+    test -f /app/addons/Vinpst/share/applications/vinpst-gui.desktop
+    test -f /app/addons/Vinpst/share/fcitx-vinpst/vad/silero_vad.onnx
+    test -f /app/addons/Vinpst/share/licenses/fcitx-vinpst/LICENSE
+    grep -Fq /app/addons/Vinpst/bin/vinpst-daemon \
+      /app/addons/Vinpst/share/systemd/user/vinpst-daemon.service
+    /app/addons/Vinpst/bin/vinpst --version
+    /app/addons/Vinpst/bin/vinpst-daemon --version
+    /app/addons/Vinpst/bin/vinpst-gui --version
+    /app/addons/Vinpst/bin/vinpst-gui --check --offline
   '
 }
 
 build_manifest "${build1}" "${manifest}"
 flatpak remote-add --user --if-not-exists --no-gpg-verify \
-  vinput-local "file://${repo}"
+  vinpst-local "file://${repo}"
 retry_timed_command "${transaction_timeout}" \
-  flatpak install --user -y vinput-local "${app_id}//${branch}"
+  flatpak install --user -y vinpst-local "${app_id}//${branch}"
 first_commit="$(flatpak info --user --show-commit "${app_id}//${branch}")"
 test -n "${first_commit}"
 verify_revision 1
@@ -185,7 +185,7 @@ flatpak build-bundle --runtime \
   "${repo}" "${bundle}" "${app_id}" "${branch}"
 test -s "${bundle}"
 
-revision_marker="${build1}/files/share/fcitx-vinput/package-revision"
+revision_marker="${build1}/files/share/fcitx-vinpst/package-revision"
 test -f "${revision_marker}" || {
   echo "Flatpak build tree is missing the revision marker: ${revision_marker}" >&2
   exit 1

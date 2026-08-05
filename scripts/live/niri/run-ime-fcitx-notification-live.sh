@@ -13,13 +13,13 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-out_dir="${VINPUT_LIVE_NOTIFICATION_OUT_DIR:-target/tmp/ime-fcitx-notification-live}"
+out_dir="${VINPST_LIVE_NOTIFICATION_OUT_DIR:-target/tmp/ime-fcitx-notification-live}"
 monitor_log="${out_dir}/dbus-monitor.log"
 selection_log="${out_dir}/scene-selection.jsonl"
 notification_json="${out_dir}/notification.json"
-expected_summary="${VINPUT_LIVE_NOTIFICATION_EXPECTED_SUMMARY:-Voice Input}"
-expected_body_prefix="${VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_PREFIX:-}"
-expected_body_suffix="${VINPUT_LIVE_NOTIFICATION_EXPECTED_BODY_SUFFIX:-}"
+expected_summary="${VINPST_LIVE_NOTIFICATION_EXPECTED_SUMMARY:-Voice Input}"
+expected_body_prefix="${VINPST_LIVE_NOTIFICATION_EXPECTED_BODY_PREFIX:-}"
+expected_body_suffix="${VINPST_LIVE_NOTIFICATION_EXPECTED_BODY_SUFFIX:-}"
 monitor_pid=""
 
 stop_monitor() {
@@ -81,7 +81,7 @@ if ! grep -q 'NameAcquired' "${monitor_log}"; then
   exit 1
 fi
 
-VINPUT_LIVE_MENU_SELECTION_OUT_DIR="${out_dir}/selection-runner" \
+VINPST_LIVE_MENU_SELECTION_OUT_DIR="${out_dir}/selection-runner" \
   scripts/live/niri/run-ime-fcitx-menu-selection-live.sh | tee "${selection_log}"
 sleep 0.3
 stop_monitor
@@ -136,11 +136,11 @@ for block in blocks:
         "timeout_ms": int(timeout_match.group(1)),
         "target_label": target_label,
     }
-    if notification["app_name"] == "fcitx5-vinput":
+    if notification["app_name"] == "fcitx5-vinpst":
         matches.append(notification)
 
 if len(matches) != 1:
-    raise SystemExit(f"expected one fcitx5-vinput notification, found {len(matches)}")
+    raise SystemExit(f"expected one fcitx5-vinpst notification, found {len(matches)}")
 notification = matches[0]
 failures = []
 if notification["replaces_id"] != 0:

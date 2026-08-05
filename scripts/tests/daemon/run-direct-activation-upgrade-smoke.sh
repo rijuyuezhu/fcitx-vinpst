@@ -17,7 +17,7 @@ for command in dbus-run-session gdbus readlink sed stat timeout; do
   command -v "${command}" >/dev/null
 done
 
-cargo build -q -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
 
 root="${repo_root}/target/tmp/direct-activation-upgrade-smoke"
 home_dir="${root}/home"
@@ -25,8 +25,8 @@ data_home="${root}/share"
 config_home="${root}/config"
 runtime_dir="${root}/runtime"
 bin_dir="${root}/bin"
-daemon_path="${bin_dir}/vinput-daemon"
-service_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
+daemon_path="${bin_dir}/vinpst-daemon"
+service_file="${data_home}/dbus-1/services/org.fcitx.Vinpst.service"
 
 rm -rf "${root}"
 mkdir -p \
@@ -36,15 +36,15 @@ mkdir -p \
   "${bin_dir}" \
   "$(dirname "${service_file}")"
 chmod 700 "${runtime_dir}"
-install -Dm755 target/debug/vinput-daemon "${daemon_path}"
+install -Dm755 target/debug/vinpst-daemon "${daemon_path}"
 
 cat >"${service_file}" <<EOF
 [D-BUS Service]
-Name=org.fcitx.Vinput
+Name=org.fcitx.Vinpst
 Exec=${daemon_path} --dbus --exit-when-executable-replaced
 EOF
 
-grep -qx 'Name=org.fcitx.Vinput' "${service_file}"
+grep -qx 'Name=org.fcitx.Vinpst' "${service_file}"
 grep -qx "Exec=${daemon_path} --dbus --exit-when-executable-replaced" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
 
@@ -53,15 +53,15 @@ XDG_DATA_HOME="${data_home}" \
 XDG_DATA_DIRS="${data_home}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
 XDG_CONFIG_HOME="${config_home}" \
 XDG_RUNTIME_DIR="${runtime_dir}" \
-VINPUT_UPGRADE_DAEMON="${daemon_path}" \
-VINPUT_UPGRADE_SOURCE="${repo_root}/target/debug/vinput-daemon" \
+VINPST_UPGRADE_DAEMON="${daemon_path}" \
+VINPST_UPGRADE_SOURCE="${repo_root}/target/debug/vinpst-daemon" \
   timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
 name_has_owner() {
   gdbus call --session \
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.NameHasOwner \
-    org.fcitx.Vinput 2>/dev/null | grep -q true
+    org.fcitx.Vinpst 2>/dev/null | grep -q true
 }
 
 owner_pid() {
@@ -69,14 +69,14 @@ owner_pid() {
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.GetConnectionUnixProcessID \
-    org.fcitx.Vinput 2>/dev/null | sed -n 's/.*uint32 \([0-9][0-9]*\).*/\1/p'
+    org.fcitx.Vinpst 2>/dev/null | sed -n 's/.*uint32 \([0-9][0-9]*\).*/\1/p'
 }
 
 get_status() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null
 }
 
 activate_and_read_pid() {
@@ -116,13 +116,13 @@ trap stop_owner EXIT
 
 first_pid="$(activate_and_read_pid)"
 kill -0 "${first_pid}"
-test "$(readlink -f "/proc/${first_pid}/exe")" = "$(readlink -f "${VINPUT_UPGRADE_DAEMON}")"
-first_identity="$(stat -Lc '%d:%i' "${VINPUT_UPGRADE_DAEMON}")"
+test "$(readlink -f "/proc/${first_pid}/exe")" = "$(readlink -f "${VINPST_UPGRADE_DAEMON}")"
+first_identity="$(stat -Lc '%d:%i' "${VINPST_UPGRADE_DAEMON}")"
 
-replacement="${VINPUT_UPGRADE_DAEMON}.replacement"
-install -m755 "${VINPUT_UPGRADE_SOURCE}" "${replacement}"
-mv -f "${replacement}" "${VINPUT_UPGRADE_DAEMON}"
-second_identity="$(stat -Lc '%d:%i' "${VINPUT_UPGRADE_DAEMON}")"
+replacement="${VINPST_UPGRADE_DAEMON}.replacement"
+install -m755 "${VINPST_UPGRADE_SOURCE}" "${replacement}"
+mv -f "${replacement}" "${VINPST_UPGRADE_DAEMON}"
+second_identity="$(stat -Lc '%d:%i' "${VINPST_UPGRADE_DAEMON}")"
 test "${second_identity}" != "${first_identity}"
 
 owner_released=false
@@ -138,7 +138,7 @@ test "${owner_released}" = true
 second_pid="$(activate_and_read_pid)"
 test "${second_pid}" != "${first_pid}"
 kill -0 "${second_pid}"
-test "$(readlink -f "/proc/${second_pid}/exe")" = "$(readlink -f "${VINPUT_UPGRADE_DAEMON}")"
+test "$(readlink -f "/proc/${second_pid}/exe")" = "$(readlink -f "${VINPST_UPGRADE_DAEMON}")"
 INNER
 
 rm -rf "${root}"

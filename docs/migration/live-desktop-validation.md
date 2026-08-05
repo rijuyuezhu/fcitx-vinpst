@@ -12,7 +12,7 @@ Use this checklist only in a real user desktop session. Deterministic smokes are
 ## 1. Deterministic preflight
 
 ```sh
-cd /workspace/fcitx-vinput-rs
+cd /workspace/fcitx-vinpst
 git status --porcelain=v1 -b
 just ci
 scripts/tests/install/run-user-ime-sherpa-native-activation-smoke.sh
@@ -39,9 +39,9 @@ A failed readiness probe is not automatically a code failure. Follow the reporte
 This step mutates the real profile:
 
 ```sh
-VINPUT_USER_PROFILE=sherpa-native-live \
-  VINPUT_USER_SHERPA_MODEL=/path/to/registry-installed-model \
-  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/lib \
+VINPST_USER_PROFILE=sherpa-native-live \
+  VINPST_USER_SHERPA_MODEL=/path/to/registry-installed-model \
+  VINPST_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/lib \
   scripts/install/install-user-ime.sh
 ```
 
@@ -49,17 +49,17 @@ The installer must:
 
 - validate typed model metadata or the supported compatibility layout;
 - copy `libsherpa-onnx` and `libonnxruntime` into the user data tree;
-- generate `vinput-daemon-with-vinput-env.sh` with the matching library path;
+- generate `vinpst-daemon-with-vinpst-env.sh` with the matching library path;
 - point user D-Bus activation at that wrapper;
 - run `runtime-status` through the installed bundle;
 - install the retained addon, metadata, translations, VAD asset when applicable, and Fcitx environment wrapper.
 
-The `sherpa-sense-voice-live` name remains a compatibility alias. Use `VINPUT_USER_RUNTIME_STATUS=0` only for file-placement debugging. `VINPUT_USER_NATIVE_WAV` is a deterministic activation hook, not a live microphone configuration.
+The `sherpa-sense-voice-live` name remains a compatibility alias. Use `VINPST_USER_RUNTIME_STATUS=0` only for file-placement debugging. `VINPST_USER_NATIVE_WAV` is a deterministic activation hook, not a live microphone configuration.
 
 Inspect the result before restarting Fcitx5:
 
 ```sh
-VINPUT_USER_PROFILE=sherpa-native-live VINPUT_USER_STATUS=1 scripts/install/install-user-ime.sh
+VINPST_USER_PROFILE=sherpa-native-live VINPST_USER_STATUS=1 scripts/install/install-user-ime.sh
 just user-status
 ```
 
@@ -70,7 +70,7 @@ Do not continue if `doctor` or `runtime-status` reports a model or native-librar
 Prefer the installed wrapper:
 
 ```sh
-"$HOME/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh" -dr
+"$HOME/.local/share/fcitx-vinpst/fcitx5-with-vinpst-env.sh" -dr
 ```
 
 Then rerun:
@@ -86,8 +86,8 @@ The probe must see the addon module, addon metadata, activation service, current
 Run the repeatable isolated PipeWire client gate first:
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
-  VINPUT_LIVE_NATIVE_MODES=normal \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  VINPST_LIVE_NATIVE_MODES=normal \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 ```
 
@@ -109,31 +109,31 @@ Record failures separately for key handling, D-Bus activation, PipeWire setup, t
 The same repeatable client gate covers the surrounding-text candidate path:
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
-  VINPUT_LIVE_NATIVE_MODES=command \
-  VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  VINPST_LIVE_NATIVE_MODES=command \
+  VINPST_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 ```
 
-It requires F10 handling, selected surrounding text, live partials, `delete-surrounding-text`, and a different replacement commit. A scene with multiple candidates must expose a candidate menu; a single-result adapter may commit directly. Evidence is written under the explicit `VINPUT_LIVE_VIRTUAL_OUT_DIR`.
+It requires F10 handling, selected surrounding text, live partials, `delete-surrounding-text`, and a different replacement commit. A scene with multiple candidates must expose a candidate menu; a single-result adapter may commit directly. Evidence is written under the explicit `VINPST_LIVE_VIRTUAL_OUT_DIR`.
 
 To prove a configured command adapter rather than the raw-ASR fallback candidate, install the native command profile with the same model/runtime inputs:
 
 ```sh
-VINPUT_USER_PROFILE=sherpa-native-command-live \
-  VINPUT_USER_SHERPA_MODEL=/path/to/registry-installed-model \
-  VINPUT_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/lib \
+VINPST_USER_PROFILE=sherpa-native-command-live \
+  VINPST_USER_SHERPA_MODEL=/path/to/registry-installed-model \
+  VINPST_USER_SHERPA_RUNTIME_LIB_DIR=/path/to/runtime/lib \
   scripts/install/install-user-ime.sh
 ```
 
 After restarting Fcitx5 through the generated environment wrapper, run:
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
-  VINPUT_LIVE_NATIVE_MODES=command \
-  VINPUT_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter \
-  VINPUT_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' \
-  VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+  VINPST_LIVE_NATIVE_MODES=command \
+  VINPST_LIVE_EXPECTED_TEXT_ADAPTER=native-command-live-adapter \
+  VINPST_LIVE_EXPECTED_COMMIT_PREFIX='adapter-backed:' \
+  VINPST_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-command-live \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 ```
 
@@ -142,7 +142,7 @@ The gate requires `runtime-status` to contain `native-command-live-adapter` and 
 To prove the Wayland primary-selection fallback independently of surrounding text:
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-fcitx-primary-selection-live.sh
 ```
 
@@ -164,41 +164,41 @@ In at least two application/toolkit combinations:
 Use the GTK3 and Qt6 probes to capture toolkit-native preedit and commit evidence. They create real text widgets and wait for a real desktop shortcut; synthetic toolkit key events are intentionally forbidden because they are not reliable under Wayland. The GTK4 gate additionally supports a repeatable niri path: it verifies the exact focused window through `niri msg`, sends real kernel F9/F10 events through writable `/dev/uinput`, routes the validated WAV through an isolated PipeWire source, and never injects a GDK key event.
 
 ```sh
-VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gtk3-native-live.sh normal
-VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gtk3-native-live.sh command
-VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-qt6-native-live.sh normal
-VINPUT_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_TOOLKIT_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-qt6-native-live.sh command
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gtk4-virtual-live.sh normal
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gtk4-virtual-live.sh command
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gtk4-repeat-virtual-live.sh normal 3
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gtk4-repeat-virtual-live.sh command 3
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gtk4-soak-virtual-live.sh normal 10
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gtk4-soak-virtual-live.sh command 10
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gnome-text-editor-virtual-live.sh normal
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-gnome-text-editor-virtual-live.sh command
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-kitty-virtual-live.sh normal
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-kitty-virtual-live.sh command
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-vscode-virtual-live.sh normal
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-vscode-virtual-live.sh command
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-chromium-virtual-live.sh normal
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav \
   scripts/live/niri/run-ime-chromium-virtual-live.sh command
 ```
 
@@ -207,12 +207,12 @@ Each toolkit window prints JSONL and exits successfully only after the expected 
 ### Focus and owner-loss probes
 
 ```sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPUT_LIVE_NATIVE_FOCUS_SWITCH=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-focus-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPUT_LIVE_NATIVE_OWNER_LOSS=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-owner-loss-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPUT_LIVE_RELOAD_BEFORE_PROBE=1 VINPUT_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-reload-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPST_LIVE_NATIVE_FOCUS_SWITCH=1 VINPST_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-focus-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPST_LIVE_NATIVE_OWNER_LOSS=1 VINPST_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-owner-loss-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav VINPST_LIVE_RELOAD_BEFORE_PROBE=1 VINPST_LIVE_VIRTUAL_OUT_DIR=target/tmp/ime-fcitx-virtual-reload-live scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 ```
 
-The focus probe requires partials and the final commit to remain on the input context that started recording even after another context receives focus and sends the stop trigger. The owner-loss probe resolves the current `org.fcitx.Vinput` PID, refuses to stop an unexpected executable, terminates only a verified `vinput-daemon`, requires the frontend to replace live partials with an unavailable error preedit, and rejects any final commit. The installed `sherpa-native-command-live` profile passed both checks on 2026-07-30; owner loss was followed by successful D-Bus activation back into the same profile and adapter identity.
+The focus probe requires partials and the final commit to remain on the input context that started recording even after another context receives focus and sends the stop trigger. The owner-loss probe resolves the current `org.fcitx.Vinpst` PID, refuses to stop an unexpected executable, terminates only a verified `vinpst-daemon`, requires the frontend to replace live partials with an unavailable error preedit, and rejects any final commit. The installed `sherpa-native-command-live` profile passed both checks on 2026-07-30; owner loss was followed by successful D-Bus activation back into the same profile and adapter identity.
 
 ### Scene menu selection and paging
 
@@ -261,7 +261,7 @@ The following installed-profile summaries reported `ok: true`:
 - scene menu paging: configured `equal`/`minus` keys proved `1/2 -> 2/2 -> 1/2`, four candidates on page 2, zero commits, Escape close, and exact profile/scene restoration under `target/tmp/ime-fcitx-menu-paging-live`;
 - ASR menu paging: 14 temporary uniquely titled targets proved `1/2 -> 2/2 -> 1/2`, ten/four candidates, zero commits, unchanged configured/effective Zipformer state, and exact profile/service/Fcitx restoration under `target/tmp/ime-fcitx-asr-menu-paging-live`;
 - trigger modes: persisted `Tap`, `Hold`, and `Both` each consumed real F9 press/release events against mock audio; Tap release preserved recording until a second tap, Hold short press stayed idle while long press crossed the 300 ms threshold and stopped after the 500 ms release tail, Both proved both paths, and addon config/service/Fcitx/backend restoration all reported true under `target/tmp/ime-fcitx-trigger-modes-live`;
-- frontend localization: the user-installed addon loaded `~/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo` without build-tree fallback or `VINPUT_FCITX_LOCALEDIR`, F7/F8 exposed `场景 /过滤`, `模型 /过滤`, and `当前：...`, both menus closed with Escape and zero commits, English `Scenes /filter` was restored, and profile/service/addon/backend state remained unchanged under `target/tmp/ime-fcitx-localization-live`;
+- frontend localization: the user-installed addon loaded `~/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo` without build-tree fallback or `VINPST_FCITX_LOCALEDIR`, F7/F8 exposed `场景 /过滤`, `模型 /过滤`, and `当前：...`, both menus closed with Escape and zero commits, English `Scenes /filter` was restored, and profile/service/addon/backend state remained unchanged under `target/tmp/ime-fcitx-localization-live`;
 - notification localization: `scripts/live/niri/run-ime-fcitx-notification-localization-live.sh` observed the current Fcitx PID emit `语音输入` with `已切换场景到“Command”。`, observed a daemon-originated error with the same localized summary while preserving its technical body verbatim, restored `Voice Input` / `Switched scene to 'Command'.`, restored the original locale environment, and left profile/service/addon/module/catalog/backend bytes unchanged under `target/tmp/ime-fcitx-notification-localization-live`;
 - ASR notification localization: `scripts/live/niri/run-ime-fcitx-asr-notification-localization-live.sh` opened the zh_CN `模型 /过滤` menu, selected the unique invalid remote target with real F8/Enter events, observed `语音输入` / `已请求切换语音识别到“remote-failure-fixture”。` plus the localized error summary with a verbatim technical body, preserved Zipformer, recovered with nine partials and a final commit, stopped the localized writer before restoring addon bytes, and restored the original locale under `target/tmp/ime-fcitx-asr-notification-localization-live`;
 - physical microphone: `scripts/live/niri/run-ime-fcitx-physical-microphone-live.sh` verified that `capture_device=default` resolved to `Raptor Lake-P/U/H cAVS Digital Microphone`, the source was a physical ALSA `Audio/Source`, real F9 events produced 25 streaming partials and a non-empty final commit without `pw-play`, and profile/service/addon/backend state remained unchanged under `target/tmp/ime-fcitx-physical-microphone-live`;
@@ -269,8 +269,8 @@ The following installed-profile summaries reported `ok: true`:
 - independent Whisper ASR: `scripts/live/audio/run-whisper-cpp-asr-live.sh` pinned whisper.cpp v1.9.1 commit `f049fff95a089aa9969deb009cdd4892b3e74916`, binary/model/WAV hashes, and a non-empty multilingual recognition; `scripts/live/niri/run-ime-fcitx-whisper-provider-live.sh` then exposed `whisper-cpp-base-multilingual [Command]`, selected `external-whisper` with real F8/Enter events, committed `對我做了介紹,我想說的是大家如果對我的研究感興趣` through the independent process/model, cleaned the temporary WAV, restored profile and `.bak`, and restored Zipformer with eight partials plus a final commit under `target/tmp/ime-fcitx-whisper-provider-live`;
 - cross-provider failure preservation: `scripts/live/niri/run-ime-fcitx-cross-provider-failure-live.sh` exposed one `remote-failure-fixture [Remote]` candidate with an unsupported `ftp://` endpoint, selected it with real F8/Enter events, observed the target change while Zipformer stayed effective, matched one `asr_backend_reload_failed` signal and one 5000 ms Fcitx `dialog-error` notification to the current daemon/Fcitx PIDs, restored profile and `.bak`, and then produced streaming partials plus a final commit under `target/tmp/ime-fcitx-cross-provider-failure-live`;
 - remote HTTP ASR: `scripts/live/niri/run-ime-fcitx-remote-asr-live.sh` exposed `fixture-remote-asr [Remote]`, selected `remote-http` through real F8/Enter events, sent one authenticated multipart `/v1/audio/transcriptions` request with a non-silent 16 kHz mono PCM WAV plus model/language/prompt fields, committed the exact final-only response `remote-http-final`, recorded only the Bearer scheme and prompt-match boolean, restored profile and `.bak`, and restored Zipformer with streaming partials plus a final commit under `target/tmp/ime-fcitx-remote-asr-live`; the endpoint is an independent loopback fixture rather than a hosted service. `scripts/tests/asr/run-openai-compatible-asr-network-smoke.sh` separately drives the production one-shot daemon through plain-HTTP proxy routing, Basic authentication for direct HTTP over plain-HTTP proxies and CONNECT through both plain-HTTP and TLS-protected HTTPS proxy endpoints, `NO_PROXY`, an additional PEM root from `SSL_CERT_FILE` with built-in `WebPKI` roots and verification retained, one local CA-signed TLS interception relay with no retained plaintext, 429/503, fail-closed 3xx handling with an untouched redirect target, request and response-body timeouts, a 1 MiB cap for success and error response bodies, untrusted self-signed TLS rejection, DNS failure and connection refusal without retaining the key, prompt, proxy credentials, certificate private keys, URL userinfo/query values, tunneled payloads, or fragments; `scripts/tests/asr/run-provider-ca-rotation-smoke.sh` separately proves same-daemon atomic replacement of one CA-file path with mismatch rejection, idle recovery, and unchanged owner PID/endpoint;
-- external text provider: `scripts/live/niri/run-ime-fcitx-external-text-provider-live.sh` first runs configured F10 against a loopback endpoint that returns HTTP 404 after real surrounding-text capture and ASR. The probe requires an operation error, zero commits, zero surrounding-text deletions, an unchanged selected buffer, and an idle daemon. It then restarts configured text processing with a valid independent loopback OpenAI-compatible server, sends one authenticated `/v1/chat/completions` request containing the same real selected text and raw ASR text, exposes three Fcitx candidates, immediately selects the HTTP candidate, deletes the original text, and commits the exact provider result. A third phase snapshots and clears the Wayland primary selection while providing an empty surrounding selection, requires exact `Please select text first.` feedback, zero commits/deletions, and an idle daemon with no active recording or provider request, then restores the primary selection, profile/`.bak`, service, addon config, local adapter, ASR backend, and daemon ownership under `target/tmp/ime-fcitx-external-text-provider-live`; traces record only `Bearer` as the auth scheme and never store the token. `scripts/tests/asr/run-openai-compatible-text-network-smoke.sh` separately proves production `vinput llm test` plain-HTTP proxy routing, Basic authentication for direct HTTP over plain-HTTP proxies and CONNECT through both plain-HTTP and TLS-protected HTTPS proxy endpoints, `NO_PROXY`, an additional PEM root from `SSL_CERT_FILE` with built-in `WebPKI` roots and verification retained, one local CA-signed TLS interception relay with no retained plaintext, 429/503, fail-closed 3xx handling with an untouched redirect target, request and response-body timeouts, the legacy 4000 ms default when the text scene omits `timeout_ms`, a 1 MiB cap for success and error response bodies, untrusted self-signed TLS rejection, DNS failure, connection-refusal, credential redaction, zero retained tunnel payload, and query-bearing failure diagnostics that retain only redacted query values; `scripts/tests/asr/run-provider-ca-rotation-smoke.sh` separately proves same-daemon atomic replacement of one CA-file path with mismatch rejection, idle recovery, and unchanged owner PID/provider endpoint; neither fixture is third-party cloud-service proof;
-- information notification: the real Fcitx PID called `org.freedesktop.Notifications.Notify` with `fcitx5-vinput`, `dialog-information`, the selected scene, and a 3000 ms timeout under `target/tmp/ime-fcitx-notification-live`;
+- external text provider: `scripts/live/niri/run-ime-fcitx-external-text-provider-live.sh` first runs configured F10 against a loopback endpoint that returns HTTP 404 after real surrounding-text capture and ASR. The probe requires an operation error, zero commits, zero surrounding-text deletions, an unchanged selected buffer, and an idle daemon. It then restarts configured text processing with a valid independent loopback OpenAI-compatible server, sends one authenticated `/v1/chat/completions` request containing the same real selected text and raw ASR text, exposes three Fcitx candidates, immediately selects the HTTP candidate, deletes the original text, and commits the exact provider result. A third phase snapshots and clears the Wayland primary selection while providing an empty surrounding selection, requires exact `Please select text first.` feedback, zero commits/deletions, and an idle daemon with no active recording or provider request, then restores the primary selection, profile/`.bak`, service, addon config, local adapter, ASR backend, and daemon ownership under `target/tmp/ime-fcitx-external-text-provider-live`; traces record only `Bearer` as the auth scheme and never store the token. `scripts/tests/asr/run-openai-compatible-text-network-smoke.sh` separately proves production `vinpst llm test` plain-HTTP proxy routing, Basic authentication for direct HTTP over plain-HTTP proxies and CONNECT through both plain-HTTP and TLS-protected HTTPS proxy endpoints, `NO_PROXY`, an additional PEM root from `SSL_CERT_FILE` with built-in `WebPKI` roots and verification retained, one local CA-signed TLS interception relay with no retained plaintext, 429/503, fail-closed 3xx handling with an untouched redirect target, request and response-body timeouts, the legacy 4000 ms default when the text scene omits `timeout_ms`, a 1 MiB cap for success and error response bodies, untrusted self-signed TLS rejection, DNS failure, connection-refusal, credential redaction, zero retained tunnel payload, and query-bearing failure diagnostics that retain only redacted query values; `scripts/tests/asr/run-provider-ca-rotation-smoke.sh` separately proves same-daemon atomic replacement of one CA-file path with mismatch rejection, idle recovery, and unchanged owner PID/provider endpoint; neither fixture is third-party cloud-service proof;
+- information notification: the real Fcitx PID called `org.freedesktop.Notifications.Notify` with `fcitx5-vinpst`, `dialog-information`, the selected scene, and a 3000 ms timeout under `target/tmp/ime-fcitx-notification-live`;
 - daemon error notification: a recoverable invalid-model reload emitted `asr_backend_reload_failed`, and the current Fcitx PID forwarded the exact runtime error through `dialog-error` with a 5000 ms timeout while the old backend remained effective under `target/tmp/ime-fcitx-error-notification-live`;
 - ASR model switch: F8/Enter selected Paraformer, offline recognition committed `对我做了介绍啊那么我想说的是呢大家如果对我的研究感兴趣呢嗯`, then exact profile restoration reloaded Zipformer and produced eight partials plus `对我做了介绍那么我想说的是呢大家如果对我的研究感兴趣呢`; service, profile, Fcitx, and backend restoration all reported true under `target/tmp/ime-fcitx-model-switch-live`.
 
@@ -293,7 +293,7 @@ Widget-backed command cases emit `selection-ready`, but selection transport is a
 Build the current GUI and run the isolated niri/Wayland interaction gate:
 
 ```sh
-cargo build -p vinput-gui
+cargo build -p vinpst-gui
 scripts/live/niri/run-gui-interaction-live.sh
 ```
 
@@ -339,7 +339,7 @@ Run the private-daemon Control mutation gate:
 scripts/live/niri/run-gui-config-mutation-live.sh
 ```
 
-The runner owns `org.fcitx.Vinput` on a private session bus and exposes only typed idle status, inactive-session runtime state, empty adapter diagnostics, and a counted `ReloadAsrBackend`. It launches the real GUI against isolated success and conflict config roots. Clipboard paste changes the default-language draft without invoking the input method, a freshly rendered dirty text field submits through Enter, and the success path proves an atomic replacement, exact original-byte `.bak`, mode-0600 config and backup, one reload request, and the saved value after a second launch. The conflict path edits a separate draft, atomically publishes a different valid disk version outside the GUI, then proves Enter submission preserves the external bytes and still-visible draft, creates no backup, and sends no second reload. The shared writer's Unix tests separately begin with a legacy mode-0644 file and prove both replacement and backup are tightened to 0600. The live summary retains no configured values or paths, restores the previous niri window and text clipboard, does not contact the real daemon, and leaves no GUI, fixture, or private-bus process.
+The runner owns `org.fcitx.Vinpst` on a private session bus and exposes only typed idle status, inactive-session runtime state, empty adapter diagnostics, and a counted `ReloadAsrBackend`. It launches the real GUI against isolated success and conflict config roots. Clipboard paste changes the default-language draft without invoking the input method, a freshly rendered dirty text field submits through Enter, and the success path proves an atomic replacement, exact original-byte `.bak`, mode-0600 config and backup, one reload request, and the saved value after a second launch. The conflict path edits a separate draft, atomically publishes a different valid disk version outside the GUI, then proves Enter submission preserves the external bytes and still-visible draft, creates no backup, and sends no second reload. The shared writer's Unix tests separately begin with a legacy mode-0644 file and prove both replacement and backup are tightened to 0600. The live summary retains no configured values or paths, restores the previous niri window and text clipboard, does not contact the real daemon, and leaves no GUI, fixture, or private-bus process.
 
 ## 8. Frontend behavior
 
@@ -360,7 +360,7 @@ Verify in the real session:
 Run the standalone diagnostic gate without changing the installed user profile:
 
 ```sh
-VINPUT_REMOTE_TEXT_BROWSER=/path/to/chromium \
+VINPST_REMOTE_TEXT_BROWSER=/path/to/chromium \
   scripts/live/network/run-remote-text-chromium-lan-live.sh
 ```
 
@@ -369,8 +369,8 @@ The gate selects an operational non-loopback IPv4 address, serves the browser pa
 This is same-host non-loopback transport proof, not another-device proof. Record `same_host_lan_proof=true` and `cross_device_proof=false`. To collect the final physical-device boundary, run:
 
 ```sh
-VINPUT_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1 \
-VINPUT_REMOTE_TEXT_EXTERNAL_TIMEOUT=180 \
+VINPST_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1 \
+VINPST_REMOTE_TEXT_EXTERNAL_TIMEOUT=180 \
   scripts/live/network/run-remote-text-external-device-live.sh
 ```
 
@@ -380,10 +380,10 @@ Open the printed one-time URL on another physical device, enter the exact random
 
 ```sh
 scripts/tests/pipewire-check.sh
-VINPUT_TEST_PIPEWIRE_CONTEXT=1 VINPUT_TEST_PIPEWIRE_ENUMERATE=1 VINPUT_TEST_PIPEWIRE_RECORD=1 scripts/live/audio/run-pipewire-tests-live.sh
+VINPST_TEST_PIPEWIRE_CONTEXT=1 VINPST_TEST_PIPEWIRE_ENUMERATE=1 VINPST_TEST_PIPEWIRE_RECORD=1 scripts/live/audio/run-pipewire-tests-live.sh
 scripts/live/audio/run-cpp-dbus-pipewire-live-smoke.sh
 scripts/live/audio/run-ime-configured-pipewire-live-smoke.sh
-VINPUT_LIVE_NATIVE_WAV=/path/to/validated-speech.wav scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
+VINPST_LIVE_NATIVE_WAV=/path/to/validated-speech.wav scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 ```
 
 These checks are intentionally outside `just ci`. Capture the selected target, S16LE/16 kHz/mono plan, and the precise setup or record failure.
@@ -393,7 +393,7 @@ These checks are intentionally outside `just ci`. Capture the selected target, S
 Real desktop native alpha requires one documented profile where:
 
 - Fcitx5 loads the addon after restart;
-- D-Bus activation starts the installed Rust daemon through `vinput-daemon-with-vinput-env.sh`;
+- D-Bus activation starts the installed Rust daemon through `vinpst-daemon-with-vinpst-env.sh`;
 - live PipeWire capture reaches a supported native model;
 - streaming partials render as preedit when applicable;
 - final text commits once into a real application;
@@ -404,7 +404,7 @@ Real desktop native alpha requires one documented profile where:
 
 Temporary-HOME `scripts/tests/install/run-user-ime-sherpa-native-activation-smoke.sh` evidence proves the runtime-library and activation boundary only. The installed-profile gates now prove normal dictation through both an isolated PipeWire source and the default physical ALSA Digital Microphone, surrounding-text replacement through both a local adapter and a loopback OpenAI-compatible HTTP process, Wayland primary-selection fallback, safe command rejection when both surrounding and primary selections are empty, scene/ASR display/filter, scene selection and configured-key scene paging, installed-catalog zh_CN Scene/ASR titles/status, official English/zh_CN configuration-form labels and trigger-mode choices, and scene-info/ASR-switch/error-summary notifications with English/original-locale restoration, F8 same-provider model selection and internal-to-command-provider switching with recognition roundtrips, information/error notifications, focus handoff, verified owner loss, and same-provider reload, plus GTK3, GTK4, Qt6, Chromium, GNOME Text Editor, kitty, and VS Code/Electron normal/command application paths with real desktop key events; Chromium and VS Code additionally have explicit Linux renderer-sandbox evidence, and GTK4 has ten-cycle same-window/same-daemon normal and command bounded-soak evidence. The gates restore the original capture target, primary text, active scene, profile and backup bytes, activation service, Fcitx process, local adapter, and effective backend; the physical gate uses no playback injection. The compatibility external-command child reuses the original Sherpa/Zipformer model, while the companion Whisper gate proves an independent local recognizer/model. Both the remote ASR endpoint and external text provider are independent loopback HTTP fixtures: their request/response runtimes are live-proven. Both production HTTP clients also have deterministic local plain-HTTP proxy routing, Basic authentication for direct HTTP over plain-HTTP proxies and CONNECT through both plain-HTTP and TLS-protected HTTPS proxy endpoints, `NO_PROXY`, additional PEM roots through `SSL_CERT_FILE` while retaining built-in `WebPKI` roots and certificate verification, one local CA-signed TLS interception relay with no retained plaintext, same-daemon atomic replacement of one CA-file path with mismatch rejection and idle recovery, 429/503, fail-closed 3xx handling with an untouched redirect target, separately classified request and response-body timeouts, a 1 MiB cap for success and error response bodies, untrusted self-signed TLS rejection, DNS failure, connection-refusal and credential-redaction coverage. The text path additionally enforces the legacy 4000 ms scene deadline when `timeout_ms` is omitted. Real hosted providers, PAC, NTLM/Kerberos, enterprise TLS-interception policy and certificate deployment, provider-specific outage/rate-limit behavior, and provider credential rotation/custody and production CA distribution/revocation remain unproven. Additional physical-device switching breadth, additional terminal/sandbox packaging formats, and hour-scale or longer soak behavior remain outside the proven boundary; the ten-cycle (~91-92-second per mode) bounded GTK4 soak is complete. English fallback plus zh_CN matches the legacy product locale set; further UI locales are optional expansion rather than migration evidence debt.
 
-The opt-in `scripts/live/system/run-systemd-upgrade-live.sh` gate uses the current user systemd manager without installing a package. It requires the existing vinput owner to be idle, saves the original D-Bus activation entry and owner executable/command entry, starts a temporary `Type=dbus` runtime unit, atomically replaces a copied daemon, and requires `NRestarts >= 1`, a changed `MainPID`, and a healthy replacement owner. It then removes the temporary unit, restores the activation file byte-for-byte through rename, reloads D-Bus activation, reactivates the original profile, verifies the original executable and command entry, and rejects unit or backup residue. Evidence is retained in `target/tmp/systemd-upgrade-live/summary.json`; this is live supervision proof, not yet an actual package-installed upgrade.
+The opt-in `scripts/live/system/run-systemd-upgrade-live.sh` gate uses the current user systemd manager without installing a package. It requires the existing vinpst owner to be idle, saves the original D-Bus activation entry and owner executable/command entry, starts a temporary `Type=dbus` runtime unit, atomically replaces a copied daemon, and requires `NRestarts >= 1`, a changed `MainPID`, and a healthy replacement owner. It then removes the temporary unit, restores the activation file byte-for-byte through rename, reloads D-Bus activation, reactivates the original profile, verifies the original executable and command entry, and rejects unit or backup residue. Evidence is retained in `target/tmp/systemd-upgrade-live/summary.json`; this is live supervision proof, not yet an actual package-installed upgrade.
 
 The deterministic removal gates do not mutate the live desktop profile. `scripts/tests/daemon/run-daemon-removal-handoff-smoke.sh` uses isolated session buses to prove no-owner cleanup, idle systemd disable-and-stop, exact idle direct-owner termination, activation-cache reload before every service/process mutation, and refusal to interrupt an active recording for either a systemd or direct owner. `scripts/tests/daemon/run-package-remove-handoff-smoke.sh` proves a first all-session `--preflight` pass with zero owner mutation, a second execution pass only after all preflights succeed, trusted `/run/user/<uid>/bus` dispatch, and exact activation-file plus D-Bus-cache restoration when any session rejects removal. This is private-session process and rollback proof, not an actual package-installed uninstall on a production multi-user machine.
 

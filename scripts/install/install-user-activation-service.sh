@@ -13,44 +13,44 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-daemon="${VINPUT_USER_DAEMON:-${repo_root}/target/debug/vinput-daemon}"
-profile="${VINPUT_USER_PROFILE:-}"
-config="${VINPUT_USER_CONFIG:-}"
-audio_backend="${VINPUT_USER_AUDIO_BACKEND:-}"
-configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-}"
-remove_user="${VINPUT_USER_REMOVE:-}"
-status_user="${VINPUT_USER_STATUS:-}"
+daemon="${VINPST_USER_DAEMON:-${repo_root}/target/debug/vinpst-daemon}"
+profile="${VINPST_USER_PROFILE:-}"
+config="${VINPST_USER_CONFIG:-}"
+audio_backend="${VINPST_USER_AUDIO_BACKEND:-}"
+configured_backends="${VINPST_USER_CONFIGURED_BACKENDS:-}"
+remove_user="${VINPST_USER_REMOVE:-}"
+status_user="${VINPST_USER_STATUS:-}"
 features=()
 
 case "${profile}" in
   ""|mock)
     ;;
   command-demo)
-    config="${VINPUT_USER_CONFIG:-${repo_root}/data/e2e-command-demo-config.json}"
-    configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-1}"
+    config="${VINPST_USER_CONFIG:-${repo_root}/data/e2e-command-demo-config.json}"
+    configured_backends="${VINPST_USER_CONFIGURED_BACKENDS:-1}"
     ;;
   configured-pipewire-live)
-    config="${VINPUT_USER_CONFIG:-${repo_root}/data/e2e-configured-pipewire-live.json}"
-    audio_backend="${VINPUT_USER_AUDIO_BACKEND:-pipewire}"
-    configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-1}"
+    config="${VINPST_USER_CONFIG:-${repo_root}/data/e2e-configured-pipewire-live.json}"
+    audio_backend="${VINPST_USER_AUDIO_BACKEND:-pipewire}"
+    configured_backends="${VINPST_USER_CONFIGURED_BACKENDS:-1}"
     features+=(--features pipewire-backend)
     ;;
   *)
-    echo "unsupported VINPUT_USER_PROFILE: ${profile}" >&2
+    echo "unsupported VINPST_USER_PROFILE: ${profile}" >&2
     echo "supported profiles: mock, command-demo, configured-pipewire-live" >&2
     exit 2
     ;;
 esac
 
-cargo build -q -p vinput-cli -p vinput-daemon "${features[@]}"
+cargo build -q -p vinpst-cli -p vinpst-daemon "${features[@]}"
 
 if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
-  target/debug/vinput activation-service --remove-user
+  target/debug/vinpst activation-service --remove-user
   exit 0
 fi
 
 if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
-  target/debug/vinput activation-service --user-status
+  target/debug/vinpst activation-service --user-status
   exit 0
 fi
 
@@ -65,9 +65,9 @@ if [[ -n "${audio_backend}" ]]; then
   args+=(--audio-backend "${audio_backend}")
 fi
 
-target/debug/vinput "${args[@]}"
+target/debug/vinpst "${args[@]}"
 doctor_args=(doctor)
 if [[ -n "${config}" ]]; then
   doctor_args+=(--config "${config}")
 fi
-target/debug/vinput "${doctor_args[@]}"
+target/debug/vinpst "${doctor_args[@]}"

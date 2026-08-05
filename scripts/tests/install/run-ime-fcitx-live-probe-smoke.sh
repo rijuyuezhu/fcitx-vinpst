@@ -32,10 +32,10 @@ cat >"${stub_bin}/fcitx5-remote" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
   --check)
-    [[ "${VINPUT_STUB_FCITX_RUNNING:-1}" == "1" ]]
+    [[ "${VINPST_STUB_FCITX_RUNNING:-1}" == "1" ]]
     ;;
   -a)
-    printf 'unix:path=/tmp/vinput-fcitx-test\n'
+    printf 'unix:path=/tmp/vinpst-fcitx-test\n'
     ;;
   -q)
     printf '1\n'
@@ -57,17 +57,17 @@ if [[ "${args}" == *" org.freedesktop.DBus.GetConnectionUnixProcessID "* ]]; the
   printf '(uint32 4242,)\n'
   exit 0
 fi
-if [[ "${args}" == *" org.freedesktop.DBus.GetNameOwner org.fcitx.Vinput "* ]]; then
-  if [[ -n "${VINPUT_STUB_BUS_OWNER:-}" ]]; then
-    printf "('%s',)\n" "${VINPUT_STUB_BUS_OWNER}"
+if [[ "${args}" == *" org.freedesktop.DBus.GetNameOwner org.fcitx.Vinpst "* ]]; then
+  if [[ -n "${VINPST_STUB_BUS_OWNER:-}" ]]; then
+    printf "('%s',)\n" "${VINPST_STUB_BUS_OWNER}"
     exit 0
   fi
-  printf 'Error: GDBus.Error:org.freedesktop.DBus.Error.NameHasNoOwner: Name org.fcitx.Vinput has no owner\n' >&2
+  printf 'Error: GDBus.Error:org.freedesktop.DBus.Error.NameHasNoOwner: Name org.fcitx.Vinpst has no owner\n' >&2
   exit 1
 fi
 
-if [[ "${args}" == *" org.fcitx.Vinput.Service.GetRuntimeStatus"* ]]; then
-  case "${VINPUT_STUB_RUNTIME_STATUS:-ok}" in
+if [[ "${args}" == *" org.fcitx.Vinpst.Service.GetRuntimeStatus"* ]]; then
+  case "${VINPST_STUB_RUNTIME_STATUS:-ok}" in
     ok)
       printf "('{\"ok\":true}',)\n"
       exit 0
@@ -93,8 +93,8 @@ base_env=(
   HOME="${home_dir}"
   XDG_DATA_HOME="${home_dir}/.local/share"
   XDG_RUNTIME_DIR="${runtime_dir}"
-  VINPUT_LIVE_SKIP_USER_STATUS=1
-  VINPUT_LIVE_SKIP_FCITX_ENV_CHECK=1
+  VINPST_LIVE_SKIP_USER_STATUS=1
+  VINPST_LIVE_SKIP_FCITX_ENV_CHECK=1
 )
 
 expect_failure() {
@@ -137,11 +137,11 @@ expect_failure no-dbus \
 
 expect_failure no-fcitx \
   'FAIL[fcitx5-not-running]' \
-  env "${base_env[@]}" DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinput-test-bus VINPUT_STUB_FCITX_RUNNING=0 "${probe}"
+  env "${base_env[@]}" DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinpst-test-bus VINPST_STUB_FCITX_RUNNING=0 "${probe}"
 
 expect_failure missing-install \
   'FAIL[addon-module-missing]' \
-  env "${base_env[@]}" DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinput-test-bus "${probe}"
+  env "${base_env[@]}" DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinpst-test-bus "${probe}"
 expect_output missing-install 'FAIL[addon-metadata-missing]'
 expect_output missing-install 'FAIL[daemon-missing]'
 expect_output missing-install 'FAIL[activation-service-missing]'
@@ -149,58 +149,58 @@ expect_output missing-install 'FAIL[fcitx-env-wrapper-missing]'
 expect_output missing-install 'FAIL[fcitx-autostart-missing]'
 expect_output missing-install 'FAIL[runtime-status-skipped]'
 
-install -Dm755 /bin/true "${home_dir}/.local/bin/vinput-daemon"
-install -Dm644 /dev/stdin "${home_dir}/.local/share/fcitx5/addon/vinput.conf" <<'CONF'
-Name=Vinput
+install -Dm755 /bin/true "${home_dir}/.local/bin/vinpst-daemon"
+install -Dm644 /dev/stdin "${home_dir}/.local/share/fcitx5/addon/vinpst.conf" <<'CONF'
+Name=Vinpst
 Type=SharedLibrary
-Library=fcitx5-vinput
+Library=fcitx5-vinpst
 CONF
-install -Dm644 /dev/null "${home_dir}/.local/lib/fcitx5/fcitx5-vinput.so"
-install -Dm644 /dev/stdin "${home_dir}/.local/share/dbus-1/services/org.fcitx.Vinput.service" <<'SERVICE'
+install -Dm644 /dev/null "${home_dir}/.local/lib/fcitx5/fcitx5-vinpst.so"
+install -Dm644 /dev/stdin "${home_dir}/.local/share/dbus-1/services/org.fcitx.Vinpst.service" <<'SERVICE'
 [D-BUS Service]
-Name=org.fcitx.Vinput
-Exec=/tmp/old-vinput-daemon --dbus
+Name=org.fcitx.Vinpst
+Exec=/tmp/old-vinpst-daemon --dbus
 SERVICE
-install -Dm644 /dev/stdin "${home_dir}/.local/share/fcitx-vinput/fcitx-vinput.env" <<ENV
+install -Dm644 /dev/stdin "${home_dir}/.local/share/fcitx-vinpst/fcitx-vinpst.env" <<ENV
 export FCITX_ADDON_DIRS="${home_dir}/.local/lib/fcitx5:/usr/lib/fcitx5"
 export XDG_DATA_HOME="${home_dir}/.local/share"
 ENV
-install -Dm755 /dev/stdin "${home_dir}/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh" <<ENVSH
+install -Dm755 /dev/stdin "${home_dir}/.local/share/fcitx-vinpst/fcitx5-with-vinpst-env.sh" <<ENVSH
 #!/usr/bin/env sh
-. '${home_dir}/.local/share/fcitx-vinput/fcitx-vinput.env'
-exec "\${VINPUT_FCITX5_BIN:-fcitx5}" "\$@"
+. '${home_dir}/.local/share/fcitx-vinpst/fcitx-vinpst.env'
+exec "\${VINPST_FCITX5_BIN:-fcitx5}" "\$@"
 ENVSH
 install -Dm644 /dev/stdin "${home_dir}/.config/autostart/org.fcitx.Fcitx5.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Fcitx 5 with fcitx-vinput
-Exec=${home_dir}/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh
+Name=Fcitx 5 with fcitx-vinpst
+Exec=${home_dir}/.local/share/fcitx-vinpst/fcitx5-with-vinpst-env.sh
 Terminal=false
-X-fcitx-vinput-managed=true
+X-fcitx-vinpst-managed=true
 DESKTOP
 
 expect_failure stale-bus \
   'FAIL[activation-service-old-daemon]' \
   env "${base_env[@]}" \
-    DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinput-test-bus \
-    VINPUT_STUB_BUS_OWNER=:1.77 \
-    VINPUT_STUB_RUNTIME_STATUS=unknown-method \
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinpst-test-bus \
+    VINPST_STUB_BUS_OWNER=:1.77 \
+    VINPST_STUB_RUNTIME_STATUS=unknown-method \
     "${probe}"
-expect_output stale-bus 'Current org.fcitx.Vinput owner process: pid=4242'
+expect_output stale-bus 'Current org.fcitx.Vinpst owner process: pid=4242'
 expect_output stale-bus 'FAIL[runtime-status-unavailable]'
 expect_output stale-bus 'FAIL[stale-bus-owner]'
 
-install -Dm755 /dev/stdin "${home_dir}/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh" <<WRAPPER
+install -Dm755 /dev/stdin "${home_dir}/.local/share/fcitx-vinpst/vinpst-daemon-with-vinpst-env.sh" <<WRAPPER
 #!/usr/bin/env sh
-exec ${home_dir}/.local/bin/vinput-daemon "\$@"
+exec ${home_dir}/.local/bin/vinpst-daemon "\$@"
 WRAPPER
-install -Dm644 /dev/stdin "${runtime_dir}/dbus-1/services/org.fcitx.Vinput.service" <<SERVICE
+install -Dm644 /dev/stdin "${runtime_dir}/dbus-1/services/org.fcitx.Vinpst.service" <<SERVICE
 [D-BUS Service]
-Name=org.fcitx.Vinput
-Exec=${home_dir}/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh --dbus
+Name=org.fcitx.Vinpst
+Exec=${home_dir}/.local/share/fcitx-vinpst/vinpst-daemon-with-vinpst-env.sh --dbus
 SERVICE
 
-env "${base_env[@]}" DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinput-test-bus \
+env "${base_env[@]}" DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/vinpst-test-bus \
   "${probe}" >"${out_dir}/native-wrapper.log" 2>&1
 expect_output native-wrapper 'native runtime wrapper for'
 expect_output native-wrapper 'Live probe complete.'

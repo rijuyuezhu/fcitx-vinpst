@@ -1,0 +1,24 @@
+[package]
+name = "vinpst-fcitx-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[dependencies]
+vinpst-fcitx-core = { path = "../vinpst-fcitx-core" }
+vinpst-fcitx-dbus = { path = "../vinpst-fcitx-dbus" }

@@ -11,7 +11,7 @@ an operational non-loopback IPv4 address, and connects the Realtime-compatible
 output client through loopback as required by the service policy.
 
 ```sh
-VINPUT_REMOTE_TEXT_BROWSER=/usr/bin/google-chrome-unstable \
+VINPST_REMOTE_TEXT_BROWSER=/usr/bin/google-chrome-unstable \
   scripts/live/network/run-remote-text-chromium-lan-live.sh
 ```
 
@@ -51,8 +51,8 @@ device to submit that exact challenge. A non-interactive invocation without a
 terminal is rejected so the one-time key cannot fall into redirected logs.
 
 ```sh
-VINPUT_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1 \
-VINPUT_REMOTE_TEXT_EXTERNAL_TIMEOUT=180 \
+VINPST_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1 \
+VINPST_REMOTE_TEXT_EXTERNAL_TIMEOUT=180 \
   scripts/live/network/run-remote-text-external-device-live.sh
 ```
 
@@ -74,7 +74,7 @@ Successful evidence is written to
 `operator_confirmed_physical_device=true`, and `cross_device_proof=true`.
 
 The wrapper refuses to start unless
-`VINPUT_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1` is set deliberately and a
+`VINPST_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1` is set deliberately and a
 controlling terminal is available. A no-device run must time out, return
 nonzero, omit `summary.json`, remove its configuration, and stop the server.
 The collector was verified to fail closed that way on 2026-08-01. It has not

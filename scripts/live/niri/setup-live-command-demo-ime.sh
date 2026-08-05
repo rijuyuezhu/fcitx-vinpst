@@ -13,7 +13,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-stop_stale_owner="${VINPUT_LIVE_STOP_STALE_OWNER:-}"
+stop_stale_owner="${VINPST_LIVE_STOP_STALE_OWNER:-}"
 
 cat <<'EOF'
 This command mutates the current user profile for live desktop testing.
@@ -22,20 +22,20 @@ activation service, writes the Fcitx env wrapper/autostart override, and then
 runs the live probe.
 EOF
 
-VINPUT_LIVE_INSTALL_COMMAND_DEMO=1 \
-VINPUT_LIVE_STOP_STALE_OWNER="${stop_stale_owner}" \
+VINPST_LIVE_INSTALL_COMMAND_DEMO=1 \
+VINPST_LIVE_STOP_STALE_OWNER="${stop_stale_owner}" \
   scripts/live/niri/run-ime-fcitx-live-probe.sh || {
     status=$?
     cat >&2 <<'EOF'
 
 Live setup did not fully pass yet. Review the classified probe output above.
 If it reports stale-bus-owner and the displayed process is safe to stop, rerun:
-  VINPUT_LIVE_STOP_STALE_OWNER=1 just ime-fcitx-live-command-demo-setup
+  VINPST_LIVE_STOP_STALE_OWNER=1 just ime-fcitx-live-command-demo-setup
 EOF
     exit "${status}"
   }
 
-wrapper="${XDG_DATA_HOME:-${HOME}/.local/share}/fcitx-vinput/fcitx5-with-vinput-env.sh"
+wrapper="${XDG_DATA_HOME:-${HOME}/.local/share}/fcitx-vinpst/fcitx5-with-vinpst-env.sh"
 cat <<EOF
 
 Live command-demo IME files are installed and the probe passed.

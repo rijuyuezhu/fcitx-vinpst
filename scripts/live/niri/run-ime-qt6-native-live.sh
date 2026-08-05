@@ -13,7 +13,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-mode="${1:-${VINPUT_LIVE_TOOLKIT_MODE:-normal}}"
+mode="${1:-${VINPST_LIVE_TOOLKIT_MODE:-normal}}"
 case "${mode}" in
 normal | command) ;;
 *)
@@ -22,10 +22,10 @@ normal | command) ;;
   ;;
 esac
 
-out_dir="${VINPUT_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-qt6-native-live}"
+out_dir="${VINPST_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-qt6-native-live}"
 binary="${out_dir}/qt6-live-toolkit-probe"
 log="${out_dir}/${mode}.jsonl"
-wav="${VINPUT_LIVE_TOOLKIT_WAV:-}"
+wav="${VINPST_LIVE_TOOLKIT_WAV:-}"
 
 command -v c++ >/dev/null 2>&1 || {
   echo "c++ is required to build the Qt6 live probe" >&2
@@ -57,7 +57,7 @@ if [[ -n "${wav}" ]]; then
     exit 1
   }
   command -v pw-play >/dev/null 2>&1 || {
-    echo "pw-play is required when VINPUT_LIVE_TOOLKIT_WAV is set" >&2
+    echo "pw-play is required when VINPST_LIVE_TOOLKIT_WAV is set" >&2
     exit 1
   }
 fi
@@ -86,9 +86,9 @@ trap cleanup EXIT INT TERM
 if [[ -n "${wav}" ]]; then
   (
     for _ in $(seq 1 300); do
-      status="$(gdbus call --session --dest org.fcitx.Vinput \
-        --object-path /org/fcitx/Vinput \
-        --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+      status="$(gdbus call --session --dest org.fcitx.Vinpst \
+        --object-path /org/fcitx/Vinpst \
+        --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null || true)"
       if [[ "${status}" == *"recording"* ]]; then
         pw-play "${wav}"
         exit 0

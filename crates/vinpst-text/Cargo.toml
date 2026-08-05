@@ -1,0 +1,24 @@
+[package]
+name = "vinpst-text"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+regex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+vinpst-config = { path = "../vinpst-config" }
+vinpst-http = { path = "../vinpst-http" }
+vinpst-process = { path = "../vinpst-process" }
+vinpst-protocol = { path = "../vinpst-protocol" }
+
+[dev-dependencies]
+tempfile.workspace = true

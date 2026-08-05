@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-gui_bin="${VINPUT_GUI_DESKTOP_LIVE_BIN:-target/debug/vinput-gui}"
-out_dir="${VINPUT_GUI_DESKTOP_LIVE_OUT_DIR:-target/tmp/gui-desktop-integration-live}"
-fixture="${VINPUT_GUI_DESKTOP_LIVE_FIXTURE:-scripts/live/niri/probes/gui-desktop-integration-fixture.py}"
-key_sender="${VINPUT_GUI_DESKTOP_LIVE_KEY_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
-notification_id="${VINPUT_GUI_DESKTOP_LIVE_NOTIFICATION_ID:-424242}"
-details_url="${VINPUT_GUI_DESKTOP_LIVE_DETAILS_URL:-https://example.invalid/vinput-details?source=live-fixture}"
+gui_bin="${VINPST_GUI_DESKTOP_LIVE_BIN:-target/debug/vinpst-gui}"
+out_dir="${VINPST_GUI_DESKTOP_LIVE_OUT_DIR:-target/tmp/gui-desktop-integration-live}"
+fixture="${VINPST_GUI_DESKTOP_LIVE_FIXTURE:-scripts/live/niri/probes/gui-desktop-integration-fixture.py}"
+key_sender="${VINPST_GUI_DESKTOP_LIVE_KEY_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
+notification_id="${VINPST_GUI_DESKTOP_LIVE_NOTIFICATION_ID:-424242}"
+details_url="${VINPST_GUI_DESKTOP_LIVE_DETAILS_URL:-https://example.invalid/vinpst-details?source=live-fixture}"
 runtime_root=""
 server_pid=""
 gui_pid=""
@@ -83,8 +83,8 @@ config_home="${runtime_root}/config"
 cache_home="${runtime_root}/cache"
 data_home="${runtime_root}/data"
 home_dir="${runtime_root}/home"
-config_path="${config_home}/fcitx-vinput/config.json"
-read_state_path="${cache_home}/fcitx-vinput/read_notifications"
+config_path="${config_home}/fcitx-vinpst/config.json"
+read_state_path="${cache_home}/fcitx-vinpst/read_notifications"
 open_log="${out_dir}/opener.jsonl"
 request_log="${out_dir}/requests.jsonl"
 port_file="${runtime_root}/fixture.port"
@@ -170,10 +170,10 @@ start_gui() {
     XDG_CONFIG_HOME="${config_home}" \
     XDG_CACHE_HOME="${cache_home}" \
     XDG_DATA_HOME="${data_home}" \
-    VINPUT_NOTIFICATION_URL="${feed_url}" \
-    VINPUT_DESKTOP_OPENER="${fixture}" \
-    VINPUT_GUI_DESKTOP_LIVE_OPEN_LOG="${open_log}" \
-    VINPUT_FLATPAK_INFO_PATH="${runtime_root}/missing-flatpak-info" \
+    VINPST_NOTIFICATION_URL="${feed_url}" \
+    VINPST_DESKTOP_OPENER="${fixture}" \
+    VINPST_GUI_DESKTOP_LIVE_OPEN_LOG="${open_log}" \
+    VINPST_FLATPAK_INFO_PATH="${runtime_root}/missing-flatpak-info" \
     "${gui_bin}" >"${out_dir}/${name}.stdout.log" 2>"${out_dir}/${name}.stderr.log" &
   gui_pid=$!
   tracked_gui_pids+=("${gui_pid}")
@@ -192,7 +192,7 @@ start_gui() {
     sleep 0.1
   done
   [[ -n "${gui_window_id}" ]] || fail "${name} GUI window did not appear"
-  [[ "$(window_title)" == 'Vinput Configuration — Control' ]] ||
+  [[ "$(window_title)" == 'Vinpst Configuration — Control' ]] ||
     fail "${name} GUI did not expose the expected initial title"
   wait_for_count "${request_log}" "${expected_request_count}" "notification request log"
   sleep 1

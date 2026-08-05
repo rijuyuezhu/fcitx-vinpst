@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Bridge vinput command-ASR JSON requests to WAV-file based ASR CLIs.
+"""Bridge vinpst command-ASR JSON requests to WAV-file based ASR CLIs.
 
-The helper reads a vinput CommandAsrRequest JSON document from stdin, writes its
+The helper reads a vinpst CommandAsrRequest JSON document from stdin, writes its
 PCM samples to a temporary WAV file, runs a user-provided command, and emits the
-trimmed command stdout as a vinput CommandAsrResponse JSON document.
+trimmed command stdout as a vinpst CommandAsrResponse JSON document.
 
 Example:
-  command-asr-wav-helper.py -- whisper-cli -m model.bin -f "$VINPUT_ASR_WAV"
+  command-asr-wav-helper.py -- whisper-cli -m model.bin -f "$VINPST_ASR_WAV"
 """
 
 from __future__ import annotations
@@ -94,12 +94,12 @@ def command_env(
     env = os.environ.copy()
     env.update(
         {
-            "VINPUT_ASR_WAV": str(wav_path),
-            "VINPUT_ASR_PROVIDER_ID": str(request.get("provider_id") or ""),
-            "VINPUT_ASR_MODEL_ID": str(request.get("model_id") or ""),
-            "VINPUT_ASR_HOTWORDS_FILE": str(request.get("hotwords_file") or ""),
-            "VINPUT_ASR_SAMPLE_RATE_HZ": str(sample_rate),
-            "VINPUT_ASR_CHANNELS": str(channels),
+            "VINPST_ASR_WAV": str(wav_path),
+            "VINPST_ASR_PROVIDER_ID": str(request.get("provider_id") or ""),
+            "VINPST_ASR_MODEL_ID": str(request.get("model_id") or ""),
+            "VINPST_ASR_HOTWORDS_FILE": str(request.get("hotwords_file") or ""),
+            "VINPST_ASR_SAMPLE_RATE_HZ": str(sample_rate),
+            "VINPST_ASR_CHANNELS": str(channels),
         }
     )
     return env
@@ -124,7 +124,7 @@ def main() -> int:
         timeout_s = (
             None if timeout_ms in (None, "") else max(int(timeout_ms), 1) / 1000.0
         )
-        with tempfile.TemporaryDirectory(prefix="vinput-command-asr-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="vinpst-command-asr-") as temp_dir:
             wav_path = Path(temp_dir) / "request.wav"
             write_wav(wav_path, sample_rate, channels, samples)
             completed = subprocess.run(

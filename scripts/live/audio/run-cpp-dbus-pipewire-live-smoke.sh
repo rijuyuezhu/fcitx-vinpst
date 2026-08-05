@@ -14,19 +14,19 @@ done
 cd "${repo_root}"
 
 just addon-build
-cargo build -q -p vinput-daemon --features pipewire-backend
+cargo build -q -p vinpst-daemon --features pipewire-backend
 
 bus_runner="dbus-run-session"
-log_file="target/tmp/vinput-cpp-dbus-pipewire-live-smoke-daemon.log"
+log_file="target/tmp/vinpst-cpp-dbus-pipewire-live-smoke-daemon.log"
 mkdir -p "$(dirname "${log_file}")"
 
 ${bus_runner} -- bash -euo pipefail <<'INNER'
-log_file="target/tmp/vinput-cpp-dbus-pipewire-live-smoke-daemon.log"
-bridge_smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_bridge_dbus_smoke"
-addon_smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_addon_dbus_smoke"
+log_file="target/tmp/vinpst-cpp-dbus-pipewire-live-smoke-daemon.log"
+bridge_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_bridge_dbus_smoke"
+addon_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_addon_dbus_smoke"
 echo "PipeWire audio diagnostics from daemon build:"
-target/debug/vinput-daemon audio-devices
-target/debug/vinput-daemon --dbus --audio-backend pipewire >"${log_file}" 2>&1 &
+target/debug/vinpst-daemon audio-devices
+target/debug/vinpst-daemon --dbus --audio-backend pipewire >"${log_file}" 2>&1 &
 daemon_pid=$!
 cleanup() {
   kill "${daemon_pid}" >/dev/null 2>&1 || true
@@ -34,7 +34,7 @@ cleanup() {
 }
 trap cleanup EXIT
 sleep 0.5
-export VINPUT_DBUS_SMOKE_RECORD_MS=100
+export VINPST_DBUS_SMOKE_RECORD_MS=100
 
 run_smokes() {
   "${bridge_smoke_bin}" || return 1

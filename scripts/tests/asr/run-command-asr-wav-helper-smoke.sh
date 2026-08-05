@@ -14,7 +14,7 @@ done
 cd "${repo_root}"
 
 request='{"provider_id":"helper-smoke","timeout_ms":5000,"pcm":{"sample_rate_hz":8000,"channels":1},"context":{"mode":"normal","selected_text":null},"samples":[0,1000,-1000,32767,-32768]}'
-output="$(printf '%s\n' "${request}" | scripts/fixtures/command-asr-wav-helper.py -- python3 -c 'import os,wave; p=os.environ["VINPUT_ASR_WAV"]; w=wave.open(p,"rb"); print("wav %d %d %d %s" % (w.getframerate(), w.getnchannels(), w.getnframes(), os.environ["VINPUT_ASR_PROVIDER_ID"]))')"
+output="$(printf '%s\n' "${request}" | scripts/fixtures/command-asr-wav-helper.py -- python3 -c 'import os,wave; p=os.environ["VINPST_ASR_WAV"]; w=wave.open(p,"rb"); print("wav %d %d %d %s" % (w.getframerate(), w.getnchannels(), w.getnframes(), os.environ["VINPST_ASR_PROVIDER_ID"]))')"
 python3 - "${output}" <<'PY'
 import json
 import sys

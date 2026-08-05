@@ -23,7 +23,7 @@ scripts/release/render-deb-control.py \
   --architecture amd64 \
   --output "${check_root}/control"
 
-grep -qx 'Package: fcitx-vinput-rs' "${check_root}/control"
+grep -qx 'Package: fcitx-vinpst' "${check_root}/control"
 grep -qx 'Version: 0.1.0-1' "${check_root}/control"
 grep -qx 'Architecture: amd64' "${check_root}/control"
 grep -q '^Depends: .*fcitx5' "${check_root}/control"
@@ -31,8 +31,7 @@ grep -q '^Depends: .*libglib2.0-bin' "${check_root}/control"
 grep -q '^Depends: .*procps' "${check_root}/control"
 grep -q '^Depends: .*systemd' "${check_root}/control"
 grep -q '^Depends: .*util-linux-extra' "${check_root}/control"
-grep -qx 'Provides: fcitx5-vinput' "${check_root}/control"
-grep -qx 'Conflicts: fcitx5-vinput' "${check_root}/control"
+! grep -qE '^(Provides|Conflicts|Replaces):' "${check_root}/control"
 if grep -Eq '@[A-Z0-9_]+@' "${check_root}/control"; then
   echo "Debian control still contains placeholders" >&2
   exit 1
@@ -64,7 +63,7 @@ after_failure bad-release --version 1.0.0 --release '../2' --architecture amd64
 after_failure bad-arch --version 1.0.0 --release 1 --architecture 'amd64;id'
 
 cp packaging/debian/control.in "${check_root}/unresolved.in"
-printf '%s\n' '@VINPUT_UNKNOWN@' >>"${check_root}/unresolved.in"
+printf '%s\n' '@VINPST_UNKNOWN@' >>"${check_root}/unresolved.in"
 if scripts/release/render-deb-control.py \
   --template "${check_root}/unresolved.in" \
   --version 1.0.0 \

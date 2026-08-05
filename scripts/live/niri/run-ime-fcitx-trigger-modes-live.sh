@@ -13,11 +13,11 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_TRIGGER_MODES_OUT_DIR:-target/tmp/ime-fcitx-trigger-modes-live}"
-service_path="${VINPUT_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service}"
-addon_config="${VINPUT_LIVE_FCITX_ADDON_CONFIG:-${HOME}/.config/fcitx5/conf/vinput.conf}"
-trigger_key="${VINPUT_LIVE_NORMAL_KEY:-F9}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_TRIGGER_MODES_OUT_DIR:-target/tmp/ime-fcitx-trigger-modes-live}"
+service_path="${VINPST_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service}"
+addon_config="${VINPST_LIVE_FCITX_ADDON_CONFIG:-${HOME}/.config/fcitx5/conf/vinpst.conf}"
+trigger_key="${VINPST_LIVE_NORMAL_KEY:-F9}"
 probe="scripts/live/niri/probes/fcitx-live-trigger-mode-probe.py"
 config_path=""
 original_provider=""
@@ -29,9 +29,9 @@ profile_backup_existed=0
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 wait_backend() {
@@ -84,13 +84,13 @@ stop_verified_owner() {
   [[ -z "${pid}" ]] && return 0
   exe="$(jq -r '.owner.process.exe // empty' <<<"${status}")"
   cmdline="$(jq -r '.owner.process.cmdline | join(" ")' <<<"${status}")"
-  if [[ "${exe}" != *vinput-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
-    echo "refusing to stop unexpected org.fcitx.Vinput owner: pid=${pid} exe=${exe}" >&2
+  if [[ "${exe}" != *vinpst-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
+    echo "refusing to stop unexpected org.fcitx.Vinpst owner: pid=${pid} exe=${exe}" >&2
     return 1
   fi
   proc_exe="$(readlink "/proc/${pid}/exe")"
   proc_cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline")"
-  if [[ "${proc_exe}" != *vinput-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
+  if [[ "${proc_exe}" != *vinpst-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
     echo "live owner changed during verification: pid=${pid} exe=${proc_exe}" >&2
     return 1
   fi
@@ -117,13 +117,13 @@ restart_fcitx() {
   for _ in $(seq 1 100); do
     pid="$(pgrep -n -x fcitx5 || true)"
     if [[ -n "${pid}" ]] && fcitx5-remote --check >/dev/null 2>&1 &&
-      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinput.so" "/proc/${pid}/maps"; then
+      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so" "/proc/${pid}/maps"; then
       printf '%s\n' "${pid}"
       return 0
     fi
     sleep 0.1
   done
-  echo "restarted Fcitx did not load the user vinput addon" >&2
+  echo "restarted Fcitx did not load the user vinpst addon" >&2
   return 1
 }
 
@@ -186,7 +186,7 @@ for command in fcitx5 fcitx5-remote gdbus jq pgrep python3 readlink; do
   fi
 done
 if [[ ! -x "${cli_binary}" ]]; then
-  echo "vinput CLI is missing: ${cli_binary}" >&2
+  echo "vinpst CLI is missing: ${cli_binary}" >&2
   exit 2
 fi
 for path in "${service_path}" "${addon_config}" "${probe}"; do

@@ -13,42 +13,42 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-profile="${VINPUT_USER_PROFILE:-mock}"
-remove_user="${VINPUT_USER_REMOVE:-}"
-status_user="${VINPUT_USER_STATUS:-}"
+profile="${VINPST_USER_PROFILE:-mock}"
+remove_user="${VINPST_USER_REMOVE:-}"
+status_user="${VINPST_USER_STATUS:-}"
 config_path=""
 home_dir="${HOME:?HOME must be set for user IME installation}"
 data_home="${XDG_DATA_HOME:-${home_dir}/.local/share}"
-bin_dir="${VINPUT_USER_BIN_DIR:-${home_dir}/.local/bin}"
-lib_dir="${VINPUT_USER_FCITX_LIB_DIR:-${home_dir}/.local/lib/fcitx5}"
-addon_dir="${VINPUT_USER_FCITX_ADDON_DIR:-${data_home}/fcitx5/addon}"
-config_dir="${VINPUT_USER_CONFIG_DIR:-${data_home}/fcitx-vinput}"
+bin_dir="${VINPST_USER_BIN_DIR:-${home_dir}/.local/bin}"
+lib_dir="${VINPST_USER_FCITX_LIB_DIR:-${home_dir}/.local/lib/fcitx5}"
+addon_dir="${VINPST_USER_FCITX_ADDON_DIR:-${data_home}/fcitx5/addon}"
+config_dir="${VINPST_USER_CONFIG_DIR:-${data_home}/fcitx-vinpst}"
 config_home="${XDG_CONFIG_HOME:-${home_dir}/.config}"
-autostart_dir="${VINPUT_USER_AUTOSTART_DIR:-${config_home}/autostart}"
-env_file="${config_dir}/fcitx-vinput.env"
-fcitx_env_wrapper="${config_dir}/fcitx5-with-vinput-env.sh"
+autostart_dir="${VINPST_USER_AUTOSTART_DIR:-${config_home}/autostart}"
+env_file="${config_dir}/fcitx-vinpst.env"
+fcitx_env_wrapper="${config_dir}/fcitx5-with-vinpst-env.sh"
 fcitx_autostart_file="${autostart_dir}/org.fcitx.Fcitx5.desktop"
-native_runtime_dir="${VINPUT_USER_SHERPA_RUNTIME_DIR:-${data_home}/fcitx-vinput/runtime}"
+native_runtime_dir="${VINPST_USER_SHERPA_RUNTIME_DIR:-${data_home}/fcitx-vinpst/runtime}"
 native_runtime_lib_dir="${native_runtime_dir}/lib"
-daemon_env_wrapper="${config_dir}/vinput-daemon-with-vinput-env.sh"
-activation_service_path="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
+daemon_env_wrapper="${config_dir}/vinpst-daemon-with-vinpst-env.sh"
+activation_service_path="${data_home}/dbus-1/services/org.fcitx.Vinpst.service"
 runtime_activation_service_path=""
 if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
-  runtime_activation_service_path="${XDG_RUNTIME_DIR}/dbus-1/services/org.fcitx.Vinput.service"
+  runtime_activation_service_path="${XDG_RUNTIME_DIR}/dbus-1/services/org.fcitx.Vinpst.service"
 fi
-runtime_activation_mode="${VINPUT_USER_RUNTIME_ACTIVATION:-auto}"
+runtime_activation_mode="${VINPST_USER_RUNTIME_ACTIVATION:-auto}"
 
-daemon_path="${VINPUT_USER_DAEMON:-${bin_dir}/vinput-daemon}"
+daemon_path="${VINPST_USER_DAEMON:-${bin_dir}/vinpst-daemon}"
 activation_daemon_path="${daemon_path}"
-cli_binary="${VINPUT_USER_CLI_BINARY:-target/debug/vinput}"
-daemon_binary="${VINPUT_USER_DAEMON_BINARY:-target/debug/vinput-daemon}"
-module_path="${lib_dir}/fcitx5-vinput.so"
-addon_conf_path="${addon_dir}/vinput.conf"
+cli_binary="${VINPST_USER_CLI_BINARY:-target/debug/vinpst}"
+daemon_binary="${VINPST_USER_DAEMON_BINARY:-target/debug/vinpst-daemon}"
+module_path="${lib_dir}/fcitx5-vinpst.so"
+addon_conf_path="${addon_dir}/vinpst.conf"
 build_dir="target/cpp/fcitx5-user-ime"
-locale_catalog_source="${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
-locale_catalog_path="${data_home}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
-command_asr_wav_helper_path="${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-${bin_dir}/vinput-command-asr-wav-helper}"
-vad_dir="${data_home}/fcitx-vinput/vad"
+locale_catalog_source="${build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
+locale_catalog_path="${data_home}/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
+command_asr_wav_helper_path="${VINPST_USER_COMMAND_ASR_WAV_HELPER:-${bin_dir}/vinpst-command-asr-wav-helper}"
+vad_dir="${data_home}/fcitx-vinpst/vad"
 vad_model_path="${vad_dir}/silero_vad.onnx"
 vad_license_path="${vad_dir}/LICENSE"
 
@@ -86,29 +86,29 @@ profile_daemon_features() {
   esac
 }
 
-cargo_build_vinput_cli() {
+cargo_build_vinpst_cli() {
   local cargo_features
   cargo_features="$(profile_cli_features)"
   if [[ -n "${cargo_features}" ]]; then
-    cargo build -q -p vinput-cli --features "${cargo_features}"
+    cargo build -q -p vinpst-cli --features "${cargo_features}"
   else
-    cargo build -q -p vinput-cli
+    cargo build -q -p vinpst-cli
   fi
 }
 
-cargo_build_vinput_daemon() {
+cargo_build_vinpst_daemon() {
   local cargo_features
   cargo_features="$(profile_daemon_features)"
   if [[ -n "${cargo_features}" ]]; then
-    cargo build -q -p vinput-daemon --features "${cargo_features}"
+    cargo build -q -p vinpst-daemon --features "${cargo_features}"
   else
-    cargo build -q -p vinput-daemon
+    cargo build -q -p vinpst-daemon
   fi
 }
 
-cargo_build_vinput_binaries() {
-  cargo_build_vinput_cli
-  cargo_build_vinput_daemon
+cargo_build_vinpst_binaries() {
+  cargo_build_vinpst_cli
+  cargo_build_vinpst_daemon
 }
 
 shell_quote() {
@@ -143,7 +143,7 @@ runtime_activation_enabled() {
       [[ -n "${runtime_activation_service_path}" ]] && home_matches_current_account
       ;;
     *)
-      echo "VINPUT_USER_RUNTIME_ACTIVATION must be auto, true, or false" >&2
+      echo "VINPST_USER_RUNTIME_ACTIVATION must be auto, true, or false" >&2
       exit 2
       ;;
   esac
@@ -171,7 +171,7 @@ require_installed_sherpa_runtime() {
   for required in libsherpa-onnx-c-api.so libonnxruntime.so; do
     if [[ ! -f "${native_runtime_lib_dir}/${required}" ]]; then
       echo "installed native sherpa runtime library is missing: ${native_runtime_lib_dir}/${required}" >&2
-      echo "reinstall with VINPUT_USER_PROFILE=sherpa-native-live and a validated VINPUT_USER_SHERPA_RUNTIME_LIB_DIR" >&2
+      echo "reinstall with VINPST_USER_PROFILE=sherpa-native-live and a validated VINPST_USER_SHERPA_RUNTIME_LIB_DIR" >&2
       exit 2
     fi
   done
@@ -187,12 +187,12 @@ with_native_runtime() {
 }
 
 install_sherpa_runtime_libraries() {
-  local source_dir="${VINPUT_USER_SHERPA_RUNTIME_LIB_DIR:-target/debug}"
+  local source_dir="${VINPST_USER_SHERPA_RUNTIME_LIB_DIR:-target/debug}"
   local required
   for required in libsherpa-onnx-c-api.so libonnxruntime.so; do
     if [[ ! -f "${source_dir}/${required}" ]]; then
       echo "native sherpa runtime library is missing: ${source_dir}/${required}" >&2
-      echo "set VINPUT_USER_SHERPA_RUNTIME_LIB_DIR to the bundle that passed local smoke" >&2
+      echo "set VINPST_USER_SHERPA_RUNTIME_LIB_DIR to the bundle that passed local smoke" >&2
       exit 2
     fi
   done
@@ -220,7 +220,7 @@ write_daemon_env_wrapper() {
   mkdir -p "$(dirname "${daemon_env_wrapper}")"
   cat >"${daemon_env_wrapper}" <<EOF
 #!/usr/bin/env sh
-# Generated by fcitx-vinput-rs for D-Bus activation with the native runtime bundle.
+# Generated by fcitx-vinpst for D-Bus activation with the native runtime bundle.
 . ${quoted_env_file}
 exec ${quoted_daemon} "\$@"
 EOF
@@ -248,9 +248,9 @@ provider_timeout_ms = (
     int(provider_timeout_arg) if provider_timeout_arg else helper_timeout_ms + 2000
 )
 if helper_timeout_ms <= 0:
-    raise SystemExit("VINPUT_USER_COMMAND_ASR_WAV_TIMEOUT_MS must be positive")
+    raise SystemExit("VINPST_USER_COMMAND_ASR_WAV_TIMEOUT_MS must be positive")
 if provider_timeout_ms <= 0:
-    raise SystemExit("VINPUT_USER_COMMAND_ASR_WAV_PROVIDER_TIMEOUT_MS must be positive")
+    raise SystemExit("VINPST_USER_COMMAND_ASR_WAV_PROVIDER_TIMEOUT_MS must be positive")
 if provider_timeout_ms <= helper_timeout_ms:
     provider_timeout_ms = helper_timeout_ms + 1000
 
@@ -271,9 +271,9 @@ config = {
                     "--",
                     "sh",
                     "-c",
-                    "$VINPUT_REAL_ASR_COMMAND",
+                    "$VINPST_REAL_ASR_COMMAND",
                 ],
-                "env": {"VINPUT_REAL_ASR_COMMAND": external_command},
+                "env": {"VINPST_REAL_ASR_COMMAND": external_command},
                 "timeout_ms": provider_timeout_ms,
             }
         ],
@@ -306,9 +306,9 @@ hotwords_arg = sys.argv[3].strip()
 timeout_arg = sys.argv[4].strip()
 command_adapter = sys.argv[5] == "1"
 if not model_dir.is_dir():
-    raise SystemExit(f"VINPUT_USER_SHERPA_MODEL must be an existing model directory: {model_dir}")
+    raise SystemExit(f"VINPST_USER_SHERPA_MODEL must be an existing model directory: {model_dir}")
 
-metadata_path = model_dir / "vinput-model.json"
+metadata_path = model_dir / "vinpst-model.json"
 runtime = "offline"
 if metadata_path.is_file():
     try:
@@ -333,11 +333,11 @@ else:
     # Preserve the metadata-free SenseVoice compatibility layout.
     if not any((model_dir / name).is_file() for name in ("model.int8.onnx", "model.onnx")):
         raise SystemExit(
-            f"{model_dir} has no vinput-model.json and must contain "
+            f"{model_dir} has no vinpst-model.json and must contain "
             "model.int8.onnx or model.onnx for the SenseVoice compatibility path"
         )
     if not (model_dir / "tokens.txt").is_file():
-        raise SystemExit(f"VINPUT_USER_SHERPA_MODEL must contain tokens.txt: {model_dir}")
+        raise SystemExit(f"VINPST_USER_SHERPA_MODEL must contain tokens.txt: {model_dir}")
 
 provider = {
     "id": "sherpa-onnx",
@@ -350,12 +350,12 @@ if hotwords_arg:
         hotwords = model_dir / hotwords
     hotwords = hotwords.resolve()
     if not hotwords.is_file():
-        raise SystemExit(f"VINPUT_USER_SHERPA_HOTWORDS_FILE must be a regular file: {hotwords}")
+        raise SystemExit(f"VINPST_USER_SHERPA_HOTWORDS_FILE must be a regular file: {hotwords}")
     provider["hotwords_file"] = str(hotwords)
 if timeout_arg:
     timeout_ms = int(timeout_arg)
     if timeout_ms <= 0:
-        raise SystemExit("VINPUT_USER_SHERPA_TIMEOUT_MS must be positive")
+        raise SystemExit("VINPST_USER_SHERPA_TIMEOUT_MS must be positive")
     provider["timeout_ms"] = timeout_ms
 
 scenes = [{"id": "raw", "label": "Raw", "candidate_count": 0}]
@@ -413,22 +413,22 @@ PY
 profile_default_config_path() {
   case "${profile}" in
     command-demo)
-      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/e2e-command-demo-config.json}"
+      printf '%s\n' "${VINPST_USER_CONFIG:-${config_dir}/e2e-command-demo-config.json}"
       ;;
     configured-pipewire-live)
-      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
+      printf '%s\n' "${VINPST_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
       ;;
     real-command-asr-wav)
-      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
+      printf '%s\n' "${VINPST_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
       ;;
     sherpa-native-live)
-      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/sherpa-native-live.json}"
+      printf '%s\n' "${VINPST_USER_CONFIG:-${config_dir}/sherpa-native-live.json}"
       ;;
     sherpa-native-command-live)
-      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/sherpa-native-command-live.json}"
+      printf '%s\n' "${VINPST_USER_CONFIG:-${config_dir}/sherpa-native-command-live.json}"
       ;;
     sherpa-sense-voice-live)
-      printf '%s\n' "${VINPUT_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
+      printf '%s\n' "${VINPST_USER_CONFIG:-${config_dir}/sherpa-sense-voice-live.json}"
       ;;
   esac
 }
@@ -455,7 +455,7 @@ PY
 }
 
 runtime_status_requested() {
-  case "${VINPUT_USER_RUNTIME_STATUS:-}" in
+  case "${VINPST_USER_RUNTIME_STATUS:-}" in
     1|true|yes|on)
       return 0
       ;;
@@ -466,7 +466,7 @@ runtime_status_requested() {
       is_native_sherpa_profile
       ;;
     *)
-      echo "unsupported VINPUT_USER_RUNTIME_STATUS: ${VINPUT_USER_RUNTIME_STATUS}" >&2
+      echo "unsupported VINPST_USER_RUNTIME_STATUS: ${VINPST_USER_RUNTIME_STATUS}" >&2
       echo "supported values: 1, true, yes, on, 0, false, no, off" >&2
       exit 2
       ;;
@@ -482,7 +482,7 @@ run_runtime_status_validation() {
     runtime_config="$(profile_default_config_path)"
   fi
   if [[ -z "${runtime_config}" || ! -f "${runtime_config}" ]]; then
-    echo "VINPUT_USER_RUNTIME_STATUS requested but config is missing: ${runtime_config}" >&2
+    echo "VINPST_USER_RUNTIME_STATUS requested but config is missing: ${runtime_config}" >&2
     exit 2
   fi
   if [[ ! -x "${daemon_path}" ]]; then
@@ -499,32 +499,32 @@ write_fcitx_env_integration() {
   mkdir -p "$(dirname "${fcitx_env_wrapper}")" "$(dirname "${fcitx_autostart_file}")"
   cat >"${fcitx_env_wrapper}" <<EOF
 #!/usr/bin/env sh
-# Generated by fcitx-vinput-rs. Source the same environment as the live probe.
+# Generated by fcitx-vinpst. Source the same environment as the live probe.
 . ${quoted_env_file}
-exec "\${VINPUT_FCITX5_BIN:-fcitx5}" "\$@"
+exec "\${VINPST_FCITX5_BIN:-fcitx5}" "\$@"
 EOF
   chmod 755 "${fcitx_env_wrapper}"
   cat >"${fcitx_autostart_file}" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Fcitx 5 with fcitx-vinput
-Comment=Start Fcitx5 with the user-installed fcitx-vinput addon environment
+Name=Fcitx 5 with fcitx-vinpst
+Comment=Start Fcitx5 with the user-installed fcitx-vinpst addon environment
 Exec=${fcitx_env_wrapper}
 Terminal=false
 X-GNOME-Autostart-enabled=true
-X-fcitx-vinput-managed=true
+X-fcitx-vinpst-managed=true
 EOF
 }
 
 remove_fcitx_env_integration() {
   rm -f "${fcitx_env_wrapper}" "${daemon_env_wrapper}" "${env_file}"
-  if [[ -f "${fcitx_autostart_file}" ]] && grep -qx 'X-fcitx-vinput-managed=true' "${fcitx_autostart_file}"; then
+  if [[ -f "${fcitx_autostart_file}" ]] && grep -qx 'X-fcitx-vinpst-managed=true' "${fcitx_autostart_file}"; then
     rm -f "${fcitx_autostart_file}"
   fi
 }
 
 doctor_status() {
-  cargo_build_vinput_cli
+  cargo_build_vinpst_cli
 
   local status_config="${config_path:-}"
   if [[ -z "${status_config}" ]]; then
@@ -543,7 +543,7 @@ doctor_status() {
 
 if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
   rm -f "${module_path}" "${addon_conf_path}" "${locale_catalog_path}"
-  if [[ -z "${VINPUT_USER_COMMAND_ASR_WAV_HELPER:-}" ]]; then
+  if [[ -z "${VINPST_USER_COMMAND_ASR_WAV_HELPER:-}" ]]; then
     rm -f "${command_asr_wav_helper_path}"
   fi
   rm -f "${vad_model_path}" "${vad_license_path}"
@@ -566,7 +566,7 @@ if [[ "${remove_user}" == "1" || "${remove_user}" == "true" ]]; then
 fi
 
 if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
-  if [[ -z "${VINPUT_USER_PROFILE:-}" && -x "${daemon_env_wrapper}" && -d "${native_runtime_lib_dir}" ]]; then
+  if [[ -z "${VINPST_USER_PROFILE:-}" && -x "${daemon_env_wrapper}" && -d "${native_runtime_lib_dir}" ]]; then
     config_path="$(activation_service_config_path)"
     if [[ -z "${config_path}" ]]; then
       if [[ -f "${config_dir}/sherpa-native-command-live.json" ]]; then
@@ -608,9 +608,9 @@ if [[ "${status_user}" == "1" || "${status_user}" == "true" ]]; then
   exit 0
 fi
 
-audio_backend="${VINPUT_USER_AUDIO_BACKEND:-}"
+audio_backend="${VINPST_USER_AUDIO_BACKEND:-}"
 daemon_args=()
-configured_backends="${VINPUT_USER_CONFIGURED_BACKENDS:-}"
+configured_backends="${VINPST_USER_CONFIGURED_BACKENDS:-}"
 install_sherpa_vad=""
 install_sherpa_runtime=""
 
@@ -619,8 +619,8 @@ case "${profile}" in
     ;;
   command-demo)
     configured_backends="1"
-    config_path="${VINPUT_USER_CONFIG:-${config_dir}/e2e-command-demo-config.json}"
-    wav_path="${VINPUT_USER_WAV:-${config_dir}/e2e-command-demo.wav}"
+    config_path="${VINPST_USER_CONFIG:-${config_dir}/e2e-command-demo-config.json}"
+    wav_path="${VINPST_USER_WAV:-${config_dir}/e2e-command-demo.wav}"
     mkdir -p "$(dirname "${config_path}")" "$(dirname "${wav_path}")"
     install -Dm644 data/e2e-command-demo-config.json "${config_path}"
     python3 scripts/fixtures/write-demo-wav.py "${wav_path}"
@@ -629,21 +629,21 @@ case "${profile}" in
   configured-pipewire-live)
     configured_backends="1"
     audio_backend="${audio_backend:-pipewire}"
-    config_path="${VINPUT_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
+    config_path="${VINPST_USER_CONFIG:-${config_dir}/e2e-configured-pipewire-live.json}"
     install -Dm644 data/e2e-configured-pipewire-live.json "${config_path}"
     ;;
   real-command-asr-wav)
     configured_backends="1"
     audio_backend="${audio_backend:-pipewire}"
-    config_path="${VINPUT_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
-    external_asr_command="${VINPUT_USER_COMMAND_ASR_WAV_COMMAND:-}"
+    config_path="${VINPST_USER_CONFIG:-${config_dir}/real-command-asr-wav.json}"
+    external_asr_command="${VINPST_USER_COMMAND_ASR_WAV_COMMAND:-}"
     if [[ -z "${external_asr_command}" ]]; then
-      echo "VINPUT_USER_COMMAND_ASR_WAV_COMMAND is required for real-command-asr-wav" >&2
-      echo 'example: VINPUT_USER_COMMAND_ASR_WAV_COMMAND="whisper-cli -m model.bin -f \"$VINPUT_ASR_WAV\"" VINPUT_USER_PROFILE=real-command-asr-wav scripts/install/install-user-ime.sh' >&2
+      echo "VINPST_USER_COMMAND_ASR_WAV_COMMAND is required for real-command-asr-wav" >&2
+      echo 'example: VINPST_USER_COMMAND_ASR_WAV_COMMAND="whisper-cli -m model.bin -f \"$VINPST_ASR_WAV\"" VINPST_USER_PROFILE=real-command-asr-wav scripts/install/install-user-ime.sh' >&2
       exit 2
     fi
-    helper_timeout_ms="${VINPUT_USER_COMMAND_ASR_WAV_TIMEOUT_MS:-30000}"
-    provider_timeout_ms="${VINPUT_USER_COMMAND_ASR_WAV_PROVIDER_TIMEOUT_MS:-}"
+    helper_timeout_ms="${VINPST_USER_COMMAND_ASR_WAV_TIMEOUT_MS:-30000}"
+    provider_timeout_ms="${VINPST_USER_COMMAND_ASR_WAV_PROVIDER_TIMEOUT_MS:-}"
     install -Dm755 scripts/fixtures/command-asr-wav-helper.py "${command_asr_wav_helper_path}"
     write_command_asr_wav_helper_config "${config_path}" "${command_asr_wav_helper_path}" "${external_asr_command}" "${helper_timeout_ms}" "${provider_timeout_ms}"
     ;;
@@ -653,21 +653,21 @@ case "${profile}" in
     install_sherpa_runtime="1"
     audio_backend="${audio_backend:-pipewire}"
     config_path="$(profile_default_config_path)"
-    sherpa_model_dir="${VINPUT_USER_SHERPA_MODEL:-}"
+    sherpa_model_dir="${VINPST_USER_SHERPA_MODEL:-}"
     if [[ -z "${sherpa_model_dir}" ]]; then
-      echo "VINPUT_USER_SHERPA_MODEL is required for ${profile}" >&2
-      echo 'example: VINPUT_USER_SHERPA_MODEL=/path/to/registry-model VINPUT_USER_PROFILE=sherpa-native-live scripts/install/install-user-ime.sh' >&2
+      echo "VINPST_USER_SHERPA_MODEL is required for ${profile}" >&2
+      echo 'example: VINPST_USER_SHERPA_MODEL=/path/to/registry-model VINPST_USER_PROFILE=sherpa-native-live scripts/install/install-user-ime.sh' >&2
       exit 2
     fi
     command_adapter=""
     if [[ "${profile}" == "sherpa-native-command-live" ]]; then
       command_adapter="1"
     fi
-    write_sherpa_native_config "${config_path}" "${sherpa_model_dir}" "${VINPUT_USER_SHERPA_HOTWORDS_FILE:-}" "${VINPUT_USER_SHERPA_TIMEOUT_MS:-}" "${command_adapter}"
-    native_wav_path="${VINPUT_USER_NATIVE_WAV:-}"
+    write_sherpa_native_config "${config_path}" "${sherpa_model_dir}" "${VINPST_USER_SHERPA_HOTWORDS_FILE:-}" "${VINPST_USER_SHERPA_TIMEOUT_MS:-}" "${command_adapter}"
+    native_wav_path="${VINPST_USER_NATIVE_WAV:-}"
     if [[ -n "${native_wav_path}" ]]; then
       if [[ ! -f "${native_wav_path}" ]]; then
-        echo "VINPUT_USER_NATIVE_WAV must be an existing WAV file: ${native_wav_path}" >&2
+        echo "VINPST_USER_NATIVE_WAV must be an existing WAV file: ${native_wav_path}" >&2
         exit 2
       fi
       native_wav_path="$(realpath "${native_wav_path}")"
@@ -675,13 +675,13 @@ case "${profile}" in
     fi
     ;;
   *)
-    echo "unsupported VINPUT_USER_PROFILE: ${profile}" >&2
+    echo "unsupported VINPST_USER_PROFILE: ${profile}" >&2
     echo "supported profiles: mock, command-demo, configured-pipewire-live, real-command-asr-wav, sherpa-native-live, sherpa-native-command-live, sherpa-sense-voice-live" >&2
     exit 2
     ;;
 esac
 
-cargo_build_vinput_binaries
+cargo_build_vinpst_binaries
 install -Dm755 "${daemon_binary}" "${daemon_path}"
 if [[ "${install_sherpa_runtime}" == "1" ]]; then
   install_sherpa_runtime_libraries
@@ -694,23 +694,23 @@ fi
 rm -rf "${build_dir}"
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-  -DVINPUT_DAEMON_EXECUTABLE="${daemon_path}" \
-  -DVINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR= \
-  -DVINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR="${data_home}/locale"
-cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
-install -Dm755 "${build_dir}/fcitx5-vinput.so" "${module_path}"
-install -Dm644 "${build_dir}/vinput-addon.conf" "${addon_conf_path}"
+  -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+  -DVINPST_DAEMON_EXECUTABLE="${daemon_path}" \
+  -DVINPST_FCITX_RUNTIME_BUILD_LOCALEDIR= \
+  -DVINPST_FCITX_RUNTIME_INSTALL_LOCALEDIR="${data_home}/locale"
+cmake --build "${build_dir}" --target fcitx5_vinpst_addon --parallel
+install -Dm755 "${build_dir}/fcitx5-vinpst.so" "${module_path}"
+install -Dm644 "${build_dir}/vinpst-addon.conf" "${addon_conf_path}"
 install -Dm644 "${locale_catalog_source}" "${locale_catalog_path}"
 mkdir -p "$(dirname "${env_file}")"
 cat >"${env_file}" <<EOF
-# Source this before launching Fcitx5 when using the user-installed fcitx-vinput addon.
+# Source this before launching Fcitx5 when using the user-installed fcitx-vinpst addon.
 export FCITX_ADDON_DIRS="${lib_dir}:${FCITX_ADDON_DIRS:-/usr/lib/fcitx5}"
 export XDG_DATA_HOME="${data_home}"
 EOF
 if [[ "${install_sherpa_runtime}" == "1" ]]; then
   cat >>"${env_file}" <<EOF
-export VINPUT_SHERPA_RUNTIME_LIB_DIR="${native_runtime_lib_dir}"
+export VINPST_SHERPA_RUNTIME_LIB_DIR="${native_runtime_lib_dir}"
 export LD_LIBRARY_PATH="${native_runtime_lib_dir}\${LD_LIBRARY_PATH:+:\${LD_LIBRARY_PATH}}"
 EOF
   write_daemon_env_wrapper
@@ -756,8 +756,8 @@ Restart Fcitx5 with the generated environment, then use the retained addon trigg
   F10 press/release: start/stop command dictation using selected text
 
 Override trigger keys before launching Fcitx5 if needed:
-  VINPUT_FCITX_NORMAL_TRIGGER=F8
-  VINPUT_FCITX_COMMAND_TRIGGER=F9
+  VINPST_FCITX_NORMAL_TRIGGER=F8
+  VINPST_FCITX_COMMAND_TRIGGER=F9
 
 For the current session, restart through the wrapper:
   ${fcitx_env_wrapper} -dr

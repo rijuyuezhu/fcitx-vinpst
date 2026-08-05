@@ -26,7 +26,7 @@ origin_fixture="scripts/fixtures/openai-compatible-asr-fixture.py"
 proxy_fixture="scripts/fixtures/http-asr-proxy-fixture.py"
 connect_proxy_fixture="scripts/fixtures/https-connect-proxy-fixture.py"
 intercept_proxy_fixture="scripts/fixtures/https-intercept-proxy-fixture.py"
-daemon="target/debug/vinput-daemon"
+daemon="target/debug/vinpst-daemon"
 out_dir="target/tmp/openai-compatible-asr-network-smoke"
 wav_file="${out_dir}/fixture.wav"
 config_file="${out_dir}/config.json"
@@ -60,7 +60,7 @@ rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
 ruff check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}" "${intercept_proxy_fixture}"
 ruff format --check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}" "${intercept_proxy_fixture}"
-cargo build -q -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
 
 python3 - "${wav_file}" <<'PY'
 import math
@@ -103,9 +103,9 @@ write_config() {
           model: $model,
           timeout_ms: $timeout_ms,
           env: {
-            VINPUT_ASR_API_KEY: $key,
-            VINPUT_ASR_LANGUAGE: $language,
-            VINPUT_ASR_PROMPT: $prompt
+            VINPST_ASR_API_KEY: $key,
+            VINPST_ASR_LANGUAGE: $language,
+            VINPST_ASR_PROMPT: $prompt
           }
         }]
       },

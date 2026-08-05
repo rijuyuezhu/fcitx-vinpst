@@ -1,5 +1,5 @@
-#include "vinput_fcitx_bridge/fcitx_config.h"
-#include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/fcitx_config.h"
+#include "vinpst_fcitx_bridge/fcitx_i18n.h"
 
 #include <cassert>
 #include <filesystem>
@@ -12,7 +12,7 @@ namespace {
 
 std::filesystem::path UniqueConfigRoot() {
   auto root = std::filesystem::temp_directory_path() /
-              ("vinput-fcitx-config-smoke-" + std::to_string(getpid()));
+              ("vinpst-fcitx-config-smoke-" + std::to_string(getpid()));
   std::filesystem::remove_all(root);
   std::filesystem::create_directories(root);
   return root;
@@ -31,12 +31,12 @@ bool HasValueByPath(const fcitx::RawConfig &config, const std::string &path,
 } // namespace
 
 int main() {
-  using vinput_fcitx_bridge::FrontendSettings;
-  using vinput_fcitx_bridge::InitFrontendI18n;
-  using vinput_fcitx_bridge::kFrontendConfigPath;
-  using vinput_fcitx_bridge::LoadFrontendSettings;
-  using vinput_fcitx_bridge::SaveFrontendSettings;
-  using vinput_fcitx_bridge::VinputFrontendConfig;
+  using vinpst_fcitx_bridge::FrontendSettings;
+  using vinpst_fcitx_bridge::InitFrontendI18n;
+  using vinpst_fcitx_bridge::kFrontendConfigPath;
+  using vinpst_fcitx_bridge::LoadFrontendSettings;
+  using vinpst_fcitx_bridge::SaveFrontendSettings;
+  using vinpst_fcitx_bridge::VinpstFrontendConfig;
 
   const auto root = UniqueConfigRoot();
   const auto system_root = root / "system";
@@ -56,7 +56,7 @@ int main() {
   settings.asr_menu_triggers = {fcitx::Key(FcitxKey_F8), fcitx::Key("Control+F8")};
   settings.page_prev_keys = {fcitx::Key(FcitxKey_F5), fcitx::Key(FcitxKey_KP_Page_Up)};
   settings.page_next_keys = {fcitx::Key(FcitxKey_F6), fcitx::Key(FcitxKey_KP_Next)};
-  settings.trigger_mode = vinput_fcitx_bridge::TriggerMode::Hold;
+  settings.trigger_mode = vinpst_fcitx_bridge::TriggerMode::Hold;
   assert(SaveFrontendSettings(settings));
   assert(LoadFrontendSettings() == settings);
 
@@ -92,16 +92,16 @@ int main() {
   assert(Contains(merged_contents, "0=Control+F"));
   assert(LoadFrontendSettings() == settings);
 
-  VinputFrontendConfig config(settings);
+  VinpstFrontendConfig config(settings);
   fcitx::RawConfig raw;
   config.save(raw);
-  VinputFrontendConfig roundtrip;
+  VinpstFrontendConfig roundtrip;
   roundtrip.load(raw, true);
   assert(roundtrip.settings() == settings);
 
   fcitx::RawConfig description;
   config.dumpDescription(description);
-  constexpr auto prefix = "VinputFrontendConfig/TriggerMode/";
+  constexpr auto prefix = "VinpstFrontendConfig/TriggerMode/";
   assert(HasValueByPath(description, std::string(prefix) + "Enum/0", "Tap"));
   assert(HasValueByPath(description, std::string(prefix) + "Enum/1", "Hold"));
   assert(HasValueByPath(description, std::string(prefix) + "Enum/2", "Both"));

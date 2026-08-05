@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${VINPUT_RUN_PIPEWIRE_DEVICE_SWITCH_LIVE:-}" != 1 ]]; then
-  echo "set VINPUT_RUN_PIPEWIRE_DEVICE_SWITCH_LIVE=1 to run the PipeWire device-switch live gate" >&2
+if [[ "${VINPST_RUN_PIPEWIRE_DEVICE_SWITCH_LIVE:-}" != 1 ]]; then
+  echo "set VINPST_RUN_PIPEWIRE_DEVICE_SWITCH_LIVE=1 to run the PipeWire device-switch live gate" >&2
   exit 2
 fi
 
@@ -27,7 +27,7 @@ summary_path="${root}/summary.json"
 rm -rf "${root}"
 mkdir -p "${root}"
 
-prefix="vinput_device_switch_$$"
+prefix="vinpst_device_switch_$$"
 sink_a="${prefix}_sink_a"
 source_a="${prefix}_source_a"
 sink_b="${prefix}_sink_b"
@@ -75,8 +75,8 @@ pw-loopback \
   --name "${prefix}_loopback_a" \
   --channels 1 \
   --channel-map '[ MONO ]' \
-  --capture-props "media.class=Audio/Sink node.name=${sink_a} node.description=\"Vinput Device Switch Sink A\" audio.position=[ MONO ]" \
-  --playback-props "media.class=Audio/Source node.name=${source_a} node.description=\"Vinput Device Switch Source A\" audio.position=[ MONO ]" \
+  --capture-props "media.class=Audio/Sink node.name=${sink_a} node.description=\"Vinpst Device Switch Sink A\" audio.position=[ MONO ]" \
+  --playback-props "media.class=Audio/Source node.name=${source_a} node.description=\"Vinpst Device Switch Source A\" audio.position=[ MONO ]" \
   >"${root}/pw-loopback-a.log" 2>&1 &
 loopback_a_pid=$!
 
@@ -84,8 +84,8 @@ pw-loopback \
   --name "${prefix}_loopback_b" \
   --channels 1 \
   --channel-map '[ MONO ]' \
-  --capture-props "media.class=Audio/Sink node.name=${sink_b} node.description=\"Vinput Device Switch Sink B\" audio.position=[ MONO ]" \
-  --playback-props "media.class=Audio/Source node.name=${source_b} node.description=\"Vinput Device Switch Source B\" audio.position=[ MONO ]" \
+  --capture-props "media.class=Audio/Sink node.name=${sink_b} node.description=\"Vinpst Device Switch Sink B\" audio.position=[ MONO ]" \
+  --playback-props "media.class=Audio/Source node.name=${source_b} node.description=\"Vinpst Device Switch Source B\" audio.position=[ MONO ]" \
   >"${root}/pw-loopback-b.log" 2>&1 &
 loopback_b_pid=$!
 
@@ -115,14 +115,14 @@ play_a_pid=$!
 play_forever "${sink_b}" "${root}/tone-b.wav" "${root}/pw-play-b.log" &
 play_b_pid=$!
 
-cargo test -q -p vinput-audio --features pipewire-backend \
+cargo test -q -p vinpst-audio --features pipewire-backend \
   pipewire_recorder_live_rebuilds_for_target_switch_when_enabled --no-run
-VINPUT_TEST_PIPEWIRE_SWITCH_SOURCE_A="${source_a}" \
-VINPUT_TEST_PIPEWIRE_SWITCH_SOURCE_B="${source_b}" \
-VINPUT_TEST_PIPEWIRE_SWITCH_SUMMARY="${summary_path}" \
-VINPUT_TEST_PIPEWIRE_RECORD_MS=500 \
-VINPUT_TEST_PIPEWIRE_MIN_PEAK=512 \
-  cargo test -q -p vinput-audio --features pipewire-backend \
+VINPST_TEST_PIPEWIRE_SWITCH_SOURCE_A="${source_a}" \
+VINPST_TEST_PIPEWIRE_SWITCH_SOURCE_B="${source_b}" \
+VINPST_TEST_PIPEWIRE_SWITCH_SUMMARY="${summary_path}" \
+VINPST_TEST_PIPEWIRE_RECORD_MS=500 \
+VINPST_TEST_PIPEWIRE_MIN_PEAK=512 \
+  cargo test -q -p vinpst-audio --features pipewire-backend \
     pipewire_recorder_live_rebuilds_for_target_switch_when_enabled -- --nocapture \
     >"${root}/cargo-test.log" 2>&1
 
@@ -148,30 +148,30 @@ jq -e \
 jq --arg capture_device "${source_a}" \
   '.global.capture_device = $capture_device' \
   data/default-config.json >"${root}/daemon-config.json"
-cargo build -q -p vinput-daemon --bin vinput-daemon --features pipewire-backend
+cargo build -q -p vinpst-daemon --bin vinpst-daemon --features pipewire-backend
 mkdir -p "${root}/home" "${root}/share" "${root}/config-home"
 
 HOME="${root}/home" \
 XDG_DATA_HOME="${root}/share" \
 XDG_DATA_DIRS="${root}/share" \
 XDG_CONFIG_HOME="${root}/config-home" \
-VINPUT_DEVICE_SWITCH_ROOT="${root}" \
-VINPUT_DEVICE_SWITCH_SOURCE_A="${source_a}" \
-VINPUT_DEVICE_SWITCH_SOURCE_B="${source_b}" \
+VINPST_DEVICE_SWITCH_ROOT="${root}" \
+VINPST_DEVICE_SWITCH_SOURCE_A="${source_a}" \
+VINPST_DEVICE_SWITCH_SOURCE_B="${source_b}" \
   timeout 25s dbus-run-session -- bash -euo pipefail <<'INNER'
-root="${VINPUT_DEVICE_SWITCH_ROOT}"
-source_a="${VINPUT_DEVICE_SWITCH_SOURCE_A}"
-source_b="${VINPUT_DEVICE_SWITCH_SOURCE_B}"
-daemon_bin="${PWD}/target/debug/vinput-daemon"
+root="${VINPST_DEVICE_SWITCH_ROOT}"
+source_a="${VINPST_DEVICE_SWITCH_SOURCE_A}"
+source_b="${VINPST_DEVICE_SWITCH_SOURCE_B}"
+daemon_bin="${PWD}/target/debug/vinpst-daemon"
 config_path="${root}/daemon-config.json"
 
 call_service() {
   local method="$1"
   shift
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.${method}" \
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.${method}" \
     "$@"
 }
 
@@ -180,7 +180,7 @@ owner_pid() {
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.GetConnectionUnixProcessID \
-    org.fcitx.Vinput | sed -n 's/.*uint32 \([0-9][0-9]*\).*/\1/p'
+    org.fcitx.Vinpst | sed -n 's/.*uint32 \([0-9][0-9]*\).*/\1/p'
 }
 
 name_has_owner() {
@@ -188,7 +188,7 @@ name_has_owner() {
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.NameHasOwner \
-    org.fcitx.Vinput 2>/dev/null | grep -q true
+    org.fcitx.Vinpst 2>/dev/null | grep -q true
 }
 
 finish_recording() {
@@ -208,7 +208,7 @@ finish_recording() {
   return 1
 }
 
-RUST_LOG=vinput_audio=debug \
+RUST_LOG=vinpst_audio=debug \
   "${daemon_bin}" --dbus --audio-backend pipewire --config "${config_path}" \
   >"${root}/daemon-live.log" 2>&1 &
 daemon_pid=$!

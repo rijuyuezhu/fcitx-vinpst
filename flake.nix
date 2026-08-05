@@ -21,7 +21,7 @@
         "aarch64-linux"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
-      version = (builtins.fromTOML (builtins.readFile ./crates/vinput-cli/Cargo.toml)).package.version;
+      version = (builtins.fromTOML (builtins.readFile ./crates/vinpst-cli/Cargo.toml)).package.version;
     in
     {
       packages = forAllSystems (
@@ -31,14 +31,14 @@
           inherit (pkgs) lib;
           sherpa = sherpa-onnx.packages.${system}.sherpa-onnx;
           sherpaRuntime = pkgs.symlinkJoin {
-            name = "vinput-sherpa-onnx-runtime";
+            name = "vinpst-sherpa-onnx-runtime";
             paths = [
               sherpa
               pkgs.onnxruntime
             ];
           };
           source = builtins.path {
-            name = "fcitx-vinput-rs-source";
+            name = "fcitx-vinpst-source";
             path = ./.;
             filter = path: type:
               let
@@ -54,7 +54,7 @@
               ]);
           };
           package = pkgs.rustPlatform.buildRustPackage {
-            pname = "fcitx-vinput-rs";
+            pname = "fcitx-vinpst";
             inherit version;
             src = source;
             cargoLock.lockFile = ./Cargo.lock;
@@ -90,55 +90,55 @@
             buildPhase = ''
               runHook preBuild
               cargo build --offline --frozen --release \
-                -p vinput-cli --features pipewire-backend,sherpa-onnx-backend \
-                -p vinput-daemon --features pipewire-backend,sherpa-onnx-backend \
-                -p vinput-gui
+                -p vinpst-cli --features pipewire-backend,sherpa-onnx-backend \
+                -p vinpst-daemon --features pipewire-backend,sherpa-onnx-backend \
+                -p vinpst-gui
               cmake -S cpp/fcitx5-addon -B build/fcitx-addon -G Ninja \
                 -DBUILD_TESTING=OFF \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_INSTALL_PREFIX="$out" \
                 -DCMAKE_INSTALL_LIBDIR=lib \
-                -DVINPUT_DAEMON_EXECUTABLE="$out/bin/vinput-daemon" \
-                -DVINPUT_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' \
-                -DVINPUT_FCITX_BRIDGE_ENABLE_TESTS=OFF \
-                -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-                -DVINPUT_FCITX_MODULE_INSTALL_DIR=lib/fcitx5 \
-                -DVINPUT_FCITX_ADDON_INSTALL_DIR=share/fcitx5/addon \
-                -DVINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR= \
-                -DVINPUT_SYSTEMD_USER_UNIT_DIR=lib/systemd/user
+                -DVINPST_DAEMON_EXECUTABLE="$out/bin/vinpst-daemon" \
+                -DVINPST_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' \
+                -DVINPST_FCITX_BRIDGE_ENABLE_TESTS=OFF \
+                -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+                -DVINPST_FCITX_MODULE_INSTALL_DIR=lib/fcitx5 \
+                -DVINPST_FCITX_ADDON_INSTALL_DIR=share/fcitx5/addon \
+                -DVINPST_FCITX_RUNTIME_BUILD_LOCALEDIR= \
+                -DVINPST_SYSTEMD_USER_UNIT_DIR=lib/systemd/user
               cmake --build build/fcitx-addon \
-                --target fcitx5_vinput_addon --parallel "$NIX_BUILD_CORES"
+                --target fcitx5_vinpst_addon --parallel "$NIX_BUILD_CORES"
               runHook postBuild
             '';
 
             installPhase = ''
               runHook preInstall
-              install -Dm755 target/release/vinput "$out/bin/vinput"
-              install -Dm755 target/release/vinput-daemon "$out/bin/vinput-daemon"
-              install -Dm755 target/release/vinput-gui "$out/bin/vinput-gui"
+              install -Dm755 target/release/vinpst "$out/bin/vinpst"
+              install -Dm755 target/release/vinpst-daemon "$out/bin/vinpst-daemon"
+              install -Dm755 target/release/vinpst-gui "$out/bin/vinpst-gui"
               cmake --install build/fcitx-addon
-              install -Dm644 data/vinput-gui.desktop \
-                "$out/share/applications/vinput-gui.desktop"
+              install -Dm644 data/vinpst-gui.desktop \
+                "$out/share/applications/vinpst-gui.desktop"
               for size in 16 22 24 32 48 64 128 256 512; do
                 install -Dm644 \
-                  "data/icons/hicolor/''${size}x''${size}/apps/vinput-gui.png" \
-                  "$out/share/icons/hicolor/''${size}x''${size}/apps/vinput-gui.png"
+                  "data/icons/hicolor/''${size}x''${size}/apps/vinpst-gui.png" \
+                  "$out/share/icons/hicolor/''${size}x''${size}/apps/vinpst-gui.png"
               done
               install -Dm644 data/default-config.json \
-                "$out/share/fcitx-vinput/default-config.json"
+                "$out/share/fcitx-vinpst/default-config.json"
               install -Dm644 data/vad/silero_vad.onnx \
-                "$out/share/fcitx-vinput/vad/silero_vad.onnx"
+                "$out/share/fcitx-vinpst/vad/silero_vad.onnx"
               install -Dm644 LICENSE \
-                "$out/share/licenses/fcitx-vinput-rs/LICENSE"
+                "$out/share/licenses/fcitx-vinpst/LICENSE"
               install -Dm644 data/vad/LICENSE \
-                "$out/share/licenses/fcitx-vinput-rs/silero-vad-LICENSE"
+                "$out/share/licenses/fcitx-vinpst/silero-vad-LICENSE"
               runHook postInstall
             '';
 
             postFixup = ''
-              wrapProgram "$out/bin/vinput" \
+              wrapProgram "$out/bin/vinpst" \
                 --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ sherpaRuntime ]}"
-              wrapProgram "$out/bin/vinput-daemon" \
+              wrapProgram "$out/bin/vinpst-daemon" \
                 --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ sherpaRuntime ]}"
             '';
 
@@ -146,15 +146,15 @@
 
             meta = {
               description = "Rust voice-input addon and management application for Fcitx 5";
-              homepage = "https://github.com/rijuyuezhu/fcitx-vinput-rs";
+              homepage = "https://github.com/rijuyuezhu/fcitx-vinpst";
               license = lib.licenses.gpl3Plus;
-              mainProgram = "vinput-gui";
+              mainProgram = "vinpst-gui";
               platforms = systems;
             };
           };
         in
         {
-          fcitx-vinput-rs = package;
+          fcitx-vinpst = package;
           default = package;
         }
       );
@@ -162,26 +162,26 @@
       apps = forAllSystems (
         system:
         let
-          package = self.packages.${system}.fcitx-vinput-rs;
+          package = self.packages.${system}.fcitx-vinpst;
         in
         {
           default = {
             type = "app";
-            program = "${package}/bin/vinput-gui";
+            program = "${package}/bin/vinpst-gui";
           };
           cli = {
             type = "app";
-            program = "${package}/bin/vinput";
+            program = "${package}/bin/vinpst";
           };
           daemon = {
             type = "app";
-            program = "${package}/bin/vinput-daemon";
+            program = "${package}/bin/vinpst-daemon";
           };
         }
       );
 
       checks = forAllSystems (system: {
-        package = self.packages.${system}.fcitx-vinput-rs;
+        package = self.packages.${system}.fcitx-vinpst;
       });
 
       devShells = forAllSystems (
@@ -191,7 +191,7 @@
         in
         {
           default = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.fcitx-vinput-rs ];
+            inputsFrom = [ self.packages.${system}.fcitx-vinpst ];
             packages = with pkgs; [
               cargo
               clippy

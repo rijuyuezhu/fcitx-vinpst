@@ -13,14 +13,14 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
-env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_RELOAD_OUT_DIR:-target/tmp/ime-fcitx-reload-live}"
+wav_path="${VINPST_LIVE_NATIVE_WAV:-}"
+env_file="${VINPST_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinpst/fcitx-vinpst.env}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_RELOAD_OUT_DIR:-target/tmp/ime-fcitx-reload-live}"
 recognition_dir="${out_dir}/recognition"
 
 if [[ -z "${wav_path}" || ! -f "${wav_path}" ]]; then
-  echo "set VINPUT_LIVE_NATIVE_WAV to a validated speech WAV" >&2
+  echo "set VINPST_LIVE_NATIVE_WAV to a validated speech WAV" >&2
   exit 2
 fi
 if [[ -f "${env_file}" ]]; then
@@ -95,9 +95,9 @@ if ! jq -e \
   exit 1
 fi
 
-VINPUT_LIVE_NATIVE_WAV="${wav_path}" \
-VINPUT_LIVE_NATIVE_MODES=normal \
-VINPUT_LIVE_NATIVE_OUT_DIR="${recognition_dir}" \
+VINPST_LIVE_NATIVE_WAV="${wav_path}" \
+VINPST_LIVE_NATIVE_MODES=normal \
+VINPST_LIVE_NATIVE_OUT_DIR="${recognition_dir}" \
   scripts/live/niri/run-ime-fcitx-native-live.sh
 
 jq -e 'select(.event == "summary" and .ok == true and .partial_count > 0 and (.commit | length) > 0)' \

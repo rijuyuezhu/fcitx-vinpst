@@ -6,13 +6,13 @@ Use this as the compact handoff for implementation work. It points to current so
 
 ## Mission
 
-Continue `fcitx-vinput-rs` from the usable CLI/daemon alpha, live-proven retained Fcitx frontend, broad deterministic release baseline, and packaged Rust management GUI baseline. Do not rebuild completed management, registry, native ASR, activation, frontend, or package transaction surfaces.
+Continue `fcitx-vinpst` from the usable CLI/daemon alpha, live-proven retained Fcitx frontend, broad deterministic release baseline, and packaged Rust management GUI baseline. Do not rebuild completed management, registry, native ASR, activation, frontend, or package transaction surfaces.
 
 The active priority is **M7: Rust management GUI**. Broaden resource-specific error taxonomy and resolve the remaining assistive-technology blocker: every blocking HTTP/D-Bus/filesystem/process action uses the named plain-thread task boundary, and complete enabled-control keyboard traversal/activation, clipboard, Fcitx5/Rime input, bilingual titles, and page shortcuts are live-proven on native Wayland and forced X11/Xwayland; the current Iced 0.14 dependency graph and upstream main branch still provide no AccessKit accessibility tree, so GTK4 remains a documented whole-view fallback rather than an in-progress switch. Open Config plus startup-notification Details/read-state are live-proven through isolated direct-argv and loopback fixtures. The Hotwords Browse path is live-proven through a private-session XDG FileChooser service, including UTF-8 URI selection, cancellation, current-folder/filter request semantics, draft-only mutation, and unchanged config evidence. Control save/reload, private config/backup permissions, relaunch, and external-conflict refusal are live-proven through a private daemon and isolated XDG roots. Extend live result-path proof to install/recovery panels and remaining resource mutation forms. Treat new packaging and unrelated desktop breadth as deferred expansion unless a regression, blocker, or explicit user request requires it.
 
 ## Repositories
 
-- Rust rewrite: `/workspace/fcitx-vinput-rs`
+- Rust rewrite: `/workspace/fcitx-vinpst`
 - Legacy reference: `/workspace/fcitx5-vinput`
 
 ## Required reading
@@ -41,7 +41,7 @@ Do not maintain or quote a parity percentage. Use the evidence stages in the aud
 ## Start-of-session checks
 
 ```sh
-cd /workspace/fcitx-vinput-rs
+cd /workspace/fcitx-vinpst
 git status --porcelain=v1 -b
 git log -8 --oneline --decorate
 ```

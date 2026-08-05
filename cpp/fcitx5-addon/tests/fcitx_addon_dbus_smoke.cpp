@@ -1,5 +1,5 @@
-#include "vinput_fcitx_bridge/fcitx_addon.h"
-#include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
+#include "vinpst_fcitx_bridge/fcitx_addon.h"
+#include "vinpst_fcitx_bridge/sd_bus_daemon_client.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -9,12 +9,12 @@
 #include <string_view>
 #include <thread>
 
-using vinput_fcitx_bridge::AppliedOutcome;
-using vinput_fcitx_bridge::BridgeOutcome;
-using vinput_fcitx_bridge::FcitxTriggerAction;
-using vinput_fcitx_bridge::FcitxVinputAddon;
-using vinput_fcitx_bridge::FrontendBridge;
-using vinput_fcitx_bridge::SdBusDaemonClient;
+using vinpst_fcitx_bridge::AppliedOutcome;
+using vinpst_fcitx_bridge::BridgeOutcome;
+using vinpst_fcitx_bridge::FcitxTriggerAction;
+using vinpst_fcitx_bridge::FcitxVinpstAddon;
+using vinpst_fcitx_bridge::FrontendBridge;
+using vinpst_fcitx_bridge::SdBusDaemonClient;
 
 namespace {
 
@@ -56,7 +56,7 @@ bool ExpectLastOutcome(BridgeOutcome::Kind kind, std::string_view text,
   return false;
 }
 
-bool ExpectIgnoredTrigger(FcitxVinputAddon *addon, FcitxTriggerAction action,
+bool ExpectIgnoredTrigger(FcitxVinpstAddon *addon, FcitxTriggerAction action,
                           std::string_view label) {
   const auto applied =
       addon->ApplyTriggerAction(nullptr, action, "ignored selected text");
@@ -71,7 +71,7 @@ bool ExpectIgnoredTrigger(FcitxVinputAddon *addon, FcitxTriggerAction action,
 
 } // namespace
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 
 AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
                                                 fcitx::InputContext *) {
@@ -92,10 +92,10 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
   return AppliedOutcome::None;
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge
 
 int main() {
-  FcitxVinputAddon addon(nullptr);
+  FcitxVinpstAddon addon(nullptr);
 
   std::string error;
   auto client = ConnectWithRetry(&error);
@@ -104,7 +104,7 @@ int main() {
     return 1;
   }
 
-  vinput_fcitx_bridge::SceneMenuController scene_controller;
+  vinpst_fcitx_bridge::SceneMenuController scene_controller;
   if (!client->RefreshSceneMenuController(&scene_controller, &error)) {
     std::cerr << "scene state failed: " << error << '\n';
     return 1;
@@ -126,9 +126,9 @@ int main() {
   }
 
   const auto expected_normal_text =
-      ExpectedText("VINPUT_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
+      ExpectedText("VINPST_DBUS_SMOKE_EXPECTED_NORMAL", "mock recognition result");
   const char *expected_takeover_env =
-      std::getenv("VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER");
+      std::getenv("VINPST_DBUS_SMOKE_EXPECTED_TAKEOVER");
   const auto expected_takeover_text = expected_takeover_env == nullptr
                                           ? expected_normal_text
                                           : std::string(expected_takeover_env);
@@ -178,7 +178,7 @@ int main() {
   }
 
   const auto expected_command_text = ExpectedText(
-      "VINPUT_DBUS_SMOKE_EXPECTED_COMMAND", "mock command result for: selected text");
+      "VINPST_DBUS_SMOKE_EXPECTED_COMMAND", "mock command result for: selected text");
   const auto command_stop =
       addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopCommand);
   if (!ExpectApplied(command_stop, AppliedOutcome::Commit, "command stop") ||

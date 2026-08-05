@@ -13,8 +13,8 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-out_dir="${VINPUT_LIVE_MENU_SELECTION_OUT_DIR:-target/tmp/ime-fcitx-menu-selection-live}"
-trigger_key="${VINPUT_LIVE_SCENE_MENU_KEY:-F7}"
+out_dir="${VINPST_LIVE_MENU_SELECTION_OUT_DIR:-target/tmp/ime-fcitx-menu-selection-live}"
+trigger_key="${VINPST_LIVE_SCENE_MENU_KEY:-F7}"
 probe="scripts/live/niri/probes/fcitx-live-menu-selection-probe.py"
 
 for command in python3 fcitx5-remote gdbus; do
@@ -44,11 +44,11 @@ then
 fi
 
 status="$(gdbus call --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput \
-  --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+  --dest org.fcitx.Vinpst \
+  --object-path /org/fcitx/Vinpst \
+  --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null || true)"
 if [[ "${status}" != *"'idle'"* ]]; then
-  echo "org.fcitx.Vinput must be idle before scene-menu selection: ${status}" >&2
+  echo "org.fcitx.Vinpst must be idle before scene-menu selection: ${status}" >&2
   exit 1
 fi
 

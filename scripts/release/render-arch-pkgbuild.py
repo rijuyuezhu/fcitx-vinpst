@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--install-script",
         type=Path,
-        default=REPOSITORY_ROOT / "packaging/arch/fcitx-vinput-rs.install",
+        default=REPOSITORY_ROOT / "packaging/arch/fcitx-vinpst.install",
     )
     return parser.parse_args()
 
@@ -53,28 +53,28 @@ def main() -> None:
     args = parse_args()
     runtime = load_runtime_bundle(args.runtime_bundles, args.runtime_bundle)
     replacements = {
-        "@VINPUT_PKGVER@": args.version,
-        "@VINPUT_PKGREL@": args.pkgrel,
-        "@VINPUT_SOURCE_URL@": args.source_url,
-        "@VINPUT_SOURCE_SHA256@": args.source_sha256,
-        "@VINPUT_SOURCE_DIR@": args.source_dir,
-        "@VINPUT_PACKAGE_ARCH@": runtime["package_arch"],
-        "@VINPUT_RUST_TARGET@": runtime["rust_target"],
-        "@VINPUT_SHERPA_ONNX_VERSION@": runtime["sherpa_onnx_version"],
-        "@VINPUT_SHERPA_ONNX_ARCHIVE@": runtime["sherpa_onnx_archive"],
-        "@VINPUT_SHERPA_ONNX_ARCHIVE_ROOT@": runtime["sherpa_onnx_archive_root"],
-        "@VINPUT_SHERPA_ONNX_SHA256@": runtime["sherpa_onnx_sha256"],
-        "@VINPUT_SHERPA_ONNX_LICENSE_SHA256@": runtime["sherpa_onnx_license_sha256"],
-        "@VINPUT_ONNXRUNTIME_VERSION@": runtime["onnxruntime_version"],
-        "@VINPUT_ONNXRUNTIME_LICENSE_SHA256@": runtime["onnxruntime_license_sha256"],
+        "@VINPST_PKGVER@": args.version,
+        "@VINPST_PKGREL@": args.pkgrel,
+        "@VINPST_SOURCE_URL@": args.source_url,
+        "@VINPST_SOURCE_SHA256@": args.source_sha256,
+        "@VINPST_SOURCE_DIR@": args.source_dir,
+        "@VINPST_PACKAGE_ARCH@": runtime["package_arch"],
+        "@VINPST_RUST_TARGET@": runtime["rust_target"],
+        "@VINPST_SHERPA_ONNX_VERSION@": runtime["sherpa_onnx_version"],
+        "@VINPST_SHERPA_ONNX_ARCHIVE@": runtime["sherpa_onnx_archive"],
+        "@VINPST_SHERPA_ONNX_ARCHIVE_ROOT@": runtime["sherpa_onnx_archive_root"],
+        "@VINPST_SHERPA_ONNX_SHA256@": runtime["sherpa_onnx_sha256"],
+        "@VINPST_SHERPA_ONNX_LICENSE_SHA256@": runtime["sherpa_onnx_license_sha256"],
+        "@VINPST_ONNXRUNTIME_VERSION@": runtime["onnxruntime_version"],
+        "@VINPST_ONNXRUNTIME_LICENSE_SHA256@": runtime["onnxruntime_license_sha256"],
     }
     rendered = args.template.read_text(encoding="utf-8")
     for placeholder, value in replacements.items():
         if placeholder not in rendered:
             raise SystemExit(f"missing template placeholder: {placeholder}")
         rendered = rendered.replace(placeholder, value)
-    if "@VINPUT_" in rendered:
-        raise SystemExit("unresolved Vinput PKGBUILD placeholder")
+    if "@VINPST_" in rendered:
+        raise SystemExit("unresolved Vinpst PKGBUILD placeholder")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(rendered, encoding="utf-8")
     install_output = args.output.parent / args.install_script.name

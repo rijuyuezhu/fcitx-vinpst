@@ -1,13 +1,13 @@
-#include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/fcitx_i18n.h"
 
 #include <cassert>
 
 int main() {
-  using vinput_fcitx_bridge::FrontendCountText;
-  using vinput_fcitx_bridge::FrontendPageText;
-  using vinput_fcitx_bridge::FrontendText;
-  using vinput_fcitx_bridge::FrontendValueText;
-  using vinput_fcitx_bridge::InitFrontendI18n;
+  using vinpst_fcitx_bridge::FrontendCountText;
+  using vinpst_fcitx_bridge::FrontendPageText;
+  using vinpst_fcitx_bridge::FrontendText;
+  using vinpst_fcitx_bridge::FrontendValueText;
+  using vinpst_fcitx_bridge::InitFrontendI18n;
 
   InitFrontendI18n();
   assert(FrontendText("Scenes /filter") == "场景 /过滤");

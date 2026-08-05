@@ -1,17 +1,14 @@
-Package: fcitx-vinput-rs
-Version: @VINPUT_VERSION@-@VINPUT_RELEASE@
+Package: fcitx-vinpst
+Version: @VINPST_VERSION@-@VINPST_RELEASE@
 Section: utils
 Priority: optional
-Architecture: @VINPUT_ARCHITECTURE@
-Maintainer: Vinput Maintainers <maintainers@example.invalid>
-Homepage: https://github.com/rijuyuezhu/fcitx-vinput-rs
+Architecture: @VINPST_ARCHITECTURE@
+Maintainer: Vinpst Maintainers <maintainers@example.invalid>
+Homepage: https://github.com/rijuyuezhu/fcitx-vinpst
 Depends: bash, coreutils, dbus-user-session, fcitx5, libfontconfig1, libglib2.0-bin, libpipewire-0.3-0, libsystemd0, libwayland-client0, libx11-6, libxkbcommon0, procps, systemd, util-linux-extra
 Recommends: wireplumber
-Provides: fcitx5-vinput
-Conflicts: fcitx5-vinput
-Replaces: fcitx5-vinput
 Description: Rust voice-input addon and daemon for Fcitx 5
- A Rust rewrite of fcitx5-vinput containing the command-line management tool,
+ The package contains the command-line management tool,
  D-Bus daemon, Rust/Iced management GUI, thin Fcitx 5 addon, activation
  metadata, translations, and checksum-pinned private native ASR runtime
  libraries.

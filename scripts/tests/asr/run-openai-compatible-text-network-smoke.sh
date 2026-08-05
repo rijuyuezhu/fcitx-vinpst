@@ -26,7 +26,7 @@ origin_fixture="scripts/fixtures/openai-compatible-text-provider-fixture.py"
 proxy_fixture="scripts/fixtures/http-chat-proxy-fixture.py"
 connect_proxy_fixture="scripts/fixtures/https-connect-proxy-fixture.py"
 intercept_proxy_fixture="scripts/fixtures/https-intercept-proxy-fixture.py"
-cli="target/debug/vinput"
+cli="target/debug/vinpst"
 out_dir="target/tmp/openai-compatible-text-network-smoke"
 config_file="${out_dir}/config.json"
 api_key="text-network-secret-marker"
@@ -58,7 +58,7 @@ rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
 ruff check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}" "${intercept_proxy_fixture}"
 ruff format --check "${origin_fixture}" "${proxy_fixture}" "${connect_proxy_fixture}" "${intercept_proxy_fixture}"
-cargo build -q -p vinput-cli --bin vinput
+cargo build -q -p vinpst-cli --bin vinpst
 
 write_config() {
   local base_url="$1"

@@ -15,12 +15,12 @@ cd "${repo_root}"
 
 stage_root="${repo_root}/target/tmp/daemon-default-config-smoke"
 config_home="${stage_root}/config"
-config_path="${config_home}/fcitx-vinput/config.json"
+config_path="${config_home}/fcitx-vinpst/config.json"
 daemon_log="${stage_root}/daemon.log"
 
 rm -rf "${stage_root}"
 install -Dm644 data/default-config.json "${config_path}"
-cargo build -q -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
 
 timeout 20s dbus-run-session -- bash -euo pipefail -c '
   daemon_path="$1"
@@ -37,30 +37,30 @@ timeout 20s dbus-run-session -- bash -euo pipefail -c '
 
   for _ in $(seq 1 100); do
     if gdbus call --session \
-      --dest org.fcitx.Vinput \
-      --object-path /org/fcitx/Vinput \
-      --method org.fcitx.Vinput.Service.GetStatus >/dev/null 2>&1; then
+      --dest org.fcitx.Vinpst \
+      --object-path /org/fcitx/Vinpst \
+      --method org.fcitx.Vinpst.Service.GetStatus >/dev/null 2>&1; then
       break
     fi
     sleep 0.05
   done
 
   status=$(gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method org.fcitx.Vinput.Service.GetStatus)
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method org.fcitx.Vinpst.Service.GetStatus)
   test "${status}" = "('\''idle'\'',)"
 
   persisted=$(gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method org.fcitx.Vinput.Service.SetActiveScene \
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method org.fcitx.Vinpst.Service.SetActiveScene \
     __command__)
   test "${persisted}" = "(true,)"
-' bash "${repo_root}/target/debug/vinput-daemon" "${config_home}" "${daemon_log}"
+' bash "${repo_root}/target/debug/vinpst-daemon" "${config_home}" "${daemon_log}"
 
 jq -e '.scenes.active_scene == "__command__"' "${config_path}" >/dev/null
-summary="$({ XDG_CONFIG_HOME="${config_home}" target/debug/vinput-daemon print-config; })"
+summary="$({ XDG_CONFIG_HOME="${config_home}" target/debug/vinpst-daemon print-config; })"
 test "$(jq -r '.active_scene' <<<"${summary}")" = "__command__"
 
 echo "daemon default config discovery smoke passed"

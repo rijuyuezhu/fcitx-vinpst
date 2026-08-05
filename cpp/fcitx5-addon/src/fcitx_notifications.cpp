@@ -1,6 +1,6 @@
-#include "vinput_fcitx_bridge/fcitx_notifications.h"
+#include "vinpst_fcitx_bridge/fcitx_notifications.h"
 
-#include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/fcitx_i18n.h"
 
 #include <fcitx/addonmanager.h>
 #include <fcitx/instance.h>
@@ -8,12 +8,12 @@
 
 #include <vector>
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 
 FrontendNotification BuildFrontendNotification(FrontendNotificationKind kind,
                                                std::string_view body) {
   FrontendNotification notification{
-      .app_name = "fcitx5-vinput",
+      .app_name = "fcitx5-vinpst",
       .icon = "dialog-information",
       .summary = FrontendText("Voice Input"),
       .body = std::string(body),
@@ -51,11 +51,11 @@ bool SendFrontendNotification(fcitx::Instance *instance,
     }
   }
   if (fallback_stream != nullptr) {
-    std::fprintf(fallback_stream, "vinput: %s: %s\n", notification.summary.c_str(),
+    std::fprintf(fallback_stream, "vinpst: %s: %s\n", notification.summary.c_str(),
                  notification.body.c_str());
     std::fflush(fallback_stream);
   }
   return false;
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

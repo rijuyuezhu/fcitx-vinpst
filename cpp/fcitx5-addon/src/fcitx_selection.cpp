@@ -1,11 +1,11 @@
-#include "vinput_fcitx_bridge/fcitx_selection.h"
+#include "vinpst_fcitx_bridge/fcitx_selection.h"
 
 #include <fcitx/surroundingtext.h>
 
 #include <algorithm>
 #include <cstdlib>
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 namespace {
 
 std::string
@@ -42,4 +42,4 @@ SelectedTextWithPrimaryFallback(const fcitx::SurroundingText &surrounding_text,
   return std::string(primary_selection_text);
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

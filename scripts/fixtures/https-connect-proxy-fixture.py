@@ -144,7 +144,7 @@ class ConnectProxyHandler(socketserver.BaseRequestHandler):
         try:
             request.sendall(
                 b"HTTP/1.1 200 Connection Established\r\n"
-                b"Proxy-Agent: vinput-fixture\r\n\r\n"
+                b"Proxy-Agent: vinpst-fixture\r\n\r\n"
             )
             buffered_tls = bytes(received[header_end:])
             if buffered_tls:

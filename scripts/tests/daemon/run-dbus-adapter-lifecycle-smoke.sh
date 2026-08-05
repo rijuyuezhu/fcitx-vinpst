@@ -13,7 +13,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-stage_dir="target/tmp/vinput-dbus-adapter-lifecycle-smoke"
+stage_dir="target/tmp/vinpst-dbus-adapter-lifecycle-smoke"
 config_path="${repo_root}/${stage_dir}/config.json"
 wav_path="${repo_root}/${stage_dir}/demo.wav"
 log_file="${repo_root}/${stage_dir}/daemon.log"
@@ -21,14 +21,14 @@ rm -rf "${stage_dir}"
 mkdir -p "${stage_dir}"
 install -Dm644 data/e2e-adapter-lifecycle-config.json "${config_path}"
 python3 scripts/fixtures/write-demo-wav.py "${wav_path}"
-cargo build -q -p vinput-daemon -p vinput-cli
+cargo build -q -p vinpst-daemon -p vinpst-cli
 
 timeout 20s dbus-run-session -- bash -euo pipefail <<INNER
 config_path="${config_path}"
 wav_path="${wav_path}"
 log_file="${log_file}"
-daemon_bin="${repo_root}/target/debug/vinput-daemon"
-cli_bin="${repo_root}/target/debug/vinput"
+daemon_bin="${repo_root}/target/debug/vinpst-daemon"
+cli_bin="${repo_root}/target/debug/vinpst"
 stage_dir="${repo_root}/${stage_dir}"
 
 "\${daemon_bin}" --dbus --configured-backends --config "\${config_path}" \

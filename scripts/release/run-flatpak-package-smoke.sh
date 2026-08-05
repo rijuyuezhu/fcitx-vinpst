@@ -13,7 +13,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/packaging" ]]; do
 done
 cd "${repo_root}"
 
-image="${VINPUT_FLATPAK_BUILDER_IMAGE:-fcitx-vinput-rs-flatpak-builder:local}"
+image="${VINPST_FLATPAK_BUILDER_IMAGE:-fcitx-vinpst-flatpak-builder:local}"
 for command in curl docker flock jq python3 sha256sum; do
   command -v "${command}" >/dev/null || {
     echo "missing Flatpak package smoke host tool: ${command}" >&2
@@ -23,7 +23,7 @@ done
 
 work_dir="${repo_root}/target/tmp/flatpak-package-smoke"
 lock_file="${repo_root}/target/tmp/flatpak-package-smoke.lock"
-source_archive="${work_dir}/fcitx-vinput-rs-source.tar.gz"
+source_archive="${work_dir}/fcitx-vinpst-source.tar.gz"
 runtime_source_dir="${work_dir}/runtime-sources"
 cargo_source_dir="${work_dir}/cargo-sources"
 container_id_file="${work_dir}/builder.cid"
@@ -63,7 +63,7 @@ rm -rf \
   "${work_dir}/build-1" \
   "${work_dir}/state" \
   "${work_dir:?}/home" \
-  "${work_dir}/fcitx-vinput-rs.flatpak" \
+  "${work_dir}/fcitx-vinpst.flatpak" \
   "${work_dir}/summary.json" \
   "${work_dir}/flathub.flatpakrepo" \
   "${container_id_file}"
@@ -163,8 +163,8 @@ cargo_cache_dir="${CARGO_HOME:-${HOME}/.cargo}/registry/cache"
 cargo_prefetch_args=(
   --sources "${repo_root}/packaging/flatpak/cargo-sources.json"
   --output-dir "${cargo_source_dir}"
-  --jobs "${VINPUT_FLATPAK_CARGO_DOWNLOAD_JOBS:-16}"
-  --attempts "${VINPUT_FLATPAK_CARGO_DOWNLOAD_ATTEMPTS:-5}"
+  --jobs "${VINPST_FLATPAK_CARGO_DOWNLOAD_JOBS:-16}"
+  --attempts "${VINPST_FLATPAK_CARGO_DOWNLOAD_ATTEMPTS:-5}"
 )
 if [[ -d "${cargo_cache_dir}" && ! -L "${cargo_cache_dir}" ]]; then
   cargo_prefetch_args+=(--cache-dir "${cargo_cache_dir}")
@@ -177,7 +177,7 @@ curl --retry 10 --retry-all-errors --connect-timeout 30 --max-time 300 \
   -o "${work_dir}/flathub.flatpakrepo"
 
 version="$(cargo metadata --no-deps --format-version 1 \
-  | jq -r '.packages[] | select(.name == "vinput-cli") | .version')"
+  | jq -r '.packages[] | select(.name == "vinpst-cli") | .version')"
 scripts/release/create-source-archive.sh "${source_archive}" "${version}" >/dev/null
 source_sha256="$(sha256sum "${source_archive}" | awk '{print $1}')"
 scripts/release/render-flatpak-manifest.py \
@@ -188,12 +188,12 @@ scripts/release/render-flatpak-manifest.py \
   --revision 1 \
   --output "${work_dir}/manifest.json"
 
-if [[ -n "${VINPUT_FLATPAK_BUILDER_IMAGE:-}" ]]; then
+if [[ -n "${VINPST_FLATPAK_BUILDER_IMAGE:-}" ]]; then
   docker pull "${image}"
 else
   docker build \
-    --build-arg "APT_MIRROR=${VINPUT_FLATPAK_APT_MIRROR:-}" \
-    --build-arg "APT_SECURITY_MIRROR=${VINPUT_FLATPAK_APT_SECURITY_MIRROR:-}" \
+    --build-arg "APT_MIRROR=${VINPST_FLATPAK_APT_MIRROR:-}" \
+    --build-arg "APT_SECURITY_MIRROR=${VINPST_FLATPAK_APT_SECURITY_MIRROR:-}" \
     --tag "${image}" \
     --file packaging/flatpak/Dockerfile \
     packaging/flatpak
@@ -201,11 +201,11 @@ fi
 docker run --rm --privileged \
   --cidfile "${container_id_file}" \
   --security-opt label=disable \
-  --env "VINPUT_FLATPAK_REMOTE_URL=${VINPUT_FLATPAK_REMOTE_URL:-}" \
-  --env "VINPUT_FLATPAK_RETRY_ATTEMPTS=${VINPUT_FLATPAK_RETRY_ATTEMPTS:-5}" \
-  --env "VINPUT_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS=${VINPUT_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS:-900}" \
-  --env "VINPUT_FLATPAK_BUILD_TIMEOUT_SECONDS=${VINPUT_FLATPAK_BUILD_TIMEOUT_SECONDS:-3600}" \
-  --env "VINPUT_FLATPAK_TRANSACTION_TIMEOUT_SECONDS=${VINPUT_FLATPAK_TRANSACTION_TIMEOUT_SECONDS:-600}" \
+  --env "VINPST_FLATPAK_REMOTE_URL=${VINPST_FLATPAK_REMOTE_URL:-}" \
+  --env "VINPST_FLATPAK_RETRY_ATTEMPTS=${VINPST_FLATPAK_RETRY_ATTEMPTS:-5}" \
+  --env "VINPST_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS=${VINPST_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS:-900}" \
+  --env "VINPST_FLATPAK_BUILD_TIMEOUT_SECONDS=${VINPST_FLATPAK_BUILD_TIMEOUT_SECONDS:-3600}" \
+  --env "VINPST_FLATPAK_TRANSACTION_TIMEOUT_SECONDS=${VINPST_FLATPAK_TRANSACTION_TIMEOUT_SECONDS:-600}" \
   --volume "${repo_root}:/workspace" \
   --workdir /workspace \
   --entrypoint /bin/bash \
@@ -217,7 +217,7 @@ docker run --rm --privileged \
 cleanup
 trap - EXIT
 
-test -s "${work_dir}/fcitx-vinput-rs.flatpak"
+test -s "${work_dir}/fcitx-vinpst.flatpak"
 test -s "${work_dir}/summary.json"
 printf 'Flatpak package smoke completed: %s\n' \
-  "${work_dir}/fcitx-vinput-rs.flatpak"
+  "${work_dir}/fcitx-vinpst.flatpak"

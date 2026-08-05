@@ -13,7 +13,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-mode="${1:-${VINPUT_LIVE_TOOLKIT_MODE:-normal}}"
+mode="${1:-${VINPST_LIVE_TOOLKIT_MODE:-normal}}"
 case "${mode}" in
 normal | command) ;;
 *)
@@ -22,25 +22,25 @@ normal | command) ;;
   ;;
 esac
 
-out_dir="${VINPUT_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-gtk4-native-live}"
+out_dir="${VINPST_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-gtk4-native-live}"
 binary="${out_dir}/gtk4-live-toolkit-probe"
 log="${out_dir}/${mode}.jsonl"
-wav="${VINPUT_LIVE_TOOLKIT_WAV:-}"
-playback_target="${VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
-auto_trigger="${VINPUT_LIVE_TOOLKIT_AUTO_TRIGGER:-0}"
-expected_cycles="${VINPUT_TOOLKIT_EXPECTED_CYCLES:-1}"
-timeout_seconds="${VINPUT_TOOLKIT_TIMEOUT_SECONDS:-}"
-uinput_sender="${VINPUT_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
+wav="${VINPST_LIVE_TOOLKIT_WAV:-}"
+playback_target="${VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
+auto_trigger="${VINPST_LIVE_TOOLKIT_AUTO_TRIGGER:-0}"
+expected_cycles="${VINPST_TOOLKIT_EXPECTED_CYCLES:-1}"
+timeout_seconds="${VINPST_TOOLKIT_TIMEOUT_SECONDS:-}"
+uinput_sender="${VINPST_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
 playback_done_prefix="${out_dir}/${mode}.playback-done"
 trigger_armed_prefix="${out_dir}/${mode}.trigger-armed"
 uinput_log="${out_dir}/${mode}.uinput.jsonl"
 trigger_log="${out_dir}/${mode}.trigger.jsonl"
 focus_log="${out_dir}/${mode}.focus.json"
-window_title="fcitx-vinput GTK4 live probe"
+window_title="fcitx-vinpst GTK4 live probe"
 
 if [[ ! "${expected_cycles}" =~ ^[0-9]+$ ||
   "${expected_cycles}" -lt 1 || "${expected_cycles}" -gt 20 ]]; then
-  echo "VINPUT_TOOLKIT_EXPECTED_CYCLES must be an integer from 1 to 20" >&2
+  echo "VINPST_TOOLKIT_EXPECTED_CYCLES must be an integer from 1 to 20" >&2
   exit 2
 fi
 if [[ -z "${timeout_seconds}" ]]; then
@@ -51,7 +51,7 @@ if [[ -z "${timeout_seconds}" ]]; then
 fi
 if [[ ! "${timeout_seconds}" =~ ^[0-9]+$ ||
   "${timeout_seconds}" -lt 1 || "${timeout_seconds}" -gt 3600 ]]; then
-  echo "VINPUT_TOOLKIT_TIMEOUT_SECONDS must be an integer from 1 to 3600" >&2
+  echo "VINPST_TOOLKIT_TIMEOUT_SECONDS must be an integer from 1 to 3600" >&2
   exit 2
 fi
 
@@ -90,18 +90,18 @@ if [[ -n "${wav}" ]]; then
     exit 1
   }
   command -v pw-play >/dev/null 2>&1 || {
-    echo "pw-play is required when VINPUT_LIVE_TOOLKIT_WAV is set" >&2
+    echo "pw-play is required when VINPST_LIVE_TOOLKIT_WAV is set" >&2
     exit 1
   }
   command -v gdbus >/dev/null 2>&1 || {
-    echo "gdbus is required when VINPUT_LIVE_TOOLKIT_WAV is set" >&2
+    echo "gdbus is required when VINPST_LIVE_TOOLKIT_WAV is set" >&2
     exit 1
   }
 fi
 if [[ "${auto_trigger}" != 0 ]]; then
   rm -f "${uinput_log}" "${trigger_log}" "${focus_log}"
   if [[ -z "${wav}" ]]; then
-    echo "automatic GTK4 triggering requires VINPUT_LIVE_TOOLKIT_WAV" >&2
+    echo "automatic GTK4 triggering requires VINPST_LIVE_TOOLKIT_WAV" >&2
     exit 2
   fi
   command -v python3 >/dev/null 2>&1 || {
@@ -180,9 +180,9 @@ if [[ -n "${wav}" ]]; then
       if [[ "${cycle}" -gt 1 ]]; then
         idle_seen=0
         for _ in $(seq 1 300); do
-          status="$(gdbus call --session --dest org.fcitx.Vinput \
-            --object-path /org/fcitx/Vinput \
-            --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+          status="$(gdbus call --session --dest org.fcitx.Vinpst \
+            --object-path /org/fcitx/Vinpst \
+            --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null || true)"
           if [[ "${status}" == *"idle"* ]]; then
             idle_seen=1
             break
@@ -197,9 +197,9 @@ if [[ -n "${wav}" ]]; then
 
       recording_seen=0
       for _ in $(seq 1 300); do
-        status="$(gdbus call --session --dest org.fcitx.Vinput \
-          --object-path /org/fcitx/Vinput \
-          --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+        status="$(gdbus call --session --dest org.fcitx.Vinpst \
+          --object-path /org/fcitx/Vinpst \
+          --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null || true)"
         if [[ "${status}" == *"recording"* ]]; then
           recording_seen=1
           break
@@ -228,9 +228,9 @@ if [[ -n "${wav}" ]]; then
 fi
 
 set +e
-VINPUT_TOOLKIT_EXTERNAL_WINDOW_FOCUS="${auto_trigger}" \
-VINPUT_TOOLKIT_EXPECTED_CYCLES="${expected_cycles}" \
-VINPUT_TOOLKIT_TIMEOUT_SECONDS="${timeout_seconds}" \
+VINPST_TOOLKIT_EXTERNAL_WINDOW_FOCUS="${auto_trigger}" \
+VINPST_TOOLKIT_EXPECTED_CYCLES="${expected_cycles}" \
+VINPST_TOOLKIT_TIMEOUT_SECONDS="${timeout_seconds}" \
   GTK_IM_MODULE=fcitx "${binary}" "${mode}" > >(tee "${log}") &
 probe_pid=$!
 if [[ "${auto_trigger}" != 0 ]]; then
@@ -300,9 +300,9 @@ if [[ "${auto_trigger}" != 0 ]]; then
         fi
       fi
 
-      daemon_state="$(gdbus call --session --dest org.fcitx.Vinput \
-        --object-path /org/fcitx/Vinput \
-        --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+      daemon_state="$(gdbus call --session --dest org.fcitx.Vinpst \
+        --object-path /org/fcitx/Vinpst \
+        --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null || true)"
       if [[ "${daemon_state}" != *"idle"* ]]; then
         echo "daemon was not idle immediately before GTK4 cycle ${cycle}" >&2
         exit 1

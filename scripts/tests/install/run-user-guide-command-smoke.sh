@@ -5,9 +5,9 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../../.." && pwd)"
 cd "${repo_root}"
 
-cargo build -q -p vinput-cli -p vinput-daemon
+cargo build -q -p vinpst-cli -p vinpst-daemon
 
-root="${VINPUT_USER_GUIDE_SMOKE_DIR:-target/tmp/user-guide-command-smoke}"
+root="${VINPST_USER_GUIDE_SMOKE_DIR:-target/tmp/user-guide-command-smoke}"
 rm -rf "${root}"
 mkdir -p "${root}/home"
 
@@ -16,10 +16,10 @@ export XDG_CONFIG_HOME="${repo_root}/${root}/config"
 export XDG_DATA_HOME="${repo_root}/${root}/data"
 export XDG_CACHE_HOME="${repo_root}/${root}/cache"
 
-cli="${repo_root}/target/debug/vinput"
-daemon="${repo_root}/target/debug/vinput-daemon"
-config="${XDG_CONFIG_HOME}/fcitx-vinput/config.json"
-registry="${repo_root}/crates/vinput-registry/tests/fixtures/live-models-sensevoice.json"
+cli="${repo_root}/target/debug/vinpst"
+daemon="${repo_root}/target/debug/vinpst-daemon"
+config="${XDG_CONFIG_HOME}/fcitx-vinpst/config.json"
+registry="${repo_root}/crates/vinpst-registry/tests/fixtures/live-models-sensevoice.json"
 model_id=onnx-sv-zh-int8-off
 
 "${cli}" init --dry-run --json >"${root}/init-dry-run.json"
@@ -52,8 +52,8 @@ jq -e --arg id "${model_id}" '
 ' "${root}/models.json" >/dev/null
 
 "${cli}" model install "${model_id}" \
-  --registry "${registry}" --model-root "${XDG_DATA_HOME}/fcitx-vinput/models" \
-  --staging-root "${XDG_CACHE_HOME}/fcitx-vinput/model-install" \
+  --registry "${registry}" --model-root "${XDG_DATA_HOME}/fcitx-vinpst/models" \
+  --staging-root "${XDG_CACHE_HOME}/fcitx-vinpst/model-install" \
   --dry-run --json >"${root}/model-install.json"
 jq -e --arg id "${model_id}" '
   .ok == true and .dry_run == true and
@@ -62,7 +62,7 @@ jq -e --arg id "${model_id}" '
 
 "${cli}" model use "${model_id}" \
   --registry "${registry}" --config "${config}" \
-  --model-root "${XDG_DATA_HOME}/fcitx-vinput/models" \
+  --model-root "${XDG_DATA_HOME}/fcitx-vinpst/models" \
   --dry-run --json >"${root}/model-use.json"
 jq -e '
   .ok == true and .dry_run == true and
@@ -87,13 +87,13 @@ jq -e '
 
 "${cli}" activation-service \
   --daemon "${daemon}" --config "${config}" --configured-backends \
-  --audio-backend pipewire --output "${root}/org.fcitx.Vinput.service"
-grep -qx 'Name=org.fcitx.Vinput' "${root}/org.fcitx.Vinput.service"
-grep -Fq "Exec=${daemon} --dbus" "${root}/org.fcitx.Vinput.service"
-grep -Fq -- "--configured-backends" "${root}/org.fcitx.Vinput.service"
-grep -Fq -- "--config ${config}" "${root}/org.fcitx.Vinput.service"
-grep -Fq -- "--audio-backend pipewire" "${root}/org.fcitx.Vinput.service"
-grep -Fq -- "--exit-when-executable-replaced" "${root}/org.fcitx.Vinput.service"
+  --audio-backend pipewire --output "${root}/org.fcitx.Vinpst.service"
+grep -qx 'Name=org.fcitx.Vinpst' "${root}/org.fcitx.Vinpst.service"
+grep -Fq "Exec=${daemon} --dbus" "${root}/org.fcitx.Vinpst.service"
+grep -Fq -- "--configured-backends" "${root}/org.fcitx.Vinpst.service"
+grep -Fq -- "--config ${config}" "${root}/org.fcitx.Vinpst.service"
+grep -Fq -- "--audio-backend pipewire" "${root}/org.fcitx.Vinpst.service"
+grep -Fq -- "--exit-when-executable-replaced" "${root}/org.fcitx.Vinpst.service"
 
 "${cli}" daemon status --dry-run --json >"${root}/daemon-status.json"
 jq -e '.ok == true and .dry_run == true and .will_call_dbus == false' \

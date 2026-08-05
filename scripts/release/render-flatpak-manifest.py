@@ -22,8 +22,8 @@ CRATE_URL_PATTERN = re.compile(
     r"^https://static\.crates\.io/crates/[A-Za-z0-9_+.-]+/"
     r"(?P<filename>[A-Za-z0-9_+.-]+\.crate)$"
 )
-APP_ID = "org.fcitx.Fcitx5.Addon.Vinput"
-PREFIX = "/app/addons/Vinput"
+APP_ID = "org.fcitx.Fcitx5.Addon.Vinpst"
+PREFIX = "/app/addons/Vinpst"
 
 
 def parse_args() -> argparse.Namespace:
@@ -266,8 +266,8 @@ def runtime_module(
         "build-commands": [
             f"install -Dm755 lib/libsherpa-onnx-c-api.so {PREFIX}/lib/libsherpa-onnx-c-api.so",
             f"install -Dm755 lib/libonnxruntime.so {PREFIX}/lib/libonnxruntime.so",
-            f"install -Dm644 sherpa-onnx-LICENSE {PREFIX}/share/licenses/fcitx-vinput-rs/sherpa-onnx-LICENSE",
-            f"install -Dm644 onnxruntime-LICENSE {PREFIX}/share/licenses/fcitx-vinput-rs/onnxruntime-LICENSE",
+            f"install -Dm644 sherpa-onnx-LICENSE {PREFIX}/share/licenses/fcitx-vinpst/sherpa-onnx-LICENSE",
+            f"install -Dm644 onnxruntime-LICENSE {PREFIX}/share/licenses/fcitx-vinpst/onnxruntime-LICENSE",
         ],
         "sources": sources,
     }
@@ -277,40 +277,40 @@ def product_build_commands(revision: str) -> list[str]:
     return [
         (
             "cargo build --frozen --release "
-            "-p vinput-cli --features pipewire-backend,sherpa-onnx-backend "
-            "-p vinput-daemon --features pipewire-backend,sherpa-onnx-backend "
-            "-p vinput-gui"
+            "-p vinpst-cli --features pipewire-backend,sherpa-onnx-backend "
+            "-p vinpst-daemon --features pipewire-backend,sherpa-onnx-backend "
+            "-p vinpst-gui"
         ),
         (
             "cmake -S cpp/fcitx5-addon -B build/fcitx-addon -G Ninja "
             "-DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release "
             f"-DCMAKE_INSTALL_PREFIX={PREFIX} -DCMAKE_INSTALL_LIBDIR=lib "
-            f"-DVINPUT_DAEMON_EXECUTABLE={PREFIX}/bin/vinput-daemon "
-            "-DVINPUT_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' "
-            "-DVINPUT_FCITX_BRIDGE_ENABLE_TESTS=OFF "
-            "-DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON "
-            "-DVINPUT_FCITX_MODULE_INSTALL_DIR=lib/fcitx5 "
-            "-DVINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR='' "
-            "-DVINPUT_SYSTEMD_USER_UNIT_DIR=share/systemd/user"
+            f"-DVINPST_DAEMON_EXECUTABLE={PREFIX}/bin/vinpst-daemon "
+            "-DVINPST_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' "
+            "-DVINPST_FCITX_BRIDGE_ENABLE_TESTS=OFF "
+            "-DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON "
+            "-DVINPST_FCITX_MODULE_INSTALL_DIR=lib/fcitx5 "
+            "-DVINPST_FCITX_RUNTIME_BUILD_LOCALEDIR='' "
+            "-DVINPST_SYSTEMD_USER_UNIT_DIR=share/systemd/user"
         ),
-        "cmake --build build/fcitx-addon --target fcitx5_vinput_addon --parallel",
-        f"install -Dm755 target/release/vinput {PREFIX}/bin/vinput",
-        f"install -Dm755 target/release/vinput-daemon {PREFIX}/bin/vinput-daemon",
-        f"install -Dm755 target/release/vinput-gui {PREFIX}/bin/vinput-gui",
+        "cmake --build build/fcitx-addon --target fcitx5_vinpst_addon --parallel",
+        f"install -Dm755 target/release/vinpst {PREFIX}/bin/vinpst",
+        f"install -Dm755 target/release/vinpst-daemon {PREFIX}/bin/vinpst-daemon",
+        f"install -Dm755 target/release/vinpst-gui {PREFIX}/bin/vinpst-gui",
         "cmake --install build/fcitx-addon",
-        f"install -Dm644 data/vinput-gui.desktop {PREFIX}/share/applications/vinput-gui.desktop",
+        f"install -Dm644 data/vinpst-gui.desktop {PREFIX}/share/applications/vinpst-gui.desktop",
         (
             "for size in 16 22 24 32 48 64 128 256 512; do "
-            f"install -Dm644 data/icons/hicolor/${{size}}x${{size}}/apps/vinput-gui.png "
-            f"{PREFIX}/share/icons/hicolor/${{size}}x${{size}}/apps/vinput-gui.png; done"
+            f"install -Dm644 data/icons/hicolor/${{size}}x${{size}}/apps/vinpst-gui.png "
+            f"{PREFIX}/share/icons/hicolor/${{size}}x${{size}}/apps/vinpst-gui.png; done"
         ),
-        f"install -Dm644 data/default-config.json {PREFIX}/share/fcitx-vinput/default-config.json",
-        f"install -Dm644 data/vad/silero_vad.onnx {PREFIX}/share/fcitx-vinput/vad/silero_vad.onnx",
-        f"install -Dm644 LICENSE {PREFIX}/share/licenses/fcitx-vinput-rs/LICENSE",
-        f"install -Dm644 data/vad/LICENSE {PREFIX}/share/licenses/fcitx-vinput-rs/silero-vad-LICENSE",
+        f"install -Dm644 data/default-config.json {PREFIX}/share/fcitx-vinpst/default-config.json",
+        f"install -Dm644 data/vad/silero_vad.onnx {PREFIX}/share/fcitx-vinpst/vad/silero_vad.onnx",
+        f"install -Dm644 LICENSE {PREFIX}/share/licenses/fcitx-vinpst/LICENSE",
+        f"install -Dm644 data/vad/LICENSE {PREFIX}/share/licenses/fcitx-vinpst/silero-vad-LICENSE",
         (
             f"printf '%s\\n' '{revision}' >package-revision && "
-            f"install -Dm644 package-revision {PREFIX}/share/fcitx-vinput/package-revision"
+            f"install -Dm644 package-revision {PREFIX}/share/fcitx-vinpst/package-revision"
         ),
     ]
 
@@ -319,11 +319,11 @@ def product_module(
     product_source: dict[str, str], cargo_sources: list[dict[str, Any]], revision: str
 ) -> dict[str, Any]:
     return {
-        "name": "fcitx-vinput-rs",
+        "name": "fcitx-vinpst",
         "buildsystem": "simple",
         "build-options": {
             "env": {
-                "CARGO_HOME": "/run/build/fcitx-vinput-rs/cargo",
+                "CARGO_HOME": "/run/build/fcitx-vinpst/cargo",
                 "CARGO_NET_OFFLINE": "true",
                 "SHERPA_ONNX_LIB_DIR": f"{PREFIX}/lib",
             }

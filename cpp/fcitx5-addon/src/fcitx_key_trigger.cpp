@@ -1,4 +1,4 @@
-#include "vinput_fcitx_bridge/fcitx_key_trigger.h"
+#include "vinpst_fcitx_bridge/fcitx_key_trigger.h"
 
 #include <cstdlib>
 
@@ -15,7 +15,7 @@ fcitx::KeyList KeyListFromEnvironment(const char *name, fcitx::KeyList fallback)
 
 } // namespace
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 
 FcitxKeyTriggerPolicy::FcitxKeyTriggerPolicy(fcitx::KeyList normal_triggers,
                                              fcitx::KeyList command_triggers,
@@ -30,12 +30,12 @@ FcitxKeyTriggerPolicy FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
     fcitx::KeyList normal_triggers, fcitx::KeyList command_triggers,
     fcitx::KeyList scene_menu_triggers, fcitx::KeyList asr_menu_triggers) {
   return FcitxKeyTriggerPolicy(
-      KeyListFromEnvironment("VINPUT_FCITX_NORMAL_TRIGGER", std::move(normal_triggers)),
-      KeyListFromEnvironment("VINPUT_FCITX_COMMAND_TRIGGER",
+      KeyListFromEnvironment("VINPST_FCITX_NORMAL_TRIGGER", std::move(normal_triggers)),
+      KeyListFromEnvironment("VINPST_FCITX_COMMAND_TRIGGER",
                              std::move(command_triggers)),
-      KeyListFromEnvironment("VINPUT_FCITX_SCENE_MENU_TRIGGER",
+      KeyListFromEnvironment("VINPST_FCITX_SCENE_MENU_TRIGGER",
                              std::move(scene_menu_triggers)),
-      KeyListFromEnvironment("VINPUT_FCITX_ASR_MENU_TRIGGER",
+      KeyListFromEnvironment("VINPST_FCITX_ASR_MENU_TRIGGER",
                              std::move(asr_menu_triggers)));
 }
 
@@ -67,4 +67,4 @@ bool FcitxKeyTriggerPolicy::IsAsrMenuTrigger(const fcitx::KeyEvent &event) const
   return event.key().checkKeyList(asr_menu_triggers_);
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

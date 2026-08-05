@@ -1,5 +1,5 @@
-#include "vinput_fcitx_bridge/dbus_contract.h"
-#include "vinput_fcitx_bridge/fcitx_daemon_signal_monitor.h"
+#include "vinpst_fcitx_bridge/dbus_contract.h"
+#include "vinpst_fcitx_bridge/fcitx_daemon_signal_monitor.h"
 
 #include <fcitx-utils/dbus/bus.h>
 #include <fcitx-utils/event.h>
@@ -25,12 +25,12 @@ int main() {
   using fcitx::dbus::Bus;
   using fcitx::dbus::BusType;
   using fcitx::dbus::RequestNameFlag;
-  using vinput_fcitx_bridge::ComposeDaemonStatusPreedit;
-  using vinput_fcitx_bridge::DaemonLivePresentationState;
-  using vinput_fcitx_bridge::DaemonSignalCallbacks;
-  using vinput_fcitx_bridge::FcitxDaemonSignalMonitor;
-  using vinput_fcitx_bridge::FrontendNotificationKind;
-  namespace dbus = vinput_fcitx_bridge::dbus;
+  using vinpst_fcitx_bridge::ComposeDaemonStatusPreedit;
+  using vinpst_fcitx_bridge::DaemonLivePresentationState;
+  using vinpst_fcitx_bridge::DaemonSignalCallbacks;
+  using vinpst_fcitx_bridge::FcitxDaemonSignalMonitor;
+  using vinpst_fcitx_bridge::FrontendNotificationKind;
+  namespace dbus = vinpst_fcitx_bridge::dbus;
 
   assert(ComposeDaemonStatusPreedit("recording", false, "") == "... Recording ...");
   assert(ComposeDaemonStatusPreedit("recording", true, "") == "... Commanding ...");
@@ -154,7 +154,7 @@ int main() {
       loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50'000, 0,
                         [&sender](fcitx::EventSourceTime *, std::uint64_t) {
                           assert(sender.releaseName(
-                              std::string(vinput_fcitx_bridge::dbus::kServiceBusName)));
+                              std::string(vinpst_fcitx_bridge::dbus::kServiceBusName)));
                           return false;
                         });
   release_name->setOneShot();

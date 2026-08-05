@@ -5,7 +5,7 @@ session activation metadata. Use temporary-HOME smoke tests under
 `../tests/install/` before changing a real profile.
 
 - `install-user-ime.sh` installs, inspects, or removes the complete per-user
-  daemon/Fcitx profile selected through `VINPUT_USER_PROFILE` and related
+  daemon/Fcitx profile selected through `VINPST_USER_PROFILE` and related
   environment variables.
 - `install-user-activation-service.sh` is the narrower activation-service
   helper used by installation flows and tests.
