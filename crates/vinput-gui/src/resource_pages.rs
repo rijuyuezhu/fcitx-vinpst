@@ -114,10 +114,23 @@ impl App {
             Ok(document) => {
                 body = body.push(self.llm_provider_management_view(busy));
 
-                body = body.push(text("Adapters").size(22));
+                body = body.push(
+                    row![
+                        text("Adapters").size(22).width(Length::Fill),
+                        button("Refresh runtime").on_press_maybe(
+                            (!adapter_controls_busy).then_some(Message::RefreshDaemon),
+                        ),
+                    ]
+                    .spacing(10),
+                );
                 for adapter in &document.config.llm.adapters {
                     let managed = managed_adapter_script_path(adapter).is_some();
-                    body = body.push(adapter_row(&adapter.id, adapter_controls_busy, managed));
+                    body = body.push(adapter_row(
+                        &adapter.id,
+                        &self.adapter_runtime_view_state(&adapter.id),
+                        adapter_controls_busy,
+                        managed,
+                    ));
                 }
                 if document.config.llm.adapters.is_empty() {
                     body = body.push(text("No text adapters configured."));
@@ -186,10 +199,27 @@ fn provider_row(
     .into()
 }
 
-fn adapter_row(adapter_id: &str, busy: bool, managed: bool) -> Element<'static, Message> {
+fn adapter_row(
+    adapter_id: &str,
+    runtime: &crate::adapter_runtime::AdapterRuntimeViewState,
+    busy: bool,
+    managed: bool,
+) -> Element<'static, Message> {
+    let start_id = adapter_id.to_owned();
+    let stop_id = adapter_id.to_owned();
     row![
-        text(format!("{adapter_id} · command adapter")).width(Length::Fill),
+        text(format!(
+            "{adapter_id} · command adapter · {}",
+            runtime.label
+        ))
+        .width(Length::Fill),
         button("Details").on_press(Message::SelectLlmAdapterDetail(adapter_id.to_owned())),
+        button("Start").on_press_maybe((!busy && runtime.can_start).then_some(
+            Message::AdapterRuntime(crate::AdapterRuntimeMessage::Start(start_id),)
+        ),),
+        button("Stop").on_press_maybe((!busy && runtime.can_stop).then_some(
+            Message::AdapterRuntime(crate::AdapterRuntimeMessage::Stop(stop_id),)
+        ),),
         button("Remove").on_press_maybe(
             (!busy && managed).then_some(Message::RemoveAdapter(adapter_id.to_owned())),
         ),

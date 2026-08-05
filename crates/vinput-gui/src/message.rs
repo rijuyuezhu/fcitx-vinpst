@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 
 use crate::{
-    AsrProviderMessage, ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot, HotwordMessage,
-    LlmProviderMessage, ModelInstallOutcome, Page, SceneMessage, ScriptInstallOutcome,
-    ScriptPreparationResult, SecretInput,
+    AdapterRuntimeMessage, AsrProviderMessage, ConfigSaveOutcome, DaemonOwnerEvent, DaemonSnapshot,
+    HotwordMessage, LlmProviderMessage, ModelInstallOutcome, Page, SceneMessage,
+    ScriptInstallOutcome, ScriptPreparationResult, SecretInput,
 };
 
 /// GUI messages.
@@ -57,6 +57,8 @@ pub enum Message {
     Scene(SceneMessage),
     /// Apply one ASR provider editor interaction.
     AsrProvider(AsrProviderMessage),
+    /// Apply one text-adapter runtime interaction.
+    AdapterRuntime(AdapterRuntimeMessage),
     /// Apply one LLM provider lifecycle interaction.
     LlmProvider(LlmProviderMessage),
     /// Apply one hotword lifecycle interaction.

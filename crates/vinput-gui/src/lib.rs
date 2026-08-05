@@ -16,11 +16,13 @@ use serde_json::{Value, json};
 #[cfg(test)]
 use vinput_config::AsrProviderKind;
 use vinput_config::{VinputConfig, config_backup_path, write_config_file};
-use vinput_protocol::dbus;
+use vinput_protocol::{TextAdapterState, dbus};
 use vinput_registry::{InstalledModelInfo, LiveScriptKind};
 
+mod adapter_runtime;
 mod asr_provider_management;
 mod asr_reload_confirmation;
+mod daemon_client;
 mod daemon_owner_monitor;
 mod form_guards;
 mod hotword_activation_retry;
@@ -42,6 +44,10 @@ mod script_recovery;
 mod script_removal;
 mod script_transaction;
 
+pub use adapter_runtime::{
+    AdapterRuntimeAction, AdapterRuntimeConfirmation, AdapterRuntimeError,
+    AdapterRuntimeErrorCategory, AdapterRuntimeMessage, AdapterRuntimeOutcome,
+};
 use asr_provider_management::AsrProviderEditorState;
 pub use asr_provider_management::{
     AsrProviderEditorField, AsrProviderMessage, AsrProviderMutationOutcome,
@@ -49,6 +55,8 @@ pub use asr_provider_management::{
 pub(crate) use asr_reload_confirmation::{
     reload_asr_backend, reload_asr_backend_and_wait, wait_for_requested_asr_backend,
 };
+pub use daemon_client::query_daemon_snapshot;
+pub(crate) use daemon_client::{daemon_proxy, query_daemon_snapshot_if_owned};
 pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
 use hotword_management::HotwordEditorState;
@@ -94,6 +102,8 @@ pub struct DaemonSnapshot {
     pub status: String,
     /// Runtime diagnostic JSON returned by the daemon.
     pub runtime: Value,
+    /// Typed text-adapter runtime state returned by the daemon.
+    pub text_adapters: TextAdapterState,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -242,6 +252,9 @@ impl App {
 
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if let Some(task) = self.intercept_adapter_runtime_message(&message) {
+            return task;
+        }
         if let Some(task) = self.intercept_asr_provider_message(&message) {
             return task;
         }
@@ -345,6 +358,9 @@ impl App {
                 return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
             }
             Message::ScriptRemoved(result) => return self.finish_script_remove(result),
+            Message::AdapterRuntime(_) => {
+                unreachable!("adapter runtime messages are intercepted")
+            }
             Message::AsrProvider(_) => unreachable!("ASR provider messages are intercepted"),
         }
         Task::none()
@@ -868,41 +884,6 @@ pub fn load_config_document(path: Option<&Path>) -> Result<ConfigDocument, Strin
     })
 }
 
-/// Queries daemon status and runtime diagnostics using the shared D-Bus contract.
-pub fn query_daemon_snapshot() -> Result<DaemonSnapshot, String> {
-    let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
-    query_daemon_snapshot_on(&connection)
-}
-
-fn query_daemon_snapshot_if_owned() -> Result<Option<DaemonSnapshot>, String> {
-    let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
-    let bus_proxy =
-        zbus::blocking::fdo::DBusProxy::new(&connection).map_err(|error| error.to_string())?;
-    let service_name = zbus::names::BusName::try_from(dbus::SERVICE_BUS_NAME)
-        .map_err(|error| error.to_string())?;
-    if !bus_proxy
-        .name_has_owner(service_name)
-        .map_err(|error| error.to_string())?
-    {
-        return Ok(None);
-    }
-    query_daemon_snapshot_on(&connection).map(Some)
-}
-
-fn query_daemon_snapshot_on(
-    connection: &zbus::blocking::Connection,
-) -> Result<DaemonSnapshot, String> {
-    let proxy = daemon_proxy(connection)?;
-    let status = proxy
-        .call::<_, _, String>(dbus::method::GET_STATUS, &())
-        .map_err(|error| error.to_string())?;
-    let runtime_json = proxy
-        .call::<_, _, String>(dbus::method::GET_RUNTIME_STATUS, &())
-        .map_err(|error| error.to_string())?;
-    let runtime = serde_json::from_str(&runtime_json).map_err(|error| error.to_string())?;
-    Ok(DaemonSnapshot { status, runtime })
-}
-
 fn daemon_state_from_poll(result: Result<Option<DaemonSnapshot>, String>) -> DaemonLoadState {
     match result {
         Ok(Some(snapshot)) => DaemonLoadState::Ready(snapshot),
@@ -911,18 +892,6 @@ fn daemon_state_from_poll(result: Result<Option<DaemonSnapshot>, String>) -> Dae
         ),
         Err(error) => DaemonLoadState::Failed(error),
     }
-}
-
-fn daemon_proxy(
-    connection: &zbus::blocking::Connection,
-) -> Result<zbus::blocking::Proxy<'_>, String> {
-    zbus::blocking::Proxy::new(
-        connection,
-        dbus::SERVICE_BUS_NAME,
-        dbus::SERVICE_OBJECT_PATH,
-        dbus::SERVICE_INTERFACE,
-    )
-    .map_err(|error| error.to_string())
 }
 
 fn ensure_config_save_allowed(snapshot: &DaemonSnapshot) -> Result<(), String> {

@@ -544,18 +544,21 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
     let idle = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
     };
     assert!(ensure_config_save_allowed(&idle).is_ok());
 
     let recording = DaemonSnapshot {
         status: "recording".to_owned(),
         runtime: json!({"active_session": true}),
+        text_adapters: TextAdapterState::default(),
     };
     assert!(ensure_config_save_allowed(&recording).is_err());
 
     let inconsistent = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": true}),
+        text_adapters: TextAdapterState::default(),
     };
     assert!(ensure_config_save_allowed(&inconsistent).is_err());
 }
@@ -565,6 +568,7 @@ fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
     };
     assert_eq!(
         daemon_state_from_poll(Ok(Some(snapshot.clone()))),
@@ -588,6 +592,7 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
     };
     let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Connected {
         owned: true,
@@ -634,6 +639,7 @@ fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
     };
     let _ = app.update(Message::DaemonLoaded {
         operation_id: 1,
