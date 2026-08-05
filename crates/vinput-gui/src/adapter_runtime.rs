@@ -6,7 +6,7 @@ use iced::Task;
 use vinput_protocol::dbus;
 
 use crate::{
-    App, DaemonLoadState, DaemonSnapshot, Message, OperationState,
+    App, DaemonLoadState, DaemonSnapshot, GuiText, Message, OperationState,
     daemon_client::query_daemon_snapshot_on, daemon_proxy,
 };
 
@@ -241,7 +241,7 @@ impl App {
     pub(super) fn adapter_runtime_view_state(&self, adapter_id: &str) -> AdapterRuntimeViewState {
         let DaemonLoadState::Ready(snapshot) = &self.daemon else {
             return AdapterRuntimeViewState {
-                label: "runtime unavailable".to_owned(),
+                label: self.locale.text(GuiText::RuntimeUnavailable).to_owned(),
                 can_start: false,
                 can_stop: false,
             };
@@ -253,7 +253,7 @@ impl App {
             .find(|adapter| adapter.id == adapter_id)
         else {
             return AdapterRuntimeViewState {
-                label: "not reported by daemon".to_owned(),
+                label: self.locale.text(GuiText::NotReportedByDaemon).to_owned(),
                 can_start: false,
                 can_stop: false,
             };
@@ -261,15 +261,15 @@ impl App {
         if summary.is_running {
             AdapterRuntimeViewState {
                 label: summary.pid.map_or_else(
-                    || "running".to_owned(),
-                    |pid| format!("running · pid {pid}"),
+                    || self.locale.text(GuiText::Running).to_owned(),
+                    |pid| self.locale.runtime_running_pid(pid),
                 ),
                 can_start: false,
                 can_stop: true,
             }
         } else {
             AdapterRuntimeViewState {
-                label: "stopped".to_owned(),
+                label: self.locale.text(GuiText::Stopped).to_owned(),
                 can_start: true,
                 can_stop: false,
             }
@@ -460,28 +460,28 @@ mod tests {
     fn runtime_view_projects_running_stopped_and_unavailable_states() {
         let (mut app, _) = App::boot();
         app.daemon = DaemonLoadState::Ready(snapshot("adapter-a", true, Some(42)));
-        assert_eq!(
-            app.adapter_runtime_view_state("adapter-a"),
-            AdapterRuntimeViewState {
-                label: "running · pid 42".to_owned(),
-                can_start: false,
-                can_stop: true,
-            }
-        );
+        let running = app.adapter_runtime_view_state("adapter-a");
+        assert!(!running.can_start);
+        assert!(running.can_stop);
+        assert!(running.label.contains("42"));
+
         app.daemon = DaemonLoadState::Ready(snapshot("adapter-a", false, None));
-        assert_eq!(
-            app.adapter_runtime_view_state("adapter-a"),
-            AdapterRuntimeViewState {
-                label: "stopped".to_owned(),
-                can_start: true,
-                can_stop: false,
-            }
-        );
+        let stopped = app.adapter_runtime_view_state("adapter-a");
+        assert!(stopped.can_start);
+        assert!(!stopped.can_stop);
+        assert!(!stopped.label.is_empty());
+
         app.daemon = DaemonLoadState::Failed("private failure".to_owned());
-        assert_eq!(
-            app.adapter_runtime_view_state("adapter-a").label,
-            "runtime unavailable"
-        );
+        let unavailable = app.adapter_runtime_view_state("adapter-a");
+        assert!(!unavailable.can_start);
+        assert!(!unavailable.can_stop);
+        assert!(!unavailable.label.contains("private failure"));
+
+        app.locale = crate::GuiLocale::ZhCn;
+        app.daemon = DaemonLoadState::Ready(snapshot("adapter-a", true, Some(42)));
+        let localized = app.adapter_runtime_view_state("adapter-a");
+        assert!(localized.label.contains("42"));
+        assert_ne!(localized.label, running.label);
     }
 
     #[test]
