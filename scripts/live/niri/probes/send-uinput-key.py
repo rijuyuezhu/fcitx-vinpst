@@ -27,6 +27,7 @@ KEY_CODES = {
     "A": 30,
     "S": 31,
     "C": 46,
+    "V": 47,
     "SHIFT": 42,
     "SPACE": 57,
     "F9": 67,
@@ -39,6 +40,7 @@ KEY_CODES = {
 KEY_SEQUENCES = {
     "CTRL+A": (KEY_CODES["CTRL"], KEY_CODES["A"]),
     "CTRL+C": (KEY_CODES["CTRL"], KEY_CODES["C"]),
+    "CTRL+V": (KEY_CODES["CTRL"], KEY_CODES["V"]),
     "CTRL+S": (KEY_CODES["CTRL"], KEY_CODES["S"]),
     "CTRL+1": (KEY_CODES["CTRL"], KEY_CODES["1"]),
     "CTRL+2": (KEY_CODES["CTRL"], KEY_CODES["2"]),
