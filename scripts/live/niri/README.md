@@ -15,6 +15,7 @@ scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 scripts/live/niri/run-ime-gtk4-native-live.sh normal
 scripts/live/niri/run-ime-chromium-virtual-live.sh command
 scripts/live/niri/run-ime-kitty-live.sh command
+scripts/live/niri/run-gui-interaction-live.sh
 ```
 
 Do not claim portability from these results. A new compositor/backend needs its

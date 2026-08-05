@@ -15,19 +15,39 @@ SYN_REPORT = 0
 BUS_USB = 0x03
 
 KEY_CODES = {
+    "ESCAPE": 1,
+    "1": 2,
+    "2": 3,
+    "3": 4,
+    "4": 5,
+    "BACKSPACE": 14,
+    "TAB": 15,
+    "ENTER": 28,
     "CTRL": 29,
     "A": 30,
     "S": 31,
-    "ENTER": 28,
+    "C": 46,
+    "SHIFT": 42,
+    "SPACE": 57,
     "F9": 67,
     "F10": 68,
 }
 KEY_SEQUENCES = {
     "CTRL+A": (KEY_CODES["CTRL"], KEY_CODES["A"]),
+    "CTRL+C": (KEY_CODES["CTRL"], KEY_CODES["C"]),
     "CTRL+S": (KEY_CODES["CTRL"], KEY_CODES["S"]),
+    "CTRL+1": (KEY_CODES["CTRL"], KEY_CODES["1"]),
+    "CTRL+2": (KEY_CODES["CTRL"], KEY_CODES["2"]),
+    "CTRL+3": (KEY_CODES["CTRL"], KEY_CODES["3"]),
+    "CTRL+4": (KEY_CODES["CTRL"], KEY_CODES["4"]),
+    "SHIFT+TAB": (KEY_CODES["SHIFT"], KEY_CODES["TAB"]),
+    "BACKSPACE": (KEY_CODES["BACKSPACE"],),
     "ENTER": (KEY_CODES["ENTER"],),
+    "ESCAPE": (KEY_CODES["ESCAPE"],),
     "F9": (KEY_CODES["F9"],),
     "F10": (KEY_CODES["F10"],),
+    "SPACE": (KEY_CODES["SPACE"],),
+    "TAB": (KEY_CODES["TAB"],),
 }
 
 
