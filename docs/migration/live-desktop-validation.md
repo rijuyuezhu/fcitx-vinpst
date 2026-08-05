@@ -309,6 +309,14 @@ Evidence under `target/tmp/gui-interaction-live/summary.json` must report:
 
 This is live proof for complete enabled-control keyboard traversal/activation, clipboard, input-method transport, bilingual titles, and page shortcuts on niri/Wayland. The GUI's bounded custom wrapper adds a visible focus ring, Enter/Space action activation, and arrow-key selector/slider adjustment while preserving the existing pointer widgets. It is still not screen-reader proof: Iced 0.14 currently exposes no AccessKit accessibility tree.
 
+Run the independent forced-X11 gate on the same niri host:
+
+```sh
+scripts/live/x11/run-gui-interaction-live.sh
+```
+
+The X11 runner removes `WAYLAND_DISPLAY` from each GUI process, sets `WINIT_UNIX_BACKEND=x11`, and requires the resulting client to expose a matching `_NET_WM_PID` and UTF-8 `_NET_WM_NAME` through `xprop`. It repeats the English/zh_CN title transitions, complete keyboard traversal/activation, and Fcitx5/Rime commit while reading copied text through `xclip`; the input-method transport is recorded as XIM. Wayland is used only to focus the rootless Xwayland client and restore the host clipboard. Evidence under `target/tmp/gui-x11-interaction-live/summary.json` retains only booleans, titles, transport names, and the committed UTF-8 byte count. This proves the Iced X11 backend under xwayland-satellite, not a standalone non-composited Xorg session and not a screen-reader tree.
+
 ## 8. Frontend behavior
 
 Verify in the real session:
