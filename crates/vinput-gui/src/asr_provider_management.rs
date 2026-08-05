@@ -11,6 +11,7 @@ use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig, redact_url
 use crate::{
     App, ConfigDocument, ConfigSaveOutcome, Message, OperationState, SecretInput,
     load_config_document, save_updated_config_with_daemon,
+    script_management::managed_provider_script_path,
 };
 
 /// One editable field in the ASR provider form.
@@ -70,8 +71,12 @@ pub enum AsrProviderMessage {
     CancelEdit,
     /// Validate and persist the provider form.
     Save,
+    /// Remove one inactive user-defined provider from configuration only.
+    Remove(String),
     /// Result of one asynchronous provider mutation.
     MutationFinished(Result<AsrProviderMutationOutcome, String>),
+    /// Result of one asynchronous user-defined provider removal.
+    RemovalFinished(Result<AsrProviderRemovalOutcome, String>),
 }
 
 /// Result of one persisted ASR provider mutation.
@@ -83,6 +88,15 @@ pub struct AsrProviderMutationOutcome {
     pub provider_id: String,
     /// Whether the mutation created a new custom provider.
     pub created: bool,
+}
+
+/// Result of removing one user-defined ASR provider from configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AsrProviderRemovalOutcome {
+    /// Shared atomic config-save receipt and daemon reload summary.
+    pub save: ConfigSaveOutcome,
+    /// Stable provider id removed from configuration.
+    pub provider_id: String,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -331,7 +345,13 @@ impl App {
         message: &Message,
     ) -> Option<Task<Message>> {
         if let Message::AsrProvider(message) = message {
-            if self.is_busy() && !matches!(message, AsrProviderMessage::MutationFinished(_)) {
+            if self.is_busy()
+                && !matches!(
+                    message,
+                    AsrProviderMessage::MutationFinished(_)
+                        | AsrProviderMessage::RemovalFinished(_)
+                )
+            {
                 return Some(Task::none());
             }
             return Some(self.handle_asr_provider_message(message.clone()));
@@ -419,8 +439,14 @@ impl App {
                 }
             }
             AsrProviderMessage::Save => return self.begin_asr_provider_save(),
+            AsrProviderMessage::Remove(provider_id) => {
+                return self.begin_custom_asr_provider_removal(&provider_id);
+            }
             AsrProviderMessage::MutationFinished(result) => {
                 return self.finish_asr_provider_mutation(result);
+            }
+            AsrProviderMessage::RemovalFinished(result) => {
+                return self.finish_custom_asr_provider_removal(result);
             }
         }
         Task::none()
@@ -563,6 +589,68 @@ impl App {
         self.begin_daemon_refresh(false)
     }
 
+    fn begin_custom_asr_provider_removal(&mut self, provider_id: &str) -> Task<Message> {
+        if self.asr_provider_editor.is_some() {
+            self.operation = OperationState::Failed(
+                "Save or cancel the open ASR provider form before removing a provider.".to_owned(),
+            );
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_asr_provider_editor_allowed() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if !self.guard_hotword_changes("removing an ASR provider") {
+            return Task::none();
+        }
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        let updated = match remove_custom_asr_provider_config(&document.config, provider_id) {
+            Ok(updated) => updated,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
+        };
+        self.operation = OperationState::Running("Removing ASR provider…");
+        let document = document.clone();
+        let provider_id = provider_id.to_owned();
+        Task::perform(
+            async move {
+                save_updated_config_with_daemon(&document, &updated)
+                    .map(|save| AsrProviderRemovalOutcome { save, provider_id })
+            },
+            |result| Message::AsrProvider(AsrProviderMessage::RemovalFinished(result)),
+        )
+    }
+
+    fn finish_custom_asr_provider_removal(
+        &mut self,
+        result: Result<AsrProviderRemovalOutcome, String>,
+    ) -> Task<Message> {
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
+        };
+        let backup = outcome.save.backup_path.as_ref().map_or_else(
+            || "no previous file".to_owned(),
+            |path| format!("backup {}", path.display()),
+        );
+        self.replace_config(load_config_document(Some(&outcome.save.path)));
+        self.operation = OperationState::Succeeded(format!(
+            "Removed custom ASR provider `{}`. Saved {} ({backup}); {}",
+            outcome.provider_id,
+            outcome.save.path.display(),
+            outcome.save.daemon_reload
+        ));
+        self.begin_daemon_refresh(false)
+    }
+
     pub(super) fn asr_provider_editor_view(&self, busy: bool) -> Option<Element<'_, Message>> {
         self.asr_provider_editor
             .as_ref()
@@ -615,6 +703,44 @@ fn upsert_asr_provider(
     updated
         .validate()
         .map_err(|error| format!("Validate updated ASR provider config: {error}"))?;
+    Ok(updated)
+}
+
+fn remove_custom_asr_provider_config(
+    config: &VinputConfig,
+    provider_id: &str,
+) -> Result<VinputConfig, String> {
+    remove_custom_asr_provider_config_with(config, provider_id, |provider| {
+        managed_provider_script_path(provider).is_some()
+    })
+}
+
+fn remove_custom_asr_provider_config_with(
+    config: &VinputConfig,
+    provider_id: &str,
+    is_managed: impl FnOnce(&AsrProviderConfig) -> bool,
+) -> Result<VinputConfig, String> {
+    if config.asr.active_provider == provider_id {
+        return Err(format!(
+            "Active ASR provider `{provider_id}` cannot be removed; select another provider first."
+        ));
+    }
+    let mut updated = config.clone();
+    let index = updated
+        .asr
+        .providers
+        .iter()
+        .position(|provider| provider.id == provider_id)
+        .ok_or_else(|| format!("ASR provider `{provider_id}` is not configured."))?;
+    if is_managed(&updated.asr.providers[index]) {
+        return Err(format!(
+            "ASR provider `{provider_id}` is registry-managed and must use managed removal."
+        ));
+    }
+    updated.asr.providers.remove(index);
+    updated
+        .validate()
+        .map_err(|error| format!("Validate configuration after removing {provider_id}: {error}"))?;
     Ok(updated)
 }
 
@@ -1053,6 +1179,28 @@ mod tests {
         assert!(remote_provider.command.is_none());
         assert!(remote_provider.args.is_empty());
         assert!(remote_provider.env.is_empty());
+    }
+
+    #[test]
+    fn custom_provider_removal_is_config_only_and_rejects_active_or_managed_entries() {
+        let provider = command_provider();
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        config.asr.providers.push(provider.clone());
+
+        let updated = remove_custom_asr_provider_config_with(&config, &provider.id, |_| false)
+            .expect("inactive custom provider should be removed");
+        assert!(
+            updated
+                .asr
+                .providers
+                .iter()
+                .all(|candidate| candidate.id != provider.id)
+        );
+
+        assert!(remove_custom_asr_provider_config_with(&config, &provider.id, |_| true).is_err());
+        config.asr.active_provider = provider.id.clone();
+        assert!(remove_custom_asr_provider_config_with(&config, &provider.id, |_| false).is_err());
+        assert!(remove_custom_asr_provider_config_with(&config, "missing", |_| false).is_err());
     }
 
     #[test]

@@ -209,10 +209,13 @@ fn provider_row(
         button("Edit script").on_press_maybe(
             (!busy && managed).then_some(Message::EditProviderScript(provider_id.to_owned())),
         ),
-        button("Remove").on_press_maybe(
-            (!busy && managed && !active)
-                .then_some(Message::RemoveProvider(provider_id.to_owned())),
-        ),
+        button("Remove").on_press_maybe((!busy && !active).then(|| {
+            if managed {
+                Message::RemoveProvider(provider_id.to_owned())
+            } else {
+                Message::AsrProvider(crate::AsrProviderMessage::Remove(provider_id.to_owned()))
+            }
+        })),
     ]
     .spacing(10)
     .into()
