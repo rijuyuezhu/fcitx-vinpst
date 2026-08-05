@@ -30,6 +30,10 @@ KEY_CODES = {
     "SHIFT": 42,
     "SPACE": 57,
     "F9": 67,
+    "UP": 103,
+    "LEFT": 105,
+    "RIGHT": 106,
+    "DOWN": 108,
     "F10": 68,
 }
 KEY_SEQUENCES = {
@@ -48,6 +52,10 @@ KEY_SEQUENCES = {
     "F10": (KEY_CODES["F10"],),
     "SPACE": (KEY_CODES["SPACE"],),
     "TAB": (KEY_CODES["TAB"],),
+    "UP": (KEY_CODES["UP"],),
+    "LEFT": (KEY_CODES["LEFT"],),
+    "RIGHT": (KEY_CODES["RIGHT"],),
+    "DOWN": (KEY_CODES["DOWN"],),
 }
 
 

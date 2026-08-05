@@ -131,6 +131,37 @@ expect_title() {
     fail "unexpected GUI title: expected '${expected}', got '${actual}'"
 }
 
+focus_text_field_with_marker() {
+  local marker=$1
+  local clipboard_probe=""
+  for attempt in $(seq 1 40); do
+    printf 'not-a-text-field-%s' "${attempt}" | wl-copy
+    send_key TAB
+    send_key CTRL+A
+    send_key BACKSPACE
+    send_text "${marker}"
+    send_key CTRL+A
+    send_key CTRL+C
+    clipboard_probe="$(timeout 2s wl-paste --no-newline)"
+    [[ "${clipboard_probe}" == "${marker}" ]] && return
+  done
+  fail "Tab traversal did not reach a writable text field for marker ${marker}"
+}
+
+return_to_text_marker() {
+  local marker=$1
+  local clipboard_probe=""
+  for attempt in $(seq 1 40); do
+    printf 'not-the-target-field-%s' "${attempt}" | wl-copy
+    send_key SHIFT+TAB
+    send_key CTRL+A
+    send_key CTRL+C
+    clipboard_probe="$(timeout 2s wl-paste --no-newline)"
+    [[ "${clipboard_probe}" == "${marker}" ]] && return
+  done
+  fail "Shift+Tab traversal did not return to the target text field"
+}
+
 send_page_shortcut() {
   local key=$1
   local expected=$2
@@ -195,6 +226,19 @@ start_gui() {
 
 start_gui en_US.UTF-8 en 'Vinput Configuration — Control'
 en_titles=("$(window_title)")
+
+# Prove that enabled non-text navigation buttons join Tab order and activate with Enter/Space.
+send_key ESCAPE
+send_key TAB
+send_key TAB
+send_key ENTER
+sleep 0.3
+expect_title 'Vinput Configuration — Resources'
+send_key SHIFT+TAB
+send_key SPACE
+sleep 0.3
+expect_title 'Vinput Configuration — Control'
+
 send_page_shortcut CTRL+2 'Vinput Configuration — Resources'
 en_titles+=("$(window_title)")
 send_page_shortcut CTRL+4 'Vinput Configuration — Hotwords'
@@ -203,24 +247,9 @@ send_page_shortcut CTRL+1 'Vinput Configuration — Control'
 en_titles+=("$(window_title)")
 
 send_key ESCAPE
-send_key TAB
-send_key CTRL+A
-send_key BACKSPACE
-send_text "${first_marker}"
-send_key CTRL+A
-send_key CTRL+C
-clipboard_probe="$(timeout 2s wl-paste --no-newline)"
-[[ "${clipboard_probe}" == "${first_marker}" ]] || fail "Tab did not focus the first text field"
-
-send_key TAB
-send_key CTRL+A
-send_key BACKSPACE
-send_text "${second_marker}"
-send_key SHIFT+TAB
-send_key CTRL+A
-send_key CTRL+C
-reverse_probe="$(timeout 2s wl-paste --no-newline)"
-[[ "${reverse_probe}" == "${first_marker}" ]] || fail "Shift+Tab did not return to the first text field"
+focus_text_field_with_marker "${first_marker}"
+focus_text_field_with_marker "${second_marker}"
+return_to_text_marker "${first_marker}"
 
 send_key CTRL+A
 send_key BACKSPACE
@@ -292,6 +321,10 @@ jq -n \
     zh_cn_titles: $zh_titles,
     keyboard: {
       page_shortcuts: true,
+      non_text_tab_focus: true,
+      enter_activation: true,
+      space_activation: true,
+      mixed_control_tab_focus: true,
       tab_text_focus: true,
       shift_tab_text_focus: true
     },
@@ -315,6 +348,10 @@ jq -n \
 jq -e '
   .ok == true and
   .keyboard.page_shortcuts == true and
+  .keyboard.non_text_tab_focus == true and
+  .keyboard.enter_activation == true and
+  .keyboard.space_activation == true and
+  .keyboard.mixed_control_tab_focus == true and
   .keyboard.tab_text_focus == true and
   .keyboard.shift_tab_text_focus == true and
   .clipboard.standard_copy == true and
