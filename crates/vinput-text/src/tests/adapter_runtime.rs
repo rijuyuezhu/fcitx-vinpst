@@ -142,7 +142,12 @@ fn adapter_runtime_paths_reject_unsafe_adapter_ids() {
     for adapter_id in ["", ".", "..", "../escape", "nested/id", r"nested\id"] {
         let error = paths.pid_path(adapter_id).unwrap_err();
         assert_eq!(error, TextError::InvalidAdapterId(adapter_id.to_owned()));
+        assert_eq!(
+            crate::validate_adapter_id(adapter_id).unwrap_err(),
+            TextError::InvalidAdapterId(adapter_id.to_owned())
+        );
     }
+    crate::validate_adapter_id("adapter.demo").expect("safe adapter id");
 }
 
 #[test]

@@ -25,6 +25,7 @@ serde_json.workspace = true
 vinput-asr = { path = "../vinput-asr" }
 vinput-audio = { path = "../vinput-audio" }
 vinput-config = { path = "../vinput-config" }
+vinput-daemon-control = { path = "../vinput-daemon-control" }
 vinput-protocol = { path = "../vinput-protocol" }
 vinput-registry = { path = "../vinput-registry" }
 vinput-text = { path = "../vinput-text" }

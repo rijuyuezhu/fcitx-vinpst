@@ -1,10 +1,12 @@
 //! Secret-safe typed summaries for selectable GUI resources.
 
+use crate::keyboard_action::keyboard_button;
+
 use std::path::PathBuf;
 
 use iced::{
     Element, Length,
-    widget::{button, column, row, text},
+    widget::{column, row, text},
 };
 use vinput_config::{
     AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, LlmProviderConfig, VinputConfig,
@@ -13,7 +15,7 @@ use vinput_config::{
 use vinput_registry::InstalledModelInfo;
 
 use crate::{
-    App, Message, model_is_active,
+    App, GuiLocale, GuiText, Message, model_is_active,
     script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
 
@@ -53,11 +55,12 @@ impl ResourceDetail {
         self
     }
 
-    fn view(self) -> Element<'static, Message> {
+    fn view(self, locale: GuiLocale) -> Element<'static, Message> {
         let mut body = column![
             row![
                 text(self.title).size(20).width(Length::Fill),
-                button("Close details").on_press(Message::ClearResourceDetail),
+                keyboard_button(locale.text(GuiText::CloseDetails))
+                    .on_press(Message::ClearResourceDetail),
             ]
             .spacing(10),
         ]
@@ -100,17 +103,19 @@ impl App {
         let selection = self.selected_resource.as_ref()?;
         Some(
             match resolve_resource_detail(
+                self.locale,
                 selection,
                 self.config.as_ref().map(|document| &document.config),
                 self.installed_models.as_ref().map(Vec::as_slice),
             ) {
-                Ok(detail) => detail.view(),
+                Ok(detail) => detail.view(self.locale),
                 Err(error) => column![
                     row![
-                        text("Resource details unavailable")
+                        text(self.locale.text(GuiText::ResourceDetailsUnavailable))
                             .size(20)
                             .width(Length::Fill),
-                        button("Close details").on_press(Message::ClearResourceDetail),
+                        keyboard_button(self.locale.text(GuiText::CloseDetails))
+                            .on_press(Message::ClearResourceDetail),
                     ]
                     .spacing(10),
                     text(error),
@@ -123,6 +128,7 @@ impl App {
 }
 
 fn resolve_resource_detail(
+    locale: GuiLocale,
     selection: &ResourceSelection,
     config: Result<&VinputConfig, &String>,
     installed_models: Result<&[InstalledModelInfo], &String>,
@@ -142,6 +148,7 @@ fn resolve_resource_detail(
                 })?;
             let config = config.map_err(|error| format!("Config is unavailable: {error}"))?;
             Ok(installed_model_detail(
+                locale,
                 model,
                 model_is_active(config, &model.model_dir),
             ))
@@ -155,6 +162,7 @@ fn resolve_resource_detail(
                 .find(|provider| provider.id == *id)
                 .ok_or_else(|| format!("ASR provider `{id}` is no longer configured."))?;
             Ok(asr_provider_detail(
+                locale,
                 provider,
                 provider.id == config.asr.active_provider,
             ))
@@ -167,7 +175,7 @@ fn resolve_resource_detail(
                 .iter()
                 .find(|provider| provider.id == *id)
                 .ok_or_else(|| format!("LLM provider `{id}` is no longer configured."))?;
-            Ok(llm_provider_detail(provider))
+            Ok(llm_provider_detail(locale, provider))
         }
         ResourceSelection::LlmAdapter(id) => {
             let config = config.map_err(|error| format!("Config is unavailable: {error}"))?;
@@ -177,118 +185,198 @@ fn resolve_resource_detail(
                 .iter()
                 .find(|adapter| adapter.id == *id)
                 .ok_or_else(|| format!("Text adapter `{id}` is no longer configured."))?;
-            Ok(llm_adapter_detail(adapter))
+            Ok(llm_adapter_detail(locale, adapter))
         }
     }
 }
 
-fn installed_model_detail(model: &InstalledModelInfo, active: bool) -> ResourceDetail {
+fn installed_model_detail(
+    locale: GuiLocale,
+    model: &InstalledModelInfo,
+    active: bool,
+) -> ResourceDetail {
     let metadata = &model.metadata;
+    let locale_code = locale.code().to_owned();
     let title = model
-        .display_title(&[])
+        .display_title(&[locale_code])
         .unwrap_or_else(|| model.stable_model_id());
-    ResourceDetail::new(format!("Model · {title}"))
-        .field("Stable id", model.stable_model_id())
-        .field("Status", if active { "active" } else { "inactive" })
-        .field("Backend", optional_text(metadata.backend.as_deref()))
-        .field("Runtime", optional_text(metadata.runtime.as_deref()))
-        .field("Family", optional_text(metadata.model_family()))
-        .field("Language", optional_text(metadata.language.as_deref()))
-        .field("Declared size", optional_size(metadata.size_bytes))
-        .field("Regular files", model.file_count.to_string())
+    ResourceDetail::new(locale.model_detail_title(title))
+        .field(locale.text(GuiText::StableId), model.stable_model_id())
         .field(
-            "Hotwords",
-            if metadata.supports_hotwords {
-                "supported"
+            locale.text(GuiText::Status),
+            locale.text(if active {
+                GuiText::Active
             } else {
-                "not declared"
+                GuiText::Inactive
+            }),
+        )
+        .field(
+            locale.text(GuiText::Backend),
+            optional_text(locale, metadata.backend.as_deref()),
+        )
+        .field(
+            locale.text(GuiText::Runtime),
+            optional_text(locale, metadata.runtime.as_deref()),
+        )
+        .field(
+            locale.text(GuiText::Family),
+            optional_text(locale, metadata.model_family()),
+        )
+        .field(
+            locale.text(GuiText::Language),
+            optional_text(locale, metadata.language.as_deref()),
+        )
+        .field(
+            locale.text(GuiText::DeclaredSize),
+            optional_size(locale, metadata.size_bytes),
+        )
+        .field(
+            locale.text(GuiText::RegularFiles),
+            model.file_count.to_string(),
+        )
+        .field(
+            locale.text(GuiText::Hotwords),
+            if metadata.supports_hotwords {
+                locale.text(GuiText::Supported)
+            } else {
+                locale.text(GuiText::NotDeclared)
             },
         )
-        .field("Install directory", model.model_dir.display().to_string())
-        .field("Metadata file", model.metadata_path.display().to_string())
-}
-
-fn asr_provider_detail(provider: &AsrProviderConfig, active: bool) -> ResourceDetail {
-    let kind = match provider.kind {
-        AsrProviderKind::Local => "local",
-        AsrProviderKind::Remote => "remote",
-        AsrProviderKind::Command => "command",
-    };
-    let endpoint = provider
-        .endpoint
-        .as_deref()
-        .map_or_else(|| "not configured".to_owned(), redact_url_for_diagnostics);
-    ResourceDetail::new(format!("ASR provider · {}", provider.id))
-        .field("Kind", kind)
-        .field("Status", if active { "active" } else { "inactive" })
-        .field("Model", optional_text(provider.model.as_deref()))
-        .field("Timeout", optional_timeout(provider.timeout_ms))
-        .field("Endpoint", endpoint)
         .field(
-            "Hotwords file",
-            optional_text(provider.hotwords_file.as_deref()),
+            locale.text(GuiText::InstallDirectory),
+            model.model_dir.display().to_string(),
         )
         .field(
-            "Managed script",
-            yes_no(managed_provider_script_path(provider).is_some()),
+            locale.text(GuiText::MetadataFile),
+            model.metadata_path.display().to_string(),
         )
-        .field("Arguments", provider.args.len().to_string())
-        .field("Environment", configured_count(provider.env.len()))
 }
 
-fn llm_provider_detail(provider: &LlmProviderConfig) -> ResourceDetail {
+fn asr_provider_detail(
+    locale: GuiLocale,
+    provider: &AsrProviderConfig,
+    active: bool,
+) -> ResourceDetail {
+    let kind = locale.text(match provider.kind {
+        AsrProviderKind::Local => GuiText::Local,
+        AsrProviderKind::Remote => GuiText::Remote,
+        AsrProviderKind::Command => GuiText::Command,
+    });
+    let endpoint = provider.endpoint.as_deref().map_or_else(
+        || locale.text(GuiText::NotConfigured).to_owned(),
+        redact_url_for_diagnostics,
+    );
+    ResourceDetail::new(locale.asr_provider_detail_title(&provider.id))
+        .field(locale.text(GuiText::Kind), kind)
+        .field(
+            locale.text(GuiText::Status),
+            locale.text(if active {
+                GuiText::Active
+            } else {
+                GuiText::Inactive
+            }),
+        )
+        .field(
+            locale.text(GuiText::Model),
+            optional_text(locale, provider.model.as_deref()),
+        )
+        .field(
+            locale.text(GuiText::Timeout),
+            optional_timeout(locale, provider.timeout_ms),
+        )
+        .field(locale.text(GuiText::Endpoint), endpoint)
+        .field(
+            locale.text(GuiText::HotwordFile),
+            optional_text(locale, provider.hotwords_file.as_deref()),
+        )
+        .field(
+            locale.text(GuiText::ManagedScript),
+            yes_no(locale, managed_provider_script_path(provider).is_some()),
+        )
+        .field(
+            locale.text(GuiText::Arguments),
+            provider.args.len().to_string(),
+        )
+        .field(
+            locale.text(GuiText::Environment),
+            locale.configured_count(provider.env.len()),
+        )
+}
+
+fn llm_provider_detail(locale: GuiLocale, provider: &LlmProviderConfig) -> ResourceDetail {
     let endpoint = if provider.base_url.is_empty() {
-        "adapter/local".to_owned()
+        locale.text(GuiText::AdapterLocal).to_owned()
     } else {
         redact_url_for_diagnostics(&provider.base_url)
     };
-    ResourceDetail::new(format!("LLM provider · {}", provider.id))
-        .field("Model", optional_text(provider.model.as_deref()))
-        .field("Endpoint", endpoint)
-        .field("Credential", configured(!provider.api_key.is_empty()))
+    ResourceDetail::new(locale.llm_provider_detail_title(&provider.id))
         .field(
-            "Extra body fields",
+            locale.text(GuiText::Model),
+            optional_text(locale, provider.model.as_deref()),
+        )
+        .field(locale.text(GuiText::Endpoint), endpoint)
+        .field(
+            locale.text(GuiText::Credential),
+            configured(locale, !provider.api_key.is_empty()),
+        )
+        .field(
+            locale.text(GuiText::ExtraBodyFields),
             provider
                 .extra_body
                 .as_object()
                 .map_or(0, serde_json::Map::len)
                 .to_string(),
         )
-        .field("Extension fields", provider.extra.len().to_string())
+        .field(
+            locale.text(GuiText::ExtensionFields),
+            provider.extra.len().to_string(),
+        )
 }
 
-fn llm_adapter_detail(adapter: &LlmAdapterConfig) -> ResourceDetail {
-    ResourceDetail::new(format!("Text adapter · {}", adapter.id))
+fn llm_adapter_detail(locale: GuiLocale, adapter: &LlmAdapterConfig) -> ResourceDetail {
+    ResourceDetail::new(locale.text_adapter_detail_title(&adapter.id))
         .field(
-            "Managed script",
-            yes_no(managed_adapter_script_path(adapter).is_some()),
+            locale.text(GuiText::ManagedScript),
+            yes_no(locale, managed_adapter_script_path(adapter).is_some()),
         )
-        .field("Arguments", adapter.args.len().to_string())
-        .field("Environment", configured_count(adapter.env.len()))
         .field(
-            "Working directory",
-            configured(adapter.working_dir.is_some()),
+            locale.text(GuiText::Arguments),
+            adapter.args.len().to_string(),
         )
-        .field("Extension fields", adapter.extra.len().to_string())
+        .field(
+            locale.text(GuiText::Environment),
+            locale.configured_count(adapter.env.len()),
+        )
+        .field(
+            locale.text(GuiText::WorkingDirectory),
+            configured(locale, adapter.working_dir.is_some()),
+        )
+        .field(
+            locale.text(GuiText::ExtensionFields),
+            adapter.extra.len().to_string(),
+        )
 }
 
-fn optional_text(value: Option<&str>) -> String {
+fn optional_text(locale: GuiLocale, value: Option<&str>) -> String {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("not configured")
+        .unwrap_or_else(|| locale.text(GuiText::NotConfigured))
         .to_owned()
 }
 
-fn optional_timeout(value: Option<u64>) -> String {
+fn optional_timeout(locale: GuiLocale, value: Option<u64>) -> String {
     value.map_or_else(
-        || "not configured".to_owned(),
+        || locale.text(GuiText::NotConfigured).to_owned(),
         |milliseconds| format!("{milliseconds} ms"),
     )
 }
 
-fn optional_size(value: Option<u64>) -> String {
-    value.map_or_else(|| "not declared".to_owned(), format_binary_size)
+fn optional_size(locale: GuiLocale, value: Option<u64>) -> String {
+    value.map_or_else(
+        || locale.text(GuiText::NotDeclared).to_owned(),
+        format_binary_size,
+    )
 }
 
 fn format_binary_size(bytes: u64) -> String {
@@ -312,20 +400,16 @@ fn format_unit(bytes: u64, unit: u64, suffix: &str) -> String {
     format!("{whole}.{decimal} {suffix}")
 }
 
-fn configured(value: bool) -> &'static str {
-    if value {
-        "configured"
+fn configured(locale: GuiLocale, value: bool) -> &'static str {
+    locale.text(if value {
+        GuiText::Configured
     } else {
-        "not configured"
-    }
+        GuiText::NotConfigured
+    })
 }
 
-fn configured_count(count: usize) -> String {
-    format!("{count} configured")
-}
-
-fn yes_no(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
+fn yes_no(locale: GuiLocale, value: bool) -> &'static str {
+    locale.text(if value { GuiText::Yes } else { GuiText::No })
 }
 
 #[cfg(test)]
@@ -364,7 +448,7 @@ mod tests {
             file_count: 1,
         };
 
-        let detail = installed_model_detail(&model, true);
+        let detail = installed_model_detail(GuiLocale::EnUs, &model, true);
         let debug = format!("{detail:?}");
 
         assert!(debug.contains("sherpa-offline"));
@@ -392,7 +476,10 @@ mod tests {
             ),
         };
 
-        let debug = format!("{:?}", asr_provider_detail(&provider, false));
+        let debug = format!(
+            "{:?}",
+            asr_provider_detail(GuiLocale::EnUs, &provider, false)
+        );
 
         assert!(debug.contains("example.test"));
         assert!(debug.contains("REDACTED"));
@@ -427,14 +514,13 @@ mod tests {
             extra: HashMap::from([("private".to_owned(), json!("extension-secret"))]),
         };
 
-        let debug = format!(
-            "{:?}\n{:?}",
-            llm_provider_detail(&provider),
-            llm_adapter_detail(&adapter)
-        );
+        let provider_detail = llm_provider_detail(GuiLocale::EnUs, &provider);
+        let adapter_detail = llm_adapter_detail(GuiLocale::EnUs, &adapter);
+        let debug = format!("{provider_detail:?}\n{adapter_detail:?}");
 
         assert!(debug.contains("example.test"));
-        assert!(debug.contains("configured"));
+        assert_eq!(provider_detail.fields.len(), 5);
+        assert_eq!(adapter_detail.fields.len(), 5);
         for secret in [
             "pass",
             "provider-secret",
@@ -452,11 +538,39 @@ mod tests {
     }
 
     #[test]
+    fn resource_detail_locale_preserves_identity_and_structural_values() {
+        let config = VinputConfig::bundled_default().expect("bundled config");
+        let provider = config.asr.providers.first().expect("bundled provider");
+        let english = asr_provider_detail(GuiLocale::EnUs, provider, true);
+        let chinese = asr_provider_detail(GuiLocale::ZhCn, provider, true);
+
+        assert!(english.title.contains(&provider.id));
+        assert!(chinese.title.contains(&provider.id));
+        assert_eq!(english.fields.len(), chinese.fields.len());
+        assert_eq!(english.fields[3].value, chinese.fields[3].value);
+        assert_eq!(english.fields[7].value, chinese.fields[7].value);
+        assert!(
+            english
+                .fields
+                .iter()
+                .zip(&chinese.fields)
+                .any(|(left, right)| left.label != right.label)
+        );
+        assert!(
+            english
+                .fields
+                .iter()
+                .zip(&chinese.fields)
+                .any(|(left, right)| left.value != right.value)
+        );
+    }
+
+    #[test]
     fn stale_selection_returns_unavailable_detail() {
         let config = VinputConfig::bundled_default().expect("bundled config");
         let selection = ResourceSelection::AsrProvider("missing-provider".to_owned());
 
-        let error = resolve_resource_detail(&selection, Ok(&config), Ok(&[]))
+        let error = resolve_resource_detail(GuiLocale::EnUs, &selection, Ok(&config), Ok(&[]))
             .expect_err("missing selection should fail");
 
         assert!(error.contains("no longer configured"));

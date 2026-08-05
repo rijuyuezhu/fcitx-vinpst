@@ -15,7 +15,7 @@ use vinput_registry::{
     scan_installed_models,
 };
 
-use crate::model_install::ModelInstallOutcome;
+use crate::{GuiLocale, model_install::ModelInstallOutcome};
 
 /// Returns the managed ASR model root used by CLI and GUI workflows.
 pub fn default_model_root() -> Result<PathBuf, String> {
@@ -58,6 +58,7 @@ pub(crate) fn install_registry_model_controlled(
     config: &VinputConfig,
     selector: &str,
     control: &RegistryOperationControl,
+    locale: GuiLocale,
 ) -> ModelInstallOutcome {
     control.report(RegistryOperationProgress::ResolvingRegistry);
     if control.is_cancelled() {
@@ -109,14 +110,10 @@ pub(crate) fn install_registry_model_controlled(
             return ModelInstallOutcome::Failed(format!("Model installation failed: {error}"));
         }
     };
-    let checksum = if installed.checksum_verified() {
-        "checksum verified"
-    } else {
-        "registry provided no checksum"
-    };
-    ModelInstallOutcome::Installed(format!(
-        "Installed {} into managed model `{model_name}` ({checksum}).",
-        model.resolved_title(None)
+    ModelInstallOutcome::Installed(locale.model_installed(
+        &model.resolved_title(None),
+        &model_name,
+        installed.checksum_verified(),
     ))
 }
 
@@ -160,6 +157,7 @@ fn fetch_live_model_registry_from(
 pub(crate) fn remove_installed_model(
     config: &VinputConfig,
     target_path: &Path,
+    locale: GuiLocale,
 ) -> Result<String, String> {
     let model_root = default_model_root()?;
     let active_model_paths = config
@@ -180,7 +178,7 @@ pub(crate) fn remove_installed_model(
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("managed model");
-    Ok(format!("Removed inactive managed model `{directory}`."))
+    Ok(locale.model_removed(directory))
 }
 
 pub(crate) fn model_is_active(config: &VinputConfig, model_dir: &Path) -> bool {

@@ -11,7 +11,7 @@ use vinput_registry::{
 };
 
 use crate::{
-    ConfigDocument, ConfigSaveOutcome, ensure_config_mutation_allowed,
+    ConfigDocument, ConfigSaveOutcome, GuiLocale, GuiText, ensure_config_mutation_allowed,
     save_updated_config_with_daemon,
     script_install::{
         ScriptEnvironmentValue, ScriptInstallOutcome, ScriptInstallPlan, ScriptPrepareOutcome,
@@ -102,9 +102,10 @@ pub(crate) fn install_registry_script_controlled(
     document: &ConfigDocument,
     plan: &ScriptInstallPlan,
     control: &RegistryOperationControl,
+    locale: GuiLocale,
 ) -> ScriptInstallOutcome {
     let asset_source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
-    install_registry_script_from_source(document, plan, control, &asset_source)
+    install_registry_script_from_source(document, plan, control, &asset_source, locale)
 }
 
 fn install_registry_script_from_source(
@@ -112,12 +113,14 @@ fn install_registry_script_from_source(
     plan: &ScriptInstallPlan,
     control: &RegistryOperationControl,
     asset_source: &impl vinput_registry::RegistryAssetSource,
+    locale: GuiLocale,
 ) -> ScriptInstallOutcome {
     install_registry_script_from_source_and_save(
         document,
         plan,
         control,
         asset_source,
+        locale,
         save_updated_config_with_daemon,
     )
 }
@@ -127,6 +130,7 @@ pub(crate) fn install_registry_script_from_source_and_save(
     plan: &ScriptInstallPlan,
     control: &RegistryOperationControl,
     asset_source: &impl vinput_registry::RegistryAssetSource,
+    locale: GuiLocale,
     save: impl FnOnce(&ConfigDocument, &VinputConfig) -> Result<ConfigSaveOutcome, String>,
 ) -> ScriptInstallOutcome {
     control.report(RegistryOperationProgress::Preparing);
@@ -199,13 +203,16 @@ pub(crate) fn install_registry_script_from_source_and_save(
         Err(error) => return failed_after_publication(error, rollback.as_ref()),
     };
     control.report(RegistryOperationProgress::Completed);
-    let action = if replacing { "Updated" } else { "Installed" };
-    ScriptInstallOutcome::Installed(format!(
-        "{action} {} `{}` at {}; {}.",
-        resource_label(plan.kind),
-        plan.entry.id,
-        plan.script_path.display(),
-        saved.daemon_reload
+    let resource = locale.text(match plan.kind {
+        LiveScriptKind::AsrProvider => GuiText::AsrProviderResource,
+        LiveScriptKind::LlmAdapter => GuiText::TextAdapterResource,
+    });
+    ScriptInstallOutcome::Installed(locale.script_installed(
+        replacing,
+        resource,
+        &plan.entry.id,
+        &plan.script_path.display().to_string(),
+        &saved.daemon_reload,
     ))
 }
 
@@ -414,9 +421,10 @@ pub(crate) fn remove_managed_script_entry(
     document: &ConfigDocument,
     kind: LiveScriptKind,
     id: &str,
+    locale: GuiLocale,
 ) -> Result<String, String> {
     let root = default_script_root(kind)?;
-    remove_managed_script_entry_from_root(document, kind, id, &root)
+    remove_managed_script_entry_from_root(document, kind, id, &root, locale)
 }
 
 fn remove_managed_script_entry_from_root(
@@ -424,6 +432,7 @@ fn remove_managed_script_entry_from_root(
     kind: LiveScriptKind,
     id: &str,
     root: &std::path::Path,
+    locale: GuiLocale,
 ) -> Result<String, String> {
     ensure_config_mutation_allowed(document)?;
     let mut updated = document.config.clone();
@@ -487,28 +496,24 @@ fn remove_managed_script_entry_from_root(
     let cleanup = cleanup_managed_script(&script_path);
     let rollback_cleanup = (kind == LiveScriptKind::LlmAdapter)
         .then(|| cleanup_managed_script(&managed_script_rollback_path(&script_path)));
-    let label = resource_label(kind);
+    let resource = locale.text(match kind {
+        LiveScriptKind::AsrProvider => GuiText::AsrProviderResource,
+        LiveScriptKind::LlmAdapter => GuiText::TextAdapterResource,
+    });
     let cleanup_error = cleanup.as_ref().err().map(ToString::to_string).or_else(|| {
         rollback_cleanup
             .as_ref()
             .and_then(|result| result.as_ref().err())
             .map(ToString::to_string)
     });
-    Ok(match cleanup_error {
-        Some(error) => format!(
-            "Removed {label} `{id}` from config; managed script cleanup failed: {error}; {}.",
-            saved.daemon_reload
-        ),
-        None if cleanup == Ok(true) => format!(
-            "Removed {label} `{id}` and managed script {}; {}.",
-            script_path.display(),
-            saved.daemon_reload
-        ),
-        None => format!(
-            "Removed {label} `{id}`; managed script was already absent; {}.",
-            saved.daemon_reload
-        ),
-    })
+    Ok(locale.script_removed(
+        resource,
+        id,
+        &script_path.display().to_string(),
+        cleanup_error.as_deref(),
+        cleanup == Ok(true),
+        &saved.daemon_reload,
+    ))
 }
 
 fn configured_managed_script_path(
@@ -709,6 +714,7 @@ mod tests {
             &plan,
             &RegistryOperationControl::default(),
             &asset,
+            GuiLocale::EnUs,
         );
 
         assert!(matches!(outcome, ScriptInstallOutcome::Installed(_)));
@@ -766,6 +772,7 @@ mod tests {
             &plan,
             &RegistryOperationControl::default(),
             &UnexpectedAssetSource,
+            GuiLocale::EnUs,
         );
 
         assert!(matches!(outcome, ScriptInstallOutcome::Failed(error) if error.contains("TOKEN")));
@@ -907,6 +914,7 @@ mod tests {
             &plan,
             &RegistryOperationControl::default(),
             &asset,
+            GuiLocale::EnUs,
         );
 
         assert!(matches!(outcome, ScriptInstallOutcome::Installed(_)));
@@ -965,6 +973,7 @@ mod tests {
             &plan,
             &RegistryOperationControl::default(),
             &asset,
+            GuiLocale::EnUs,
         );
 
         assert!(matches!(outcome, ScriptInstallOutcome::Installed(_)));
@@ -1026,6 +1035,7 @@ mod tests {
             LiveScriptKind::AsrProvider,
             &entry.id,
             &root,
+            GuiLocale::EnUs,
         )
         .expect("remove provider");
 
@@ -1075,6 +1085,7 @@ mod tests {
             LiveScriptKind::AsrProvider,
             &entry.id,
             &root,
+            GuiLocale::EnUs,
         )
         .expect_err("active provider must be rejected");
 
@@ -1107,6 +1118,7 @@ mod tests {
             LiveScriptKind::LlmAdapter,
             "adapter.user.command",
             &root,
+            GuiLocale::EnUs,
         )
         .expect_err("user-defined adapter must be rejected");
 
@@ -1150,6 +1162,7 @@ mod tests {
             LiveScriptKind::LlmAdapter,
             &entry.id,
             &root,
+            GuiLocale::EnUs,
         )
         .expect("remove adapter");
 

@@ -288,7 +288,60 @@ The 2026-08-01 VS Code 1.131.0 run retained seven normal-mode partial signals an
 
 Widget-backed command cases emit `selection-ready`, but selection transport is application-dependent. GTK/Qt and the standalone editor paths require the widget selection in the final replacement; kitty proves PRIMARY fallback directly. Chromium and VS Code deliberately use different application-selection and PRIMARY sentinels and require the PRIMARY sentinel in the result, recording that neither application exposes its selection as Fcitx surrounding text in these gates. All command cases observe same-run daemon partials and require the expected `adapter-backed:` replacement. The toolkit probes combine daemon `RecognitionPartial` evidence with the final text observed by the real application widget because Fcitx input-panel preedit is not exposed as client-side preedit in every toolkit. The current Chinese Zipformer model may render English abbreviations as `<unk>`; that is an ASR model limitation, not a toolkit transport failure.
 
-## 7. Frontend behavior
+## 7. Rust management GUI interaction
+
+Build the current GUI and run the isolated niri/Wayland interaction gate:
+
+```sh
+cargo build -p vinput-gui
+scripts/live/niri/run-gui-interaction-live.sh
+```
+
+The gate requires one live niri socket, a writable `/dev/uinput`, Fcitx5 with a `rime` input method, and `wl-copy`/`wl-paste`. It never saves a GUI draft. Separate temporary XDG roots are used for English and zh_CN launches; the notification URL is redirected to a fail-fast loopback endpoint. Repository-owned uinput probes perform Ctrl+1–4, Tab/Shift+Tab, Ctrl+A/C, bounded ASCII typing, and Rime candidate commit. Page-shortcut checks explicitly refocus the target window and use bounded retries to reject compositor focus races without weakening the final localized-title assertion. Cleanup restores the previously focused niri window and standard text clipboard, terminates both GUI instances, and removes temporary XDG state. If a focused Fcitx input context existed before the gate, its active state and input-method name are restored exactly; otherwise the runner preserves and verifies the controller, current group, and group default without inventing a new context.
+
+Evidence under `target/tmp/gui-interaction-live/summary.json` must report:
+
+- English `Control -> Resources -> Hotwords -> Control` and zh_CN `控制 -> 资源 -> 热词 -> 控制` native title transitions;
+- navigation-button focus plus Enter/Space activation and forward/reverse traversal through the mixed control tree;
+- exact standard clipboard copy plus restoration;
+- a non-empty non-ASCII Fcitx5/Rime commit, recorded only as UTF-8 byte length rather than retained content;
+- zero GUI process residue and restored Fcitx state/input method.
+
+This is live proof for complete enabled-control keyboard traversal/activation, clipboard, input-method transport, bilingual titles, and page shortcuts on niri/Wayland. The GUI's bounded custom wrapper adds a visible focus ring, Enter/Space action activation, and arrow-key selector/slider adjustment while preserving the existing pointer widgets. It is still not screen-reader proof: Iced 0.14 currently exposes no AccessKit accessibility tree.
+
+Run the independent forced-X11 gate on the same niri host:
+
+```sh
+scripts/live/x11/run-gui-interaction-live.sh
+```
+
+The X11 runner removes `WAYLAND_DISPLAY` from each GUI process, sets `WINIT_UNIX_BACKEND=x11`, and requires the resulting client to expose a matching `_NET_WM_PID` and UTF-8 `_NET_WM_NAME` through `xprop`. It repeats the English/zh_CN title transitions, complete keyboard traversal/activation, and Fcitx5/Rime commit while reading copied text through `xclip`; the input-method transport is recorded as XIM. Wayland is used only to focus the rootless Xwayland client, restore the pre-test niri window, and restore the host clipboard; Fcitx restoration follows the same context-aware state/IM versus group/default rule as the native-Wayland gate. Evidence under `target/tmp/gui-x11-interaction-live/summary.json` retains only booleans, titles, transport names, and the committed UTF-8 byte count. This proves the Iced X11 backend under xwayland-satellite, not a standalone non-composited Xorg session and not a screen-reader tree.
+
+Run the reversible desktop-integration result gate:
+
+```sh
+scripts/live/niri/run-gui-desktop-integration-live.sh
+```
+
+The runner copies the bundled config into a temporary user config root, serves one current-schema startup notification from loopback, and replaces the configured desktop opener with a repository fixture that records exactly one argv target. Escape clears widget focus before each deterministic traversal. The first launch proves Open Config receives the exact loaded file, Details receives the validated credential-free HTTPS URL, and the notification id is atomically persisted at the legacy cache path as a regular mode-0600 file. A second launch with the same isolated cache still fetches the feed but cannot expose Details again; Open Config remains available and no fourth opener call occurs. The fixture never starts a real browser, retains no remote title/text, touches no user config/cache, and leaves no GUI or fixture process. Evidence is written under `target/tmp/gui-desktop-integration-live/summary.json`.
+
+Run the private-session portal picker result gate:
+
+```sh
+scripts/live/niri/run-gui-portal-picker-live.sh
+```
+
+The runner starts a private `dbus-daemon` and repository-owned `org.freedesktop.portal.Desktop` service, then launches the GUI with that private session bus so the real `rfd` backend cannot contact the host portal. An isolated local provider begins with an existing configured hotword file. The fixture records two `FileChooser.OpenFile` requests and verifies the generated handle token, single-file/non-directory flags, current folder, and text/all filter patterns. The first response returns a percent-encoded `file://` URI whose path contains spaces and Chinese characters; clipboard inspection proves the GUI decodes it into the exact UTF-8 draft while the config SHA-256 remains unchanged. A fresh launch receives a cancellation response and retains the configured draft, again without writing config. The gate restores the previous niri window and text clipboard and leaves no GUI, portal, or private-bus process. Its summary records only structural booleans and retains no selected path.
+
+Run the private-daemon Control mutation gate:
+
+```sh
+scripts/live/niri/run-gui-config-mutation-live.sh
+```
+
+The runner owns `org.fcitx.Vinput` on a private session bus and exposes only typed idle status, inactive-session runtime state, empty adapter diagnostics, and a counted `ReloadAsrBackend`. It launches the real GUI against isolated success and conflict config roots. Clipboard paste changes the default-language draft without invoking the input method, a freshly rendered dirty text field submits through Enter, and the success path proves an atomic replacement, exact original-byte `.bak`, mode-0600 config and backup, one reload request, and the saved value after a second launch. The conflict path edits a separate draft, atomically publishes a different valid disk version outside the GUI, then proves Enter submission preserves the external bytes and still-visible draft, creates no backup, and sends no second reload. The shared writer's Unix tests separately begin with a legacy mode-0644 file and prove both replacement and backup are tightened to 0600. The live summary retains no configured values or paths, restores the previous niri window and text clipboard, does not contact the real daemon, and leaves no GUI, fixture, or private-bus process.
+
+## 8. Frontend behavior
 
 Verify in the real session:
 
@@ -302,7 +355,7 @@ Verify in the real session:
 - cross-client busy-state reconciliation;
 - model selection followed by background reload.
 
-## 8. Remote text LAN browser path
+## 9. Remote text LAN browser path
 
 Run the standalone diagnostic gate without changing the installed user profile:
 
@@ -323,7 +376,7 @@ VINPUT_REMOTE_TEXT_EXTERNAL_TIMEOUT=180 \
 
 Open the printed one-time URL on another physical device, enter the exact random challenge, and press Send. Set the confirmation variable only after verifying the URL is opened on another physical phone, tablet, laptop, or computer, not a local VM/container. The collector advances the row only when that operator confirmation is present, the challenge roundtrip succeeds, and `ss` observes an established peer address that differs from every address assigned to the server host. It records `same_host_lan_proof=false`, `distinct_network_peer_proof=true`, `operator_confirmed_physical_device=true`, and `cross_device_proof=true`, uses real `/usr/bin/ip` and `/usr/bin/ss`, retains no key, and releases the listener. A timeout or same-host-only run is a failure and must not produce `summary.json`.
 
-## 9. Live PipeWire diagnostics
+## 10. Live PipeWire diagnostics
 
 ```sh
 scripts/tests/pipewire-check.sh

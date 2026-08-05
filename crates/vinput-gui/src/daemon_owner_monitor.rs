@@ -51,6 +51,11 @@ impl App {
         daemon_refresh_task(operation_id)
     }
 
+    pub(crate) fn restart_daemon_refresh(&mut self, show_loading: bool) -> Task<Message> {
+        self.active_daemon_refresh_id = None;
+        self.begin_daemon_refresh(show_loading)
+    }
+
     pub(crate) fn begin_daemon_fallback_poll(&mut self) -> Task<Message> {
         if self.active_daemon_refresh_id.is_some() {
             return Task::none();
@@ -88,6 +93,7 @@ impl App {
     }
 
     pub(crate) fn handle_daemon_owner_event(&mut self, event: DaemonOwnerEvent) -> Task<Message> {
+        self.daemon_owner_generation = self.daemon_owner_generation.wrapping_add(1).max(1);
         match event {
             DaemonOwnerEvent::Connected { owned } | DaemonOwnerEvent::Changed { owned } => {
                 self.daemon_owner_monitor = DaemonOwnerMonitorState::Ready;
@@ -135,21 +141,25 @@ impl App {
 }
 
 fn daemon_refresh_task(operation_id: u64) -> Task<Message> {
-    Task::perform(async { query_daemon_snapshot() }, move |result| {
-        Message::DaemonLoaded {
+    crate::blocking_task::perform(
+        "vinput-gui-daemon-refresh",
+        query_daemon_snapshot,
+        move |result| Message::DaemonLoaded {
             operation_id,
-            result,
-        }
-    })
+            result: result.unwrap_or_else(|failure| Err(failure.to_string())),
+        },
+    )
 }
 
 fn daemon_fallback_poll_task(operation_id: u64) -> Task<Message> {
-    Task::perform(async { query_daemon_snapshot_if_owned() }, move |result| {
-        Message::DaemonFallbackPolled {
+    crate::blocking_task::perform(
+        "vinput-gui-daemon-owner-poll",
+        query_daemon_snapshot_if_owned,
+        move |result| Message::DaemonFallbackPolled {
             operation_id,
-            result,
-        }
-    })
+            result: result.unwrap_or_else(|failure| Err(failure.to_string())),
+        },
+    )
 }
 
 fn owner_event_stream() -> impl iced::futures::Stream<Item = DaemonOwnerEvent> {

@@ -1,5 +1,7 @@
 //! Validated atomic persistence for typed vinput configuration documents.
 
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::{
     fs::{self, OpenOptions},
     io::{self, Write},
@@ -113,11 +115,13 @@ pub fn write_config_file(
     }
 
     if let Some(backup_path) = backup_path {
-        fs::copy(output_path, backup_path).map_err(|source| ConfigWriteError::Backup {
-            path: output_path.to_path_buf(),
-            backup_path: backup_path.to_path_buf(),
-            source,
-        })?;
+        fs::copy(output_path, backup_path)
+            .and_then(|_| set_private_file_permissions(backup_path))
+            .map_err(|source| ConfigWriteError::Backup {
+                path: output_path.to_path_buf(),
+                backup_path: backup_path.to_path_buf(),
+                source,
+            })?;
     }
 
     let mut contents = serde_json::to_string_pretty(config)?;
@@ -152,17 +156,27 @@ pub fn write_config_file(
     })
 }
 
+#[cfg(unix)]
+fn set_private_file_permissions(path: &Path) -> io::Result<()> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_private_file_permissions(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
 fn create_temporary_file(path: &Path) -> Result<(PathBuf, fs::File), ConfigWriteError> {
     for _ in 0..32 {
         let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let mut temporary = path.as_os_str().to_os_string();
         temporary.push(format!(".tmp-{}-{sequence}", std::process::id()));
         let temporary_path = PathBuf::from(temporary);
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary_path)
-        {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&temporary_path) {
             Ok(file) => return Ok((temporary_path, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(source) => {
@@ -186,6 +200,8 @@ fn create_temporary_file(path: &Path) -> Result<(PathBuf, fs::File), ConfigWrite
 #[cfg(test)]
 mod tests {
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     use super::*;
 
@@ -204,6 +220,15 @@ mod tests {
         assert!(contents.ends_with('\n'));
         let loaded = VinputConfig::from_json_file(&path).expect("parse written config");
         assert_eq!(loaded.global.default_language, "zh-CN");
+        #[cfg(unix)]
+        assert_eq!(
+            fs::metadata(&path)
+                .expect("written config metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
     }
 
     #[test]
@@ -212,6 +237,9 @@ mod tests {
         let path = directory.path().join("config.json");
         let backup_path = config_backup_path(&path);
         fs::write(&path, "old-config\n").expect("write old config");
+        #[cfg(unix)]
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644))
+            .expect("set legacy config permissions");
         let config = VinputConfig::bundled_default().expect("bundled config");
 
         let receipt =
@@ -223,6 +251,25 @@ mod tests {
             "old-config\n"
         );
         assert!(VinputConfig::from_json_file(&path).is_ok());
+        #[cfg(unix)]
+        {
+            assert_eq!(
+                fs::metadata(&path)
+                    .expect("replaced config metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(&backup_path)
+                    .expect("backup metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
         let temporary_prefix =
             format!("{}{}", path.file_name().unwrap().to_string_lossy(), ".tmp-");
         assert!(

@@ -1,3 +1,4 @@
+use crate::GuiLocale;
 use std::path::Path;
 
 use super::*;
@@ -62,6 +63,7 @@ fn adapter_update_changes_managed_script_revision() {
         &first_plan,
         &RegistryOperationControl::default(),
         &FixtureAssetSource(first_bytes),
+        GuiLocale::EnUs,
     );
     assert!(matches!(first, ScriptInstallOutcome::Installed(_)));
     let first_config = VinputConfig::from_json_file(&config_path).expect("first config");
@@ -89,6 +91,7 @@ fn adapter_update_changes_managed_script_revision() {
         &second_plan,
         &RegistryOperationControl::default(),
         &FixtureAssetSource(second_bytes),
+        GuiLocale::EnUs,
     );
     assert!(matches!(second, ScriptInstallOutcome::Installed(_)));
     let second_config = VinputConfig::from_json_file(&config_path).expect("second config");
@@ -151,6 +154,7 @@ fn rejected_adapter_update_restores_previous_script() {
         &initial_plan,
         &RegistryOperationControl::default(),
         &FixtureAssetSource(old_bytes),
+        GuiLocale::EnUs,
     );
     assert!(matches!(initial, ScriptInstallOutcome::Installed(_)));
     let installed_config = VinputConfig::from_json_file(&config_path).expect("installed config");
@@ -174,6 +178,7 @@ fn rejected_adapter_update_restores_previous_script() {
         &update_plan,
         &RegistryOperationControl::default(),
         &FixtureAssetSource(new_bytes),
+        GuiLocale::EnUs,
         |_, _| Err("daemon reload rejected replacement".to_owned()),
     );
 

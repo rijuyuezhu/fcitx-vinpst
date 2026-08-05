@@ -12,6 +12,14 @@ fn bundled_snapshot_is_redacted_and_has_legacy_pages() {
         json!(["Control", "Resources", "LLM", "Hotwords"])
     );
     assert_eq!(snapshot["daemon"]["skipped"], true);
+    assert_eq!(
+        snapshot["interaction"]["keyboard"]["tab_focus_traversal"],
+        true
+    );
+    assert_eq!(
+        snapshot["interaction"]["accessibility_tree"]["available"],
+        false
+    );
     assert!(!snapshot.to_string().contains("api_key"));
 }
 
@@ -127,7 +135,11 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
         .clone();
     app.operation = OperationState::Running("Saving scene…");
 
-    drop(app.update(Message::DefaultLanguageChanged("zh-CN".to_owned())));
+    drop(
+        app.update(Message::ConfigDraft(ConfigDraftMessage::DefaultLanguage(
+            "zh-CN".to_owned(),
+        ))),
+    );
     drop(app.update(Message::SelectPage(Page::Control)));
     drop(app.update(Message::ReloadConfig));
     drop(app.update(Message::Scene(SceneMessage::EditorChanged {
@@ -355,6 +367,51 @@ fn same_page_navigation_preserves_page_local_editors() {
 }
 
 #[test]
+fn hotword_changes_block_navigation_and_reload_until_reset() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = VinputConfig::bundled_default().expect("bundled config");
+    let document = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinput-gui-hotword-navigation.json"),
+        from_disk: false,
+        config: config.clone(),
+    });
+    app.refresh_hotword_editor(&document);
+    app.config = document;
+    app.draft = Some(ConfigDraft::from_config(&config));
+    app.page = Page::Hotwords;
+
+    drop(app.update(Message::Hotword(HotwordMessage::PathChanged(
+        SecretInput::new("/tmp/unsaved-hotwords.txt".to_owned()),
+    ))));
+    drop(app.update(Message::SelectPage(Page::Control)));
+    assert_eq!(app.page, Page::Hotwords);
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if !error.is_empty()
+    ));
+
+    drop(app.update(Message::ReloadConfig));
+    assert_eq!(app.page, Page::Hotwords);
+    assert!(matches!(
+        app.operation,
+        OperationState::Failed(ref error) if !error.is_empty()
+    ));
+
+    drop(app.update(Message::Hotword(HotwordMessage::ResetChanges)));
+    drop(app.update(Message::SelectPage(Page::Control)));
+    assert_eq!(app.page, Page::Control);
+}
+
+#[test]
+fn hotword_activation_retry_is_blocked_while_busy() {
+    assert!(
+        Message::Hotword(HotwordMessage::RetryActivation).blocked_while_busy(),
+        "a queued retry must not start a second daemon reload"
+    );
+}
+
+#[test]
 fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
     let config = VinputConfig::bundled_default().expect("bundled config");
     let document = ConfigDocument {
@@ -500,18 +557,21 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
     let idle = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
     };
     assert!(ensure_config_save_allowed(&idle).is_ok());
 
     let recording = DaemonSnapshot {
         status: "recording".to_owned(),
         runtime: json!({"active_session": true}),
+        text_adapters: TextAdapterState::default(),
     };
     assert!(ensure_config_save_allowed(&recording).is_err());
 
     let inconsistent = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": true}),
+        text_adapters: TextAdapterState::default(),
     };
     assert!(ensure_config_save_allowed(&inconsistent).is_err());
 }
@@ -521,6 +581,7 @@ fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
     };
     assert_eq!(
         daemon_state_from_poll(Ok(Some(snapshot.clone()))),
@@ -544,6 +605,7 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
     };
     let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Connected {
         owned: true,
@@ -590,6 +652,7 @@ fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
     };
     let _ = app.update(Message::DaemonLoaded {
         operation_id: 1,

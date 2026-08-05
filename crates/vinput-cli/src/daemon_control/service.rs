@@ -1,5 +1,10 @@
 use super::status::daemon_status_via_dbus;
-use super::{ProcessCommand, daemon_owner_probe_plan_json, dbus, optional_json_str};
+use super::{daemon_owner_probe_plan_json, dbus, optional_json_str};
+
+pub(super) use vinput_daemon_control::UserServiceCommand;
+use vinput_daemon_control::{
+    DAEMON_SERVICE_NAME, UserServiceAction, run_user_service_command, user_service_command,
+};
 
 use crate::sandbox;
 
@@ -29,83 +34,33 @@ pub(super) fn print_daemon_user_service_plan(
     Ok(())
 }
 
-pub(super) struct UserServiceCommand {
-    pub(super) program: String,
-    pub(super) args: Vec<String>,
-}
-
-impl UserServiceCommand {
-    pub(super) fn argv(&self) -> Vec<String> {
-        std::iter::once(self.program.clone())
-            .chain(self.args.iter().cloned())
-            .collect()
-    }
-
-    pub(super) fn display(&self) -> String {
-        self.argv().join(" ")
-    }
-
-    pub(super) fn is_host_wrapped(&self) -> bool {
-        self.args.first().map(String::as_str) == Some("--host") && self.args.len() >= 2
-    }
-
-    pub(super) fn target_program(&self) -> &str {
-        if self.is_host_wrapped() {
-            &self.args[1]
-        } else {
-            &self.program
-        }
-    }
-
-    pub(super) fn host_wrapper_program(&self) -> Option<&str> {
-        self.is_host_wrapped().then_some(self.program.as_str())
-    }
-}
-
 pub(super) fn daemon_user_service_command(
     action: &str,
     log_lines: Option<u16>,
 ) -> anyhow::Result<UserServiceCommand> {
-    const SERVICE_NAME: &str = "vinput-daemon.service";
     if log_lines == Some(0) {
         anyhow::bail!("daemon log --lines must be greater than 0");
     }
 
-    let systemctl =
-        || std::env::var("VINPUT_DAEMON_SYSTEMCTL").unwrap_or_else(|_| "systemctl".to_owned());
-    let owned = |values: &[&str]| values.iter().map(|value| (*value).to_owned()).collect();
-    let (target_program, target_args) = match action {
-        "stop" => (systemctl(), owned(&["--user", "stop", SERVICE_NAME])),
-        "restart" => (systemctl(), owned(&["--user", "restart", SERVICE_NAME])),
-        "disable-now" => (
-            systemctl(),
-            owned(&["--user", "disable", "--now", SERVICE_NAME]),
-        ),
-        "daemon-reload" => (systemctl(), owned(&["--user", "daemon-reload"])),
-        "main-pid" => (
-            systemctl(),
-            owned(&[
-                "--user",
-                "show",
-                "--property",
-                "MainPID",
-                "--value",
-                SERVICE_NAME,
-            ]),
-        ),
-        "log" => {
-            let mut args = sandbox::daemon_log_args(SERVICE_NAME);
-            if let Some(lines) = log_lines {
-                args.extend(["-n".to_owned(), lines.to_string()]);
-            }
-            (
-                std::env::var("VINPUT_DAEMON_JOURNALCTL")
-                    .unwrap_or_else(|_| "journalctl".to_owned()),
-                args,
-            )
-        }
+    let service_action = match action {
+        "stop" => Some(UserServiceAction::Stop),
+        "restart" => Some(UserServiceAction::Restart),
+        "disable-now" => Some(UserServiceAction::DisableNow),
+        "daemon-reload" => Some(UserServiceAction::DaemonReload),
+        "main-pid" => Some(UserServiceAction::MainPid),
+        "log" => None,
         _ => anyhow::bail!("unsupported daemon user service action `{action}`"),
     };
+    if let Some(action) = service_action {
+        return Ok(user_service_command(action));
+    }
+
+    let mut target_args = sandbox::daemon_log_args(DAEMON_SERVICE_NAME);
+    if let Some(lines) = log_lines {
+        target_args.extend(["-n".to_owned(), lines.to_string()]);
+    }
+    let target_program =
+        std::env::var("VINPUT_DAEMON_JOURNALCTL").unwrap_or_else(|_| "journalctl".to_owned());
     let (program, args) = sandbox::wrap_host_command(target_program, target_args);
     Ok(UserServiceCommand { program, args })
 }
@@ -206,33 +161,9 @@ pub(super) fn run_daemon_user_service_command(
     command: &UserServiceCommand,
 ) -> serde_json::Value {
     let will_mutate_user_service = matches!(action, "stop" | "restart" | "daemon-reload");
-    match ProcessCommand::new(&command.program)
-        .args(&command.args)
-        .output()
-    {
-        Ok(output) => {
-            let exit_status = output.status.code();
-            serde_json::json!({
-                "ok": output.status.success(),
-                "dry_run": false,
-                "action": action,
-                "will_mutate_user_service": will_mutate_user_service,
-                "strategy": "systemd-user-service",
-                "tool": daemon_user_service_tool_json(action, command),
-                "sandbox": sandbox::sandbox_json(command.is_host_wrapped()),
-                "host_wrapper": daemon_user_service_host_wrapper_json(command),
-                "command": command.display(),
-                "command_argv": command.argv(),
-                "owner_probe": daemon_owner_probe_plan_json(),
-                "exit_status": exit_status,
-                "stdout": String::from_utf8_lossy(&output.stdout),
-                "stderr": String::from_utf8_lossy(&output.stderr),
-                "fallback": daemon_user_service_fallback(),
-                "fallback_steps": daemon_user_service_fallback_steps(),
-                "next_steps": daemon_user_service_next_steps(action),
-            })
-        }
-        Err(error) => serde_json::json!({
+    let outcome = run_user_service_command(command);
+    if let Some(error) = outcome.error {
+        return serde_json::json!({
             "ok": false,
             "dry_run": false,
             "action": action,
@@ -247,12 +178,31 @@ pub(super) fn run_daemon_user_service_command(
             "exit_status": null,
             "stdout": "",
             "stderr": "",
-            "error": error.to_string(),
+            "error": error,
             "fallback": daemon_user_service_fallback(),
             "fallback_steps": daemon_user_service_fallback_steps(),
             "next_steps": daemon_user_service_next_steps(action),
-        }),
+        });
     }
+    serde_json::json!({
+        "ok": outcome.ok,
+        "dry_run": false,
+        "action": action,
+        "will_mutate_user_service": will_mutate_user_service,
+        "strategy": "systemd-user-service",
+        "tool": daemon_user_service_tool_json(action, command),
+        "sandbox": sandbox::sandbox_json(command.is_host_wrapped()),
+        "host_wrapper": daemon_user_service_host_wrapper_json(command),
+        "command": command.display(),
+        "command_argv": command.argv(),
+        "owner_probe": daemon_owner_probe_plan_json(),
+        "exit_status": outcome.exit_status,
+        "stdout": outcome.stdout,
+        "stderr": outcome.stderr,
+        "fallback": daemon_user_service_fallback(),
+        "fallback_steps": daemon_user_service_fallback_steps(),
+        "next_steps": daemon_user_service_next_steps(action),
+    })
 }
 
 fn print_daemon_user_service_result_text(output: &serde_json::Value) {
