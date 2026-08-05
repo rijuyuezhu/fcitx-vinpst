@@ -74,26 +74,23 @@ impl ModelInstallState {
         });
         let worker_control = control.clone();
         let worker_selector = selector.clone();
-        let task = Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    install_registry_model_controlled(
-                        &config,
-                        &worker_selector,
-                        &worker_control,
-                        locale,
-                    )
-                })
-                .await
-                .unwrap_or_else(|_| {
+        let task = crate::blocking_task::perform(
+            "vinput-gui-model-install",
+            move || {
+                install_registry_model_controlled(
+                    &config,
+                    &worker_selector,
+                    &worker_control,
+                    locale,
+                )
+            },
+            move |result| Message::ModelInstalled {
+                operation_id,
+                outcome: result.unwrap_or_else(|_| {
                     ModelInstallOutcome::Failed(
                         "Model installation worker stopped unexpectedly.".to_owned(),
                     )
-                })
-            },
-            move |outcome| Message::ModelInstalled {
-                operation_id,
-                outcome,
+                }),
             },
         );
         (

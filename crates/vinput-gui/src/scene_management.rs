@@ -354,12 +354,17 @@ impl App {
             return Task::none();
         }
         self.operation = OperationState::Running(progress);
-        Task::perform(
-            async move {
+        crate::blocking_task::perform(
+            "vinput-gui-scene-mutation",
+            move || {
                 save_updated_config_with_daemon(&document, &updated)
                     .map(|save| SceneMutationOutcome { save, summary })
             },
-            |result| Message::Scene(SceneMessage::MutationFinished(result)),
+            |result| {
+                Message::Scene(SceneMessage::MutationFinished(
+                    result.unwrap_or_else(|failure| Err(failure.to_string())),
+                ))
+            },
         )
     }
 

@@ -185,13 +185,23 @@ impl App {
         self.next_daemon_control_id = self.next_daemon_control_id.wrapping_add(1).max(1);
         self.active_daemon_control_id = Some(operation_id);
         self.operation = OperationState::Running(action.progress(self.locale));
-        Task::perform(async move { run_daemon_control(action) }, move |result| {
-            Message::DaemonControl(DaemonControlMessage::Finished {
-                operation_id,
-                action,
-                result,
-            })
-        })
+        crate::blocking_task::perform(
+            "vinput-gui-daemon-control",
+            move || run_daemon_control(action),
+            move |result| {
+                Message::DaemonControl(DaemonControlMessage::Finished {
+                    operation_id,
+                    action,
+                    result: result.unwrap_or_else(|_| {
+                        Err(if action == DaemonControlAction::Start {
+                            DaemonControlFailure::ActivationFailed
+                        } else {
+                            DaemonControlFailure::ServiceCommandFailed
+                        })
+                    }),
+                })
+            },
+        )
     }
 
     fn finish_daemon_control(

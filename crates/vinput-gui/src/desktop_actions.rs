@@ -197,9 +197,15 @@ impl App {
         progress: GuiText,
     ) -> Task<Message> {
         self.operation = OperationState::Running(self.locale.text(progress));
-        Task::perform(
-            async move { spawn_desktop_open_target(&target, &DesktopOpenEnvironment::from_process()) },
-            move |result| Message::DesktopAction(DesktopActionMessage::Opened { kind, result }),
+        crate::blocking_task::perform(
+            "vinput-gui-desktop-open",
+            move || spawn_desktop_open_target(&target, &DesktopOpenEnvironment::from_process()),
+            move |result| {
+                Message::DesktopAction(DesktopActionMessage::Opened {
+                    kind,
+                    result: result.unwrap_or(Err(DesktopOpenFailure::LaunchFailed)),
+                })
+            },
         )
     }
 }

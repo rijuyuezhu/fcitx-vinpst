@@ -549,8 +549,9 @@ impl App {
         created: bool,
     ) -> Task<Message> {
         self.operation = OperationState::Running(self.locale.text(GuiText::SavingAsrProvider));
-        Task::perform(
-            async move {
+        crate::blocking_task::perform(
+            "vinput-gui-asr-provider-mutation",
+            move || {
                 save_updated_config_with_daemon(&document, &updated).map(|save| {
                     AsrProviderMutationOutcome {
                         save,
@@ -559,7 +560,11 @@ impl App {
                     }
                 })
             },
-            |result| Message::AsrProvider(AsrProviderMessage::MutationFinished(result)),
+            |result| {
+                Message::AsrProvider(AsrProviderMessage::MutationFinished(
+                    result.unwrap_or_else(|failure| Err(failure.to_string())),
+                ))
+            },
         )
     }
 
@@ -624,12 +629,17 @@ impl App {
         self.operation = OperationState::Running(self.locale.text(GuiText::RemovingAsrProvider));
         let document = document.clone();
         let provider_id = provider_id.to_owned();
-        Task::perform(
-            async move {
+        crate::blocking_task::perform(
+            "vinput-gui-asr-provider-remove",
+            move || {
                 save_updated_config_with_daemon(&document, &updated)
                     .map(|save| AsrProviderRemovalOutcome { save, provider_id })
             },
-            |result| Message::AsrProvider(AsrProviderMessage::RemovalFinished(result)),
+            |result| {
+                Message::AsrProvider(AsrProviderMessage::RemovalFinished(
+                    result.unwrap_or_else(|failure| Err(failure.to_string())),
+                ))
+            },
         )
     }
 

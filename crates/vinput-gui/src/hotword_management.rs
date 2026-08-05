@@ -15,7 +15,7 @@ use iced::{Task, widget::text_editor};
 use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 
 use crate::{
-    App, ConfigDocument, ConfigSaveOutcome, DAEMON_RELOAD_REQUESTED, GuiText, Message,
+    App, ConfigDocument, ConfigSaveOutcome, DAEMON_RELOAD_REQUESTED, GuiLocale, GuiText, Message,
     OperationState, SecretInput, ensure_config_document_current,
     hotword_activation_retry::{
         PendingHotwordActivation, retry_hotword_activation, validate_pending_activation,
@@ -590,54 +590,24 @@ impl App {
         let document = document.clone();
         let locale = self.locale;
         self.operation = OperationState::Running(locale.text(progress));
-        Task::perform(
-            async move {
-                let should_confirm = updated.asr.active_provider == provider_id;
-                let mut save = save_hotword_path_with_daemon(
+        crate::blocking_task::perform(
+            "vinput-gui-hotword-path-mutation",
+            move || {
+                apply_hotword_path_mutation(
                     &document,
                     &updated,
                     prerequisite_path.as_deref(),
-                )?;
-                let (activation_error, pending_activation) = if should_confirm {
-                    if save.daemon_reload == DAEMON_RELOAD_REQUESTED {
-                        match wait_for_requested_asr_backend(&provider_id) {
-                            Ok(summary) => {
-                                match ensure_hotword_path_update_current(&save.path, &updated) {
-                                    Ok(()) => {
-                                        save.daemon_reload = summary;
-                                        (None, None)
-                                    }
-                                    Err(error) => (Some(error), None),
-                                }
-                            }
-                            Err(error) => (
-                                Some(error),
-                                Some(PendingHotwordActivation::for_config(
-                                    provider_id.clone(),
-                                    pending_config_path.clone(),
-                                )),
-                            ),
-                        }
-                    } else {
-                        (
-                            Some(locale.text(GuiText::HotwordActivationNotApplied).to_owned()),
-                            Some(PendingHotwordActivation::for_config(
-                                provider_id.clone(),
-                                pending_config_path.clone(),
-                            )),
-                        )
-                    }
-                } else {
-                    (None, None)
-                };
-                Ok(HotwordMutationOutcome {
-                    save,
+                    &provider_id,
+                    pending_config_path,
                     summary,
-                    activation_error,
-                    pending_activation,
-                })
+                    locale,
+                )
             },
-            |result| Message::Hotword(HotwordMessage::MutationFinished(result)),
+            |result| {
+                Message::Hotword(HotwordMessage::MutationFinished(
+                    result.unwrap_or_else(|failure| Err(failure.to_string())),
+                ))
+            },
         )
     }
 
@@ -722,8 +692,9 @@ impl App {
         self.next_hotword_operation_id = self.next_hotword_operation_id.saturating_add(1);
         self.active_hotword_operation_id = Some(operation_id);
         self.operation = OperationState::Running(self.locale.text(GuiText::LoadingHotwordContent));
-        Task::perform(
-            async move {
+        crate::blocking_task::perform(
+            "vinput-gui-hotword-content-load",
+            move || {
                 read_hotword_snapshot(&path).map(|snapshot| LoadedHotwordContent {
                     provider_id,
                     path,
@@ -733,7 +704,7 @@ impl App {
             move |result| {
                 Message::Hotword(HotwordMessage::ContentLoaded {
                     operation_id,
-                    result,
+                    result: result.unwrap_or_else(|failure| Err(failure.to_string())),
                 })
             },
         )
@@ -823,8 +794,9 @@ impl App {
         self.next_hotword_operation_id = self.next_hotword_operation_id.saturating_add(1);
         self.active_hotword_operation_id = Some(operation_id);
         self.operation = OperationState::Running(self.locale.text(GuiText::SavingHotwordContent));
-        Task::perform(
-            async move {
+        crate::blocking_task::perform(
+            "vinput-gui-hotword-content-save",
+            move || {
                 save_hotword_content_for_document(
                     &document,
                     &provider_id,
@@ -836,7 +808,7 @@ impl App {
             move |result| {
                 Message::Hotword(HotwordMessage::ContentSaved {
                     operation_id,
-                    result,
+                    result: result.unwrap_or_else(|failure| Err(failure.to_string())),
                 })
             },
         )
@@ -913,12 +885,13 @@ impl App {
         self.active_hotword_operation_id = Some(operation_id);
         self.operation =
             OperationState::Running(self.locale.text(GuiText::RetryingHotwordActivation));
-        Task::perform(
-            async move { retry_hotword_activation(&document, &pending) },
+        crate::blocking_task::perform(
+            "vinput-gui-hotword-activation-retry",
+            move || retry_hotword_activation(&document, &pending),
             move |result| {
                 Message::Hotword(HotwordMessage::ActivationRetried {
                     operation_id,
-                    result,
+                    result: result.unwrap_or_else(|failure| Err(failure.to_string())),
                 })
             },
         )
@@ -952,6 +925,56 @@ fn hotword_provider_options(config: &VinputConfig) -> Vec<HotwordProviderSelecti
         .filter(|provider| hotword_kind_supported(&provider.kind))
         .map(HotwordProviderSelection::new)
         .collect()
+}
+
+fn apply_hotword_path_mutation(
+    document: &ConfigDocument,
+    updated: &VinputConfig,
+    prerequisite_path: Option<&Path>,
+    provider_id: &str,
+    pending_config_path: Option<String>,
+    summary: String,
+    locale: GuiLocale,
+) -> Result<HotwordMutationOutcome, String> {
+    let should_confirm = updated.asr.active_provider == provider_id;
+    let mut save = save_hotword_path_with_daemon(document, updated, prerequisite_path)?;
+    let (activation_error, pending_activation) = if should_confirm {
+        if save.daemon_reload == DAEMON_RELOAD_REQUESTED {
+            match wait_for_requested_asr_backend(provider_id) {
+                Ok(reload_summary) => match ensure_hotword_path_update_current(&save.path, updated)
+                {
+                    Ok(()) => {
+                        save.daemon_reload = reload_summary;
+                        (None, None)
+                    }
+                    Err(error) => (Some(error), None),
+                },
+                Err(error) => (
+                    Some(error),
+                    Some(PendingHotwordActivation::for_config(
+                        provider_id.to_owned(),
+                        pending_config_path,
+                    )),
+                ),
+            }
+        } else {
+            (
+                Some(locale.text(GuiText::HotwordActivationNotApplied).to_owned()),
+                Some(PendingHotwordActivation::for_config(
+                    provider_id.to_owned(),
+                    pending_config_path,
+                )),
+            )
+        }
+    } else {
+        (None, None)
+    };
+    Ok(HotwordMutationOutcome {
+        save,
+        summary,
+        activation_error,
+        pending_activation,
+    })
 }
 
 fn configured_hotword_path(config: &VinputConfig, provider_id: &str) -> Option<PathBuf> {

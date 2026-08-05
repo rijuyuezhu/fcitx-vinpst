@@ -141,8 +141,9 @@ impl App {
 }
 
 fn daemon_refresh_task(operation_id: u64) -> Task<Message> {
-    Task::perform(
-        crate::blocking_task::run("vinput-gui-daemon-refresh", query_daemon_snapshot),
+    crate::blocking_task::perform(
+        "vinput-gui-daemon-refresh",
+        query_daemon_snapshot,
         move |result| Message::DaemonLoaded {
             operation_id,
             result: result.unwrap_or_else(|failure| Err(failure.to_string())),
@@ -151,11 +152,9 @@ fn daemon_refresh_task(operation_id: u64) -> Task<Message> {
 }
 
 fn daemon_fallback_poll_task(operation_id: u64) -> Task<Message> {
-    Task::perform(
-        crate::blocking_task::run(
-            "vinput-gui-daemon-owner-poll",
-            query_daemon_snapshot_if_owned,
-        ),
+    crate::blocking_task::perform(
+        "vinput-gui-daemon-owner-poll",
+        query_daemon_snapshot_if_owned,
         move |result| Message::DaemonFallbackPolled {
             operation_id,
             result: result.unwrap_or_else(|failure| Err(failure.to_string())),

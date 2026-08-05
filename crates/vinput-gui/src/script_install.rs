@@ -239,26 +239,23 @@ impl ScriptInstallState {
         let control = RegistryOperationControl::default();
         let worker_control = control.clone();
         let worker_selector = selector.clone();
-        let task = Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    prepare_registry_script_controlled(
-                        &document,
-                        kind,
-                        &worker_selector,
-                        &worker_control,
-                    )
-                })
-                .await
-                .unwrap_or_else(|_| {
+        let task = crate::blocking_task::perform(
+            "vinput-gui-script-prepare",
+            move || {
+                prepare_registry_script_controlled(
+                    &document,
+                    kind,
+                    &worker_selector,
+                    &worker_control,
+                )
+            },
+            move |result| Message::ScriptPrepared {
+                operation_id,
+                outcome: ScriptPreparationResult::new(result.unwrap_or_else(|_| {
                     ScriptPrepareOutcome::Failed(
                         "Script preparation worker stopped unexpectedly.".to_owned(),
                     )
-                })
-            },
-            move |outcome| Message::ScriptPrepared {
-                operation_id,
-                outcome: ScriptPreparationResult::new(outcome),
+                })),
             },
         );
         (
@@ -289,26 +286,18 @@ impl ScriptInstallState {
         });
         let worker_control = control.clone();
         let worker_plan = plan.clone();
-        let task = Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    install_registry_script_controlled(
-                        &document,
-                        &worker_plan,
-                        &worker_control,
-                        locale,
-                    )
-                })
-                .await
-                .unwrap_or_else(|_| {
+        let task = crate::blocking_task::perform(
+            "vinput-gui-script-install",
+            move || {
+                install_registry_script_controlled(&document, &worker_plan, &worker_control, locale)
+            },
+            move |result| Message::ScriptInstalled {
+                operation_id,
+                outcome: result.unwrap_or_else(|_| {
                     ScriptInstallOutcome::Failed(
                         "Script installation worker stopped unexpectedly.".to_owned(),
                     )
-                })
-            },
-            move |outcome| Message::ScriptInstalled {
-                operation_id,
-                outcome,
+                }),
             },
         );
         (
@@ -331,21 +320,16 @@ impl ScriptInstallState {
         locale: GuiLocale,
     ) -> (Self, Task<Message>) {
         let worker_plan = plan.clone();
-        let task = Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    recover_registry_script_config(&document, &worker_plan, locale)
-                })
-                .await
-                .unwrap_or_else(|_| {
+        let task = crate::blocking_task::perform(
+            "vinput-gui-script-recovery",
+            move || recover_registry_script_config(&document, &worker_plan, locale),
+            move |result| Message::ScriptInstalled {
+                operation_id,
+                outcome: result.unwrap_or_else(|_| {
                     ScriptInstallOutcome::PublishedButConfigFailed {
                         error: "Configuration recovery worker stopped unexpectedly.".to_owned(),
                     }
-                })
-            },
-            move |outcome| Message::ScriptInstalled {
-                operation_id,
-                outcome,
+                }),
             },
         );
         (

@@ -43,17 +43,14 @@ impl App {
         self.operation =
             OperationState::Running(self.locale.text(GuiText::EditingManagedProviderScript));
         let self_locale = self.locale;
-        Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    edit_managed_provider_script(&provider, &managed_path, self_locale)
-                })
-                .await
-                .unwrap_or_else(|_| {
+        crate::blocking_task::perform(
+            "vinput-gui-provider-script-edit",
+            move || edit_managed_provider_script(&provider, &managed_path, self_locale),
+            |result| {
+                Message::ProviderScriptEdited(result.unwrap_or_else(|_| {
                     Err("Provider script editor worker stopped unexpectedly.".to_owned())
-                })
+                }))
             },
-            Message::ProviderScriptEdited,
         )
     }
 

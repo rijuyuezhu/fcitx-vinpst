@@ -209,9 +209,19 @@ impl App {
                 .adapter_runtime_progress(action == AdapterRuntimeAction::Start),
         );
         let owner_generation = self.daemon_owner_generation;
-        Task::perform(
-            async move { run_adapter_runtime_action(adapter_id, action, owner_generation) },
-            |result| Message::AdapterRuntime(AdapterRuntimeMessage::Finished(result)),
+        let worker_adapter_id = adapter_id.clone();
+        crate::blocking_task::perform(
+            "vinput-gui-adapter-runtime",
+            move || run_adapter_runtime_action(worker_adapter_id, action, owner_generation),
+            move |result| {
+                Message::AdapterRuntime(AdapterRuntimeMessage::Finished(result.unwrap_or(Err(
+                    AdapterRuntimeError {
+                        adapter_id,
+                        action,
+                        category: AdapterRuntimeErrorCategory::ActionRejected,
+                    },
+                ))))
+            },
         )
     }
 

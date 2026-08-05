@@ -457,9 +457,12 @@ impl App {
         self.operation = OperationState::Running(self.locale.text(GuiText::SavingConfiguration));
         let document = document.clone();
         let draft = draft.clone();
-        Task::perform(
-            async move { save_config_with_daemon(&document, &draft) },
-            Message::ConfigSaved,
+        blocking_task::perform(
+            "vinput-gui-config-save",
+            move || save_config_with_daemon(&document, &draft),
+            |result| {
+                Message::ConfigSaved(result.unwrap_or_else(|failure| Err(failure.to_string())))
+            },
         )
     }
 
@@ -495,9 +498,13 @@ impl App {
         } else {
             GuiText::StoppingRecording
         }));
-        Task::perform(
-            async move { run_recording_action(start, &scene) },
-            move |result| Message::RecordingActionFinished { start, result },
+        blocking_task::perform(
+            "vinput-gui-recording-action",
+            move || run_recording_action(start, &scene),
+            move |result| Message::RecordingActionFinished {
+                start,
+                result: result.unwrap_or_else(|failure| Err(failure.to_string())),
+            },
         )
     }
 
@@ -565,9 +572,12 @@ impl App {
         self.operation = OperationState::Running(self.locale.text(GuiText::RemovingModel));
         let config = document.config.clone();
         let locale = self.locale;
-        Task::perform(
-            async move { remove_installed_model(&config, &target_path, locale) },
-            Message::ModelRemoved,
+        blocking_task::perform(
+            "vinput-gui-model-remove",
+            move || remove_installed_model(&config, &target_path, locale),
+            |result| {
+                Message::ModelRemoved(result.unwrap_or_else(|failure| Err(failure.to_string())))
+            },
         )
     }
 

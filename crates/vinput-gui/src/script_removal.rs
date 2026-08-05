@@ -44,21 +44,18 @@ impl App {
         }));
         let document = document.clone();
         let locale = self.locale;
-        Task::perform(
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    remove_managed_script_entry(&document, kind, &id, locale)
-                })
-                .await
-                .unwrap_or_else(|_| {
+        crate::blocking_task::perform(
+            "vinput-gui-script-remove",
+            move || remove_managed_script_entry(&document, kind, &id, locale),
+            move |result| {
+                Message::ScriptRemoved(result.unwrap_or_else(|_| {
                     let resource = locale.text(match kind {
                         LiveScriptKind::AsrProvider => GuiText::AsrProviderResource,
                         LiveScriptKind::LlmAdapter => GuiText::TextAdapterResource,
                     });
                     Err(locale.script_removal_worker_failed(resource))
-                })
+                }))
             },
-            Message::ScriptRemoved,
         )
     }
 

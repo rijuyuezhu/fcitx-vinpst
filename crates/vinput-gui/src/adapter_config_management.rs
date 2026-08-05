@@ -418,8 +418,9 @@ impl App {
         let document = document.clone();
         let adapter_id = editor.fields.id.trim().to_owned();
         let created = editor.original.is_none();
-        Task::perform(
-            async move {
+        crate::blocking_task::perform(
+            "vinput-gui-adapter-config-mutation",
+            move || {
                 save_updated_config_with_daemon(&document, &updated).map(|save| {
                     AdapterConfigMutationOutcome {
                         save,
@@ -428,7 +429,11 @@ impl App {
                     }
                 })
             },
-            |result| Message::AdapterConfig(AdapterConfigMessage::MutationFinished(result)),
+            |result| {
+                Message::AdapterConfig(AdapterConfigMessage::MutationFinished(
+                    result.unwrap_or_else(|failure| Err(failure.to_string())),
+                ))
+            },
         )
     }
 
@@ -493,12 +498,17 @@ impl App {
         self.operation = OperationState::Running(self.locale.text(GuiText::RemovingTextAdapter));
         let document = document.clone();
         let adapter_id = adapter_id.to_owned();
-        Task::perform(
-            async move {
+        crate::blocking_task::perform(
+            "vinput-gui-adapter-config-remove",
+            move || {
                 save_updated_config_with_daemon(&document, &updated)
                     .map(|save| AdapterConfigRemovalOutcome { save, adapter_id })
             },
-            |result| Message::AdapterConfig(AdapterConfigMessage::RemovalFinished(result)),
+            |result| {
+                Message::AdapterConfig(AdapterConfigMessage::RemovalFinished(
+                    result.unwrap_or_else(|failure| Err(failure.to_string())),
+                ))
+            },
         )
     }
 

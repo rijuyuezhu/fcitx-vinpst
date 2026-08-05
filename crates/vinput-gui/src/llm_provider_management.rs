@@ -377,16 +377,14 @@ impl App {
         };
 
         self.operation = OperationState::Running(self.locale.text(GuiText::TestingLlmProvider));
-        Task::perform(
-            async move {
-                match tokio::task::spawn_blocking(move || test_llm_provider(provider, &test_text))
-                    .await
-                {
-                    Ok(result) => result,
-                    Err(error) => Err(format!("LLM provider test worker failed: {error}")),
-                }
+        crate::blocking_task::perform(
+            "vinput-gui-llm-provider-test",
+            move || test_llm_provider(provider, &test_text),
+            |result| {
+                Message::LlmProvider(LlmProviderMessage::TestFinished(result.unwrap_or_else(
+                    |failure| Err(format!("LLM provider test worker failed: {failure}")),
+                )))
             },
-            |result| Message::LlmProvider(LlmProviderMessage::TestFinished(result)),
         )
     }
 
@@ -496,12 +494,17 @@ impl App {
         summary: String,
     ) -> Task<Message> {
         self.operation = OperationState::Running(self.locale.text(GuiText::SavingLlmProvider));
-        Task::perform(
-            async move {
+        crate::blocking_task::perform(
+            "vinput-gui-llm-provider-mutation",
+            move || {
                 save_updated_config_with_daemon(&document, &updated)
                     .map(|save| LlmProviderMutationOutcome { save, summary })
             },
-            |result| Message::LlmProvider(LlmProviderMessage::MutationFinished(result)),
+            |result| {
+                Message::LlmProvider(LlmProviderMessage::MutationFinished(
+                    result.unwrap_or_else(|failure| Err(failure.to_string())),
+                ))
+            },
         )
     }
 
