@@ -288,7 +288,28 @@ The 2026-08-01 VS Code 1.131.0 run retained seven normal-mode partial signals an
 
 Widget-backed command cases emit `selection-ready`, but selection transport is application-dependent. GTK/Qt and the standalone editor paths require the widget selection in the final replacement; kitty proves PRIMARY fallback directly. Chromium and VS Code deliberately use different application-selection and PRIMARY sentinels and require the PRIMARY sentinel in the result, recording that neither application exposes its selection as Fcitx surrounding text in these gates. All command cases observe same-run daemon partials and require the expected `adapter-backed:` replacement. The toolkit probes combine daemon `RecognitionPartial` evidence with the final text observed by the real application widget because Fcitx input-panel preedit is not exposed as client-side preedit in every toolkit. The current Chinese Zipformer model may render English abbreviations as `<unk>`; that is an ASR model limitation, not a toolkit transport failure.
 
-## 7. Frontend behavior
+## 7. Rust management GUI interaction
+
+Build the current GUI and run the isolated niri/Wayland interaction gate:
+
+```sh
+cargo build -p vinput-gui
+scripts/live/niri/run-gui-interaction-live.sh
+```
+
+The gate requires one live niri socket, a writable `/dev/uinput`, Fcitx5 with a `rime` input method, and `wl-copy`/`wl-paste`. It never saves a GUI draft. Separate temporary XDG roots are used for English and zh_CN launches; the notification URL is redirected to a fail-fast loopback endpoint. Repository-owned uinput probes perform Ctrl+1–4, Tab/Shift+Tab, Ctrl+A/C, bounded ASCII typing, and Rime candidate commit. Cleanup restores the prior Fcitx active state, input-method name, and standard text clipboard, terminates both GUI instances, and removes temporary XDG state.
+
+Evidence under `target/tmp/gui-interaction-live/summary.json` must report:
+
+- English `Control -> Resources -> Hotwords -> Control` and zh_CN `控制 -> 资源 -> 热词 -> 控制` native title transitions;
+- forward and reverse text-control focus;
+- exact standard clipboard copy plus restoration;
+- a non-empty non-ASCII Fcitx5/Rime commit, recorded only as UTF-8 byte length rather than retained content;
+- zero GUI process residue and restored Fcitx state/input method.
+
+This is live proof for text controls, clipboard, input-method transport, bilingual titles, and page shortcuts on niri/Wayland. It is not screen-reader proof or complete keyboard-only operation: Iced 0.14 currently exposes no AccessKit tree, and its built-in buttons, checkboxes, and pick lists do not participate in generic focus traversal/activation.
+
+## 8. Frontend behavior
 
 Verify in the real session:
 
@@ -302,7 +323,7 @@ Verify in the real session:
 - cross-client busy-state reconciliation;
 - model selection followed by background reload.
 
-## 8. Remote text LAN browser path
+## 9. Remote text LAN browser path
 
 Run the standalone diagnostic gate without changing the installed user profile:
 
@@ -323,7 +344,7 @@ VINPUT_REMOTE_TEXT_EXTERNAL_TIMEOUT=180 \
 
 Open the printed one-time URL on another physical device, enter the exact random challenge, and press Send. Set the confirmation variable only after verifying the URL is opened on another physical phone, tablet, laptop, or computer, not a local VM/container. The collector advances the row only when that operator confirmation is present, the challenge roundtrip succeeds, and `ss` observes an established peer address that differs from every address assigned to the server host. It records `same_host_lan_proof=false`, `distinct_network_peer_proof=true`, `operator_confirmed_physical_device=true`, and `cross_device_proof=true`, uses real `/usr/bin/ip` and `/usr/bin/ss`, retains no key, and releases the listener. A timeout or same-host-only run is a failure and must not produce `summary.json`.
 
-## 9. Live PipeWire diagnostics
+## 10. Live PipeWire diagnostics
 
 ```sh
 scripts/tests/pipewire-check.sh
