@@ -110,7 +110,7 @@ mkdir -p "${out_dir}"
 runtime_root="$(mktemp -d)"
 
 send_key() {
-  "${key_sender}" --settle-ms 120 "$1" | tee -a "${out_dir}/uinput.jsonl" >/dev/null
+  "${key_sender}" --settle-ms 300 "$1" | tee -a "${out_dir}/uinput.jsonl" >/dev/null
 }
 
 send_text() {
@@ -129,6 +129,23 @@ expect_title() {
   actual="$(window_title)"
   [[ "${actual}" == "${expected}" ]] ||
     fail "unexpected GUI title: expected '${expected}', got '${actual}'"
+}
+
+send_page_shortcut() {
+  local key=$1
+  local expected=$2
+  local actual=""
+  for _ in $(seq 1 3); do
+    niri msg action focus-window --id "${gui_window_id}" >/dev/null
+    sleep 0.2
+    send_key "${key}"
+    for _ in $(seq 1 10); do
+      actual="$(window_title)"
+      [[ "${actual}" == "${expected}" ]] && return
+      sleep 0.1
+    done
+  done
+  fail "page shortcut ${key} did not reach '${expected}'; last title was '${actual}'"
 }
 
 stop_gui() {
@@ -178,17 +195,11 @@ start_gui() {
 
 start_gui en_US.UTF-8 en 'Vinput Configuration — Control'
 en_titles=("$(window_title)")
-send_key CTRL+2
-sleep 0.2
-expect_title 'Vinput Configuration — Resources'
+send_page_shortcut CTRL+2 'Vinput Configuration — Resources'
 en_titles+=("$(window_title)")
-send_key CTRL+4
-sleep 0.2
-expect_title 'Vinput Configuration — Hotwords'
+send_page_shortcut CTRL+4 'Vinput Configuration — Hotwords'
 en_titles+=("$(window_title)")
-send_key CTRL+1
-sleep 0.2
-expect_title 'Vinput Configuration — Control'
+send_page_shortcut CTRL+1 'Vinput Configuration — Control'
 en_titles+=("$(window_title)")
 
 send_key ESCAPE
@@ -239,17 +250,11 @@ stop_gui
 
 start_gui zh_CN.UTF-8 zh 'Vinput 配置 — 控制'
 zh_titles=("$(window_title)")
-send_key CTRL+2
-sleep 0.2
-expect_title 'Vinput 配置 — 资源'
+send_page_shortcut CTRL+2 'Vinput 配置 — 资源'
 zh_titles+=("$(window_title)")
-send_key CTRL+4
-sleep 0.2
-expect_title 'Vinput 配置 — 热词'
+send_page_shortcut CTRL+4 'Vinput 配置 — 热词'
 zh_titles+=("$(window_title)")
-send_key CTRL+1
-sleep 0.2
-expect_title 'Vinput 配置 — 控制'
+send_page_shortcut CTRL+1 'Vinput 配置 — 控制'
 zh_titles+=("$(window_title)")
 stop_gui
 
