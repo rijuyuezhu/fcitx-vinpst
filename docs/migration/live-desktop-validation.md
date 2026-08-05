@@ -297,7 +297,7 @@ cargo build -p vinput-gui
 scripts/live/niri/run-gui-interaction-live.sh
 ```
 
-The gate requires one live niri socket, a writable `/dev/uinput`, Fcitx5 with a `rime` input method, and `wl-copy`/`wl-paste`. It never saves a GUI draft. Separate temporary XDG roots are used for English and zh_CN launches; the notification URL is redirected to a fail-fast loopback endpoint. Repository-owned uinput probes perform Ctrl+1–4, Tab/Shift+Tab, Ctrl+A/C, bounded ASCII typing, and Rime candidate commit. Cleanup restores the prior Fcitx active state, input-method name, and standard text clipboard, terminates both GUI instances, and removes temporary XDG state.
+The gate requires one live niri socket, a writable `/dev/uinput`, Fcitx5 with a `rime` input method, and `wl-copy`/`wl-paste`. It never saves a GUI draft. Separate temporary XDG roots are used for English and zh_CN launches; the notification URL is redirected to a fail-fast loopback endpoint. Repository-owned uinput probes perform Ctrl+1–4, Tab/Shift+Tab, Ctrl+A/C, bounded ASCII typing, and Rime candidate commit. Page-shortcut checks explicitly refocus the target window and use bounded retries to reject compositor focus races without weakening the final localized-title assertion. Cleanup restores the prior Fcitx active state, input-method name, and standard text clipboard, terminates both GUI instances, and removes temporary XDG state.
 
 Evidence under `target/tmp/gui-interaction-live/summary.json` must report:
 
