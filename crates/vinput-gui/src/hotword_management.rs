@@ -1078,6 +1078,8 @@ fn configured_hotword_path(config: &VinputConfig, provider_id: &str) -> Option<P
         .iter()
         .find(|provider| provider.id == provider_id)
         .and_then(|provider| provider.hotwords_file.as_deref())
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
         .map(PathBuf::from)
 }
 

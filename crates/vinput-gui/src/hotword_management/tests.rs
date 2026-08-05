@@ -75,6 +75,20 @@ fn path_mutation_sets_clears_and_rejects_remote_providers() {
 }
 
 #[test]
+fn configured_path_whitespace_is_normalized_before_dirty_comparison() {
+    let mut config = VinputConfig::bundled_default().expect("bundled config");
+    let mut local = provider("local", AsrProviderKind::Local);
+    local.hotwords_file = Some("  words.txt  ".to_owned());
+    config.asr.providers = vec![local];
+    config.asr.active_provider = "local".to_owned();
+
+    let editor = HotwordEditorState::from_config(&config, Some("local"));
+    assert_eq!(editor.configured_path, Some(PathBuf::from("words.txt")));
+    assert_eq!(editor.path_input, "words.txt");
+    assert!(!editor.path_is_dirty());
+}
+
+#[test]
 fn content_path_refuses_cross_process_relative_ambiguity() {
     let mut config = VinputConfig::bundled_default().expect("bundled config");
     let mut local = provider("local", AsrProviderKind::Local);
