@@ -5,25 +5,30 @@ use std::path::PathBuf;
 use iced::Task;
 
 use super::{HotwordMessage, normalized_hotword_path};
-use crate::{App, Message, OperationState, SecretInput};
+use crate::{App, GuiLocale, GuiText, Message, OperationState, SecretInput};
 
 impl App {
     pub(super) fn begin_hotword_file_browse(&mut self) -> Task<Message> {
         if self.hotword_editor.content_is_dirty() {
             self.operation = OperationState::Failed(
-                "Save or reset the edited hotword content before selecting another file."
+                self.locale
+                    .text(GuiText::SaveOrResetHotwordBeforeSelecting)
                     .to_owned(),
             );
             return Task::none();
         }
         if self.hotword_editor.selected_provider.is_none() {
-            self.operation =
-                OperationState::Failed("No hotword-capable provider is selected.".to_owned());
+            self.operation = OperationState::Failed(
+                self.locale
+                    .text(GuiText::NoHotwordProviderSelected)
+                    .to_owned(),
+            );
             return Task::none();
         }
         let starting_directory = hotword_file_dialog_directory(&self.hotword_editor.path_input);
-        self.operation = OperationState::Running("Selecting hotword file…");
-        Task::perform(pick_hotword_file(starting_directory), |result| {
+        let locale = self.locale;
+        self.operation = OperationState::Running(locale.text(GuiText::SelectingHotwordFile));
+        Task::perform(pick_hotword_file(starting_directory, locale), |result| {
             Message::Hotword(HotwordMessage::PathPicked(result))
         })
     }
@@ -42,7 +47,7 @@ impl App {
                 }
                 self.hotword_editor.path_input = path;
                 self.operation = OperationState::Succeeded(
-                    "Selected a hotword file; use Set path to validate and apply it.".to_owned(),
+                    self.locale.text(GuiText::SelectedHotwordFile).to_owned(),
                 );
             }
             Ok(None) => self.operation = OperationState::Idle,
@@ -53,11 +58,12 @@ impl App {
 
 async fn pick_hotword_file(
     starting_directory: Option<PathBuf>,
+    locale: GuiLocale,
 ) -> Result<Option<SecretInput>, String> {
     let mut dialog = rfd::AsyncFileDialog::new()
-        .set_title("Select Hotwords File")
-        .add_filter("Text Files", &["txt"])
-        .add_filter("All Files", &["*"]);
+        .set_title(locale.text(GuiText::SelectHotwordsFile))
+        .add_filter(locale.text(GuiText::TextFiles), &["txt"])
+        .add_filter(locale.text(GuiText::AllFiles), &["*"]);
     if let Some(directory) = starting_directory {
         dialog = dialog.set_directory(directory);
     }
@@ -67,7 +73,7 @@ async fn pick_hotword_file(
     let path = file
         .path()
         .to_str()
-        .ok_or_else(|| "The selected hotword path is not valid UTF-8.".to_owned())?;
+        .ok_or_else(|| locale.text(GuiText::InvalidUtf8HotwordPath).to_owned())?;
     Ok(Some(SecretInput::new(path.to_owned())))
 }
 

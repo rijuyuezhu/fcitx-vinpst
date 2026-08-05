@@ -5,7 +5,7 @@ use iced::{
     widget::{button, checkbox, column, pick_list, row, slider, text, text_input},
 };
 
-use crate::{App, ConfigDocument, ConfigDraft, ConfigDraftMessage, Message};
+use crate::{App, ConfigDocument, ConfigDraft, ConfigDraftMessage, GuiText, Message};
 
 impl App {
     pub(super) fn update_config_draft(&mut self, message: ConfigDraftMessage) {
@@ -45,38 +45,41 @@ impl App {
 
     pub(super) fn config_editor(&self, busy: bool) -> Element<'_, Message> {
         match (&self.config, &self.draft) {
-            (Ok(document), Some(draft)) => Self::loaded_config_editor(document, draft, busy),
-            (Err(error), _) => text(format!("Config error: {error}")).into(),
-            (Ok(_), None) => text("Config draft is unavailable.").into(),
+            (Ok(document), Some(draft)) => self.loaded_config_editor(document, draft, busy),
+            (Err(error), _) => text(self.locale.config_error(error)).into(),
+            (Ok(_), None) => text(self.locale.text(GuiText::ConfigDraftUnavailable)).into(),
         }
     }
 
     fn loaded_config_editor<'a>(
+        &'a self,
         document: &'a ConfigDocument,
         draft: &'a ConfigDraft,
         busy: bool,
     ) -> Element<'a, Message> {
+        let source = if document.from_disk {
+            self.locale.text(GuiText::SourceUserFile)
+        } else {
+            self.locale.text(GuiText::SourceBundledDefault)
+        };
         column![
-            text(format!("Config: {}", document.path.display())),
-            text(format!(
-                "Source: {}",
-                if document.from_disk {
-                    "user file"
-                } else {
-                    "bundled default; Save creates the user file"
-                }
-            )),
-            text("General").size(22),
-            Self::general_config_editor(document, draft, busy),
-            text("Audio and VAD").size(22),
-            Self::audio_vad_editor(draft, busy),
-            Self::config_save_controls(document, draft, busy),
+            text(self.locale.config_path(document.path.display())),
+            text(match self.locale {
+                crate::GuiLocale::EnUs => format!("Source: {source}"),
+                crate::GuiLocale::ZhCn => format!("来源：{source}"),
+            }),
+            text(self.locale.text(GuiText::General)).size(22),
+            self.general_config_editor(document, draft, busy),
+            text(self.locale.text(GuiText::AudioAndVad)).size(22),
+            self.audio_vad_editor(draft, busy),
+            self.config_save_controls(document, draft, busy),
         ]
         .spacing(12)
         .into()
     }
 
     fn general_config_editor<'a>(
+        &'a self,
         document: &'a ConfigDocument,
         draft: &'a ConfigDraft,
         busy: bool,
@@ -117,33 +120,47 @@ impl App {
         };
         column![
             row![
-                text("Default language").width(180),
-                text_input("for example en-US or zh-CN", &draft.default_language)
-                    .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
-                        ConfigDraftMessage::DefaultLanguage(value)
-                    )))
-                    .width(Length::Fill),
+                text(self.locale.text(GuiText::DefaultLanguage)).width(180),
+                text_input(
+                    self.locale.text(GuiText::DefaultLanguagePlaceholder),
+                    &draft.default_language
+                )
+                .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
+                    ConfigDraftMessage::DefaultLanguage(value)
+                )))
+                .width(Length::Fill),
             ]
             .spacing(12),
             row![
-                text("Capture device").width(180),
-                text_input("PipeWire target", &draft.capture_device)
-                    .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
-                        ConfigDraftMessage::CaptureDevice(value)
-                    )))
-                    .width(Length::Fill),
+                text(self.locale.text(GuiText::CaptureDevice)).width(180),
+                text_input(
+                    self.locale.text(GuiText::PipeWireTarget),
+                    &draft.capture_device
+                )
+                .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
+                    ConfigDraftMessage::CaptureDevice(value)
+                )))
+                .width(Length::Fill),
             ]
             .spacing(12),
-            row![text("Active ASR provider").width(180), provider_control,].spacing(12),
-            row![text("Active scene").width(180), scene_control,].spacing(12),
+            row![
+                text(self.locale.text(GuiText::ActiveAsrProvider)).width(180),
+                provider_control,
+            ]
+            .spacing(12),
+            row![
+                text(self.locale.text(GuiText::ActiveScene)).width(180),
+                scene_control,
+            ]
+            .spacing(12),
         ]
         .spacing(12)
         .into()
     }
 
-    fn audio_vad_editor(draft: &ConfigDraft, busy: bool) -> Element<'_, Message> {
+    fn audio_vad_editor(&self, draft: &ConfigDraft, busy: bool) -> Element<'_, Message> {
         let duck_volume_control: Element<'_, Message> = if busy {
-            text("Locked while operation finishes")
+            text(self.locale.text(GuiText::LockedWhileFinishing))
                 .width(Length::Fill)
                 .into()
         } else {
@@ -155,7 +172,7 @@ impl App {
             .into()
         };
         let vad_threshold_control: Element<'_, Message> = if busy {
-            text("Locked while operation finishes")
+            text(self.locale.text(GuiText::LockedWhileFinishing))
                 .width(Length::Fill)
                 .into()
         } else {
@@ -168,26 +185,22 @@ impl App {
         };
         column![
             checkbox(draft.duck_output_while_recording)
-                .label("Duck output while recording")
+                .label(self.locale.text(GuiText::DuckOutput))
                 .on_toggle_maybe((!busy).then_some(|value| Message::ConfigDraft(
                     ConfigDraftMessage::DuckOutput(value)
                 ))),
             row![
-                text(format!(
-                    "Duck volume: {:.0}%",
-                    draft.duck_output_volume * 100.0
-                ))
-                .width(180),
+                text(self.locale.duck_volume(draft.duck_output_volume * 100.0),).width(180),
                 duck_volume_control,
             ]
             .spacing(12),
             checkbox(draft.vad_enabled)
-                .label("Enable voice activity detection")
+                .label(self.locale.text(GuiText::EnableVad))
                 .on_toggle_maybe((!busy).then_some(|value| Message::ConfigDraft(
                     ConfigDraftMessage::VadEnabled(value)
                 ))),
             row![
-                text(format!("VAD threshold: {:.2}", draft.vad_threshold)).width(180),
+                text(self.locale.vad_threshold(draft.vad_threshold)).width(180),
                 vad_threshold_control,
             ]
             .spacing(12),
@@ -197,20 +210,21 @@ impl App {
     }
 
     fn config_save_controls<'a>(
+        &'a self,
         document: &'a ConfigDocument,
         draft: &'a ConfigDraft,
         busy: bool,
     ) -> Element<'a, Message> {
         let dirty = draft.is_dirty(&document.config);
         row![
-            button("Save configuration")
+            button(self.locale.text(GuiText::SaveConfiguration))
                 .on_press_maybe((dirty && !busy).then_some(Message::SaveConfig)),
-            button("Reset changes")
+            button(self.locale.text(GuiText::ResetChanges))
                 .on_press_maybe((dirty && !busy).then_some(Message::ResetConfigDraft)),
             text(if dirty {
-                "Unsaved changes"
+                self.locale.text(GuiText::UnsavedChanges)
             } else {
-                "Configuration is up to date"
+                self.locale.text(GuiText::ConfigurationUpToDate)
             }),
         ]
         .spacing(10)

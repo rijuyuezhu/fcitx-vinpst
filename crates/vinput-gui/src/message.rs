@@ -90,7 +90,12 @@ pub enum Message {
     /// Stop recording over D-Bus.
     StopRecording,
     /// Result of an asynchronous recording action.
-    RecordingActionFinished(Result<String, String>),
+    RecordingActionFinished {
+        /// Whether the action started rather than stopped recording.
+        start: bool,
+        /// Secret-free D-Bus action outcome.
+        result: Result<(), String>,
+    },
     /// Update the live registry model id or short id to install.
     ModelSelectorChanged(String),
     /// Install or update the selected live registry model.

@@ -17,7 +17,7 @@ use iced::{
 use rustix::fs::{Mode, OFlags};
 use serde_json::Value;
 
-use crate::{App, Message};
+use crate::{App, GuiText, Message};
 
 const DEFAULT_NOTIFICATION_URL: &str =
     "https://raw.githubusercontent.com/xifan2333/fcitx5-vinput/main/notification.json";
@@ -181,13 +181,13 @@ impl App {
         };
         let mut actions = row![];
         if notification.details_url.is_some() {
-            actions = actions.push(button("Details").on_press(Message::StartupNotification(
-                StartupNotificationMessage::OpenDetails,
-            )));
+            actions = actions.push(button(self.locale.text(GuiText::Details)).on_press(
+                Message::StartupNotification(StartupNotificationMessage::OpenDetails),
+            ));
         }
-        actions = actions.push(button("OK").on_press(Message::StartupNotification(
-            StartupNotificationMessage::Acknowledge,
-        )));
+        actions = actions.push(button(self.locale.text(GuiText::Ok)).on_press(
+            Message::StartupNotification(StartupNotificationMessage::Acknowledge),
+        ));
         Some(
             container(
                 column![

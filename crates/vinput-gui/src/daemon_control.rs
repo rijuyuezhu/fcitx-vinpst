@@ -9,8 +9,8 @@ use iced::{
 use vinput_daemon_control::{UserServiceAction, run_user_service_command, user_service_command};
 
 use crate::{
-    App, DaemonLoadState, DaemonSnapshot, Message, OperationState, daemon_state_from_poll,
-    query_daemon_snapshot, query_daemon_snapshot_if_owned,
+    App, DaemonActionName, DaemonLoadState, DaemonSnapshot, GuiLocale, GuiText, Message,
+    OperationState, daemon_state_from_poll, query_daemon_snapshot, query_daemon_snapshot_if_owned,
 };
 
 /// One daemon lifecycle action exposed by the GUI.
@@ -25,19 +25,19 @@ pub enum DaemonControlAction {
 }
 
 impl DaemonControlAction {
-    const fn progress(self) -> &'static str {
-        match self {
-            Self::Start => "Starting daemon…",
-            Self::Stop => "Stopping daemon…",
-            Self::Restart => "Restarting daemon…",
-        }
+    const fn progress(self, locale: GuiLocale) -> &'static str {
+        locale.text(match self {
+            Self::Start => GuiText::StartingDaemon,
+            Self::Stop => GuiText::StoppingDaemon,
+            Self::Restart => GuiText::RestartingDaemon,
+        })
     }
 
-    const fn verb(self) -> &'static str {
+    const fn name(self) -> DaemonActionName {
         match self {
-            Self::Start => "start",
-            Self::Stop => "stop",
-            Self::Restart => "restart",
+            Self::Start => DaemonActionName::Start,
+            Self::Stop => DaemonActionName::Stop,
+            Self::Restart => DaemonActionName::Restart,
         }
     }
 
@@ -116,16 +116,11 @@ impl fmt::Debug for DaemonControlFailure {
 }
 
 impl DaemonControlFailure {
-    fn message(self, action: DaemonControlAction) -> String {
+    fn message(self, locale: GuiLocale, action: DaemonControlAction) -> String {
         match self {
-            Self::ActivationFailed => {
-                "Cannot start daemon: D-Bus activation did not return a valid daemon snapshot."
-                    .to_owned()
+            Self::ActivationFailed | Self::ServiceCommandFailed => {
+                locale.daemon_action_failure(action.name())
             }
-            Self::ServiceCommandFailed => format!(
-                "Cannot {} daemon: the user-service command was rejected or could not be executed.",
-                action.verb()
-            ),
         }
     }
 }
@@ -135,14 +130,15 @@ impl App {
         let running = matches!(self.daemon, DaemonLoadState::Ready(_));
         let stopped = matches!(self.daemon, DaemonLoadState::Failed(_));
         row![
-            button("Refresh daemon").on_press_maybe((!busy).then_some(Message::RefreshDaemon)),
-            button("Start daemon").on_press_maybe(
+            button(self.locale.text(GuiText::RefreshDaemon))
+                .on_press_maybe((!busy).then_some(Message::RefreshDaemon)),
+            button(self.locale.text(GuiText::StartDaemon)).on_press_maybe(
                 (!busy && stopped).then_some(Message::DaemonControl(DaemonControlMessage::Start)),
             ),
-            button("Stop daemon").on_press_maybe(
+            button(self.locale.text(GuiText::StopDaemon)).on_press_maybe(
                 (!busy && running).then_some(Message::DaemonControl(DaemonControlMessage::Stop)),
             ),
-            button("Restart daemon").on_press_maybe(
+            button(self.locale.text(GuiText::RestartDaemon)).on_press_maybe(
                 (!busy && running).then_some(Message::DaemonControl(DaemonControlMessage::Restart)),
             ),
         ]
@@ -188,7 +184,7 @@ impl App {
         let operation_id = self.next_daemon_control_id;
         self.next_daemon_control_id = self.next_daemon_control_id.wrapping_add(1).max(1);
         self.active_daemon_control_id = Some(operation_id);
-        self.operation = OperationState::Running(action.progress());
+        self.operation = OperationState::Running(action.progress(self.locale));
         Task::perform(async move { run_daemon_control(action) }, move |result| {
             Message::DaemonControl(DaemonControlMessage::Finished {
                 operation_id,
@@ -211,7 +207,7 @@ impl App {
         let outcome = match result {
             Ok(outcome) => outcome,
             Err(error) => {
-                self.operation = OperationState::Failed(error.message(action));
+                self.operation = OperationState::Failed(error.message(self.locale, action));
                 return Task::none();
             }
         };
@@ -225,22 +221,15 @@ impl App {
             DaemonControlObservation::Unavailable => {}
         }
         self.operation = OperationState::Succeeded(match outcome.confirmation {
-            DaemonControlConfirmation::Confirmed => format!(
-                "Daemon {} state confirmed.",
-                if action.expected_running() {
-                    "running"
-                } else {
-                    "stopped"
-                }
-            ),
-            DaemonControlConfirmation::NotConfirmed => format!(
-                "Daemon {} request was accepted, but the observed owner state did not confirm it.",
-                action.verb()
-            ),
-            DaemonControlConfirmation::Unavailable => format!(
-                "Daemon {} request was accepted; current owner state is unavailable and will be reconciled by D-Bus monitoring.",
-                action.verb()
-            ),
+            DaemonControlConfirmation::Confirmed => self
+                .locale
+                .daemon_state_confirmed(action.expected_running()),
+            DaemonControlConfirmation::NotConfirmed => {
+                self.locale.daemon_action_unconfirmed(action.name(), false)
+            }
+            DaemonControlConfirmation::Unavailable => {
+                self.locale.daemon_action_unconfirmed(action.name(), true)
+            }
         });
         Task::none()
     }

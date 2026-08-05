@@ -12,7 +12,7 @@ use std::{
 use iced::{Element, Task, widget::button};
 use vinput_daemon_control::{FLATPAK_INFO_PATH_ENV, FLATPAK_SPAWN_ENV};
 
-use crate::{App, Message, OperationState};
+use crate::{App, GuiLocale, GuiText, Message, OperationState};
 
 const DESKTOP_OPENER_ENV: &str = "VINPUT_DESKTOP_OPENER";
 const DEFAULT_FLATPAK_INFO_PATH: &str = "/.flatpak-info";
@@ -56,21 +56,17 @@ pub enum DesktopOpenFailure {
 }
 
 impl DesktopOpenFailure {
-    fn message(self, kind: DesktopOpenKind) -> &'static str {
-        match (self, kind) {
-            (Self::LaunchFailed, DesktopOpenKind::Config) => {
-                "Cannot open the config file: the desktop opener could not be started."
-            }
-            (Self::ReaperFailed, DesktopOpenKind::Config) => {
-                "Cannot open the config file: the desktop opener could not be supervised safely."
-            }
+    fn message(self, locale: GuiLocale, kind: DesktopOpenKind) -> &'static str {
+        locale.text(match (self, kind) {
+            (Self::LaunchFailed, DesktopOpenKind::Config) => GuiText::ConfigOpenLaunchFailed,
+            (Self::ReaperFailed, DesktopOpenKind::Config) => GuiText::ConfigOpenReaperFailed,
             (Self::LaunchFailed, DesktopOpenKind::NotificationDetails) => {
-                "Cannot open notification details: the desktop opener could not be started."
+                GuiText::DetailsOpenLaunchFailed
             }
             (Self::ReaperFailed, DesktopOpenKind::NotificationDetails) => {
-                "Cannot open notification details: the desktop opener could not be supervised safely."
+                GuiText::DetailsOpenReaperFailed
             }
-        }
+        })
     }
 }
 
@@ -138,7 +134,7 @@ impl DesktopOpenEnvironment {
 
 impl App {
     pub(super) fn desktop_action_button(&self, busy: bool) -> Element<'_, Message> {
-        button("Open config")
+        button(self.locale.text(GuiText::OpenConfig))
             .on_press_maybe(
                 (!busy && self.config.is_ok())
                     .then_some(Message::DesktopAction(DesktopActionMessage::OpenConfig)),
@@ -164,8 +160,12 @@ impl App {
             DesktopActionMessage::OpenConfig => self.begin_open_config(),
             DesktopActionMessage::Opened { kind, result } => {
                 self.operation = match result {
-                    Ok(outcome) => OperationState::Succeeded(open_success_message(kind, outcome)),
-                    Err(error) => OperationState::Failed(error.message(kind).to_owned()),
+                    Ok(outcome) => {
+                        OperationState::Succeeded(open_success_message(self.locale, kind, outcome))
+                    }
+                    Err(error) => {
+                        OperationState::Failed(error.message(self.locale, kind).to_owned())
+                    }
                 };
                 Task::none()
             }
@@ -174,18 +174,19 @@ impl App {
 
     fn begin_open_config(&mut self) -> Task<Message> {
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let target = document.path.as_os_str().to_owned();
-        self.begin_desktop_open(DesktopOpenKind::Config, target, "Opening config file…")
+        self.begin_desktop_open(DesktopOpenKind::Config, target, GuiText::OpeningConfig)
     }
 
     pub(super) fn begin_notification_details_open(&mut self, url: String) -> Task<Message> {
         self.begin_desktop_open(
             DesktopOpenKind::NotificationDetails,
             OsString::from(url),
-            "Opening notification details…",
+            GuiText::OpeningNotificationDetails,
         )
     }
 
@@ -193,9 +194,9 @@ impl App {
         &mut self,
         kind: DesktopOpenKind,
         target: OsString,
-        progress: &'static str,
+        progress: GuiText,
     ) -> Task<Message> {
-        self.operation = OperationState::Running(progress);
+        self.operation = OperationState::Running(self.locale.text(progress));
         Task::perform(
             async move { spawn_desktop_open_target(&target, &DesktopOpenEnvironment::from_process()) },
             move |result| Message::DesktopAction(DesktopActionMessage::Opened { kind, result }),
@@ -203,21 +204,19 @@ impl App {
     }
 }
 
-fn open_success_message(kind: DesktopOpenKind, outcome: DesktopOpenOutcome) -> String {
-    match (kind, outcome.host_wrapped) {
-        (DesktopOpenKind::Config, true) => {
-            "Passed the config file to the host desktop opener.".to_owned()
-        }
-        (DesktopOpenKind::Config, false) => {
-            "Passed the config file to the desktop opener.".to_owned()
-        }
-        (DesktopOpenKind::NotificationDetails, true) => {
-            "Passed notification details to the host desktop opener.".to_owned()
-        }
-        (DesktopOpenKind::NotificationDetails, false) => {
-            "Passed notification details to the desktop opener.".to_owned()
-        }
-    }
+fn open_success_message(
+    locale: GuiLocale,
+    kind: DesktopOpenKind,
+    outcome: DesktopOpenOutcome,
+) -> String {
+    locale
+        .text(match (kind, outcome.host_wrapped) {
+            (DesktopOpenKind::Config, true) => GuiText::ConfigOpenedOnHost,
+            (DesktopOpenKind::Config, false) => GuiText::ConfigOpened,
+            (DesktopOpenKind::NotificationDetails, true) => GuiText::DetailsOpenedOnHost,
+            (DesktopOpenKind::NotificationDetails, false) => GuiText::DetailsOpened,
+        })
+        .to_owned()
 }
 
 fn desktop_open_command(

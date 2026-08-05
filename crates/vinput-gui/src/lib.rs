@@ -31,6 +31,7 @@ mod hotword_activation_retry;
 mod hotword_management;
 mod hotword_path;
 mod hotword_persistence;
+mod i18n;
 mod llm_provider_management;
 mod message;
 mod model_install;
@@ -73,6 +74,8 @@ use daemon_owner_monitor::DaemonOwnerMonitorState;
 pub use desktop_actions::{DesktopActionMessage, DesktopOpenFailure, DesktopOpenOutcome};
 use hotword_management::HotwordEditorState;
 pub use hotword_management::{HotwordMessage, HotwordMutationOutcome, HotwordProviderSelection};
+pub use i18n::GuiLocale;
+pub(crate) use i18n::{DaemonActionName, GuiText};
 use llm_provider_management::LlmProviderEditorState;
 pub use llm_provider_management::{
     LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome, LlmProviderTestOutcome,
@@ -94,9 +97,6 @@ use startup_notifications::StartupNotificationState;
 pub use startup_notifications::{
     StartupNotification, StartupNotificationLoadOutcome, StartupNotificationMessage,
 };
-
-/// Product display name.
-pub const APPLICATION_TITLE: &str = "Vinput Configuration";
 
 pub(crate) const DAEMON_RELOAD_REQUESTED: &str = "daemon config reload requested";
 
@@ -199,6 +199,7 @@ enum DaemonLoadState {
 /// GUI state.
 #[derive(Debug)]
 pub struct App {
+    locale: GuiLocale,
     page: Page,
     filter: String,
     config: Result<ConfigDocument, String>,
@@ -241,6 +242,7 @@ impl App {
             .map(|document| ConfigDraft::from_config(&document.config));
         let hotword_editor = HotwordEditorState::from_document(&config, None);
         let mut app = Self {
+            locale: GuiLocale::detect(),
             page: Page::Control,
             filter: String::new(),
             config,
@@ -327,7 +329,9 @@ impl App {
             Message::ConfigSaved(result) => return self.finish_config_save(result),
             Message::StartRecording => return self.begin_recording(true),
             Message::StopRecording => return self.begin_recording(false),
-            Message::RecordingActionFinished(result) => return self.finish_recording(result),
+            Message::RecordingActionFinished { start, result } => {
+                return self.finish_recording(start, result);
+            }
             Message::ModelSelectorChanged(value) => self.model_selector = value,
             Message::InstallModel => return self.begin_model_install(),
             Message::CancelModelInstall => self.model_install.cancel(),
@@ -441,10 +445,11 @@ impl App {
 
     fn begin_config_save(&mut self) -> Task<Message> {
         let (Ok(document), Some(draft)) = (&self.config, &self.draft) else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
-        self.operation = OperationState::Running("Saving configuration…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::SavingConfiguration));
         let document = document.clone();
         let draft = draft.clone();
         Task::perform(
@@ -479,20 +484,28 @@ impl App {
             .draft
             .as_ref()
             .map_or_else(String::new, |draft| draft.active_scene.clone());
-        self.operation = OperationState::Running(if start {
-            "Starting recording…"
+        self.operation = OperationState::Running(self.locale.text(if start {
+            GuiText::StartingRecording
         } else {
-            "Stopping recording…"
-        });
+            GuiText::StoppingRecording
+        }));
         Task::perform(
             async move { run_recording_action(start, &scene) },
-            Message::RecordingActionFinished,
+            move |result| Message::RecordingActionFinished { start, result },
         )
     }
 
-    fn finish_recording(&mut self, result: Result<String, String>) -> Task<Message> {
+    fn finish_recording(&mut self, start: bool, result: Result<(), String>) -> Task<Message> {
         self.operation = match result {
-            Ok(summary) => OperationState::Succeeded(summary),
+            Ok(()) => OperationState::Succeeded(
+                self.locale
+                    .text(if start {
+                        GuiText::RecordingStarted
+                    } else {
+                        GuiText::RecordingStopped
+                    })
+                    .to_owned(),
+            ),
             Err(error) => OperationState::Failed(error),
         };
         self.begin_daemon_refresh(false)
@@ -613,11 +626,11 @@ impl App {
     fn control_page(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
         let mut body = column![
-            text("Control").size(30),
-            text("Daemon service").size(22),
+            text(self.locale.text(GuiText::Control)).size(30),
+            text(self.locale.text(GuiText::DaemonService)).size(22),
             self.daemon_control_actions(busy),
             self.daemon_status_view(),
-            text("Recording").size(22),
+            text(self.locale.text(GuiText::Recording)).size(22),
             self.recording_actions(busy),
         ]
         .spacing(14);
@@ -636,9 +649,12 @@ impl App {
         let can_start = !busy && daemon_status == Some("idle");
         let can_stop = !busy && daemon_status == Some("recording");
         row![
-            button("Reload config").on_press_maybe((!busy).then_some(Message::ReloadConfig)),
-            button("Start recording").on_press_maybe(can_start.then_some(Message::StartRecording)),
-            button("Stop recording").on_press_maybe(can_stop.then_some(Message::StopRecording)),
+            button(self.locale.text(GuiText::ReloadConfig))
+                .on_press_maybe((!busy).then_some(Message::ReloadConfig)),
+            button(self.locale.text(GuiText::StartRecording))
+                .on_press_maybe(can_start.then_some(Message::StartRecording)),
+            button(self.locale.text(GuiText::StopRecording))
+                .on_press_maybe(can_stop.then_some(Message::StopRecording)),
         ]
         .spacing(10)
         .into()
@@ -646,20 +662,18 @@ impl App {
 
     fn daemon_status_view(&self) -> Element<'_, Message> {
         let daemon = match &self.daemon {
-            DaemonLoadState::Loading => text("Daemon: loading…"),
-            DaemonLoadState::Ready(snapshot) => text(format!("Daemon: {}", snapshot.status)),
-            DaemonLoadState::Failed(error) => text(format!("Daemon unavailable: {error}")),
+            DaemonLoadState::Loading => text(self.locale.text(GuiText::DaemonLoading)),
+            DaemonLoadState::Ready(snapshot) => text(self.locale.daemon_status(&snapshot.status)),
+            DaemonLoadState::Failed(error) => text(self.locale.daemon_unavailable(error)),
         };
         let monitor = match &self.daemon_owner_monitor {
             DaemonOwnerMonitorState::Connecting => {
-                "Owner monitoring: connecting to D-Bus signals…".to_owned()
+                self.locale.text(GuiText::OwnerMonitorConnecting).to_owned()
             }
             DaemonOwnerMonitorState::Ready => {
-                "Owner monitoring: signal-driven reconciliation active.".to_owned()
+                self.locale.text(GuiText::OwnerMonitorReady).to_owned()
             }
-            DaemonOwnerMonitorState::Failed(error) => format!(
-                "Owner monitoring degraded; using a 30-second non-activating fallback: {error}"
-            ),
+            DaemonOwnerMonitorState::Failed(error) => self.locale.owner_monitor_degraded(error),
         };
         column![daemon, text(monitor)].spacing(5).into()
     }
@@ -677,8 +691,12 @@ impl App {
                 .view()
                 .or_else(|| self.script_install.view()),
             OperationState::Running(message) => Some(text(*message).into()),
-            OperationState::Succeeded(message) => Some(text(format!("Success: {message}")).into()),
-            OperationState::Failed(message) => Some(text(format!("Error: {message}")).into()),
+            OperationState::Succeeded(message) => {
+                Some(text(self.locale.operation_success(message)).into())
+            }
+            OperationState::Failed(message) => {
+                Some(text(self.locale.operation_error(message)).into())
+            }
         }
     }
 }
@@ -887,19 +905,19 @@ fn save_config_with_daemon(
     save_updated_config_with_daemon(document, &updated)
 }
 
-fn run_recording_action(start: bool, scene: &str) -> Result<String, String> {
+fn run_recording_action(start: bool, scene: &str) -> Result<(), String> {
     let connection = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
     let proxy = daemon_proxy(&connection)?;
     if start {
         proxy
             .call::<_, _, ()>(dbus::method::START_RECORDING, &())
             .map_err(|error| error.to_string())?;
-        Ok("Recording started.".to_owned())
+        Ok(())
     } else {
         let _: String = proxy
             .call(dbus::method::STOP_RECORDING, &scene)
             .map_err(|error| error.to_string())?;
-        Ok("Recording stopped; the recognition result was delivered to the frontend.".to_owned())
+        Ok(())
     }
 }
 
@@ -927,6 +945,7 @@ pub fn headless_snapshot(path: Option<&Path>, probe_daemon: bool) -> Result<Valu
     Ok(json!({
         "ok": true,
         "application": "vinput-gui",
+        "ui_locale": GuiLocale::detect().code(),
         "config": {
             "path": document.path,
             "from_disk": document.from_disk,
@@ -937,7 +956,7 @@ pub fn headless_snapshot(path: Option<&Path>, probe_daemon: bool) -> Result<Valu
             "adapter_count": document.config.llm.adapters.len(),
         },
         "daemon": daemon,
-        "pages": Page::ALL.map(Page::label),
+        "pages": Page::ALL.map(Page::machine_label),
     }))
 }
 
@@ -993,7 +1012,7 @@ fn llm_adapter_rows(config: &VinputConfig) -> Vec<String> {
 /// Runs the native GUI application.
 pub fn run() -> iced::Result {
     iced::application(App::boot, App::update, App::view)
-        .title(APPLICATION_TITLE)
+        .title(GuiLocale::detect().text(GuiText::ApplicationTitle))
         .subscription(App::subscription)
         .theme(Theme::TokyoNight)
         .window_size((960.0, 640.0))

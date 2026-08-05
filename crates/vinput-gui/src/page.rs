@@ -5,7 +5,7 @@ use iced::{
     widget::{button, column, text},
 };
 
-use crate::{APPLICATION_TITLE, App, Message};
+use crate::{App, GuiLocale, GuiText, Message};
 
 /// Main GUI pages matching the legacy management surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,7 +23,7 @@ pub enum Page {
 impl Page {
     pub(crate) const ALL: [Self; 4] = [Self::Control, Self::Resources, Self::Llm, Self::Hotwords];
 
-    pub(crate) fn label(self) -> &'static str {
+    pub(crate) const fn machine_label(self) -> &'static str {
         match self {
             Self::Control => "Control",
             Self::Resources => "Resources",
@@ -31,15 +31,24 @@ impl Page {
             Self::Hotwords => "Hotwords",
         }
     }
+
+    pub(crate) const fn display_label(self, locale: GuiLocale) -> &'static str {
+        locale.text(match self {
+            Self::Control => GuiText::Control,
+            Self::Resources => GuiText::Resources,
+            Self::Llm => GuiText::Llm,
+            Self::Hotwords => GuiText::Hotwords,
+        })
+    }
 }
 
 impl App {
     pub(super) fn navigation_view(&self, busy: bool) -> Element<'_, Message> {
         let navigation = Page::ALL.into_iter().fold(
-            column![text(APPLICATION_TITLE).size(24)].spacing(10),
+            column![text(self.locale.text(GuiText::ApplicationTitle)).size(24)].spacing(10),
             |navigation, page| {
                 navigation.push(
-                    button(text(page.label()))
+                    button(text(page.display_label(self.locale)))
                         .width(Length::Fill)
                         .on_press_maybe((!busy).then_some(Message::SelectPage(page))),
                 )

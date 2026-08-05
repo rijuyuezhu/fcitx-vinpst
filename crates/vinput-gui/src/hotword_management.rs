@@ -1,6 +1,7 @@
 //! Hotword provider selection, path lifecycle, content editing, and persistence.
 
 mod file_picker;
+mod view;
 
 use std::{
     fmt,
@@ -10,15 +11,12 @@ use std::{
 #[cfg(test)]
 use std::fs;
 
-use iced::{
-    Element, Length, Task,
-    widget::{button, column, pick_list, row, scrollable, text, text_editor, text_input},
-};
+use iced::{Task, widget::text_editor};
 use vinput_config::{AsrProviderConfig, AsrProviderKind, VinputConfig};
 
 use crate::{
-    App, ConfigDocument, ConfigSaveOutcome, DAEMON_RELOAD_REQUESTED, Message, OperationState,
-    SecretInput, ensure_config_document_current,
+    App, ConfigDocument, ConfigSaveOutcome, DAEMON_RELOAD_REQUESTED, GuiText, Message,
+    OperationState, SecretInput, ensure_config_document_current,
     hotword_activation_retry::{
         PendingHotwordActivation, retry_hotword_activation, validate_pending_activation,
     },
@@ -480,20 +478,26 @@ impl App {
     fn select_hotword_provider(&mut self, selection: &HotwordProviderSelection) {
         if self.hotword_editor.has_unsaved_changes() {
             self.operation = OperationState::Failed(
-                "Save or reset hotword changes before selecting another provider.".to_owned(),
+                self.locale
+                    .text(GuiText::SaveOrResetHotwordBeforeProvider)
+                    .to_owned(),
             );
             return;
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return;
         };
         if !hotword_provider_options(&document.config)
             .iter()
             .any(|provider| provider == selection)
         {
-            self.operation =
-                OperationState::Failed("The selected hotword provider is unavailable.".to_owned());
+            self.operation = OperationState::Failed(
+                self.locale
+                    .text(GuiText::SelectedHotwordProviderUnavailable)
+                    .to_owned(),
+            );
             return;
         }
         self.hotword_editor
@@ -504,46 +508,57 @@ impl App {
     fn begin_hotword_path_set(&mut self) -> Task<Message> {
         if self.hotword_editor.content_is_dirty() {
             self.operation = OperationState::Failed(
-                "Save the edited hotword content before changing its configured path.".to_owned(),
+                self.locale
+                    .text(GuiText::SaveHotwordBeforePathChange)
+                    .to_owned(),
             );
             return Task::none();
         }
         let path = self.hotword_editor.path_input.trim();
         if path.is_empty() {
-            self.operation =
-                OperationState::Failed("Hotword file path cannot be empty.".to_owned());
+            self.operation = OperationState::Failed(
+                self.locale
+                    .text(GuiText::HotwordPathCannotBeEmpty)
+                    .to_owned(),
+            );
             return Task::none();
         }
         let path = path.to_owned();
-        self.begin_hotword_path_mutation(Some(&path), "Setting hotword path…")
+        self.begin_hotword_path_mutation(Some(&path), GuiText::SettingHotwordPath)
     }
 
     fn begin_hotword_path_clear(&mut self) -> Task<Message> {
         if self.hotword_editor.content_is_dirty() {
             self.operation = OperationState::Failed(
-                "Save the edited hotword content before clearing its configured path.".to_owned(),
+                self.locale
+                    .text(GuiText::SaveHotwordBeforePathClear)
+                    .to_owned(),
             );
             return Task::none();
         }
-        self.begin_hotword_path_mutation(None, "Clearing hotword path…")
+        self.begin_hotword_path_mutation(None, GuiText::ClearingHotwordPath)
     }
 
     fn begin_hotword_path_mutation(
         &mut self,
         path: Option<&str>,
-        progress: &'static str,
+        progress: GuiText,
     ) -> Task<Message> {
         if let Err(error) = self.ensure_no_unsaved_config_draft() {
             self.operation = OperationState::Failed(error);
             return Task::none();
         }
         let Some(provider_id) = self.hotword_editor.selected_provider.clone() else {
-            self.operation =
-                OperationState::Failed("No hotword-capable provider is selected.".to_owned());
+            self.operation = OperationState::Failed(
+                self.locale
+                    .text(GuiText::NoHotwordProviderSelected)
+                    .to_owned(),
+            );
             return Task::none();
         };
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let updated = match update_hotword_path(&document.config, &provider_id, path) {
@@ -576,7 +591,7 @@ impl App {
             format!("Cleared hotword path for provider `{provider_id}`.")
         };
         let document = document.clone();
-        self.operation = OperationState::Running(progress);
+        self.operation = OperationState::Running(self.locale.text(progress));
         Task::perform(
             async move {
                 let should_confirm = updated.asr.active_provider == provider_id;
@@ -675,19 +690,26 @@ impl App {
     fn begin_hotword_content_load(&mut self) -> Task<Message> {
         if self.hotword_editor.content_is_dirty() {
             self.operation = OperationState::Failed(
-                "Save the edited hotword content before loading it again.".to_owned(),
+                self.locale
+                    .text(GuiText::SaveHotwordBeforeReload)
+                    .to_owned(),
             );
             return Task::none();
         }
         if self.hotword_editor.path_is_dirty() {
             self.operation = OperationState::Failed(
-                "Set or reset the hotword path before loading content.".to_owned(),
+                self.locale
+                    .text(GuiText::SetOrResetPathBeforeLoad)
+                    .to_owned(),
             );
             return Task::none();
         }
         let Some(provider_id) = self.hotword_editor.selected_provider.clone() else {
-            self.operation =
-                OperationState::Failed("No hotword-capable provider is selected.".to_owned());
+            self.operation = OperationState::Failed(
+                self.locale
+                    .text(GuiText::NoHotwordProviderSelected)
+                    .to_owned(),
+            );
             return Task::none();
         };
         let Some(path) = self.hotword_editor.content_path.clone() else {
@@ -695,16 +717,14 @@ impl App {
                 self.hotword_editor
                     .content_path_error
                     .clone()
-                    .unwrap_or_else(|| {
-                        "Set a hotword file path before loading content.".to_owned()
-                    }),
+                    .unwrap_or_else(|| self.locale.text(GuiText::SetPathBeforeLoad).to_owned()),
             );
             return Task::none();
         };
         let operation_id = self.next_hotword_operation_id;
         self.next_hotword_operation_id = self.next_hotword_operation_id.saturating_add(1);
         self.active_hotword_operation_id = Some(operation_id);
-        self.operation = OperationState::Running("Loading hotword content…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::LoadingHotwordContent));
         Task::perform(
             async move {
                 read_hotword_snapshot(&path).map(|snapshot| LoadedHotwordContent {
@@ -742,30 +762,35 @@ impl App {
             || self.hotword_editor.content_path.as_ref() != Some(&loaded.path)
         {
             self.operation = OperationState::Failed(
-                "Discarded stale hotword content loaded for a previous selection.".to_owned(),
+                self.locale
+                    .text(GuiText::DiscardedStaleHotwordContent)
+                    .to_owned(),
             );
             return;
         }
         let existed = loaded.snapshot.existed;
         self.hotword_editor.apply_loaded(loaded);
         self.operation = OperationState::Succeeded(if existed {
-            "Loaded configured hotword content.".to_owned()
+            self.locale.text(GuiText::LoadedHotwordContent).to_owned()
         } else {
-            "Configured hotword file does not exist yet; loaded an empty editor.".to_owned()
+            self.locale
+                .text(GuiText::MissingHotwordFileEmptyEditor)
+                .to_owned()
         });
     }
 
     fn begin_hotword_content_save(&mut self) -> Task<Message> {
         if self.hotword_editor.path_is_dirty() {
             self.operation = OperationState::Failed(
-                "Set or reset the hotword path before saving content.".to_owned(),
+                self.locale
+                    .text(GuiText::SetOrResetPathBeforeSave)
+                    .to_owned(),
             );
             return Task::none();
         }
         if !self.hotword_editor.content_matches_target() {
-            self.operation = OperationState::Failed(
-                "Load the configured hotword file before saving content.".to_owned(),
-            );
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::LoadHotwordBeforeSave).to_owned());
             return Task::none();
         }
         let Some(path) = self.hotword_editor.content_path.clone() else {
@@ -773,23 +798,26 @@ impl App {
                 self.hotword_editor
                     .content_path_error
                     .clone()
-                    .unwrap_or_else(|| "Set a hotword file path before saving content.".to_owned()),
+                    .unwrap_or_else(|| self.locale.text(GuiText::SetPathBeforeSave).to_owned()),
             );
             return Task::none();
         };
         let Some(expected) = self.hotword_editor.baseline.clone() else {
-            self.operation = OperationState::Failed(
-                "Load the configured hotword file before saving content.".to_owned(),
-            );
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::LoadHotwordBeforeSave).to_owned());
             return Task::none();
         };
         let Some(provider_id) = self.hotword_editor.selected_provider.clone() else {
-            self.operation =
-                OperationState::Failed("No hotword-capable provider is selected.".to_owned());
+            self.operation = OperationState::Failed(
+                self.locale
+                    .text(GuiText::NoHotwordProviderSelected)
+                    .to_owned(),
+            );
             return Task::none();
         };
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let document = document.clone();
@@ -797,7 +825,7 @@ impl App {
         let operation_id = self.next_hotword_operation_id;
         self.next_hotword_operation_id = self.next_hotword_operation_id.saturating_add(1);
         self.active_hotword_operation_id = Some(operation_id);
-        self.operation = OperationState::Running("Saving hotword content…");
+        self.operation = OperationState::Running(self.locale.text(GuiText::SavingHotwordContent));
         Task::perform(
             async move {
                 save_hotword_content_for_document(
@@ -859,8 +887,11 @@ impl App {
 
     fn begin_hotword_activation_retry(&mut self) -> Task<Message> {
         let Some(pending) = self.hotword_editor.pending_activation.clone() else {
-            self.operation =
-                OperationState::Failed("No saved hotword activation is pending retry.".to_owned());
+            self.operation = OperationState::Failed(
+                self.locale
+                    .text(GuiText::NoPendingHotwordActivation)
+                    .to_owned(),
+            );
             return Task::none();
         };
         if !self
@@ -868,20 +899,23 @@ impl App {
             .pending_activation_for_selected_provider()
         {
             self.operation = OperationState::Failed(
-                "Select the provider with the pending hotword activation before retrying."
+                self.locale
+                    .text(GuiText::SelectPendingHotwordProvider)
                     .to_owned(),
             );
             return Task::none();
         }
         let Ok(document) = &self.config else {
-            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            self.operation =
+                OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
         let document = document.clone();
         let operation_id = self.next_hotword_operation_id;
         self.next_hotword_operation_id = self.next_hotword_operation_id.saturating_add(1);
         self.active_hotword_operation_id = Some(operation_id);
-        self.operation = OperationState::Running("Retrying hotword activation…");
+        self.operation =
+            OperationState::Running(self.locale.text(GuiText::RetryingHotwordActivation));
         Task::perform(
             async move { retry_hotword_activation(&document, &pending) },
             move |result| {
@@ -910,171 +944,6 @@ impl App {
             Err(error) => OperationState::Failed(error),
         };
         self.begin_daemon_refresh(false)
-    }
-
-    pub(super) fn hotwords_page(&self) -> Element<'_, Message> {
-        let busy = self.is_busy();
-        let mut body = column![text("Hotwords").size(30)].spacing(12);
-        if let Some(notice) = self.operation_notice() {
-            body = body.push(notice);
-        }
-        let Ok(document) = &self.config else {
-            return scrollable(body.push(text("No valid configuration is loaded."))).into();
-        };
-        let provider_options = hotword_provider_options(&document.config);
-        if provider_options.is_empty() {
-            return scrollable(body.push(text(
-                "No local or command ASR provider supports hotword files.",
-            )))
-            .into();
-        }
-        body = body.push(self.hotword_provider_picker(&provider_options, busy));
-        body = body.push(self.hotword_path_controls(busy));
-        body = body.push(self.hotword_content_controls(busy));
-        body = body.push(self.hotword_content_editor(busy));
-        scrollable(body).into()
-    }
-
-    fn hotword_provider_picker<'a>(
-        &'a self,
-        provider_options: &[HotwordProviderSelection],
-        busy: bool,
-    ) -> Element<'a, Message> {
-        let selected = self
-            .hotword_editor
-            .selected_provider
-            .as_deref()
-            .and_then(|id| {
-                provider_options
-                    .iter()
-                    .find(|provider| provider.id() == id)
-                    .cloned()
-            });
-        let provider_picker: Element<'_, Message> = if busy {
-            text(
-                selected
-                    .as_ref()
-                    .map_or_else(|| "No provider selected".to_owned(), ToString::to_string),
-            )
-            .width(Length::Fill)
-            .into()
-        } else {
-            pick_list(provider_options.to_vec(), selected, |selection| {
-                Message::Hotword(HotwordMessage::ProviderSelected(selection))
-            })
-            .width(Length::Fill)
-            .into()
-        };
-        row![text("ASR provider").width(160), provider_picker]
-            .spacing(10)
-            .align_y(iced::Alignment::Center)
-            .into()
-    }
-
-    fn hotword_path_controls(&self, busy: bool) -> Element<'_, Message> {
-        let path_dirty = self.hotword_editor.path_is_dirty();
-        let content_dirty = self.hotword_editor.content_is_dirty();
-        row![
-            text("Hotword file").width(160),
-            text_input(
-                "Path to a UTF-8 hotword file",
-                &self.hotword_editor.path_input
-            )
-            .on_input_maybe((!busy).then_some(|value| {
-                Message::Hotword(HotwordMessage::PathChanged(SecretInput::new(value)))
-            }))
-            .width(Length::Fill),
-            button("Browse…").on_press_maybe(
-                (!busy && self.hotword_editor.selected_provider.is_some() && !content_dirty)
-                    .then_some(Message::Hotword(HotwordMessage::BrowsePath)),
-            ),
-            button("Set path").on_press_maybe(
-                (!busy
-                    && path_dirty
-                    && !content_dirty
-                    && !self.hotword_editor.path_input.trim().is_empty())
-                .then_some(Message::Hotword(HotwordMessage::SetPath)),
-            ),
-            button("Clear path").on_press_maybe(
-                (!busy && self.hotword_editor.configured_path.is_some() && !content_dirty)
-                    .then_some(Message::Hotword(HotwordMessage::ClearPath)),
-            ),
-        ]
-        .spacing(10)
-        .align_y(iced::Alignment::Center)
-        .into()
-    }
-
-    fn hotword_content_controls(&self, busy: bool) -> Element<'_, Message> {
-        let path_dirty = self.hotword_editor.path_is_dirty();
-        let content_dirty = self.hotword_editor.content_is_dirty();
-        row![
-            button("Load content").on_press_maybe(
-                (!busy
-                    && self.hotword_editor.content_path.is_some()
-                    && !path_dirty
-                    && !content_dirty)
-                    .then_some(Message::Hotword(HotwordMessage::LoadContent)),
-            ),
-            button("Save content").on_press_maybe(
-                (!busy
-                    && !path_dirty
-                    && content_dirty
-                    && self.hotword_editor.content_matches_target())
-                .then_some(Message::Hotword(HotwordMessage::SaveContent)),
-            ),
-            button("Reset changes").on_press_maybe(
-                (!busy && self.hotword_editor.has_unsaved_changes())
-                    .then_some(Message::Hotword(HotwordMessage::ResetChanges)),
-            ),
-            button("Retry activation").on_press_maybe(
-                (!busy
-                    && !path_dirty
-                    && !content_dirty
-                    && self
-                        .hotword_editor
-                        .pending_activation_for_selected_provider())
-                .then_some(Message::Hotword(HotwordMessage::RetryActivation)),
-            ),
-            text(self.hotword_content_status(content_dirty)),
-        ]
-        .spacing(10)
-        .align_y(iced::Alignment::Center)
-        .into()
-    }
-
-    fn hotword_content_editor(&self, busy: bool) -> Element<'_, Message> {
-        if busy || self.hotword_editor.baseline.is_none() {
-            text_editor::<Message, iced::Theme, iced::Renderer>(&self.hotword_editor.content)
-                .placeholder("One hotword entry per line")
-                .height(Length::Fixed(320.0))
-                .into()
-        } else {
-            text_editor::<Message, iced::Theme, iced::Renderer>(&self.hotword_editor.content)
-                .placeholder("One hotword entry per line")
-                .height(Length::Fixed(320.0))
-                .on_action(|action| Message::Hotword(HotwordMessage::ContentAction(action)))
-                .into()
-        }
-    }
-
-    fn hotword_content_status(&self, content_dirty: bool) -> &str {
-        if self
-            .hotword_editor
-            .pending_activation_for_selected_provider()
-        {
-            "Hotword configuration is saved; daemon activation can be retried"
-        } else if let Some(error) = &self.hotword_editor.content_path_error {
-            error
-        } else if self.hotword_editor.baseline.is_some() {
-            if content_dirty {
-                "Unsaved hotword content"
-            } else {
-                "Hotword content is unchanged"
-            }
-        } else {
-            "Load the configured file to edit its contents"
-        }
     }
 }
 
