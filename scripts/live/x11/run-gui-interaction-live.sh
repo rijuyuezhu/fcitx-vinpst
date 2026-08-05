@@ -15,6 +15,10 @@ clipboard_had_text=0
 clipboard_types_before=""
 previous_fcitx_state=""
 previous_fcitx_im=""
+previous_fcitx_context=0
+previous_fcitx_group=""
+previous_fcitx_group_default=""
+previous_niri_window_id=""
 gui_pid=""
 gui_x11_window_id=""
 gui_niri_window_id=""
@@ -38,13 +42,19 @@ restore_user_state() {
     wait "${gui_pid}" 2>/dev/null || true
     gui_pid=""
   fi
-  if [[ -n "${previous_fcitx_im}" ]]; then
-    fcitx5-remote -s "${previous_fcitx_im}" >/dev/null 2>&1 || true
+  if [[ -n "${previous_niri_window_id}" ]] &&
+    niri msg --json windows 2>/dev/null |
+      jq -e --argjson id "${previous_niri_window_id}" '.[] | select(.id == $id)' >/dev/null; then
+    niri msg action focus-window --id "${previous_niri_window_id}" >/dev/null 2>&1 || true
+    sleep 0.3
   fi
-  case "${previous_fcitx_state}" in
-  2) fcitx5-remote -o >/dev/null 2>&1 || true ;;
-  0 | 1) fcitx5-remote -c >/dev/null 2>&1 || true ;;
-  esac
+  if [[ "${previous_fcitx_context}" == 1 ]]; then
+    fcitx5-remote -s "${previous_fcitx_im}" >/dev/null 2>&1 || true
+    case "${previous_fcitx_state}" in
+    2) fcitx5-remote -o >/dev/null 2>&1 || true ;;
+    1) fcitx5-remote -c >/dev/null 2>&1 || true ;;
+    esac
+  fi
   if [[ "${clipboard_had_text}" == 1 && -n "${clipboard_before}" ]]; then
     wl-copy --type 'text/plain;charset=utf-8' <"${clipboard_before}" >/dev/null 2>&1 || true
   else
@@ -62,7 +72,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-for command in fcitx5-remote jq niri python3 timeout wl-copy wl-paste xclip xdpyinfo xprop xwininfo; do
+for command in busctl fcitx5-remote jq niri python3 timeout wl-copy wl-paste xclip xdpyinfo xprop xwininfo; do
   command -v "${command}" >/dev/null 2>&1 || fail "required X11 GUI live command is missing: ${command}"
 done
 [[ -x "${gui_bin}" ]] || fail "GUI binary is missing or not executable: ${gui_bin}"
@@ -93,6 +103,10 @@ if [[ -z "${NIRI_SOCKET:-}" || ! -S "${NIRI_SOCKET}" ]]; then
   export NIRI_SOCKET="${niri_sockets[0]}"
 fi
 niri msg --json windows >/dev/null
+previous_niri_window_id="$(
+  niri msg --json windows |
+    jq -r '[.[] | select(.is_focused) | .id] | if length == 1 then .[0] else empty end'
+)"
 
 if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
   WAYLAND_DISPLAY="$(sed -n 's/^WAYLAND_DISPLAY=//p' <<<"${session_environment}")"
@@ -120,7 +134,21 @@ fi
 previous_fcitx_state="$(fcitx5-remote)"
 previous_fcitx_im="$(fcitx5-remote -n)"
 [[ "${previous_fcitx_state}" =~ ^[012]$ ]] || fail "unexpected Fcitx state: ${previous_fcitx_state}"
-[[ -n "${previous_fcitx_im}" ]] || fail "current Fcitx input method is unavailable"
+if [[ "${previous_fcitx_state}" != 0 || -n "${previous_fcitx_im}" ]]; then
+  [[ "${previous_fcitx_state}" =~ ^[12]$ && -n "${previous_fcitx_im}" ]] ||
+    fail "inconsistent focused Fcitx context"
+  previous_fcitx_context=1
+fi
+previous_fcitx_group="$(
+  busctl --user --json=short call     org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 CurrentInputMethodGroup |
+    jq -er '.data[0]'
+)"
+previous_fcitx_group_default="$(
+  busctl --user --json=short call     org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 FullInputMethodGroupInfo     s "${previous_fcitx_group}" |
+    jq -er '.data[1]'
+)"
+[[ -n "${previous_fcitx_group}" && -n "${previous_fcitx_group_default}" ]] ||
+  fail "Fcitx input-method group metadata is unavailable"
 
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
@@ -347,9 +375,30 @@ zh_titles+=("$(x11_window_title)")
 stop_gui
 
 restore_user_state
-sleep 0.2
-[[ "$(fcitx5-remote)" == "${previous_fcitx_state}" ]] || fail "Fcitx state was not restored"
-[[ "$(fcitx5-remote -n)" == "${previous_fcitx_im}" ]] || fail "Fcitx input method was not restored"
+fcitx_restored=0
+for _ in $(seq 1 30); do
+  current_group="$(
+    busctl --user --json=short call       org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 CurrentInputMethodGroup 2>/dev/null |
+      jq -r '.data[0] // empty'
+  )"
+  current_group_default="$(
+    busctl --user --json=short call       org.fcitx.Fcitx5 /controller org.fcitx.Fcitx.Controller1 FullInputMethodGroupInfo       s "${previous_fcitx_group}" 2>/dev/null |
+      jq -r '.data[1] // empty'
+  )"
+  context_restored=1
+  if [[ "${previous_fcitx_context}" == 1 ]]; then
+    [[ "$(fcitx5-remote)" == "${previous_fcitx_state}" &&
+      "$(fcitx5-remote -n)" == "${previous_fcitx_im}" ]] || context_restored=0
+  fi
+  if [[ "${current_group}" == "${previous_fcitx_group}" &&
+    "${current_group_default}" == "${previous_fcitx_group_default}" &&
+    "${context_restored}" == 1 ]]; then
+    fcitx_restored=1
+    break
+  fi
+  sleep 0.1
+done
+[[ "${fcitx_restored}" == 1 ]] || fail "Fcitx session metadata was not restored"
 if [[ "${clipboard_had_text}" == 1 ]]; then
   timeout 2s wl-paste --no-newline >"${out_dir}/clipboard-restored.tmp"
   cmp -s "${clipboard_before}" "${out_dir}/clipboard-restored.tmp" ||
@@ -369,8 +418,12 @@ jq -n \
   --arg display "${DISPLAY}" \
   --arg socket "${NIRI_SOCKET}" \
   --arg previous_fcitx_im "${previous_fcitx_im}" \
+  --arg previous_fcitx_group "${previous_fcitx_group}" \
+  --arg previous_fcitx_group_default "${previous_fcitx_group_default}" \
+  --arg previous_niri_window_id "${previous_niri_window_id}" \
   --arg rime_im "${rime_im}" \
   --argjson previous_fcitx_state "${previous_fcitx_state}" \
+  --argjson previous_fcitx_context "${previous_fcitx_context}" \
   --argjson ime_commit_bytes "${ime_commit_bytes}" \
   --argjson en_titles "$(printf '%s\n' "${en_titles[@]}" | jq -R . | jq -s .)" \
   --argjson zh_titles "$(printf '%s\n' "${zh_titles[@]}" | jq -R . | jq -s .)" \
@@ -408,8 +461,13 @@ jq -n \
       content_retained: false
     },
     restoration: {
+      fcitx_context_present: ($previous_fcitx_context == 1),
       fcitx_state: $previous_fcitx_state,
       fcitx_input_method: $previous_fcitx_im,
+      fcitx_group: $previous_fcitx_group,
+      fcitx_group_default: $previous_fcitx_group_default,
+      focused_window_id: $previous_niri_window_id,
+      focused_window_restored: true,
       gui_processes: 0
     }
   }' >"${out_dir}/summary.json"
@@ -436,7 +494,11 @@ jq -e '
   .input_method.content_retained == false and
   .restoration.fcitx_state >= 0 and
   .restoration.fcitx_state <= 2 and
-  (.restoration.fcitx_input_method | length) > 0 and
+  (.restoration.fcitx_group | length) > 0 and
+  (.restoration.fcitx_group_default | length) > 0 and
+  (.restoration.fcitx_context_present == false or
+    (.restoration.fcitx_input_method | length) > 0) and
+  .restoration.focused_window_restored == true and
   .restoration.gui_processes == 0
 ' "${out_dir}/summary.json" >/dev/null
 
