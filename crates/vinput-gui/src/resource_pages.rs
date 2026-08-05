@@ -232,9 +232,13 @@ fn adapter_row(
         button("Stop").on_press_maybe((!busy && runtime.can_stop).then_some(
             Message::AdapterRuntime(crate::AdapterRuntimeMessage::Stop(stop_id),)
         ),),
-        button("Remove").on_press_maybe(
-            (!busy && managed).then_some(Message::RemoveAdapter(adapter_id.to_owned())),
-        ),
+        button("Remove").on_press_maybe((!busy).then(|| {
+            if managed {
+                Message::RemoveAdapter(adapter_id.to_owned())
+            } else {
+                Message::AdapterConfig(crate::AdapterConfigMessage::Remove(adapter_id.to_owned()))
+            }
+        })),
     ]
     .spacing(10)
     .into()

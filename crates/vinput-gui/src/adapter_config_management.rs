@@ -7,10 +7,11 @@ use iced::{
     widget::{button, column, row, text, text_input},
 };
 use vinput_config::{LlmAdapterConfig, VinputConfig};
+use vinput_text::validate_adapter_id;
 
 use crate::{
     App, ConfigSaveOutcome, Message, OperationState, SecretInput, load_config_document,
-    save_updated_config_with_daemon,
+    save_updated_config_with_daemon, script_management::managed_adapter_script_path,
 };
 
 /// One editable text-adapter field.
@@ -48,8 +49,12 @@ pub enum AdapterConfigMessage {
     CancelEdit,
     /// Validate and persist the adapter form.
     Save,
+    /// Remove one user-defined adapter from configuration only.
+    Remove(String),
     /// Result of one asynchronous adapter config mutation.
     MutationFinished(Result<AdapterConfigMutationOutcome, String>),
+    /// Result of one asynchronous user-defined adapter removal.
+    RemovalFinished(Result<AdapterConfigRemovalOutcome, String>),
 }
 
 impl fmt::Debug for AdapterConfigMessage {
@@ -65,6 +70,7 @@ impl fmt::Debug for AdapterConfigMessage {
             Self::ResetEdit => formatter.write_str("ResetEdit"),
             Self::CancelEdit => formatter.write_str("CancelEdit"),
             Self::Save => formatter.write_str("Save"),
+            Self::Remove(id) => formatter.debug_tuple("Remove").field(id).finish(),
             Self::MutationFinished(Ok(outcome)) => formatter
                 .debug_struct("MutationFinished")
                 .field("adapter_id", &outcome.adapter_id)
@@ -72,6 +78,15 @@ impl fmt::Debug for AdapterConfigMessage {
                 .finish(),
             Self::MutationFinished(Err(_)) => formatter
                 .debug_struct("MutationFinished")
+                .field("status", &"failed")
+                .finish(),
+            Self::RemovalFinished(Ok(outcome)) => formatter
+                .debug_struct("RemovalFinished")
+                .field("adapter_id", &outcome.adapter_id)
+                .field("status", &"removed")
+                .finish(),
+            Self::RemovalFinished(Err(_)) => formatter
+                .debug_struct("RemovalFinished")
                 .field("status", &"failed")
                 .finish(),
         }
@@ -87,6 +102,15 @@ pub struct AdapterConfigMutationOutcome {
     pub adapter_id: String,
     /// Whether the operation created a new custom adapter.
     pub created: bool,
+}
+
+/// Result of removing one user-defined text adapter from configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdapterConfigRemovalOutcome {
+    /// Shared atomic config-save receipt and daemon reload summary.
+    pub save: ConfigSaveOutcome,
+    /// Stable adapter id removed from configuration.
+    pub adapter_id: String,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -201,6 +225,9 @@ impl AdapterConfigEditorState {
         if id.is_empty() {
             return Err("Text adapter id cannot be empty.".to_owned());
         }
+        validate_adapter_id(id).map_err(|_| {
+            format!("Text adapter id `{id}` cannot be used for daemon runtime files.")
+        })?;
         let command = self.fields.command.as_str().trim();
         if command.is_empty() {
             return Err("Text adapter command cannot be empty.".to_owned());
@@ -228,7 +255,13 @@ impl App {
         message: &Message,
     ) -> Option<Task<Message>> {
         if let Message::AdapterConfig(message) = message {
-            if self.is_busy() && !matches!(message, AdapterConfigMessage::MutationFinished(_)) {
+            if self.is_busy()
+                && !matches!(
+                    message,
+                    AdapterConfigMessage::MutationFinished(_)
+                        | AdapterConfigMessage::RemovalFinished(_)
+                )
+            {
                 return Some(Task::none());
             }
             return Some(self.handle_adapter_config_message(message.clone()));
@@ -295,8 +328,14 @@ impl App {
                 Task::none()
             }
             AdapterConfigMessage::Save => self.begin_adapter_config_save(),
+            AdapterConfigMessage::Remove(adapter_id) => {
+                self.begin_custom_adapter_removal(&adapter_id)
+            }
             AdapterConfigMessage::MutationFinished(result) => {
                 self.finish_adapter_config_mutation(result)
+            }
+            AdapterConfigMessage::RemovalFinished(result) => {
+                self.finish_custom_adapter_removal(result)
             }
         }
     }
@@ -419,6 +458,68 @@ impl App {
         self.begin_daemon_refresh(false)
     }
 
+    fn begin_custom_adapter_removal(&mut self, adapter_id: &str) -> Task<Message> {
+        if self.adapter_config_editor.is_some() {
+            self.operation = OperationState::Failed(
+                "Save or cancel the open text-adapter form before removing an adapter.".to_owned(),
+            );
+            return Task::none();
+        }
+        if let Err(error) = self.ensure_adapter_config_editor_allowed() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        if !self.guard_hotword_changes("removing a text adapter") {
+            return Task::none();
+        }
+        let Ok(document) = &self.config else {
+            self.operation = OperationState::Failed("No valid config is loaded.".to_owned());
+            return Task::none();
+        };
+        let updated = match remove_custom_adapter_config(&document.config, adapter_id) {
+            Ok(updated) => updated,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
+        };
+        self.operation = OperationState::Running("Removing text adapter…");
+        let document = document.clone();
+        let adapter_id = adapter_id.to_owned();
+        Task::perform(
+            async move {
+                save_updated_config_with_daemon(&document, &updated)
+                    .map(|save| AdapterConfigRemovalOutcome { save, adapter_id })
+            },
+            |result| Message::AdapterConfig(AdapterConfigMessage::RemovalFinished(result)),
+        )
+    }
+
+    fn finish_custom_adapter_removal(
+        &mut self,
+        result: Result<AdapterConfigRemovalOutcome, String>,
+    ) -> Task<Message> {
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.operation = OperationState::Failed(error);
+                return Task::none();
+            }
+        };
+        let backup = outcome.save.backup_path.as_ref().map_or_else(
+            || "no previous file".to_owned(),
+            |path| format!("backup {}", path.display()),
+        );
+        self.replace_config(load_config_document(Some(&outcome.save.path)));
+        self.operation = OperationState::Succeeded(format!(
+            "Removed custom text adapter `{}`. Saved {} ({backup}); {}",
+            outcome.adapter_id,
+            outcome.save.path.display(),
+            outcome.save.daemon_reload
+        ));
+        self.begin_daemon_refresh(false)
+    }
+
     fn ensure_adapter_config_editor_allowed(&self) -> Result<(), String> {
         self.ensure_no_unsaved_config_draft()?;
         self.ensure_no_open_scene_editor()?;
@@ -479,6 +580,39 @@ fn upsert_adapter_config(
     updated
         .validate()
         .map_err(|error| format!("Validate updated text-adapter config: {error}"))?;
+    Ok(updated)
+}
+
+fn remove_custom_adapter_config(
+    config: &VinputConfig,
+    adapter_id: &str,
+) -> Result<VinputConfig, String> {
+    remove_custom_adapter_config_with(config, adapter_id, |adapter| {
+        managed_adapter_script_path(adapter).is_some()
+    })
+}
+
+fn remove_custom_adapter_config_with(
+    config: &VinputConfig,
+    adapter_id: &str,
+    is_managed: impl FnOnce(&LlmAdapterConfig) -> bool,
+) -> Result<VinputConfig, String> {
+    let mut updated = config.clone();
+    let index = updated
+        .llm
+        .adapters
+        .iter()
+        .position(|adapter| adapter.id == adapter_id)
+        .ok_or_else(|| format!("Text adapter `{adapter_id}` is not configured."))?;
+    if is_managed(&updated.llm.adapters[index]) {
+        return Err(format!(
+            "Text adapter `{adapter_id}` is registry-managed and must use managed removal."
+        ));
+    }
+    updated.llm.adapters.remove(index);
+    updated
+        .validate()
+        .map_err(|error| format!("Validate configuration after removing {adapter_id}: {error}"))?;
     Ok(updated)
 }
 
@@ -735,6 +869,36 @@ mod tests {
         assert!(added.extra.is_empty());
 
         assert!(upsert_adapter_config(&updated, &editor).is_err());
+    }
+
+    #[test]
+    fn add_rejects_adapter_ids_unsafe_for_daemon_runtime_paths() {
+        for adapter_id in [".", "..", "nested/id", r"nested\id"] {
+            let mut editor = AdapterConfigEditorState::add();
+            editor.update(
+                AdapterConfigEditorField::Id,
+                SecretInput::new(adapter_id.to_owned()),
+            );
+            editor.update(
+                AdapterConfigEditorField::Command,
+                SecretInput::new("/opt/custom-adapter".to_owned()),
+            );
+            assert!(editor.adapter().is_err());
+        }
+    }
+
+    #[test]
+    fn custom_adapter_removal_is_config_only_and_rejects_managed_entries() {
+        let original = adapter();
+        let mut config = VinputConfig::bundled_default().expect("bundled config");
+        config.llm.adapters = vec![original.clone()];
+
+        let updated = remove_custom_adapter_config_with(&config, &original.id, |_| false)
+            .expect("custom adapter should be removed from config");
+        assert!(updated.llm.adapters.is_empty());
+
+        assert!(remove_custom_adapter_config_with(&config, &original.id, |_| true).is_err());
+        assert!(remove_custom_adapter_config_with(&config, "missing", |_| false).is_err());
     }
 
     #[test]

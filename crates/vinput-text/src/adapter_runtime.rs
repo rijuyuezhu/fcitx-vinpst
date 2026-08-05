@@ -220,7 +220,8 @@ impl AdapterRuntimePaths {
     }
 }
 
-fn adapter_pid_file_name(adapter_id: &str) -> Result<String, TextError> {
+/// Validates that an adapter id can be used safely for runtime files.
+pub fn validate_adapter_id(adapter_id: &str) -> Result<(), TextError> {
     if adapter_id.is_empty()
         || adapter_id == "."
         || adapter_id == ".."
@@ -229,6 +230,11 @@ fn adapter_pid_file_name(adapter_id: &str) -> Result<String, TextError> {
     {
         return Err(TextError::InvalidAdapterId(adapter_id.to_owned()));
     }
+    Ok(())
+}
+
+fn adapter_pid_file_name(adapter_id: &str) -> Result<String, TextError> {
+    validate_adapter_id(adapter_id)?;
     Ok(format!("{adapter_id}.pid"))
 }
 
