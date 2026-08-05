@@ -8,9 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-SYMBOL_PREFIX = "vinput_fcitx_"
+SYMBOL_PREFIX = "vinpst_fcitx_"
 HEADER_FUNCTION_PATTERN = re.compile(
-    r"\b(?P<name>vinput_fcitx_[A-Za-z0-9_]+)\s*\(",
+    r"\b(?P<name>vinpst_fcitx_[A-Za-z0-9_]+)\s*\(",
     re.MULTILINE,
 )
 
@@ -33,11 +33,11 @@ def target_root(repo_root: Path) -> Path:
 
 def build_static_library(repo_root: Path) -> Path:
     subprocess.run(
-        ["cargo", "build", "--locked", "-p", "vinput-fcitx-ffi"],
+        ["cargo", "build", "--locked", "-p", "vinpst-fcitx-ffi"],
         cwd=repo_root,
         check=True,
     )
-    library = target_root(repo_root) / "debug" / "libvinput_fcitx_ffi.a"
+    library = target_root(repo_root) / "debug" / "libvinpst_fcitx_ffi.a"
     if not library.is_file():
         fail(f"Rust FFI static library was not produced: {library}")
     return library
@@ -71,7 +71,7 @@ def require_equal(label: str, expected: set[str], actual: set[str]) -> None:
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[2]
     header = (
-        repo_root / "crates" / "vinput-fcitx-ffi" / "include" / "vinput_fcitx_ffi.h"
+        repo_root / "crates" / "vinpst-fcitx-ffi" / "include" / "vinpst_fcitx_ffi.h"
     )
 
     header_text = header.read_text(encoding="utf-8")

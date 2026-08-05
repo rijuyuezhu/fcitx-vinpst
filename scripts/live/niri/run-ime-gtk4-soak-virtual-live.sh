@@ -22,10 +22,10 @@ cd "${repo_root}"
 
 out_dir="target/tmp/ime-gtk4-soak-virtual-source-live/${mode}"
 start_epoch="$(date +%s)"
-VINPUT_TOOLKIT_EXPECTED_CYCLES="${cycles}" \
-VINPUT_LIVE_VIRTUAL_PROBE_KIND=gtk4 \
-VINPUT_LIVE_TOOLKIT_MODE="${mode}" \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir}" \
+VINPST_TOOLKIT_EXPECTED_CYCLES="${cycles}" \
+VINPST_LIVE_VIRTUAL_PROBE_KIND=gtk4 \
+VINPST_LIVE_TOOLKIT_MODE="${mode}" \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir}" \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 end_epoch="$(date +%s)"
 duration_seconds=$((end_epoch - start_epoch))
@@ -97,7 +97,7 @@ jq -s -e --arg key "${trigger_key}" --argjson expected "$((cycles * 2))" '
 jq -e '
   .event == "window-focus" and
   .backend == "niri" and
-  .title == "fcitx-vinput GTK4 live probe" and
+  .title == "fcitx-vinpst GTK4 live probe" and
   (.window_id | type) == "number" and
   .focused == true and
   .ok == true

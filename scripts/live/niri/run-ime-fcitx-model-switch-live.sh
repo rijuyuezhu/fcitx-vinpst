@@ -13,21 +13,21 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_MODEL_SWITCH_OUT_DIR:-target/tmp/ime-fcitx-model-switch-live}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_MODEL_SWITCH_OUT_DIR:-target/tmp/ime-fcitx-model-switch-live}"
 if [[ "${out_dir}" == /* ]]; then
   out_dir_abs="${out_dir}"
 else
   out_dir_abs="${repo_root}/${out_dir}"
 fi
 probe="scripts/live/niri/probes/fcitx-live-asr-selection-probe.py"
-service_path="${VINPUT_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service}"
-model_root="${VINPUT_LIVE_MODEL_ROOT:-${out_dir_abs}/model-root}"
-trigger_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
-alt_model_source="${VINPUT_LIVE_ALT_MODEL:-${repo_root}/target/models/onnx-pf-zh-sm-off}"
+service_path="${VINPST_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service}"
+model_root="${VINPST_LIVE_MODEL_ROOT:-${out_dir_abs}/model-root}"
+trigger_key="${VINPST_LIVE_ASR_MENU_KEY:-F8}"
+alt_model_source="${VINPST_LIVE_ALT_MODEL:-${repo_root}/target/models/onnx-pf-zh-sm-off}"
 alt_model="${model_root}/onnx-pf-zh-sm-off"
-alt_wav="${VINPUT_LIVE_ALT_WAV:-${alt_model_source}/test_wavs/0.wav}"
-original_wav="${VINPUT_LIVE_ORIGINAL_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
+alt_wav="${VINPST_LIVE_ALT_WAV:-${alt_model_source}/test_wavs/0.wav}"
+original_wav="${VINPST_LIVE_ORIGINAL_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
 config_path=""
 profile_mutated=0
 service_mutated=0
@@ -38,9 +38,9 @@ original_model=""
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 wait_backend() {
@@ -76,13 +76,13 @@ stop_verified_owner() {
   [[ -z "${pid}" ]] && return 0
   exe="$(jq -r '.owner.process.exe // empty' <<<"${status}")"
   cmdline="$(jq -r '.owner.process.cmdline | join(" ")' <<<"${status}")"
-  if [[ "${exe}" != *vinput-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
-    echo "refusing to stop unexpected org.fcitx.Vinput owner: pid=${pid} exe=${exe}" >&2
+  if [[ "${exe}" != *vinpst-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
+    echo "refusing to stop unexpected org.fcitx.Vinpst owner: pid=${pid} exe=${exe}" >&2
     return 1
   fi
   proc_exe="$(readlink "/proc/${pid}/exe")"
   proc_cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline")"
-  if [[ "${proc_exe}" != *vinput-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
+  if [[ "${proc_exe}" != *vinpst-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
     echo "live owner changed during verification: pid=${pid} exe=${proc_exe}" >&2
     return 1
   fi
@@ -109,13 +109,13 @@ restart_fcitx() {
   for _ in $(seq 1 100); do
     pid="$(pgrep -n -x fcitx5 || true)"
     if [[ -n "${pid}" ]] && fcitx5-remote --check >/dev/null 2>&1 &&
-      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinput.so" "/proc/${pid}/maps"; then
+      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so" "/proc/${pid}/maps"; then
       printf '%s\n' "${pid}"
       return 0
     fi
     sleep 0.1
   done
-  echo "restarted Fcitx did not load the user vinput addon" >&2
+  echo "restarted Fcitx did not load the user vinpst addon" >&2
   return 1
 }
 
@@ -182,7 +182,7 @@ for command in cp fcitx5 fcitx5-remote gdbus jq pgrep python3 readlink; do
   fi
 done
 if [[ ! -x "${cli_binary}" ]]; then
-  echo "vinput CLI is missing: ${cli_binary}" >&2
+  echo "vinpst CLI is missing: ${cli_binary}" >&2
   exit 2
 fi
 if ! fcitx5-remote --check >/dev/null 2>&1; then
@@ -203,7 +203,7 @@ done
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}" "${alt_model}"
 cp -al "${alt_model_source}/." "${alt_model}/"
-if [[ ! -f "${alt_model}/vinput-model.json" ]]; then
+if [[ ! -f "${alt_model}/vinpst-model.json" ]]; then
   echo "temporary model root did not materialize installed-model metadata" >&2
   exit 1
 fi
@@ -302,10 +302,10 @@ jq -s -e 'any(.[]; .event == "summary" and .ok == true and .selected == true and
   "${out_dir}/asr-selection.jsonl" >/dev/null
 wait_backend "${original_provider}" "${alt_model}" "${out_dir}/alt-ready.json"
 
-VINPUT_LIVE_NATIVE_WAV="${alt_wav}" \
-VINPUT_LIVE_NATIVE_MODES=normal \
-VINPUT_LIVE_REQUIRE_PARTIAL=0 \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir}/alt-recognition" \
+VINPST_LIVE_NATIVE_WAV="${alt_wav}" \
+VINPST_LIVE_NATIVE_MODES=normal \
+VINPST_LIVE_REQUIRE_PARTIAL=0 \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir}/alt-recognition" \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 jq -s -e 'any(.[]; .event == "summary" and .ok == true and .require_partial == false and (.commit | length) > 0)' \
   "${out_dir}/alt-recognition/fcitx/normal.jsonl" >/dev/null
@@ -316,9 +316,9 @@ restore_profile
 wait_backend "${original_provider}" "${original_model}" \
   "${out_dir}/original-ready.json"
 
-VINPUT_LIVE_NATIVE_WAV="${original_wav}" \
-VINPUT_LIVE_NATIVE_MODES=normal \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir}/original-recognition" \
+VINPST_LIVE_NATIVE_WAV="${original_wav}" \
+VINPST_LIVE_NATIVE_MODES=normal \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir}/original-recognition" \
   scripts/live/niri/run-ime-fcitx-virtual-source-live.sh
 jq -s -e 'any(.[]; .event == "summary" and .ok == true and .require_partial == true and .partial_count > 0 and (.commit | length) > 0)' \
   "${out_dir}/original-recognition/fcitx/normal.jsonl" >/dev/null

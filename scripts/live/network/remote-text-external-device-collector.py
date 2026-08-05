@@ -130,9 +130,9 @@ def receive_transcription(
 
 def main() -> int:
     args = parse_args()
-    api_key = os.environ.get("VINPUT_REMOTE_TEXT_API_KEY", "")
+    api_key = os.environ.get("VINPST_REMOTE_TEXT_API_KEY", "")
     if not api_key:
-        raise RuntimeError("VINPUT_REMOTE_TEXT_API_KEY is required")
+        raise RuntimeError("VINPST_REMOTE_TEXT_API_KEY is required")
     if args.timeout_seconds <= 0:
         raise ValueError("timeout must be positive")
     for command in (args.ip_command, args.ss_command):

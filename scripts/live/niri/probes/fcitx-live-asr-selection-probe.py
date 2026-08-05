@@ -19,9 +19,9 @@ FcitxG = importlib.import_module("gi.repository.FcitxG")
 Gdk = importlib.import_module("gi.repository.Gdk")
 GLib = importlib.import_module("gi.repository.GLib")
 
-DBUS_DEST = "org.fcitx.Vinput"
-DBUS_PATH = "/org/fcitx/Vinput"
-DBUS_INTERFACE = "org.fcitx.Vinput.Service"
+DBUS_DEST = "org.fcitx.Vinpst"
+DBUS_PATH = "/org/fcitx/Vinpst"
+DBUS_INTERFACE = "org.fcitx.Vinpst.Service"
 
 
 def emit(event: str, **fields: object) -> None:
@@ -139,7 +139,7 @@ class AsrSelectionProbe:
         self.target = expected_rows[0]
         self.loop = GLib.MainLoop()
         self.client = FcitxG.Client.new()
-        self.client.set_program("fcitx-vinput-asr-selection-live-probe")
+        self.client.set_program("fcitx-vinpst-asr-selection-live-probe")
         self.client.set_display(
             os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
         )

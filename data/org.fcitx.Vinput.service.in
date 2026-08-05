@@ -1,4 +1,0 @@
-[D-BUS Service]
-Name=org.fcitx.Vinput
-Exec=@VINPUT_DAEMON_EXECUTABLE@@VINPUT_DAEMON_ARGS_SUFFIX@ --exit-when-executable-replaced
-@VINPUT_DBUS_SYSTEMD_SERVICE_LINE@

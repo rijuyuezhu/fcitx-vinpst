@@ -14,20 +14,20 @@ done
 cd "${repo_root}"
 
 probe="${repo_root}/scripts/live/niri/probes/fcitx-live-client-probe.py"
-out_dir="${VINPUT_LIVE_PHYSICAL_MIC_OUT_DIR:-${repo_root}/target/tmp/ime-fcitx-physical-microphone-live}"
-profile_path="${VINPUT_LIVE_FCITX_ADDON_CONFIG:-${HOME}/.local/share/fcitx-vinput/sherpa-native-command-live.json}"
-service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service"
-addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
-cli_binary="${repo_root}/target/debug/vinput"
-recording_ms="${VINPUT_LIVE_PHYSICAL_MIC_RECORDING_MS:-20000}"
-start_delay_ms="${VINPUT_LIVE_PHYSICAL_MIC_START_DELAY_MS:-8000}"
-result_timeout_ms="${VINPUT_LIVE_PHYSICAL_MIC_RESULT_TIMEOUT_MS:-20000}"
+out_dir="${VINPST_LIVE_PHYSICAL_MIC_OUT_DIR:-${repo_root}/target/tmp/ime-fcitx-physical-microphone-live}"
+profile_path="${VINPST_LIVE_FCITX_ADDON_CONFIG:-${HOME}/.local/share/fcitx-vinpst/sherpa-native-command-live.json}"
+service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service"
+addon_config="${HOME}/.config/fcitx5/conf/vinpst.conf"
+cli_binary="${repo_root}/target/debug/vinpst"
+recording_ms="${VINPST_LIVE_PHYSICAL_MIC_RECORDING_MS:-20000}"
+start_delay_ms="${VINPST_LIVE_PHYSICAL_MIC_START_DELAY_MS:-8000}"
+result_timeout_ms="${VINPST_LIVE_PHYSICAL_MIC_RESULT_TIMEOUT_MS:-20000}"
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 restore_idle() {
@@ -65,15 +65,15 @@ if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
   exit 2
 fi
 if ! [[ "${recording_ms}" =~ ^[0-9]+$ ]] || ((recording_ms < 5000)); then
-  echo "VINPUT_LIVE_PHYSICAL_MIC_RECORDING_MS must be an integer >= 5000" >&2
+  echo "VINPST_LIVE_PHYSICAL_MIC_RECORDING_MS must be an integer >= 5000" >&2
   exit 2
 fi
 if ! [[ "${start_delay_ms}" =~ ^[0-9]+$ ]] || ((start_delay_ms < 1000)); then
-  echo "VINPUT_LIVE_PHYSICAL_MIC_START_DELAY_MS must be an integer >= 1000" >&2
+  echo "VINPST_LIVE_PHYSICAL_MIC_START_DELAY_MS must be an integer >= 1000" >&2
   exit 2
 fi
 if ! [[ "${result_timeout_ms}" =~ ^[0-9]+$ ]] || ((result_timeout_ms < 1000)); then
-  echo "VINPUT_LIVE_PHYSICAL_MIC_RESULT_TIMEOUT_MS must be an integer >= 1000" >&2
+  echo "VINPST_LIVE_PHYSICAL_MIC_RESULT_TIMEOUT_MS must be an integer >= 1000" >&2
   exit 2
 fi
 if ! fcitx5-remote --check >/dev/null 2>&1; then
@@ -107,7 +107,7 @@ fi
 if [[ "${source_name}" != alsa_input.* ]] ||
   [[ "${source_name,,}" == *monitor* ]] ||
   [[ "${source_name,,}" == *virtual* ]] ||
-  [[ "${source_name,,}" == *vinput* ]]; then
+  [[ "${source_name,,}" == *vinpst* ]]; then
   echo "default source does not look like a physical microphone: ${source_name}" >&2
   exit 2
 fi

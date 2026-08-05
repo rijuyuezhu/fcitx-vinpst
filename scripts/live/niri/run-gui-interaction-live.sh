@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-gui_bin="${VINPUT_GUI_LIVE_BIN:-target/debug/vinput-gui}"
-out_dir="${VINPUT_GUI_LIVE_OUT_DIR:-target/tmp/gui-interaction-live}"
-key_sender="${VINPUT_GUI_LIVE_KEY_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
-text_sender="${VINPUT_GUI_LIVE_TEXT_SENDER:-scripts/live/niri/probes/send-uinput-text.py}"
-rime_im="${VINPUT_GUI_LIVE_RIME_IM:-rime}"
-rime_input="${VINPUT_GUI_LIVE_RIME_INPUT:-ceshi}"
-notification_url="${VINPUT_GUI_LIVE_NOTIFICATION_URL:-http://127.0.0.1:9/notification.json}"
+gui_bin="${VINPST_GUI_LIVE_BIN:-target/debug/vinpst-gui}"
+out_dir="${VINPST_GUI_LIVE_OUT_DIR:-target/tmp/gui-interaction-live}"
+key_sender="${VINPST_GUI_LIVE_KEY_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
+text_sender="${VINPST_GUI_LIVE_TEXT_SENDER:-scripts/live/niri/probes/send-uinput-text.py}"
+rime_im="${VINPST_GUI_LIVE_RIME_IM:-rime}"
+rime_input="${VINPST_GUI_LIVE_RIME_INPUT:-ceshi}"
+notification_url="${VINPST_GUI_LIVE_NOTIFICATION_URL:-http://127.0.0.1:9/notification.json}"
 first_marker="gui-focus-clipboard-7x9"
 second_marker="gui-second-field-marker"
 clipboard_before=""
@@ -225,7 +225,7 @@ start_gui() {
     XDG_CONFIG_HOME="${root}/config" \
     XDG_CACHE_HOME="${root}/cache" \
     XDG_DATA_HOME="${root}/data" \
-    VINPUT_NOTIFICATION_URL="${notification_url}" \
+    VINPST_NOTIFICATION_URL="${notification_url}" \
     "${gui_bin}" >"${out_dir}/${name}.stdout.log" 2>"${out_dir}/${name}.stderr.log" &
   gui_pid=$!
   gui_window_id=""
@@ -252,7 +252,7 @@ start_gui() {
   fi
 }
 
-start_gui en_US.UTF-8 en 'Vinput Configuration — Control'
+start_gui en_US.UTF-8 en 'Vinpst Configuration — Control'
 en_titles=("$(window_title)")
 
 # Prove that enabled non-text navigation buttons join Tab order and activate with Enter/Space.
@@ -261,17 +261,17 @@ send_key TAB
 send_key TAB
 send_key ENTER
 sleep 0.3
-expect_title 'Vinput Configuration — Resources'
+expect_title 'Vinpst Configuration — Resources'
 send_key SHIFT+TAB
 send_key SPACE
 sleep 0.3
-expect_title 'Vinput Configuration — Control'
+expect_title 'Vinpst Configuration — Control'
 
-send_page_shortcut CTRL+2 'Vinput Configuration — Resources'
+send_page_shortcut CTRL+2 'Vinpst Configuration — Resources'
 en_titles+=("$(window_title)")
-send_page_shortcut CTRL+4 'Vinput Configuration — Hotwords'
+send_page_shortcut CTRL+4 'Vinpst Configuration — Hotwords'
 en_titles+=("$(window_title)")
-send_page_shortcut CTRL+1 'Vinput Configuration — Control'
+send_page_shortcut CTRL+1 'Vinpst Configuration — Control'
 en_titles+=("$(window_title)")
 
 send_key ESCAPE
@@ -305,13 +305,13 @@ PY
 )"
 stop_gui
 
-start_gui zh_CN.UTF-8 zh 'Vinput 配置 — 控制'
+start_gui zh_CN.UTF-8 zh 'Vinpst 配置 — 控制'
 zh_titles=("$(window_title)")
-send_page_shortcut CTRL+2 'Vinput 配置 — 资源'
+send_page_shortcut CTRL+2 'Vinpst 配置 — 资源'
 zh_titles+=("$(window_title)")
-send_page_shortcut CTRL+4 'Vinput 配置 — 热词'
+send_page_shortcut CTRL+4 'Vinpst 配置 — 热词'
 zh_titles+=("$(window_title)")
-send_page_shortcut CTRL+1 'Vinput 配置 — 控制'
+send_page_shortcut CTRL+1 'Vinpst 配置 — 控制'
 zh_titles+=("$(window_title)")
 stop_gui
 

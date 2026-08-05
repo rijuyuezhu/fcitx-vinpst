@@ -13,32 +13,32 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-out_dir="${VINPUT_LIVE_CONFIG_SURFACE_OUT_DIR:-target/tmp/ime-fcitx-config-surface-localization-live}"
-addon_build_dir="${VINPUT_LIVE_CONFIG_SURFACE_ADDON_BUILD_DIR:-target/cpp/fcitx5-config-surface-localization-live}"
-configtool_source_dir="${VINPUT_LIVE_CONFIGTOOL_SOURCE_DIR:-target/tmp/fcitx5-configtool-5.1.14}"
-configtool_build_dir="${VINPUT_LIVE_CONFIGTOOL_BUILD_DIR:-target/tmp/fcitx5-configtool-config-surface-build}"
-ecm_root="${VINPUT_LIVE_CONFIGTOOL_ECM_ROOT:-target/tmp/fcitx-config-surface-ecm}"
+out_dir="${VINPST_LIVE_CONFIG_SURFACE_OUT_DIR:-target/tmp/ime-fcitx-config-surface-localization-live}"
+addon_build_dir="${VINPST_LIVE_CONFIG_SURFACE_ADDON_BUILD_DIR:-target/cpp/fcitx5-config-surface-localization-live}"
+configtool_source_dir="${VINPST_LIVE_CONFIGTOOL_SOURCE_DIR:-target/tmp/fcitx5-configtool-5.1.14}"
+configtool_build_dir="${VINPST_LIVE_CONFIGTOOL_BUILD_DIR:-target/tmp/fcitx5-configtool-config-surface-build}"
+ecm_root="${VINPST_LIVE_CONFIGTOOL_ECM_ROOT:-target/tmp/fcitx-config-surface-ecm}"
 configtool_tag="5.1.14"
 configtool_commit="691c73e08844127ce74a4348776ee9596d7e7ec3"
 configtool_url="https://github.com/fcitx/fcitx5-configtool.git"
-config_uri="fcitx://config/addon/vinput"
+config_uri="fcitx://config/addon/vinpst"
 probe_source="${repo_root}/scripts/live/niri/probes/fcitx-config-surface-probe.cpp"
 
-module_path="${HOME}/.local/lib/fcitx5/fcitx5-vinput.so"
-catalog_path="${HOME}/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
-fcitx_wrapper="${HOME}/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh"
-profile_path="${HOME}/.local/share/fcitx-vinput/sherpa-native-command-live.json"
-service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service"
-addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
-addon_metadata="${HOME}/.local/share/fcitx5/addon/vinput.conf"
-fcitx_env="${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env"
-cli_binary="${repo_root}/target/debug/vinput"
-daemon_path="${HOME}/.local/bin/vinput-daemon"
-fcitx_settle_seconds="${VINPUT_LIVE_FCITX_SETTLE_SECONDS:-1}"
+module_path="${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so"
+catalog_path="${HOME}/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
+fcitx_wrapper="${HOME}/.local/share/fcitx-vinpst/fcitx5-with-vinpst-env.sh"
+profile_path="${HOME}/.local/share/fcitx-vinpst/sherpa-native-command-live.json"
+service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service"
+addon_config="${HOME}/.config/fcitx5/conf/vinpst.conf"
+addon_metadata="${HOME}/.local/share/fcitx5/addon/vinpst.conf"
+fcitx_env="${HOME}/.local/share/fcitx-vinpst/fcitx-vinpst.env"
+cli_binary="${repo_root}/target/debug/vinpst"
+daemon_path="${HOME}/.local/bin/vinpst-daemon"
+fcitx_settle_seconds="${VINPST_LIVE_FCITX_SETTLE_SECONDS:-1}"
 
-candidate_module="${addon_build_dir}/fcitx5-vinput.so"
-candidate_catalog="${addon_build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
-probe_binary="${configtool_build_dir}/bin/vinput-config-surface-probe"
+candidate_module="${addon_build_dir}/fcitx5-vinpst.so"
+candidate_catalog="${addon_build_dir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
+probe_binary="${configtool_build_dir}/bin/vinpst-config-surface-probe"
 
 locale_may_have_changed=0
 candidate_installed=0
@@ -97,16 +97,16 @@ prepare_configtool_source() {
   git -C "${configtool_source_dir}" reset --hard "${configtool_commit}" >/dev/null
   git -C "${configtool_source_dir}" clean -fdx >/dev/null
   install -m 0644 "${probe_source}" \
-    "${configtool_source_dir}/vinput-config-surface-probe.cpp"
+    "${configtool_source_dir}/vinpst-config-surface-probe.cpp"
   cat >>"${configtool_source_dir}/CMakeLists.txt" <<'EOF'
 
-add_executable(vinput-config-surface-probe vinput-config-surface-probe.cpp)
-set_target_properties(vinput-config-surface-probe PROPERTIES AUTOMOC TRUE)
-target_link_libraries(vinput-config-surface-probe PRIVATE
+add_executable(vinpst-config-surface-probe vinpst-config-surface-probe.cpp)
+set_target_properties(vinpst-config-surface-probe PROPERTIES AUTOMOC TRUE)
+target_link_libraries(vinpst-config-surface-probe PRIVATE
     Qt${QT_MAJOR_VERSION}::Widgets
     configwidgetslib
     configlib)
-target_compile_options(vinput-config-surface-probe PRIVATE -Wall -Wextra -Werror)
+target_compile_options(vinpst-config-surface-probe PRIVATE -Wall -Wextra -Werror)
 EOF
 }
 
@@ -147,7 +147,7 @@ build_probe() {
     -DENABLE_CONFIG_QT=ON \
     -DENABLE_TEST=OFF
   cmake --build "${configtool_build_dir}" \
-    --target vinput-config-surface-probe --parallel
+    --target vinpst-config-surface-probe --parallel
   test -x "${probe_binary}"
 }
 
@@ -155,13 +155,13 @@ build_candidate() {
   rm -rf "${addon_build_dir}"
   cmake -S cpp/fcitx5-addon -B "${addon_build_dir}" \
     -DCMAKE_BUILD_TYPE=Debug \
-    -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-    -DVINPUT_DAEMON_EXECUTABLE="${daemon_path}" \
-    -DVINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR= \
-    -DVINPUT_FCITX_RUNTIME_INSTALL_LOCALEDIR="${HOME}/.local/share/locale"
+    -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+    -DVINPST_DAEMON_EXECUTABLE="${daemon_path}" \
+    -DVINPST_FCITX_RUNTIME_BUILD_LOCALEDIR= \
+    -DVINPST_FCITX_RUNTIME_INSTALL_LOCALEDIR="${HOME}/.local/share/locale"
   cmake --build "${addon_build_dir}" --parallel
   ctest --test-dir "${addon_build_dir}" \
-    -R 'vinput_fcitx_bridge_(config|i18n)_smoke' --output-on-failure
+    -R 'vinpst_fcitx_bridge_(config|i18n)_smoke' --output-on-failure
   msgfmt --check -o /dev/null cpp/fcitx5-addon/po/zh_CN.po
   test -f "${candidate_module}"
   test -f "${candidate_catalog}"
@@ -442,7 +442,7 @@ if zh_combos and zh_combos[0].get("text") != "两者":
 result = {
     "event": "form-summary",
     "official_configwidget": True,
-    "config_uri": "fcitx://config/addon/vinput",
+    "config_uri": "fcitx://config/addon/vinpst",
     "english": {
         "labels": labels(english),
         "trigger_mode": english_combos[0] if english_combos else None,

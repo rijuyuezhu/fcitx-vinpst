@@ -1,9 +1,9 @@
-pkgname=fcitx-vinput-rs
-pkgver=@VINPUT_PKGVER@
-pkgrel=@VINPUT_PKGREL@
-pkgdesc='Rust rewrite of fcitx5-vinput with native ASR and PipeWire capture'
-arch=('@VINPUT_PACKAGE_ARCH@')
-url='https://github.com/rijuyuezhu/fcitx-vinput-rs'
+pkgname=fcitx-vinpst
+pkgver=@VINPST_PKGVER@
+pkgrel=@VINPST_PKGREL@
+pkgdesc='Rust voice-input addon for Fcitx 5 with native ASR and PipeWire capture'
+arch=('@VINPST_PACKAGE_ARCH@')
+url='https://github.com/rijuyuezhu/fcitx-vinpst'
 license=('GPL-3.0-or-later' 'Apache-2.0' 'MIT')
 depends=(
   'coreutils'
@@ -31,33 +31,31 @@ makedepends=(
   'pkgconf'
 )
 optdepends=('wireplumber: output-volume ducking through wpctl')
-provides=("fcitx5-vinput=${pkgver}")
-conflicts=('fcitx5-vinput')
 options=('!debug' '!lto')
-install=fcitx-vinput-rs.install
+install=fcitx-vinpst.install
 
-_source_dir='@VINPUT_SOURCE_DIR@'
-_sherpa_onnx_ver='@VINPUT_SHERPA_ONNX_VERSION@'
-_sherpa_onnx_archive='@VINPUT_SHERPA_ONNX_ARCHIVE@'
-_sherpa_onnx_archive_root='@VINPUT_SHERPA_ONNX_ARCHIVE_ROOT@'
-_onnxruntime_ver='@VINPUT_ONNXRUNTIME_VERSION@'
+_source_dir='@VINPST_SOURCE_DIR@'
+_sherpa_onnx_ver='@VINPST_SHERPA_ONNX_VERSION@'
+_sherpa_onnx_archive='@VINPST_SHERPA_ONNX_ARCHIVE@'
+_sherpa_onnx_archive_root='@VINPST_SHERPA_ONNX_ARCHIVE_ROOT@'
+_onnxruntime_ver='@VINPST_ONNXRUNTIME_VERSION@'
 source=(
-  "${pkgname}-${pkgver}.tar.gz::@VINPUT_SOURCE_URL@"
+  "${pkgname}-${pkgver}.tar.gz::@VINPST_SOURCE_URL@"
   "${_sherpa_onnx_archive}::https://github.com/k2-fsa/sherpa-onnx/releases/download/v${_sherpa_onnx_ver}/${_sherpa_onnx_archive}"
   "sherpa-onnx-LICENSE-${_sherpa_onnx_ver}::https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${_sherpa_onnx_ver}/LICENSE"
   "onnxruntime-LICENSE-${_onnxruntime_ver}::https://raw.githubusercontent.com/microsoft/onnxruntime/v${_onnxruntime_ver}/LICENSE"
 )
 sha256sums=(
-  '@VINPUT_SOURCE_SHA256@'
-  '@VINPUT_SHERPA_ONNX_SHA256@'
-  '@VINPUT_SHERPA_ONNX_LICENSE_SHA256@'
-  '@VINPUT_ONNXRUNTIME_LICENSE_SHA256@'
+  '@VINPST_SOURCE_SHA256@'
+  '@VINPST_SHERPA_ONNX_SHA256@'
+  '@VINPST_SHERPA_ONNX_LICENSE_SHA256@'
+  '@VINPST_ONNXRUNTIME_LICENSE_SHA256@'
 )
 
 prepare() {
   cd "${_source_dir}"
   export CARGO_HOME="${srcdir}/cargo-home"
-  cargo fetch --locked --target @VINPUT_RUST_TARGET@
+  cargo fetch --locked --target @VINPST_RUST_TARGET@
 }
 
 build() {
@@ -71,64 +69,64 @@ build() {
   export CXXFLAGS="${CXXFLAGS} -ffile-prefix-map=${srcdir}=. -fdebug-prefix-map=${srcdir}=."
 
   cargo build --frozen --release \
-    -p vinput-cli --features pipewire-backend,sherpa-onnx-backend \
-    -p vinput-daemon --features pipewire-backend,sherpa-onnx-backend \
-    -p vinput-gui
+    -p vinpst-cli --features pipewire-backend,sherpa-onnx-backend \
+    -p vinpst-daemon --features pipewire-backend,sherpa-onnx-backend \
+    -p vinpst-gui
 
   cmake -S cpp/fcitx5-addon -B "${srcdir}/cmake-build" -G Ninja \
     -DBUILD_TESTING=OFF \
     -DCMAKE_BUILD_TYPE=None \
     -DCMAKE_INSTALL_PREFIX=/usr \
-    -DVINPUT_FCITX_RUST_BUILD_PROFILE=release \
-    -DVINPUT_FCITX_RUST_TARGET_DIR="${srcdir}/cargo-target" \
-    -DVINPUT_DAEMON_EXECUTABLE=/usr/bin/vinput-daemon \
-    -DVINPUT_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' \
-    -DVINPUT_FCITX_BRIDGE_ENABLE_TESTS=OFF \
-    -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-    -DVINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR=''
+    -DVINPST_FCITX_RUST_BUILD_PROFILE=release \
+    -DVINPST_FCITX_RUST_TARGET_DIR="${srcdir}/cargo-target" \
+    -DVINPST_DAEMON_EXECUTABLE=/usr/bin/vinpst-daemon \
+    -DVINPST_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' \
+    -DVINPST_FCITX_BRIDGE_ENABLE_TESTS=OFF \
+    -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+    -DVINPST_FCITX_RUNTIME_BUILD_LOCALEDIR=''
   cmake --build "${srcdir}/cmake-build"
 }
 
 package() {
   cd "${_source_dir}"
 
-  install -Dm755 "${srcdir}/cargo-target/release/vinput" "${pkgdir}/usr/bin/vinput"
-  install -Dm755 "${srcdir}/cargo-target/release/vinput-daemon" \
-    "${pkgdir}/usr/bin/vinput-daemon"
-  install -Dm755 "${srcdir}/cargo-target/release/vinput-gui" \
-    "${pkgdir}/usr/bin/vinput-gui"
+  install -Dm755 "${srcdir}/cargo-target/release/vinpst" "${pkgdir}/usr/bin/vinpst"
+  install -Dm755 "${srcdir}/cargo-target/release/vinpst-daemon" \
+    "${pkgdir}/usr/bin/vinpst-daemon"
+  install -Dm755 "${srcdir}/cargo-target/release/vinpst-gui" \
+    "${pkgdir}/usr/bin/vinpst-gui"
   install -Dm644 scripts/release/package-session-common.sh \
-    "${pkgdir}/usr/lib/fcitx-vinput/package-session-common.sh"
+    "${pkgdir}/usr/lib/fcitx-vinpst/package-session-common.sh"
   install -Dm755 scripts/release/package-upgrade-handoff.sh \
-    "${pkgdir}/usr/lib/fcitx-vinput/package-upgrade-handoff"
+    "${pkgdir}/usr/lib/fcitx-vinpst/package-upgrade-handoff"
   install -Dm755 scripts/release/package-remove-handoff.sh \
-    "${pkgdir}/usr/lib/fcitx-vinput/package-remove-handoff"
+    "${pkgdir}/usr/lib/fcitx-vinpst/package-remove-handoff"
 
   install -Dm755 \
     "${srcdir}/${_sherpa_onnx_archive_root}/lib/libsherpa-onnx-c-api.so" \
-    "${pkgdir}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so"
+    "${pkgdir}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so"
   install -Dm755 \
     "${srcdir}/${_sherpa_onnx_archive_root}/lib/libonnxruntime.so" \
-    "${pkgdir}/usr/lib/fcitx-vinput/libonnxruntime.so"
-  patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinput' "${pkgdir}/usr/bin/vinput"
-  patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinput' "${pkgdir}/usr/bin/vinput-daemon"
+    "${pkgdir}/usr/lib/fcitx-vinpst/libonnxruntime.so"
+  patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinpst' "${pkgdir}/usr/bin/vinpst"
+  patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinpst' "${pkgdir}/usr/bin/vinpst-daemon"
   patchelf --set-rpath '$ORIGIN' \
-    "${pkgdir}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so"
+    "${pkgdir}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so"
 
   DESTDIR="${pkgdir}" cmake --install "${srcdir}/cmake-build"
 
-  install -Dm644 data/vinput-gui.desktop \
-    "${pkgdir}/usr/share/applications/vinput-gui.desktop"
+  install -Dm644 data/vinpst-gui.desktop \
+    "${pkgdir}/usr/share/applications/vinpst-gui.desktop"
   local size
   for size in 16 22 24 32 48 64 128 256 512; do
-    install -Dm644 "data/icons/hicolor/${size}x${size}/apps/vinput-gui.png" \
-      "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/vinput-gui.png"
+    install -Dm644 "data/icons/hicolor/${size}x${size}/apps/vinpst-gui.png" \
+      "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/vinpst-gui.png"
   done
 
   install -Dm644 data/default-config.json \
-    "${pkgdir}/usr/share/fcitx-vinput/default-config.json"
+    "${pkgdir}/usr/share/fcitx-vinpst/default-config.json"
   install -Dm644 data/vad/silero_vad.onnx \
-    "${pkgdir}/usr/share/fcitx-vinput/vad/silero_vad.onnx"
+    "${pkgdir}/usr/share/fcitx-vinpst/vad/silero_vad.onnx"
   install -Dm644 LICENSE \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 data/vad/LICENSE \

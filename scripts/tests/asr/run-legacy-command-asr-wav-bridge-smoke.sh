@@ -19,7 +19,7 @@ rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
 
 python3 - <<'PY' | "${bridge}" --sample-rate 8000 --channels 1 --timeout-ms 5000 -- \
-  python3 -c 'import os,wave; p=os.environ["VINPUT_ASR_WAV"]; w=wave.open(p,"rb"); print("wav %d %d %d %s" % (w.getframerate(), w.getnchannels(), w.getnframes(), os.environ["VINPUT_ASR_FRAMES"]))' \
+  python3 -c 'import os,wave; p=os.environ["VINPST_ASR_WAV"]; w=wave.open(p,"rb"); print("wav %d %d %d %s" % (w.getframerate(), w.getnchannels(), w.getnframes(), os.environ["VINPST_ASR_FRAMES"]))' \
   >"${out_dir}/success.txt"
 import struct
 import sys

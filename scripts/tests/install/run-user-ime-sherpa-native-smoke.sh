@@ -13,5 +13,5 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-VINPUT_TEST_SHERPA_PROFILE=sherpa-native-live \
+VINPST_TEST_SHERPA_PROFILE=sherpa-native-live \
   scripts/tests/install/run-user-ime-sherpa-sense-voice-smoke.sh

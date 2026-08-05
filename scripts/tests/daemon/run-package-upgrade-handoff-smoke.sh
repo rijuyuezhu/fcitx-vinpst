@@ -17,7 +17,7 @@ for command in dbus-run-session gdbus jq timeout; do
   command -v "${command}" >/dev/null
 done
 
-cargo build -q -p vinput-cli --bin vinput -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-cli --bin vinpst -p vinpst-daemon --bin vinpst-daemon
 
 root="${repo_root}/target/tmp/package-upgrade-handoff-smoke"
 rm -rf "${root}"
@@ -25,11 +25,11 @@ mkdir -p "${root}/data-home" "${root}/data-dirs"
 
 XDG_DATA_HOME="${root}/data-home" \
 XDG_DATA_DIRS="${root}/data-dirs" \
-VINPUT_UPGRADE_ROOT="${root}" \
+VINPST_UPGRADE_ROOT="${root}" \
   timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
-root="${VINPUT_UPGRADE_ROOT}"
+root="${VINPST_UPGRADE_ROOT}"
 uid="$(id -u)"
-runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinput-upgrade-runtime.XXXXXX")"
+runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinpst-upgrade-runtime.XXXXXX")"
 runtime_dir="${runtime_root}/${uid}"
 test_home="${root}/home"
 daemon_pid=""
@@ -60,23 +60,23 @@ cat >"${root}/getent" <<SH
 set -euo pipefail
 test "\$1" = passwd
 test "\$2" = "${uid}"
-printf '%s\n' 'vinput-test:x:${uid}:${uid}:Vinput Test:${test_home}:/bin/bash'
+printf '%s\n' 'vinpst-test:x:${uid}:${uid}:Vinpst Test:${test_home}:/bin/bash'
 SH
 cat >"${root}/must-not-run" <<'SH'
 #!/usr/bin/env bash
-echo "vinput was called without a live owner" >&2
+echo "vinpst was called without a live owner" >&2
 exit 91
 SH
-cat >"${root}/vinput-success" <<SH
+cat >"${root}/vinpst-success" <<SH
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "\$*" >"${root}/vinput.args"
-printf '%s\n' "\${HOME}" >"${root}/vinput.home"
-printf '%s\n' "\${XDG_RUNTIME_DIR}" >"${root}/vinput.runtime"
-printf '%s\n' "\${DBUS_SESSION_BUS_ADDRESS}" >"${root}/vinput.bus"
+printf '%s\n' "\$*" >"${root}/vinpst.args"
+printf '%s\n' "\${HOME}" >"${root}/vinpst.home"
+printf '%s\n' "\${XDG_RUNTIME_DIR}" >"${root}/vinpst.runtime"
+printf '%s\n' "\${DBUS_SESSION_BUS_ADDRESS}" >"${root}/vinpst.bus"
 printf '%s\n' '{"ok":true,"action":"handoff"}'
 SH
-cat >"${root}/vinput-failure" <<'SH'
+cat >"${root}/vinpst-failure" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' '{"ok":false,"error":"fixture handoff failure"}'
 exit 42
@@ -85,32 +85,32 @@ chmod +x \
   "${root}/runuser" \
   "${root}/getent" \
   "${root}/must-not-run" \
-  "${root}/vinput-success" \
-  "${root}/vinput-failure"
+  "${root}/vinpst-success" \
+  "${root}/vinpst-failure"
 
 common_env=(
-  VINPUT_UPGRADE_RUNTIME_ROOT="${runtime_root}"
-  VINPUT_UPGRADE_RUNUSER="${root}/runuser"
-  VINPUT_UPGRADE_GETENT="${root}/getent"
-  VINPUT_UPGRADE_SYSTEMCTL=/usr/bin/true
-  VINPUT_UPGRADE_KILL=/usr/bin/true
+  VINPST_UPGRADE_RUNTIME_ROOT="${runtime_root}"
+  VINPST_UPGRADE_RUNUSER="${root}/runuser"
+  VINPST_UPGRADE_GETENT="${root}/getent"
+  VINPST_UPGRADE_SYSTEMCTL=/usr/bin/true
+  VINPST_UPGRADE_KILL=/usr/bin/true
 )
 
 env "${common_env[@]}" \
-  VINPUT_UPGRADE_VINPUT="${root}/must-not-run" \
+  VINPST_UPGRADE_VINPST="${root}/must-not-run" \
   scripts/release/package-upgrade-handoff.sh >"${root}/no-owner.log"
 grep -Fq 'checked 1 live user session(s), 0 active owner(s)' \
   "${root}/no-owner.log"
-test ! -e "${root}/vinput.args"
+test ! -e "${root}/vinpst.args"
 
 XDG_CONFIG_HOME="${root}/config" \
-  target/debug/vinput-daemon --dbus >"${root}/daemon.log" 2>&1 &
+  target/debug/vinpst-daemon --dbus >"${root}/daemon.log" 2>&1 &
 daemon_pid=$!
 for _ in $(seq 1 100); do
   if gdbus call --session \
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
-    --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinput |
+    --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinpst |
     grep -Fq true; then
     break
   fi
@@ -119,28 +119,28 @@ done
 gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
-  --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinput |
+  --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinpst |
   grep -Fq true
 
 env "${common_env[@]}" \
-  VINPUT_UPGRADE_VINPUT="${root}/vinput-success" \
+  VINPST_UPGRADE_VINPST="${root}/vinpst-success" \
   scripts/release/package-upgrade-handoff.sh >"${root}/owner.log"
 grep -Fq 'checked 1 live user session(s), 1 active owner(s)' "${root}/owner.log"
-test "$(cat "${root}/vinput.args")" = 'daemon handoff --json'
-test "$(cat "${root}/vinput.home")" = "${test_home}"
-test "$(cat "${root}/vinput.runtime")" = "${runtime_dir}"
-test "$(cat "${root}/vinput.bus")" = "unix:path=${runtime_dir}/bus"
+test "$(cat "${root}/vinpst.args")" = 'daemon handoff --json'
+test "$(cat "${root}/vinpst.home")" = "${test_home}"
+test "$(cat "${root}/vinpst.runtime")" = "${runtime_dir}"
+test "$(cat "${root}/vinpst.bus")" = "unix:path=${runtime_dir}/bus"
 kill -0 "${daemon_pid}"
 
 if env "${common_env[@]}" \
-  VINPUT_UPGRADE_VINPUT="${root}/vinput-failure" \
+  VINPST_UPGRADE_VINPST="${root}/vinpst-failure" \
   scripts/release/package-upgrade-handoff.sh \
   >"${root}/failure.log" 2>"${root}/failure.err"; then
   echo "failing user handoff unexpectedly succeeded" >&2
   exit 1
 fi
-grep -Fq 'failed to hand off vinput daemon upgrade' "${root}/failure.err"
-grep -Fq 'vinput upgrade handoff failed for 1 session(s)' "${root}/failure.err"
+grep -Fq 'failed to hand off vinpst daemon upgrade' "${root}/failure.err"
+grep -Fq 'vinpst upgrade handoff failed for 1 session(s)' "${root}/failure.err"
 kill -0 "${daemon_pid}"
 INNER
 

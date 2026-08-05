@@ -1,13 +1,13 @@
 # shellcheck shell=bash
 
-vinput_network_require_command() {
+vinpst_network_require_command() {
   command -v "$1" >/dev/null 2>&1 || {
     printf 'required command not found: %s\n' "$1" >&2
     return 1
   }
 }
 
-vinput_network_find_chromium() {
+vinpst_network_find_chromium() {
   local override="${1:-}"
   local candidate
 
@@ -34,7 +34,7 @@ vinput_network_find_chromium() {
   return 1
 }
 
-vinput_network_select_lan_ipv4() {
+vinpst_network_select_lan_ipv4() {
   local override="${1:-}"
   local address="${override}"
 
@@ -63,7 +63,7 @@ vinput_network_select_lan_ipv4() {
   printf '%s\n' "${address}"
 }
 
-vinput_network_reserve_ports() {
+vinpst_network_reserve_ports() {
   local count="$1"
 
   python3 - "${count}" <<'PY'
@@ -82,14 +82,14 @@ print(*ports)
 PY
 }
 
-vinput_network_random_token() {
+vinpst_network_random_token() {
   python3 - <<'PY'
 import secrets
 print(secrets.token_urlsafe(32))
 PY
 }
 
-vinput_remote_text_write_config() {
+vinpst_remote_text_write_config() {
   local config_path="$1"
   local port="$2"
   local api_key="$3"
@@ -102,16 +102,16 @@ vinput_remote_text_write_config() {
     '{
       version: 1,
       asr: {
-        active_provider: "provider.vinput.remote.streaming",
+        active_provider: "provider.vinpst.remote.streaming",
         providers: [{
-          id: "provider.vinput.remote.streaming",
+          id: "provider.vinpst.remote.streaming",
           type: "command",
           command: "python3",
           args: ["unused-remote-text-provider.py"],
           env: {
-            VINPUT_ASR_API_KEY: $key,
-            VINPUT_ASR_PORT: $port,
-            VINPUT_ASR_DEBOUNCE_MS: $debounce_ms
+            VINPST_ASR_API_KEY: $key,
+            VINPST_ASR_PORT: $port,
+            VINPST_ASR_DEBOUNCE_MS: $debounce_ms
           }
         }]
       },
@@ -122,7 +122,7 @@ vinput_remote_text_write_config() {
     }' >"${config_path}"
 }
 
-vinput_remote_text_wait_health() {
+vinpst_remote_text_wait_health() {
   local server_pid="$1"
   local health_url="$2"
   local server_log="$3"
@@ -145,7 +145,7 @@ vinput_remote_text_wait_health() {
   return 1
 }
 
-vinput_network_require_listener_released() {
+vinpst_network_require_listener_released() {
   local port="$1"
 
   if ss -Hln "( sport = :${port} )" | grep -q .; then

@@ -3,7 +3,7 @@
 
 The legacy command provider writes signed 16-bit little-endian PCM bytes to
 stdin and treats trimmed stdout as the final recognized text. This bridge wraps
-those bytes in a temporary WAV file, exposes its path through VINPUT_ASR_WAV,
+those bytes in a temporary WAV file, exposes its path through VINPST_ASR_WAV,
 and forwards one downstream command's non-empty stdout.
 """
 
@@ -69,10 +69,10 @@ def command_env(
     env = os.environ.copy()
     env.update(
         {
-            "VINPUT_ASR_WAV": str(wav_path),
-            "VINPUT_ASR_SAMPLE_RATE_HZ": str(sample_rate),
-            "VINPUT_ASR_CHANNELS": str(channels),
-            "VINPUT_ASR_FRAMES": str(frames),
+            "VINPST_ASR_WAV": str(wav_path),
+            "VINPST_ASR_SAMPLE_RATE_HZ": str(sample_rate),
+            "VINPST_ASR_CHANNELS": str(channels),
+            "VINPST_ASR_FRAMES": str(frames),
         }
     )
     return env
@@ -84,7 +84,7 @@ def main() -> int:
         pcm = read_pcm()
         timeout_s = None if args.timeout_ms is None else args.timeout_ms / 1000.0
         with tempfile.TemporaryDirectory(
-            prefix="vinput-legacy-command-asr-"
+            prefix="vinpst-legacy-command-asr-"
         ) as temp_dir:
             wav_path = Path(temp_dir) / "request.wav"
             frames = write_wav(wav_path, args.sample_rate, args.channels, pcm)

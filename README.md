@@ -1,6 +1,6 @@
-# fcitx-vinput-rs
+# fcitx-vinpst
 
-Rust-oriented rewrite of [`fcitx5-vinput`](https://github.com/xifan2333/fcitx5-vinput).
+Rust voice-input stack for Fcitx 5.
 
 The project currently provides a usable Rust CLI/daemon alpha, a retained thin C++ Fcitx5 addon, and a packaged Rust/Iced management GUI baseline. Native dictation, command replacement, menus, localization, provider switching, recovery paths, and several real desktop applications have live evidence; package and release behavior has broad deterministic coverage. It is not yet a full legacy replacement.
 
@@ -18,17 +18,17 @@ The current development priority is the Rust management GUI: broaden resource-sp
 
 ## Workspace
 
-- `vinput-protocol`: public D-Bus and recognition payload contracts.
-- `vinput-config`: typed configuration, validation, normalization, persistence, and redaction.
-- `vinput-http`: shared bounded and credential-safe provider HTTP construction.
-- `vinput-process`: Unix helper supervision, deadlines, process-group cleanup, and bounded output.
-- `vinput-audio`: PCM processing, recorder traits, and optional PipeWire capture.
-- `vinput-asr`: mock, command, remote, and optional native `sherpa-onnx` backends.
-- `vinput-text`: scenes, prompts, command adapters, context cache, and OpenAI-compatible text transport.
-- `vinput-registry`: registry metadata, safe download/extraction, and managed publication.
-- `vinput-daemon`: runtime orchestration and the legacy-compatible D-Bus service.
-- `vinput-cli`: the `vinput` management and diagnostics CLI.
-- `vinput-gui`: the standalone Rust/Iced management application.
+- `vinpst-protocol`: public D-Bus and recognition payload contracts.
+- `vinpst-config`: typed configuration, validation, normalization, persistence, and redaction.
+- `vinpst-http`: shared bounded and credential-safe provider HTTP construction.
+- `vinpst-process`: Unix helper supervision, deadlines, process-group cleanup, and bounded output.
+- `vinpst-audio`: PCM processing, recorder traits, and optional PipeWire capture.
+- `vinpst-asr`: mock, command, remote, and optional native `sherpa-onnx` backends.
+- `vinpst-text`: scenes, prompts, command adapters, context cache, and OpenAI-compatible text transport.
+- `vinpst-registry`: registry metadata, safe download/extraction, and managed publication.
+- `vinpst-daemon`: runtime orchestration and the canonical D-Bus service.
+- `vinpst-cli`: the `vinpst` management and diagnostics CLI.
+- `vinpst-gui`: the standalone Rust/Iced management application.
 
 `cpp/fcitx5-addon` remains C++ deliberately. It owns only the Fcitx API boundary: key handling, menus, preedit/commit presentation, selected-text handling, notifications, and D-Bus integration. Backend policy belongs in Rust.
 
@@ -54,7 +54,7 @@ just demo
 For a display-independent GUI/configuration check:
 
 ```sh
-cargo run -p vinput-gui -- --check --offline
+cargo run -p vinpst-gui -- --check --offline
 ```
 
 ## License

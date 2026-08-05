@@ -14,16 +14,16 @@ done
 cd "${repo_root}"
 
 just addon-build
-cargo build -q -p vinput-daemon
+cargo build -q -p vinpst-daemon
 
-smoke_dir="${repo_root}/target/tmp/vinput-cpp-dbus-asr-menu-smoke"
+smoke_dir="${repo_root}/target/tmp/vinpst-cpp-dbus-asr-menu-smoke"
 config_path="${smoke_dir}/config.json"
 model_root="${smoke_dir}/models"
 model_dir="${model_root}/installed-one"
 log_file="${smoke_dir}/daemon.log"
 rm -rf "${smoke_dir}"
 mkdir -p "${model_dir}"
-cat >"${model_dir}/vinput-model.json" <<'JSON'
+cat >"${model_dir}/vinpst-model.json" <<'JSON'
 {
   "backend": "sherpa-offline",
   "family": "moonshine",
@@ -56,9 +56,9 @@ config_path="${config_path}"
 log_file="${log_file}"
 model_root="${model_root}"
 model_dir="${model_dir}"
-smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_bridge_dbus_smoke"
+smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_bridge_dbus_smoke"
 
-target/debug/vinput-daemon --dbus --config "\${config_path}" \
+target/debug/vinpst-daemon --dbus --config "\${config_path}" \
   --model-root "\${model_root}" >"\${log_file}" 2>&1 &
 daemon_pid=\$!
 cleanup() {
@@ -68,13 +68,13 @@ cleanup() {
 trap cleanup EXIT
 
 for _ in \$(seq 1 50); do
-  if VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED=1 \
-       VINPUT_DBUS_SMOKE_SWITCH_ASR_TARGET_PROVIDER=mock \
-       VINPUT_DBUS_SMOKE_SWITCH_ASR_TARGET_MODEL="\${model_dir}" \
-       VINPUT_DBUS_SMOKE_EXPECT_ASR_TARGET_PERSISTED=1 \
-       VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_PROVIDER=mock \
-       VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_MODEL="\${model_dir}" \
-       VINPUT_DBUS_SMOKE_EXPECT_ASR_DISPLAY_TITLE="Installed Model Title" \
+  if VINPST_DBUS_SMOKE_EXPECT_SCENE_PERSISTED=1 \
+       VINPST_DBUS_SMOKE_SWITCH_ASR_TARGET_PROVIDER=mock \
+       VINPST_DBUS_SMOKE_SWITCH_ASR_TARGET_MODEL="\${model_dir}" \
+       VINPST_DBUS_SMOKE_EXPECT_ASR_TARGET_PERSISTED=1 \
+       VINPST_DBUS_SMOKE_EXPECT_ASR_DISPLAY_PROVIDER=mock \
+       VINPST_DBUS_SMOKE_EXPECT_ASR_DISPLAY_MODEL="\${model_dir}" \
+       VINPST_DBUS_SMOKE_EXPECT_ASR_DISPLAY_TITLE="Installed Model Title" \
        "\${smoke_bin}"; then
     python3 - "\${config_path}" "\${model_dir}" <<'PY'
 import json

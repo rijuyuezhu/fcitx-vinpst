@@ -14,19 +14,19 @@ done
 cd "${repo_root}"
 
 just addon-build
-cargo build -q -p vinput-daemon
+cargo build -q -p vinpst-daemon
 
 dbus-run-session -- bash -euo pipefail <<'INNER'
-log_file="target/tmp/vinput-cpp-dbus-smoke-daemon.log"
-config_home="target/tmp/vinput-cpp-dbus-smoke-config"
-bridge_smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_bridge_dbus_smoke"
-addon_smoke_bin="target/cpp/fcitx5-addon/vinput_fcitx_addon_dbus_smoke"
+log_file="target/tmp/vinpst-cpp-dbus-smoke-daemon.log"
+config_home="target/tmp/vinpst-cpp-dbus-smoke-config"
+bridge_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_bridge_dbus_smoke"
+addon_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_addon_dbus_smoke"
 mkdir -p "$(dirname "${log_file}")"
 rm -rf "${config_home}"
 mkdir -p "${config_home}"
 export XDG_CONFIG_HOME="$(pwd)/${config_home}"
 
-target/debug/vinput-daemon --dbus >"${log_file}" 2>&1 &
+target/debug/vinpst-daemon --dbus >"${log_file}" 2>&1 &
 daemon_pid=$!
 cleanup() {
   kill "${daemon_pid}" >/dev/null 2>&1 || true

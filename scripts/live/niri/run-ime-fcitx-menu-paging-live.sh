@@ -13,12 +13,12 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_MENU_PAGING_OUT_DIR:-target/tmp/ime-fcitx-menu-paging-live}"
-trigger_key="${VINPUT_LIVE_SCENE_MENU_KEY:-F7}"
-addon_config="${VINPUT_LIVE_FCITX_ADDON_CONFIG:-${HOME}/.config/fcitx5/conf/vinput.conf}"
-page_next_key="${VINPUT_LIVE_PAGE_NEXT_KEY:-}"
-page_prev_key="${VINPUT_LIVE_PAGE_PREV_KEY:-}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_MENU_PAGING_OUT_DIR:-target/tmp/ime-fcitx-menu-paging-live}"
+trigger_key="${VINPST_LIVE_SCENE_MENU_KEY:-F7}"
+addon_config="${VINPST_LIVE_FCITX_ADDON_CONFIG:-${HOME}/.config/fcitx5/conf/vinpst.conf}"
+page_next_key="${VINPST_LIVE_PAGE_NEXT_KEY:-}"
+page_prev_key="${VINPST_LIVE_PAGE_PREV_KEY:-}"
 probe="scripts/live/niri/probes/fcitx-live-menu-paging-probe.py"
 config_path=""
 profile_mutated=0
@@ -27,9 +27,9 @@ original_scene=""
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 stop_verified_owner() {
@@ -39,13 +39,13 @@ stop_verified_owner() {
   [[ -z "${pid}" ]] && return 0
   exe="$(jq -r '.owner.process.exe // empty' <<<"${status}")"
   cmdline="$(jq -r '.owner.process.cmdline | join(" ")' <<<"${status}")"
-  if [[ "${exe}" != *vinput-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
-    echo "refusing to stop unexpected org.fcitx.Vinput owner: pid=${pid} exe=${exe}" >&2
+  if [[ "${exe}" != *vinpst-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
+    echo "refusing to stop unexpected org.fcitx.Vinpst owner: pid=${pid} exe=${exe}" >&2
     return 1
   fi
   proc_exe="$(readlink "/proc/${pid}/exe")"
   proc_cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline")"
-  if [[ "${proc_exe}" != *vinput-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
+  if [[ "${proc_exe}" != *vinpst-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
     echo "live owner changed during verification: pid=${pid} exe=${proc_exe}" >&2
     return 1
   fi
@@ -68,7 +68,7 @@ activate_and_wait() {
         --arg config_path "${config_path}" '
           .status == "idle" and
           .owner.ok == true and
-          (.owner.process.exe | endswith("vinput-daemon")) and
+          (.owner.process.exe | endswith("vinpst-daemon")) and
           (.owner.process.cmdline | index($config_path)) != null
         ' "${out_dir}/status-current.json" >/dev/null; then
       return 0
@@ -122,7 +122,7 @@ for command in python3 jq gdbus fcitx5-remote readlink; do
   fi
 done
 if [[ ! -x "${cli_binary}" ]]; then
-  echo "vinput CLI is missing: ${cli_binary}" >&2
+  echo "vinpst CLI is missing: ${cli_binary}" >&2
   exit 2
 fi
 if ! fcitx5-remote --check >/dev/null 2>&1; then

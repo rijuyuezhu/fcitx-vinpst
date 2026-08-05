@@ -10,10 +10,10 @@ normal | command) ;;
   ;;
 esac
 
-wav="${VINPUT_LIVE_TOOLKIT_WAV:-}"
-playback_target="${VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
-out_dir="${VINPUT_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-kitty-live}"
-uinput_sender="${VINPUT_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
+wav="${VINPST_LIVE_TOOLKIT_WAV:-}"
+playback_target="${VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
+out_dir="${VINPST_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-kitty-live}"
+uinput_sender="${VINPST_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
 output_file="${out_dir}/${mode}.txt"
 focus_log="${out_dir}/${mode}.focus.json"
 uinput_log="${out_dir}/${mode}.uinput.jsonl"
@@ -30,14 +30,14 @@ monitor_pid=""
 primary_owner_pid=""
 primary_before_present=0
 primary_snapshot_ready=0
-app_id="fcitx-vinput-kitty-live-${mode}"
-window_title="fcitx-vinput kitty ${mode} live probe"
+app_id="fcitx-vinpst-kitty-live-${mode}"
+window_title="fcitx-vinpst kitty ${mode} live probe"
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 restore_idle() {
@@ -101,7 +101,7 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -z "${wav}" || ! -f "${wav}" ]]; then
-  echo "set VINPUT_LIVE_TOOLKIT_WAV to a validated speech WAV" >&2
+  echo "set VINPST_LIVE_TOOLKIT_WAV to a validated speech WAV" >&2
   exit 2
 fi
 for command in cmp gdbus jq kitty niri pw-play python3 stdbuf timeout; do
@@ -138,7 +138,7 @@ export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 
 status="$(call_service GetStatus 2>/dev/null || true)"
 if [[ "${status}" != *"'idle'"* ]]; then
-  echo "org.fcitx.Vinput must be idle before the kitty probe: ${status:-unavailable}" >&2
+  echo "org.fcitx.Vinpst must be idle before the kitty probe: ${status:-unavailable}" >&2
   exit 1
 fi
 
@@ -176,8 +176,8 @@ if [[ "${mode}" == command ]]; then
 fi
 
 stdbuf -oL -eL gdbus monitor --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput >"${monitor_log}" 2>&1 &
+  --dest org.fcitx.Vinpst \
+  --object-path /org/fcitx/Vinpst >"${monitor_log}" 2>&1 &
 monitor_pid=$!
 
 GTK_IM_MODULE=fcitx kitty \

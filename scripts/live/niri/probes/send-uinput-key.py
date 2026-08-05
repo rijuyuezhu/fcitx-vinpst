@@ -106,7 +106,7 @@ def main() -> int:
         fcntl.ioctl(descriptor, UI_SET_EVBIT, EV_KEY)
         for key_code in key_codes:
             fcntl.ioctl(descriptor, UI_SET_KEYBIT, key_code)
-        name = b"fcitx-vinput-live-keyboard"
+        name = b"fcitx-vinpst-live-keyboard"
         header = struct.pack(
             "80sHHHHI",
             name,

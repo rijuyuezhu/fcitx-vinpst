@@ -40,7 +40,7 @@ printf 'package payload\n' >"${artifacts_root}/package.pkg.tar.zst"
 printf 'repository payload\n' >"${artifacts_root}/repository.db.tar.gz"
 
 scripts/release/release_manifest.py assemble \
-  --package-name fcitx-vinput-rs \
+  --package-name fcitx-vinpst \
   --version 0.1.0 \
   --architecture x86_64 \
   --output-dir "${bundle}" \
@@ -65,12 +65,12 @@ generate_key() {
 
 fingerprint="$(
   generate_key "${signing_home}" \
-    'Vinput Release Signature Check <release-signature@example.invalid>' \
+    'Vinpst Release Signature Check <release-signature@example.invalid>' \
     "${public_key}"
 )"
 wrong_fingerprint="$(
   generate_key "${wrong_home}" \
-    'Vinput Wrong Signature Check <wrong-signature@example.invalid>' \
+    'Vinpst Wrong Signature Check <wrong-signature@example.invalid>' \
     "${wrong_public_key}"
 )"
 test "${fingerprint}" != "${wrong_fingerprint}"
@@ -167,7 +167,7 @@ expect_failure unavailable-secret-key 'exact secret signing key is unavailable' 
 # Re-signing is explicit and atomic; rebuilding with --force removes the old signature.
 scripts/release/sign-release-manifest.sh "${bundle}" "${signing_home}" "${fingerprint}"
 scripts/release/release_manifest.py assemble \
-  --package-name fcitx-vinput-rs \
+  --package-name fcitx-vinpst \
   --version 0.1.0 \
   --architecture x86_64 \
   --output-dir "${bundle}" \

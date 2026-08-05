@@ -93,7 +93,7 @@ def main() -> int:
         fcntl.ioctl(descriptor, UI_SET_EVBIT, EV_KEY)
         for key_code in sorted(required_codes):
             fcntl.ioctl(descriptor, UI_SET_KEYBIT, key_code)
-        name = b"fcitx-vinput-live-text-keyboard"
+        name = b"fcitx-vinpst-live-text-keyboard"
         header = struct.pack("80sHHHHI", name, BUS_USB, 0x1209, 0x0002, 1, 0)
         absolute_axes = struct.pack("256i", *([0] * 256))
         os.write(descriptor, header + absolute_axes)

@@ -1,60 +1,60 @@
-#include "vinput_fcitx_bridge/fcitx_menu_filter.h"
-#include "vinput_fcitx_bridge/fcitx_menu_paging.h"
-#include "vinput_fcitx_bridge/rust_string.h"
+#include "vinpst_fcitx_bridge/fcitx_menu_filter.h"
+#include "vinpst_fcitx_bridge/fcitx_menu_paging.h"
+#include "vinpst_fcitx_bridge/rust_string.h"
 
-#include "vinput_fcitx_ffi.h"
+#include "vinpst_fcitx_ffi.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <string>
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 namespace {
 
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Other) ==
-              VINPUT_FCITX_MENU_KEY_OTHER);
+              VINPST_FCITX_MENU_KEY_OTHER);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Passive) ==
-              VINPUT_FCITX_MENU_KEY_PASSIVE);
+              VINPST_FCITX_MENU_KEY_PASSIVE);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Escape) ==
-              VINPUT_FCITX_MENU_KEY_ESCAPE);
+              VINPST_FCITX_MENU_KEY_ESCAPE);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Slash) ==
-              VINPUT_FCITX_MENU_KEY_SLASH);
+              VINPST_FCITX_MENU_KEY_SLASH);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Backspace) ==
-              VINPUT_FCITX_MENU_KEY_BACKSPACE);
+              VINPST_FCITX_MENU_KEY_BACKSPACE);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::DeleteWord) ==
-              VINPUT_FCITX_MENU_KEY_DELETE_WORD);
+              VINPST_FCITX_MENU_KEY_DELETE_WORD);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::ClearFilter) ==
-              VINPUT_FCITX_MENU_KEY_CLEAR_FILTER);
+              VINPST_FCITX_MENU_KEY_CLEAR_FILTER);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Text) ==
-              VINPUT_FCITX_MENU_KEY_TEXT);
+              VINPST_FCITX_MENU_KEY_TEXT);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Page) ==
-              VINPUT_FCITX_MENU_KEY_PAGE);
+              VINPST_FCITX_MENU_KEY_PAGE);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Digit) ==
-              VINPUT_FCITX_MENU_KEY_DIGIT);
+              VINPST_FCITX_MENU_KEY_DIGIT);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::MovePrevious) ==
-              VINPUT_FCITX_MENU_KEY_MOVE_PREVIOUS);
+              VINPST_FCITX_MENU_KEY_MOVE_PREVIOUS);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::MoveNext) ==
-              VINPUT_FCITX_MENU_KEY_MOVE_NEXT);
+              VINPST_FCITX_MENU_KEY_MOVE_NEXT);
 static_assert(static_cast<std::uint8_t>(MenuSemanticKeyKind::Enter) ==
-              VINPUT_FCITX_MENU_KEY_ENTER);
+              VINPST_FCITX_MENU_KEY_ENTER);
 static_assert(static_cast<std::uint8_t>(MenuKeyAction::Pass) ==
-              VINPUT_FCITX_MENU_ACTION_PASS);
+              VINPST_FCITX_MENU_ACTION_PASS);
 static_assert(static_cast<std::uint8_t>(MenuKeyAction::Consume) ==
-              VINPUT_FCITX_MENU_ACTION_CONSUME);
+              VINPST_FCITX_MENU_ACTION_CONSUME);
 static_assert(static_cast<std::uint8_t>(MenuKeyAction::CloseAndPass) ==
-              VINPUT_FCITX_MENU_ACTION_CLOSE_AND_PASS);
+              VINPST_FCITX_MENU_ACTION_CLOSE_AND_PASS);
 static_assert(static_cast<std::uint8_t>(MenuKeyAction::CloseAndConsume) ==
-              VINPUT_FCITX_MENU_ACTION_CLOSE_AND_CONSUME);
+              VINPST_FCITX_MENU_ACTION_CLOSE_AND_CONSUME);
 static_assert(static_cast<std::uint8_t>(MenuKeyAction::Rebuild) ==
-              VINPUT_FCITX_MENU_ACTION_REBUILD);
+              VINPST_FCITX_MENU_ACTION_REBUILD);
 static_assert(static_cast<std::uint8_t>(MenuKeyAction::MovePrevious) ==
-              VINPUT_FCITX_MENU_ACTION_MOVE_PREVIOUS);
+              VINPST_FCITX_MENU_ACTION_MOVE_PREVIOUS);
 static_assert(static_cast<std::uint8_t>(MenuKeyAction::MoveNext) ==
-              VINPUT_FCITX_MENU_ACTION_MOVE_NEXT);
+              VINPST_FCITX_MENU_ACTION_MOVE_NEXT);
 static_assert(static_cast<std::uint8_t>(MenuKeyAction::Select) ==
-              VINPUT_FCITX_MENU_ACTION_SELECT);
-static_assert(kMenuPageSize == VINPUT_FCITX_MENU_PAGE_SIZE);
+              VINPST_FCITX_MENU_ACTION_SELECT);
+static_assert(kMenuPageSize == VINPST_FCITX_MENU_PAGE_SIZE);
 
 bool HasNoModifiers(const fcitx::Key &key) {
   return key.normalize().states() == fcitx::KeyStates();
@@ -73,21 +73,21 @@ bool IsOneOfKeySymbols(const fcitx::Key &key,
 
 std::optional<MenuKeyAction> ActionFromWire(std::uint8_t action) {
   switch (action) {
-  case VINPUT_FCITX_MENU_ACTION_PASS:
+  case VINPST_FCITX_MENU_ACTION_PASS:
     return MenuKeyAction::Pass;
-  case VINPUT_FCITX_MENU_ACTION_CONSUME:
+  case VINPST_FCITX_MENU_ACTION_CONSUME:
     return MenuKeyAction::Consume;
-  case VINPUT_FCITX_MENU_ACTION_CLOSE_AND_PASS:
+  case VINPST_FCITX_MENU_ACTION_CLOSE_AND_PASS:
     return MenuKeyAction::CloseAndPass;
-  case VINPUT_FCITX_MENU_ACTION_CLOSE_AND_CONSUME:
+  case VINPST_FCITX_MENU_ACTION_CLOSE_AND_CONSUME:
     return MenuKeyAction::CloseAndConsume;
-  case VINPUT_FCITX_MENU_ACTION_REBUILD:
+  case VINPST_FCITX_MENU_ACTION_REBUILD:
     return MenuKeyAction::Rebuild;
-  case VINPUT_FCITX_MENU_ACTION_MOVE_PREVIOUS:
+  case VINPST_FCITX_MENU_ACTION_MOVE_PREVIOUS:
     return MenuKeyAction::MovePrevious;
-  case VINPUT_FCITX_MENU_ACTION_MOVE_NEXT:
+  case VINPST_FCITX_MENU_ACTION_MOVE_NEXT:
     return MenuKeyAction::MoveNext;
-  case VINPUT_FCITX_MENU_ACTION_SELECT:
+  case VINPST_FCITX_MENU_ACTION_SELECT:
     return MenuKeyAction::Select;
   default:
     return std::nullopt;
@@ -101,39 +101,39 @@ bool IsMenuEnterKey(const fcitx::Key &key) {
 } // namespace
 
 MenuSessionState::MenuSessionState()
-    : state_(StateHandle::Adopt(vinput_fcitx_menu_session_new())) {}
+    : state_(StateHandle::Adopt(vinpst_fcitx_menu_session_new())) {}
 
 void MenuSessionState::Open() {
-  static_cast<void>(vinput_fcitx_menu_session_open(state_.mutable_raw_handle()));
+  static_cast<void>(vinpst_fcitx_menu_session_open(state_.mutable_raw_handle()));
 }
 
 void MenuSessionState::Close() {
-  static_cast<void>(vinput_fcitx_menu_session_close(state_.mutable_raw_handle()));
+  static_cast<void>(vinpst_fcitx_menu_session_close(state_.mutable_raw_handle()));
 }
 
 std::optional<bool> MenuSessionState::is_open() const {
   std::uint8_t open = 0;
-  if (vinput_fcitx_menu_session_is_open(state_.raw_handle(), &open) == 0) {
+  if (vinpst_fcitx_menu_session_is_open(state_.raw_handle(), &open) == 0) {
     return std::nullopt;
   }
   return open != 0;
 }
 
 bool MenuSessionState::SetPage(int page) {
-  return vinput_fcitx_menu_session_set_page(state_.mutable_raw_handle(), page) != 0;
+  return vinpst_fcitx_menu_session_set_page(state_.mutable_raw_handle(), page) != 0;
 }
 
 std::optional<bool> MenuSessionState::active() const {
   std::uint8_t active = 0;
-  if (vinput_fcitx_menu_session_filter_active(state_.raw_handle(), &active) == 0) {
+  if (vinpst_fcitx_menu_session_filter_active(state_.raw_handle(), &active) == 0) {
     return std::nullopt;
   }
   return active != 0;
 }
 
 std::string MenuSessionState::DecorateTitle(std::string_view base_title) {
-  VinputFcitxStringView title{};
-  if (vinput_fcitx_menu_session_decorate_title(state_.mutable_raw_handle(),
+  VinpstFcitxStringView title{};
+  if (vinpst_fcitx_menu_session_decorate_title(state_.mutable_raw_handle(),
                                                RustBytes(base_title), base_title.size(),
                                                &title) == 0) {
     return std::string(base_title);
@@ -145,7 +145,7 @@ std::optional<MenuKeyDecision>
 MenuSessionState::HandleKey(bool release, const MenuSemanticKey &key,
                             bool cursor_available, int current_selection,
                             std::size_t visible_item_count) {
-  const VinputFcitxMenuKeyInputView input{
+  const VinpstFcitxMenuKeyInputView input{
       .release = static_cast<std::uint8_t>(release),
       .key_kind = static_cast<std::uint8_t>(key.kind),
       .key_value = key.value,
@@ -154,8 +154,8 @@ MenuSessionState::HandleKey(bool release, const MenuSemanticKey &key,
       .current_selection = current_selection,
       .visible_item_count = visible_item_count,
   };
-  VinputFcitxMenuKeyDecisionView decision{};
-  if (vinput_fcitx_menu_session_handle_key(state_.mutable_raw_handle(), &input,
+  VinpstFcitxMenuKeyDecisionView decision{};
+  if (vinpst_fcitx_menu_session_handle_key(state_.mutable_raw_handle(), &input,
                                            &decision) == 0) {
     return std::nullopt;
   }
@@ -166,13 +166,13 @@ MenuSessionState::HandleKey(bool release, const MenuSemanticKey &key,
   return MenuKeyDecision{*action, decision.value};
 }
 
-const ::VinputFcitxMenuSession *MenuSessionState::raw_handle() const {
+const ::VinpstFcitxMenuSession *MenuSessionState::raw_handle() const {
   return state_.raw_handle();
 }
 
 void SetMenuCandidatePage(fcitx::CommonCandidateList &candidates, int requested_page) {
   const auto page =
-      vinput_fcitx_clamp_menu_page(candidates.totalPages(), requested_page);
+      vinpst_fcitx_clamp_menu_page(candidates.totalPages(), requested_page);
   if (page >= 0) {
     candidates.setPage(page);
   }
@@ -289,4 +289,4 @@ MenuSemanticKey ClassifyMenuKey(const fcitx::Key &key, bool passive, bool filter
   return {};
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

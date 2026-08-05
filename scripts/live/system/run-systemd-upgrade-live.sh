@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${VINPUT_RUN_SYSTEMD_UPGRADE_LIVE:-}" != 1 ]]; then
-  echo "set VINPUT_RUN_SYSTEMD_UPGRADE_LIVE=1 to run the user-systemd upgrade gate" >&2
+if [[ "${VINPST_RUN_SYSTEMD_UPGRADE_LIVE:-}" != 1 ]]; then
+  echo "set VINPST_RUN_SYSTEMD_UPGRADE_LIVE=1 to run the user-systemd upgrade gate" >&2
   exit 2
 fi
 
@@ -24,19 +24,19 @@ done
 
 runtime_dir="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required}"
 data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
-activation_file="${data_home}/dbus-1/services/org.fcitx.Vinput.service"
-unit_name="vinput-daemon-upgrade-live.service"
+activation_file="${data_home}/dbus-1/services/org.fcitx.Vinpst.service"
+unit_name="vinpst-daemon-upgrade-live.service"
 unit_dir="${runtime_dir}/systemd/user"
 unit_file="${unit_dir}/${unit_name}"
 root="${repo_root}/target/tmp/systemd-upgrade-live"
-daemon_path="${root}/bin/vinput-daemon"
+daemon_path="${root}/bin/vinpst-daemon"
 summary_path="${root}/summary.json"
-activation_backup="${activation_file}.vinput-systemd-upgrade-live.$$"
+activation_backup="${activation_file}.vinpst-systemd-upgrade-live.$$"
 
-cargo build -q -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
 rm -rf "${root}"
 mkdir -p "${root}/bin" "${unit_dir}"
-install -m755 target/debug/vinput-daemon "${daemon_path}"
+install -m755 target/debug/vinpst-daemon "${daemon_path}"
 
 test -f "${activation_file}"
 test ! -e "${activation_backup}"
@@ -46,7 +46,7 @@ name_has_owner() {
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.NameHasOwner \
-    org.fcitx.Vinput 2>/dev/null | grep -q true
+    org.fcitx.Vinpst 2>/dev/null | grep -q true
 }
 
 owner_pid() {
@@ -54,7 +54,7 @@ owner_pid() {
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.GetConnectionUnixProcessID \
-    org.fcitx.Vinput 2>/dev/null | sed -n 's/.*uint32 \([0-9][0-9]*\).*/\1/p'
+    org.fcitx.Vinpst 2>/dev/null | sed -n 's/.*uint32 \([0-9][0-9]*\).*/\1/p'
 }
 
 reload_dbus_activation() {
@@ -66,9 +66,9 @@ reload_dbus_activation() {
 
 get_status() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null
 }
 
 wait_for_no_owner() {
@@ -131,7 +131,7 @@ cleanup() {
   fi
 
   if [[ "${restored}" != true ]]; then
-    echo "failed to restore the original vinput D-Bus activation owner" >&2
+    echo "failed to restore the original vinpst D-Bus activation owner" >&2
     status=1
   fi
   exit "${status}"
@@ -145,11 +145,11 @@ wait_for_no_owner
 
 cat >"${unit_file}" <<EOF
 [Unit]
-Description=fcitx-vinput user-systemd upgrade live gate
+Description=fcitx-vinpst user-systemd upgrade live gate
 
 [Service]
 Type=dbus
-BusName=org.fcitx.Vinput
+BusName=org.fcitx.Vinpst
 ExecStart=${daemon_path} --dbus --exit-when-executable-replaced
 Restart=on-failure
 RestartSec=100ms
@@ -164,7 +164,7 @@ first_identity="$(stat -Lc '%d:%i' "${daemon_path}")"
 test "$(stat -Lc '%d:%i' "/proc/${first_pid}/exe")" = "${first_identity}"
 
 replacement="${daemon_path}.replacement"
-install -m755 target/debug/vinput-daemon "${replacement}"
+install -m755 target/debug/vinpst-daemon "${replacement}"
 mv -f "${replacement}" "${daemon_path}"
 second_identity="$(stat -Lc '%d:%i' "${daemon_path}")"
 test "${second_identity}" != "${first_identity}"

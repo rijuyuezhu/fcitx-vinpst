@@ -1,4 +1,4 @@
-#include "vinput_fcitx_bridge/fcitx_outcome.h"
+#include "vinpst_fcitx_bridge/fcitx_outcome.h"
 
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
@@ -17,7 +17,7 @@ namespace {
 class TestInputContext final : public fcitx::InputContext {
 public:
   explicit TestInputContext(fcitx::InputContextManager &manager)
-      : fcitx::InputContext(manager, "vinput-outcome-smoke") {
+      : fcitx::InputContext(manager, "vinpst-outcome-smoke") {
     created();
   }
 
@@ -26,7 +26,7 @@ public:
   }
 
   const char *frontend() const override {
-    return "vinput-outcome-smoke";
+    return "vinpst-outcome-smoke";
   }
 
   std::vector<std::string> committed;
@@ -49,9 +49,9 @@ protected:
   }
 };
 
-vinput_fcitx_bridge::BridgeOutcome CommandCandidateOutcome(bool cancel = false) {
-  using vinput_fcitx_bridge::BridgeOutcome;
-  using vinput_fcitx_bridge::PresentedCandidate;
+vinpst_fcitx_bridge::BridgeOutcome CommandCandidateOutcome(bool cancel = false) {
+  using vinpst_fcitx_bridge::BridgeOutcome;
+  using vinpst_fcitx_bridge::PresentedCandidate;
 
   auto rows = std::make_shared<const std::vector<PresentedCandidate>>(
       std::vector<PresentedCandidate>{
@@ -79,9 +79,9 @@ vinput_fcitx_bridge::BridgeOutcome CommandCandidateOutcome(bool cancel = false) 
 } // namespace
 
 int main() {
-  using vinput_fcitx_bridge::AppliedOutcome;
-  using vinput_fcitx_bridge::ApplyBridgeOutcomeToInputContext;
-  using vinput_fcitx_bridge::BridgeOutcome;
+  using vinpst_fcitx_bridge::AppliedOutcome;
+  using vinpst_fcitx_bridge::ApplyBridgeOutcomeToInputContext;
+  using vinpst_fcitx_bridge::BridgeOutcome;
 
   fcitx::InputContextManager manager;
 

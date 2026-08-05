@@ -6,7 +6,7 @@ uses the same sherpa-onnx input family as the legacy project and follows the
 repository's pinned nixpkgs input.
 
 ```bash
-nix build .#fcitx-vinput-rs
+nix build .#fcitx-vinpst
 nix run .#cli -- --version
 nix run . -- --check --offline
 ```

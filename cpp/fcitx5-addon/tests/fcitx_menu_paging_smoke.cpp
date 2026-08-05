@@ -1,4 +1,4 @@
-#include "vinput_fcitx_bridge/fcitx_menu_paging.h"
+#include "vinpst_fcitx_bridge/fcitx_menu_paging.h"
 
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
@@ -15,7 +15,7 @@ namespace {
 class TestInputContext final : public fcitx::InputContext {
 public:
   explicit TestInputContext(fcitx::InputContextManager &manager)
-      : fcitx::InputContext(manager, "vinput-menu-paging-smoke") {
+      : fcitx::InputContext(manager, "vinpst-menu-paging-smoke") {
     created();
   }
 
@@ -24,7 +24,7 @@ public:
   }
 
   const char *frontend() const override {
-    return "vinput-menu-paging-smoke";
+    return "vinpst-menu-paging-smoke";
   }
 
 protected:
@@ -61,8 +61,8 @@ int main() {
   TestInputContext input_context(manager);
 
   auto second_page = BuildCandidates();
-  vinput_fcitx_bridge::SetMenuCandidatePage(*second_page, 1);
-  vinput_fcitx_bridge::PublishMenuCandidateList(&input_context, std::move(second_page));
+  vinpst_fcitx_bridge::SetMenuCandidatePage(*second_page, 1);
+  vinpst_fcitx_bridge::PublishMenuCandidateList(&input_context, std::move(second_page));
 
   auto published = input_context.inputPanel().candidateList();
   assert(published != nullptr);
@@ -75,11 +75,11 @@ int main() {
   assert(published->candidate(3).text().toString() == "item-13");
 
   auto clamped_first = BuildCandidates();
-  vinput_fcitx_bridge::SetMenuCandidatePage(*clamped_first, -1);
+  vinpst_fcitx_bridge::SetMenuCandidatePage(*clamped_first, -1);
   assert(clamped_first->currentPage() == 0);
 
   auto clamped_last = BuildCandidates();
-  vinput_fcitx_bridge::SetMenuCandidatePage(*clamped_last, 99);
+  vinpst_fcitx_bridge::SetMenuCandidatePage(*clamped_last, 99);
   assert(clamped_last->currentPage() == 1);
 
   return 0;

@@ -1,0 +1,25 @@
+[package]
+name = "vinpst-registry"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+bzip2.workspace = true
+reqwest.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tar.workspace = true
+thiserror.workspace = true
+vinpst-config = { path = "../vinpst-config" }
+zstd.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

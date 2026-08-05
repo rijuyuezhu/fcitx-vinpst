@@ -80,7 +80,7 @@ done
 
 version="$({
   cargo metadata --no-deps --format-version 1
-} | jq -r '.packages[] | select(.name == "vinput-cli") | .version')"
+} | jq -r '.packages[] | select(.name == "vinpst-cli") | .version')"
 if [[ ! "${version}" =~ ^[0-9][0-9A-Za-z.+~-]*$ ]]; then
   echo "invalid workspace version: ${version@Q}" >&2
   exit 1
@@ -174,7 +174,7 @@ export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=${repo_root}=."
 export CFLAGS="${CFLAGS:-} -ffile-prefix-map=${repo_root}=. -fdebug-prefix-map=${repo_root}=."
 export CXXFLAGS="${CXXFLAGS:-} -ffile-prefix-map=${repo_root}=. -fdebug-prefix-map=${repo_root}=."
 
-if [[ "${VINPUT_DEB_CARGO_OFFLINE:-0}" == "1" ]]; then
+if [[ "${VINPST_DEB_CARGO_OFFLINE:-0}" == "1" ]]; then
   export CARGO_NET_OFFLINE=true
   cargo fetch --locked --offline --target "${rust_target}"
 else
@@ -182,9 +182,9 @@ else
   export CARGO_NET_OFFLINE=true
 fi
 cargo build --frozen --release \
-  -p vinput-cli --features pipewire-backend,sherpa-onnx-backend \
-  -p vinput-daemon --features pipewire-backend,sherpa-onnx-backend \
-  -p vinput-gui
+  -p vinpst-cli --features pipewire-backend,sherpa-onnx-backend \
+  -p vinpst-daemon --features pipewire-backend,sherpa-onnx-backend \
+  -p vinpst-gui
 
 install_libdir="lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
 module_dir="${install_libdir}/fcitx5"
@@ -193,59 +193,59 @@ cmake -S cpp/fcitx5-addon -B "${cmake_build}" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=/usr \
   -DCMAKE_INSTALL_LIBDIR="${install_libdir}" \
-  -DVINPUT_DAEMON_EXECUTABLE=/usr/bin/vinput-daemon \
-  -DVINPUT_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' \
-  -DVINPUT_FCITX_BRIDGE_ENABLE_TESTS=OFF \
-  -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-  -DVINPUT_FCITX_MODULE_INSTALL_DIR="${module_dir}" \
-  -DVINPUT_FCITX_RUNTIME_BUILD_LOCALEDIR='' \
-  -DVINPUT_SYSTEMD_USER_UNIT_DIR=lib/systemd/user
-cmake --build "${cmake_build}" --target fcitx5_vinput_addon --parallel "$(nproc)"
+  -DVINPST_DAEMON_EXECUTABLE=/usr/bin/vinpst-daemon \
+  -DVINPST_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' \
+  -DVINPST_FCITX_BRIDGE_ENABLE_TESTS=OFF \
+  -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+  -DVINPST_FCITX_MODULE_INSTALL_DIR="${module_dir}" \
+  -DVINPST_FCITX_RUNTIME_BUILD_LOCALEDIR='' \
+  -DVINPST_SYSTEMD_USER_UNIT_DIR=lib/systemd/user
+cmake --build "${cmake_build}" --target fcitx5_vinpst_addon --parallel "$(nproc)"
 
 for release in "${releases[@]}"; do
   package_root="${stage_root}/root-${release}"
   rm -rf "${package_root}"
   mkdir -p "${package_root}/DEBIAN"
 
-  install -Dm755 "${cargo_target}/release/vinput" "${package_root}/usr/bin/vinput"
-  install -Dm755 "${cargo_target}/release/vinput-daemon" "${package_root}/usr/bin/vinput-daemon"
-  install -Dm755 "${cargo_target}/release/vinput-gui" "${package_root}/usr/bin/vinput-gui"
+  install -Dm755 "${cargo_target}/release/vinpst" "${package_root}/usr/bin/vinpst"
+  install -Dm755 "${cargo_target}/release/vinpst-daemon" "${package_root}/usr/bin/vinpst-daemon"
+  install -Dm755 "${cargo_target}/release/vinpst-gui" "${package_root}/usr/bin/vinpst-gui"
   install -Dm644 scripts/release/package-session-common.sh \
-    "${package_root}/usr/lib/fcitx-vinput/package-session-common.sh"
+    "${package_root}/usr/lib/fcitx-vinpst/package-session-common.sh"
   install -Dm755 scripts/release/package-upgrade-handoff.sh \
-    "${package_root}/usr/lib/fcitx-vinput/package-upgrade-handoff"
+    "${package_root}/usr/lib/fcitx-vinpst/package-upgrade-handoff"
   install -Dm755 scripts/release/package-remove-handoff.sh \
-    "${package_root}/usr/lib/fcitx-vinput/package-remove-handoff"
+    "${package_root}/usr/lib/fcitx-vinpst/package-remove-handoff"
   install -Dm755 "${runtime_libdir}/libsherpa-onnx-c-api.so" \
-    "${package_root}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so"
+    "${package_root}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so"
   install -Dm755 "${runtime_libdir}/libonnxruntime.so" \
-    "${package_root}/usr/lib/fcitx-vinput/libonnxruntime.so"
-  patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinput' "${package_root}/usr/bin/vinput"
-  patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinput' "${package_root}/usr/bin/vinput-daemon"
+    "${package_root}/usr/lib/fcitx-vinpst/libonnxruntime.so"
+  patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinpst' "${package_root}/usr/bin/vinpst"
+  patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinpst' "${package_root}/usr/bin/vinpst-daemon"
   patchelf --set-rpath '$ORIGIN' \
-    "${package_root}/usr/lib/fcitx-vinput/libsherpa-onnx-c-api.so"
+    "${package_root}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so"
 
   DESTDIR="${package_root}" cmake --install "${cmake_build}"
-  install -Dm644 data/vinput-gui.desktop \
-    "${package_root}/usr/share/applications/vinput-gui.desktop"
+  install -Dm644 data/vinpst-gui.desktop \
+    "${package_root}/usr/share/applications/vinpst-gui.desktop"
   for size in 16 22 24 32 48 64 128 256 512; do
-    install -Dm644 "data/icons/hicolor/${size}x${size}/apps/vinput-gui.png" \
-      "${package_root}/usr/share/icons/hicolor/${size}x${size}/apps/vinput-gui.png"
+    install -Dm644 "data/icons/hicolor/${size}x${size}/apps/vinpst-gui.png" \
+      "${package_root}/usr/share/icons/hicolor/${size}x${size}/apps/vinpst-gui.png"
   done
   install -Dm644 data/default-config.json \
-    "${package_root}/usr/share/fcitx-vinput/default-config.json"
+    "${package_root}/usr/share/fcitx-vinpst/default-config.json"
   install -Dm644 data/vad/silero_vad.onnx \
-    "${package_root}/usr/share/fcitx-vinput/vad/silero_vad.onnx"
+    "${package_root}/usr/share/fcitx-vinpst/vad/silero_vad.onnx"
   install -Dm644 packaging/debian/copyright \
-    "${package_root}/usr/share/doc/fcitx-vinput-rs/copyright"
+    "${package_root}/usr/share/doc/fcitx-vinpst/copyright"
   install -Dm644 LICENSE \
-    "${package_root}/usr/share/doc/fcitx-vinput-rs/LICENSE"
+    "${package_root}/usr/share/doc/fcitx-vinpst/LICENSE"
   install -Dm644 data/vad/LICENSE \
-    "${package_root}/usr/share/doc/fcitx-vinput-rs/silero-vad-LICENSE"
+    "${package_root}/usr/share/doc/fcitx-vinpst/silero-vad-LICENSE"
   install -Dm644 "${sherpa_license}" \
-    "${package_root}/usr/share/doc/fcitx-vinput-rs/sherpa-onnx-LICENSE"
+    "${package_root}/usr/share/doc/fcitx-vinpst/sherpa-onnx-LICENSE"
   install -Dm644 "${onnxruntime_license}" \
-    "${package_root}/usr/share/doc/fcitx-vinput-rs/onnxruntime-LICENSE"
+    "${package_root}/usr/share/doc/fcitx-vinpst/onnxruntime-LICENSE"
 
   scripts/release/render-deb-control.py \
     --version "${version}" \
@@ -263,7 +263,7 @@ for release in "${releases[@]}"; do
       | sed 's#  \./#  #' >DEBIAN/md5sums
   )
 
-  output="${output_dir}/fcitx-vinput-rs_${version}-${release}_${distribution}_${architecture}.deb"
+  output="${output_dir}/fcitx-vinpst_${version}-${release}_${distribution}_${architecture}.deb"
   rm -f "${output}"
   dpkg-deb --root-owner-group --build "${package_root}" "${output}"
   test -s "${output}"

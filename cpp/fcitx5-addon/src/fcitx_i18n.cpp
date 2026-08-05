@@ -1,4 +1,4 @@
-#include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/fcitx_i18n.h"
 
 #include <fcitx-utils/i18n.h>
 
@@ -11,15 +11,15 @@
 #include <string>
 #include <vector>
 
-#ifndef VINPUT_FCITX_BUILD_LOCALEDIR
-#define VINPUT_FCITX_BUILD_LOCALEDIR ""
+#ifndef VINPST_FCITX_BUILD_LOCALEDIR
+#define VINPST_FCITX_BUILD_LOCALEDIR ""
 #endif
 
-#ifndef VINPUT_FCITX_INSTALL_LOCALEDIR
-#define VINPUT_FCITX_INSTALL_LOCALEDIR ""
+#ifndef VINPST_FCITX_INSTALL_LOCALEDIR
+#define VINPST_FCITX_INSTALL_LOCALEDIR ""
 #endif
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 namespace {
 
 std::string NormalizeLocaleName(std::string locale) {
@@ -88,11 +88,11 @@ std::filesystem::path ResolveLocaleRoot() {
       override_dir != nullptr && override_dir[0] != '\0') {
     return override_dir;
   }
-  std::filesystem::path build_root = VINPUT_FCITX_BUILD_LOCALEDIR;
+  std::filesystem::path build_root = VINPST_FCITX_BUILD_LOCALEDIR;
   if (ContainsCatalog(build_root)) {
     return build_root;
   }
-  return VINPUT_FCITX_INSTALL_LOCALEDIR;
+  return VINPST_FCITX_INSTALL_LOCALEDIR;
 }
 
 template <typename Value>
@@ -144,4 +144,4 @@ std::string FrontendPageText(int current_page, int total_pages) {
   return std::string(buffer.data(), static_cast<std::size_t>(size));
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

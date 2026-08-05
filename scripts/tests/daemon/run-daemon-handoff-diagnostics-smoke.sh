@@ -24,18 +24,18 @@ rm -rf "${stage_root}"
 mkdir -p "${mismatch_root}/bin" "${mismatch_root}/config" \
   "${deleted_root}/bin" "${deleted_root}/config"
 
-cargo build -q -p vinput-cli --bin vinput -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-cli --bin vinpst -p vinpst-daemon --bin vinpst-daemon
 
-install -Dm755 target/debug/vinput-daemon "${mismatch_root}/bin/vinput-daemon-old"
-install -Dm755 target/debug/vinput "${deleted_root}/bin/vinput"
-install -Dm755 target/debug/vinput-daemon "${deleted_root}/bin/vinput-daemon"
+install -Dm755 target/debug/vinpst-daemon "${mismatch_root}/bin/vinpst-daemon-old"
+install -Dm755 target/debug/vinpst "${deleted_root}/bin/vinpst"
+install -Dm755 target/debug/vinpst-daemon "${deleted_root}/bin/vinpst-daemon"
 
-VINPUT_HANDOFF_CLI="${repo_root}/target/debug/vinput" \
-VINPUT_HANDOFF_DAEMON="${mismatch_root}/bin/vinput-daemon-old" \
-VINPUT_HANDOFF_CONFIG_HOME="${mismatch_root}/config" \
-VINPUT_HANDOFF_STATUS="${mismatch_root}/status.json" \
+VINPST_HANDOFF_CLI="${repo_root}/target/debug/vinpst" \
+VINPST_HANDOFF_DAEMON="${mismatch_root}/bin/vinpst-daemon-old" \
+VINPST_HANDOFF_CONFIG_HOME="${mismatch_root}/config" \
+VINPST_HANDOFF_STATUS="${mismatch_root}/status.json" \
   timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
-"${VINPUT_HANDOFF_DAEMON}" --dbus >"${VINPUT_HANDOFF_STATUS}.daemon.log" 2>&1 &
+"${VINPST_HANDOFF_DAEMON}" --dbus >"${VINPST_HANDOFF_STATUS}.daemon.log" 2>&1 &
 daemon_pid=$!
 cleanup() {
   kill "${daemon_pid}" 2>/dev/null || true
@@ -45,8 +45,8 @@ trap cleanup EXIT
 
 ready=0
 for _ in $(seq 1 100); do
-  if XDG_CONFIG_HOME="${VINPUT_HANDOFF_CONFIG_HOME}" \
-    "${VINPUT_HANDOFF_CLI}" daemon status --json >"${VINPUT_HANDOFF_STATUS}" 2>/dev/null; then
+  if XDG_CONFIG_HOME="${VINPST_HANDOFF_CONFIG_HOME}" \
+    "${VINPST_HANDOFF_CLI}" daemon status --json >"${VINPST_HANDOFF_STATUS}" 2>/dev/null; then
     ready=1
     break
   fi
@@ -55,8 +55,8 @@ done
 test "${ready}" = 1
 INNER
 
-expected_mismatch="$(readlink -f target/debug/vinput-daemon)"
-owner_mismatch="$(readlink -f "${mismatch_root}/bin/vinput-daemon-old")"
+expected_mismatch="$(readlink -f target/debug/vinpst-daemon)"
+owner_mismatch="$(readlink -f "${mismatch_root}/bin/vinpst-daemon-old")"
 jq -e \
   --arg expected "${expected_mismatch}" \
   --arg owner "${owner_mismatch}" \
@@ -67,16 +67,16 @@ jq -e \
    and .handoff.restart_recommended == true
    and .handoff.reason == "owner-executable-path-mismatch"
    and .handoff.automatic_restart_performed == false
-   and .handoff.next_step == "run vinput daemon handoff"' \
+   and .handoff.next_step == "run vinpst daemon handoff"' \
   "${mismatch_root}/status.json" >/dev/null
 
-VINPUT_HANDOFF_CLI="${deleted_root}/bin/vinput" \
-VINPUT_HANDOFF_DAEMON="${deleted_root}/bin/vinput-daemon" \
-VINPUT_HANDOFF_REPLACEMENT="${repo_root}/target/debug/vinput-daemon" \
-VINPUT_HANDOFF_CONFIG_HOME="${deleted_root}/config" \
-VINPUT_HANDOFF_STATUS="${deleted_root}/status.json" \
+VINPST_HANDOFF_CLI="${deleted_root}/bin/vinpst" \
+VINPST_HANDOFF_DAEMON="${deleted_root}/bin/vinpst-daemon" \
+VINPST_HANDOFF_REPLACEMENT="${repo_root}/target/debug/vinpst-daemon" \
+VINPST_HANDOFF_CONFIG_HOME="${deleted_root}/config" \
+VINPST_HANDOFF_STATUS="${deleted_root}/status.json" \
   timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
-"${VINPUT_HANDOFF_DAEMON}" --dbus >"${VINPUT_HANDOFF_STATUS}.daemon.log" 2>&1 &
+"${VINPST_HANDOFF_DAEMON}" --dbus >"${VINPST_HANDOFF_STATUS}.daemon.log" 2>&1 &
 daemon_pid=$!
 cleanup() {
   kill "${daemon_pid}" 2>/dev/null || true
@@ -86,8 +86,8 @@ trap cleanup EXIT
 
 ready=0
 for _ in $(seq 1 100); do
-  if XDG_CONFIG_HOME="${VINPUT_HANDOFF_CONFIG_HOME}" \
-    "${VINPUT_HANDOFF_CLI}" daemon status --json >"${VINPUT_HANDOFF_STATUS}.before" 2>/dev/null; then
+  if XDG_CONFIG_HOME="${VINPST_HANDOFF_CONFIG_HOME}" \
+    "${VINPST_HANDOFF_CLI}" daemon status --json >"${VINPST_HANDOFF_STATUS}.before" 2>/dev/null; then
     ready=1
     break
   fi
@@ -98,17 +98,17 @@ jq -e \
   '.handoff.path_matches == true
    and .handoff.owner_executable_deleted == false
    and .handoff.restart_recommended == false' \
-  "${VINPUT_HANDOFF_STATUS}.before" >/dev/null
+  "${VINPST_HANDOFF_STATUS}.before" >/dev/null
 
-rm -f "${VINPUT_HANDOFF_DAEMON}"
-install -Dm755 "${VINPUT_HANDOFF_REPLACEMENT}" "${VINPUT_HANDOFF_DAEMON}"
-XDG_CONFIG_HOME="${VINPUT_HANDOFF_CONFIG_HOME}" \
-  "${VINPUT_HANDOFF_CLI}" daemon status --json >"${VINPUT_HANDOFF_STATUS}"
-XDG_CONFIG_HOME="${VINPUT_HANDOFF_CONFIG_HOME}" \
-  "${VINPUT_HANDOFF_CLI}" daemon status >"${VINPUT_HANDOFF_STATUS}.txt"
+rm -f "${VINPST_HANDOFF_DAEMON}"
+install -Dm755 "${VINPST_HANDOFF_REPLACEMENT}" "${VINPST_HANDOFF_DAEMON}"
+XDG_CONFIG_HOME="${VINPST_HANDOFF_CONFIG_HOME}" \
+  "${VINPST_HANDOFF_CLI}" daemon status --json >"${VINPST_HANDOFF_STATUS}"
+XDG_CONFIG_HOME="${VINPST_HANDOFF_CONFIG_HOME}" \
+  "${VINPST_HANDOFF_CLI}" daemon status >"${VINPST_HANDOFF_STATUS}.txt"
 INNER
 
-expected_deleted="$(readlink -f "${deleted_root}/bin/vinput-daemon")"
+expected_deleted="$(readlink -f "${deleted_root}/bin/vinpst-daemon")"
 jq -e \
   --arg expected "${expected_deleted}" \
   '.handoff.expected_executable == $expected
@@ -119,12 +119,12 @@ jq -e \
    and .handoff.restart_recommended == true
    and .handoff.reason == "owner-executable-deleted"
    and .handoff.automatic_restart_performed == false
-   and .handoff.next_step == "run vinput daemon handoff"' \
+   and .handoff.next_step == "run vinpst daemon handoff"' \
   "${deleted_root}/status.json" >/dev/null
 grep -qx 'handoff_owner_exe_deleted: true' "${deleted_root}/status.json.txt"
 grep -qx 'handoff_path_matches: true' "${deleted_root}/status.json.txt"
 grep -qx 'handoff_restart_recommended: true' "${deleted_root}/status.json.txt"
 grep -qx 'handoff_reason: owner-executable-deleted' "${deleted_root}/status.json.txt"
-grep -qx 'handoff_next_step: run vinput daemon handoff' "${deleted_root}/status.json.txt"
+grep -qx 'handoff_next_step: run vinpst daemon handoff' "${deleted_root}/status.json.txt"
 
 echo "daemon handoff diagnostics smoke passed"

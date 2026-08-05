@@ -46,7 +46,7 @@ production release inputs.
 The package lifecycle contract installs three cooperating files:
 
 - `package-session-common.sh`: ownership-verified session-bus discovery and minimal user environment construction;
-- `package-upgrade-handoff.sh`: existing-owner-only dispatch into `vinput daemon handoff`;
+- `package-upgrade-handoff.sh`: existing-owner-only dispatch into `vinpst daemon handoff`;
 - `package-remove-handoff.sh`: all-session removal preflight, guarded mutation, and activation rollback.
 
 They are product lifecycle code, not developer convenience scripts.

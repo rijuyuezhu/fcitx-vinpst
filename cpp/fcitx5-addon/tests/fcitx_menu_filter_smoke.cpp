@@ -1,13 +1,13 @@
-#include "vinput_fcitx_bridge/fcitx_menu_filter.h"
+#include "vinpst_fcitx_bridge/fcitx_menu_filter.h"
 
 #include <cassert>
 
 int main() {
-  using vinput_fcitx_bridge::ClassifyMenuKey;
-  using vinput_fcitx_bridge::MenuKeyAction;
-  using vinput_fcitx_bridge::MenuSemanticKey;
-  using vinput_fcitx_bridge::MenuSemanticKeyKind;
-  using vinput_fcitx_bridge::MenuSessionState;
+  using vinpst_fcitx_bridge::ClassifyMenuKey;
+  using vinpst_fcitx_bridge::MenuKeyAction;
+  using vinpst_fcitx_bridge::MenuSemanticKey;
+  using vinpst_fcitx_bridge::MenuSemanticKeyKind;
+  using vinpst_fcitx_bridge::MenuSessionState;
 
   const fcitx::KeyList page_prev{fcitx::Key(FcitxKey_Page_Up),
                                  fcitx::Key(FcitxKey_KP_Page_Up)};

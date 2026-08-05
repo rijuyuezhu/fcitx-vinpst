@@ -21,32 +21,32 @@ resolve_path() {
   fi
 }
 
-whisper_root="${VINPUT_WHISPER_CPP_ROOT:-target/third-party/whisper.cpp-v1.9.1}"
-whisper_binary="${VINPUT_WHISPER_CPP_BINARY:-${whisper_root}/build/bin/whisper-cli}"
+whisper_root="${VINPST_WHISPER_CPP_ROOT:-target/third-party/whisper.cpp-v1.9.1}"
+whisper_binary="${VINPST_WHISPER_CPP_BINARY:-${whisper_root}/build/bin/whisper-cli}"
 whisper_source="${whisper_root}/src"
 whisper_binary_abs="$(resolve_path "${whisper_binary}")"
 whisper_source_abs="$(resolve_path "${whisper_source}")"
-whisper_model="${VINPUT_WHISPER_MODEL:-${HOME}/.local/share/voxtype/models/ggml-base.bin}"
-whisper_language="${VINPUT_WHISPER_LANGUAGE:-zh}"
-recognition_wav="${VINPUT_WHISPER_WAV:-target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
-preflight_out="${VINPUT_WHISPER_PROVIDER_PREFLIGHT_OUT_DIR:-target/tmp/whisper-cpp-provider-preflight}"
-live_out="${VINPUT_WHISPER_PROVIDER_OUT_DIR:-target/tmp/ime-fcitx-whisper-provider-live}"
+whisper_model="${VINPST_WHISPER_MODEL:-${HOME}/.local/share/voxtype/models/ggml-base.bin}"
+whisper_language="${VINPST_WHISPER_LANGUAGE:-zh}"
+recognition_wav="${VINPST_WHISPER_WAV:-target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
+preflight_out="${VINPST_WHISPER_PROVIDER_PREFLIGHT_OUT_DIR:-target/tmp/whisper-cpp-provider-preflight}"
+live_out="${VINPST_WHISPER_PROVIDER_OUT_DIR:-target/tmp/ime-fcitx-whisper-provider-live}"
 
-VINPUT_WHISPER_CPP_ROOT="${whisper_root}" \
-VINPUT_WHISPER_CPP_BINARY="${whisper_binary}" \
-VINPUT_WHISPER_MODEL="${whisper_model}" \
-VINPUT_WHISPER_LANGUAGE="${whisper_language}" \
-VINPUT_WHISPER_WAV="${recognition_wav}" \
-VINPUT_WHISPER_OUT_DIR="${preflight_out}" \
+VINPST_WHISPER_CPP_ROOT="${whisper_root}" \
+VINPST_WHISPER_CPP_BINARY="${whisper_binary}" \
+VINPST_WHISPER_MODEL="${whisper_model}" \
+VINPST_WHISPER_LANGUAGE="${whisper_language}" \
+VINPST_WHISPER_WAV="${recognition_wav}" \
+VINPST_WHISPER_OUT_DIR="${preflight_out}" \
   scripts/live/audio/run-whisper-cpp-asr-live.sh
 
-VINPUT_LIVE_EXTERNAL_RECOGNIZER=whisper-cpp \
-VINPUT_LIVE_EXTERNAL_PROVIDER_ID=external-whisper \
-VINPUT_LIVE_EXTERNAL_MODEL_ID=whisper-cpp-base-multilingual \
-VINPUT_LIVE_EXTERNAL_WAV="${recognition_wav}" \
-VINPUT_LIVE_WHISPER_BINARY="${whisper_binary_abs}" \
-VINPUT_LIVE_WHISPER_SOURCE="${whisper_source_abs}" \
-VINPUT_LIVE_WHISPER_MODEL="${whisper_model}" \
-VINPUT_LIVE_WHISPER_LANGUAGE="${whisper_language}" \
-VINPUT_LIVE_CROSS_PROVIDER_OUT_DIR="${live_out}" \
+VINPST_LIVE_EXTERNAL_RECOGNIZER=whisper-cpp \
+VINPST_LIVE_EXTERNAL_PROVIDER_ID=external-whisper \
+VINPST_LIVE_EXTERNAL_MODEL_ID=whisper-cpp-base-multilingual \
+VINPST_LIVE_EXTERNAL_WAV="${recognition_wav}" \
+VINPST_LIVE_WHISPER_BINARY="${whisper_binary_abs}" \
+VINPST_LIVE_WHISPER_SOURCE="${whisper_source_abs}" \
+VINPST_LIVE_WHISPER_MODEL="${whisper_model}" \
+VINPST_LIVE_WHISPER_LANGUAGE="${whisper_language}" \
+VINPST_LIVE_CROSS_PROVIDER_OUT_DIR="${live_out}" \
   scripts/live/niri/run-ime-fcitx-cross-provider-live.sh

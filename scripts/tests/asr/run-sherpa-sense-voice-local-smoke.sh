@@ -11,6 +11,6 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   fi
   repo_root="${parent}"
 done
-export VINPUT_SHERPA_EXPECT_FAMILY="${VINPUT_SHERPA_EXPECT_FAMILY:-sense_voice}"
-export VINPUT_SHERPA_SMOKE_DIR="${VINPUT_SHERPA_SMOKE_DIR:-target/tmp/sherpa-sense-voice-local-smoke}"
+export VINPST_SHERPA_EXPECT_FAMILY="${VINPST_SHERPA_EXPECT_FAMILY:-sense_voice}"
+export VINPST_SHERPA_SMOKE_DIR="${VINPST_SHERPA_SMOKE_DIR:-target/tmp/sherpa-sense-voice-local-smoke}"
 exec "${repo_root}/scripts/tests/asr/run-sherpa-offline-local-smoke.sh"

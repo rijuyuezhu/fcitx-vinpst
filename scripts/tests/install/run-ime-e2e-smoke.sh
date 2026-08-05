@@ -20,20 +20,20 @@ stage_abs="${repo_root}/${stage_dir}"
 xdg_config_home="${stage_abs}/xdg-config-home"
 xdg_data_home="${stage_abs}/xdg-data-home"
 bus_config="${stage_abs}/session.conf"
-daemon_path="${stage_abs}/usr/local/bin/vinput-daemon"
-daemon_wrapper="${stage_abs}/usr/local/bin/vinput-daemon-e2e"
-daemon_pid_file="${stage_abs}/vinput-daemon.pid"
+daemon_path="${stage_abs}/usr/local/bin/vinpst-daemon"
+daemon_wrapper="${stage_abs}/usr/local/bin/vinpst-daemon-e2e"
+daemon_pid_file="${stage_abs}/vinpst-daemon.pid"
 cargo_target_dir="${stage_abs}/cargo-target"
-config_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo-config.json"
-wav_path="${stage_abs}/usr/local/share/fcitx-vinput/e2e-command-demo.wav"
-bridge_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_dbus_smoke"
-addon_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_addon_dbus_smoke"
-outcome_smoke_bin="${repo_root}/${build_dir}/vinput_fcitx_bridge_input_context_outcome_smoke"
-service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinput.service"
+config_path="${stage_abs}/usr/local/share/fcitx-vinpst/e2e-command-demo-config.json"
+wav_path="${stage_abs}/usr/local/share/fcitx-vinpst/e2e-command-demo.wav"
+bridge_smoke_bin="${repo_root}/${build_dir}/vinpst_fcitx_bridge_dbus_smoke"
+addon_smoke_bin="${repo_root}/${build_dir}/vinpst_fcitx_addon_dbus_smoke"
+outcome_smoke_bin="${repo_root}/${build_dir}/vinpst_fcitx_bridge_input_context_outcome_smoke"
+service_file="${stage_abs}/usr/local/share/dbus-1/services/org.fcitx.Vinpst.service"
 
 rm -rf "${build_dir}" "${stage_dir}"
-CARGO_TARGET_DIR="${cargo_target_dir}" cargo build -q -p vinput-daemon --bin vinput-daemon
-install -Dm755 "${cargo_target_dir}/debug/vinput-daemon" "${daemon_path}"
+CARGO_TARGET_DIR="${cargo_target_dir}" cargo build -q -p vinpst-daemon --bin vinpst-daemon
+install -Dm755 "${cargo_target_dir}/debug/vinpst-daemon" "${daemon_path}"
 install -Dm644 data/e2e-command-demo-config.json "${config_path}"
 python3 scripts/fixtures/write-demo-wav.py "${wav_path}"
 cat >"${daemon_wrapper}" <<EOF
@@ -78,23 +78,23 @@ trap 'stop_staged_daemon || true' EXIT
 
 cmake -S cpp/fcitx5-addon -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=Debug \
-  -DVINPUT_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
-  -DVINPUT_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
-  -DVINPUT_DAEMON_EXECUTABLE="${daemon_wrapper}" \
-  -DVINPUT_DAEMON_ARGS=""
-cmake --build "${build_dir}" --target fcitx5_vinput_addon --parallel
-cmake --build "${build_dir}" --target vinput_fcitx_bridge_dbus_smoke --parallel
-cmake --build "${build_dir}" --target vinput_fcitx_addon_dbus_smoke --parallel
-cmake --build "${build_dir}" --target vinput_fcitx_bridge_input_context_outcome_smoke --parallel
+  -DVINPST_FCITX_BRIDGE_INSTALL_SYSTEMD_SERVICE=OFF \
+  -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+  -DVINPST_DAEMON_EXECUTABLE="${daemon_wrapper}" \
+  -DVINPST_DAEMON_ARGS=""
+cmake --build "${build_dir}" --target fcitx5_vinpst_addon --parallel
+cmake --build "${build_dir}" --target vinpst_fcitx_bridge_dbus_smoke --parallel
+cmake --build "${build_dir}" --target vinpst_fcitx_addon_dbus_smoke --parallel
+cmake --build "${build_dir}" --target vinpst_fcitx_bridge_input_context_outcome_smoke --parallel
 DESTDIR="${stage_abs}" cmake --install "${build_dir}"
 
 test -x "${daemon_path}"
 test -x "${daemon_wrapper}"
 test -f "${config_path}"
 test -f "${wav_path}"
-test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinput.so"
-test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinput.conf"
-grep -qx "Name=org.fcitx.Vinput" "${service_file}"
+test -f "${stage_abs}/usr/local/lib/fcitx5/fcitx5-vinpst.so"
+test -f "${stage_abs}/usr/local/share/fcitx5/addon/vinpst.conf"
+grep -qx "Name=org.fcitx.Vinpst" "${service_file}"
 ! grep -q '^SystemdService=' "${service_file}"
 grep -qx "Exec=${daemon_wrapper} --exit-when-executable-replaced" "${service_file}"
 
@@ -107,11 +107,11 @@ smoke_status=0
 XDG_CONFIG_HOME="${xdg_config_home}" \
 XDG_DATA_HOME="${xdg_data_home}" \
 XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
-VINPUT_DBUS_SMOKE_EXPECTED_NORMAL="demo final: demo heard 16 bytes" \
-VINPUT_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
-VINPUT_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
-VINPUT_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
-VINPUT_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
+VINPST_DBUS_SMOKE_EXPECTED_NORMAL="demo final: demo heard 16 bytes" \
+VINPST_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
+VINPST_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
+VINPST_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
+VINPST_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 20s dbus-run-session --config-file="${bus_config}" -- bash -euo pipefail -c '"$1"; "$2"' \
     bash "${bridge_smoke_bin}" "${addon_smoke_bin}" || smoke_status=$?
 

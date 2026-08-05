@@ -42,7 +42,7 @@ class LocalizationProbe:
         self.state = LocalizationState()
         self.loop = GLib.MainLoop()
         self.client = FcitxG.Client.new()
-        self.client.set_program(f"fcitx-vinput-{args.menu}-localization-live-probe")
+        self.client.set_program(f"fcitx-vinpst-{args.menu}-localization-live-probe")
         self.client.set_display(
             os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
         )

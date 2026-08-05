@@ -49,7 +49,7 @@ chmod 700 "${signing_home}"
 
 gpg --homedir "${signing_home}" --batch --passphrase '' \
   --quick-generate-key \
-  'Vinput Candidate Check <candidate-check@example.invalid>' \
+  'Vinpst Candidate Check <candidate-check@example.invalid>' \
   ed25519 sign 1d >/dev/null 2>&1
 fingerprint="$(
   gpg --homedir "${signing_home}" --batch --with-colons --list-secret-keys |
@@ -62,11 +62,11 @@ gpg --homedir "${signing_home}" --batch --armor --export "${fingerprint}" \
 make_package() {
   local pkgrel="$1"
   local root="${stage_root}/package-${pkgrel}"
-  local package="${artifacts}/fcitx-vinput-rs-0.1.0-${pkgrel}-x86_64.pkg.tar.zst"
+  local package="${artifacts}/fcitx-vinpst-0.1.0-${pkgrel}-x86_64.pkg.tar.zst"
   mkdir -p "${root}"
   cat >"${root}/.PKGINFO" <<EOF
-pkgname = fcitx-vinput-rs
-pkgbase = fcitx-vinput-rs
+pkgname = fcitx-vinpst
+pkgbase = fcitx-vinpst
 pkgver = 0.1.0-${pkgrel}
 pkgdesc = Minimal release candidate fixture
 url = https://example.invalid/
@@ -87,10 +87,10 @@ EOF
 package_one="$(make_package 1)"
 package_two="$(make_package 2)"
 printf 'source fixture\n' >"${artifacts}/source.txt"
-tar -C "${artifacts}" -czf "${artifacts}/fcitx-vinput-rs-0.1.0.tar.gz" source.txt
-printf 'pkgname=fcitx-vinput-rs\n' >"${artifacts}/PKGBUILD"
-printf '%s\n' 'pkgbase = fcitx-vinput-rs' >"${artifacts}/.SRCINFO"
-printf '%s\n' 'post_install() { :; }' >"${artifacts}/fcitx-vinput-rs.install"
+tar -C "${artifacts}" -czf "${artifacts}/fcitx-vinpst-0.1.0.tar.gz" source.txt
+printf 'pkgname=fcitx-vinpst\n' >"${artifacts}/PKGBUILD"
+printf '%s\n' 'pkgbase = fcitx-vinpst' >"${artifacts}/.SRCINFO"
+printf '%s\n' 'post_install() { :; }' >"${artifacts}/fcitx-vinpst.install"
 
 repository="${stage_root}/gate-repository"
 mkdir "${repository}"
@@ -98,26 +98,26 @@ cp "${package_two}" "${package_two}.sig" "${repository}/"
 (
   cd "${repository}"
   repo_add_signed "${signing_home}" "${fingerprint}" \
-    vinput-signed.db.tar.gz "$(basename "${package_two}")"
+    vinpst-signed.db.tar.gz "$(basename "${package_two}")"
 )
 
 scripts/release/release_manifest.py assemble \
-  --package-name fcitx-vinput-rs \
+  --package-name fcitx-vinpst \
   --version 0.1.0 \
   --architecture x86_64 \
   --output-dir "${gate}" \
-  --artifact "source-archive=${artifacts}/fcitx-vinput-rs-0.1.0.tar.gz" \
+  --artifact "source-archive=${artifacts}/fcitx-vinpst-0.1.0.tar.gz" \
   --artifact "arch-pkgbuild=${artifacts}/PKGBUILD" \
   --artifact "arch-srcinfo=${artifacts}/.SRCINFO" \
-  --artifact "arch-install-script=${artifacts}/fcitx-vinput-rs.install" \
+  --artifact "arch-install-script=${artifacts}/fcitx-vinpst.install" \
   --artifact "package-pkgrel1=${package_one}" \
   --artifact "package-signature-pkgrel1=${package_one}.sig" \
   --artifact "package-pkgrel2-test=${package_two}" \
   --artifact "package-signature-pkgrel2-test=${package_two}.sig" \
-  --artifact "repository-database=${repository}/vinput-signed.db.tar.gz" \
-  --artifact "repository-database-signature=${repository}/vinput-signed.db.tar.gz.sig" \
-  --artifact "repository-files=${repository}/vinput-signed.files.tar.gz" \
-  --artifact "repository-files-signature=${repository}/vinput-signed.files.tar.gz.sig" \
+  --artifact "repository-database=${repository}/vinpst-signed.db.tar.gz" \
+  --artifact "repository-database-signature=${repository}/vinpst-signed.db.tar.gz.sig" \
+  --artifact "repository-files=${repository}/vinpst-signed.files.tar.gz" \
+  --artifact "repository-files-signature=${repository}/vinpst-signed.files.tar.gz.sig" \
   --artifact "signing-public-key-test=${public_key}"
 scripts/release/sign-release-manifest.sh "${gate}" "${signing_home}" "${fingerprint}"
 
@@ -137,7 +137,7 @@ if find "${candidate}" -maxdepth 1 -type f -printf '%f\n' |
   echo "release candidate contains forbidden private or test artifacts" >&2
   exit 1
 fi
-repository_database="${candidate}/fcitx-vinput-rs.db.tar.gz"
+repository_database="${candidate}/fcitx-vinpst.db.tar.gz"
 repository_desc="$(bsdtar -xOf "${repository_database}" '*/desc')"
 grep -qx '0.1.0-1' < <(
   awk '$0 == "%VERSION%" { getline; print; exit }' <<<"${repository_desc}"
@@ -180,7 +180,7 @@ test -f "${invalid_output}/sentinel"
 
 mutated_candidate="${stage_root}/mutated-candidate"
 cp -a "${candidate}" "${mutated_candidate}"
-printf 'tamper\n' >>"${mutated_candidate}/fcitx-vinput-rs-0.1.0-1-x86_64.pkg.tar.zst"
+printf 'tamper\n' >>"${mutated_candidate}/fcitx-vinpst-0.1.0-1-x86_64.pkg.tar.zst"
 expect_failure mutated-candidate 'artifact size mismatch' \
   scripts/release/verify-arch-release-candidate.sh \
   "${mutated_candidate}" "${public_key}" "${fingerprint}"

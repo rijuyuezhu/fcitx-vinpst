@@ -1,12 +1,12 @@
-#include "vinput_fcitx_bridge/fcitx_key_trigger.h"
+#include "vinpst_fcitx_bridge/fcitx_key_trigger.h"
 #include <fcitx-utils/key.h>
 #include <fcitx/event.h>
 
 #include <cassert>
 #include <cstdlib>
 
-using vinput_fcitx_bridge::FcitxKeyTriggerPolicy;
-using vinput_fcitx_bridge::FcitxTriggerAction;
+using vinpst_fcitx_bridge::FcitxKeyTriggerPolicy;
+using vinpst_fcitx_bridge::FcitxTriggerAction;
 int main() {
   const FcitxKeyTriggerPolicy policy;
 
@@ -54,10 +54,10 @@ int main() {
   fcitx::KeyEvent second_normal_press(nullptr, fcitx::Key(FcitxKey_F6), false);
   assert(multi_policy.Classify(second_normal_press) == FcitxTriggerAction::StartNormal);
 
-  unsetenv("VINPUT_FCITX_NORMAL_TRIGGER");
-  unsetenv("VINPUT_FCITX_COMMAND_TRIGGER");
-  unsetenv("VINPUT_FCITX_SCENE_MENU_TRIGGER");
-  unsetenv("VINPUT_FCITX_ASR_MENU_TRIGGER");
+  unsetenv("VINPST_FCITX_NORMAL_TRIGGER");
+  unsetenv("VINPST_FCITX_COMMAND_TRIGGER");
+  unsetenv("VINPST_FCITX_SCENE_MENU_TRIGGER");
+  unsetenv("VINPST_FCITX_ASR_MENU_TRIGGER");
   const auto default_env_policy = FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
       {fcitx::Key(FcitxKey_Control_R)}, {fcitx::Key(FcitxKey_F10)},
       {fcitx::Key(FcitxKey_Shift_R)}, {fcitx::Key(FcitxKey_F8)});
@@ -68,10 +68,10 @@ int main() {
       fcitx::Key(FcitxKey_Shift_R)));
   assert(default_env_policy.asr_menu_triggers().front().check(fcitx::Key(FcitxKey_F8)));
 
-  setenv("VINPUT_FCITX_NORMAL_TRIGGER", "F8", 1);
-  setenv("VINPUT_FCITX_COMMAND_TRIGGER", "F9", 1);
-  setenv("VINPUT_FCITX_SCENE_MENU_TRIGGER", "F7", 1);
-  setenv("VINPUT_FCITX_ASR_MENU_TRIGGER", "F6", 1);
+  setenv("VINPST_FCITX_NORMAL_TRIGGER", "F8", 1);
+  setenv("VINPST_FCITX_COMMAND_TRIGGER", "F9", 1);
+  setenv("VINPST_FCITX_SCENE_MENU_TRIGGER", "F7", 1);
+  setenv("VINPST_FCITX_ASR_MENU_TRIGGER", "F6", 1);
   const auto custom_env_policy = FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
       {fcitx::Key(FcitxKey_Control_R)}, {fcitx::Key(FcitxKey_F10)},
       {fcitx::Key(FcitxKey_Shift_R)}, {fcitx::Key(FcitxKey_F8)});
@@ -87,10 +87,10 @@ int main() {
   fcitx::KeyEvent env_asr_press(nullptr, fcitx::Key(FcitxKey_F6), false);
   assert(custom_env_policy.Classify(env_asr_press) == FcitxTriggerAction::ShowAsrMenu);
 
-  setenv("VINPUT_FCITX_NORMAL_TRIGGER", "not-a-key", 1);
-  setenv("VINPUT_FCITX_COMMAND_TRIGGER", "", 1);
-  setenv("VINPUT_FCITX_SCENE_MENU_TRIGGER", "not-a-key", 1);
-  setenv("VINPUT_FCITX_ASR_MENU_TRIGGER", "not-a-key", 1);
+  setenv("VINPST_FCITX_NORMAL_TRIGGER", "not-a-key", 1);
+  setenv("VINPST_FCITX_COMMAND_TRIGGER", "", 1);
+  setenv("VINPST_FCITX_SCENE_MENU_TRIGGER", "not-a-key", 1);
+  setenv("VINPST_FCITX_ASR_MENU_TRIGGER", "not-a-key", 1);
   const auto fallback_env_policy = FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
       {fcitx::Key(FcitxKey_F5), fcitx::Key(FcitxKey_F6)}, {fcitx::Key(FcitxKey_F9)},
       {fcitx::Key(FcitxKey_F7)}, {fcitx::Key(FcitxKey_F8)});
@@ -103,10 +103,10 @@ int main() {
       fallback_env_policy.scene_menu_triggers().front().check(fcitx::Key(FcitxKey_F7)));
   assert(
       fallback_env_policy.asr_menu_triggers().front().check(fcitx::Key(FcitxKey_F8)));
-  unsetenv("VINPUT_FCITX_NORMAL_TRIGGER");
-  unsetenv("VINPUT_FCITX_COMMAND_TRIGGER");
-  unsetenv("VINPUT_FCITX_SCENE_MENU_TRIGGER");
-  unsetenv("VINPUT_FCITX_ASR_MENU_TRIGGER");
+  unsetenv("VINPST_FCITX_NORMAL_TRIGGER");
+  unsetenv("VINPST_FCITX_COMMAND_TRIGGER");
+  unsetenv("VINPST_FCITX_SCENE_MENU_TRIGGER");
+  unsetenv("VINPST_FCITX_ASR_MENU_TRIGGER");
 
   return 0;
 }

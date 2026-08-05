@@ -14,7 +14,7 @@ External users following the currently supported Arch package path should start 
 4. [`migration/e2e-capability-matrix.md`](migration/e2e-capability-matrix.md): detailed E2E capability comparison and the native runtime/frontend parity backlog.
 5. [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md): active milestones and next work.
 6. [`migration/live-desktop-validation.md`](migration/live-desktop-validation.md): real-session validation procedure.
-7. [`architecture/README.md`](architecture/README.md): stable architecture and compatibility contracts.
+7. [`architecture/README.md`](architecture/README.md): stable architecture contracts, including the canonical identity policy.
 8. [`legacy/README.md`](legacy/README.md): source map for the original C++ project.
 
 [`live-toolkit-debugging.md`](live-toolkit-debugging.md) is the reusable real-application probe troubleshooting runbook. [`migration/agent-kickoff.md`](migration/agent-kickoff.md) is a short handoff summary. [`migration/e2e-port-plan.md`](migration/e2e-port-plan.md) is a compatibility redirect for older references.

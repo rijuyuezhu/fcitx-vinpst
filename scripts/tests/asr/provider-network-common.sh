@@ -16,7 +16,7 @@ provider_network_generate_tls_material() {
     -keyout "${fixture_ca_key}" \
     -out "${fixture_ca_cert}" \
     -days 1 \
-    -subj '/CN=vinput fixture CA' \
+    -subj '/CN=vinpst fixture CA' \
     -addext 'basicConstraints=critical,CA:TRUE' \
     -addext 'keyUsage=critical,keyCertSign,cRLSign' \
     >"${out_dir}/${prefix}-ca.stdout" \

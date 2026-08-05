@@ -42,10 +42,10 @@ grep -q '"aarch64-linux"' flake.nix
 grep -q 'cargoLock.lockFile = ./Cargo.lock;' flake.nix
 grep -q 'SHERPA_ONNX_LIB_DIR = "${sherpaRuntime}/lib";' flake.nix
 grep -q 'sherpa-onnx-backend' flake.nix
-grep -q 'VINPUT_FCITX_MODULE_INSTALL_DIR=lib/fcitx5' flake.nix
-grep -q 'VINPUT_FCITX_ADDON_INSTALL_DIR=share/fcitx5/addon' flake.nix
-grep -q 'VINPUT_SYSTEMD_USER_UNIT_DIR=lib/systemd/user' flake.nix
-grep -q 'share/licenses/fcitx-vinput-rs/LICENSE' flake.nix
+grep -q 'VINPST_FCITX_MODULE_INSTALL_DIR=lib/fcitx5' flake.nix
+grep -q 'VINPST_FCITX_ADDON_INSTALL_DIR=share/fcitx5/addon' flake.nix
+grep -q 'VINPST_SYSTEMD_USER_UNIT_DIR=lib/systemd/user' flake.nix
+grep -q 'share/licenses/fcitx-vinpst/LICENSE' flake.nix
 grep -q 'license = lib.licenses.gpl3Plus;' flake.nix
 grep -q 'nix flake check' packaging/nix/README.md
 

@@ -4222,7 +4222,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "vinput-asr"
+name = "vinpst-asr"
 version = "0.1.0"
 dependencies = [
  "reqwest",
@@ -4232,15 +4232,15 @@ dependencies = [
  "sherpa-onnx",
  "tempfile",
  "thiserror 2.0.18",
- "vinput-audio",
- "vinput-config",
- "vinput-http",
- "vinput-process",
- "vinput-protocol",
+ "vinpst-audio",
+ "vinpst-config",
+ "vinpst-http",
+ "vinpst-process",
+ "vinpst-protocol",
 ]
 
 [[package]]
-name = "vinput-audio"
+name = "vinpst-audio"
 version = "0.1.0"
 dependencies = [
  "pipewire",
@@ -4252,25 +4252,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "vinput-cli"
+name = "vinpst-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "serde_json",
  "tempfile",
- "vinput-asr",
- "vinput-audio",
- "vinput-config",
- "vinput-daemon-control",
- "vinput-protocol",
- "vinput-registry",
- "vinput-text",
+ "vinpst-asr",
+ "vinpst-audio",
+ "vinpst-config",
+ "vinpst-daemon-control",
+ "vinpst-protocol",
+ "vinpst-registry",
+ "vinpst-text",
  "zbus",
 ]
 
 [[package]]
-name = "vinput-config"
+name = "vinpst-config"
 version = "0.1.0"
 dependencies = [
  "insta",
@@ -4280,11 +4280,11 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "url",
- "vinput-protocol",
+ "vinpst-protocol",
 ]
 
 [[package]]
-name = "vinput-daemon"
+name = "vinpst-daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -4301,51 +4301,51 @@ dependencies = [
  "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
- "vinput-asr",
- "vinput-audio",
- "vinput-config",
- "vinput-protocol",
- "vinput-registry",
- "vinput-text",
+ "vinpst-asr",
+ "vinpst-audio",
+ "vinpst-config",
+ "vinpst-protocol",
+ "vinpst-registry",
+ "vinpst-text",
  "zbus",
 ]
 
 [[package]]
-name = "vinput-daemon-control"
+name = "vinpst-daemon-control"
 version = "0.1.0"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
-name = "vinput-fcitx-core"
+name = "vinpst-fcitx-core"
 version = "0.1.0"
 dependencies = [
- "vinput-protocol",
+ "vinpst-protocol",
 ]
 
 [[package]]
-name = "vinput-fcitx-dbus"
+name = "vinpst-fcitx-dbus"
 version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
  "tokio",
- "vinput-fcitx-core",
- "vinput-protocol",
+ "vinpst-fcitx-core",
+ "vinpst-protocol",
  "zbus",
 ]
 
 [[package]]
-name = "vinput-fcitx-ffi"
+name = "vinpst-fcitx-ffi"
 version = "0.1.0"
 dependencies = [
- "vinput-fcitx-core",
- "vinput-fcitx-dbus",
+ "vinpst-fcitx-core",
+ "vinpst-fcitx-dbus",
 ]
 
 [[package]]
-name = "vinput-gui"
+name = "vinpst-gui"
 version = "0.1.0"
 dependencies = [
  "iced",
@@ -4355,18 +4355,18 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
- "vinput-config",
- "vinput-daemon-control",
- "vinput-http",
- "vinput-protocol",
- "vinput-registry",
- "vinput-text",
+ "vinpst-config",
+ "vinpst-daemon-control",
+ "vinpst-http",
+ "vinpst-protocol",
+ "vinpst-registry",
+ "vinpst-text",
  "xattr",
  "zbus",
 ]
 
 [[package]]
-name = "vinput-http"
+name = "vinpst-http"
 version = "0.1.0"
 dependencies = [
  "reqwest",
@@ -4375,7 +4375,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vinput-process"
+name = "vinpst-process"
 version = "0.1.0"
 dependencies = [
  "nix",
@@ -4383,7 +4383,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vinput-protocol"
+name = "vinpst-protocol"
 version = "0.1.0"
 dependencies = [
  "insta",
@@ -4395,7 +4395,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vinput-registry"
+name = "vinpst-registry"
 version = "0.1.0"
 dependencies = [
  "bzip2",
@@ -4407,12 +4407,12 @@ dependencies = [
  "tar",
  "tempfile",
  "thiserror 2.0.18",
- "vinput-config",
+ "vinpst-config",
  "zstd",
 ]
 
 [[package]]
-name = "vinput-text"
+name = "vinpst-text"
 version = "0.1.0"
 dependencies = [
  "regex",
@@ -4421,10 +4421,10 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
- "vinput-config",
- "vinput-http",
- "vinput-process",
- "vinput-protocol",
+ "vinpst-config",
+ "vinpst-http",
+ "vinpst-process",
+ "vinpst-protocol",
 ]
 
 [[package]]

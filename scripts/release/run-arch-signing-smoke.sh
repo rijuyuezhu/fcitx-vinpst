@@ -24,11 +24,11 @@ initial_package="${1:-}"
 upgrade_package="${2:-}"
 if [[ -z "${initial_package}" ]]; then
   initial_package="$(find target/tmp/arch-package-smoke/build -maxdepth 1 -type f \
-    -name 'fcitx-vinput-rs-*-1-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
+    -name 'fcitx-vinpst-*-1-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
 fi
 if [[ -z "${upgrade_package}" ]]; then
   upgrade_package="$(find target/tmp/arch-package-smoke/build -maxdepth 1 -type f \
-    -name 'fcitx-vinput-rs-*-2-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
+    -name 'fcitx-vinpst-*-2-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
 fi
 if [[ ! -f "${initial_package}" || ! -f "${upgrade_package}" ]]; then
   echo "initial and upgrade package archives are required; run just arch-package-smoke first" >&2
@@ -52,10 +52,10 @@ stage_root="${repo_root}/target/tmp/arch-signing-smoke"
 signing_home="${stage_root}/signing-home"
 trusted_keyring="${stage_root}/trusted-keyring"
 repository_root="${stage_root}/repository"
-repository_name="vinput-signed"
+repository_name="vinpst-signed"
 repository_database="${repository_root}/${repository_name}.db.tar.gz"
 public_key="${stage_root}/public-key.asc"
-user_config_relative="home/test/.config/fcitx-vinput/config.json"
+user_config_relative="home/test/.config/fcitx-vinpst/config.json"
 
 cleanup() {
   gpg_session_stop "${signing_home}"
@@ -73,7 +73,7 @@ cp "${upgrade_package}" "${upgrade_repository_package}"
 
 gpg --homedir "${signing_home}" --batch --passphrase '' \
   --quick-generate-key \
-  'Vinput Package Smoke <package-smoke@example.invalid>' \
+  'Vinpst Package Smoke <package-smoke@example.invalid>' \
   ed25519 sign 1d
 fingerprint="$(
   gpg --homedir "${signing_home}" --batch --with-colons --list-secret-keys |
@@ -171,25 +171,25 @@ assert_user_config_unchanged() {
 assert_signed_repository_version() {
   local expected_version="$1"
   local info
-  info="$(fakeroot pacman "${pacman_args[@]}" -Si fcitx-vinput-rs)"
+  info="$(fakeroot pacman "${pacman_args[@]}" -Si fcitx-vinpst)"
   grep -qx "Repository      : ${repository_name}" <<<"${info}"
   grep -qx "Version         : ${expected_version}" <<<"${info}"
-  grep -qx "Provides        : fcitx5-vinput=${package_base_version}" <<<"${info}"
+  grep -qx "Provides        : fcitx5-vinpst=${package_base_version}" <<<"${info}"
   grep -qx 'Validated By    : SHA-256 Sum  Signature' <<<"${info}"
 }
 
 assert_installed_version() {
   local expected_version="$1"
-  test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs)" = \
-    "fcitx-vinput-rs ${expected_version}"
-  fakeroot pacman "${pacman_args[@]}" -Qkk fcitx-vinput-rs >/dev/null
+  test "$(fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst)" = \
+    "fcitx-vinpst ${expected_version}"
+  fakeroot pacman "${pacman_args[@]}" -Qkk fcitx-vinpst >/dev/null
   assert_user_config_unchanged
 }
 
 read_root_values trusted "${trusted_keyring}" "${repository_root}"
 fakeroot pacman "${pacman_args[@]}" -Syy
 assert_signed_repository_version "${initial_version}"
-fakeroot pacman "${pacman_args[@]}" -Sdd --noscriptlet fcitx-vinput-rs
+fakeroot pacman "${pacman_args[@]}" -Sdd --noscriptlet fcitx-vinpst
 assert_installed_version "${initial_version}"
 test -f "${cache_path}/$(basename "${initial_package}")"
 
@@ -200,11 +200,11 @@ fakeroot pacman-key --gpgdir "${trusted_keyring}" --verify \
   "${repository_database}.sig" >/dev/null
 fakeroot pacman "${pacman_args[@]}" -Syy
 assert_signed_repository_version "${upgrade_version}"
-fakeroot pacman "${pacman_args[@]}" -Sdd --noscriptlet fcitx-vinput-rs
+fakeroot pacman "${pacman_args[@]}" -Sdd --noscriptlet fcitx-vinpst
 assert_installed_version "${upgrade_version}"
 test -f "${cache_path}/$(basename "${upgrade_package}")"
-fakeroot pacman "${pacman_args[@]}" -Rdd --noscriptlet fcitx-vinput-rs
-! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs >/dev/null 2>&1
+fakeroot pacman "${pacman_args[@]}" -Rdd --noscriptlet fcitx-vinpst
+! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst >/dev/null 2>&1
 assert_user_config_unchanged
 
 untrusted_keyring="${stage_root}/untrusted-keyring"
@@ -222,7 +222,7 @@ set -e
 test "${untrusted_status}" -ne 0
 grep -qi 'invalid or corrupted database (PGP signature)' \
   "${stage_root}/untrusted.out"
-! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs >/dev/null 2>&1
+! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst >/dev/null 2>&1
 assert_user_config_unchanged
 
 tampered_repository="${stage_root}/tampered-repository"
@@ -240,14 +240,14 @@ PY
 read_root_values tampered "${trusted_keyring}" "${tampered_repository}"
 fakeroot pacman "${pacman_args[@]}" -Syy
 set +e
-fakeroot pacman "${pacman_args[@]}" -Sdd --noscriptlet fcitx-vinput-rs \
+fakeroot pacman "${pacman_args[@]}" -Sdd --noscriptlet fcitx-vinpst \
   >"${stage_root}/tampered.out" 2>&1
 tampered_status=$?
 set -e
 test "${tampered_status}" -ne 0
 grep -qi 'invalid or corrupted package (PGP signature)' \
   "${stage_root}/tampered.out"
-! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinput-rs >/dev/null 2>&1
+! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst >/dev/null 2>&1
 assert_user_config_unchanged
 
 echo "Arch signed repository trust and tamper smoke passed"

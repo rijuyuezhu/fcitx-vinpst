@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Vinpst Configuration
+Name[zh_CN]=Vinpst 配置
+Comment=Configure Vinpst voice input
+Comment[zh_CN]=配置 Vinpst 语音输入
+Exec=vinpst-gui
+Icon=vinpst-gui
+Terminal=false
+Type=Application
+Categories=Settings;Utility;
+StartupNotify=true

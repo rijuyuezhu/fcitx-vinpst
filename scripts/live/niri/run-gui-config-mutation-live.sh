@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-gui_bin="${VINPUT_GUI_CONFIG_LIVE_BIN:-target/debug/vinput-gui}"
-out_dir="${VINPUT_GUI_CONFIG_LIVE_OUT_DIR:-target/tmp/gui-config-mutation-live}"
-daemon_fixture="${VINPUT_GUI_CONFIG_LIVE_DAEMON_FIXTURE:-scripts/live/niri/probes/gui-daemon-config-fixture.py}"
-key_sender="${VINPUT_GUI_CONFIG_LIVE_KEY_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
-notification_url="${VINPUT_GUI_CONFIG_LIVE_NOTIFICATION_URL:-http://127.0.0.1:9/notification.json}"
-success_value="${VINPUT_GUI_CONFIG_LIVE_SUCCESS_VALUE:-live-success-language}"
-conflict_draft_value="${VINPUT_GUI_CONFIG_LIVE_CONFLICT_DRAFT_VALUE:-live-conflict-draft}"
-external_value="${VINPUT_GUI_CONFIG_LIVE_EXTERNAL_VALUE:-live-external-version}"
+gui_bin="${VINPST_GUI_CONFIG_LIVE_BIN:-target/debug/vinpst-gui}"
+out_dir="${VINPST_GUI_CONFIG_LIVE_OUT_DIR:-target/tmp/gui-config-mutation-live}"
+daemon_fixture="${VINPST_GUI_CONFIG_LIVE_DAEMON_FIXTURE:-scripts/live/niri/probes/gui-daemon-config-fixture.py}"
+key_sender="${VINPST_GUI_CONFIG_LIVE_KEY_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
+notification_url="${VINPST_GUI_CONFIG_LIVE_NOTIFICATION_URL:-http://127.0.0.1:9/notification.json}"
+success_value="${VINPST_GUI_CONFIG_LIVE_SUCCESS_VALUE:-live-success-language}"
+conflict_draft_value="${VINPST_GUI_CONFIG_LIVE_CONFLICT_DRAFT_VALUE:-live-conflict-draft}"
+external_value="${VINPST_GUI_CONFIG_LIVE_EXTERNAL_VALUE:-live-external-version}"
 clipboard_before=""
 clipboard_had_text=0
 clipboard_types_before=""
@@ -227,7 +227,7 @@ start_gui() {
     XDG_CONFIG_HOME="${config_home}" \
     XDG_CACHE_HOME="${cache_home}" \
     XDG_DATA_HOME="${data_home}" \
-    VINPUT_NOTIFICATION_URL="${notification_url}" \
+    VINPST_NOTIFICATION_URL="${notification_url}" \
     "${gui_bin}" >"${out_dir}/${name}.stdout.log" 2>"${out_dir}/${name}.stderr.log" &
   gui_pid=$!
   tracked_gui_pids+=("${gui_pid}")
@@ -246,7 +246,7 @@ start_gui() {
     sleep 0.1
   done
   [[ -n "${gui_window_id}" ]] || fail "${name} GUI window did not appear"
-  [[ "$(window_title)" == 'Vinput Configuration — Control' ]] ||
+  [[ "$(window_title)" == 'Vinpst Configuration — Control' ]] ||
     fail "${name} GUI did not expose the expected initial title"
   if grep -Eq 'Cannot start a runtime from within a runtime|panicked at' \
     "${out_dir}/${name}.stderr.log"; then
@@ -304,7 +304,7 @@ save_from_language_field() {
 
 prepare_config_root() {
   local root=$1
-  local config_path="${root}/config/fcitx-vinput/config.json"
+  local config_path="${root}/config/fcitx-vinpst/config.json"
   mkdir -p "$(dirname "${config_path}")"
   install -m 600 data/default-config.json "${config_path}"
   printf '%s' "${config_path}"

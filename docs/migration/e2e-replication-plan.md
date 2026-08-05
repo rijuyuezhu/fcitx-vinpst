@@ -64,7 +64,7 @@ Live in a real user session, `scripts/live/niri/run-ime-fcitx-virtual-source-liv
 4. Prove addon discovery and D-Bus activation in the real session.
 5. Keep the live-proven GTK3, Qt6, Chromium/Ozone and VS Code/Electron renderer-sandbox, surrounding-text, and primary-selection-fallback paths green.
 6. Keep the live-proven focus-handoff, owner-loss, same-provider reload, default physical-microphone dictation, same-recorder two-source PipeWire target switching, isolated real-`wpctl` output duck/restore, scene/ASR selection and paging, installed-catalog zh_CN menu, official English/zh_CN configuration-form labels and trigger-mode choices, plus scene-info/ASR-switch/error-summary notification localization, F8 model/command/Whisper/remote success plus remote prepare-failure preservation, Tap/Hold/Both timing, and notification paths green; next exercise additional physical-device breadth, audible hardware-output ducking, and real hosted-ASR/provider credential behavior beyond the deterministic local network-semantics gate. English fallback plus zh_CN already matches the legacy locale set.
-7. Keep both live-proven command paths and the deterministic `vinput llm test` network-semantics gate green; next prove real hosted-provider credential lifecycle and production CA distribution/revocation operations, PAC, NTLM/Kerberos, enterprise TLS-interception policy and certificate deployment, provider-specific outage behavior, and cross-application recovery.
+7. Keep both live-proven command paths and the deterministic `vinpst llm test` network-semantics gate green; next prove real hosted-provider credential lifecycle and production CA distribution/revocation operations, PAC, NTLM/Kerberos, enterprise TLS-interception policy and certificate deployment, provider-specific outage behavior, and cross-application recovery.
 8. Record exact failures and add deterministic regressions before fixing them.
 
 The validation procedure is [`live-desktop-validation.md`](live-desktop-validation.md).
@@ -75,7 +75,7 @@ The validation procedure is [`live-desktop-validation.md`](live-desktop-validati
 - Validate one real third-party OpenAI-compatible text service, including credential handling and network failure behavior.
 - Broaden daemon-originated notification categories from observed needs.
 - Keep the source-layout regression guard green and continue splitting only when data, orchestration, transport, formatting, or platform integration form distinct feature boundaries.
-- Keep the real Chromium same-host LAN gate green, then complete `scripts/live/network/run-remote-text-external-device-live.sh` from another physical device and repeat that flow using a redacted endpoint reported by `vinput daemon status`.
+- Keep the real Chromium same-host LAN gate green, then complete `scripts/live/network/run-remote-text-external-device-live.sh` from another physical device and repeat that flow using a redacted endpoint reported by `vinpst daemon status`.
 
 ## P2: release readiness
 

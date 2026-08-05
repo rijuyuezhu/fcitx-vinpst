@@ -15,7 +15,7 @@ cd "${repo_root}"
 
 version="$(
   cargo metadata --no-deps --format-version 1 |
-    jq -r '.packages[] | select(.name == "vinput-cli") | .version'
+    jq -r '.packages[] | select(.name == "vinpst-cli") | .version'
 )"
 test -n "${version}"
 
@@ -25,33 +25,33 @@ mkdir -p "${check_root}"
 
 scripts/release/render-arch-pkgbuild.py \
   --version "${version}" \
-  --source-url file:///tmp/fcitx-vinput-rs-source.tar.gz \
+  --source-url file:///tmp/fcitx-vinpst-source.tar.gz \
   --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-  --source-dir "fcitx-vinput-rs-${version}" \
+  --source-dir "fcitx-vinpst-${version}" \
   --output "${check_root}/PKGBUILD"
 
 (
   cd "${check_root}"
   "${repo_root}/scripts/release/render-arch-pkgbuild.py" \
     --version "${version}" \
-    --source-url file:///tmp/fcitx-vinput-rs-source.tar.gz \
+    --source-url file:///tmp/fcitx-vinpst-source.tar.gz \
     --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-    --source-dir "fcitx-vinput-rs-${version}" \
+    --source-dir "fcitx-vinpst-${version}" \
     --output nested/PKGBUILD
 )
-cmp packaging/arch/fcitx-vinput-rs.install \
-  "${check_root}/nested/fcitx-vinput-rs.install"
+cmp packaging/arch/fcitx-vinpst.install \
+  "${check_root}/nested/fcitx-vinpst.install"
 
 bash -n "${check_root}/PKGBUILD"
-bash -n "${check_root}/fcitx-vinput-rs.install"
+bash -n "${check_root}/fcitx-vinpst.install"
 grep -Fq 'install -Dm644 LICENSE' "${check_root}/PKGBUILD"
 grep -Fq '/usr/share/licenses/${pkgname}/LICENSE' "${check_root}/PKGBUILD"
-grep -Fq -- '-DVINPUT_FCITX_RUST_BUILD_PROFILE=release' \
+grep -Fq -- '-DVINPST_FCITX_RUST_BUILD_PROFILE=release' \
   "${check_root}/PKGBUILD"
-grep -Fq -- '-DVINPUT_FCITX_RUST_TARGET_DIR="${srcdir}/cargo-target"' \
+grep -Fq -- '-DVINPST_FCITX_RUST_TARGET_DIR="${srcdir}/cargo-target"' \
   "${check_root}/PKGBUILD"
-cmp packaging/arch/fcitx-vinput-rs.install \
-  "${check_root}/fcitx-vinput-rs.install"
+cmp packaging/arch/fcitx-vinpst.install \
+  "${check_root}/fcitx-vinpst.install"
 (
   cd "${check_root}"
   makepkg --printsrcinfo >.SRCINFO
@@ -60,11 +60,12 @@ cmp packaging/arch/fcitx-vinput-rs.install \
 srcinfo="${check_root}/.SRCINFO"
 grep -qx $'\t'"pkgver = ${version}" "${srcinfo}"
 grep -qx $'\tarch = x86_64' "${srcinfo}"
-grep -qx $'\t'"provides = fcitx5-vinput=${version}" "${srcinfo}"
-grep -qx $'\tconflicts = fcitx5-vinput' "${srcinfo}"
+! grep -q $'\tprovides = ' "${srcinfo}"
+! grep -q $'\tconflicts = ' "${srcinfo}"
+! grep -q $'\treplaces = ' "${srcinfo}"
 grep -qx $'\toptions = !debug' "${srcinfo}"
 grep -qx $'\toptions = !lto' "${srcinfo}"
-grep -qx $'\tinstall = fcitx-vinput-rs.install' "${srcinfo}"
+grep -qx $'\tinstall = fcitx-vinpst.install' "${srcinfo}"
 grep -qx $'\tdepends = coreutils' "${srcinfo}"
 grep -qx $'\tdepends = fontconfig' "${srcinfo}"
 grep -qx $'\tdepends = glib2' "${srcinfo}"
@@ -114,9 +115,9 @@ EOF
 
 scripts/release/render-arch-pkgbuild.py \
   --version "${version}" \
-  --source-url file:///tmp/fcitx-vinput-rs-source.tar.gz \
+  --source-url file:///tmp/fcitx-vinpst-source.tar.gz \
   --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-  --source-dir "fcitx-vinput-rs-${version}" \
+  --source-dir "fcitx-vinpst-${version}" \
   --runtime-bundles "${check_root}/runtime-bundles.json" \
   --runtime-bundle fixture-aarch64 \
   --output "${check_root}/selected/PKGBUILD"
@@ -135,17 +136,17 @@ grep -qx $'\tsha256sums = ffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 mkdir -p \
   "${check_root}/selected/fake-bin" \
-  "${check_root}/selected/src/fcitx-vinput-rs-${version}"
+  "${check_root}/selected/src/fcitx-vinpst-${version}"
 cat >"${check_root}/selected/fake-bin/cargo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >"${VINPUT_FAKE_CARGO_LOG:?}"
+printf '%s\n' "$*" >"${VINPST_FAKE_CARGO_LOG:?}"
 EOF
 chmod 755 "${check_root}/selected/fake-bin/cargo"
 (
   cd "${check_root}/selected/src"
   export srcdir="$PWD"
-  export VINPUT_FAKE_CARGO_LOG="${check_root}/selected/cargo.log"
+  export VINPST_FAKE_CARGO_LOG="${check_root}/selected/cargo.log"
   export PATH="${check_root}/selected/fake-bin:${PATH}"
   # shellcheck disable=SC1091
   source ../PKGBUILD
@@ -164,9 +165,9 @@ expect_render_failure() {
   set +e
   scripts/release/render-arch-pkgbuild.py \
     --version "${version}" \
-    --source-url file:///tmp/fcitx-vinput-rs-source.tar.gz \
+    --source-url file:///tmp/fcitx-vinpst-source.tar.gz \
     --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-    --source-dir "fcitx-vinput-rs-${version}" \
+    --source-dir "fcitx-vinpst-${version}" \
     --runtime-bundles "${manifest}" \
     --output "${check_root}/rejected/PKGBUILD" \
     "$@" 2>"${stderr_path}"

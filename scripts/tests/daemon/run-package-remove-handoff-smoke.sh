@@ -22,22 +22,22 @@ root="${repo_root}/target/tmp/package-remove-handoff-smoke"
 service_dir="${root}/data-home/dbus-1/services"
 rm -rf "${root}"
 mkdir -p "${service_dir}" "${root}/data-dirs"
-printf '[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/removed/vinput-daemon --dbus\n' \
-  >"${service_dir}/org.fcitx.Vinput.service"
+printf '[D-BUS Service]\nName=org.fcitx.Vinpst\nExec=/removed/vinpst-daemon --dbus\n' \
+  >"${service_dir}/org.fcitx.Vinpst.service"
 write_isolated_dbus_session_config "${root}/session.conf" "${service_dir}"
 
-cargo build -q -p vinput-cli --bin vinput -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-cli --bin vinpst -p vinpst-daemon --bin vinpst-daemon
 
 XDG_DATA_HOME="${root}/data-home" \
 XDG_DATA_DIRS="${root}/data-dirs" \
-VINPUT_REMOVE_ROOT="${root}" \
+VINPST_REMOVE_ROOT="${root}" \
   timeout 30s dbus-run-session --config-file="${root}/session.conf" -- \
   bash -euo pipefail <<'INNER'
-root="${VINPUT_REMOVE_ROOT}"
+root="${VINPST_REMOVE_ROOT}"
 uid="$(id -u)"
-runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinput-remove-runtime.XXXXXX")"
+runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinpst-remove-runtime.XXXXXX")"
 runtime_dir="${runtime_root}/${uid}"
-activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinput.service"
+activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinpst.service"
 daemon_pid=""
 cleanup() {
   if [[ -n "${daemon_pid}" ]]; then
@@ -55,7 +55,7 @@ gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
   --method org.freedesktop.DBus.ListActivatableNames |
-  grep -Fq org.fcitx.Vinput
+  grep -Fq org.fcitx.Vinpst
 
 cat >"${root}/runuser" <<'SH'
 #!/usr/bin/env bash
@@ -74,17 +74,17 @@ assert_activation_absent() {
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
     --method org.freedesktop.DBus.ListActivatableNames |
-    grep -Fq org.fcitx.Vinput; then
+    grep -Fq org.fcitx.Vinpst; then
     echo "systemctl ran before D-Bus activation metadata was reloaded" >&2
     exit 96
   fi
 }
 case "$*" in
-  '--user show --property MainPID --value vinput-daemon.service')
+  '--user show --property MainPID --value vinpst-daemon.service')
     assert_activation_absent
     printf '0\n'
     ;;
-  '--user disable --now vinput-daemon.service')
+  '--user disable --now vinpst-daemon.service')
     assert_activation_absent
     printf '%s\n' "$*" >"$(dirname "$0")/systemctl.log"
     ;;
@@ -96,13 +96,13 @@ esac
 SH
 chmod +x "${root}/runuser" "${root}/systemctl"
 
-XDG_CONFIG_HOME="${root}/config" target/debug/vinput-daemon --dbus >"${root}/daemon.log" 2>&1 &
+XDG_CONFIG_HOME="${root}/config" target/debug/vinpst-daemon --dbus >"${root}/daemon.log" 2>&1 &
 daemon_pid=$!
 for _ in $(seq 1 100); do
   if gdbus call --session \
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
-    --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinput |
+    --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinpst |
     grep -Fq true; then
     break
   fi
@@ -111,32 +111,32 @@ done
 gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
-  --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinput |
+  --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinpst |
   grep -Fq true
-XDG_CONFIG_HOME="${root}/config" target/debug/vinput daemon status --json >/dev/null
+XDG_CONFIG_HOME="${root}/config" target/debug/vinpst daemon status --json >/dev/null
 
-VINPUT_REMOVE_ACTIVATION_FILE="${activation_file}" \
-VINPUT_REMOVE_RUNTIME_ROOT="${runtime_root}" \
-VINPUT_REMOVE_VINPUT="${PWD}/target/debug/vinput" \
-VINPUT_REMOVE_RUNUSER="${root}/runuser" \
-VINPUT_REMOVE_SYSTEMCTL="${root}/systemctl" \
+VINPST_REMOVE_ACTIVATION_FILE="${activation_file}" \
+VINPST_REMOVE_RUNTIME_ROOT="${runtime_root}" \
+VINPST_REMOVE_VINPST="${PWD}/target/debug/vinpst" \
+VINPST_REMOVE_RUNUSER="${root}/runuser" \
+VINPST_REMOVE_SYSTEMCTL="${root}/systemctl" \
   scripts/release/package-remove-handoff.sh >"${root}/handoff.log"
 
 wait "${daemon_pid}" 2>/dev/null || true
 test ! -e "${activation_file}"
-test "$(cat "${root}/systemctl.log")" = '--user disable --now vinput-daemon.service'
+test "$(cat "${root}/systemctl.log")" = '--user disable --now vinpst-daemon.service'
 if gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
   --method org.freedesktop.DBus.ListActivatableNames |
-  grep -Fq org.fcitx.Vinput; then
+  grep -Fq org.fcitx.Vinpst; then
   echo "package removal helper left activation metadata visible" >&2
   exit 1
 fi
 if gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
-  --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinput |
+  --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinpst |
   grep -Fq true; then
   echo "package removal helper left a daemon owner" >&2
   exit 1
@@ -150,29 +150,29 @@ busy_root="${repo_root}/target/tmp/package-remove-handoff-busy-smoke"
 busy_service_dir="${busy_root}/data-home/dbus-1/services"
 rm -rf "${busy_root}"
 mkdir -p "${busy_service_dir}" "${busy_root}/data-dirs"
-printf '[D-BUS Service]\nName=org.fcitx.Vinput\nExec=/removed/vinput-daemon --dbus\n' \
-  >"${busy_service_dir}/org.fcitx.Vinput.service"
-cp "${busy_service_dir}/org.fcitx.Vinput.service" \
+printf '[D-BUS Service]\nName=org.fcitx.Vinpst\nExec=/removed/vinpst-daemon --dbus\n' \
+  >"${busy_service_dir}/org.fcitx.Vinpst.service"
+cp "${busy_service_dir}/org.fcitx.Vinpst.service" \
   "${busy_root}/activation-before.service"
 write_isolated_dbus_session_config "${busy_root}/session.conf" "${busy_service_dir}"
 
 XDG_DATA_HOME="${busy_root}/data-home" \
 XDG_DATA_DIRS="${busy_root}/data-dirs" \
-VINPUT_REMOVE_ROOT="${busy_root}" \
+VINPST_REMOVE_ROOT="${busy_root}" \
   timeout 30s dbus-run-session --config-file="${busy_root}/session.conf" -- \
   bash -euo pipefail <<'INNER'
-root="${VINPUT_REMOVE_ROOT}"
+root="${VINPST_REMOVE_ROOT}"
 uid="$(id -u)"
-runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinput-remove-busy-runtime.XXXXXX")"
+runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinpst-remove-busy-runtime.XXXXXX")"
 runtime_dir="${runtime_root}/${uid}"
-activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinput.service"
+activation_file="${XDG_DATA_HOME}/dbus-1/services/org.fcitx.Vinpst.service"
 daemon_pid=""
 cleanup() {
   if [[ -n "${daemon_pid}" ]]; then
     gdbus call --session \
-      --dest org.fcitx.Vinput \
-      --object-path /org/fcitx/Vinput \
-      --method org.fcitx.Vinput.Service.StopRecording "" >/dev/null 2>&1 || true
+      --dest org.fcitx.Vinpst \
+      --object-path /org/fcitx/Vinpst \
+      --method org.fcitx.Vinpst.Service.StopRecording "" >/dev/null 2>&1 || true
     kill "${daemon_pid}" 2>/dev/null || true
     wait "${daemon_pid}" 2>/dev/null || true
   fi
@@ -187,7 +187,7 @@ gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
   --method org.freedesktop.DBus.ListActivatableNames |
-  grep -Fq org.fcitx.Vinput
+  grep -Fq org.fcitx.Vinpst
 
 cat >"${root}/runuser" <<'SH'
 #!/usr/bin/env bash
@@ -201,12 +201,12 @@ SH
 cat >"${root}/systemctl" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-test "$*" = '--user show --property MainPID --value vinput-daemon.service'
+test "$*" = '--user show --property MainPID --value vinpst-daemon.service'
 if gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
   --method org.freedesktop.DBus.ListActivatableNames |
-  grep -Fq org.fcitx.Vinput; then
+  grep -Fq org.fcitx.Vinpst; then
   echo "systemd probe ran before D-Bus activation metadata was reloaded" >&2
   exit 96
 fi
@@ -218,33 +218,33 @@ exit 97
 SH
 chmod +x "${root}/runuser" "${root}/systemctl" "${root}/must-not-kill"
 
-XDG_CONFIG_HOME="${root}/config" target/debug/vinput-daemon --dbus >"${root}/daemon.log" 2>&1 &
+XDG_CONFIG_HOME="${root}/config" target/debug/vinpst-daemon --dbus >"${root}/daemon.log" 2>&1 &
 daemon_pid=$!
 for _ in $(seq 1 100); do
   if gdbus call --session \
     --dest org.freedesktop.DBus \
     --object-path /org/freedesktop/DBus \
-    --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinput |
+    --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinpst |
     grep -Fq true; then
     break
   fi
   sleep 0.05
 done
 gdbus call --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput \
-  --method org.fcitx.Vinput.Service.StartRecording >/dev/null
+  --dest org.fcitx.Vinpst \
+  --object-path /org/fcitx/Vinpst \
+  --method org.fcitx.Vinpst.Service.StartRecording >/dev/null
 test "$(gdbus call --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput \
-  --method org.fcitx.Vinput.Service.GetStatus)" = "('recording',)"
+  --dest org.fcitx.Vinpst \
+  --object-path /org/fcitx/Vinpst \
+  --method org.fcitx.Vinpst.Service.GetStatus)" = "('recording',)"
 
-if VINPUT_REMOVE_ACTIVATION_FILE="${activation_file}" \
-  VINPUT_REMOVE_RUNTIME_ROOT="${runtime_root}" \
-  VINPUT_REMOVE_VINPUT="${PWD}/target/debug/vinput" \
-  VINPUT_REMOVE_RUNUSER="${root}/runuser" \
-  VINPUT_REMOVE_SYSTEMCTL="${root}/systemctl" \
-  VINPUT_REMOVE_KILL="${root}/must-not-kill" \
+if VINPST_REMOVE_ACTIVATION_FILE="${activation_file}" \
+  VINPST_REMOVE_RUNTIME_ROOT="${runtime_root}" \
+  VINPST_REMOVE_VINPST="${PWD}/target/debug/vinpst" \
+  VINPST_REMOVE_RUNUSER="${root}/runuser" \
+  VINPST_REMOVE_SYSTEMCTL="${root}/systemctl" \
+  VINPST_REMOVE_KILL="${root}/must-not-kill" \
   scripts/release/package-remove-handoff.sh >"${root}/handoff.log" 2>"${root}/handoff.err"; then
   echo "busy package removal unexpectedly succeeded" >&2
   exit 1
@@ -255,14 +255,14 @@ gdbus call --session \
   --dest org.freedesktop.DBus \
   --object-path /org/freedesktop/DBus \
   --method org.freedesktop.DBus.ListActivatableNames |
-  grep -Fq org.fcitx.Vinput
+  grep -Fq org.fcitx.Vinpst
 kill -0 "${daemon_pid}"
 test "$(gdbus call --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput \
-  --method org.fcitx.Vinput.Service.GetStatus)" = "('recording',)"
-grep -Fq 'failed to preflight vinput daemon removal' "${root}/handoff.err"
-grep -Fq 'vinput removal preflight failed for 1 session(s)' "${root}/handoff.err"
+  --dest org.fcitx.Vinpst \
+  --object-path /org/fcitx/Vinpst \
+  --method org.fcitx.Vinpst.Service.GetStatus)" = "('recording',)"
+grep -Fq 'failed to preflight vinpst daemon removal' "${root}/handoff.err"
+grep -Fq 'vinpst removal preflight failed for 1 session(s)' "${root}/handoff.err"
 jq -e '
   .ok == false and
   .preflight == true and

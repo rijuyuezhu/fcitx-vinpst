@@ -1,21 +1,21 @@
-#include "vinput_fcitx_bridge/fcitx_config.h"
+#include "vinpst_fcitx_bridge/fcitx_config.h"
 
-#include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/fcitx_i18n.h"
 
 #include <fcitx-config/iniparser.h>
 
 #if __has_include(<fcitx-utils/standardpaths.h>)
 #include <fcitx-utils/standardpaths.h>
-#define VINPUT_FCITX_HAS_STANDARD_PATHS 1
+#define VINPST_FCITX_HAS_STANDARD_PATHS 1
 #else
 #include <fcitx-utils/standardpath.h>
-#define VINPUT_FCITX_HAS_STANDARD_PATHS 0
+#define VINPST_FCITX_HAS_STANDARD_PATHS 0
 #endif
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 namespace {
 
-#if VINPUT_FCITX_HAS_STANDARD_PATHS
+#if VINPST_FCITX_HAS_STANDARD_PATHS
 constexpr auto kFrontendConfigPathType = fcitx::StandardPathsType::PkgConfig;
 #else
 constexpr auto kFrontendConfigPathType = fcitx::StandardPath::Type::PkgConfig;
@@ -30,7 +30,7 @@ fcitx::ListConstrain<fcitx::KeyConstrain> TriggerConstrain() {
 
 } // namespace
 
-VinputFrontendConfig::VinputFrontendConfig(const FrontendSettings &settings)
+VinpstFrontendConfig::VinpstFrontendConfig(const FrontendSettings &settings)
     : normal_triggers(this, "TriggerKey", FrontendText("Normal Dictation Keys"),
                       settings.normal_triggers, TriggerConstrain()),
       command_triggers(this, "CommandKeys", FrontendText("Command Dictation Keys"),
@@ -46,7 +46,7 @@ VinputFrontendConfig::VinputFrontendConfig(const FrontendSettings &settings)
       trigger_mode(this, "TriggerMode", FrontendText("Trigger Mode"),
                    settings.trigger_mode) {}
 
-FrontendSettings VinputFrontendConfig::settings() const {
+FrontendSettings VinpstFrontendConfig::settings() const {
   return FrontendSettings{
       .normal_triggers = normal_triggers.value(),
       .command_triggers = command_triggers.value(),
@@ -59,22 +59,22 @@ FrontendSettings VinputFrontendConfig::settings() const {
 }
 
 FrontendSettings LoadFrontendSettings() {
-  VinputFrontendConfig config;
+  VinpstFrontendConfig config;
   fcitx::readAsIni(config, kFrontendConfigPathType, kFrontendConfigPath);
   return config.settings();
 }
 
 bool SaveFrontendSettings(const FrontendSettings &settings) {
-  VinputFrontendConfig config(settings);
+  VinpstFrontendConfig config(settings);
   fcitx::RawConfig raw;
   fcitx::readAsIni(raw, kFrontendConfigPathType, kFrontendConfigPath);
   config.save(raw);
   return fcitx::safeSaveAsIni(raw, kFrontendConfigPathType, kFrontendConfigPath);
 }
 
-std::unique_ptr<VinputFrontendConfig>
+std::unique_ptr<VinpstFrontendConfig>
 BuildFrontendConfig(const FrontendSettings &settings) {
-  return std::make_unique<VinputFrontendConfig>(settings);
+  return std::make_unique<VinpstFrontendConfig>(settings);
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

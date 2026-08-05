@@ -13,23 +13,23 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
 fixture="${repo_root}/scripts/fixtures/openai-compatible-asr-fixture.py"
 selection_probe="${repo_root}/scripts/live/niri/probes/fcitx-live-asr-selection-probe.py"
 virtual_runner="${repo_root}/scripts/live/niri/run-ime-fcitx-virtual-source-live.sh"
-out_dir="${VINPUT_LIVE_REMOTE_ASR_OUT_DIR:-target/tmp/ime-fcitx-remote-asr-live}"
+out_dir="${VINPST_LIVE_REMOTE_ASR_OUT_DIR:-target/tmp/ime-fcitx-remote-asr-live}"
 out_dir_abs="$(realpath -m "${out_dir}")"
-service_path="${VINPUT_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service}"
-addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
-recognition_wav="${VINPUT_LIVE_REMOTE_ASR_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
-remote_provider="${VINPUT_LIVE_REMOTE_ASR_PROVIDER_ID:-remote-http}"
-remote_model="${VINPUT_LIVE_REMOTE_ASR_MODEL:-fixture-remote-asr}"
-remote_language="${VINPUT_LIVE_REMOTE_ASR_LANGUAGE:-zh}"
-remote_prompt="${VINPUT_LIVE_REMOTE_ASR_PROMPT:-fixture remote names}"
-remote_api_key="${VINPUT_LIVE_REMOTE_ASR_API_KEY:-live-remote-secret}"
-remote_response="${VINPUT_LIVE_REMOTE_ASR_RESPONSE:-remote-http-final}"
-remote_timeout_ms="${VINPUT_LIVE_REMOTE_ASR_TIMEOUT_MS:-10000}"
-trigger_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
+service_path="${VINPST_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service}"
+addon_config="${HOME}/.config/fcitx5/conf/vinpst.conf"
+recognition_wav="${VINPST_LIVE_REMOTE_ASR_WAV:-${repo_root}/target/models/onnx-zf-ctc-zh-sm-int8-stream/test_wavs/0.wav}"
+remote_provider="${VINPST_LIVE_REMOTE_ASR_PROVIDER_ID:-remote-http}"
+remote_model="${VINPST_LIVE_REMOTE_ASR_MODEL:-fixture-remote-asr}"
+remote_language="${VINPST_LIVE_REMOTE_ASR_LANGUAGE:-zh}"
+remote_prompt="${VINPST_LIVE_REMOTE_ASR_PROMPT:-fixture remote names}"
+remote_api_key="${VINPST_LIVE_REMOTE_ASR_API_KEY:-live-remote-secret}"
+remote_response="${VINPST_LIVE_REMOTE_ASR_RESPONSE:-remote-http-final}"
+remote_timeout_ms="${VINPST_LIVE_REMOTE_ASR_TIMEOUT_MS:-10000}"
+trigger_key="${VINPST_LIVE_ASR_MENU_KEY:-F8}"
 server_ready="${out_dir_abs}/server-ready.json"
 server_trace="${out_dir_abs}/server-trace.json"
 server_error="${out_dir_abs}/server-error.txt"
@@ -46,9 +46,9 @@ fcitx_restart_needed=0
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 stop_server() {
@@ -68,7 +68,7 @@ restart_fcitx() {
     if [[ -n "${pid}" ]] && [[ "${pid}" != "${previous_pid}" ]] &&
       { [[ -z "${previous_pid}" ]] || [[ ! -e "/proc/${previous_pid}" ]]; } &&
       fcitx5-remote --check >/dev/null 2>&1 &&
-      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinput.so" "/proc/${pid}/maps"; then
+      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so" "/proc/${pid}/maps"; then
       printf '%s\n' "${pid}"
       return 0
     fi
@@ -173,7 +173,7 @@ for path in \
   fi
 done
 if [[ ! "${remote_timeout_ms}" =~ ^[1-9][0-9]*$ ]]; then
-  echo "VINPUT_LIVE_REMOTE_ASR_TIMEOUT_MS must be a positive integer" >&2
+  echo "VINPST_LIVE_REMOTE_ASR_TIMEOUT_MS must be a positive integer" >&2
   exit 2
 fi
 if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
@@ -283,9 +283,9 @@ config["asr"]["providers"].append(
         "model": model,
         "timeout_ms": int(timeout_ms),
         "env": {
-            "VINPUT_ASR_API_KEY": api_key,
-            "VINPUT_ASR_LANGUAGE": language,
-            "VINPUT_ASR_PROMPT": prompt,
+            "VINPST_ASR_API_KEY": api_key,
+            "VINPST_ASR_LANGUAGE": language,
+            "VINPST_ASR_PROMPT": prompt,
         },
     }
 )
@@ -323,10 +323,10 @@ wait_backend \
   "${remote_model}" \
   "${base_url}"
 
-VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
-VINPUT_LIVE_NATIVE_MODES=normal \
-VINPUT_LIVE_REQUIRE_PARTIAL=0 \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/remote-recognition" \
+VINPST_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPST_LIVE_NATIVE_MODES=normal \
+VINPST_LIVE_REQUIRE_PARTIAL=0 \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/remote-recognition" \
   "${virtual_runner}"
 
 wait "${server_pid}"
@@ -382,10 +382,10 @@ fi
 
 restore_profile
 
-VINPUT_LIVE_NATIVE_WAV="${recognition_wav}" \
-VINPUT_LIVE_NATIVE_MODES=normal \
-VINPUT_LIVE_REQUIRE_PARTIAL=1 \
-VINPUT_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/recovered-recognition" \
+VINPST_LIVE_NATIVE_WAV="${recognition_wav}" \
+VINPST_LIVE_NATIVE_MODES=normal \
+VINPST_LIVE_REQUIRE_PARTIAL=1 \
+VINPST_LIVE_VIRTUAL_OUT_DIR="${out_dir_abs}/recovered-recognition" \
   "${virtual_runner}"
 recovery_jsonl="${out_dir_abs}/recovered-recognition/fcitx/normal.jsonl"
 recovery_partial_count="$(jq -s '[.[] | select(.event == "summary")][0].partial_count' "${recovery_jsonl}")"

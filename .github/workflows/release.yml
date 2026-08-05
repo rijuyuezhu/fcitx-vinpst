@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           version="$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.name == "vinput-cli") | .version')"
+            | jq -r '.packages[] | select(.name == "vinpst-cli") | .version')"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             tag_version="${GITHUB_REF_NAME#v}"
             if [[ "${tag_version}" != "${version}" ]]; then
@@ -43,12 +43,12 @@ jobs:
         run: |
           mkdir -p dist
           scripts/release/create-source-archive.sh \
-            "dist/fcitx-vinput-rs-${{ steps.metadata.outputs.version }}.tar.gz" \
+            "dist/fcitx-vinpst-${{ steps.metadata.outputs.version }}.tar.gz" \
             "${{ steps.metadata.outputs.version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: source-archive
-          path: dist/fcitx-vinput-rs-${{ steps.metadata.outputs.version }}.tar.gz
+          path: dist/fcitx-vinpst-${{ steps.metadata.outputs.version }}.tar.gz
           if-no-files-found: error
 
   deb-packages:
@@ -77,7 +77,7 @@ jobs:
           mkdir -p "dist/${{ matrix.distribution }}"
           package="$(find "target/tmp/deb-package-smoke/${{ matrix.distribution }}" \
             -maxdepth 1 -type f \
-            -name 'fcitx-vinput-rs_*-1_${{ matrix.distribution }}_amd64.deb' \
+            -name 'fcitx-vinpst_*-1_${{ matrix.distribution }}_amd64.deb' \
             -print -quit)"
           test -n "${package}"
           cp "${package}" "dist/${{ matrix.distribution }}/"
@@ -108,7 +108,7 @@ jobs:
           set -euo pipefail
           version='${{ needs.source-archive.outputs.version }}'
           summary=target/tmp/flatpak-package-smoke/summary.json
-          bundle=target/tmp/flatpak-package-smoke/fcitx-vinput-rs.flatpak
+          bundle=target/tmp/flatpak-package-smoke/fcitx-vinpst.flatpak
           test -s "${summary}"
           test -s "${bundle}"
           first_commit="$(jq -r '.first_commit' "${summary}")"
@@ -120,7 +120,7 @@ jobs:
           test "${bundle_commit}" = "${first_commit}"
           mkdir -p dist/flatpak
           cp "${bundle}" \
-            "dist/flatpak/fcitx-vinput-rs-${version}-x86_64.flatpak"
+            "dist/flatpak/fcitx-vinpst-${version}-x86_64.flatpak"
       - uses: actions/upload-artifact@v4
         with:
           name: release-flatpak
@@ -144,13 +144,13 @@ jobs:
           set -euo pipefail
           version='${{ needs.source-archive.outputs.version }}'
           source_archive="$(find release-inputs/source-archive -type f \
-            -name "fcitx-vinput-rs-${version}.tar.gz" -print -quit)"
+            -name "fcitx-vinpst-${version}.tar.gz" -print -quit)"
           debian_package="$(find release-inputs/release-deb-debian12 -type f \
-            -name 'fcitx-vinput-rs_*-1_debian12_amd64.deb' -print -quit)"
+            -name 'fcitx-vinpst_*-1_debian12_amd64.deb' -print -quit)"
           ubuntu_package="$(find release-inputs/release-deb-ubuntu24.04 -type f \
-            -name 'fcitx-vinput-rs_*-1_ubuntu24.04_amd64.deb' -print -quit)"
+            -name 'fcitx-vinpst_*-1_ubuntu24.04_amd64.deb' -print -quit)"
           flatpak_bundle="$(find release-inputs/release-flatpak -type f \
-            -name "fcitx-vinput-rs-${version}-x86_64.flatpak" -print -quit)"
+            -name "fcitx-vinpst-${version}-x86_64.flatpak" -print -quit)"
           for artifact in \
             "${source_archive}" \
             "${debian_package}" \
@@ -163,20 +163,20 @@ jobs:
             exit 1
           fi
           scripts/release/release_manifest.py assemble \
-            --package-name fcitx-vinput-rs \
+            --package-name fcitx-vinpst \
             --version "${version}" \
             --architecture amd64 \
-            --output-dir "dist/fcitx-vinput-rs-${version}-release" \
+            --output-dir "dist/fcitx-vinpst-${version}-release" \
             --artifact "source-archive=${source_archive}" \
             --artifact "deb-debian12=${debian_package}" \
             --artifact "deb-ubuntu24.04=${ubuntu_package}" \
             --artifact "flatpak-x86_64=${flatpak_bundle}"
           scripts/release/release_manifest.py verify \
-            "dist/fcitx-vinput-rs-${version}-release"
+            "dist/fcitx-vinpst-${version}-release"
       - uses: actions/upload-artifact@v4
         with:
           name: checked-release-bundle
-          path: dist/fcitx-vinput-rs-${{ needs.source-archive.outputs.version }}-release/*
+          path: dist/fcitx-vinpst-${{ needs.source-archive.outputs.version }}-release/*
           if-no-files-found: error
 
   publish:

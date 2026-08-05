@@ -1,0 +1,166 @@
+%global debug_package %{nil}
+%global _build_id_links none
+%global _missing_build_ids_terminate_build 0
+%global vinpst_source_sha256 @VINPST_SOURCE_SHA256@
+%global vinpst_rust_target @VINPST_RUST_TARGET@
+%global vinpst_sherpa_archive_root @VINPST_SHERPA_ONNX_ARCHIVE_ROOT@
+%global vinpst_cargo_home %{?_vinpst_cargo_home}%{!?_vinpst_cargo_home:%{_topdir}/cargo-home}
+%global vinpst_cargo_target %{?_vinpst_cargo_target}%{!?_vinpst_cargo_target:%{_topdir}/cargo-target}
+%global vinpst_cmake_build %{?_vinpst_cmake_build}%{!?_vinpst_cmake_build:%{_topdir}/cmake-build}
+
+Name:           fcitx-vinpst
+Version:        @VINPST_VERSION@
+Release:        @VINPST_RELEASE@%{?dist}
+Summary:        Rust voice-input addon and daemon for Fcitx 5
+License:        GPL-3.0-or-later AND Apache-2.0 AND MIT
+URL:            https://github.com/rijuyuezhu/fcitx-vinpst
+Source0:        @VINPST_SOURCE_NAME@
+Source1:        @VINPST_SHERPA_ONNX_ARCHIVE@
+Source2:        sherpa-onnx-LICENSE-@VINPST_SHERPA_ONNX_VERSION@
+Source3:        onnxruntime-LICENSE-@VINPST_ONNXRUNTIME_VERSION@
+
+ExclusiveArch:  @VINPST_PACKAGE_ARCH@
+Requires:       coreutils
+Requires:       fcitx5
+Requires:       fontconfig
+Requires:       glib2
+Requires:       libX11
+Requires:       libxkbcommon
+Requires:       pipewire-libs
+Requires:       systemd
+Requires:       util-linux
+Requires:       wayland
+
+BuildRequires:  cargo
+BuildRequires:  clang
+BuildRequires:  cmake
+BuildRequires:  gettext
+BuildRequires:  ninja-build
+BuildRequires:  patchelf
+BuildRequires:  pkgconfig(fcitx5)
+BuildRequires:  pkgconfig(libsystemd)
+BuildRequires:  pkgconfig(libpipewire-0.3)
+
+%description
+The package contains the command-line management tool, D-Bus daemon,
+Rust/Iced management GUI, thin Fcitx 5 addon,
+activation metadata, translations, and checksum-pinned private native ASR
+runtime libraries.
+
+%prep
+printf '%s  %s\n' '%{vinpst_source_sha256}' '%{SOURCE0}' | sha256sum -c -
+printf '%s  %s\n' '@VINPST_SHERPA_ONNX_SHA256@' '%{SOURCE1}' | sha256sum -c -
+printf '%s  %s\n' '@VINPST_SHERPA_ONNX_LICENSE_SHA256@' '%{SOURCE2}' | sha256sum -c -
+printf '%s  %s\n' '@VINPST_ONNXRUNTIME_LICENSE_SHA256@' '%{SOURCE3}' | sha256sum -c -
+%setup -q -n @VINPST_SOURCE_DIR@
+tar -xjf "%{SOURCE1}" -C "%{_builddir}"
+
+%build
+export CARGO_HOME="%{vinpst_cargo_home}"
+export CARGO_TARGET_DIR="%{vinpst_cargo_target}"
+export SHERPA_ONNX_LIB_DIR="%{_builddir}/%{vinpst_sherpa_archive_root}/lib"
+export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=%{_builddir}=."
+export CFLAGS="${CFLAGS:-} -ffile-prefix-map=%{_builddir}=. -fdebug-prefix-map=%{_builddir}=."
+export CXXFLAGS="${CXXFLAGS:-} -ffile-prefix-map=%{_builddir}=. -fdebug-prefix-map=%{_builddir}=."
+
+cargo fetch --locked --target %{vinpst_rust_target}
+export CARGO_NET_OFFLINE=true
+cargo build --frozen --release \
+  -p vinpst-cli --features pipewire-backend,sherpa-onnx-backend \
+  -p vinpst-daemon --features pipewire-backend,sherpa-onnx-backend \
+  -p vinpst-gui
+
+cmake -S cpp/fcitx5-addon -B "%{vinpst_cmake_build}" -G Ninja \
+  -DBUILD_TESTING=OFF \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=%{_prefix} \
+  -DCMAKE_INSTALL_LIBDIR=lib64 \
+  -DVINPST_DAEMON_EXECUTABLE=%{_bindir}/vinpst-daemon \
+  -DVINPST_DAEMON_ARGS='--dbus --configured-backends --audio-backend pipewire' \
+  -DVINPST_FCITX_BRIDGE_ENABLE_TESTS=OFF \
+  -DVINPST_FCITX_BRIDGE_REQUIRE_FCITX_CORE=ON \
+  -DVINPST_FCITX_MODULE_INSTALL_DIR=lib64/fcitx5 \
+  -DVINPST_FCITX_RUNTIME_BUILD_LOCALEDIR='' \
+  -DVINPST_SYSTEMD_USER_UNIT_DIR=lib/systemd/user
+cmake --build "%{vinpst_cmake_build}" \
+  --target fcitx5_vinpst_addon --parallel %{_smp_build_ncpus}
+
+%install
+rm -rf "%{buildroot}"
+install -Dm755 "%{vinpst_cargo_target}/release/vinpst" \
+  "%{buildroot}%{_bindir}/vinpst"
+install -Dm755 "%{vinpst_cargo_target}/release/vinpst-daemon" \
+  "%{buildroot}%{_bindir}/vinpst-daemon"
+install -Dm755 "%{vinpst_cargo_target}/release/vinpst-gui" \
+  "%{buildroot}%{_bindir}/vinpst-gui"
+
+install -Dm644 scripts/release/package-session-common.sh \
+  "%{buildroot}/usr/lib/fcitx-vinpst/package-session-common.sh"
+install -Dm755 scripts/release/package-upgrade-handoff.sh \
+  "%{buildroot}/usr/lib/fcitx-vinpst/package-upgrade-handoff"
+install -Dm755 scripts/release/package-remove-handoff.sh \
+  "%{buildroot}/usr/lib/fcitx-vinpst/package-remove-handoff"
+
+install -Dm755 "%{_builddir}/%{vinpst_sherpa_archive_root}/lib/libsherpa-onnx-c-api.so" \
+  "%{buildroot}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so"
+install -Dm755 "%{_builddir}/%{vinpst_sherpa_archive_root}/lib/libonnxruntime.so" \
+  "%{buildroot}/usr/lib/fcitx-vinpst/libonnxruntime.so"
+patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinpst' "%{buildroot}%{_bindir}/vinpst"
+patchelf --set-rpath '$ORIGIN/../lib/fcitx-vinpst' "%{buildroot}%{_bindir}/vinpst-daemon"
+patchelf --set-rpath '$ORIGIN' \
+  "%{buildroot}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so"
+
+DESTDIR="%{buildroot}" cmake --install "%{vinpst_cmake_build}"
+install -Dm644 data/vinpst-gui.desktop \
+  "%{buildroot}%{_datadir}/applications/vinpst-gui.desktop"
+for size in 16 22 24 32 48 64 128 256 512; do
+  install -Dm644 "data/icons/hicolor/${size}x${size}/apps/vinpst-gui.png" \
+    "%{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/vinpst-gui.png"
+done
+install -Dm644 data/default-config.json \
+  "%{buildroot}%{_datadir}/fcitx-vinpst/default-config.json"
+install -Dm644 data/vad/silero_vad.onnx \
+  "%{buildroot}%{_datadir}/fcitx-vinpst/vad/silero_vad.onnx"
+install -Dm644 LICENSE \
+  "%{buildroot}%{_licensedir}/%{name}/LICENSE"
+install -Dm644 data/vad/LICENSE \
+  "%{buildroot}%{_licensedir}/%{name}/silero-vad-LICENSE"
+install -Dm644 "%{SOURCE2}" \
+  "%{buildroot}%{_licensedir}/%{name}/sherpa-onnx-LICENSE"
+install -Dm644 "%{SOURCE3}" \
+  "%{buildroot}%{_licensedir}/%{name}/onnxruntime-LICENSE"
+
+%post -p /bin/bash
+if [[ "$1" -gt 1 && -x /usr/lib/fcitx-vinpst/package-upgrade-handoff ]]; then
+  /usr/lib/fcitx-vinpst/package-upgrade-handoff
+fi
+printf '%s\n' 'Restart or reload Fcitx5 in each active desktop session to load the vinpst addon.'
+
+%preun -p /bin/bash
+if [[ "$1" -eq 0 && -x /usr/lib/fcitx-vinpst/package-remove-handoff ]]; then
+  /usr/lib/fcitx-vinpst/package-remove-handoff
+fi
+
+%postun -p /bin/bash
+if [[ "$1" -eq 0 ]]; then
+  printf '%s\n' 'User configuration, models, and cache were preserved; reload Fcitx5.'
+fi
+
+%files
+%license %{_licensedir}/%{name}/
+%{_bindir}/vinpst
+%{_bindir}/vinpst-daemon
+%{_bindir}/vinpst-gui
+/usr/lib/fcitx-vinpst/
+%{_libdir}/fcitx5/fcitx5-vinpst.so
+%{_prefix}/lib/systemd/user/vinpst-daemon.service
+%{_datadir}/applications/vinpst-gui.desktop
+%{_datadir}/dbus-1/services/org.fcitx.Vinpst.service
+%{_datadir}/fcitx-vinpst/
+%{_datadir}/fcitx5/addon/vinpst.conf
+%{_datadir}/icons/hicolor/*/apps/vinpst-gui.png
+%lang(zh_CN) %{_datadir}/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo
+
+%changelog
+* Sun Aug 02 2026 Vinpst Maintainers <maintainers@example.invalid> - @VINPST_VERSION@-@VINPST_RELEASE@
+- Add the checked RPM packaging baseline.

@@ -1,4 +1,4 @@
-#include "vinput_fcitx_bridge/fcitx_notifications.h"
+#include "vinpst_fcitx_bridge/fcitx_notifications.h"
 
 #include <cassert>
 #include <cstdio>
@@ -23,14 +23,14 @@ std::string ReadStream(std::FILE *stream) {
 } // namespace
 
 int main() {
-  using vinput_fcitx_bridge::BuildFrontendNotification;
-  using vinput_fcitx_bridge::FrontendNotificationKind;
-  using vinput_fcitx_bridge::kErrorNotificationTimeoutMs;
-  using vinput_fcitx_bridge::kInfoNotificationTimeoutMs;
-  using vinput_fcitx_bridge::SendFrontendNotification;
+  using vinpst_fcitx_bridge::BuildFrontendNotification;
+  using vinpst_fcitx_bridge::FrontendNotificationKind;
+  using vinpst_fcitx_bridge::kErrorNotificationTimeoutMs;
+  using vinpst_fcitx_bridge::kInfoNotificationTimeoutMs;
+  using vinpst_fcitx_bridge::SendFrontendNotification;
 
   const auto info = BuildFrontendNotification(FrontendNotificationKind::Info, "done");
-  assert(info.app_name == "fcitx5-vinput");
+  assert(info.app_name == "fcitx5-vinpst");
   assert(info.icon == "dialog-information");
   assert(info.summary == "Voice Input");
   assert(info.body == "done");
@@ -49,7 +49,7 @@ int main() {
   std::FILE *fallback = std::tmpfile();
   assert(fallback != nullptr);
   assert(!SendFrontendNotification(nullptr, info, fallback));
-  assert(ReadStream(fallback) == "vinput: Voice Input: done\n");
+  assert(ReadStream(fallback) == "vinpst: Voice Input: done\n");
   std::fclose(fallback);
 
   const auto empty = BuildFrontendNotification(FrontendNotificationKind::Info, "");

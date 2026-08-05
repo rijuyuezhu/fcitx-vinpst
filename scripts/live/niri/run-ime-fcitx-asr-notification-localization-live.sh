@@ -13,19 +13,19 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-out_dir="${VINPUT_LIVE_ASR_NOTIFICATION_LOCALIZATION_OUT_DIR:-target/tmp/ime-fcitx-asr-notification-localization-live}"
+out_dir="${VINPST_LIVE_ASR_NOTIFICATION_LOCALIZATION_OUT_DIR:-target/tmp/ime-fcitx-asr-notification-localization-live}"
 child_out_dir="${out_dir}/cross-provider-failure"
-module_path="${HOME}/.local/lib/fcitx5/fcitx5-vinput.so"
-catalog_path="${HOME}/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo"
-fcitx_wrapper="${HOME}/.local/share/fcitx-vinput/fcitx5-with-vinput-env.sh"
-profile_path="${HOME}/.local/share/fcitx-vinput/sherpa-native-command-live.json"
-service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service"
-addon_config="${HOME}/.config/fcitx5/conf/vinput.conf"
-addon_metadata="${HOME}/.local/share/fcitx5/addon/vinput.conf"
-fcitx_env="${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env"
-cli_binary="${repo_root}/target/debug/vinput"
+module_path="${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so"
+catalog_path="${HOME}/.local/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo"
+fcitx_wrapper="${HOME}/.local/share/fcitx-vinpst/fcitx5-with-vinpst-env.sh"
+profile_path="${HOME}/.local/share/fcitx-vinpst/sherpa-native-command-live.json"
+service_path="${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service"
+addon_config="${HOME}/.config/fcitx5/conf/vinpst.conf"
+addon_metadata="${HOME}/.local/share/fcitx5/addon/vinpst.conf"
+fcitx_env="${HOME}/.local/share/fcitx-vinpst/fcitx-vinpst.env"
+cli_binary="${repo_root}/target/debug/vinpst"
 child_runner="${repo_root}/scripts/live/niri/run-ime-fcitx-cross-provider-failure-live.sh"
-fcitx_settle_seconds="${VINPUT_LIVE_FCITX_SETTLE_SECONDS:-1}"
+fcitx_settle_seconds="${VINPST_LIVE_FCITX_SETTLE_SECONDS:-1}"
 locale_may_have_changed=0
 success=0
 
@@ -194,10 +194,10 @@ env -u LC_ALL \
   LANGUAGE=zh_CN:zh \
   LC_MESSAGES=en_US.UTF-8 \
   LANG=en_US.UTF-8 \
-  VINPUT_LIVE_CROSS_PROVIDER_FAILURE_OUT_DIR="${child_out_dir}" \
-  VINPUT_LIVE_FAILURE_EXPECTED_NOTIFICATION_SUMMARY='语音输入' \
-  VINPUT_LIVE_FAILURE_EXPECTED_SWITCH_BODY_PREFIX='已请求切换语音识别到“' \
-  VINPUT_LIVE_FAILURE_EXPECTED_SWITCH_BODY_SUFFIX='”。' \
+  VINPST_LIVE_CROSS_PROVIDER_FAILURE_OUT_DIR="${child_out_dir}" \
+  VINPST_LIVE_FAILURE_EXPECTED_NOTIFICATION_SUMMARY='语音输入' \
+  VINPST_LIVE_FAILURE_EXPECTED_SWITCH_BODY_PREFIX='已请求切换语音识别到“' \
+  VINPST_LIVE_FAILURE_EXPECTED_SWITCH_BODY_SUFFIX='”。' \
   "${child_runner}"
 
 current_fcitx_pid="$(pgrep -n -x fcitx5 || true)"

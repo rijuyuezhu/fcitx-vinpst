@@ -14,8 +14,8 @@ done
 cd "${repo_root}"
 
 check_root="${repo_root}/target/tmp/source-archive-check"
-archive_one="${check_root}/fcitx-vinput-rs-0.1.0-one.tar.gz"
-archive_two="${check_root}/fcitx-vinput-rs-0.1.0-two.tar.gz"
+archive_one="${check_root}/fcitx-vinpst-0.1.0-one.tar.gz"
+archive_two="${check_root}/fcitx-vinpst-0.1.0-two.tar.gz"
 rm -rf "${check_root}"
 mkdir -p "${check_root}"
 
@@ -24,9 +24,9 @@ scripts/release/create-source-archive.sh "${archive_two}" 0.1.0 >/dev/null
 cmp "${archive_one}" "${archive_two}"
 
 tar -tzf "${archive_one}" >"${check_root}/listing"
-grep -Eq '^fcitx-vinput-rs-0.1.0/(\./)?Cargo.toml$' "${check_root}/listing"
-grep -Eq '^fcitx-vinput-rs-0.1.0/(\./)?Cargo.lock$' "${check_root}/listing"
-grep -Eq '^fcitx-vinput-rs-0.1.0/(\./)?scripts/release/create-source-archive.sh$' \
+grep -Eq '^fcitx-vinpst-0.1.0/(\./)?Cargo.toml$' "${check_root}/listing"
+grep -Eq '^fcitx-vinpst-0.1.0/(\./)?Cargo.lock$' "${check_root}/listing"
+grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/create-source-archive.sh$' \
   "${check_root}/listing"
 if grep -Eq '(^|/)(\.git|target|dist|__pycache__|\.ruff_cache|\.cache)(/|$)' \
   "${check_root}/listing"; then

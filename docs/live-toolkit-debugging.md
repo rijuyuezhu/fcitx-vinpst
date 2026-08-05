@@ -9,7 +9,7 @@ The validated path is:
 ```text
 real desktop F9/F10 event
   -> retained Fcitx addon
-  -> org.fcitx.Vinput
+  -> org.fcitx.Vinpst
   -> native streaming ASR
   -> RecognitionPartial signals
   -> real application widget commit or command replacement
@@ -50,9 +50,9 @@ Before changing code, check the session and installed profile:
 ```sh
 fcitx5-remote --check
 gdbus call --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput \
-  --method org.fcitx.Vinput.Service.GetStatus
+  --dest org.fcitx.Vinpst \
+  --object-path /org/fcitx/Vinpst \
+  --method org.fcitx.Vinpst.Service.GetStatus
 niri msg windows
 ```
 
@@ -138,7 +138,7 @@ Regression commits:
 - wait until the field reports real focus;
 - select the fixture after focus;
 - emit `selection-ready` only after reading the exact selected range back;
-- optionally set `VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING`;
+- optionally set `VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING`;
 - require the final adapter result to contain the selected fixture.
 
 Regression commits:
@@ -186,7 +186,7 @@ The first 2026-07-30 primary-fallback attempt hit this symptom; the second attem
 0=equal
 ```
 
-**Action:** read the active addon configuration under `~/.config/fcitx5/conf/vinput.conf` (or `VINPUT_LIVE_FCITX_ADDON_CONFIG`) and use the configured `PagePrevKeys`/`PageNextKeys`. Do not hard-code `PageUp`/`PageDown` in a retained gate.
+**Action:** read the active addon configuration under `~/.config/fcitx5/conf/vinpst.conf` (or `VINPST_LIVE_FCITX_ADDON_CONFIG`) and use the configured `PagePrevKeys`/`PageNextKeys`. Do not hard-code `PageUp`/`PageDown` in a retained gate.
 
 Failure signatures are useful:
 
@@ -213,9 +213,9 @@ Regression commit: `80d2dc5 fix(fcitx): preserve menu page state`.
 
 ### Installed daemon fails only when run directly
 
-**Symptom:** invoking `~/.local/bin/vinput-daemon` reports an ONNX Runtime symbol or version error, while D-Bus activation works.
+**Symptom:** invoking `~/.local/bin/vinpst-daemon` reports an ONNX Runtime symbol or version error, while D-Bus activation works.
 
-**Cause:** direct execution bypasses the generated runtime-library environment. The installed daemon is intended to start through `~/.local/share/fcitx-vinput/vinput-daemon-with-vinput-env.sh`, which sources `fcitx-vinput.env` before loading `libsherpa-onnx` and `libonnxruntime`.
+**Cause:** direct execution bypasses the generated runtime-library environment. The installed daemon is intended to start through `~/.local/share/fcitx-vinpst/vinpst-daemon-with-vinpst-env.sh`, which sources `fcitx-vinpst.env` before loading `libsherpa-onnx` and `libonnxruntime`.
 
 **Action:** use the generated wrapper for standalone diagnostics and compare its environment with the activation service before treating the model as broken.
 
@@ -233,7 +233,7 @@ Regression commit: `80d2dc5 fix(fcitx): preserve menu page state`.
 
 **Cause:** a D-Bus activated process does not inherit the repository working directory. Relative model roots resolve from an unrelated directory.
 
-**Action:** write an absolute model root into the temporary activation service and verify the exact path in `vinput daemon status` before opening F8.
+**Action:** write an absolute model root into the temporary activation service and verify the exact path in `vinpst daemon status` before opening F8.
 
 ### Offline ASR commits without streaming partials
 
@@ -290,9 +290,9 @@ scripts/live/niri/run-ime-chromium-native-live.sh command
 For a strict command provenance check:
 
 ```sh
-VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING='selected text' \
+VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING='selected text' \
   scripts/live/niri/run-ime-gtk3-native-live.sh command
-VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING='selected text' \
+VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING='selected text' \
   scripts/live/niri/run-ime-qt6-native-live.sh command
 ```
 

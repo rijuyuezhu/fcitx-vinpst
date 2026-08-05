@@ -1,7 +1,7 @@
-#include "vinput_fcitx_bridge/fcitx_outcome.h"
+#include "vinpst_fcitx_bridge/fcitx_outcome.h"
 
-#include "vinput_fcitx_bridge/fcitx_candidates.h"
-#include "vinput_fcitx_bridge/fcitx_selection.h"
+#include "vinpst_fcitx_bridge/fcitx_candidates.h"
+#include "vinpst_fcitx_bridge/fcitx_selection.h"
 
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputpanel.h>
@@ -11,7 +11,7 @@
 #include <string>
 #include <utility>
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 namespace {
 
 void ClearCandidateMenu(fcitx::InputContext *input_context) {
@@ -105,4 +105,4 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
   return AppliedOutcome::None;
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

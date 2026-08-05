@@ -15,47 +15,47 @@ cd "${repo_root}"
 
 version="$(
   cargo metadata --no-deps --format-version 1 |
-    jq -r '.packages[] | select(.name == "vinput-cli") | .version'
+    jq -r '.packages[] | select(.name == "vinpst-cli") | .version'
 )"
 test -n "${version}"
 
 check_root="${repo_root}/target/tmp/rpm-spec-check"
 rm -rf "${check_root}"
 mkdir -p "${check_root}"
-spec="${check_root}/fcitx-vinput-rs.spec"
+spec="${check_root}/fcitx-vinpst.spec"
 
 scripts/release/render-rpm-spec.py \
   --version "${version}" \
-  --source-name "fcitx-vinput-rs-${version}.tar.gz" \
+  --source-name "fcitx-vinpst-${version}.tar.gz" \
   --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-  --source-dir "fcitx-vinput-rs-${version}" \
+  --source-dir "fcitx-vinpst-${version}" \
   --output "${spec}"
 
 rpmspec -P "${spec}" >"${check_root}/expanded.spec"
 query="$(rpmspec -q --qf '%{NAME}\n%{VERSION}\n%{RELEASE}\n%{ARCH}\n' "${spec}")"
-test "${query}" = $'fcitx-vinput-rs\n'"${version}"$'\n1\nx86_64'
-rpmspec -q --provides "${spec}" | grep -Eq '^fcitx5-vinput = '
+test "${query}" = $'fcitx-vinpst\n'"${version}"$'\n1\nx86_64'
+! rpmspec -q --provides "${spec}" | grep -Eq '^fcitx5-vinpst = '
 rpmspec -q --requires "${spec}" | grep -qx 'fcitx5'
 rpmspec -q --requires "${spec}" | grep -qx 'pipewire-libs'
 rpmspec -q --requires "${spec}" | grep -qx 'systemd'
 
 grep -Fq 'cargo build --frozen --release' "${check_root}/expanded.spec"
-grep -Fq -- '-p vinput-gui' "${check_root}/expanded.spec"
+grep -Fq -- '-p vinpst-gui' "${check_root}/expanded.spec"
 grep -Fq -- '-DCMAKE_INSTALL_LIBDIR=lib64' "${check_root}/expanded.spec"
-grep -Fq -- '-DVINPUT_SYSTEMD_USER_UNIT_DIR=lib/systemd/user' \
+grep -Fq -- '-DVINPST_SYSTEMD_USER_UNIT_DIR=lib/systemd/user' \
   "${check_root}/expanded.spec"
-grep -Fq -- '--target fcitx5_vinput_addon' "${check_root}/expanded.spec"
-grep -Fq "/usr/lib/fcitx-vinput/package-upgrade-handoff" \
+grep -Fq -- '--target fcitx5_vinpst_addon' "${check_root}/expanded.spec"
+grep -Fq "/usr/lib/fcitx-vinpst/package-upgrade-handoff" \
   "${check_root}/expanded.spec"
-grep -Fq "/usr/lib/fcitx-vinput/package-remove-handoff" \
+grep -Fq "/usr/lib/fcitx-vinpst/package-remove-handoff" \
   "${check_root}/expanded.spec"
 grep -Fq 'install -Dm644 LICENSE' "${check_root}/expanded.spec"
-grep -Fq '/usr/share/licenses/fcitx-vinput-rs/LICENSE' \
+grep -Fq '/usr/share/licenses/fcitx-vinpst/LICENSE' \
   "${check_root}/expanded.spec"
 grep -Fq '%post -p /bin/bash' "${spec}"
 grep -Fq '%preun -p /bin/bash' "${spec}"
 grep -Fq '%postun -p /bin/bash' "${spec}"
-if grep -Fq '@VINPUT_' "${spec}"; then
+if grep -Fq '@VINPST_' "${spec}"; then
   echo "RPM spec still contains unresolved placeholders" >&2
   exit 1
 fi
@@ -68,9 +68,9 @@ expect_render_failure() {
   set +e
   scripts/release/render-rpm-spec.py \
     --version "${version}" \
-    --source-name "fcitx-vinput-rs-${version}.tar.gz" \
+    --source-name "fcitx-vinpst-${version}.tar.gz" \
     --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-    --source-dir "fcitx-vinput-rs-${version}" \
+    --source-dir "fcitx-vinpst-${version}" \
     --output "${check_root}/rejected.spec" \
     "$@" 2>"${stderr_path}"
   status=$?

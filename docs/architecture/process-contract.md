@@ -1,6 +1,6 @@
 # Command process supervision contract
 
-`crates/vinput-process` owns the Unix process boundary shared by command ASR providers and command-backed text adapters. Protocol encoding and response parsing remain in `vinput-asr` and `vinput-text`; process creation, cancellation, descendant cleanup, and bounded output capture do not.
+`crates/vinpst-process` owns the Unix process boundary shared by command ASR providers and command-backed text adapters. Protocol encoding and response parsing remain in `vinpst-asr` and `vinpst-text`; process creation, cancellation, descendant cleanup, and bounded output capture do not.
 
 ## Runtime boundary
 
@@ -18,7 +18,7 @@ The crate also exposes the process-group primitives used by long-running command
 
 `process_group_exists` retains the ordinary signal-zero meaning. `process_group_has_live_members` is the cleanup predicate for long-lived recovery: on Linux it scans `/proc` after the group probe, returns false for a group containing only `Z`/`X` members, and remains true while any non-zombie descendant is still present. This prevents an unreaped zombie from producing a false force-kill timeout without treating a reaped leader as proof that its background descendants are gone. Other Unix targets conservatively use process-group existence.
 
-These primitives do not define adapter PID-file ownership, runtime-directory creation, or restart policy. `vinput-text` owns those compatibility decisions and supplies the legacy TERM/KILL timing.
+These primitives do not define adapter PID-file ownership, runtime-directory creation, or restart policy. `vinpst-text` owns those compatibility decisions and supplies the legacy TERM/KILL timing.
 
 ## Consumer contracts
 

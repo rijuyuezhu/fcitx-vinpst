@@ -34,7 +34,7 @@ addon-build:
 
 # Build the real Fcitx addon target.
 addon-fcitx-build:
-    VINPUT_ADDON_REQUIRE_FCITX=1 VINPUT_ADDON_BUILD_DIR=target/cpp/fcitx5-addon-fcitx scripts/tests/addon-build.sh
+    VINPST_ADDON_REQUIRE_FCITX=1 VINPST_ADDON_BUILD_DIR=target/cpp/fcitx5-addon-fcitx scripts/tests/addon-build.sh
 
 # Validate lightweight Arch/Debian/RPM/release metadata and trust boundaries.
 package-check:
@@ -75,16 +75,16 @@ install-user:
 
 # Show or remove the local per-user IME profile.
 user-status:
-    VINPUT_USER_STATUS=1 scripts/install/install-user-ime.sh
+    VINPST_USER_STATUS=1 scripts/install/install-user-ime.sh
 
 user-remove:
-    VINPUT_USER_REMOVE=1 scripts/install/install-user-ime.sh
+    VINPST_USER_REMOVE=1 scripts/install/install-user-ime.sh
 
 # Run the daemon on the current session bus.
 dbus:
-    cargo run -p vinput-daemon -- --dbus
+    cargo run -p vinpst-daemon -- --dbus
 
 # Deterministic file-input demo.
 demo:
-    python3 scripts/fixtures/write-demo-wav.py target/tmp/vinput-demo.wav
-    cargo run -q -p vinput-daemon -- --config data/e2e-command-demo-config.json --configured-backends --once --wav target/tmp/vinput-demo.wav
+    python3 scripts/fixtures/write-demo-wav.py target/tmp/vinpst-demo.wav
+    cargo run -q -p vinpst-daemon -- --config data/e2e-command-demo-config.json --configured-backends --once --wav target/tmp/vinpst-demo.wav

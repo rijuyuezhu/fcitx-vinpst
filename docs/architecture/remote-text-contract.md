@@ -5,17 +5,17 @@ The legacy remote text service combines two clients around one shared text buffe
 - a browser/input client on `/ws` that authenticates, reports `text_update`, and requests `finalize`;
 - a loopback-only OpenAI Realtime-compatible output client on `/v1/realtime` that receives committed transcription events.
 
-The Rust rewrite keeps protocol behavior separate from the network runtime. `vinput-daemon::remote` implements the deterministic settings/protocol core, a structured Axum-based `RemoteTextServer`, and a `RemoteTextLifecycle` manager owned by the normal D-Bus daemon. The standalone `vinput-daemon remote-text-server` command remains available for isolated diagnostics.
+The Rust rewrite keeps protocol behavior separate from the network runtime. `vinpst-daemon::remote` implements the deterministic settings/protocol core, a structured Axum-based `RemoteTextServer`, and a `RemoteTextLifecycle` manager owned by the normal D-Bus daemon. The standalone `vinpst-daemon remote-text-server` command remains available for isolated diagnostics.
 
 ## Activation and settings
 
-The service is enabled only when the active ASR provider is the command provider `provider.vinput.remote.streaming`. Settings are derived with the legacy policy:
+The service is enabled only when the active ASR provider is the command provider `provider.vinpst.remote.streaming`. Settings are derived with the legacy policy:
 
-- `VINPUT_ASR_PORT`: explicit listen port in `1..=65535`;
-- otherwise the explicit port in `VINPUT_ASR_URL`, when present;
+- `VINPST_ASR_PORT`: explicit listen port in `1..=65535`;
+- otherwise the explicit port in `VINPST_ASR_URL`, when present;
 - otherwise port `8080`;
-- `VINPUT_ASR_DEBOUNCE_MS`: positive integer, default `1500`;
-- `VINPUT_ASR_API_KEY`: required and never exposed by diagnostics or `Debug` output.
+- `VINPST_ASR_DEBOUNCE_MS`: positive integer, default `1500`;
+- `VINPST_ASR_API_KEY`: required and never exposed by diagnostics or `Debug` output.
 
 Other active providers disable this service without error. Invalid explicit settings fail rather than silently changing values.
 
@@ -57,7 +57,7 @@ Real local-socket tests cover HTTP assets, authorization failure, single-input o
 
 ## Daemon-owned lifecycle
 
-`VinputDbusService` owns one `RemoteTextLifecycle` beside the ASR runtime. The normal `vinput-daemon --dbus` path reconciles it before requesting the D-Bus name, then keeps it aligned with the target config used by:
+`VinpstDbusService` owns one `RemoteTextLifecycle` beside the ASR runtime. The normal `vinpst-daemon --dbus` path reconciles it before requesting the D-Bus name, then keeps it aligned with the target config used by:
 
 - `SetActiveAsrProvider`;
 - `SetActiveAsrTarget`;
@@ -78,7 +78,7 @@ The legacy `GetAsrBackendState.remote_endpoints` field describes the running bro
 - `GetRuntimeStatus` adds a redacted `remote_text` object with `running`, `listen_addr`, and the same endpoint list;
 - API keys and provider environment values are never serialized.
 
-The private-session lifecycle smoke queries `vinput daemon status --json`, checks that `asr_backend.remote_endpoints` and `runtime_status.remote_text.endpoints` agree, validates the listener address, and rejects any API-key leak.
+The private-session lifecycle smoke queries `vinpst daemon status --json`, checks that `asr_backend.remote_endpoints` and `runtime_status.remote_text.endpoints` agree, validates the listener address, and rejects any API-key leak.
 
 ## Same-host LAN browser evidence
 

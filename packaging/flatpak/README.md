@@ -2,10 +2,10 @@
 
 The checked Flatpak target is an extension of `org.fcitx.Fcitx5`, matching the legacy package identity and install root:
 
-- extension ID: `org.fcitx.Fcitx5.Addon.Vinput`;
+- extension ID: `org.fcitx.Fcitx5.Addon.Vinpst`;
 - branch/runtime version: `stable`;
 - SDK: `org.kde.Sdk//6.10` plus the Rust stable and LLVM 20 SDK extensions;
-- install prefix: `/app/addons/Vinput`.
+- install prefix: `/app/addons/Vinpst`.
 
 `manifest-base.json` is the stable metadata source of truth. `scripts/release/render-flatpak-manifest.py` combines it with:
 
@@ -35,16 +35,16 @@ scripts/release/run-flatpak-package-smoke.sh
 
 That gate compiles the product once, installs revision 1, runs the packaged CLI/daemon/GUI self-check through the Fcitx Flatpak application, and creates the publication bundle from that exact commit. It then changes only a checked package-revision marker in the exported build tree, creates a synthetic revision-2 OSTree commit, performs a real update, and verifies that the commit and marker changed. Finally it removes the extension, installs the revision-1 bundle, proves the synthetic update did not enter the publication artifact, and removes it again. A rendered manifest without that build/install/update/bundle/remove transaction is not Flatpak release evidence.
 
-The outer gate takes an exclusive lock before reading the container id or cleaning its isolated HOME, Flatpak source cache, OSTree repository, and build tree, so a second invocation fails without killing the active transaction. A checksum-valid host-side runtime source cache may be reused across retries; invalid or partial files are discarded before use. `VINPUT_FLATPAK_REUSE_HOME=1` is reserved for direct inner-gate retries while developing the recipe; it retains only the isolated Flatpak runtime/source cache and is not used by the release workflow.
+The outer gate takes an exclusive lock before reading the container id or cleaning its isolated HOME, Flatpak source cache, OSTree repository, and build tree, so a second invocation fails without killing the active transaction. A checksum-valid host-side runtime source cache may be reused across retries; invalid or partial files are discarded before use. `VINPST_FLATPAK_REUSE_HOME=1` is reserved for direct inner-gate retries while developing the recipe; it retains only the isolated Flatpak runtime/source cache and is not used by the release workflow.
 
 Optional transport overrides do not change the locked refs or checksums:
 
-- `VINPUT_FLATPAK_BUILDER_IMAGE` selects a prebuilt builder image, including the legacy `ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10` image;
-- `VINPUT_FLATPAK_APT_MIRROR` and `VINPUT_FLATPAK_APT_SECURITY_MIRROR` select Debian package mirrors for the local builder image;
-- `VINPUT_FLATPAK_REMOTE_URL` selects a Flathub OSTree mirror and is asserted after remote registration;
-- `VINPUT_FLATPAK_RETRY_ATTEMPTS` controls bounded dependency/source transaction retries;
-- `VINPUT_FLATPAK_CARGO_DOWNLOAD_JOBS` controls concurrent checked Cargo archive materialization;
-- `VINPUT_FLATPAK_CARGO_DOWNLOAD_ATTEMPTS` controls per-archive Cargo download attempts;
-- `VINPUT_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS` bounds each exact Flatpak runtime/SDK installation attempt;
-- `VINPUT_FLATPAK_BUILD_TIMEOUT_SECONDS` bounds each complete Flatpak Builder attempt;
-- `VINPUT_FLATPAK_TRANSACTION_TIMEOUT_SECONDS` bounds each extension install, update, bundle reinstall, and removal attempt.
+- `VINPST_FLATPAK_BUILDER_IMAGE` selects a prebuilt builder image, including the legacy `ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10` image;
+- `VINPST_FLATPAK_APT_MIRROR` and `VINPST_FLATPAK_APT_SECURITY_MIRROR` select Debian package mirrors for the local builder image;
+- `VINPST_FLATPAK_REMOTE_URL` selects a Flathub OSTree mirror and is asserted after remote registration;
+- `VINPST_FLATPAK_RETRY_ATTEMPTS` controls bounded dependency/source transaction retries;
+- `VINPST_FLATPAK_CARGO_DOWNLOAD_JOBS` controls concurrent checked Cargo archive materialization;
+- `VINPST_FLATPAK_CARGO_DOWNLOAD_ATTEMPTS` controls per-archive Cargo download attempts;
+- `VINPST_FLATPAK_DEPENDENCY_TIMEOUT_SECONDS` bounds each exact Flatpak runtime/SDK installation attempt;
+- `VINPST_FLATPAK_BUILD_TIMEOUT_SECONDS` bounds each complete Flatpak Builder attempt;
+- `VINPST_FLATPAK_TRANSACTION_TIMEOUT_SECONDS` bounds each extension install, update, bundle reinstall, and removal attempt.

@@ -22,11 +22,11 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-wav="${VINPUT_LIVE_TOOLKIT_WAV:-}"
-playback_target="${VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
-out_dir="$(realpath -m "${VINPUT_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-vscode-live}")"
-uinput_sender="${VINPUT_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
-sandbox_probe="${VINPUT_LIVE_ELECTRON_SANDBOX_PROBE:-scripts/live/niri/probes/electron-renderer-sandbox.py}"
+wav="${VINPST_LIVE_TOOLKIT_WAV:-}"
+playback_target="${VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
+out_dir="$(realpath -m "${VINPST_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-vscode-live}")"
+uinput_sender="${VINPST_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
+sandbox_probe="${VINPST_LIVE_ELECTRON_SANDBOX_PROBE:-scripts/live/niri/probes/electron-renderer-sandbox.py}"
 document="${out_dir}/${mode}.txt"
 user_data_dir="${out_dir}/${mode}.user-data"
 extensions_dir="${out_dir}/${mode}.extensions"
@@ -54,9 +54,9 @@ primary_snapshot_ready=0
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 restore_idle() {
@@ -158,7 +158,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 if [[ -z "${wav}" || ! -f "${wav}" ]]; then
-  echo "set VINPUT_LIVE_TOOLKIT_WAV to a validated speech WAV" >&2
+  echo "set VINPST_LIVE_TOOLKIT_WAV to a validated speech WAV" >&2
   exit 2
 fi
 for command in cmp code gdbus jq niri pw-play python3 realpath stdbuf timeout; do
@@ -203,7 +203,7 @@ niri msg --json windows >/dev/null
 
 status="$(call_service GetStatus 2>/dev/null || true)"
 if [[ "${status}" != *"'idle'"* ]]; then
-  echo "org.fcitx.Vinput must be idle before the VS Code probe: ${status:-unavailable}" >&2
+  echo "org.fcitx.Vinpst must be idle before the VS Code probe: ${status:-unavailable}" >&2
   exit 1
 fi
 
@@ -227,8 +227,8 @@ cat >"${user_data_dir}/User/settings.json" <<'JSON'
 JSON
 
 stdbuf -oL -eL gdbus monitor --session \
-  --dest org.fcitx.Vinput \
-  --object-path /org/fcitx/Vinput >"${monitor_log}" 2>&1 &
+  --dest org.fcitx.Vinpst \
+  --object-path /org/fcitx/Vinpst >"${monitor_log}" 2>&1 &
 monitor_pid=$!
 
 GTK_IM_MODULE=fcitx \

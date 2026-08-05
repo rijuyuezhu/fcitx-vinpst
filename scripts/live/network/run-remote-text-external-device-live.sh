@@ -8,7 +8,7 @@ source "${script_dir}/remote-text-common.sh"
 cd "${repo_root}"
 
 for command in curl ip jq python3 ss; do
-  vinput_network_require_command "${command}"
+  vinpst_network_require_command "${command}"
 done
 for command in /usr/bin/ip /usr/bin/ss; do
   if [[ ! -x "${command}" ]]; then
@@ -17,10 +17,10 @@ for command in /usr/bin/ip /usr/bin/ss; do
   fi
 done
 
-confirm_physical_device="${VINPUT_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE:-0}"
+confirm_physical_device="${VINPST_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE:-0}"
 if [[ "${confirm_physical_device}" != 1 ]]; then
   printf '%s\n' \
-    'Set VINPUT_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1 only when the URL will be opened' \
+    'Set VINPST_REMOTE_TEXT_CONFIRM_PHYSICAL_DEVICE=1 only when the URL will be opened' \
     'on another physical phone, tablet, laptop, or computer (not a VM/container on this host).' >&2
   exit 1
 fi
@@ -30,31 +30,31 @@ if ! { exec 3>/dev/tty; } 2>/dev/null; then
 fi
 
 lan_address="$(
-  vinput_network_select_lan_ipv4 "${VINPUT_REMOTE_TEXT_LAN_ADDRESS:-}"
+  vinpst_network_select_lan_ipv4 "${VINPST_REMOTE_TEXT_LAN_ADDRESS:-}"
 )"
-out_dir="${VINPUT_REMOTE_TEXT_EXTERNAL_OUT_DIR:-target/tmp/remote-text-external-device-live}"
-timeout_seconds="${VINPUT_REMOTE_TEXT_EXTERNAL_TIMEOUT:-180}"
+out_dir="${VINPST_REMOTE_TEXT_EXTERNAL_OUT_DIR:-target/tmp/remote-text-external-device-live}"
+timeout_seconds="${VINPST_REMOTE_TEXT_EXTERNAL_TIMEOUT:-180}"
 if [[ ! "${timeout_seconds}" =~ ^[1-9][0-9]*$ ]]; then
-  echo "VINPUT_REMOTE_TEXT_EXTERNAL_TIMEOUT must be a positive integer" >&2
+  echo "VINPST_REMOTE_TEXT_EXTERNAL_TIMEOUT must be a positive integer" >&2
   exit 1
 fi
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
 
-read -r port < <(vinput_network_reserve_ports 1)
-api_key="$(vinput_network_random_token)"
-challenge="vinput-external-$(python3 - <<'PY'
+read -r port < <(vinpst_network_reserve_ports 1)
+api_key="$(vinpst_network_random_token)"
+challenge="vinpst-external-$(python3 - <<'PY'
 import secrets
 print(f"{secrets.randbelow(1_000_000):06d}")
 PY
 )"
 config_path="${out_dir}/config.json"
 server_log="${out_dir}/server.log"
-vinput_remote_text_write_config "${config_path}" "${port}" "${api_key}" 600000
+vinpst_remote_text_write_config "${config_path}" "${port}" "${api_key}" 600000
 
-cargo build -q -p vinput-daemon --bin vinput-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon
 
-target/debug/vinput-daemon \
+target/debug/vinpst-daemon \
   --config "${config_path}" \
   remote-text-server --bind 0.0.0.0 \
   >"${server_log}" 2>&1 &
@@ -75,7 +75,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 endpoint="http://${lan_address}:${port}"
-vinput_remote_text_wait_health \
+vinpst_remote_text_wait_health \
   "${server_pid}" \
   "${endpoint}/health" \
   "${server_log}" \
@@ -92,7 +92,7 @@ printf '%s\n' \
   "Waiting up to ${timeout_seconds} seconds for an external peer..." >&3
 exec 3>&-
 
-VINPUT_REMOTE_TEXT_API_KEY="${api_key}" \
+VINPST_REMOTE_TEXT_API_KEY="${api_key}" \
   python3 scripts/live/network/remote-text-external-device-collector.py \
   --endpoint "${endpoint}" \
   --output-url "ws://127.0.0.1:${port}/v1/realtime" \
@@ -130,7 +130,7 @@ fi
 kill -INT "${server_pid}"
 wait "${server_pid}"
 server_stopped=1
-vinput_network_require_listener_released "${port}"
+vinpst_network_require_listener_released "${port}"
 
 jq -n \
   --arg event wrapper_summary \

@@ -13,17 +13,17 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-menus="${VINPUT_LIVE_MENU_MODES:-scene,asr}"
-scene_key="${VINPUT_LIVE_SCENE_MENU_KEY:-F7}"
-asr_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
-out_dir="${VINPUT_LIVE_MENU_OUT_DIR:-target/tmp/ime-fcitx-menu-live}"
+menus="${VINPST_LIVE_MENU_MODES:-scene,asr}"
+scene_key="${VINPST_LIVE_SCENE_MENU_KEY:-F7}"
+asr_key="${VINPST_LIVE_ASR_MENU_KEY:-F8}"
+out_dir="${VINPST_LIVE_MENU_OUT_DIR:-target/tmp/ime-fcitx-menu-live}"
 probe="scripts/live/niri/probes/fcitx-live-menu-probe.py"
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 for command in python3 fcitx5-remote gdbus; do
@@ -46,7 +46,7 @@ if ! fcitx5-remote --check; then
 fi
 status="$(call_service GetStatus 2>/dev/null || true)"
 if [[ "${status}" != *"'idle'"* ]]; then
-  echo "org.fcitx.Vinput must be idle before the menu probe: ${status:-unavailable}" >&2
+  echo "org.fcitx.Vinpst must be idle before the menu probe: ${status:-unavailable}" >&2
   exit 2
 fi
 
@@ -63,7 +63,7 @@ for menu in "${requested_menus[@]}"; do
     trigger_key="${asr_key}"
     ;;
   *)
-    echo "unsupported VINPUT_LIVE_MENU_MODES entry: ${menu}" >&2
+    echo "unsupported VINPST_LIVE_MENU_MODES entry: ${menu}" >&2
     exit 2
     ;;
   esac

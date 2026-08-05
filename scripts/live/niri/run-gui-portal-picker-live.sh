@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-gui_bin="${VINPUT_GUI_PORTAL_LIVE_BIN:-target/debug/vinput-gui}"
-out_dir="${VINPUT_GUI_PORTAL_LIVE_OUT_DIR:-target/tmp/gui-portal-picker-live}"
-portal_fixture="${VINPUT_GUI_PORTAL_LIVE_FIXTURE:-scripts/live/niri/probes/gui-filechooser-portal-fixture.py}"
-key_sender="${VINPUT_GUI_PORTAL_LIVE_KEY_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
-notification_url="${VINPUT_GUI_PORTAL_LIVE_NOTIFICATION_URL:-http://127.0.0.1:9/notification.json}"
+gui_bin="${VINPST_GUI_PORTAL_LIVE_BIN:-target/debug/vinpst-gui}"
+out_dir="${VINPST_GUI_PORTAL_LIVE_OUT_DIR:-target/tmp/gui-portal-picker-live}"
+portal_fixture="${VINPST_GUI_PORTAL_LIVE_FIXTURE:-scripts/live/niri/probes/gui-filechooser-portal-fixture.py}"
+key_sender="${VINPST_GUI_PORTAL_LIVE_KEY_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
+notification_url="${VINPST_GUI_PORTAL_LIVE_NOTIFICATION_URL:-http://127.0.0.1:9/notification.json}"
 clipboard_before=""
 clipboard_had_text=0
 clipboard_types_before=""
@@ -116,7 +116,7 @@ cache_home="${runtime_root}/cache"
 data_home="${runtime_root}/data"
 home_dir="${runtime_root}/home"
 fixture_dir="${runtime_root}/portal files"
-config_path="${config_home}/fcitx-vinput/config.json"
+config_path="${config_home}/fcitx-vinpst/config.json"
 configured_path="${fixture_dir}/configured hotwords.txt"
 selected_path="${fixture_dir}/selected hotwords-测试.txt"
 request_log="${out_dir}/portal-requests.jsonl"
@@ -206,7 +206,7 @@ start_gui() {
     XDG_CONFIG_HOME="${config_home}" \
     XDG_CACHE_HOME="${cache_home}" \
     XDG_DATA_HOME="${data_home}" \
-    VINPUT_NOTIFICATION_URL="${notification_url}" \
+    VINPST_NOTIFICATION_URL="${notification_url}" \
     "${gui_bin}" >"${out_dir}/${name}.stdout.log" 2>"${out_dir}/${name}.stderr.log" &
   gui_pid=$!
   tracked_gui_pids+=("${gui_pid}")
@@ -225,7 +225,7 @@ start_gui() {
     sleep 0.1
   done
   [[ -n "${gui_window_id}" ]] || fail "${name} GUI window did not appear"
-  [[ "$(window_title)" == 'Vinput Configuration — Control' ]] ||
+  [[ "$(window_title)" == 'Vinpst Configuration — Control' ]] ||
     fail "${name} GUI did not expose the expected initial title"
   if grep -Eq 'Cannot start a runtime from within a runtime|panicked at' \
     "${out_dir}/${name}.stderr.log"; then
@@ -237,7 +237,7 @@ open_hotwords_page() {
   focus_gui
   send_key CTRL+4
   for _ in $(seq 1 20); do
-    [[ "$(window_title)" == 'Vinput Configuration — Hotwords' ]] && return
+    [[ "$(window_title)" == 'Vinpst Configuration — Hotwords' ]] && return
     sleep 0.1
   done
   fail "Hotwords page shortcut did not update the title"

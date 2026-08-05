@@ -34,9 +34,9 @@ def append_json_line(path: Path, value: object) -> None:
 
 
 def run_opener(target: str) -> int:
-    log_value = os.environ.get("VINPUT_GUI_DESKTOP_LIVE_OPEN_LOG", "")
+    log_value = os.environ.get("VINPST_GUI_DESKTOP_LIVE_OPEN_LOG", "")
     if not log_value:
-        print("VINPUT_GUI_DESKTOP_LIVE_OPEN_LOG is required", file=sys.stderr)
+        print("VINPST_GUI_DESKTOP_LIVE_OPEN_LOG is required", file=sys.stderr)
         return 2
     append_json_line(
         Path(log_value),

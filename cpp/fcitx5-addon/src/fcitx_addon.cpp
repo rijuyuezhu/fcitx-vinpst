@@ -1,18 +1,18 @@
-#include "vinput_fcitx_bridge/fcitx_addon.h"
+#include "vinpst_fcitx_bridge/fcitx_addon.h"
 
-#include "vinput_fcitx_bridge/dbus_contract.h"
+#include "vinpst_fcitx_bridge/dbus_contract.h"
 
-#include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/fcitx_i18n.h"
 
-#include "vinput_fcitx_bridge/fcitx_menu_paging.h"
+#include "vinpst_fcitx_bridge/fcitx_menu_paging.h"
 
-#include "vinput_fcitx_bridge/fcitx_selection.h"
-#include "vinput_fcitx_bridge/rust_string.h"
-#include "vinput_fcitx_ffi.h"
+#include "vinpst_fcitx_bridge/fcitx_selection.h"
+#include "vinpst_fcitx_bridge/rust_string.h"
+#include "vinpst_fcitx_ffi.h"
 
 #include <dbus_public.h>
 
-#ifdef VINPUT_FCITX_HAVE_CLIPBOARD
+#ifdef VINPST_FCITX_HAVE_CLIPBOARD
 #include "clipboard_public.h"
 #include <fcitx-utils/utf8.h>
 #endif
@@ -31,37 +31,37 @@
 #include <functional>
 #include <utility>
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 namespace {
 
 enum class DaemonControlPlan : std::uint8_t {
-  None = VINPUT_FCITX_DAEMON_CONTROL_PLAN_NONE,
-  ResetUnavailable = VINPUT_FCITX_DAEMON_CONTROL_PLAN_RESET_UNAVAILABLE,
-  ClearRemoteStatus = VINPUT_FCITX_DAEMON_CONTROL_PLAN_CLEAR_REMOTE_STATUS,
-  ResetLocalRecording = VINPUT_FCITX_DAEMON_CONTROL_PLAN_RESET_LOCAL_RECORDING,
-  UpdateLocalPreedit = VINPUT_FCITX_DAEMON_CONTROL_PLAN_UPDATE_LOCAL_PREEDIT,
-  PresentRemoteStatus = VINPUT_FCITX_DAEMON_CONTROL_PLAN_PRESENT_REMOTE_STATUS,
-  AdoptAndStopNormal = VINPUT_FCITX_DAEMON_CONTROL_PLAN_ADOPT_AND_STOP_NORMAL,
-  ClearDaemonError = VINPUT_FCITX_DAEMON_CONTROL_PLAN_CLEAR_DAEMON_ERROR,
+  None = VINPST_FCITX_DAEMON_CONTROL_PLAN_NONE,
+  ResetUnavailable = VINPST_FCITX_DAEMON_CONTROL_PLAN_RESET_UNAVAILABLE,
+  ClearRemoteStatus = VINPST_FCITX_DAEMON_CONTROL_PLAN_CLEAR_REMOTE_STATUS,
+  ResetLocalRecording = VINPST_FCITX_DAEMON_CONTROL_PLAN_RESET_LOCAL_RECORDING,
+  UpdateLocalPreedit = VINPST_FCITX_DAEMON_CONTROL_PLAN_UPDATE_LOCAL_PREEDIT,
+  PresentRemoteStatus = VINPST_FCITX_DAEMON_CONTROL_PLAN_PRESENT_REMOTE_STATUS,
+  AdoptAndStopNormal = VINPST_FCITX_DAEMON_CONTROL_PLAN_ADOPT_AND_STOP_NORMAL,
+  ClearDaemonError = VINPST_FCITX_DAEMON_CONTROL_PLAN_CLEAR_DAEMON_ERROR,
 };
 
 std::optional<DaemonControlPlan> DecodeDaemonControlPlan(std::uint8_t value) {
   switch (value) {
-  case VINPUT_FCITX_DAEMON_CONTROL_PLAN_NONE:
+  case VINPST_FCITX_DAEMON_CONTROL_PLAN_NONE:
     return DaemonControlPlan::None;
-  case VINPUT_FCITX_DAEMON_CONTROL_PLAN_RESET_UNAVAILABLE:
+  case VINPST_FCITX_DAEMON_CONTROL_PLAN_RESET_UNAVAILABLE:
     return DaemonControlPlan::ResetUnavailable;
-  case VINPUT_FCITX_DAEMON_CONTROL_PLAN_CLEAR_REMOTE_STATUS:
+  case VINPST_FCITX_DAEMON_CONTROL_PLAN_CLEAR_REMOTE_STATUS:
     return DaemonControlPlan::ClearRemoteStatus;
-  case VINPUT_FCITX_DAEMON_CONTROL_PLAN_RESET_LOCAL_RECORDING:
+  case VINPST_FCITX_DAEMON_CONTROL_PLAN_RESET_LOCAL_RECORDING:
     return DaemonControlPlan::ResetLocalRecording;
-  case VINPUT_FCITX_DAEMON_CONTROL_PLAN_UPDATE_LOCAL_PREEDIT:
+  case VINPST_FCITX_DAEMON_CONTROL_PLAN_UPDATE_LOCAL_PREEDIT:
     return DaemonControlPlan::UpdateLocalPreedit;
-  case VINPUT_FCITX_DAEMON_CONTROL_PLAN_PRESENT_REMOTE_STATUS:
+  case VINPST_FCITX_DAEMON_CONTROL_PLAN_PRESENT_REMOTE_STATUS:
     return DaemonControlPlan::PresentRemoteStatus;
-  case VINPUT_FCITX_DAEMON_CONTROL_PLAN_ADOPT_AND_STOP_NORMAL:
+  case VINPST_FCITX_DAEMON_CONTROL_PLAN_ADOPT_AND_STOP_NORMAL:
     return DaemonControlPlan::AdoptAndStopNormal;
-  case VINPUT_FCITX_DAEMON_CONTROL_PLAN_CLEAR_DAEMON_ERROR:
+  case VINPST_FCITX_DAEMON_CONTROL_PLAN_CLEAR_DAEMON_ERROR:
     return DaemonControlPlan::ClearDaemonError;
   default:
     return std::nullopt;
@@ -87,7 +87,7 @@ BridgeOutcome BuildPreeditOutcome(std::string text, bool replace_selection) {
   return outcome;
 }
 
-#ifdef VINPUT_FCITX_HAVE_CLIPBOARD
+#ifdef VINPST_FCITX_HAVE_CLIPBOARD
 std::string PrimarySelectionFromClipboard(fcitx::Instance *instance,
                                           fcitx::InputContext *ic) {
   if (instance == nullptr || ic == nullptr) {
@@ -153,10 +153,10 @@ void RequestSurroundingText(fcitx::Event &event) {
 
 } // namespace
 
-FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance)
-    : FcitxVinputAddon(instance, nullptr) {}
+FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance)
+    : FcitxVinpstAddon(instance, nullptr) {}
 
-FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance,
+FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
                                    fcitx::dbus::Bus *signal_bus)
     : instance_(instance), frontend_settings_(LoadFrontendSettings()),
       trigger_policy_(FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
@@ -167,7 +167,7 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance,
   InitFrontendI18n();
   bridge_.SetPresentationText(FrontendText("Original"), FrontendText("Voice Command"),
                               FrontendText("Cancel"));
-  FCITX_INFO() << "fcitx-vinput addon loaded with normal triggers "
+  FCITX_INFO() << "fcitx-vinpst addon loaded with normal triggers "
                << TriggerListDescription(trigger_policy_.normal_triggers())
                << ", command triggers "
                << TriggerListDescription(trigger_policy_.command_triggers())
@@ -193,25 +193,25 @@ FcitxVinputAddon::FcitxVinputAddon(fcitx::Instance *instance,
   }
 }
 
-void FcitxVinputAddon::reloadConfig() {
+void FcitxVinpstAddon::reloadConfig() {
   frontend_settings_ = LoadFrontendSettings();
   ApplyFrontendSettings();
 }
 
-void FcitxVinputAddon::save() {
+void FcitxVinpstAddon::save() {
   if (!SaveFrontendSettings(frontend_settings_)) {
     const auto message = FrontendText("Failed to save frontend configuration.");
-    FCITX_ERROR() << "fcitx-vinput failed to save frontend configuration";
+    FCITX_ERROR() << "fcitx-vinpst failed to save frontend configuration";
     Notify(FrontendNotificationKind::Error, message);
   }
 }
 
-const fcitx::Configuration *FcitxVinputAddon::getConfig() const {
+const fcitx::Configuration *FcitxVinpstAddon::getConfig() const {
   frontend_config_ = BuildFrontendConfig(frontend_settings_);
   return frontend_config_.get();
 }
 
-void FcitxVinputAddon::setConfig(const fcitx::RawConfig &config) {
+void FcitxVinpstAddon::setConfig(const fcitx::RawConfig &config) {
   auto frontend_config = BuildFrontendConfig(frontend_settings_);
   frontend_config->load(config, true);
   frontend_settings_ = frontend_config->settings();
@@ -219,18 +219,18 @@ void FcitxVinputAddon::setConfig(const fcitx::RawConfig &config) {
   save();
 }
 
-void FcitxVinputAddon::SetupDaemonSignalMonitor() {
+void FcitxVinpstAddon::SetupDaemonSignalMonitor() {
   auto *dbus_addon = instance_->addonManager().addon("dbus");
   if (dbus_addon == nullptr) {
     FCITX_WARN()
-        << "fcitx-vinput DBus module is unavailable; daemon signals are disabled";
+        << "fcitx-vinpst DBus module is unavailable; daemon signals are disabled";
     return;
   }
   auto *bus = dbus_addon->call<fcitx::IDBusModule::bus>();
   SetupDaemonSignalMonitor(bus);
 }
 
-void FcitxVinputAddon::SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus) {
+void FcitxVinpstAddon::SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus) {
   daemon_signal_monitor_ = std::make_unique<FcitxDaemonSignalMonitor>(
       bus, DaemonSignalCallbacks{
                .service_availability_changed =
@@ -247,34 +247,34 @@ void FcitxVinputAddon::SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus) {
                    },
            });
   if (!daemon_signal_monitor_->active()) {
-    FCITX_WARN() << "fcitx-vinput failed to subscribe to daemon notifications";
+    FCITX_WARN() << "fcitx-vinpst failed to subscribe to daemon notifications";
     daemon_signal_monitor_.reset();
   }
 }
 
-void FcitxVinputAddon::HandleDaemonAvailability(bool available) {
+void FcitxVinpstAddon::HandleDaemonAvailability(bool available) {
   daemon_client_.reset();
   auto *ic = bridge_.recording() ? active_trigger_ic_.get() : remote_status_ic_.get();
   static_cast<void>(
-      ExecuteDaemonControl(VINPUT_FCITX_DAEMON_CONTROL_EVENT_AVAILABILITY_CHANGED, ic,
+      ExecuteDaemonControl(VINPST_FCITX_DAEMON_CONTROL_EVENT_AVAILABILITY_CHANGED, ic,
                            {}, available, false));
 }
 
-void FcitxVinputAddon::HandleDaemonStatus(std::string_view status) {
+void FcitxVinpstAddon::HandleDaemonStatus(std::string_view status) {
   auto *ic = bridge_.recording() ? active_trigger_ic_.get() : remote_status_ic_.get();
   static_cast<void>(
-      ExecuteDaemonControl(VINPUT_FCITX_DAEMON_CONTROL_EVENT_STATUS_CHANGED, ic, status,
+      ExecuteDaemonControl(VINPST_FCITX_DAEMON_CONTROL_EVENT_STATUS_CHANGED, ic, status,
                            false, live_daemon_state_.CommandMode()));
 }
 
-void FcitxVinputAddon::HandleRecognitionPartial(std::string_view partial_text) {
+void FcitxVinpstAddon::HandleRecognitionPartial(std::string_view partial_text) {
   if (!live_daemon_state_.UpdatePartial(partial_text, bridge_.recording())) {
     return;
   }
   UpdateLivePreedit();
 }
 
-void FcitxVinputAddon::UpdateLivePreedit() {
+void FcitxVinpstAddon::UpdateLivePreedit() {
   if (!bridge_.recording()) {
     return;
   }
@@ -290,11 +290,11 @@ void FcitxVinputAddon::UpdateLivePreedit() {
   ApplyBridgeOutcomeToInputContext(outcome, active_ic);
 }
 
-void FcitxVinputAddon::ResetLiveSignalState() {
+void FcitxVinpstAddon::ResetLiveSignalState() {
   live_daemon_state_.Reset();
 }
 
-void FcitxVinputAddon::ResetActiveRecording(fcitx::InputContext *ic) {
+void FcitxVinpstAddon::ResetActiveRecording(fcitx::InputContext *ic) {
   CancelTriggerStart();
   CancelTriggerStop();
   bridge_.Reset();
@@ -312,7 +312,7 @@ void FcitxVinputAddon::ResetActiveRecording(fcitx::InputContext *ic) {
   ResetLiveSignalState();
 }
 
-void FcitxVinputAddon::HandleDaemonNotification(FrontendNotificationKind kind,
+void FcitxVinpstAddon::HandleDaemonNotification(FrontendNotificationKind kind,
                                                 std::string_view message) {
   if (message.empty()) {
     return;
@@ -329,14 +329,14 @@ void FcitxVinputAddon::HandleDaemonNotification(FrontendNotificationKind kind,
   Notify(kind, message);
 }
 
-void FcitxVinputAddon::Notify(FrontendNotificationKind kind, std::string_view message) {
+void FcitxVinpstAddon::Notify(FrontendNotificationKind kind, std::string_view message) {
   if (message.empty()) {
     return;
   }
   SendFrontendNotification(instance_, BuildFrontendNotification(kind, message));
 }
 
-void FcitxVinputAddon::ApplyFrontendSettings() {
+void FcitxVinpstAddon::ApplyFrontendSettings() {
   CancelTriggerStart();
   trigger_policy_ = FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
       frontend_settings_.normal_triggers, frontend_settings_.command_triggers,
@@ -349,24 +349,24 @@ void FcitxVinputAddon::ApplyFrontendSettings() {
   }
 }
 
-SdBusDaemonClient *FcitxVinputAddon::EnsureDaemonClient(std::string *error) {
+SdBusDaemonClient *FcitxVinpstAddon::EnsureDaemonClient(std::string *error) {
   if (daemon_client_ == nullptr) {
     daemon_client_ = SdBusDaemonClient::ConnectSession(error);
   }
   return daemon_client_.get();
 }
 
-AppliedOutcome FcitxVinputAddon::ApplyDaemonUnavailable(fcitx::InputContext *ic,
+AppliedOutcome FcitxVinpstAddon::ApplyDaemonUnavailable(fcitx::InputContext *ic,
                                                         std::string error) {
   BridgeOutcome outcome;
   outcome.kind = BridgeOutcome::Kind::Error;
   outcome.text = error.empty() ? FrontendText("Voice input daemon is unavailable.")
                                : std::move(error);
-  FCITX_WARN() << "fcitx-vinput daemon unavailable: " << outcome.text;
+  FCITX_WARN() << "fcitx-vinpst daemon unavailable: " << outcome.text;
   return ApplyBridgeOutcome(ic, outcome);
 }
 
-AppliedOutcome FcitxVinputAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
+AppliedOutcome FcitxVinpstAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
                                                     const BridgeOutcome &outcome) {
   ClearRemoteDaemonStatus();
   auto display_outcome = outcome;
@@ -388,22 +388,22 @@ AppliedOutcome FcitxVinputAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
 }
 
 std::optional<AppliedOutcome>
-FcitxVinputAddon::ExecuteDaemonControl(std::uint8_t event, fcitx::InputContext *ic,
+FcitxVinpstAddon::ExecuteDaemonControl(std::uint8_t event, fcitx::InputContext *ic,
                                        std::string_view status, bool flag,
                                        bool command_mode) {
-  const VinputFcitxDaemonControlView control{
+  const VinpstFcitxDaemonControlView control{
       .event = event,
       .status = ToRustStringView(status),
       .flag = static_cast<std::uint8_t>(flag),
       .recording = static_cast<std::uint8_t>(bridge_.recording()),
       .remote_status_active = static_cast<std::uint8_t>(remote_status_ic_.isValid()),
   };
-  const auto plan = DecodeDaemonControlPlan(vinput_fcitx_daemon_control_plan(&control));
+  const auto plan = DecodeDaemonControlPlan(vinpst_fcitx_daemon_control_plan(&control));
   if (!plan.has_value()) {
-    FCITX_ERROR() << "fcitx-vinput received an invalid Rust daemon control plan";
+    FCITX_ERROR() << "fcitx-vinpst received an invalid Rust daemon control plan";
     return std::nullopt;
   }
-  if (event == VINPUT_FCITX_DAEMON_CONTROL_EVENT_STATUS_CHANGED &&
+  if (event == VINPST_FCITX_DAEMON_CONTROL_EVENT_STATUS_CHANGED &&
       *plan != DaemonControlPlan::None) {
     live_daemon_state_.UpdateStatus(status);
   }
@@ -451,7 +451,7 @@ FcitxVinputAddon::ExecuteDaemonControl(std::uint8_t event, fcitx::InputContext *
 }
 
 std::optional<AppliedOutcome>
-FcitxVinputAddon::ReconcileDaemonStatusBeforeStart(fcitx::InputContext *ic,
+FcitxVinpstAddon::ReconcileDaemonStatusBeforeStart(fcitx::InputContext *ic,
                                                    TriggerKind kind) {
   if (bridge_.recording()) {
     return std::nullopt;
@@ -465,11 +465,11 @@ FcitxVinputAddon::ReconcileDaemonStatusBeforeStart(fcitx::InputContext *ic,
   }
 
   const bool command_mode = kind == TriggerKind::Command;
-  return ExecuteDaemonControl(VINPUT_FCITX_DAEMON_CONTROL_EVENT_RECONCILE_BEFORE_START,
+  return ExecuteDaemonControl(VINPST_FCITX_DAEMON_CONTROL_EVENT_RECONCILE_BEFORE_START,
                               ic, status, command_mode, command_mode);
 }
 
-AppliedOutcome FcitxVinputAddon::PresentRemoteDaemonStatus(fcitx::InputContext *ic,
+AppliedOutcome FcitxVinpstAddon::PresentRemoteDaemonStatus(fcitx::InputContext *ic,
                                                            std::string_view status,
                                                            bool command_mode) {
   live_daemon_state_.BeginStatus(status, command_mode);
@@ -484,7 +484,7 @@ AppliedOutcome FcitxVinputAddon::PresentRemoteDaemonStatus(fcitx::InputContext *
   return ApplyBridgeOutcomeToInputContext(outcome, ic);
 }
 
-void FcitxVinputAddon::ClearRemoteDaemonStatus() {
+void FcitxVinpstAddon::ClearRemoteDaemonStatus() {
   auto *ic = remote_status_ic_.get();
   remote_status_ic_.unwatch();
   if (ic == nullptr) {
@@ -499,7 +499,7 @@ void FcitxVinputAddon::ClearRemoteDaemonStatus() {
   ApplyBridgeOutcomeToInputContext(clear, ic);
 }
 
-AppliedOutcome FcitxVinputAddon::StartNormalRecording(fcitx::InputContext *ic) {
+AppliedOutcome FcitxVinpstAddon::StartNormalRecording(fcitx::InputContext *ic) {
   std::string error;
   auto *client = EnsureDaemonClient(&error);
   if (client == nullptr) {
@@ -510,7 +510,7 @@ AppliedOutcome FcitxVinputAddon::StartNormalRecording(fcitx::InputContext *ic) {
       ic, bridge_.StartNormal(client->raw_handle(), scene_menu_controller_));
 }
 
-AppliedOutcome FcitxVinputAddon::StartCommandRecording(fcitx::InputContext *ic,
+AppliedOutcome FcitxVinpstAddon::StartCommandRecording(fcitx::InputContext *ic,
                                                        std::string_view selected_text,
                                                        std::string_view scene_id) {
   if (selected_text.empty()) {
@@ -528,7 +528,7 @@ AppliedOutcome FcitxVinputAddon::StartCommandRecording(fcitx::InputContext *ic,
       ic, bridge_.StartCommand(client->raw_handle(), selected_text, scene_id));
 }
 
-AppliedOutcome FcitxVinputAddon::StopRecording(fcitx::InputContext *ic) {
+AppliedOutcome FcitxVinpstAddon::StopRecording(fcitx::InputContext *ic) {
   std::string error;
   auto *client = EnsureDaemonClient(&error);
   if (client == nullptr) {
@@ -538,7 +538,7 @@ AppliedOutcome FcitxVinputAddon::StopRecording(fcitx::InputContext *ic) {
                             bridge_.Stop(client->raw_handle(), scene_menu_controller_));
 }
 
-AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
+AppliedOutcome FcitxVinpstAddon::ApplyTriggerAction(fcitx::InputContext *ic,
                                                     FcitxTriggerAction action,
                                                     std::string_view selected_text) {
   const auto remember_started_input_context = [this, ic](AppliedOutcome outcome) {
@@ -578,7 +578,7 @@ AppliedOutcome FcitxVinputAddon::ApplyTriggerAction(fcitx::InputContext *ic,
   return AppliedOutcome::None;
 }
 
-void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
+void FcitxVinpstAddon::HandleKeyEvent(fcitx::Event &event) {
   if (event.type() != fcitx::EventType::InputContextKeyEvent) {
     return;
   }
@@ -595,7 +595,7 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
     return;
   }
 
-  FCITX_INFO() << "fcitx-vinput handling trigger " << TriggerActionName(action);
+  FCITX_INFO() << "fcitx-vinpst handling trigger " << TriggerActionName(action);
   if (action == FcitxTriggerAction::ShowSceneMenu ||
       action == FcitxTriggerAction::ConsumeSceneMenuRelease ||
       action == FcitxTriggerAction::ShowAsrMenu ||
@@ -625,7 +625,7 @@ void FcitxVinputAddon::HandleKeyEvent(fcitx::Event &event) {
   key_event.filterAndAccept();
 }
 
-void FcitxVinputAddon::HandleTriggerModeAction(fcitx::InputContext *ic,
+void FcitxVinpstAddon::HandleTriggerModeAction(fcitx::InputContext *ic,
                                                TriggerModeAction action) {
   switch (action) {
   case TriggerModeAction::None:
@@ -660,7 +660,7 @@ void FcitxVinputAddon::HandleTriggerModeAction(fcitx::InputContext *ic,
   }
 }
 
-void FcitxVinputAddon::ScheduleTriggerStart(fcitx::InputContext *ic) {
+void FcitxVinpstAddon::ScheduleTriggerStart(fcitx::InputContext *ic) {
   CancelTriggerStart();
   if (instance_ == nullptr || ic == nullptr) {
     trigger_mode_controller_.RecordingStopped();
@@ -688,7 +688,7 @@ void FcitxVinputAddon::ScheduleTriggerStart(fcitx::InputContext *ic) {
   pending_trigger_start_event_->setOneShot();
 }
 
-void FcitxVinputAddon::CancelTriggerStart() {
+void FcitxVinpstAddon::CancelTriggerStart() {
   if (pending_trigger_start_event_ != nullptr) {
     pending_trigger_start_event_->setEnabled(false);
     pending_trigger_start_event_.reset();
@@ -696,7 +696,7 @@ void FcitxVinputAddon::CancelTriggerStart() {
   pending_trigger_ic_.unwatch();
 }
 
-void FcitxVinputAddon::ScheduleTriggerStop(fcitx::InputContext *fallback_ic) {
+void FcitxVinpstAddon::ScheduleTriggerStop(fcitx::InputContext *fallback_ic) {
   CancelTriggerStop();
   if (!active_trigger_ic_.isValid() && fallback_ic != nullptr) {
     active_trigger_ic_ = fallback_ic->watch();
@@ -722,14 +722,14 @@ void FcitxVinputAddon::ScheduleTriggerStop(fcitx::InputContext *fallback_ic) {
   pending_trigger_stop_event_->setOneShot();
 }
 
-void FcitxVinputAddon::CancelTriggerStop() {
+void FcitxVinpstAddon::CancelTriggerStop() {
   if (pending_trigger_stop_event_ != nullptr) {
     pending_trigger_stop_event_->setEnabled(false);
     pending_trigger_stop_event_.reset();
   }
 }
 
-void FcitxVinputAddon::StopActiveRecording(fcitx::InputContext *fallback_ic) {
+void FcitxVinpstAddon::StopActiveRecording(fcitx::InputContext *fallback_ic) {
   auto *ic = active_trigger_ic_.get();
   if (ic == nullptr) {
     ic = fallback_ic;
@@ -745,4 +745,4 @@ void FcitxVinputAddon::StopActiveRecording(fcitx::InputContext *fallback_ic) {
   }
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

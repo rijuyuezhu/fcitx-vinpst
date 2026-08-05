@@ -1,4 +1,4 @@
-#include "vinput_fcitx_bridge/fcitx_candidates.h"
+#include "vinpst_fcitx_bridge/fcitx_candidates.h"
 
 #include <fcitx/candidatelist.h>
 #include <fcitx/text.h>
@@ -7,10 +7,10 @@
 #include <memory>
 #include <vector>
 
-using vinput_fcitx_bridge::BuildResultCandidateList;
-using vinput_fcitx_bridge::CandidatePresentation;
-using vinput_fcitx_bridge::PresentedCandidate;
-using vinput_fcitx_bridge::ResultCandidateMenuTitle;
+using vinpst_fcitx_bridge::BuildResultCandidateList;
+using vinpst_fcitx_bridge::CandidatePresentation;
+using vinpst_fcitx_bridge::PresentedCandidate;
+using vinpst_fcitx_bridge::ResultCandidateMenuTitle;
 
 namespace {
 
@@ -68,7 +68,7 @@ int main() {
   assert(candidates->layoutHint() == fcitx::CandidateLayoutHint::Vertical);
   assert(candidates->globalCursorIndex() == 2);
   assert(candidates->candidateFromAll(0).text().toString() == "raw transcript");
-#ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
+#ifdef VINPST_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
   assert(candidates->candidateFromAll(0).comment().toString() == "Original");
   assert(candidates->candidateFromAll(1).comment().toString() == "1");
   assert(candidates->candidateFromAll(2).comment().toString() == "2");
@@ -83,7 +83,7 @@ int main() {
   auto asr_candidates = BuildResultCandidateList(
       Rows({Row("asr choice", "Voice Command")}), IgnoreSelection);
   assert(asr_candidates != nullptr);
-#ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
+#ifdef VINPST_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
   assert(asr_candidates->candidateFromAll(0).comment().toString() == "Voice Command");
 #endif
 
@@ -103,7 +103,7 @@ int main() {
   assert(cancel_candidates != nullptr);
   assert(cancel_candidates->totalSize() == 1);
   assert(cancel_candidates->globalCursorIndex() == 0);
-#ifdef VINPUT_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
+#ifdef VINPST_FCITX5_CORE_HAVE_CANDIDATE_COMMENT
   assert(cancel_candidates->candidateFromAll(0).comment().toString() == "Cancel");
 #endif
   cancel_candidates->candidateFromAll(0).select(nullptr);

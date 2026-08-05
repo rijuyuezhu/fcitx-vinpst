@@ -1,6 +1,6 @@
-#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
-#include "vinput_fcitx_bridge/frontend_bridge.h"
-#include "vinput_fcitx_bridge/sd_bus_daemon_client.h"
+#include "vinpst_fcitx_bridge/fcitx_menu_projection.h"
+#include "vinpst_fcitx_bridge/frontend_bridge.h"
+#include "vinpst_fcitx_bridge/sd_bus_daemon_client.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -20,12 +20,12 @@ std::string RequiredEnvironment(const char *name) {
 } // namespace
 
 int main() {
-  using vinput_fcitx_bridge::BridgeOutcome;
-  using vinput_fcitx_bridge::FrontendBridge;
-  using vinput_fcitx_bridge::SdBusDaemonClient;
+  using vinpst_fcitx_bridge::BridgeOutcome;
+  using vinpst_fcitx_bridge::FrontendBridge;
+  using vinpst_fcitx_bridge::SdBusDaemonClient;
 
   const auto expected_text =
-      RequiredEnvironment("VINPUT_NATIVE_FRONTEND_EXPECTED_TEXT");
+      RequiredEnvironment("VINPST_NATIVE_FRONTEND_EXPECTED_TEXT");
 
   std::string error;
   auto client = SdBusDaemonClient::ConnectSession(&error);
@@ -34,7 +34,7 @@ int main() {
     return 1;
   }
 
-  vinput_fcitx_bridge::SceneMenuController scene_controller;
+  vinpst_fcitx_bridge::SceneMenuController scene_controller;
   if (!client->RefreshSceneMenuController(&scene_controller, &error)) {
     std::cerr << "failed to read frontend scene state: " << error << '\n';
     return 1;

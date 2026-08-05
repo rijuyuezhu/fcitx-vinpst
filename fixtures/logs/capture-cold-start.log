@@ -1,9 +1,9 @@
-Jul 29 22:00:00 host vinput-daemon[100]: DEBUG vinput_audio::pipewire_backend: PipeWire capture started target=pipewire:default idle_gap_ms=None create_stream_ms=80 set_active_ms=2 stream_reused=false created_new_stream=true start_total_ms=85
-Jul 29 22:00:00 host vinput-daemon[100]: DEBUG vinput_audio::pipewire_backend: PipeWire capture received first buffer first_buffer_ms=110 samples=800
-Jul 29 22:00:00 host vinput-daemon[100]: DEBUG vinput_daemon::runtime::recording: recording startup completed scene_id=__raw__ delivery_mode=Chunked capture_open_ms=85 session_create_ms=20 start_total_ms=107
-Jul 29 22:00:01 host vinput-daemon[100]: vinput: VAD trimmed 16000 -> 14000 samples leading_removed_ms=100 trailing_removed_ms=25 pad_ms=300
-Jul 29 22:00:02 host vinput-daemon[100]: DEBUG vinput_audio::pipewire_backend: PipeWire capture started target=pipewire:default idle_gap_ms=Some(1200) create_stream_ms=0 set_active_ms=1 stream_reused=true created_new_stream=false start_total_ms=2
-Jul 29 22:00:02 host vinput-daemon[100]: DEBUG vinput_audio::pipewire_backend: PipeWire capture received first buffer first_buffer_ms=40 samples=800
-Jul 29 22:00:02 host vinput-daemon[100]: DEBUG vinput_daemon::runtime::recording: recording startup completed scene_id=__raw__ delivery_mode=Chunked capture_open_ms=2 session_create_ms=0 start_total_ms=3
-Jul 29 22:00:03 host vinput-daemon[100]: DEBUG vinput_daemon::runtime::recording: recording capture startup failed scene_id=__raw__ capture_open_ms=500 start_total_ms=501 error=unavailable
-Jul 29 22:00:04 host vinput-daemon[100]: DEBUG vinput_daemon::runtime::recording: recording ASR session startup failed scene_id=__raw__ capture_open_ms=3 session_create_ms=200 start_total_ms=204 error=unavailable
+Jul 29 22:00:00 host vinpst-daemon[100]: DEBUG vinpst_audio::pipewire_backend: PipeWire capture started target=pipewire:default idle_gap_ms=None create_stream_ms=80 set_active_ms=2 stream_reused=false created_new_stream=true start_total_ms=85
+Jul 29 22:00:00 host vinpst-daemon[100]: DEBUG vinpst_audio::pipewire_backend: PipeWire capture received first buffer first_buffer_ms=110 samples=800
+Jul 29 22:00:00 host vinpst-daemon[100]: DEBUG vinpst_daemon::runtime::recording: recording startup completed scene_id=__raw__ delivery_mode=Chunked capture_open_ms=85 session_create_ms=20 start_total_ms=107
+Jul 29 22:00:01 host vinpst-daemon[100]: vinpst: VAD trimmed 16000 -> 14000 samples leading_removed_ms=100 trailing_removed_ms=25 pad_ms=300
+Jul 29 22:00:02 host vinpst-daemon[100]: DEBUG vinpst_audio::pipewire_backend: PipeWire capture started target=pipewire:default idle_gap_ms=Some(1200) create_stream_ms=0 set_active_ms=1 stream_reused=true created_new_stream=false start_total_ms=2
+Jul 29 22:00:02 host vinpst-daemon[100]: DEBUG vinpst_audio::pipewire_backend: PipeWire capture received first buffer first_buffer_ms=40 samples=800
+Jul 29 22:00:02 host vinpst-daemon[100]: DEBUG vinpst_daemon::runtime::recording: recording startup completed scene_id=__raw__ delivery_mode=Chunked capture_open_ms=2 session_create_ms=0 start_total_ms=3
+Jul 29 22:00:03 host vinpst-daemon[100]: DEBUG vinpst_daemon::runtime::recording: recording capture startup failed scene_id=__raw__ capture_open_ms=500 start_total_ms=501 error=unavailable
+Jul 29 22:00:04 host vinpst-daemon[100]: DEBUG vinpst_daemon::runtime::recording: recording ASR session startup failed scene_id=__raw__ capture_open_ms=3 session_create_ms=200 start_total_ms=204 error=unavailable

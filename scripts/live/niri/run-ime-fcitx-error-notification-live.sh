@@ -13,9 +13,9 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_ERROR_NOTIFICATION_OUT_DIR:-target/tmp/ime-fcitx-error-notification-live}"
-expected_summary="${VINPUT_LIVE_ERROR_NOTIFICATION_EXPECTED_SUMMARY:-Voice Input}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_ERROR_NOTIFICATION_OUT_DIR:-target/tmp/ime-fcitx-error-notification-live}"
+expected_summary="${VINPST_LIVE_ERROR_NOTIFICATION_EXPECTED_SUMMARY:-Voice Input}"
 monitor_log="${out_dir}/dbus-monitor.log"
 config_path=""
 profile_mutated=0
@@ -99,7 +99,7 @@ for command in dbus-monitor fcitx5-remote gdbus jq python3 pgrep; do
   fi
 done
 if [[ ! -x "${cli_binary}" ]]; then
-  echo "vinput CLI is missing: ${cli_binary}" >&2
+  echo "vinpst CLI is missing: ${cli_binary}" >&2
   exit 2
 fi
 if ! fcitx5-remote --check >/dev/null 2>&1; then
@@ -173,7 +173,7 @@ PY
   | tee "${out_dir}/config-validate.json"
 
 dbus-monitor --session \
-  "type='signal',interface='org.fcitx.Vinput.Service',member='DaemonNotification'" \
+  "type='signal',interface='org.fcitx.Vinpst.Service',member='DaemonNotification'" \
   "type='method_call',interface='org.freedesktop.Notifications',member='Notify'" \
   >"${monitor_log}" 2>&1 &
 monitor_pid=$!
@@ -246,7 +246,7 @@ blocks = re.split(r"(?=(?:signal|method call) time=)", monitor_path.read_text())
 signals = []
 notifications = []
 for block in blocks:
-    if "interface=org.fcitx.Vinput.Service; member=DaemonNotification" in block:
+    if "interface=org.fcitx.Vinpst.Service; member=DaemonNotification" in block:
         header = block.splitlines()[0]
         sender_match = re.search(r"sender=([^ ]+)", header)
         strings = [
@@ -280,7 +280,7 @@ for block in blocks:
                 "body": strings[3],
                 "timeout_ms": int(timeout_match.group(1)),
             }
-            if notification["app_name"] == "fcitx5-vinput":
+            if notification["app_name"] == "fcitx5-vinpst":
                 notifications.append(notification)
 
 error_signals = [signal for signal in signals if signal["code"] == "asr_backend_reload_failed"]
@@ -339,7 +339,7 @@ fcitx_sender_pid="$(gdbus call --session \
   --method org.freedesktop.DBus.GetConnectionUnixProcessID "${fcitx_sender}" \
   | python3 -c 'import re,sys; match=re.search(r"uint32 (\d+)", sys.stdin.read()); print(match.group(1) if match else "")')"
 if [[ "${daemon_sender_pid}" != "${before_pid}" ]]; then
-  echo "DaemonNotification sender was not the current vinput-daemon" >&2
+  echo "DaemonNotification sender was not the current vinpst-daemon" >&2
   exit 1
 fi
 if [[ "${fcitx_sender_pid}" != "${fcitx_pid}" ]]; then

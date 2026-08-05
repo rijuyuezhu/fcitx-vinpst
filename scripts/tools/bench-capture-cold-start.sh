@@ -2,12 +2,12 @@
 # Analyze Rust daemon capture startup timing without driving the microphone.
 #
 # Enable structured debug logs for the user service, then restart it:
-#   mkdir -p ~/.config/systemd/user/vinput-daemon.service.d
+#   mkdir -p ~/.config/systemd/user/vinpst-daemon.service.d
 #   printf '%s\n' '[Service]' \
-#     'Environment=RUST_LOG=vinput_audio=debug,vinput_daemon=debug' \
-#     > ~/.config/systemd/user/vinput-daemon.service.d/debug.conf
+#     'Environment=RUST_LOG=vinpst_audio=debug,vinpst_daemon=debug' \
+#     > ~/.config/systemd/user/vinpst-daemon.service.d/debug.conf
 #   systemctl --user daemon-reload
-#   systemctl --user restart vinput-daemon.service
+#   systemctl --user restart vinpst-daemon.service
 #
 # Manual protocols:
 #   Cold: wait at least 10 seconds, start recording, speak immediately, stop.
@@ -23,7 +23,7 @@ set -euo pipefail
 
 since='24 hours ago'
 follow=0
-unit='vinput-daemon.service'
+unit='vinpst-daemon.service'
 input=''
 
 while [[ $# -gt 0 ]]; do
@@ -166,7 +166,7 @@ for line in lines:
         if leading is not None and trailing is not None:
             append_nonnegative(metrics["vad_removed_ms"], leading + trailing)
 
-print("=== vinput Rust capture cold-start scrape ===")
+print("=== vinpst Rust capture cold-start scrape ===")
 for name in metrics:
     print_stats(name, metrics[name])
 print(f"stream_reuse: starts={starts} reused={reused} created={created}")

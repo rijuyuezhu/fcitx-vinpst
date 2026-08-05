@@ -1,0 +1,1673 @@
+//! Integration tests for config validation CLI paths.
+
+mod common;
+
+use std::fs;
+
+use common::{
+    assert_json_success, assert_stdout_success, vinpst_command, workspace_file, write_temp_json,
+};
+
+fn write_temp_config(contents: &str) -> std::path::PathBuf {
+    write_temp_json("vinpst-config", contents)
+}
+fn default_config_path() -> std::path::PathBuf {
+    let path = workspace_file("data/default-config.json");
+    assert!(path.exists(), "default config fixture should exist");
+    path
+}
+#[test]
+fn config_validate_accepts_committed_default_fixture() {
+    let path = default_config_path();
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .arg("--summary-only")
+        .output()
+        .expect("run vinpst config validate on default fixture");
+
+    let value = assert_json_success(output, "config summary");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["active_provider"], "sherpa-onnx");
+    assert_eq!(value["active_scene"], "__raw__");
+    assert_eq!(value["provider_count"], 1);
+    assert_eq!(value["scene_count"], 2);
+}
+
+#[test]
+fn config_example_lists_available_examples() {
+    let output = vinpst_command()
+        .args(["config", "example", "--list"])
+        .output()
+        .expect("run vinpst config example --list");
+
+    let value = assert_json_success(output, "config example list");
+    let examples = value["examples"].as_array().expect("examples array");
+    let names = examples
+        .iter()
+        .map(|example| example["name"].as_str().expect("example name"))
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"default"));
+    assert!(names.contains(&"command-demo"));
+    assert!(names.contains(&"configured-pipewire-live"));
+}
+
+#[test]
+fn config_example_prints_command_demo_config() {
+    let output = vinpst_command()
+        .args(["config", "example", "command-demo"])
+        .output()
+        .expect("run vinpst config example command-demo");
+
+    let value = assert_json_success(output, "command demo config example");
+    assert_eq!(value["asr"]["active_provider"], "demo-command-asr");
+    assert_eq!(value["scenes"]["active_scene"], "demo-postprocess");
+}
+
+#[test]
+fn config_example_writes_configured_pipewire_live_config() {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "vinpst-config-example-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos()
+    ));
+
+    let output = vinpst_command()
+        .args(["config", "example", "configured-pipewire-live", "--output"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config example configured-pipewire-live --output");
+
+    let stdout = assert_stdout_success(output, "config example output");
+    assert!(stdout.is_empty());
+    let contents = fs::read_to_string(&path).expect("read written config example");
+    fs::remove_file(&path).expect("remove written config example");
+    let value: serde_json::Value = serde_json::from_str(&contents).expect("example is JSON");
+    assert_eq!(value["asr"]["active_provider"], "live-command-asr");
+}
+
+#[test]
+fn config_validate_prints_summary_for_valid_config() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "config summary");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["active_scene"], "raw");
+    assert_eq!(value["active_provider"], "p");
+    assert_eq!(value["scene_count"], 3);
+    assert_eq!(value["provider_count"], 1);
+    assert_eq!(value["registry_mirror_count"], 0);
+}
+
+#[test]
+fn config_validate_rejects_future_schema_without_output() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 2,
+          "future_state": {"sentinel": "preserve-user-config"}
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .arg("--json")
+        .output()
+        .expect("run vinpst config validate on future schema");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("future-schema stderr is UTF-8");
+    assert!(stderr.contains("unsupported config schema version 2"));
+    assert!(stderr.contains("supports up to 1"));
+}
+
+#[test]
+fn config_validate_summary_omits_sensitive_config_details() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "registry": {"base_urls": ["https://registry-leak-marker.example.invalid/index.json"]},
+          "asr": {
+            "active_provider": "cmd",
+            "providers": [{
+              "id":"cmd",
+              "type":"command",
+              "command":"vinpst-asr-helper",
+              "args":["--flag", "asr-arg-leak-marker"],
+              "env":{"ASR_KEY":"asr-env-leak-marker"},
+              "model":"asr-model-leak-marker",
+              "hotwords_file":"/tmp/asr-hotwords-leak-marker.txt"
+            }]
+          },
+          "llm": {
+            "providers": [{
+              "id":"llm",
+              "base_url":"https://llm-leak-marker.example.invalid/v1",
+              "api_key":"llm-key-leak-marker",
+              "model":"llm-model-leak-marker",
+              "extra_body":{"trace":"llm-extra-leak-marker"},
+              "future_field":"provider-extra-leak-marker"
+            }],
+            "adapters": [{
+              "id":"adapter",
+              "command":"vinpst-text-helper",
+              "args":["--flag", "adapter-arg-leak-marker"],
+              "env":{"ADAPTER_KEY":"adapter-env-leak-marker"},
+              "working_dir":"/tmp/adapter-workdir-leak-marker",
+              "adapter_field":"adapter-extra-leak-marker"
+            }]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .arg("--summary-only")
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let stdout = assert_stdout_success(output, "config summary");
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout should be JSON");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["active_provider"], "cmd");
+    assert_eq!(value["active_scene"], "raw");
+    assert_eq!(value["provider_count"], 1);
+    assert_eq!(value["registry_mirror_count"], 1);
+
+    for forbidden_key in [
+        "api_key",
+        "base_url",
+        "env",
+        "args",
+        "command",
+        "working_dir",
+        "extra_body",
+        "future_field",
+        "adapter_field",
+    ] {
+        assert!(
+            !stdout.contains(&format!("\"{forbidden_key}\"")),
+            "config summary must not expose {forbidden_key}"
+        );
+    }
+    for marker in [
+        "registry-leak-marker",
+        "asr-arg-leak-marker",
+        "asr-env-leak-marker",
+        "asr-model-leak-marker",
+        "asr-hotwords-leak-marker",
+        "llm-leak-marker",
+        "llm-key-leak-marker",
+        "llm-model-leak-marker",
+        "llm-extra-leak-marker",
+        "provider-extra-leak-marker",
+        "adapter-arg-leak-marker",
+        "adapter-env-leak-marker",
+        "adapter-workdir-leak-marker",
+        "adapter-extra-leak-marker",
+    ] {
+        assert!(
+            !stdout.contains(marker),
+            "config summary must not leak {marker}"
+        );
+    }
+}
+
+#[test]
+fn config_validate_accepts_object_llm_provider_extra_body() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "providers": [{
+              "id":"llm",
+              "base_url":"https://example.invalid/v1",
+              "extra_body":{"temperature":0.1}
+            }]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(output.status.success());
+}
+
+#[test]
+fn config_validate_fails_for_duplicate_scene_ids() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [
+              {"id":"raw","label":"Raw","candidate_count":0},
+              {"id":"raw","label":"Raw again","candidate_count":0}
+            ]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("duplicate scene id `raw`"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_registry_mirror() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "registry": {"base_urls": [""]},
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty registry base URL"));
+}
+
+#[test]
+fn config_validate_fails_for_duplicate_provider_ids() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [
+              {"id":"p","type":"local"},
+              {"id":"p","type":"local"}
+            ]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("duplicate ASR provider id `p`"));
+}
+
+#[test]
+fn config_validate_fails_for_unknown_active_provider() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "missing",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("active ASR provider `missing` is not defined"));
+}
+
+#[test]
+fn config_validate_fails_for_unknown_active_scene() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "missing",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("active scene `missing` is not defined"));
+}
+
+#[test]
+fn config_validate_fails_for_invalid_vad_values() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "vad": {
+              "enabled": true,
+              "threshold": 1.0,
+              "min_speech_duration": 0.15,
+              "min_silence_duration": 0.5,
+              "speech_pad_ms": 300
+            },
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid VAD threshold 1"));
+}
+
+#[test]
+fn config_validate_fails_for_duplicate_registry_mirrors() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "registry": {
+            "base_urls": ["https://mirror.invalid/root", "https://mirror.invalid/root"]
+          },
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("duplicate registry base URL `https://mirror.invalid/root`"));
+}
+
+#[test]
+fn config_validate_summary_only_matches_summary_shape() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .args(["--summary-only"])
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "config summary");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["scene_count"], 3);
+    assert!(value.get("scenes").is_none());
+}
+
+#[test]
+fn config_validate_fails_for_empty_provider_ids() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "",
+            "providers": [{"id":"   ","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty ASR provider id"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_capture_device() {
+    let path = write_temp_config(
+        r#"{"version":1,"global":{"capture_device":"   "},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty capture device"));
+}
+
+#[test]
+fn config_validate_fails_for_whitespace_active_provider() {
+    let path = write_temp_config(
+        r#"{"version":1,"asr":{"active_provider":"   ","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty active ASR provider id"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_default_language() {
+    let path = write_temp_config(
+        r#"{"version":1,"global":{"default_language":"   "},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty default language"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_scene_ids() {
+    let path = write_temp_config(
+        r#"{"version":1,"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"","definitions":[{"id":"   ","label":"Raw","candidate_count":0}]}}"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty scene id"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_scene_labels() {
+    let path = write_temp_config(
+        r#"{"version":1,"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"   ","candidate_count":0}]}}"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty scene label for scene `raw`"));
+}
+
+#[test]
+fn config_validate_fails_for_too_many_candidates() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":33}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("scene `raw` asks for 33 candidates"));
+}
+
+#[test]
+fn config_validate_fails_for_too_many_context_lines() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0,"context_lines":33}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("scene `raw` asks for 33 context lines, max is 32"));
+}
+
+#[test]
+fn config_validate_fails_for_zero_scene_timeout() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0,"timeout_ms":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("scene `raw` has invalid timeout_ms 0"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_scene_model() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0,"model":"   "}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("scene `raw` has an invalid empty model id"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_scene_prompt() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0,"prompt":"   "}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("scene `raw` has an invalid empty prompt"));
+}
+
+#[test]
+fn config_validate_fails_for_duplicate_llm_adapter_ids() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "adapters": [
+              {"id":"adapter","command":"vinpst-adapter"},
+              {"id":"adapter","command":"vinpst-adapter"}
+            ]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("duplicate LLM adapter id `adapter`"));
+}
+#[test]
+fn config_validate_fails_for_empty_llm_adapter_id() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "adapters": [{"id":"   ","command":"vinpst-adapter"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty LLM adapter id"));
+}
+#[test]
+fn config_validate_fails_for_empty_llm_adapter_env_key() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "adapters": [{"id":"adapter","command":"vinpst-adapter","env":{"":"bad"}}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("LLM adapter `adapter` has an invalid environment key ``"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_llm_adapter_command() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "adapters": [{"id":"adapter","command":"   "}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("LLM adapter `adapter` must configure a command"));
+}
+#[test]
+fn config_validate_fails_for_empty_llm_adapter_working_dir() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "adapters": [{"id":"adapter","command":"vinpst-adapter","working_dir":"   "}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("LLM adapter `adapter` has an invalid empty working_dir"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_llm_provider_id() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {"active_provider":"p","providers":[{"id":"p","type":"local"}]},
+          "llm": {"providers":[{"id":"   ","base_url":"https://example.invalid/v1"}]},
+          "scenes": {"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("invalid empty LLM provider id"));
+}
+
+#[test]
+fn config_validate_fails_for_duplicate_llm_provider_ids() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {"active_provider":"p","providers":[{"id":"p","type":"local"}]},
+          "llm": {
+            "providers": [
+              {"id":"llm","base_url":"https://example.invalid/v1"},
+              {"id":"llm","base_url":"https://example.invalid/v1"}
+            ]
+          },
+          "scenes": {"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("duplicate LLM provider id `llm`"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_llm_provider_base_url() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {"active_provider":"p","providers":[{"id":"p","type":"local"}]},
+          "llm": {"providers":[{"id":"llm","base_url":"   "}]},
+          "scenes": {"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("LLM provider `llm` must configure a base URL"));
+}
+#[test]
+fn config_validate_fails_for_empty_llm_provider_model() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "providers": [{"id":"llm","base_url":"https://example.invalid/v1","model":"   "}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("LLM provider `llm` has an invalid empty model id"));
+}
+
+#[test]
+fn config_validate_fails_for_non_object_llm_provider_extra_body() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "providers": [{"id":"llm","base_url":"https://example.invalid/v1","extra_body":["bad"]}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("LLM provider `llm` has invalid non-object extra_body"));
+}
+
+#[test]
+fn config_validate_fails_for_unknown_scene_provider() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local"}]
+          },
+          "llm": {
+            "providers": [{"id":"known","base_url":"https://example.invalid/v1"}]
+          },
+          "scenes": {
+            "active_scene": "rewrite",
+            "definitions": [
+              {"id":"raw","label":"Raw","candidate_count":0},
+              {"id":"rewrite","label":"Rewrite","provider_id":"missing","candidate_count":1}
+            ]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("unknown LLM provider `missing`"));
+}
+
+#[test]
+fn asr_state_accepts_committed_default_fixture() {
+    let path = default_config_path();
+
+    let output = vinpst_command()
+        .arg("asr-state")
+        .arg("--config")
+        .arg(&path)
+        .output()
+        .expect("run vinpst asr-state on default fixture");
+
+    let value = assert_json_success(output, "ASR state");
+    assert_eq!(value["target_provider_id"], "sherpa-onnx");
+    assert_eq!(value["target_model_id"], "");
+    assert_eq!(value["has_effective_backend"], false);
+    assert!(
+        value["last_error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("sherpa-onnx runtime")
+    );
+}
+
+#[test]
+fn asr_state_reports_unselected_provider() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "",
+            "providers": [{"id":"local","type":"local","model":"fixture-model"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .arg("asr-state")
+        .arg("--config")
+        .arg(&path)
+        .output()
+        .expect("run vinpst asr-state with no active provider");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "unselected ASR state");
+    assert_eq!(value["target_provider_id"], "");
+    assert_eq!(value["effective_provider_id"], "");
+    assert_eq!(value["has_effective_backend"], false);
+    assert_eq!(value["last_error"], "no active ASR provider is configured");
+}
+
+#[test]
+fn asr_state_reports_mock_provider_ready() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "mock",
+            "providers": [{"id":"mock","type":"local","model":"fixture-model"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .arg("asr-state")
+        .arg("--config")
+        .arg(&path)
+        .output()
+        .expect("run vinpst asr-state");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "ASR state");
+    assert_eq!(value["target_provider_id"], "mock");
+    assert_eq!(value["target_model_id"], "fixture-model");
+    assert_eq!(value["effective_provider_id"], "mock");
+    assert_eq!(value["has_effective_backend"], true);
+}
+
+#[test]
+fn asr_state_reports_unavailable_provider() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "sherpa-onnx",
+            "providers": [{"id":"sherpa-onnx","type":"local","model":"paraformer"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .arg("asr-state")
+        .arg("--config")
+        .arg(&path)
+        .output()
+        .expect("run vinpst asr-state");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "ASR state");
+    assert_eq!(value["target_provider_id"], "sherpa-onnx");
+    assert_eq!(value["target_model_id"], "paraformer");
+    assert_eq!(value["has_effective_backend"], false);
+    assert!(
+        value["last_error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("sherpa-onnx runtime")
+    );
+}
+
+#[test]
+fn asr_state_reports_remote_provider_endpoint() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "remote",
+            "providers": [{"id":"remote","type":"remote","model":"cloud","endpoint":"https://asr.example.test"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .arg("asr-state")
+        .arg("--config")
+        .arg(&path)
+        .output()
+        .expect("run vinpst asr-state");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "ASR state");
+    assert_eq!(value["target_provider_id"], "remote");
+    assert_eq!(value["target_model_id"], "cloud");
+    assert_eq!(
+        value["remote_endpoints"],
+        serde_json::json!(["https://asr.example.test"])
+    );
+}
+
+#[test]
+fn asr_state_reports_command_provider_skeleton_ready() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "cmd",
+            "providers": [{"id":"cmd","type":"command","command":"helper","args":["--json"],"model":"cmd-model","hotwords_file":"/tmp/hotwords.txt"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .arg("asr-state")
+        .arg("--config")
+        .arg(&path)
+        .output()
+        .expect("run vinpst asr-state");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "ASR state");
+    assert_eq!(value["target_provider_id"], "cmd");
+    assert_eq!(value["target_model_id"], "cmd-model");
+    assert_eq!(value["effective_provider_id"], "cmd");
+    assert_eq!(value["effective_model_id"], "cmd-model");
+    assert_eq!(value["has_effective_backend"], true);
+    assert_eq!(value["last_error"], "");
+}
+
+#[test]
+fn config_validate_fails_for_empty_asr_provider_model() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local","model":"   "}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("ASR provider `p` has an invalid empty model id"));
+}
+#[test]
+fn config_validate_accepts_positive_asr_provider_timeout() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local","timeout_ms":1}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    let value = assert_json_success(output, "config summary");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["active_provider"], "p");
+}
+
+#[test]
+fn config_validate_fails_for_empty_asr_provider_hotwords_file() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local","hotwords_file":"   "}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("ASR provider `p` has an invalid empty hotwords_file"));
+}
+#[test]
+fn config_validate_fails_for_empty_asr_provider_command() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local","command":"   "}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("ASR provider `p` has an invalid empty command"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_asr_provider_endpoint() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local","endpoint":"   "}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("ASR provider `p` has an invalid empty endpoint"));
+}
+
+#[test]
+fn config_validate_fails_for_empty_asr_provider_env_key() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local","env":{"":"bad"}}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("provider `p` has an invalid environment key ``"));
+}
+#[test]
+fn config_validate_fails_for_zero_asr_provider_timeout() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "p",
+            "providers": [{"id":"p","type":"local","timeout_ms":0}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("ASR provider `p` has invalid timeout_ms 0"));
+}
+#[test]
+fn config_validate_accepts_command_asr_provider() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "cmd",
+            "providers": [{
+              "id":"cmd",
+              "type":"command",
+              "command":"vinpst-asr-command",
+              "args":["--json"],
+              "env":{"ASR_MODE":"test"}
+            }]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(output.status.success());
+}
+
+#[test]
+fn config_validate_fails_for_command_provider_without_command() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "cmd",
+            "providers": [{"id":"cmd","type":"command"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("command ASR provider `cmd` must configure a command"));
+}
+
+#[test]
+fn config_prints_bundled_summary() {
+    let output = vinpst_command()
+        .args(["config"])
+        .output()
+        .expect("run vinpst config");
+
+    let value = assert_json_success(output, "config summary");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["active_scene"], "__raw__");
+    assert_eq!(value["active_provider"], "sherpa-onnx");
+    assert!(value["registry_mirror_count"].as_u64().unwrap_or_default() > 0);
+}
+
+#[test]
+fn config_validate_fails_for_remote_provider_without_endpoint() {
+    let path = write_temp_config(
+        r#"
+        {
+          "version": 1,
+          "asr": {
+            "active_provider": "remote",
+            "providers": [{"id":"remote","type":"remote"}]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "validate"])
+        .arg(&path)
+        .output()
+        .expect("run vinpst config validate");
+    fs::remove_file(&path).expect("remove temporary config fixture");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+    assert!(stderr.contains("remote ASR provider `remote` must configure an endpoint"));
+}

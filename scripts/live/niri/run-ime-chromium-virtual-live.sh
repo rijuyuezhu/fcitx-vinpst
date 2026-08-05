@@ -13,7 +13,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-mode="${1:-${VINPUT_LIVE_TOOLKIT_MODE:-normal}}"
+mode="${1:-${VINPST_LIVE_TOOLKIT_MODE:-normal}}"
 case "${mode}" in
 normal | command) ;;
 *)
@@ -22,11 +22,11 @@ normal | command) ;;
   ;;
 esac
 
-out_dir="$(realpath -m "${VINPUT_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-chromium-virtual-live}")"
-wav="${VINPUT_LIVE_TOOLKIT_WAV:-}"
-playback_target="${VINPUT_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
-uinput_sender="${VINPUT_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
-timeout_seconds="${VINPUT_TOOLKIT_TIMEOUT_SECONDS:-120}"
+out_dir="$(realpath -m "${VINPST_LIVE_TOOLKIT_OUT_DIR:-target/tmp/ime-chromium-virtual-live}")"
+wav="${VINPST_LIVE_TOOLKIT_WAV:-}"
+playback_target="${VINPST_LIVE_TOOLKIT_PLAYBACK_TARGET:-}"
+uinput_sender="${VINPST_LIVE_TOOLKIT_UINPUT_SENDER:-scripts/live/niri/probes/send-uinput-key.py}"
+timeout_seconds="${VINPST_TOOLKIT_TIMEOUT_SECONDS:-120}"
 log="${out_dir}/${mode}.jsonl"
 stdout_log="${out_dir}/${mode}.stdout.log"
 stderr_log="${out_dir}/${mode}.stderr.log"
@@ -49,7 +49,7 @@ primary_before_present=0
 primary_snapshot_ready=0
 
 if [[ -z "${wav}" || ! -f "${wav}" ]]; then
-  echo "VINPUT_LIVE_TOOLKIT_WAV must name an existing speech WAV" >&2
+  echo "VINPST_LIVE_TOOLKIT_WAV must name an existing speech WAV" >&2
   exit 2
 fi
 for command_name in cmp gdbus jq niri pgrep ps pw-play python3 realpath timeout; do
@@ -252,9 +252,9 @@ fi
       sleep 0.1
       continue
     fi
-    status="$(gdbus call --session --dest org.fcitx.Vinput \
-      --object-path /org/fcitx/Vinput \
-      --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+    status="$(gdbus call --session --dest org.fcitx.Vinpst \
+      --object-path /org/fcitx/Vinpst \
+      --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null || true)"
     if [[ "${status}" == *"recording"* ]]; then
       if [[ -n "${playback_target}" ]]; then
         pw-play --target "${playback_target}" "${wav}"
@@ -272,10 +272,10 @@ fi
 playback_pid=$!
 
 set +e
-VINPUT_LIVE_TOOLKIT_OUT_DIR="${out_dir}" \
-VINPUT_TOOLKIT_TIMEOUT_SECONDS="${timeout_seconds}" \
-VINPUT_TOOLKIT_INITIAL_TEXT="$( [[ "${mode}" == command ]] && printf '%s' "${browser_selected_text}" || true )" \
-VINPUT_TOOLKIT_EXPECTED_COMMIT_SUBSTRING="$( [[ "${mode}" == command ]] && printf '%s' "${expected_command_prefix}" || true )" \
+VINPST_LIVE_TOOLKIT_OUT_DIR="${out_dir}" \
+VINPST_TOOLKIT_TIMEOUT_SECONDS="${timeout_seconds}" \
+VINPST_TOOLKIT_INITIAL_TEXT="$( [[ "${mode}" == command ]] && printf '%s' "${browser_selected_text}" || true )" \
+VINPST_TOOLKIT_EXPECTED_COMMIT_SUBSTRING="$( [[ "${mode}" == command ]] && printf '%s' "${expected_command_prefix}" || true )" \
   scripts/live/niri/run-ime-chromium-native-live.sh "${mode}" \
   > >(tee "${stdout_log}") \
   2> >(tee "${stderr_log}" >&2) &
@@ -410,9 +410,9 @@ probe_pid=$!
     echo "Chromium emitted recognition partials before the automatic trigger" >&2
     exit 1
   fi
-  daemon_state="$(gdbus call --session --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method org.fcitx.Vinput.Service.GetStatus 2>/dev/null || true)"
+  daemon_state="$(gdbus call --session --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method org.fcitx.Vinpst.Service.GetStatus 2>/dev/null || true)"
   if [[ "${daemon_state}" != *"idle"* ]]; then
     echo "daemon was not idle immediately before the Chromium automatic trigger" >&2
     exit 1

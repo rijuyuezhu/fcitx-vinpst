@@ -2,23 +2,23 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-activation_file="${VINPUT_REMOVE_ACTIVATION_FILE:-/usr/share/dbus-1/services/org.fcitx.Vinput.service}"
-runtime_root="${VINPUT_REMOVE_RUNTIME_ROOT:-/run/user}"
-vinput_binary="${VINPUT_REMOVE_VINPUT:-/usr/bin/vinput}"
+activation_file="${VINPST_REMOVE_ACTIVATION_FILE:-/usr/share/dbus-1/services/org.fcitx.Vinpst.service}"
+runtime_root="${VINPST_REMOVE_RUNTIME_ROOT:-/run/user}"
+vinpst_binary="${VINPST_REMOVE_VINPST:-/usr/bin/vinpst}"
 default_runuser_binary=/usr/bin/runuser
 if [[ ! -x "${default_runuser_binary}" && -x /usr/sbin/runuser ]]; then
   default_runuser_binary=/usr/sbin/runuser
 fi
-runuser_binary="${VINPUT_REMOVE_RUNUSER:-${default_runuser_binary}}"
-env_binary="${VINPUT_REMOVE_ENV:-/usr/bin/env}"
-getent_binary="${VINPUT_REMOVE_GETENT:-/usr/bin/getent}"
-stat_binary="${VINPUT_REMOVE_STAT:-/usr/bin/stat}"
-rm_binary="${VINPUT_REMOVE_RM:-/usr/bin/rm}"
-cp_binary="${VINPUT_REMOVE_CP:-/usr/bin/cp}"
-mktemp_binary="${VINPUT_REMOVE_MKTEMP:-/usr/bin/mktemp}"
-gdbus_binary="${VINPUT_REMOVE_GDBUS:-/usr/bin/gdbus}"
-systemctl_binary="${VINPUT_REMOVE_SYSTEMCTL:-/usr/bin/systemctl}"
-kill_binary="${VINPUT_REMOVE_KILL:-/usr/bin/kill}"
+runuser_binary="${VINPST_REMOVE_RUNUSER:-${default_runuser_binary}}"
+env_binary="${VINPST_REMOVE_ENV:-/usr/bin/env}"
+getent_binary="${VINPST_REMOVE_GETENT:-/usr/bin/getent}"
+stat_binary="${VINPST_REMOVE_STAT:-/usr/bin/stat}"
+rm_binary="${VINPST_REMOVE_RM:-/usr/bin/rm}"
+cp_binary="${VINPST_REMOVE_CP:-/usr/bin/cp}"
+mktemp_binary="${VINPST_REMOVE_MKTEMP:-/usr/bin/mktemp}"
+gdbus_binary="${VINPST_REMOVE_GDBUS:-/usr/bin/gdbus}"
+systemctl_binary="${VINPST_REMOVE_SYSTEMCTL:-/usr/bin/systemctl}"
+kill_binary="${VINPST_REMOVE_KILL:-/usr/bin/kill}"
 
 # shellcheck source=package-session-common.sh
 source "${script_dir}/package-session-common.sh"
@@ -26,7 +26,7 @@ source "${script_dir}/package-session-common.sh"
 session_uid=""
 
 for command in \
-  "${vinput_binary}" \
+  "${vinpst_binary}" \
   "${runuser_binary}" \
   "${env_binary}" \
   "${getent_binary}" \
@@ -66,8 +66,8 @@ reload_restored_activation() {
   ((activation_existed == 1)) || return 0
   "${cp_binary}" -a -- "${backup_dir}/activation.service" "${activation_file}"
   for bus_path in "${runtime_root}"/[0-9]*/bus; do
-    if vinput_package_load_session_identity "${bus_path}"; then
-      if ! vinput_package_run_in_session \
+    if vinpst_package_load_session_identity "${bus_path}"; then
+      if ! vinpst_package_run_in_session \
         "${gdbus_binary}" call --session \
         --dest org.freedesktop.DBus \
         --object-path /org/freedesktop/DBus \
@@ -89,13 +89,13 @@ sessions=0
 preflight_failures=0
 shopt -s nullglob
 for bus_path in "${runtime_root}"/[0-9]*/bus; do
-  if vinput_package_load_session_identity "${bus_path}"; then
+  if vinpst_package_load_session_identity "${bus_path}"; then
     sessions=$((sessions + 1))
-    if ! vinput_package_run_in_session \
-      VINPUT_DAEMON_SYSTEMCTL="${systemctl_binary}" \
-      VINPUT_DAEMON_KILL="${kill_binary}" \
-      "${vinput_binary}" daemon prepare-remove --preflight --json; then
-      echo "failed to preflight vinput daemon removal for uid ${session_uid}" >&2
+    if ! vinpst_package_run_in_session \
+      VINPST_DAEMON_SYSTEMCTL="${systemctl_binary}" \
+      VINPST_DAEMON_KILL="${kill_binary}" \
+      "${vinpst_binary}" daemon prepare-remove --preflight --json; then
+      echo "failed to preflight vinpst daemon removal for uid ${session_uid}" >&2
       preflight_failures=$((preflight_failures + 1))
     fi
   else
@@ -107,21 +107,21 @@ for bus_path in "${runtime_root}"/[0-9]*/bus; do
 done
 
 if ((preflight_failures > 0)); then
-  echo "vinput removal preflight failed for ${preflight_failures} session(s)" >&2
+  echo "vinpst removal preflight failed for ${preflight_failures} session(s)" >&2
   if ! reload_restored_activation; then
-    echo "vinput removal handoff also failed to restore activation metadata" >&2
+    echo "vinpst removal handoff also failed to restore activation metadata" >&2
   fi
   exit 1
 fi
 
 failures=0
 for bus_path in "${runtime_root}"/[0-9]*/bus; do
-  if vinput_package_load_session_identity "${bus_path}"; then
-    if ! vinput_package_run_in_session \
-      VINPUT_DAEMON_SYSTEMCTL="${systemctl_binary}" \
-      VINPUT_DAEMON_KILL="${kill_binary}" \
-      "${vinput_binary}" daemon prepare-remove --json; then
-      echo "failed to prepare vinput daemon removal for uid ${session_uid}" >&2
+  if vinpst_package_load_session_identity "${bus_path}"; then
+    if ! vinpst_package_run_in_session \
+      VINPST_DAEMON_SYSTEMCTL="${systemctl_binary}" \
+      VINPST_DAEMON_KILL="${kill_binary}" \
+      "${vinpst_binary}" daemon prepare-remove --json; then
+      echo "failed to prepare vinpst daemon removal for uid ${session_uid}" >&2
       failures=$((failures + 1))
     fi
   else
@@ -132,11 +132,11 @@ for bus_path in "${runtime_root}"/[0-9]*/bus; do
   fi
 done
 
-printf 'vinput removal handoff checked %d live user session(s)\n' "${sessions}"
+printf 'vinpst removal handoff checked %d live user session(s)\n' "${sessions}"
 if ((failures > 0)); then
-  echo "vinput removal handoff failed for ${failures} session(s)" >&2
+  echo "vinpst removal handoff failed for ${failures} session(s)" >&2
   if ! reload_restored_activation; then
-    echo "vinput removal handoff also failed to restore activation metadata" >&2
+    echo "vinpst removal handoff also failed to restore activation metadata" >&2
   fi
   exit 1
 fi

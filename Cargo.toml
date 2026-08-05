@@ -1,27 +1,27 @@
 [workspace]
 members = [
-    "crates/vinput-protocol",
-    "crates/vinput-fcitx-core",
-    "crates/vinput-fcitx-dbus",
-    "crates/vinput-fcitx-ffi",
-    "crates/vinput-config",
-    "crates/vinput-http",
-    "crates/vinput-process",
-    "crates/vinput-asr",
-    "crates/vinput-audio",
-    "crates/vinput-registry",
-    "crates/vinput-text",
-    "crates/vinput-daemon",
-    "crates/vinput-daemon-control",
-    "crates/vinput-cli",
-    "crates/vinput-gui",
+    "crates/vinpst-protocol",
+    "crates/vinpst-fcitx-core",
+    "crates/vinpst-fcitx-dbus",
+    "crates/vinpst-fcitx-ffi",
+    "crates/vinpst-config",
+    "crates/vinpst-http",
+    "crates/vinpst-process",
+    "crates/vinpst-asr",
+    "crates/vinpst-audio",
+    "crates/vinpst-registry",
+    "crates/vinpst-text",
+    "crates/vinpst-daemon",
+    "crates/vinpst-daemon-control",
+    "crates/vinpst-cli",
+    "crates/vinpst-gui",
 ]
 resolver = "2"
 
 [workspace.package]
 edition = "2024"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/rijuyuezhu/fcitx-vinput-rs"
+repository = "https://github.com/rijuyuezhu/fcitx-vinpst"
 rust-version = "1.88"
 
 [workspace.dependencies]

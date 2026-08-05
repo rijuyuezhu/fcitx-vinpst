@@ -13,21 +13,21 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-wav_path="${VINPUT_LIVE_NATIVE_WAV:-}"
-selected_text="${VINPUT_LIVE_SELECTED_TEXT-selected text}"
-modes="${VINPUT_LIVE_NATIVE_MODES:-normal,command}"
-focus_switch="${VINPUT_LIVE_NATIVE_FOCUS_SWITCH:-0}"
-owner_loss="${VINPUT_LIVE_NATIVE_OWNER_LOSS:-0}"
-primary_selection_fallback="${VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK:-0}"
-require_partial="${VINPUT_LIVE_REQUIRE_PARTIAL:-1}"
-expected_text_adapter="${VINPUT_LIVE_EXPECTED_TEXT_ADAPTER:-}"
-expected_commit_prefix="${VINPUT_LIVE_EXPECTED_COMMIT_PREFIX:-}"
-expect_unchanged_on_error="${VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}"
-clear_primary_selection="${VINPUT_LIVE_CLEAR_PRIMARY_SELECTION:-0}"
-candidate_delay_ms="${VINPUT_LIVE_CANDIDATE_DELAY_MS:-200}"
-playback_target="${VINPUT_LIVE_PLAYBACK_TARGET:-}"
-env_file="${VINPUT_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinput/fcitx-vinput.env}"
-out_dir="${VINPUT_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
+wav_path="${VINPST_LIVE_NATIVE_WAV:-}"
+selected_text="${VINPST_LIVE_SELECTED_TEXT-selected text}"
+modes="${VINPST_LIVE_NATIVE_MODES:-normal,command}"
+focus_switch="${VINPST_LIVE_NATIVE_FOCUS_SWITCH:-0}"
+owner_loss="${VINPST_LIVE_NATIVE_OWNER_LOSS:-0}"
+primary_selection_fallback="${VINPST_LIVE_PRIMARY_SELECTION_FALLBACK:-0}"
+require_partial="${VINPST_LIVE_REQUIRE_PARTIAL:-1}"
+expected_text_adapter="${VINPST_LIVE_EXPECTED_TEXT_ADAPTER:-}"
+expected_commit_prefix="${VINPST_LIVE_EXPECTED_COMMIT_PREFIX:-}"
+expect_unchanged_on_error="${VINPST_LIVE_EXPECT_UNCHANGED_ON_ERROR:-0}"
+clear_primary_selection="${VINPST_LIVE_CLEAR_PRIMARY_SELECTION:-0}"
+candidate_delay_ms="${VINPST_LIVE_CANDIDATE_DELAY_MS:-200}"
+playback_target="${VINPST_LIVE_PLAYBACK_TARGET:-}"
+env_file="${VINPST_LIVE_ENV_FILE:-${HOME}/.local/share/fcitx-vinpst/fcitx-vinpst.env}"
+out_dir="${VINPST_LIVE_NATIVE_OUT_DIR:-target/tmp/ime-fcitx-native-live}"
 probe="scripts/live/niri/probes/fcitx-live-client-probe.py"
 primary_owner_pid=""
 primary_before_present=0
@@ -35,9 +35,9 @@ primary_snapshot_ready=0
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 restore_idle() {
@@ -97,7 +97,7 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -z "${wav_path}" ]]; then
-  echo "set VINPUT_LIVE_NATIVE_WAV to a validated speech WAV" >&2
+  echo "set VINPST_LIVE_NATIVE_WAV to a validated speech WAV" >&2
   exit 2
 fi
 if [[ ! -f "${wav_path}" ]]; then
@@ -146,7 +146,7 @@ if ! fcitx5-remote --check; then
 fi
 status="$(call_service GetStatus 2>/dev/null || true)"
 if [[ "${status}" != *"'idle'"* ]]; then
-  echo "org.fcitx.Vinput must be idle before the live probe: ${status:-unavailable}" >&2
+  echo "org.fcitx.Vinpst must be idle before the live probe: ${status:-unavailable}" >&2
   exit 2
 fi
 if [[ -n "${expected_text_adapter}" ]]; then
@@ -250,16 +250,16 @@ for mode in "${requested_modes[@]}"; do
     normal|command)
       ;;
     *)
-      echo "unsupported VINPUT_LIVE_NATIVE_MODES entry: ${mode}" >&2
+      echo "unsupported VINPST_LIVE_NATIVE_MODES entry: ${mode}" >&2
       exit 2
       ;;
   esac
   if [[ "${focus_switch}" != "0" && "${mode}" != "normal" ]]; then
-    echo "VINPUT_LIVE_NATIVE_FOCUS_SWITCH supports normal mode only" >&2
+    echo "VINPST_LIVE_NATIVE_FOCUS_SWITCH supports normal mode only" >&2
     exit 2
   fi
   if [[ "${owner_loss}" != "0" && "${mode}" != "normal" ]]; then
-    echo "VINPUT_LIVE_NATIVE_OWNER_LOSS supports normal mode only" >&2
+    echo "VINPST_LIVE_NATIVE_OWNER_LOSS supports normal mode only" >&2
     exit 2
   fi
   if [[ "${focus_switch}" != "0" && "${owner_loss}" != "0" ]]; then
@@ -267,19 +267,19 @@ for mode in "${requested_modes[@]}"; do
     exit 2
   fi
   if [[ -n "${expected_commit_prefix}" && "${mode}" != "command" ]]; then
-    echo "VINPUT_LIVE_EXPECTED_COMMIT_PREFIX supports command mode only" >&2
+    echo "VINPST_LIVE_EXPECTED_COMMIT_PREFIX supports command mode only" >&2
     exit 2
   fi
   if [[ "${primary_selection_fallback}" != "0" && "${mode}" != "command" ]]; then
-    echo "VINPUT_LIVE_PRIMARY_SELECTION_FALLBACK supports command mode only" >&2
+    echo "VINPST_LIVE_PRIMARY_SELECTION_FALLBACK supports command mode only" >&2
     exit 2
   fi
   if [[ "${clear_primary_selection}" != "0" && "${mode}" != "command" ]]; then
-    echo "VINPUT_LIVE_CLEAR_PRIMARY_SELECTION supports command mode only" >&2
+    echo "VINPST_LIVE_CLEAR_PRIMARY_SELECTION supports command mode only" >&2
     exit 2
   fi
   if [[ "${expect_unchanged_on_error}" != "0" && "${mode}" != "command" ]]; then
-    echo "VINPUT_LIVE_EXPECT_UNCHANGED_ON_ERROR supports command mode only" >&2
+    echo "VINPST_LIVE_EXPECT_UNCHANGED_ON_ERROR supports command mode only" >&2
     exit 2
   fi
   if [[ "${expect_unchanged_on_error}" != "0" && -n "${expected_commit_prefix}" ]]; then

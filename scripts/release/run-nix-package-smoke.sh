@@ -27,30 +27,30 @@ mkdir -p "${smoke_root}"
 
 nix flake metadata --no-update-lock-file >/dev/null
 nix flake check --no-update-lock-file --print-build-logs
-nix build .#fcitx-vinput-rs \
+nix build .#fcitx-vinpst \
   --no-update-lock-file \
   --print-build-logs \
   --out-link "${result_link}"
 
-for executable in vinput vinput-daemon vinput-gui; do
+for executable in vinpst vinpst-daemon vinpst-gui; do
   test -x "${result_link}/bin/${executable}"
 done
-"${result_link}/bin/vinput" --version
-"${result_link}/bin/vinput-daemon" --version
-"${result_link}/bin/vinput-gui" --check --offline \
-  | jq -e '.ok and .application == "vinput-gui" and .daemon.skipped' >/dev/null
+"${result_link}/bin/vinpst" --version
+"${result_link}/bin/vinpst-daemon" --version
+"${result_link}/bin/vinpst-gui" --check --offline \
+  | jq -e '.ok and .application == "vinpst-gui" and .daemon.skipped' >/dev/null
 
 required_files=(
-  lib/fcitx5/fcitx5-vinput.so
-  share/applications/vinput-gui.desktop
-  share/dbus-1/services/org.fcitx.Vinput.service
-  share/fcitx5/addon/vinput.conf
-  share/fcitx-vinput/default-config.json
-  share/fcitx-vinput/vad/silero_vad.onnx
-  share/icons/hicolor/256x256/apps/vinput-gui.png
-  share/licenses/fcitx-vinput-rs/LICENSE
-  share/locale/zh_CN/LC_MESSAGES/fcitx5-vinput.mo
-  share/systemd/user/vinput-daemon.service
+  lib/fcitx5/fcitx5-vinpst.so
+  share/applications/vinpst-gui.desktop
+  share/dbus-1/services/org.fcitx.Vinpst.service
+  share/fcitx5/addon/vinpst.conf
+  share/fcitx-vinpst/default-config.json
+  share/fcitx-vinpst/vad/silero_vad.onnx
+  share/icons/hicolor/256x256/apps/vinpst-gui.png
+  share/licenses/fcitx-vinpst/LICENSE
+  share/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo
+  share/systemd/user/vinpst-daemon.service
 )
 for path in "${required_files[@]}"; do
   test -f "${result_link}/${path}"
@@ -58,7 +58,7 @@ done
 
 store_path="$(readlink -f "${result_link}")"
 case "${store_path}" in
-/nix/store/*-fcitx-vinput-rs-*) ;;
+/nix/store/*-fcitx-vinpst-*) ;;
 *)
   echo "unexpected Nix package result path: ${store_path}" >&2
   exit 1

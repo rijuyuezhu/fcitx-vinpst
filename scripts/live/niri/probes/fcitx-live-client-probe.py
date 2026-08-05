@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive the real Fcitx5 input context through live vinput dictation paths."""
+"""Drive the real Fcitx5 input context through live vinpst dictation paths."""
 
 import argparse
 import importlib
@@ -30,7 +30,7 @@ PLACEHOLDER_PREEDITS = {
     "... Postprocessing ...",
 }
 ERROR_PREEDIT_MARKERS = (
-    "org.fcitx.Vinput.Error",
+    "org.fcitx.Vinpst.Error",
     "unavailable",
 )
 
@@ -88,7 +88,7 @@ class LiveProbe:
         self.state = ProbeState(buffer=initial_buffer)
         self.loop = GLib.MainLoop()
         self.client = FcitxG.Client.new()
-        self.client.set_program(f"fcitx-vinput-{args.mode}-live-probe")
+        self.client.set_program(f"fcitx-vinpst-{args.mode}-live-probe")
         self.client.set_display(
             os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
         )
@@ -105,7 +105,7 @@ class LiveProbe:
         self.client.connect("update-formatted-preedit", self.on_formatted_preedit)
         self.client.connect("update-client-side-ui", self.on_client_ui)
         if self.secondary_client is not None:
-            self.secondary_client.set_program("fcitx-vinput-focus-target-live-probe")
+            self.secondary_client.set_program("fcitx-vinpst-focus-target-live-probe")
             self.secondary_client.set_display(
                 os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or ""
             )
@@ -316,7 +316,7 @@ class LiveProbe:
 
     def kill_daemon_owner(self) -> bool:
         try:
-            owner_result = self.dbus_call("GetNameOwner", "org.fcitx.Vinput")
+            owner_result = self.dbus_call("GetNameOwner", "org.fcitx.Vinpst")
             owner_match = re.search(r"'([^']+)'", owner_result)
             if owner_match is None:
                 raise RuntimeError(f"could not parse daemon owner: {owner_result}")
@@ -332,11 +332,11 @@ class LiveProbe:
                 Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ")
             )
             if (
-                "vinput-daemon" not in Path(executable).name
-                and b"vinput-daemon" not in command_line
+                "vinpst-daemon" not in Path(executable).name
+                and b"vinpst-daemon" not in command_line
             ):
                 raise RuntimeError(
-                    "refusing to stop unexpected org.fcitx.Vinput owner: "
+                    "refusing to stop unexpected org.fcitx.Vinpst owner: "
                     f"pid={pid} exe={executable}"
                 )
             self.state.owner_pid = pid

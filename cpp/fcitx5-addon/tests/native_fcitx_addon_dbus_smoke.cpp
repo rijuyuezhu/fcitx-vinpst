@@ -1,4 +1,4 @@
-#include "vinput_fcitx_bridge/fcitx_addon.h"
+#include "vinpst_fcitx_bridge/fcitx_addon.h"
 
 #include <fcitx-utils/dbus/bus.h>
 #include <fcitx-utils/event.h>
@@ -20,7 +20,7 @@ namespace {
 class TestInputContext final : public fcitx::InputContext {
 public:
   explicit TestInputContext(fcitx::InputContextManager &manager)
-      : fcitx::InputContext(manager, "vinput-native-addon-smoke") {
+      : fcitx::InputContext(manager, "vinpst-native-addon-smoke") {
     created();
   }
 
@@ -29,7 +29,7 @@ public:
   }
 
   const char *frontend() const override {
-    return "vinput-native-addon-smoke";
+    return "vinpst-native-addon-smoke";
   }
 
   std::vector<std::string> committed;
@@ -68,13 +68,13 @@ std::string OptionalEnvironment(const char *name) {
 int main() {
   using fcitx::dbus::Bus;
   using fcitx::dbus::BusType;
-  using vinput_fcitx_bridge::AppliedOutcome;
-  using vinput_fcitx_bridge::FcitxTriggerAction;
-  using vinput_fcitx_bridge::FcitxVinputAddon;
+  using vinpst_fcitx_bridge::AppliedOutcome;
+  using vinpst_fcitx_bridge::FcitxTriggerAction;
+  using vinpst_fcitx_bridge::FcitxVinpstAddon;
 
   const auto expected_text =
-      RequiredEnvironment("VINPUT_NATIVE_FRONTEND_EXPECTED_TEXT");
-  const auto selected_text = OptionalEnvironment("VINPUT_NATIVE_ADDON_SELECTED_TEXT");
+      RequiredEnvironment("VINPST_NATIVE_FRONTEND_EXPECTED_TEXT");
+  const auto selected_text = OptionalEnvironment("VINPST_NATIVE_ADDON_SELECTED_TEXT");
   const bool command_mode = !selected_text.empty();
 
   fcitx::InputContextManager manager;
@@ -97,7 +97,7 @@ int main() {
     return 1;
   }
 
-  FcitxVinputAddon addon(nullptr, &signal_bus);
+  FcitxVinpstAddon addon(nullptr, &signal_bus);
   AppliedOutcome start = AppliedOutcome::None;
   bool start_attempted = false;
   bool partial_seen = false;

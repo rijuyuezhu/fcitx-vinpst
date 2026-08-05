@@ -24,9 +24,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    api_key = os.environ.get("VINPUT_REMOTE_TEXT_API_KEY", "")
+    api_key = os.environ.get("VINPST_REMOTE_TEXT_API_KEY", "")
     if not api_key:
-        raise RuntimeError("VINPUT_REMOTE_TEXT_API_KEY is required")
+        raise RuntimeError("VINPST_REMOTE_TEXT_API_KEY is required")
     if args.hold_seconds < 0:
         raise ValueError("hold duration cannot be negative")
 

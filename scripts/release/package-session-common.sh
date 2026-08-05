@@ -17,7 +17,7 @@ session_user=""
 session_home=""
 session_bus_path=""
 
-vinput_package_load_session_identity() {
+vinpst_package_load_session_identity() {
   local bus_path="$1"
   local passwd_entry
 
@@ -39,7 +39,7 @@ vinput_package_load_session_identity() {
   return 0
 }
 
-vinput_package_run_in_session() {
+vinpst_package_run_in_session() {
   "${runuser_binary}" -u "${session_user}" -- \
     "${env_binary}" -i \
     HOME="${session_home}" \
@@ -51,12 +51,12 @@ vinput_package_run_in_session() {
     "$@"
 }
 
-vinput_package_session_name_has_owner() {
+vinpst_package_session_name_has_owner() {
   local service_name="$1"
   local output
 
   if ! output="$(
-    vinput_package_run_in_session \
+    vinpst_package_run_in_session \
       "${gdbus_binary}" call --session \
       --dest org.freedesktop.DBus \
       --object-path /org/freedesktop/DBus \

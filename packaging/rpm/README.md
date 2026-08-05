@@ -1,13 +1,13 @@
 # RPM packaging baseline
 
-`fcitx-vinput-rs.spec.in` is the checked RPM-family source-package template. It is rendered by `scripts/release/render-rpm-spec.py` from the same strict native-runtime bundle manifest used by the Arch package.
+`fcitx-vinpst.spec.in` is the checked RPM-family source-package template. It is rendered by `scripts/release/render-rpm-spec.py` from the same strict native-runtime bundle manifest used by the Arch package.
 
 The current baseline targets x86_64 and packages:
 
-- `vinput`, `vinput-daemon`, and `vinput-gui`;
+- `vinpst`, `vinpst-daemon`, and `vinpst-gui`;
 - the retained Fcitx 5 addon, D-Bus activation metadata, and systemd user unit;
 - desktop entry, icons, configuration/VAD data, and zh_CN translations;
-- the checksum-pinned sherpa-onnx C API and ONNX Runtime libraries under `/usr/lib/fcitx-vinput` with private rpaths;
+- the checksum-pinned sherpa-onnx C API and ONNX Runtime libraries under `/usr/lib/fcitx-vinpst` with private rpaths;
 - the shared upgrade/removal session helpers.
 
 The spec declares Fedora/RHEL-family dependency names and uses `/usr/lib64/fcitx5` for the addon while keeping the systemd user unit under `/usr/lib/systemd/user`.

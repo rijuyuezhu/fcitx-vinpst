@@ -13,20 +13,20 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-cli_binary="${VINPUT_LIVE_CLI_BINARY:-target/debug/vinput}"
-out_dir="${VINPUT_LIVE_ASR_MENU_PAGING_OUT_DIR:-target/tmp/ime-fcitx-asr-menu-paging-live}"
+cli_binary="${VINPST_LIVE_CLI_BINARY:-target/debug/vinpst}"
+out_dir="${VINPST_LIVE_ASR_MENU_PAGING_OUT_DIR:-target/tmp/ime-fcitx-asr-menu-paging-live}"
 if [[ "${out_dir}" == /* ]]; then
   out_dir_abs="${out_dir}"
 else
   out_dir_abs="${repo_root}/${out_dir}"
 fi
-service_path="${VINPUT_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinput.service}"
-model_source="${VINPUT_LIVE_ASR_PAGING_MODEL_SOURCE:-${repo_root}/target/models/onnx-pf-zh-sm-off}"
-model_root="${VINPUT_LIVE_ASR_PAGING_MODEL_ROOT:-${out_dir_abs}/model-root}"
-trigger_key="${VINPUT_LIVE_ASR_MENU_KEY:-F8}"
-addon_config="${VINPUT_LIVE_FCITX_ADDON_CONFIG:-${HOME}/.config/fcitx5/conf/vinput.conf}"
-page_next_key="${VINPUT_LIVE_PAGE_NEXT_KEY:-}"
-page_prev_key="${VINPUT_LIVE_PAGE_PREV_KEY:-}"
+service_path="${VINPST_LIVE_DBUS_SERVICE:-${HOME}/.local/share/dbus-1/services/org.fcitx.Vinpst.service}"
+model_source="${VINPST_LIVE_ASR_PAGING_MODEL_SOURCE:-${repo_root}/target/models/onnx-pf-zh-sm-off}"
+model_root="${VINPST_LIVE_ASR_PAGING_MODEL_ROOT:-${out_dir_abs}/model-root}"
+trigger_key="${VINPST_LIVE_ASR_MENU_KEY:-F8}"
+addon_config="${VINPST_LIVE_FCITX_ADDON_CONFIG:-${HOME}/.config/fcitx5/conf/vinpst.conf}"
+page_next_key="${VINPST_LIVE_PAGE_NEXT_KEY:-}"
+page_prev_key="${VINPST_LIVE_PAGE_PREV_KEY:-}"
 probe="scripts/live/niri/probes/fcitx-live-menu-paging-probe.py"
 temporary_model_count=14
 config_path=""
@@ -38,9 +38,9 @@ backup_existed=0
 
 call_service() {
   gdbus call --session \
-    --dest org.fcitx.Vinput \
-    --object-path /org/fcitx/Vinput \
-    --method "org.fcitx.Vinput.Service.$1" "${@:2}"
+    --dest org.fcitx.Vinpst \
+    --object-path /org/fcitx/Vinpst \
+    --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
 }
 
 wait_backend() {
@@ -76,13 +76,13 @@ stop_verified_owner() {
   [[ -z "${pid}" ]] && return 0
   exe="$(jq -r '.owner.process.exe // empty' <<<"${status}")"
   cmdline="$(jq -r '.owner.process.cmdline | join(" ")' <<<"${status}")"
-  if [[ "${exe}" != *vinput-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
-    echo "refusing to stop unexpected org.fcitx.Vinput owner: pid=${pid} exe=${exe}" >&2
+  if [[ "${exe}" != *vinpst-daemon* || "${cmdline}" != *"${config_path}"* ]]; then
+    echo "refusing to stop unexpected org.fcitx.Vinpst owner: pid=${pid} exe=${exe}" >&2
     return 1
   fi
   proc_exe="$(readlink "/proc/${pid}/exe")"
   proc_cmdline="$(tr '\0' ' ' <"/proc/${pid}/cmdline")"
-  if [[ "${proc_exe}" != *vinput-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
+  if [[ "${proc_exe}" != *vinpst-daemon* || "${proc_cmdline}" != *"${config_path}"* ]]; then
     echo "live owner changed during verification: pid=${pid} exe=${proc_exe}" >&2
     return 1
   fi
@@ -109,13 +109,13 @@ restart_fcitx() {
   for _ in $(seq 1 100); do
     pid="$(pgrep -n -x fcitx5 || true)"
     if [[ -n "${pid}" ]] && fcitx5-remote --check >/dev/null 2>&1 &&
-      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinput.so" "/proc/${pid}/maps"; then
+      grep -q "${HOME}/.local/lib/fcitx5/fcitx5-vinpst.so" "/proc/${pid}/maps"; then
       printf '%s\n' "${pid}"
       return 0
     fi
     sleep 0.1
   done
-  echo "restarted Fcitx did not load the user vinput addon" >&2
+  echo "restarted Fcitx did not load the user vinpst addon" >&2
   return 1
 }
 
@@ -168,10 +168,10 @@ for command in cp fcitx5 fcitx5-remote gdbus jq pgrep python3 readlink; do
   fi
 done
 if [[ ! -x "${cli_binary}" ]]; then
-  echo "vinput CLI is missing: ${cli_binary}" >&2
+  echo "vinpst CLI is missing: ${cli_binary}" >&2
   exit 2
 fi
-for path in "${service_path}" "${model_source}" "${model_source}/vinput-model.json"; do
+for path in "${service_path}" "${model_source}" "${model_source}/vinpst-model.json"; do
   if [[ ! -e "${path}" ]]; then
     echo "ASR paging fixture is missing: ${path}" >&2
     exit 2
@@ -257,9 +257,9 @@ for index in $(seq -w 0 $((temporary_model_count - 1))); do
   target="${model_root}/live-paging-${index}"
   mkdir -p "${target}"
   cp -al "${model_source}/." "${target}/"
-  rm -f "${target}/vinput-model.json"
-  cp "${model_source}/vinput-model.json" "${target}/vinput-model.json"
-  python3 - "${target}/vinput-model.json" "${index}" <<'PY'
+  rm -f "${target}/vinpst-model.json"
+  cp "${model_source}/vinpst-model.json" "${target}/vinpst-model.json"
+  python3 - "${target}/vinpst-model.json" "${index}" <<'PY'
 import json
 import sys
 from pathlib import Path

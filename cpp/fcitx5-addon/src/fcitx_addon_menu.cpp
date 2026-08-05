@@ -1,17 +1,17 @@
-#include "vinput_fcitx_bridge/fcitx_addon.h"
+#include "vinpst_fcitx_bridge/fcitx_addon.h"
 
-#include "vinput_fcitx_bridge/dbus_contract.h"
+#include "vinpst_fcitx_bridge/dbus_contract.h"
 
-#include "vinput_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/fcitx_i18n.h"
 
-#include "vinput_fcitx_bridge/fcitx_menu_paging.h"
-#include "vinput_fcitx_bridge/fcitx_menu_projection.h"
+#include "vinpst_fcitx_bridge/fcitx_menu_paging.h"
+#include "vinpst_fcitx_bridge/fcitx_menu_projection.h"
 
-#include "vinput_fcitx_bridge/fcitx_selection.h"
+#include "vinpst_fcitx_bridge/fcitx_selection.h"
 
 #include <dbus_public.h>
 
-#ifdef VINPUT_FCITX_HAVE_CLIPBOARD
+#ifdef VINPST_FCITX_HAVE_CLIPBOARD
 #include "clipboard_public.h"
 #include <fcitx-utils/utf8.h>
 #endif
@@ -33,7 +33,7 @@
 #include <string_view>
 #include <utility>
 
-namespace vinput_fcitx_bridge {
+namespace vinpst_fcitx_bridge {
 namespace {
 
 class MenuCandidateWord final : public fcitx::CandidateWord {
@@ -195,7 +195,7 @@ bool PublishProjectedMenu(FcitxProjectedMenuState &menu,
   const auto item_count = projection->size();
   const auto current_label = projection->summary();
   if (!item_count.has_value() || !current_label.has_value()) {
-    FCITX_ERROR() << "fcitx-vinput failed to read " << menu_name << " menu projection";
+    FCITX_ERROR() << "fcitx-vinpst failed to read " << menu_name << " menu projection";
     hide_menu();
     return false;
   }
@@ -209,7 +209,7 @@ bool PublishProjectedMenu(FcitxProjectedMenuState &menu,
   for (std::size_t index = 0; index < *item_count; ++index) {
     const auto item = projection->item(index);
     if (!item.has_value()) {
-      FCITX_ERROR() << "fcitx-vinput failed to read " << menu_name << " menu item "
+      FCITX_ERROR() << "fcitx-vinpst failed to read " << menu_name << " menu item "
                     << index;
       hide_menu();
       return false;
@@ -256,7 +256,7 @@ void RebuildProjectedMenu(FcitxProjectedMenuState &menu, int page,
 
   auto projection = project_menu(menu.session);
   if (!projection) {
-    FCITX_ERROR() << "fcitx-vinput failed to finalize " << menu_name
+    FCITX_ERROR() << "fcitx-vinpst failed to finalize " << menu_name
                   << " menu projection";
     hide_menu();
     return;
@@ -302,7 +302,7 @@ void OpenProjectedMenu(fcitx::InputContext *input_context, bool recording,
 
 } // namespace
 
-void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
+void FcitxVinpstAddon::ShowSceneMenu(fcitx::InputContext *ic) {
   OpenProjectedMenu(
       ic, bridge_.recording(), scene_menu_, [this]() { HideAsrMenu(); },
       [this](std::string *error) { return RefreshSceneState(error); },
@@ -312,7 +312,7 @@ void FcitxVinputAddon::ShowSceneMenu(fcitx::InputContext *ic) {
       });
 }
 
-void FcitxVinputAddon::RebuildSceneMenu(int page) {
+void FcitxVinpstAddon::RebuildSceneMenu(int page) {
   RebuildProjectedMenu(
       scene_menu_, page, FrontendText("Scenes /filter"), "scene",
       [this](const MenuSessionState &session) {
@@ -324,17 +324,17 @@ void FcitxVinputAddon::RebuildSceneMenu(int page) {
       });
 }
 
-bool FcitxVinputAddon::RefreshSceneState(std::string *error) {
+bool FcitxVinpstAddon::RefreshSceneState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
   return client != nullptr &&
          client->RefreshSceneMenuController(&scene_menu_controller_, error);
 }
 
-void FcitxVinputAddon::HideSceneMenu() {
+void FcitxVinpstAddon::HideSceneMenu() {
   ClearProjectedMenu(scene_menu_);
 }
 
-bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
+bool FcitxVinpstAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
   return HandleProjectedMenuKeyEvent(
       event, trigger_policy_.IsSceneMenuTrigger(event), scene_menu_, frontend_settings_,
       FrontendText("Scenes /filter"), [this](int page) { RebuildSceneMenu(page); },
@@ -344,7 +344,7 @@ bool FcitxVinputAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
       });
 }
 
-void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
+void FcitxVinpstAddon::ShowAsrMenu(fcitx::InputContext *ic) {
   OpenProjectedMenu(
       ic, bridge_.recording(), asr_menu_, [this]() { HideSceneMenu(); },
       [this](std::string *error) { return RefreshAsrMenuState(error); },
@@ -354,7 +354,7 @@ void FcitxVinputAddon::ShowAsrMenu(fcitx::InputContext *ic) {
       });
 }
 
-void FcitxVinputAddon::RebuildAsrMenu(int page) {
+void FcitxVinpstAddon::RebuildAsrMenu(int page) {
   const auto local = FrontendText("Local");
   const auto remote = FrontendText("Remote");
   const auto command = FrontendText("Command");
@@ -376,17 +376,17 @@ void FcitxVinputAddon::RebuildAsrMenu(int page) {
       });
 }
 
-bool FcitxVinputAddon::RefreshAsrMenuState(std::string *error) {
+bool FcitxVinpstAddon::RefreshAsrMenuState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
   return client != nullptr &&
          client->RefreshAsrMenuController(&asr_menu_controller_, error);
 }
 
-void FcitxVinputAddon::HideAsrMenu() {
+void FcitxVinpstAddon::HideAsrMenu() {
   ClearProjectedMenu(asr_menu_);
 }
 
-bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
+bool FcitxVinpstAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
   return HandleProjectedMenuKeyEvent(
       event, trigger_policy_.IsAsrMenuTrigger(event), asr_menu_, frontend_settings_,
       FrontendText("Models /filter"), [this](int page) { RebuildAsrMenu(page); },
@@ -396,7 +396,7 @@ bool FcitxVinputAddon::HandleAsrMenuKeyEvent(fcitx::KeyEvent &event) {
       });
 }
 
-void FcitxVinputAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
+void FcitxVinpstAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
                                           fcitx::InputContext *ic) {
   std::string error;
   bool persisted = false;
@@ -414,7 +414,7 @@ void FcitxVinputAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
     HideSceneMenu();
     Notify(FrontendNotificationKind::Info,
            FrontendValueText("Switched scene to '%s'.", control.display_label));
-    FCITX_INFO() << "fcitx-vinput switched active scene to " << control.first
+    FCITX_INFO() << "fcitx-vinpst switched active scene to " << control.first
                  << " persisted=" << persisted;
     return;
   case ProjectedMenuControlKind::SetActiveAsrTarget:
@@ -427,7 +427,7 @@ void FcitxVinputAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
     HideAsrMenu();
     Notify(FrontendNotificationKind::Info,
            FrontendValueText("ASR switch requested for '%s'.", control.display_label));
-    FCITX_INFO() << "fcitx-vinput requested ASR target switch to " << control.first
+    FCITX_INFO() << "fcitx-vinpst requested ASR target switch to " << control.first
                  << '/' << control.second << " persisted=" << persisted;
     return;
   case ProjectedMenuControlKind::None:
@@ -437,4 +437,4 @@ void FcitxVinputAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
   }
 }
 
-} // namespace vinput_fcitx_bridge
+} // namespace vinpst_fcitx_bridge

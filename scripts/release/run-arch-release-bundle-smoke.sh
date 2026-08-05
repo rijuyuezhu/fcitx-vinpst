@@ -25,15 +25,15 @@ initial_package="${2:-}"
 upgrade_package="${3:-}"
 if [[ -z "${source_archive}" ]]; then
   source_archive="$(find target/tmp/arch-package-smoke/sources -maxdepth 1 -type f \
-    -name 'fcitx-vinput-rs-*.tar.gz' -print -quit)"
+    -name 'fcitx-vinpst-*.tar.gz' -print -quit)"
 fi
 if [[ -z "${initial_package}" ]]; then
   initial_package="$(find target/tmp/arch-package-smoke/build -maxdepth 1 -type f \
-    -name 'fcitx-vinput-rs-*-1-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
+    -name 'fcitx-vinpst-*-1-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
 fi
 if [[ -z "${upgrade_package}" ]]; then
   upgrade_package="$(find target/tmp/arch-package-smoke/build -maxdepth 1 -type f \
-    -name 'fcitx-vinput-rs-*-2-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
+    -name 'fcitx-vinpst-*-2-*.pkg.tar.zst' ! -name '*-debug-*' -print -quit)"
 fi
 for artifact in "${source_archive}" "${initial_package}" "${upgrade_package}"; do
   test -f "${artifact}"
@@ -54,7 +54,7 @@ build_root="$(dirname "${initial_package}")"
 signing_root="${repo_root}/target/tmp/arch-signing-smoke"
 signing_home="${signing_root}/signing-home"
 signed_repository="${signing_root}/repository"
-repository_name="vinput-signed"
+repository_name="vinpst-signed"
 signed_initial_package="${signed_repository}/$(basename "${initial_package}")"
 signed_upgrade_package="${signed_repository}/$(basename "${upgrade_package}")"
 repository_database="${signed_repository}/${repository_name}.db.tar.gz"
@@ -69,7 +69,7 @@ test -n "${fingerprint}"
 required_artifacts=(
   "${build_root}/PKGBUILD"
   "${build_root}/.SRCINFO"
-  "${build_root}/fcitx-vinput-rs.install"
+  "${build_root}/fcitx-vinpst.install"
   "${signed_initial_package}"
   "${signed_initial_package}.sig"
   "${signed_upgrade_package}"
@@ -88,7 +88,7 @@ cmp "${initial_package}" "${signed_initial_package}"
 cmp "${upgrade_package}" "${signed_upgrade_package}"
 
 stage_root="${repo_root}/target/tmp/arch-release-bundle-smoke"
-bundle="${stage_root}/fcitx-vinput-rs-${version}-x86_64-release-gate"
+bundle="${stage_root}/fcitx-vinpst-${version}-x86_64-release-gate"
 verify_home="${stage_root}/verify-home"
 cleanup() {
   gpg_session_stop "${verify_home}"
@@ -100,14 +100,14 @@ rm -rf "${stage_root}"
 mkdir -p "${stage_root}"
 
 scripts/release/release_manifest.py assemble \
-  --package-name fcitx-vinput-rs \
+  --package-name fcitx-vinpst \
   --version "${version}" \
   --architecture x86_64 \
   --output-dir "${bundle}" \
   --artifact "source-archive=${source_archive}" \
   --artifact "arch-pkgbuild=${build_root}/PKGBUILD" \
   --artifact "arch-srcinfo=${build_root}/.SRCINFO" \
-  --artifact "arch-install-script=${build_root}/fcitx-vinput-rs.install" \
+  --artifact "arch-install-script=${build_root}/fcitx-vinpst.install" \
   --artifact "package-pkgrel1=${signed_initial_package}" \
   --artifact "package-signature-pkgrel1=${signed_initial_package}.sig" \
   --artifact "package-pkgrel2-test=${signed_upgrade_package}" \
@@ -148,7 +148,7 @@ jq -e \
     .schema_version == 1 and
     .package == {
       "architecture": "x86_64",
-      "name": "fcitx-vinput-rs",
+      "name": "fcitx-vinpst",
       "version": $version
     } and
     (.artifacts | length) == 13 and
@@ -169,15 +169,15 @@ jq -e '[.artifacts[].name] | index("manifest.json.sig") == null' \
 
 source_listing="${stage_root}/source-archive.list"
 tar -tzf "${bundle}/$(basename "${source_archive}")" >"${source_listing}"
-grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/release/release_manifest.py$" \
+grep -Eq "^fcitx-vinpst-${version}/(\./)?scripts/release/release_manifest.py$" \
   "${source_listing}"
-grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/release/sign-release-manifest.sh$" \
+grep -Eq "^fcitx-vinpst-${version}/(\./)?scripts/release/sign-release-manifest.sh$" \
   "${source_listing}"
-grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/release/verify-release-bundle-signature.sh$" \
+grep -Eq "^fcitx-vinpst-${version}/(\./)?scripts/release/verify-release-bundle-signature.sh$" \
   "${source_listing}"
-grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/release/prepare-arch-release-candidate.sh$" \
+grep -Eq "^fcitx-vinpst-${version}/(\./)?scripts/release/prepare-arch-release-candidate.sh$" \
   "${source_listing}"
-grep -Eq "^fcitx-vinput-rs-${version}/(\./)?scripts/release/verify-arch-release-candidate.sh$" \
+grep -Eq "^fcitx-vinpst-${version}/(\./)?scripts/release/verify-arch-release-candidate.sh$" \
   "${source_listing}"
 
 mkdir "${verify_home}"
@@ -250,7 +250,7 @@ test "${signature_tampered_status}" -ne 0
 grep -q 'detached manifest signature verification failed' \
   "${stage_root}/signature-tampered.out"
 
-candidate="${stage_root}/fcitx-vinput-rs-${version}-x86_64-release-candidate"
+candidate="${stage_root}/fcitx-vinpst-${version}-x86_64-release-candidate"
 scripts/release/prepare-arch-release-candidate.sh \
   "${bundle}" "${candidate}" "${signing_home}" "${public_key}" "${fingerprint}"
 scripts/release/verify-arch-release-candidate.sh \

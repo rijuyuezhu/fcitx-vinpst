@@ -60,20 +60,20 @@ run_target() {
     exit 2
   fi
 
-  local docker_tag="fcitx-vinput-rs-deb-${label}:local"
+  local docker_tag="fcitx-vinpst-deb-${label}:local"
   local output_dir="target/tmp/deb-package-smoke/${label}"
   local -a build_args=(--build-arg "BASE_IMAGE=${base_image}")
-  if [[ -n "${VINPUT_DEB_APT_MIRROR:-}" ]]; then
-    build_args+=(--build-arg "APT_MIRROR=${VINPUT_DEB_APT_MIRROR}")
+  if [[ -n "${VINPST_DEB_APT_MIRROR:-}" ]]; then
+    build_args+=(--build-arg "APT_MIRROR=${VINPST_DEB_APT_MIRROR}")
   fi
-  if [[ -n "${VINPUT_DEB_APT_SECURITY_MIRROR:-}" ]]; then
-    build_args+=(--build-arg "APT_SECURITY_MIRROR=${VINPUT_DEB_APT_SECURITY_MIRROR}")
+  if [[ -n "${VINPST_DEB_APT_SECURITY_MIRROR:-}" ]]; then
+    build_args+=(--build-arg "APT_SECURITY_MIRROR=${VINPST_DEB_APT_SECURITY_MIRROR}")
   fi
-  if [[ -n "${VINPUT_DEB_RUSTUP_DIST_SERVER:-}" ]]; then
-    build_args+=(--build-arg "RUSTUP_DIST_SERVER=${VINPUT_DEB_RUSTUP_DIST_SERVER}")
+  if [[ -n "${VINPST_DEB_RUSTUP_DIST_SERVER:-}" ]]; then
+    build_args+=(--build-arg "RUSTUP_DIST_SERVER=${VINPST_DEB_RUSTUP_DIST_SERVER}")
   fi
-  if [[ -n "${VINPUT_DEB_RUSTUP_UPDATE_ROOT:-}" ]]; then
-    build_args+=(--build-arg "RUSTUP_UPDATE_ROOT=${VINPUT_DEB_RUSTUP_UPDATE_ROOT}")
+  if [[ -n "${VINPST_DEB_RUSTUP_UPDATE_ROOT:-}" ]]; then
+    build_args+=(--build-arg "RUSTUP_UPDATE_ROOT=${VINPST_DEB_RUSTUP_UPDATE_ROOT}")
   fi
   docker build \
     "${build_args[@]}" \
@@ -84,14 +84,14 @@ run_target() {
     --volume "${repo_root}:/workspace" \
     --workdir /workspace \
     --env RUSTUP_TOOLCHAIN=stable \
-    --env "VINPUT_DEB_CARGO_OFFLINE=${VINPUT_DEB_CARGO_OFFLINE:-0}" \
-    --env "VINPUT_HOST_UID=$(id -u)" \
-    --env "VINPUT_HOST_GID=$(id -g)" \
+    --env "VINPST_DEB_CARGO_OFFLINE=${VINPST_DEB_CARGO_OFFLINE:-0}" \
+    --env "VINPST_HOST_UID=$(id -u)" \
+    --env "VINPST_HOST_GID=$(id -g)" \
     "${docker_tag}" \
     bash -lc "
       set -euo pipefail
       cleanup() {
-        chown -R \"\${VINPUT_HOST_UID}:\${VINPUT_HOST_GID}\" \
+        chown -R \"\${VINPST_HOST_UID}:\${VINPST_HOST_GID}\" \
           /workspace/target/tmp/deb-package-build \
           /workspace/target/tmp/deb-package-cache \
           /workspace/target/tmp/deb-package-assets \
