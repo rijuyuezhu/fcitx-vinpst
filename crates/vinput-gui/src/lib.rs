@@ -26,6 +26,7 @@ mod asr_reload_confirmation;
 mod daemon_client;
 mod daemon_control;
 mod daemon_owner_monitor;
+mod desktop_actions;
 mod form_guards;
 mod hotword_activation_retry;
 mod hotword_management;
@@ -69,13 +70,14 @@ pub use daemon_control::{
 };
 pub use daemon_owner_monitor::DaemonOwnerEvent;
 use daemon_owner_monitor::DaemonOwnerMonitorState;
+pub use desktop_actions::{DesktopActionMessage, DesktopOpenFailure, DesktopOpenOutcome};
 use hotword_management::HotwordEditorState;
 pub use hotword_management::{HotwordMessage, HotwordMutationOutcome, HotwordProviderSelection};
 use llm_provider_management::LlmProviderEditorState;
 pub use llm_provider_management::{
     LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome, LlmProviderTestOutcome,
 };
-pub use message::Message;
+pub use message::{ConfigDraftMessage, Message};
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
 pub use model_management::default_model_root;
@@ -270,6 +272,9 @@ impl App {
 
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if let Some(task) = self.intercept_desktop_action_message(&message) {
+            return task;
+        }
         if let Some(task) = self.intercept_daemon_control_message(&message) {
             return task;
         }
@@ -303,30 +308,7 @@ impl App {
             } => self.finish_daemon_fallback_poll(operation_id, result),
             Message::DaemonOwnerEvent(event) => return self.handle_daemon_owner_event(event),
             Message::ReloadConfig => self.reload_config(),
-            Message::DefaultLanguageChanged(value) => self.update_draft(|draft| {
-                draft.default_language = value;
-            }),
-            Message::CaptureDeviceChanged(value) => self.update_draft(|draft| {
-                draft.capture_device = value;
-            }),
-            Message::DuckOutputChanged(value) => self.update_draft(|draft| {
-                draft.duck_output_while_recording = value;
-            }),
-            Message::DuckVolumeChanged(value) => self.update_draft(|draft| {
-                draft.duck_output_volume = value;
-            }),
-            Message::VadEnabledChanged(value) => self.update_draft(|draft| {
-                draft.vad_enabled = value;
-            }),
-            Message::VadThresholdChanged(value) => self.update_draft(|draft| {
-                draft.vad_threshold = value;
-            }),
-            Message::ActiveProviderChanged(value) => self.update_draft(|draft| {
-                draft.active_provider = value;
-            }),
-            Message::ActiveSceneChanged(value) => self.update_draft(|draft| {
-                draft.active_scene = value;
-            }),
+            Message::ConfigDraft(message) => self.update_config_draft(message),
             Message::Scene(message) => return self.handle_scene_message(message),
             Message::LlmProvider(message) => return self.handle_llm_provider_message(message),
             Message::Hotword(message) => return self.handle_hotword_message(message),
@@ -382,7 +364,8 @@ impl App {
                 return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
             }
             Message::ScriptRemoved(result) => return self.finish_script_remove(result),
-            Message::DaemonControl(_)
+            Message::DesktopAction(_)
+            | Message::DaemonControl(_)
             | Message::AdapterRuntime(_)
             | Message::AdapterConfig(_)
             | Message::AsrProvider(_) => unreachable!("domain messages are intercepted"),
@@ -406,6 +389,35 @@ impl App {
             );
         }
         Subscription::batch(subscriptions)
+    }
+
+    fn update_config_draft(&mut self, message: ConfigDraftMessage) {
+        match message {
+            ConfigDraftMessage::DefaultLanguage(value) => {
+                self.update_draft(|draft| draft.default_language = value);
+            }
+            ConfigDraftMessage::CaptureDevice(value) => {
+                self.update_draft(|draft| draft.capture_device = value);
+            }
+            ConfigDraftMessage::DuckOutput(value) => {
+                self.update_draft(|draft| draft.duck_output_while_recording = value);
+            }
+            ConfigDraftMessage::DuckVolume(value) => {
+                self.update_draft(|draft| draft.duck_output_volume = value);
+            }
+            ConfigDraftMessage::VadEnabled(value) => {
+                self.update_draft(|draft| draft.vad_enabled = value);
+            }
+            ConfigDraftMessage::VadThreshold(value) => {
+                self.update_draft(|draft| draft.vad_threshold = value);
+            }
+            ConfigDraftMessage::ActiveProvider(value) => {
+                self.update_draft(|draft| draft.active_provider = value);
+            }
+            ConfigDraftMessage::ActiveScene(value) => {
+                self.update_draft(|draft| draft.active_scene = value);
+            }
+        }
     }
 
     fn update_draft(&mut self, update: impl FnOnce(&mut ConfigDraft)) {
@@ -597,16 +609,7 @@ impl App {
     #[must_use]
     pub fn view(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
-        let navigation = Page::ALL.into_iter().fold(
-            column![text(APPLICATION_TITLE).size(24)].spacing(10),
-            |navigation, page| {
-                navigation.push(
-                    button(text(page.label()))
-                        .width(Length::Fill)
-                        .on_press_maybe((!busy).then_some(Message::SelectPage(page))),
-                )
-            },
-        );
+        let navigation = self.navigation_view(busy);
 
         let content = match self.page {
             Page::Control => self.control_page(),
@@ -757,7 +760,7 @@ impl App {
             pick_list(
                 provider_options,
                 Some(draft.active_provider.clone()),
-                Message::ActiveProviderChanged,
+                |value| Message::ConfigDraft(ConfigDraftMessage::ActiveProvider(value)),
             )
             .width(Length::Fill)
             .into()
@@ -765,11 +768,9 @@ impl App {
         let scene_control: Element<'a, Message> = if busy {
             text(&draft.active_scene).width(Length::Fill).into()
         } else {
-            pick_list(
-                scene_options,
-                Some(draft.active_scene.clone()),
-                Message::ActiveSceneChanged,
-            )
+            pick_list(scene_options, Some(draft.active_scene.clone()), |value| {
+                Message::ConfigDraft(ConfigDraftMessage::ActiveScene(value))
+            })
             .width(Length::Fill)
             .into()
         };
@@ -777,14 +778,18 @@ impl App {
             row![
                 text("Default language").width(180),
                 text_input("for example en-US or zh-CN", &draft.default_language)
-                    .on_input_maybe((!busy).then_some(Message::DefaultLanguageChanged))
+                    .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
+                        ConfigDraftMessage::DefaultLanguage(value)
+                    )))
                     .width(Length::Fill),
             ]
             .spacing(12),
             row![
                 text("Capture device").width(180),
                 text_input("PipeWire target", &draft.capture_device)
-                    .on_input_maybe((!busy).then_some(Message::CaptureDeviceChanged))
+                    .on_input_maybe((!busy).then_some(|value| Message::ConfigDraft(
+                        ConfigDraftMessage::CaptureDevice(value)
+                    )))
                     .width(Length::Fill),
             ]
             .spacing(12),
@@ -801,11 +806,9 @@ impl App {
                 .width(Length::Fill)
                 .into()
         } else {
-            slider(
-                0.0_f32..=1.0_f32,
-                draft.duck_output_volume,
-                Message::DuckVolumeChanged,
-            )
+            slider(0.0_f32..=1.0_f32, draft.duck_output_volume, |value| {
+                Message::ConfigDraft(ConfigDraftMessage::DuckVolume(value))
+            })
             .step(0.05_f32)
             .width(Length::Fill)
             .into()
@@ -815,11 +818,9 @@ impl App {
                 .width(Length::Fill)
                 .into()
         } else {
-            slider(
-                0.05_f32..=0.95_f32,
-                draft.vad_threshold,
-                Message::VadThresholdChanged,
-            )
+            slider(0.05_f32..=0.95_f32, draft.vad_threshold, |value| {
+                Message::ConfigDraft(ConfigDraftMessage::VadThreshold(value))
+            })
             .step(0.05_f32)
             .width(Length::Fill)
             .into()
@@ -827,7 +828,9 @@ impl App {
         column![
             checkbox(draft.duck_output_while_recording)
                 .label("Duck output while recording")
-                .on_toggle_maybe((!busy).then_some(Message::DuckOutputChanged)),
+                .on_toggle_maybe((!busy).then_some(|value| Message::ConfigDraft(
+                    ConfigDraftMessage::DuckOutput(value)
+                ))),
             row![
                 text(format!(
                     "Duck volume: {:.0}%",
@@ -839,7 +842,9 @@ impl App {
             .spacing(12),
             checkbox(draft.vad_enabled)
                 .label("Enable voice activity detection")
-                .on_toggle_maybe((!busy).then_some(Message::VadEnabledChanged)),
+                .on_toggle_maybe((!busy).then_some(|value| Message::ConfigDraft(
+                    ConfigDraftMessage::VadEnabled(value)
+                ))),
             row![
                 text(format!("VAD threshold: {:.2}", draft.vad_threshold)).width(180),
                 vad_threshold_control,

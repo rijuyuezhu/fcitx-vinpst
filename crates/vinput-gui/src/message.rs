@@ -4,10 +4,31 @@ use std::path::PathBuf;
 
 use crate::{
     AdapterConfigMessage, AdapterRuntimeMessage, AsrProviderMessage, ConfigSaveOutcome,
-    DaemonControlMessage, DaemonOwnerEvent, DaemonSnapshot, HotwordMessage, LlmProviderMessage,
-    ModelInstallOutcome, Page, SceneMessage, ScriptInstallOutcome, ScriptPreparationResult,
-    SecretInput,
+    DaemonControlMessage, DaemonOwnerEvent, DaemonSnapshot, DesktopActionMessage, HotwordMessage,
+    LlmProviderMessage, ModelInstallOutcome, Page, SceneMessage, ScriptInstallOutcome,
+    ScriptPreparationResult, SecretInput,
 };
+
+/// Editable Control-page configuration fields.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigDraftMessage {
+    /// Update the default recognition language.
+    DefaultLanguage(String),
+    /// Update the capture target.
+    CaptureDevice(String),
+    /// Toggle output ducking.
+    DuckOutput(bool),
+    /// Update the output ducking volume.
+    DuckVolume(f32),
+    /// Toggle voice activity detection.
+    VadEnabled(bool),
+    /// Update the voice activity threshold.
+    VadThreshold(f32),
+    /// Select the active ASR provider.
+    ActiveProvider(String),
+    /// Select the active scene.
+    ActiveScene(String),
+}
 
 /// GUI messages.
 #[derive(Debug, Clone)]
@@ -16,6 +37,8 @@ pub enum Message {
     SelectPage(Page),
     /// Update the current resource filter.
     FilterChanged(String),
+    /// Apply one global desktop integration action.
+    DesktopAction(DesktopActionMessage),
     /// Refresh daemon state over D-Bus.
     RefreshDaemon,
     /// Result of an asynchronous daemon refresh.
@@ -40,22 +63,8 @@ pub enum Message {
     DaemonControl(DaemonControlMessage),
     /// Reload config from disk.
     ReloadConfig,
-    /// Update the default recognition language draft.
-    DefaultLanguageChanged(String),
-    /// Update the capture target draft.
-    CaptureDeviceChanged(String),
-    /// Toggle output ducking in the draft.
-    DuckOutputChanged(bool),
-    /// Update the output ducking volume in the draft.
-    DuckVolumeChanged(f32),
-    /// Toggle VAD in the draft.
-    VadEnabledChanged(bool),
-    /// Update the VAD threshold in the draft.
-    VadThresholdChanged(f32),
-    /// Select the active ASR provider in the draft.
-    ActiveProviderChanged(String),
-    /// Select the active scene in the draft.
-    ActiveSceneChanged(String),
+    /// Update one editable Control-page config field.
+    ConfigDraft(ConfigDraftMessage),
     /// Apply one scene lifecycle interaction.
     Scene(SceneMessage),
     /// Apply one ASR provider editor interaction.
@@ -175,14 +184,7 @@ impl Message {
                         | DaemonControlMessage::Restart
                 )
                 | Self::ReloadConfig
-                | Self::DefaultLanguageChanged(_)
-                | Self::CaptureDeviceChanged(_)
-                | Self::DuckOutputChanged(_)
-                | Self::DuckVolumeChanged(_)
-                | Self::VadEnabledChanged(_)
-                | Self::VadThresholdChanged(_)
-                | Self::ActiveProviderChanged(_)
-                | Self::ActiveSceneChanged(_)
+                | Self::ConfigDraft(_)
                 | Self::ResetConfigDraft
                 | Self::SaveConfig
                 | Self::Scene(
@@ -222,6 +224,7 @@ impl Message {
                 | Self::Hotword(
                     HotwordMessage::ProviderSelected(_)
                         | HotwordMessage::PathChanged(_)
+                        | HotwordMessage::BrowsePath
                         | HotwordMessage::SetPath
                         | HotwordMessage::ClearPath
                         | HotwordMessage::LoadContent

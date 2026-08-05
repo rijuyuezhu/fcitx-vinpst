@@ -1,5 +1,7 @@
 //! Hotword provider selection, path lifecycle, content editing, and persistence.
 
+mod file_picker;
+
 use std::{
     fmt,
     path::{Path, PathBuf},
@@ -66,6 +68,10 @@ pub enum HotwordMessage {
     ProviderSelected(HotwordProviderSelection),
     /// Update the proposed hotword file path.
     PathChanged(SecretInput),
+    /// Open a desktop file chooser for one existing hotword file.
+    BrowsePath,
+    /// Complete one asynchronous file chooser interaction.
+    PathPicked(Result<Option<SecretInput>, String>),
     /// Persist the proposed path for the selected provider.
     SetPath,
     /// Clear the configured path for the selected provider.
@@ -113,6 +119,15 @@ impl fmt::Debug for HotwordMessage {
                 .field(selection)
                 .finish(),
             Self::PathChanged(_) => formatter.write_str("PathChanged(<redacted>)"),
+            Self::BrowsePath => formatter.write_str("BrowsePath"),
+            Self::PathPicked(result) => formatter
+                .debug_tuple("PathPicked")
+                .field(&match result {
+                    Ok(Some(_)) => "selected",
+                    Ok(None) => "cancelled",
+                    Err(_) => "failed",
+                })
+                .finish(),
             Self::SetPath => formatter.write_str("SetPath"),
             Self::ClearPath => formatter.write_str("ClearPath"),
             Self::LoadContent => formatter.write_str("LoadContent"),
@@ -427,6 +442,8 @@ impl App {
             HotwordMessage::PathChanged(value) => {
                 self.hotword_editor.path_input = value.into_inner();
             }
+            HotwordMessage::BrowsePath => return self.begin_hotword_file_browse(),
+            HotwordMessage::PathPicked(result) => self.finish_hotword_file_browse(result),
             HotwordMessage::SetPath => return self.begin_hotword_path_set(),
             HotwordMessage::ClearPath => return self.begin_hotword_path_clear(),
             HotwordMessage::LoadContent => return self.begin_hotword_content_load(),
@@ -967,6 +984,10 @@ impl App {
                 Message::Hotword(HotwordMessage::PathChanged(SecretInput::new(value)))
             }))
             .width(Length::Fill),
+            button("Browse…").on_press_maybe(
+                (!busy && self.hotword_editor.selected_provider.is_some() && !content_dirty)
+                    .then_some(Message::Hotword(HotwordMessage::BrowsePath)),
+            ),
             button("Set path").on_press_maybe(
                 (!busy
                     && path_dirty

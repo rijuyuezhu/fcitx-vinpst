@@ -127,7 +127,11 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
         .clone();
     app.operation = OperationState::Running("Saving scene…");
 
-    drop(app.update(Message::DefaultLanguageChanged("zh-CN".to_owned())));
+    drop(
+        app.update(Message::ConfigDraft(ConfigDraftMessage::DefaultLanguage(
+            "zh-CN".to_owned(),
+        ))),
+    );
     drop(app.update(Message::SelectPage(Page::Control)));
     drop(app.update(Message::ReloadConfig));
     drop(app.update(Message::Scene(SceneMessage::EditorChanged {

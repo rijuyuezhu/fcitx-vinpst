@@ -1,6 +1,11 @@
 //! Top-level management GUI page identifiers.
 
-use crate::App;
+use iced::{
+    Element, Length,
+    widget::{button, column, text},
+};
+
+use crate::{APPLICATION_TITLE, App, Message};
 
 /// Main GUI pages matching the legacy management surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +34,20 @@ impl Page {
 }
 
 impl App {
+    pub(super) fn navigation_view(&self, busy: bool) -> Element<'_, Message> {
+        let navigation = Page::ALL.into_iter().fold(
+            column![text(APPLICATION_TITLE).size(24)].spacing(10),
+            |navigation, page| {
+                navigation.push(
+                    button(text(page.label()))
+                        .width(Length::Fill)
+                        .on_press_maybe((!busy).then_some(Message::SelectPage(page))),
+                )
+            },
+        );
+        navigation.push(self.desktop_action_button(busy)).into()
+    }
+
     pub(super) fn select_page(&mut self, page: Page) {
         if self.page == page {
             return;

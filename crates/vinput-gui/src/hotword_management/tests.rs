@@ -358,3 +358,79 @@ fn hotword_messages_redact_paths_and_loaded_content() {
         assert!(!message.contains("/home/user"));
     }
 }
+
+#[test]
+fn file_picker_selection_updates_only_the_path_draft_and_clears_stale_content() {
+    let (mut app, _) = App::boot();
+    let old_path = PathBuf::from("/tmp/old-hotwords.txt");
+    app.hotword_editor.path_input = old_path.to_string_lossy().into_owned();
+    app.hotword_editor.loaded_path = Some(old_path);
+    app.hotword_editor.baseline = Some(HotwordContentSnapshot {
+        existed: true,
+        content: "old content
+"
+        .to_owned(),
+        version: None,
+    });
+    app.hotword_editor.content = text_editor::Content::with_text(
+        "old content
+",
+    );
+
+    app.finish_hotword_file_browse(Ok(Some(SecretInput::new(
+        "/tmp/new-hotwords.txt".to_owned(),
+    ))));
+
+    assert_eq!(app.hotword_editor.path_input, "/tmp/new-hotwords.txt");
+    assert!(app.hotword_editor.path_is_dirty());
+    assert!(app.hotword_editor.loaded_path.is_none());
+    assert!(app.hotword_editor.baseline.is_none());
+    assert!(app.hotword_editor.content.text().is_empty());
+    assert!(matches!(app.operation, OperationState::Succeeded(_)));
+}
+
+#[test]
+fn file_picker_cancel_preserves_the_current_draft() {
+    let (mut app, _) = App::boot();
+    app.hotword_editor.path_input = "/tmp/pending-hotwords.txt".to_owned();
+    app.operation = OperationState::Running("fixture");
+
+    app.finish_hotword_file_browse(Ok(None));
+
+    assert_eq!(app.hotword_editor.path_input, "/tmp/pending-hotwords.txt");
+    assert!(matches!(app.operation, OperationState::Idle));
+}
+
+#[test]
+fn dirty_content_blocks_file_picker_entry() {
+    let (mut app, _) = App::boot();
+    app.hotword_editor.baseline = Some(HotwordContentSnapshot {
+        existed: true,
+        content: "baseline
+"
+        .to_owned(),
+        version: None,
+    });
+    app.hotword_editor.content = text_editor::Content::with_text(
+        "edited
+",
+    );
+
+    drop(app.begin_hotword_file_browse());
+
+    assert!(app.hotword_editor.content_is_dirty());
+    assert!(matches!(app.operation, OperationState::Failed(_)));
+}
+
+#[test]
+fn file_picker_messages_redact_selected_paths_and_errors() {
+    let selected = HotwordMessage::PathPicked(Ok(Some(SecretInput::new(
+        "/home/user/private/hotwords.txt".to_owned(),
+    ))));
+    let failed = HotwordMessage::PathPicked(Err(
+        "portal failed for /home/user/private/hotwords.txt".to_owned(),
+    ));
+
+    assert!(!format!("{selected:?}").contains("/home/user"));
+    assert!(!format!("{failed:?}").contains("/home/user"));
+}
