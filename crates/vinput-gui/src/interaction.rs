@@ -2,6 +2,7 @@
 
 use iced::{
     Subscription, Task,
+    advanced::widget::{operate, operation::focusable},
     keyboard::{self, Key, Modifiers, key},
     widget::operation,
 };
@@ -12,9 +13,11 @@ use crate::{App, Message, Page};
 /// Keyboard-only interactions owned by the application shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InteractionMessage {
-    /// Move focus to the next focusable text control.
+    /// Clear focus from every control and restart traversal from a known state.
+    ClearFocus,
+    /// Move focus to the next enabled control.
     FocusNext,
-    /// Move focus to the previous focusable text control.
+    /// Move focus to the previous enabled control.
     FocusPrevious,
     /// Select one top-level page through a stable command shortcut.
     SelectPage(Page),
@@ -34,6 +37,7 @@ pub(crate) fn capability_snapshot() -> Value {
         },
         "keyboard": {
             "tab_focus_traversal": true,
+            "focus_reset": "Escape",
             "focus_scope": "all-enabled-controls",
             "button_focus_traversal": true,
             "button_activation": ["Enter", "Space"],
@@ -59,6 +63,7 @@ impl App {
         message: InteractionMessage,
     ) -> Task<Message> {
         match message {
+            InteractionMessage::ClearFocus => operate(focusable::unfocus()),
             InteractionMessage::FocusNext => operation::focus_next(),
             InteractionMessage::FocusPrevious => operation::focus_previous(),
             InteractionMessage::SelectPage(page) => {
@@ -91,6 +96,9 @@ fn interaction_for_key(
         return None;
     }
     match key.as_ref() {
+        Key::Named(key::Named::Escape) if modifiers == Modifiers::NONE => {
+            Some(InteractionMessage::ClearFocus)
+        }
         Key::Named(key::Named::Tab) if modifiers == Modifiers::NONE => {
             Some(InteractionMessage::FocusNext)
         }
@@ -119,6 +127,10 @@ mod tests {
 
     #[test]
     fn ignored_keyboard_shortcuts_map_without_stealing_text_editing_commands() {
+        assert_eq!(
+            interaction_for_key(&Key::Named(key::Named::Escape), Modifiers::NONE, false,),
+            Some(InteractionMessage::ClearFocus)
+        );
         assert_eq!(
             interaction_for_key(&Key::Named(key::Named::Tab), Modifiers::NONE, false,),
             Some(InteractionMessage::FocusNext)
@@ -151,6 +163,7 @@ mod tests {
             Message::Interaction(InteractionMessage::SelectPage(Page::Resources))
                 .blocked_while_busy()
         );
+        assert!(!Message::Interaction(InteractionMessage::ClearFocus).blocked_while_busy());
         assert!(!Message::Interaction(InteractionMessage::FocusNext).blocked_while_busy());
         assert!(!Message::Interaction(InteractionMessage::FocusPrevious).blocked_while_busy());
     }
@@ -172,6 +185,7 @@ mod tests {
         let snapshot = capability_snapshot();
         assert_eq!(snapshot["accessibility_tree"]["available"], false);
         assert_eq!(snapshot["keyboard"]["tab_focus_traversal"], true);
+        assert_eq!(snapshot["keyboard"]["focus_reset"], "Escape");
         assert_eq!(snapshot["keyboard"]["focus_scope"], "all-enabled-controls");
         assert_eq!(snapshot["keyboard"]["button_focus_traversal"], true);
         assert_eq!(snapshot["keyboard"]["button_activation"][0], "Enter");

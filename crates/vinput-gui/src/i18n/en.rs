@@ -31,7 +31,7 @@ const fn english_core(key: GuiText) -> &'static str {
         GuiText::Hotwords => "Hotwords",
         GuiText::OpenConfig => "Open config",
         GuiText::KeyboardHint => {
-            "Ctrl+1–4: pages · Tab: controls · Enter/Space: actions · Arrows: values"
+            "Ctrl+1–4: pages · Esc: clear focus · Tab: controls · Enter/Space: actions · Arrows: values"
         }
         GuiText::DaemonService => "Daemon service",
         GuiText::Recording => "Recording",
