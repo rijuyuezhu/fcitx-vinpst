@@ -302,12 +302,12 @@ The gate requires one live niri socket, a writable `/dev/uinput`, Fcitx5 with a 
 Evidence under `target/tmp/gui-interaction-live/summary.json` must report:
 
 - English `Control -> Resources -> Hotwords -> Control` and zh_CN `控制 -> 资源 -> 热词 -> 控制` native title transitions;
-- forward and reverse text-control focus;
+- navigation-button focus plus Enter/Space activation and forward/reverse traversal through the mixed control tree;
 - exact standard clipboard copy plus restoration;
 - a non-empty non-ASCII Fcitx5/Rime commit, recorded only as UTF-8 byte length rather than retained content;
 - zero GUI process residue and restored Fcitx state/input method.
 
-This is live proof for text controls, clipboard, input-method transport, bilingual titles, and page shortcuts on niri/Wayland. It is not screen-reader proof or complete keyboard-only operation: Iced 0.14 currently exposes no AccessKit tree, and its built-in buttons, checkboxes, and pick lists do not participate in generic focus traversal/activation.
+This is live proof for complete enabled-control keyboard traversal/activation, clipboard, input-method transport, bilingual titles, and page shortcuts on niri/Wayland. The GUI's bounded custom wrapper adds a visible focus ring, Enter/Space action activation, and arrow-key selector/slider adjustment while preserving the existing pointer widgets. It is still not screen-reader proof: Iced 0.14 currently exposes no AccessKit accessibility tree.
 
 ## 8. Frontend behavior
 
