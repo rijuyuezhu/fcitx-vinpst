@@ -2,32 +2,61 @@
 set -euo pipefail
 
 mode="${1:-provider}"
-[[ "$#" -le 1 ]] || { echo "usage: $0 [provider|adapter]" >&2; exit 2; }
+[[ "$#" -le 1 ]] || { echo "usage: $0 [provider|adapter|adapter-update]" >&2; exit 2; }
 case "${mode}" in
   provider)
     default_out_dir="target/tmp/gui-script-recovery-live"
+    resource_kind="provider"
     resource_id="${VINPST_GUI_SCRIPT_RECOVERY_LIVE_PROVIDER_ID:-provider.live.batch}"
     resource_short_id="${VINPST_GUI_SCRIPT_RECOVERY_LIVE_PROVIDER_SHORT_ID:-live-provider}"
     registry_filename="providers.json"
     managed_directory="providers"
-    page_shortcut="CTRL+2"
+    initial_page="resources"
     page_title="Vinpst Configuration — Resources"
     required_environment_name=""
     required_environment_value=""
+    optional_environment_name=""
+    optional_environment_value=""
+    unrelated_environment_name=""
+    unrelated_environment_value=""
+    update_existing=false
     ;;
   adapter)
     default_out_dir="target/tmp/gui-script-recovery-live-adapter"
+    resource_kind="adapter"
     resource_id="${VINPST_GUI_SCRIPT_RECOVERY_LIVE_ADAPTER_ID:-adapter.live.batch}"
     resource_short_id="${VINPST_GUI_SCRIPT_RECOVERY_LIVE_ADAPTER_SHORT_ID:-live-adapter}"
     registry_filename="adapters.json"
     managed_directory="adapters"
-    page_shortcut="CTRL+3"
+    initial_page="llm"
     page_title="Vinpst Configuration — LLM"
     required_environment_name="VINPST_LIVE_REQUIRED"
     required_environment_value="fixture-environment-value"
+    optional_environment_name=""
+    optional_environment_value=""
+    unrelated_environment_name=""
+    unrelated_environment_value=""
+    update_existing=false
+    ;;
+  adapter-update)
+    default_out_dir="target/tmp/gui-script-update-live-adapter"
+    resource_kind="adapter"
+    resource_id="${VINPST_GUI_SCRIPT_UPDATE_LIVE_ADAPTER_ID:-adapter.live.update}"
+    resource_short_id="${VINPST_GUI_SCRIPT_UPDATE_LIVE_ADAPTER_SHORT_ID:-live-adapter-update}"
+    registry_filename="adapters.json"
+    managed_directory="adapters"
+    initial_page="llm"
+    page_title="Vinpst Configuration — LLM"
+    required_environment_name="VINPST_LIVE_REQUIRED"
+    required_environment_value="fixture-required-preserved"
+    optional_environment_name="VINPST_LIVE_OPTIONAL"
+    optional_environment_value="fixture-optional-preserved"
+    unrelated_environment_name="VINPST_LIVE_UNRELATED"
+    unrelated_environment_value="fixture-unrelated-preserved"
+    update_existing=true
     ;;
   *)
-    echo "usage: $0 [provider|adapter]" >&2
+    echo "usage: $0 [provider|adapter|adapter-update]" >&2
     exit 2
     ;;
 esac
@@ -120,8 +149,8 @@ for value in "${resource_id}" "${resource_short_id}"; do
   [[ -n "${value}" && "${value}" != *$'\n'* ]] ||
     fail "script fixture values must be non-empty and single-line"
 done
-[[ "${resource_id}" =~ ^${mode}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]] ||
-  fail "${mode} id must use the ${mode}.<group>.<name> registry shape"
+[[ "${resource_id}" =~ ^${resource_kind}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$ ]] ||
+  fail "${mode} id must use the ${resource_kind}.<group>.<name> registry shape"
 
 session_environment="$(systemctl --user show-environment 2>/dev/null || true)"
 if [[ -z "${NIRI_SOCKET:-}" || ! -S "${NIRI_SOCKET}" ]]; then
@@ -139,8 +168,9 @@ if [[ -z "${NIRI_SOCKET:-}" || ! -S "${NIRI_SOCKET}" ]]; then
 fi
 niri msg --json windows >/dev/null
 previous_niri_window_id="$(
-  niri msg --json windows |
-    jq -r '[.[] | select(.is_focused) | .id] | if length == 1 then .[0] else empty end'
+  niri msg --json workspaces |
+    jq -r '[.[] | select(.is_focused) | .active_window_id] |
+      if length == 1 and .[0] != null then .[0] else empty end'
 )"
 
 if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
@@ -149,14 +179,16 @@ if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
 fi
 [[ -n "${WAYLAND_DISPLAY:-}" ]] || fail "a Wayland display is required"
 
-clipboard_before="$(mktemp)"
-clipboard_types_before="$(timeout 1s wl-paste --list-types 2>/dev/null || true)"
-if [[ -n "${clipboard_types_before}" ]]; then
-  if ! grep -Eq '^(text/plain|text/plain;charset=utf-8|UTF8_STRING)$' <<<"${clipboard_types_before}"; then
-    fail "standard clipboard has no restorable text representation; refusing to replace it"
+if [[ "${update_existing}" != true ]]; then
+  clipboard_before="$(mktemp)"
+  clipboard_types_before="$(timeout 1s wl-paste --list-types 2>/dev/null || true)"
+  if [[ -n "${clipboard_types_before}" ]]; then
+    if ! grep -Eq '^(text/plain|text/plain;charset=utf-8|UTF8_STRING)$' <<<"${clipboard_types_before}"; then
+      fail "standard clipboard has no restorable text representation; refusing to replace it"
+    fi
+    timeout 2s wl-paste --no-newline >"${clipboard_before}"
+    clipboard_had_text=1
   fi
-  timeout 2s wl-paste --no-newline >"${clipboard_before}"
-  clipboard_had_text=1
 fi
 
 rm -rf "${out_dir}"
@@ -177,6 +209,8 @@ script_group="${resource_id#*.}"
 script_group="${script_group%%.*}"
 script_name="${resource_id##*.}"
 script_path="${data_home}/fcitx-vinpst/${managed_directory}/${script_group}/${script_name}"
+rollback_path="${script_path}.rollback"
+working_directory="${home_dir}/adapter-work"
 asset_path="${fixture_root}/assets/${resource_short_id}.py"
 registry_path="${fixture_root}/registry/${registry_filename}"
 method_log="${out_dir}/daemon-methods.jsonl"
@@ -186,14 +220,27 @@ mkdir -p \
   "$(dirname "${asset_path}")" \
   "$(dirname "${registry_path}")" \
   "${config_dir}" "${cache_home}" "${data_home}" "${home_dir}"
+if [[ "${update_existing}" == true ]]; then
+  mkdir -p "$(dirname "${script_path}")" "${working_directory}"
+  cat >"${script_path}" <<'PY'
+#!/usr/bin/env python3
+print("old managed adapter")
+PY
+  chmod 700 "${script_path}"
+  old_script_sha256="$(sha256sum "${script_path}" | awk '{print $1}')"
+else
+  old_script_sha256=""
+fi
 cat >"${asset_path}" <<'PY'
 #!/usr/bin/env python3
 import sys
 
-sys.stdout.write('{"event":"final","text":"fixture"}\n')
+sys.stdout.write('{"event":"final","text":"new fixture"}\n')
 PY
 asset_sha256="$(sha256sum "${asset_path}" | awk '{print $1}')"
 asset_size="$(stat -c '%s' "${asset_path}")"
+[[ "${update_existing}" != true || "${asset_sha256}" != "${old_script_sha256}" ]] ||
+  fail "adapter update fixture did not produce a new script revision"
 
 "${fixture}" \
   --root "${fixture_root}" \
@@ -212,24 +259,48 @@ fixture_port="$(tr -d '\n' <"${port_file}")"
 base_url="http://127.0.0.1:${fixture_port}"
 asset_url="${base_url}/assets/${resource_short_id}.py"
 
-if [[ "${mode}" == adapter ]]; then
-  jq -n \
-    --arg id "${resource_id}" \
-    --arg short_id "${resource_short_id}" \
-    --arg asset_url "${asset_url}" \
-    --arg environment_name "${required_environment_name}" \
-    '{
-      version: 1,
-      items: [
-        {
-          id: $id,
-          short_id: $short_id,
-          command: "python3",
-          script_urls: [$asset_url],
-          envs: [{name: $environment_name, required: true}]
-        }
-      ]
-    }' >"${registry_path}"
+if [[ "${resource_kind}" == adapter ]]; then
+  if [[ "${update_existing}" == true ]]; then
+    jq -n \
+      --arg id "${resource_id}" \
+      --arg short_id "${resource_short_id}" \
+      --arg asset_url "${asset_url}" \
+      --arg required_name "${required_environment_name}" \
+      --arg optional_name "${optional_environment_name}" \
+      '{
+        version: 1,
+        items: [
+          {
+            id: $id,
+            short_id: $short_id,
+            command: "python3",
+            script_urls: [$asset_url],
+            envs: [
+              {name: $required_name, required: true},
+              {name: $optional_name, required: false}
+            ]
+          }
+        ]
+      }' >"${registry_path}"
+  else
+    jq -n \
+      --arg id "${resource_id}" \
+      --arg short_id "${resource_short_id}" \
+      --arg asset_url "${asset_url}" \
+      --arg environment_name "${required_environment_name}" \
+      '{
+        version: 1,
+        items: [
+          {
+            id: $id,
+            short_id: $short_id,
+            command: "python3",
+            script_urls: [$asset_url],
+            envs: [{name: $environment_name, required: true}]
+          }
+        ]
+      }' >"${registry_path}"
+  fi
 else
   jq -n \
     --arg id "${resource_id}" \
@@ -250,10 +321,39 @@ else
     }' >"${registry_path}"
 fi
 
-jq --arg base_url "${base_url}" '.registry.base_urls = [$base_url]' \
-  data/default-config.json >"${config_path}"
+if [[ "${update_existing}" == true ]]; then
+  jq \
+    --arg base_url "${base_url}" \
+    --arg id "${resource_id}" \
+    --arg script_path "${script_path}" \
+    --arg required_name "${required_environment_name}" \
+    --arg required_value "${required_environment_value}" \
+    --arg optional_name "${optional_environment_name}" \
+    --arg optional_value "${optional_environment_value}" \
+    --arg unrelated_name "${unrelated_environment_name}" \
+    --arg unrelated_value "${unrelated_environment_value}" \
+    --arg working_directory "${working_directory}" \
+    --arg old_revision "${old_script_sha256}" \
+    '.registry.base_urls = [$base_url] |
+     .llm.adapters += [{
+       id: $id,
+       command: "python-old",
+       args: [$script_path],
+       env: {
+         ($required_name): $required_value,
+         ($optional_name): $optional_value,
+         ($unrelated_name): $unrelated_value
+       },
+       working_dir: $working_directory,
+       "x-vinpst-managed-script-sha256": $old_revision,
+       "x-vinpst-live-future-field": {preserved: true}
+     }]' data/default-config.json >"${config_path}"
+else
+  jq --arg base_url "${base_url}" '.registry.base_urls = [$base_url]' \
+    data/default-config.json >"${config_path}"
+fi
 chmod 600 "${config_path}"
-config_before="${out_dir}/config-before.json"
+config_before="${runtime_root}/config-before.json"
 cp --preserve=mode,timestamps "${config_path}" "${config_before}"
 config_before_sha256="$(sha256sum "${config_path}" | awk '{print $1}')"
 
@@ -278,12 +378,29 @@ done
 [[ -s "${daemon_ready}" ]] || fail "daemon fixture did not become ready"
 
 send_key() {
-  "${key_sender}" --settle-ms 220 "$1" | tee -a "${out_dir}/uinput.jsonl" >/dev/null
+  # A freshly-created uinput device needs enough time for udev and libinput to
+  # classify and attach it to the active niri seat before the key is emitted.
+  "${key_sender}" --settle-ms 600 "$1" | tee -a "${out_dir}/uinput.jsonl" >/dev/null
+}
+
+send_text() {
+  "${key_sender}" --settle-ms 600 --text "$1" |
+    tee -a "${out_dir}/uinput.jsonl" >/dev/null
 }
 
 focus_gui() {
+  local focused=""
   niri msg action focus-window --id "${gui_window_id}" >/dev/null
-  sleep 0.2
+  for _ in $(seq 1 20); do
+    focused="$(
+      niri msg --json workspaces 2>/dev/null |
+        jq -r '[.[] | select(.is_focused) | .active_window_id] |
+          if length == 1 and .[0] != null then .[0] else empty end'
+    )"
+    [[ "${focused}" == "${gui_window_id}" ]] && return
+    sleep 0.05
+  done
+  fail "niri did not focus GUI window ${gui_window_id}; active focused-workspace window is ${focused:-none}"
 }
 
 window_title() {
@@ -302,6 +419,7 @@ wait_for_title() {
   fail "GUI did not reach expected title '${expected}'; observed '${actual}'"
 }
 
+
 start_gui() {
   DBUS_SESSION_BUS_ADDRESS="${private_bus_address}" \
     LANG=en_US.UTF-8 \
@@ -310,7 +428,8 @@ start_gui() {
     XDG_CACHE_HOME="${cache_home}" \
     XDG_DATA_HOME="${data_home}" \
     VINPST_NOTIFICATION_URL="${notification_url}" \
-    "${gui_bin}" >"${out_dir}/gui.stdout.log" 2>"${out_dir}/gui.stderr.log" &
+    "${gui_bin}" --page "${initial_page}" \
+    >"${out_dir}/gui.stdout.log" 2>"${out_dir}/gui.stderr.log" &
   gui_pid=$!
   tracked_gui_pids+=("${gui_pid}")
   gui_window_id=""
@@ -328,7 +447,7 @@ start_gui() {
     sleep 0.1
   done
   [[ -n "${gui_window_id}" ]] || fail "GUI window did not appear"
-  wait_for_title 'Vinpst Configuration — Control'
+  wait_for_title "${page_title}"
   if grep -Eq 'Cannot start a runtime from within a runtime|panicked at' \
     "${out_dir}/gui.stderr.log"; then
     fail "GUI emitted a runtime panic"
@@ -364,6 +483,7 @@ focus_first_editable_text_field() {
   fail "${page_title} focus traversal did not reach its first editable text field"
 }
 
+
 wait_for_path() {
   local path=$1
   local label=$2
@@ -376,7 +496,7 @@ wait_for_path() {
 }
 
 resource_config_exists() {
-  if [[ "${mode}" == adapter ]]; then
+  if [[ "${resource_kind}" == adapter ]]; then
     jq -e --arg id "${resource_id}" '.llm.adapters[] | select(.id == $id)' \
       "${config_path}" >/dev/null 2>&1
   else
@@ -410,26 +530,26 @@ method_count() {
 catalog_request_path="/registry/${registry_filename}"
 asset_request_path="/assets/${resource_short_id}.py"
 required_environment_confirmed=false
+required_environment_prefilled=false
+first_update_restored_previous=false
+retry_reused_catalog=false
+retry_redownloaded_asset=false
+revision_changed=false
+rollback_revision_verified=false
 
 start_gui
+# F6 focuses the active registry workflow: the selector while idle, then the
+# enabled Install/Update or Retry primary action during a script operation.
 focus_gui
-send_key "${page_shortcut}"
-wait_for_title "${page_title}"
-focus_first_editable_text_field
-if [[ "${mode}" == provider ]]; then
-  # The Resources filter is the first editable field. Model and provider
-  # selectors follow it; the second receives this live registry selector.
-  send_key TAB
-  send_key TAB
-fi
-replace_focused_text "${resource_short_id}" ||
-  fail "${mode} selector did not accept the fixture short id"
+send_key F6
+send_key CTRL+A
+send_text "${resource_short_id}"
 
-# The provider path has no environment confirmation and can make the config
-# directory read-only before activating Install. The adapter path first resolves
-# its catalog while the config is writable, then proves the required secure
-# environment form appears before any script download begins.
-if [[ "${mode}" == adapter ]]; then
+# Provider and new-adapter modes prove publication followed by config-only recovery.
+# Adapter-update mode instead starts from an existing managed adapter, forces the
+# first replacement commit to fail, requires restoration of the previous script,
+# and then retries the stored plan without resolving the catalog again.
+if [[ "${resource_kind}" == adapter ]]; then
   send_key TAB
   send_key ENTER
   for _ in $(seq 1 100); do
@@ -439,28 +559,30 @@ if [[ "${mode}" == adapter ]]; then
     sleep 0.05
   done
   ((registry_requests == 1)) || fail "adapter preparation did not request its registry exactly once"
-  ((asset_requests == 0)) || fail "adapter script download began before required environment confirmation"
+  ((asset_requests == 0)) || fail "adapter script download began before environment confirmation"
   sleep 0.8
 
-  # AwaitingEnvironment focus order is four page buttons, Open Config, the
-  # disabled adapter selector, then the first secure environment input.
   focus_gui
-  send_key ESCAPE
-  for _ in $(seq 1 7); do send_key TAB; done
-  clipboard_mutated=1
-  printf '%s' "${required_environment_value}" | wl-copy
-  send_key CTRL+A
-  send_key CTRL+V
+  if [[ "${update_existing}" == true ]]; then
+    # Existing values are prefilled. F6 focuses the enabled Install/Update
+    # primary action without depending on the global traversal origin.
+    send_key F6
+    required_environment_prefilled=true
+  else
+    # New adapter: the required secure input is the seventh global focus target.
+    for _ in $(seq 1 7); do send_key TAB; done
+    clipboard_mutated=1
+    printf '%s' "${required_environment_value}" | wl-copy
+    send_key CTRL+A
+    send_key CTRL+V
+    send_key TAB
+  fi
   chmod 500 "${config_dir}"
   [[ "$(stat -c '%a' "${config_dir}")" == 500 ]] ||
     fail "config directory did not become read-only"
-  send_key TAB
   send_key ENTER
   required_environment_confirmed=true
 else
-  # The GUI has already loaded the valid config. Removing directory write
-  # permission keeps reads and validation available while forcing adjacent
-  # backup/config publication to fail only after managed script publication.
   chmod 500 "${config_dir}"
   [[ "$(stat -c '%a' "${config_dir}")" == 500 ]] ||
     fail "config directory did not become read-only"
@@ -468,13 +590,6 @@ else
   send_key ENTER
 fi
 
-wait_for_path "${script_path}" "published ${mode} script"
-[[ -f "${script_path}" && ! -L "${script_path}" ]] ||
-  fail "published ${mode} script is not a regular file"
-[[ -x "${script_path}" ]] || fail "published ${mode} script is not executable"
-script_published_sha256="$(sha256sum "${script_path}" | awk '{print $1}')"
-[[ "${script_published_sha256}" == "${asset_sha256}" ]] ||
-  fail "published script bytes differ from fixture asset"
 for _ in $(seq 1 100); do
   registry_requests="$(request_count "${catalog_request_path}")"
   asset_requests="$(request_count "${asset_request_path}")"
@@ -484,27 +599,66 @@ done
 ((registry_requests == 1)) || fail "expected exactly one ${mode} registry request before recovery"
 ((asset_requests == 1)) || fail "expected exactly one ${mode} script request before recovery"
 
-# Allow the failed config worker result to render the RecoveryRequired panel.
+if [[ "${update_existing}" == true ]]; then
+  # The replacement transaction must retain the old rollback artifact and restore
+  # the canonical script after the forced config failure.
+  wait_for_path "${rollback_path}" "managed adapter rollback script"
+  for _ in $(seq 1 100); do
+    [[ "$(sha256sum "${script_path}" 2>/dev/null | awk '{print $1}')" == "${old_script_sha256}" ]] && break
+    sleep 0.05
+  done
+  [[ -f "${script_path}" && ! -L "${script_path}" && -x "${script_path}" ]] ||
+    fail "restored managed adapter script is not a regular executable file"
+  [[ "$(sha256sum "${script_path}" | awk '{print $1}')" == "${old_script_sha256}" ]] ||
+    fail "failed adapter update did not restore the previous canonical script"
+  [[ -f "${rollback_path}" && ! -L "${rollback_path}" ]] ||
+    fail "adapter update rollback artifact is not a regular file"
+  [[ "$(sha256sum "${rollback_path}" | awk '{print $1}')" == "${old_script_sha256}" ]] ||
+    fail "adapter update rollback artifact does not contain the previous revision"
+  first_update_restored_previous=true
+else
+  wait_for_path "${script_path}" "published ${mode} script"
+  [[ -f "${script_path}" && ! -L "${script_path}" ]] ||
+    fail "published ${mode} script is not a regular file"
+  [[ -x "${script_path}" ]] || fail "published ${mode} script is not executable"
+  script_published_sha256="$(sha256sum "${script_path}" | awk '{print $1}')"
+  [[ "${script_published_sha256}" == "${asset_sha256}" ]] ||
+    fail "published script bytes differ from fixture asset"
+fi
+
 sleep 0.8
 [[ "$(sha256sum "${config_path}" | awk '{print $1}')" == "${config_before_sha256}" ]] ||
-  fail "failed install changed config bytes before recovery"
-! resource_config_exists || fail "${mode} config appeared despite the forced write failure"
+  fail "failed install changed config bytes before retry"
 [[ ! -e "${config_backup}" ]] || fail "failed config write unexpectedly created a backup"
 [[ "$(method_count ReloadAsrBackend)" == 0 ]] || fail "failed config write requested daemon reload"
 
-# Restore the directory and activate Retry Configuration Update. Resources can
-# anchor on its still-editable filter; the LLM page has no editable field while
-# recovery blocks mutations, so it uses the verified global focus order.
 chmod 700 "${config_dir}"
-if [[ "${mode}" == provider ]]; then
-  focus_first_editable_text_field
-  for _ in $(seq 1 4); do send_key TAB; done
-else
+if [[ "${update_existing}" == true ]]; then
+  # In the failed update state F6 focuses the primary Retry action directly.
   focus_gui
-  send_key ESCAPE
-  for _ in $(seq 1 9); do send_key TAB; done
+  send_key F6
+  send_key ENTER
+  for _ in $(seq 1 100); do
+    registry_requests="$(request_count "${catalog_request_path}")"
+    asset_requests="$(request_count "${asset_request_path}")"
+    ((registry_requests == 1 && asset_requests == 2)) && break
+    sleep 0.05
+  done
+  ((registry_requests == 1)) || fail "adapter update retry resolved the catalog again"
+  ((asset_requests == 2)) || fail "adapter update retry did not redownload exactly one replacement asset"
+  retry_reused_catalog=true
+  retry_redownloaded_asset=true
+else
+  if [[ "${resource_kind}" == provider ]]; then
+    focus_first_editable_text_field
+    for _ in $(seq 1 4); do send_key TAB; done
+  else
+    focus_gui
+    send_key ESCAPE
+    for _ in $(seq 1 9); do send_key TAB; done
+  fi
+  send_key ENTER
 fi
-send_key ENTER
 
 wait_for_resource_config
 for _ in $(seq 1 100); do
@@ -517,24 +671,61 @@ cmp -s "${config_before}" "${config_backup}" ||
   fail "recovery backup does not match original config bytes"
 [[ "$(stat -c '%a' "${config_path}")" == 600 ]] || fail "recovered config mode is not 600"
 [[ "$(stat -c '%a' "${config_backup}")" == 600 ]] || fail "recovery backup mode is not 600"
-[[ "$(sha256sum "${script_path}" | awk '{print $1}')" == "${script_published_sha256}" ]] ||
-  fail "configuration recovery changed the already-published script"
+if [[ "${update_existing}" != true ]]; then
+  [[ "$(sha256sum "${script_path}" | awk '{print $1}')" == "${script_published_sha256}" ]] ||
+    fail "configuration recovery changed the already-published script"
+fi
 
-if [[ "${mode}" == adapter ]]; then
-  jq -e \
-    --arg id "${resource_id}" \
-    --arg script_path "${script_path}" \
-    --arg environment_name "${required_environment_name}" \
-    --arg environment_value "${required_environment_value}" \
-    '.llm.adapters[] |
-      select(
-        .id == $id and
-        .command == "python3" and
-        .args == [$script_path] and
-        .working_dir == null and
-        .env[$environment_name] == $environment_value
-      )' "${config_path}" >/dev/null ||
-    fail "recovered adapter config does not match the managed script and required environment contract"
+if [[ "${resource_kind}" == adapter ]]; then
+  if [[ "${update_existing}" == true ]]; then
+    jq -e \
+      --arg id "${resource_id}" \
+      --arg script_path "${script_path}" \
+      --arg required_name "${required_environment_name}" \
+      --arg required_value "${required_environment_value}" \
+      --arg optional_name "${optional_environment_name}" \
+      --arg optional_value "${optional_environment_value}" \
+      --arg unrelated_name "${unrelated_environment_name}" \
+      --arg unrelated_value "${unrelated_environment_value}" \
+      --arg working_directory "${working_directory}" \
+      --arg new_revision "${asset_sha256}" \
+      --arg old_revision "${old_script_sha256}" \
+      '.llm.adapters[] |
+        select(
+          .id == $id and
+          .command == "python3" and
+          .args == [$script_path] and
+          .working_dir == $working_directory and
+          .env[$required_name] == $required_value and
+          .env[$optional_name] == $optional_value and
+          .env[$unrelated_name] == $unrelated_value and
+          .["x-vinpst-managed-script-sha256"] == $new_revision and
+          .["x-vinpst-managed-script-rollback-sha256"] == $old_revision and
+          .["x-vinpst-live-future-field"].preserved == true
+        )' "${config_path}" >/dev/null ||
+      fail "updated adapter config did not preserve values and revision metadata"
+    [[ "$(sha256sum "${script_path}" | awk '{print $1}')" == "${asset_sha256}" ]] ||
+      fail "successful adapter update did not publish the new canonical revision"
+    [[ "$(sha256sum "${rollback_path}" | awk '{print $1}')" == "${old_script_sha256}" ]] ||
+      fail "successful adapter update did not retain the previous rollback revision"
+    revision_changed=true
+    rollback_revision_verified=true
+  else
+    jq -e \
+      --arg id "${resource_id}" \
+      --arg script_path "${script_path}" \
+      --arg environment_name "${required_environment_name}" \
+      --arg environment_value "${required_environment_value}" \
+      '.llm.adapters[] |
+        select(
+          .id == $id and
+          .command == "python3" and
+          .args == [$script_path] and
+          .working_dir == null and
+          .env[$environment_name] == $environment_value
+        )' "${config_path}" >/dev/null ||
+      fail "recovered adapter config does not match the managed script and required environment contract"
+  fi
 else
   jq -e \
     --arg id "${resource_id}" \
@@ -552,7 +743,11 @@ fi
 registry_requests="$(request_count "${catalog_request_path}")"
 asset_requests="$(request_count "${asset_request_path}")"
 ((registry_requests == 1)) || fail "config recovery fetched the ${mode} registry again"
-((asset_requests == 1)) || fail "config recovery downloaded the published script again"
+if [[ "${update_existing}" == true ]]; then
+  ((asset_requests == 2)) || fail "adapter update retry did not use exactly two total asset requests"
+else
+  ((asset_requests == 1)) || fail "config recovery downloaded the published script again"
+fi
 [[ "$(method_count ReloadAsrBackend)" == 1 ]] ||
   fail "config recovery did not request exactly one daemon reload"
 kill -0 "${gui_pid}" 2>/dev/null || fail "GUI exited after successful script recovery"
@@ -601,16 +796,18 @@ if [[ -n "${previous_niri_window_id}" ]] &&
   niri msg action focus-window --id "${previous_niri_window_id}" >/dev/null
   sleep 0.2
 fi
-if [[ "${clipboard_had_text}" == 1 ]]; then
-  wl-copy --type 'text/plain;charset=utf-8' <"${clipboard_before}"
-  timeout 2s wl-paste --no-newline >"${out_dir}/clipboard-restored.tmp"
-  cmp -s "${clipboard_before}" "${out_dir}/clipboard-restored.tmp" ||
-    fail "standard clipboard text was not restored"
-  rm -f "${out_dir}/clipboard-restored.tmp"
-else
-  wl-copy --clear
-  if timeout 1s wl-paste --no-newline >/dev/null 2>&1; then
-    fail "standard clipboard unexpectedly retained the recovery probe value"
+if [[ "${clipboard_mutated}" == 1 ]]; then
+  if [[ "${clipboard_had_text}" == 1 ]]; then
+    wl-copy --type 'text/plain;charset=utf-8' <"${clipboard_before}"
+    timeout 2s wl-paste --no-newline >"${out_dir}/clipboard-restored.tmp"
+    cmp -s "${clipboard_before}" "${out_dir}/clipboard-restored.tmp" ||
+      fail "standard clipboard text was not restored"
+    rm -f "${out_dir}/clipboard-restored.tmp"
+  else
+    wl-copy --clear
+    if timeout 1s wl-paste --no-newline >/dev/null 2>&1; then
+      fail "standard clipboard unexpectedly retained the recovery probe value"
+    fi
   fi
 fi
 clipboard_mutated=0
@@ -622,6 +819,13 @@ jq -n \
   --arg asset_sha256 "${asset_sha256}" \
   --argjson asset_size "${asset_size}" \
   --argjson required_environment_confirmed "${required_environment_confirmed}" \
+  --argjson required_environment_prefilled "${required_environment_prefilled}" \
+  --argjson update_existing "${update_existing}" \
+  --argjson first_update_restored_previous "${first_update_restored_previous}" \
+  --argjson retry_reused_catalog "${retry_reused_catalog}" \
+  --argjson retry_redownloaded_asset "${retry_redownloaded_asset}" \
+  --argjson revision_changed "${revision_changed}" \
+  --argjson rollback_revision_verified "${rollback_revision_verified}" \
   --argjson registry_requests "${registry_requests}" \
   --argjson asset_requests "${asset_requests}" \
   '{
@@ -634,12 +838,20 @@ jq -n \
       asset_sha256: $asset_sha256,
       asset_size: $asset_size,
       required_environment_confirmed: $required_environment_confirmed,
+      required_environment_prefilled: $required_environment_prefilled,
+      update_existing: $update_existing,
+      first_update_restored_previous: $first_update_restored_previous,
+      retry_reused_catalog: $retry_reused_catalog,
+      retry_redownloaded_asset: $retry_redownloaded_asset,
+      revision_changed: $revision_changed,
+      rollback_revision_verified: $rollback_revision_verified,
       published_before_config: true,
-      recovery_panel_keyboard_reached: true,
+      recovery_panel_keyboard_reached: ($update_existing | not),
+      failed_retry_keyboard_reached: $update_existing,
       config_failure_preserved_original: true,
       backup_absent_before_recovery: true,
-      config_retry_only: true,
-      script_reused_without_download: true,
+      config_retry_only: ($update_existing | not),
+      script_reused_without_download: ($update_existing | not),
       managed_config_committed: true,
       values_retained: false
     },
@@ -671,21 +883,32 @@ jq -n \
 
 jq -e \
   --arg mode "${mode}" \
-  --argjson required_environment_confirmed "${required_environment_confirmed}" '
+  --argjson required_environment_confirmed "${required_environment_confirmed}" \
+  --argjson required_environment_prefilled "${required_environment_prefilled}" \
+  --argjson update_existing "${update_existing}" \
+  --argjson expected_asset_requests "$([[ "${update_existing}" == true ]] && echo 2 || echo 1)" '
   .ok == true and
   .script.kind == $mode and
   .script.required_environment_confirmed == $required_environment_confirmed and
+  .script.required_environment_prefilled == $required_environment_prefilled and
+  .script.update_existing == $update_existing and
   .script.published_before_config == true and
-  .script.recovery_panel_keyboard_reached == true and
+  .script.first_update_restored_previous == $update_existing and
+  .script.retry_reused_catalog == $update_existing and
+  .script.retry_redownloaded_asset == $update_existing and
+  .script.revision_changed == $update_existing and
+  .script.rollback_revision_verified == $update_existing and
+  .script.recovery_panel_keyboard_reached == ($update_existing | not) and
+  .script.failed_retry_keyboard_reached == $update_existing and
   .script.config_failure_preserved_original == true and
   .script.backup_absent_before_recovery == true and
-  .script.config_retry_only == true and
-  .script.script_reused_without_download == true and
+  .script.config_retry_only == ($update_existing | not) and
+  .script.script_reused_without_download == ($update_existing | not) and
   .script.managed_config_committed == true and
   .script.values_retained == false and
   .network.loopback_only == true and
   .network.registry_requests == 1 and
-  .network.asset_requests == 1 and
+  .network.asset_requests == $expected_asset_requests and
   .daemon.private_session_bus == true and
   .daemon.config_reload_calls == 1 and
   .isolation.real_daemon_untouched == true and

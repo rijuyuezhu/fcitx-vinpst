@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use iced::Task;
+use iced::{Task, widget::Id};
 use vinpst_registry::{
     LiveScriptEntry, LiveScriptKind, RegistryOperationControl, RegistryOperationProgress,
 };
@@ -17,6 +17,18 @@ use crate::{
     script_management::{install_registry_script_controlled, prepare_registry_script_controlled},
     script_recovery::recover_registry_script_config,
 };
+
+pub(crate) fn provider_selector_id() -> Id {
+    Id::new("vinpst-gui-provider-selector")
+}
+
+pub(crate) fn adapter_selector_id() -> Id {
+    Id::new("vinpst-gui-adapter-selector")
+}
+
+pub(crate) fn script_primary_action_id() -> Id {
+    Id::new("vinpst-gui-script-primary-action")
+}
 
 /// A user-entered value whose debug representation is always redacted.
 #[derive(Clone, PartialEq, Eq)]
@@ -172,6 +184,25 @@ pub(crate) enum ScriptInstallState {
         retry: ScriptRetryRequest,
         error: String,
     },
+}
+
+impl ScriptInstallState {
+    pub(crate) fn primary_action_focus_id(&self) -> Option<Id> {
+        match self {
+            Self::AwaitingEnvironment(plan) if plan.missing_required_environment().is_none() => {
+                Some(script_primary_action_id())
+            }
+            Self::RecoveryRequired { .. } | Self::Cancelled { .. } | Self::Failed { .. } => {
+                Some(script_primary_action_id())
+            }
+            Self::Idle
+            | Self::Preparing(_)
+            | Self::AwaitingEnvironment(_)
+            | Self::Active(_)
+            | Self::Recovering(_)
+            | Self::Succeeded(_) => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -786,8 +817,10 @@ mod tests {
                 value: String::new(),
             }])));
 
+        assert!(state.primary_action_focus_id().is_none());
         assert!(state.confirmed_plan().is_err());
         state.update_environment("TOKEN", "super-secret".to_owned());
+        assert!(state.primary_action_focus_id().is_some());
         let confirmed = state
             .confirmed_plan()
             .expect("valid environment")
@@ -814,6 +847,7 @@ mod tests {
             13,
             ScriptInstallOutcome::Failed("fixture failure".to_owned())
         ));
+        assert!(state.primary_action_focus_id().is_some());
         let debug = format!("{state:?}");
         assert!(!debug.contains("super-secret"));
         assert!(debug.contains("TOKEN"));

@@ -3,6 +3,7 @@
 use iced::{
     Subscription, Task,
     advanced::widget::{operate, operation::focusable},
+    event,
     keyboard::{self, Key, Modifiers, key},
     widget::operation,
 };
@@ -15,6 +16,8 @@ use crate::{App, Message, Page};
 pub enum InteractionMessage {
     /// Clear focus from every control and restart traversal from a known state.
     ClearFocus,
+    /// Focus the active registry workflow input or primary action.
+    FocusRegistryWorkflow,
     /// Move focus to the next enabled control.
     FocusNext,
     /// Move focus to the previous enabled control.
@@ -23,9 +26,9 @@ pub enum InteractionMessage {
     SelectPage(Page),
 }
 
-/// Listens only to keyboard events ignored by the active widget.
+/// Listens to ignored shell keys and the captured F6 focus shortcut.
 pub(crate) fn subscription() -> Subscription<Message> {
-    keyboard::listen().filter_map(keyboard_message)
+    event::listen_with(keyboard_event_message)
 }
 
 pub(crate) fn capability_snapshot() -> Value {
@@ -48,6 +51,7 @@ pub(crate) fn capability_snapshot() -> Value {
         "keyboard": {
             "tab_focus_traversal": true,
             "focus_reset": "Escape",
+            "registry_workflow_focus": "F6",
             "focus_scope": "all-enabled-controls",
             "button_focus_traversal": true,
             "button_activation": ["Enter", "Space"],
@@ -74,6 +78,19 @@ impl App {
     ) -> Task<Message> {
         match message {
             InteractionMessage::ClearFocus => operate(focusable::unfocus()),
+            InteractionMessage::FocusRegistryWorkflow => {
+                let primary_action = self.script_install.primary_action_focus_id();
+                match (self.page, primary_action) {
+                    (Page::Resources | Page::Llm, Some(id)) => operation::focus(id),
+                    (Page::Resources, None) => {
+                        operation::focus(crate::script_install::provider_selector_id())
+                    }
+                    (Page::Llm, None) => {
+                        operation::focus(crate::script_install::adapter_selector_id())
+                    }
+                    (Page::Control | Page::Hotwords, _) => Task::none(),
+                }
+            }
             InteractionMessage::FocusNext => operation::focus_next(),
             InteractionMessage::FocusPrevious => operation::focus_previous(),
             InteractionMessage::SelectPage(page) => {
@@ -84,17 +101,28 @@ impl App {
     }
 }
 
-fn keyboard_message(event: keyboard::Event) -> Option<Message> {
-    let keyboard::Event::KeyPressed {
+fn keyboard_event_message(
+    event: iced::Event,
+    status: event::Status,
+    _window: iced::window::Id,
+) -> Option<Message> {
+    let iced::Event::Keyboard(keyboard::Event::KeyPressed {
         key,
         modifiers,
         repeat,
         ..
-    } = event
+    }) = event
     else {
         return None;
     };
-    interaction_for_key(&key, modifiers, repeat).map(Message::Interaction)
+    let interaction = interaction_for_key(&key, modifiers, repeat)?;
+    match status {
+        event::Status::Ignored => Some(Message::Interaction(interaction)),
+        event::Status::Captured if interaction == InteractionMessage::FocusRegistryWorkflow => {
+            Some(Message::Interaction(interaction))
+        }
+        event::Status::Captured => None,
+    }
 }
 
 fn interaction_for_key(
@@ -108,6 +136,9 @@ fn interaction_for_key(
     match key.as_ref() {
         Key::Named(key::Named::Escape) if modifiers == Modifiers::NONE => {
             Some(InteractionMessage::ClearFocus)
+        }
+        Key::Named(key::Named::F6) if modifiers == Modifiers::NONE => {
+            Some(InteractionMessage::FocusRegistryWorkflow)
         }
         Key::Named(key::Named::Tab) if modifiers == Modifiers::NONE => {
             Some(InteractionMessage::FocusNext)
@@ -154,6 +185,10 @@ mod tests {
             Some(InteractionMessage::SelectPage(Page::Llm))
         );
         assert_eq!(
+            interaction_for_key(&Key::Named(key::Named::F6), Modifiers::NONE, false,),
+            Some(InteractionMessage::FocusRegistryWorkflow)
+        );
+        assert_eq!(
             interaction_for_key(&Key::Character("c".into()), Modifiers::COMMAND, false,),
             None
         );
@@ -174,6 +209,9 @@ mod tests {
                 .blocked_while_busy()
         );
         assert!(!Message::Interaction(InteractionMessage::ClearFocus).blocked_while_busy());
+        assert!(
+            !Message::Interaction(InteractionMessage::FocusRegistryWorkflow).blocked_while_busy()
+        );
         assert!(!Message::Interaction(InteractionMessage::FocusNext).blocked_while_busy());
         assert!(!Message::Interaction(InteractionMessage::FocusPrevious).blocked_while_busy());
     }
@@ -220,6 +258,7 @@ mod tests {
         );
         assert_eq!(snapshot["keyboard"]["tab_focus_traversal"], true);
         assert_eq!(snapshot["keyboard"]["focus_reset"], "Escape");
+        assert_eq!(snapshot["keyboard"]["registry_workflow_focus"], "F6");
         assert_eq!(snapshot["keyboard"]["focus_scope"], "all-enabled-controls");
         assert_eq!(snapshot["keyboard"]["button_focus_traversal"], true);
         assert_eq!(snapshot["keyboard"]["button_activation"][0], "Enter");
