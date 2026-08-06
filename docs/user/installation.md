@@ -21,14 +21,50 @@ Vinpst does not replace or migrate another voice-input package. Do not rename it
 
 The current `0.1.0` release workflow selects an Arch Linux x86_64 package, Debian 12 and Ubuntu 24.04 amd64 packages, and an x86_64 Flatpak extension bundle. These artifacts are still pre-release: the repository is validating the complete workflow before publishing them. RPM and Nix remain validated build paths rather than selected public artifacts.
 
-When release artifacts are published:
+When release artifacts are published, download the complete checked release directory rather than an isolated package. From that directory, verify every listed file before installation:
 
-1. download the artifact for your distribution from the matching Vinpst release;
-2. verify the supplied checksums and manifest;
-3. install the package with your distribution package manager;
-4. continue with [Quick start](quick-start.md).
+```sh
+sha256sum -c SHA256SUMS
+```
 
-Do not use a package produced for another distribution merely because it contains Linux binaries.
+The checksum file detects corruption or mismatched artifacts. It is not proof of publisher identity unless the release also provides a signed manifest and a separately authenticated public key.
+
+### Arch Linux
+
+Install the native x86_64 package with pacman:
+
+```sh
+sudo pacman -U ./fcitx-vinpst-0.1.0-1-x86_64.pkg.tar.zst
+```
+
+### Debian 12
+
+Install the Debian 12 amd64 package with APT so dependencies are resolved:
+
+```sh
+sudo apt install ./fcitx-vinpst_0.1.0-1_debian12_amd64.deb
+```
+
+### Ubuntu 24.04
+
+Install the Ubuntu 24.04 amd64 package with APT:
+
+```sh
+sudo apt install ./fcitx-vinpst_0.1.0-1_ubuntu24.04_amd64.deb
+```
+
+### Flatpak extension preview
+
+The Flatpak artifact extends `org.fcitx.Fcitx5//stable`; it does not attach to a system-installed Fcitx. Check that the matching Fcitx Flatpak is installed before installing the bundle:
+
+```sh
+flatpak info --user org.fcitx.Fcitx5
+flatpak install --user --bundle ./fcitx-vinpst-0.1.0-x86_64.flatpak
+```
+
+The Flatpak path remains a preview until host-session Fcitx discovery, PipeWire capture, service lifecycle, and GUI interaction are validated on an unrelated desktop. System Fcitx users should use the native package for their distribution.
+
+Do not use a package produced for another distribution merely because it contains Linux binaries. After native package installation, continue with [Quick start](quick-start.md).
 
 ## Development checkout installation
 
