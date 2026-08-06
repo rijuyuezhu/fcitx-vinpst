@@ -40,7 +40,7 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 | Remote ASR | `deterministic`; loopback `live-proven` | Hosted-provider operational and credential evidence. |
 | Audio/VAD/device/output ducking | `deterministic`; representative `live-proven` | Additional physical-device and audible-output breadth. |
 | Scenes/LLM/adapters | `deterministic`; command replacement `live-proven` | Hosted-provider evidence and broader GUI error categories. |
-| Registry/resource lifecycle | `deterministic` | Representative live install/recovery/removal result paths. |
+| Registry/resource lifecycle | `deterministic`; checksum-verified model install/rendered-row/inactive removal `live-proven` | Provider/adapter install-recovery and remaining mutation result paths. |
 | Fcitx localization/notifications | `live-proven` for English and zh_CN | Additional locales are optional expansion. |
 | Remote text HTTP/WebSocket | `deterministic`; same-host browser `live-proven` | A separately confirmed physical-device collector run. |
 | CLI management and diagnostics | `deterministic` | UX polish from concrete audit findings. |
@@ -57,7 +57,7 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 
 1. **Audit completeness:** the generated inventory detects source/callable drift, but every current and future delta still needs a human user-capability classification.
 2. **GUI accessibility policy:** the `0.1.0` decision is now explicit and machine-reported: keyboard operation is supported and live-proven, while screen-reader/semantic-tree operation is unsupported. The supported fallbacks are the `vinpst` CLI for management/diagnostics plus `fcitx5-configtool` or guarded terminal editing of the XDG Fcitx addon file for frontend-only settings; semantic-tree implementation remains post-`0.1.0` work.
-3. **GUI result-path breadth:** common configuration and interaction paths are proven; remaining install/recovery/resource mutation outcomes need representative real-session evidence.
+3. **GUI result-path breadth:** common configuration/interaction plus checksum-verified model install, rendered reconciliation, and inactive managed removal are proven. Provider/adapter install-recovery and remaining resource mutation outcomes still need representative real-session evidence.
 4. **Release assembly:** the current Arch, Debian, and Flatpak publication matrix builds from one exact source-job archive, and tag publication now waits for the reusable docs/Rust/Nix CI workflow. Production package/manifest signing and unrelated-environment validation remain; strict merge required checks are already configured.
 5. **Operational external evidence:** hosted providers, an unrelated machine/user, production signing/key custody, and some long-duration/device/application breadth remain.
 
