@@ -341,6 +341,19 @@ scripts/live/niri/run-gui-config-mutation-live.sh
 
 The runner owns `org.fcitx.Vinpst` on a private session bus and exposes only typed idle status, inactive-session runtime state, empty adapter diagnostics, and a counted `ReloadAsrBackend`. It launches the real GUI against isolated success and conflict config roots. Clipboard paste changes the default-language draft without invoking the input method, a freshly rendered dirty text field submits through Enter, and the success path proves an atomic replacement, exact original-byte `.bak`, mode-0600 config and backup, one reload request, and the saved value after a second launch. The conflict path edits a separate draft, atomically publishes a different valid disk version outside the GUI, then proves Enter submission preserves the external bytes and still-visible draft, creates no backup, and sends no second reload. The shared writer's Unix tests separately begin with a legacy mode-0644 file and prove both replacement and backup are tightened to 0600. The live summary retains no configured values or paths, restores the previous niri window and text clipboard, does not contact the real daemon, and leaves no GUI, fixture, or private-bus process.
 
+Run the private-registry model install and removal result gate:
+
+```sh
+cargo build -p vinpst-gui
+scripts/live/niri/run-gui-resource-install-live.sh
+```
+
+The runner requires a live niri/Wayland session, writable `/dev/uinput`, and `wl-copy`/`wl-paste`. It generates a small deterministic plain-tar model at runtime, computes its SHA-256 and byte size, and serves both `registry/models.json` and the archive from a repository-owned loopback-only HTTP fixture. A private session bus hosts the same typed idle daemon fixture used by the Control mutation gate. The real Iced GUI receives temporary `HOME` and XDG config/cache/data roots whose only registry base is the loopback fixture.
+
+Hardware-uinput Ctrl+2 and Tab traversal reach the Resources filter and model selector; clipboard readback distinguishes editable fields from ignored button shortcuts before entering the fixture short id. Enter activates the real install action. The gate then requires one catalog request and one archive request, checksum-backed publication under the temporary managed-model root, regular `tokens.txt`, `model.onnx`, and generated `vinpst-model.json`, plus the expected registry id, backend, and family. A fresh focus traversal reaches the newly reconciled installed-model row and activates its inactive managed Remove action; success is accepted only when that exact managed directory disappears while the original config SHA-256 remains unchanged.
+
+Evidence under `target/tmp/gui-resource-install-live/summary.json` records only model ids, archive digest/size, structural result booleans, request counts, and isolation/restoration results. The fixture never contacts a production registry, the GUI never requests a daemon reload for this config-independent operation, and cleanup restores the previous niri window and standard text clipboard while leaving zero GUI, HTTP fixture, daemon fixture, and private-bus processes. This proves one representative model install/result-row/removal journey. It does not prove provider/adapter publication recovery, hosted registries, or production model archives.
+
 ## 8. Frontend behavior
 
 Verify in the real session:
