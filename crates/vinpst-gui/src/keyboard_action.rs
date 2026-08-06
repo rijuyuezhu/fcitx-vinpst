@@ -8,12 +8,13 @@ use iced::{
         widget::{Operation, Tree, operation, tree},
     },
     keyboard::{self, Key, key},
-    widget::Button,
+    widget::{Button, Id},
 };
 
 /// Wraps one existing pointer control with focus traversal and activation.
 pub(crate) struct KeyboardAction<'a, Message> {
     content: Element<'a, Message>,
+    id: Option<Id>,
     on_activate: Option<Message>,
     on_previous: Option<Message>,
     on_next: Option<Message>,
@@ -47,6 +48,7 @@ impl<'a, Message> KeyboardAction<'a, Message> {
     ) -> Self {
         Self {
             content,
+            id: None,
             on_activate,
             on_previous,
             on_next,
@@ -97,7 +99,7 @@ where
         operation: &mut dyn Operation,
     ) {
         let state = tree.state.downcast_mut::<State>();
-        operation.focusable(None, layout.bounds(), state);
+        operation.focusable(self.id.as_ref(), layout.bounds(), state);
         operation.traverse(&mut |operation| {
             self.content.as_widget_mut().operate(
                 &mut tree.children[0],
@@ -224,6 +226,7 @@ where
 /// Button builder that preserves Iced pointer behavior and adds keyboard activation.
 pub(crate) struct KeyboardButton<'a, Message> {
     button: Button<'a, Message>,
+    id: Option<Id>,
     on_activate: Option<Message>,
 }
 
@@ -233,11 +236,17 @@ pub(crate) fn keyboard_button<'a, Message>(
 ) -> KeyboardButton<'a, Message> {
     KeyboardButton {
         button: Button::new(content),
+        id: None,
         on_activate: None,
     }
 }
 
 impl<Message> KeyboardButton<'_, Message> {
+    pub(crate) fn id(mut self, id: impl Into<Id>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
     pub(crate) fn width(mut self, width: impl Into<Length>) -> Self {
         self.button = self.button.width(width);
         self
@@ -266,7 +275,7 @@ where
     Message: Clone + 'a,
 {
     fn from(button: KeyboardButton<'a, Message>) -> Self {
-        keyboard_action(button.button, button.on_activate)
+        keyboard_bindings(button.button, button.on_activate, None, None, button.id)
     }
 }
 
@@ -278,7 +287,7 @@ pub(crate) fn keyboard_action<'a, Message>(
 where
     Message: Clone + 'a,
 {
-    keyboard_bindings(content, on_activate, None, None)
+    keyboard_bindings(content, on_activate, None, None, None)
 }
 
 /// Adds arrow-key previous/next selection while preserving the pointer control.
@@ -290,7 +299,7 @@ pub(crate) fn keyboard_select<'a, Message>(
 where
     Message: Clone + 'a,
 {
-    keyboard_bindings(content, None, on_previous, on_next)
+    keyboard_bindings(content, None, on_previous, on_next, None)
 }
 
 /// Returns bounded adjacent values around the selected entry.
@@ -317,6 +326,7 @@ fn keyboard_bindings<'a, Message>(
     on_activate: Option<Message>,
     on_previous: Option<Message>,
     on_next: Option<Message>,
+    id: Option<Id>,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
@@ -325,7 +335,9 @@ where
     if on_activate.is_none() && on_previous.is_none() && on_next.is_none() {
         content
     } else {
-        KeyboardAction::new(content, on_activate, on_previous, on_next).into()
+        let mut action = KeyboardAction::new(content, on_activate, on_previous, on_next);
+        action.id = id;
+        action.into()
     }
 }
 

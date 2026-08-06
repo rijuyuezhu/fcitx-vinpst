@@ -8,7 +8,10 @@ use iced::{
 };
 use vinpst_registry::{LiveScriptKind, RegistryOperationProgress};
 
-use super::{ActiveScriptInstall, ActiveScriptPreparation, ScriptInstallPlan, ScriptInstallState};
+use super::{
+    ActiveScriptInstall, ActiveScriptPreparation, ScriptInstallPlan, ScriptInstallState,
+    adapter_selector_id, provider_selector_id, script_primary_action_id,
+};
 use crate::{App, GuiLocale, GuiText, Message, SecretInput};
 
 impl ScriptInstallPlan {
@@ -44,6 +47,7 @@ impl ScriptInstallPlan {
         body.push(
             row![
                 keyboard_button(locale.text(GuiText::InstallOrUpdate))
+                    .id(script_primary_action_id())
                     .on_press_maybe(can_install.then_some(Message::ConfirmScriptInstall)),
                 keyboard_button(locale.text(GuiText::Cancel))
                     .on_press(Message::CancelScriptInstall),
@@ -87,6 +91,7 @@ impl ScriptInstallState {
                             keyboard_button(locale.text(GuiText::ReloadConfig))
                                 .on_press(Message::ReloadConfig),
                             keyboard_button(locale.text(GuiText::RetryConfigurationUpdate))
+                                .id(script_primary_action_id())
                                 .on_press(Message::RetryScriptConfigUpdate),
                             keyboard_button(locale.text(GuiText::DismissKeepScript))
                                 .on_press(Message::DismissScriptRecovery),
@@ -102,6 +107,7 @@ impl ScriptInstallState {
                 row![
                     text(locale.text(GuiText::ScriptInstallationCancelled)),
                     keyboard_button(locale.text(GuiText::Retry))
+                        .id(script_primary_action_id())
                         .on_press(Message::RetryScriptInstall),
                 ]
                 .spacing(10)
@@ -111,6 +117,7 @@ impl ScriptInstallState {
                 column![
                     text(locale.operation_error(error)),
                     keyboard_button(locale.text(GuiText::Retry))
+                        .id(script_primary_action_id())
                         .on_press(Message::RetryScriptInstall),
                 ]
                 .spacing(8)
@@ -126,6 +133,7 @@ impl App {
             self.locale.text(GuiText::RegistryProviderSelector),
             &self.provider_selector,
         )
+        .id(provider_selector_id())
         .width(Length::Fill);
         let input = if busy {
             input
@@ -148,6 +156,7 @@ impl App {
             self.locale.text(GuiText::RegistryAdapterSelector),
             &self.adapter_selector,
         )
+        .id(adapter_selector_id())
         .width(Length::Fill);
         let input = if busy {
             input

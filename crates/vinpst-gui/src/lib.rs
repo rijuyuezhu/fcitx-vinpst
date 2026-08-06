@@ -239,8 +239,13 @@ pub struct App {
 }
 
 impl App {
-    /// Creates the initial GUI state and starts a daemon refresh.
+    /// Creates the initial GUI state on the Control page and starts a daemon refresh.
     pub fn boot() -> (Self, Task<Message>) {
+        Self::boot_on_page(Page::Control)
+    }
+
+    /// Creates the initial GUI state on one requested page and starts a daemon refresh.
+    pub fn boot_on_page(initial_page: Page) -> (Self, Task<Message>) {
         let config = load_config_document(None);
         let draft = config
             .as_ref()
@@ -249,7 +254,7 @@ impl App {
         let hotword_editor = HotwordEditorState::from_document(&config, None);
         let mut app = Self {
             locale: GuiLocale::detect(),
-            page: Page::Control,
+            page: initial_page,
             filter: String::new(),
             config,
             draft,
@@ -1037,14 +1042,23 @@ fn llm_adapter_rows(config: &VinpstConfig) -> Vec<String> {
         .collect()
 }
 
-/// Runs the native GUI application.
+/// Runs the native GUI application on the default Control page.
 pub fn run() -> iced::Result {
-    iced::application(App::boot, App::update, App::view)
-        .title(App::window_title)
-        .subscription(App::subscription)
-        .theme(Theme::TokyoNight)
-        .window_size((960.0, 640.0))
-        .run()
+    run_on_page(Page::Control)
+}
+
+/// Runs the native GUI application on one requested top-level page.
+pub fn run_on_page(initial_page: Page) -> iced::Result {
+    iced::application(
+        move || App::boot_on_page(initial_page),
+        App::update,
+        App::view,
+    )
+    .title(App::window_title)
+    .subscription(App::subscription)
+    .theme(Theme::TokyoNight)
+    .window_size((960.0, 640.0))
+    .run()
 }
 
 #[cfg(test)]
