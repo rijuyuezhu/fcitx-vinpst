@@ -6,8 +6,8 @@ on:
       run-deb-packages:
         description: Run the Debian and Ubuntu package transaction matrix
         required: false
-        type: boolean
-        default: true
+        type: string
+        default: enabled
   push:
     branches: [main]
   pull_request:
@@ -67,7 +67,7 @@ jobs:
         run: scripts/tests/pipewire-check.sh
 
   deb-packages:
-    if: github.event_name != 'workflow_call' || inputs.run-deb-packages
+    if: inputs.run-deb-packages != 'disabled'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:

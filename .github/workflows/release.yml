@@ -17,7 +17,7 @@ jobs:
   quality:
     uses: ./.github/workflows/ci.yml
     with:
-      run-deb-packages: false
+      run-deb-packages: disabled
 
   source-archive:
     runs-on: ubuntu-latest
