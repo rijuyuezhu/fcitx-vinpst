@@ -1,7 +1,8 @@
 # Release scripts
 
-This directory owns checked source archives, Arch/Debian/RPM/Nix/Flatpak package gates,
-and signed release-candidate boundaries.
+This directory owns checked source archives, safe release-source materialization,
+Arch/Debian/RPM/Nix/Flatpak package gates, and signed release-candidate
+boundaries.
 
 Lightweight checks, also exposed through `just package-check`:
 
@@ -27,6 +28,13 @@ scripts/release/run-flatpak-package-smoke.sh
 scripts/release/run-nix-package-smoke.sh
 scripts/release/run-rpm-package-smoke.sh
 ```
+
+The tag workflow creates one deterministic source archive. Debian and Flatpak
+jobs download that artifact, materialize it through
+`extract-source-archive.py`, and run package construction from the extracted
+tree rather than the Actions checkout. Flatpak additionally copies the exact
+archive bytes into its local build inputs and records/rechecks their SHA-256
+before publication selection.
 
 The Arch path builds the checked runtime bundle, package, and synthetic upgrade
 archive, then runs isolated pacman transaction/repository/signing tests and

@@ -52,6 +52,8 @@ jobs:
           if-no-files-found: error
 
   deb-packages:
+    needs:
+      - source-archive
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -64,7 +66,24 @@ jobs:
             distribution: ubuntu24.04
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-archive
+          path: release-inputs/source-archive
+      - id: release-source
+        name: Materialize checked release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.source-archive.outputs.version }}'
+          archive="${GITHUB_WORKSPACE}/release-inputs/source-archive/fcitx-vinpst-${version}.tar.gz"
+          source_dir="$(scripts/release/extract-source-archive.py \
+            --archive "${archive}" \
+            --version "${version}" \
+            --output-root target/release-source)"
+          echo "path=${source_dir}" >>"${GITHUB_OUTPUT}"
       - name: Build and transaction-test package
+        working-directory: ${{ steps.release-source.outputs.path }}
         shell: bash
         run: |
           scripts/release/run-deb-package-smoke.sh \
@@ -74,8 +93,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source_dir='${{ steps.release-source.outputs.path }}'
           mkdir -p "dist/${{ matrix.distribution }}"
-          package="$(find "target/tmp/deb-package-smoke/${{ matrix.distribution }}" \
+          package="$(find "${source_dir}/target/tmp/deb-package-smoke/${{ matrix.distribution }}" \
             -maxdepth 1 -type f \
             -name 'fcitx-vinpst_*-1_${{ matrix.distribution }}_amd64.deb' \
             -print -quit)"
@@ -99,18 +119,46 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
-      - name: Build and transaction-test Flatpak extension
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-archive
+          path: release-inputs/source-archive
+      - id: release-source
+        name: Materialize checked release source
         shell: bash
-        run: scripts/release/run-flatpak-package-smoke.sh
+        run: |
+          set -euo pipefail
+          version='${{ needs.source-archive.outputs.version }}'
+          archive="${GITHUB_WORKSPACE}/release-inputs/source-archive/fcitx-vinpst-${version}.tar.gz"
+          source_dir="$(scripts/release/extract-source-archive.py \
+            --archive "${archive}" \
+            --version "${version}" \
+            --output-root target/release-source)"
+          source_sha256="$(sha256sum "${archive}" | awk '{print $1}')"
+          {
+            echo "archive=${archive}"
+            echo "path=${source_dir}"
+            echo "sha256=${source_sha256}"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Build and transaction-test Flatpak extension
+        working-directory: ${{ steps.release-source.outputs.path }}
+        shell: bash
+        run: |
+          scripts/release/run-flatpak-package-smoke.sh \
+            --source-archive '${{ steps.release-source.outputs.archive }}'
       - name: Select publication bundle
         shell: bash
         run: |
           set -euo pipefail
           version='${{ needs.source-archive.outputs.version }}'
-          summary=target/tmp/flatpak-package-smoke/summary.json
-          bundle=target/tmp/flatpak-package-smoke/fcitx-vinpst.flatpak
+          source_dir='${{ steps.release-source.outputs.path }}'
+          summary="${source_dir}/target/tmp/flatpak-package-smoke/summary.json"
+          bundle="${source_dir}/target/tmp/flatpak-package-smoke/fcitx-vinpst.flatpak"
           test -s "${summary}"
           test -s "${bundle}"
+          recorded_source_sha256="$(awk '{print $1}' \
+            "${source_dir}/target/tmp/flatpak-package-smoke/source-archive.sha256")"
+          test "${recorded_source_sha256}" = '${{ steps.release-source.outputs.sha256 }}'
           first_commit="$(jq -r '.first_commit' "${summary}")"
           second_commit="$(jq -r '.second_commit' "${summary}")"
           bundle_commit="$(jq -r '.bundle_commit' "${summary}")"

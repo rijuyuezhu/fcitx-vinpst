@@ -13,6 +13,42 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/packaging" ]]; do
 done
 cd "${repo_root}"
 
+usage() {
+  cat <<'EOF'
+usage: run-flatpak-package-smoke.sh [--source-archive ARCHIVE]
+
+Without --source-archive, creates a deterministic archive from the current
+checkout. Release workflows should pass the single archive produced by the
+source job so the Flatpak manifest consumes those exact bytes.
+EOF
+}
+
+input_source_archive=""
+while (($# > 0)); do
+  case "$1" in
+  --source-archive)
+    input_source_archive="${2:-}"
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "unknown argument: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+  esac
+done
+if [[ -n "${input_source_archive}" ]]; then
+  if [[ ! -f "${input_source_archive}" || -L "${input_source_archive}" ]]; then
+    echo "Flatpak source archive must be a regular file: ${input_source_archive}" >&2
+    exit 2
+  fi
+  input_source_archive="$(cd "$(dirname "${input_source_archive}")" && pwd)/$(basename "${input_source_archive}")"
+fi
+
 image="${VINPST_FLATPAK_BUILDER_IMAGE:-fcitx-vinpst-flatpak-builder:local}"
 for command in curl docker flock jq python3 sha256sum; do
   command -v "${command}" >/dev/null || {
@@ -178,8 +214,17 @@ curl --retry 10 --retry-all-errors --connect-timeout 30 --max-time 300 \
 
 version="$(cargo metadata --no-deps --format-version 1 \
   | jq -r '.packages[] | select(.name == "vinpst-cli") | .version')"
-scripts/release/create-source-archive.sh "${source_archive}" "${version}" >/dev/null
+if [[ -n "${input_source_archive}" ]]; then
+  if [[ "${input_source_archive}" != "${source_archive}" ]]; then
+    cp --reflink=auto "${input_source_archive}" "${source_archive}"
+    cmp "${input_source_archive}" "${source_archive}"
+  fi
+else
+  scripts/release/create-source-archive.sh "${source_archive}" "${version}" >/dev/null
+fi
 source_sha256="$(sha256sum "${source_archive}" | awk '{print $1}')"
+printf '%s  %s\n' "${source_sha256}" "$(basename "${source_archive}")" \
+  >"${work_dir}/source-archive.sha256"
 scripts/release/render-flatpak-manifest.py \
   --source-archive "${source_archive}" \
   --source-sha256 "${source_sha256}" \

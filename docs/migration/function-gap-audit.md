@@ -46,10 +46,10 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 | CLI management and diagnostics | `deterministic` | UX polish from concrete audit findings. |
 | Rust management GUI | packaged interactive baseline; desktop keyboard/IME paths `live-proven` | Assistive-technology semantic tree/policy, broader error taxonomy, and remaining live result paths. |
 | Arch package/repository/signature/candidate | `deterministic`; explicit package smoke | Select whether/how it is published for 0.1.0 and establish production key operations. |
-| Debian 12 / Ubuntu 24.04 | Docker install/upgrade/remove transactions complete | Wire selected artifacts through the one-source release workflow. |
+| Debian 12 / Ubuntu 24.04 | Docker install/upgrade/remove transactions complete; tag jobs build from the one source-job archive | Production publication and unrelated-environment validation. |
 | RPM family | build and isolated transaction baseline | Fedora/openSUSE support claims require distro/repository/signing/SELinux/live-scriptlet evidence. |
 | Nix | locked closure build baseline | Binary-cache publication policy if selected. |
-| Flatpak | checked extension transaction baseline | Live host desktop/Fcitx/PipeWire/systemd and publication/signing policy. |
+| Flatpak | checked extension transaction baseline; tag job consumes the byte-identical source-job archive | Live host desktop/Fcitx/PipeWire/systemd and publication/signing policy. |
 | User documentation | initial MkDocs user guide implemented | Keep strict build green and validate it against the release artifacts. |
 | Exhaustive upstream review | generated file/callable inventory implemented | Review every delta through the user-capability table before the release candidate. |
 
@@ -58,7 +58,7 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 1. **Audit completeness:** the generated inventory detects source/callable drift, but every current and future delta still needs a human user-capability classification.
 2. **GUI accessibility:** keyboard operation is proven, but a real assistive-technology semantic tree is not yet established. This needs an explicit 0.1.0 support decision rather than an implicit claim.
 3. **GUI result-path breadth:** common configuration and interaction paths are proven; remaining install/recovery/resource mutation outcomes need representative real-session evidence.
-4. **Release assembly:** strong package/signature components exist, but the tag workflow does not yet build every selected artifact from one exact source archive or integrate all selected signing/install smokes.
+4. **Release assembly:** the current Debian and Flatpak publication matrix now builds from one exact source-job archive, but production manifest signing, any additional selected package formats, required-check policy, and unrelated-environment validation remain.
 5. **Operational external evidence:** hosted providers, an unrelated machine/user, production signing/key custody, and some long-duration/device/application breadth remain.
 
 These are release and evidence risks. They do not justify changing Vinpst identities to upstream names.
