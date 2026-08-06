@@ -85,7 +85,7 @@ A callable is not considered “ported” merely because a similarly named Rust 
 ## Current release blockers from this audit
 
 1. Complete review of every inventory delta against the journey table before the release candidate.
-2. Add representative live proof for provider/adapter install-recovery and remaining GUI resource-mutation result paths; checksum-verified model install, rendered reconciliation, and inactive managed removal are complete.
+2. Add representative live proof for text-adapter recovery, required-environment confirmation, managed script update/replacement, and remaining GUI resource-mutation result paths; checksum-verified model install/rendered reconciliation/inactive removal and command ASR provider published-script config-only recovery are complete.
 3. Complete production manifest/package signing policy and artifact-installed smokes for the selected release matrix.
 4. Run the release candidate on an unrelated user or machine and repeat normal dictation, command replacement, diagnostics, and removal.
 5. Keep the user documentation and strict MkDocs build green, including the explicit keyboard-supported/screen-reader-unsupported GUI policy and fallback paths.
