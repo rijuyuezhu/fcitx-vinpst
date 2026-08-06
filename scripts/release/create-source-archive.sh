@@ -48,31 +48,36 @@ rm -f "${temporary}" "${listing}"
 trap 'rm -f "${temporary}" "${listing}"' EXIT
 
 export TZ=UTC
-if git diff --quiet --ignore-submodules HEAD -- && \
-  git diff --cached --quiet --ignore-submodules HEAD --; then
+if [[ -z "$(git status --porcelain=v1 --untracked-files=normal \
+  --ignore-submodules=dirty)" ]]; then
   git archive \
     --format=tar \
     --prefix="${source_dir}/" \
     HEAD \
     | gzip -n -9 >"${temporary}"
 else
-  tar \
-    --sort=name \
-    --mtime='UTC 1970-01-01' \
-    --owner=0 \
-    --group=0 \
-    --numeric-owner \
-    --exclude=.git \
-    --exclude=target \
-    --exclude=dist \
-    --exclude='.cache' \
-    --exclude='.ruff_cache' \
-    --exclude='__pycache__' \
-    --exclude='*.py[co]' \
-    --exclude='packaging/arch/PKGBUILD' \
-    --transform "s,^,${source_dir}/," \
-    -cf - \
-    . \
+  git ls-files --cached --others --exclude-standard -z \
+    | while IFS= read -r -d '' path; do
+        if [[ -L "${path}" ]]; then
+          echo "source archive input must not be a symbolic link: ${path}" >&2
+          exit 1
+        fi
+        if [[ -f "${path}" ]]; then
+          printf '%s\0' "${path}"
+        fi
+      done \
+    | LC_ALL=C sort -z \
+    | tar \
+      --null \
+      --no-recursion \
+      --sort=name \
+      --files-from=- \
+      --mtime='UTC 1970-01-01' \
+      --owner=0 \
+      --group=0 \
+      --numeric-owner \
+      --transform "s,^,${source_dir}/," \
+      -cf - \
     | gzip -n -9 >"${temporary}"
 fi
 

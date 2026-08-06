@@ -1,62 +1,39 @@
 # fcitx-vinpst
 
-Rust voice-input stack for Fcitx 5.
+Voice input for Fcitx 5, built around a Rust daemon, CLI, and management GUI with a thin C++ Fcitx addon.
 
-The project currently provides a usable Rust CLI/daemon alpha, a retained thin C++ Fcitx5 addon, and a packaged Rust/Iced management GUI baseline. Native dictation, command replacement, menus, localization, provider switching, recovery paths, and several real desktop applications have live evidence; package and release behavior has broad deterministic coverage. It is not yet a full legacy replacement.
+Vinpst supports local, command, and OpenAI-compatible remote ASR; normal dictation; selected-text command editing; scenes and LLM post-processing; model/provider/adapter registries; configurable audio and VAD behavior; and English/zh_CN frontend localization.
 
-## Start here
+> **Release status:** the project is preparing its first `0.1.0` release. Package and desktop behavior are already exercised extensively, but public release artifacts and their final support matrix are not published yet.
 
-- Checked Arch package lifecycle: [`docs/user/installation.md`](docs/user/installation.md)
-- Documentation map and sources of truth: [`docs/README.md`](docs/README.md)
-- Current implementation status: [`docs/migration/function-gap-audit.md`](docs/migration/function-gap-audit.md)
-- Detailed capability matrix: [`docs/migration/e2e-capability-matrix.md`](docs/migration/e2e-capability-matrix.md)
-- Active work and priorities: [`docs/migration/e2e-replication-plan.md`](docs/migration/e2e-replication-plan.md)
-- Architecture contracts: [`docs/architecture/README.md`](docs/architecture/README.md)
-- Development workflow: [`docs/development.md`](docs/development.md)
+## Get started
 
-The current development priority is the Rust management GUI: broaden resource-specific error taxonomy, add command-mode integration, complete localization/accessibility, and obtain real Wayland/X11 interaction proof. Existing desktop and packaging evidence must remain green, but new packaging expansion is deferred while this baseline advances.
+- [Installation](docs/user/installation.md)
+- [Quick start](docs/user/quick-start.md)
+- [Dictation and command mode](docs/user/usage.md)
+- [ASR models and providers](docs/user/asr.md)
+- [Scenes and text processing](docs/user/scenes.md)
+- [Settings](docs/user/settings.md)
+- [Troubleshooting](docs/user/troubleshooting.md)
+- [Known limitations](docs/user/limitations.md)
 
-## Workspace
+The documentation is also built as a MkDocs site. Run `just docs` for a strict local build or `just docs-serve` for a preview server.
 
-- `vinpst-protocol`: public D-Bus and recognition payload contracts.
-- `vinpst-config`: typed configuration, validation, normalization, persistence, and redaction.
-- `vinpst-http`: shared bounded and credential-safe provider HTTP construction.
-- `vinpst-process`: Unix helper supervision, deadlines, process-group cleanup, and bounded output.
-- `vinpst-audio`: PCM processing, recorder traits, and optional PipeWire capture.
-- `vinpst-asr`: mock, command, remote, and optional native `sherpa-onnx` backends.
-- `vinpst-text`: scenes, prompts, command adapters, context cache, and OpenAI-compatible text transport.
-- `vinpst-registry`: registry metadata, safe download/extraction, and managed publication.
-- `vinpst-daemon`: runtime orchestration and the canonical D-Bus service.
-- `vinpst-cli`: the `vinpst` management and diagnostics CLI.
-- `vinpst-gui`: the standalone Rust/Iced management application.
+## Vinpst identity
 
-`cpp/fcitx5-addon` remains C++ deliberately. It owns only the Fcitx API boundary: key handling, menus, preedit/commit presentation, selected-text handling, notifications, and D-Bus integration. Backend policy belongs in Rust.
+Vinpst is an independent project. Its executables, package names, addon, D-Bus service, systemd unit, configuration, data, and cache paths use `vinpst` or `fcitx-vinpst`. It does not replace or migrate another voice-input package.
 
-## Build and check
+## Development
 
-Use `just` as the project interface:
+The [documentation map](docs/development-index.md) separates user guides from architecture, development, migration, and evidence records. Contributors should start with [AGENTS.md](AGENTS.md) and [docs/development.md](docs/development.md).
 
 ```sh
 just fmt-check
 just lint
 just test
-just check
-```
-
-`just ci` is the complete deterministic project gate. Optional real-desktop, microphone, network-device, and full release builds are documented separately and are not implied by a passing deterministic smoke.
-
-Run the committed file-input demo with:
-
-```sh
-just demo
-```
-
-For a display-independent GUI/configuration check:
-
-```sh
-cargo run -p vinpst-gui -- --check --offline
+just ci
 ```
 
 ## License
 
-GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+GPL-3.0-or-later. See [LICENSE](LICENSE).

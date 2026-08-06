@@ -1,16 +1,16 @@
 # D-Bus service contract
 
-`vinpst-daemon` exposes the legacy daemon D-Bus ABI while the backend implementation is rewritten in Rust. The service must remain compatible with the existing C++ Fcitx5 frontend.
+`vinpst-daemon` exposes the Vinpst D-Bus ABI consumed by the retained C++ Fcitx5 frontend, the CLI, and the Rust GUI. All names use the canonical Vinpst identity; the service does not export upstream or old-name aliases.
 
 ## What exists now
 
 - `crates/vinpst-protocol/src/dbus.rs` owns shared wire constants, method names, and signal names.
 - `crates/vinpst-daemon/src/dbus_service.rs` wraps `RuntimeState` in a `zbus` interface named `org.fcitx.Vinpst.Service`.
-- `vinpst-daemon --dbus` registers the legacy bus/object/interface on the session bus.
+- `vinpst-daemon --dbus` registers the canonical Vinpst bus/object/interface on the session bus.
 - `crates/vinpst-daemon/tests/dbus_integration.rs` exercises real bus calls under `dbus-run-session`.
 - The default runtime still uses deterministic mock ASR/text/audio seams, while explicit configured paths can exercise configured command ASR/text seams. This is not full backend parity.
 
-## Wire names to preserve
+## Current wire names
 
 - Bus name: `org.fcitx.Vinpst`
 - Object path: `/org/fcitx/Vinpst`
@@ -21,7 +21,7 @@
 
 ## Service methods
 
-Preserve these legacy method names and payload shapes:
+Keep these Vinpst method names and payload shapes synchronized across the protocol crate and all current clients:
 
 - `StartRecording`
 - `StartCommandRecording`
@@ -36,7 +36,7 @@ Preserve these legacy method names and payload shapes:
 
 ## Status strings
 
-Preserve these legacy status strings and their lowercase wire format:
+Keep these Vinpst status strings and their lowercase wire format synchronized:
 
 - `idle`
 - `recording`
@@ -46,7 +46,7 @@ Preserve these legacy status strings and their lowercase wire format:
 
 ## Signals
 
-Preserve these signal names and payload shapes:
+Keep these signal names and payload shapes synchronized:
 
 - `RecognitionResult(s)`
 - `RecognitionPartial(s)`
@@ -67,7 +67,7 @@ CLI owner diagnostics deliberately run after the first successful service method
 
 `vinpst daemon handoff` is the explicit mutation boundary. It reads the same status snapshot and does nothing when the owner is current. A verified systemd-owned stale daemon is handled through user-service `MainPID` inspection, `daemon-reload`, restart, and fresh-owner verification. A non-systemd owner may be terminated only after the CLI proves that it is idle, has no active recording session, belongs to the current user, still has the expected daemon identity, and was not adopted by systemd; the CLI then reloads D-Bus activation and verifies the replacement owner. A successful control command alone is never sufficient: verification requires the new executable to match the current installation and not carry Linux's ` (deleted)` suffix. `--dry-run` contacts neither D-Bus nor external control tools. `scripts/tests/daemon/run-daemon-handoff-smoke.sh` proves current-owner no-op, stale systemd restart, guarded direct-owner replacement, post-checks, and failure preservation on private session buses.
 
-When `/.flatpak-info` exists, CLI daemon-management commands treat service control and direct-owner signaling as host operations. The shared command builder prefixes `systemctl`, `journalctl`, and guarded `kill` invocations with `flatpak-spawn --host`; daemon logs use the legacy Flatpak journal filter `journalctl --user -t flatpak --grep vinpst` rather than a host unit selector. JSON and text diagnostics preserve the logical tool separately from the host wrapper and expose the final argv. `vinpst doctor` parses the Flatpak `[Context]` section and reports missing `pipewire`, `xdg-config/systemd`, and `xdg-cache` grants. `vinpst daemon install-service` reads the packaged user-service template, rewrites `ExecStart` to `flatpak run --command=/app/addons/Vinpst/bin/vinpst-daemon org.fcitx.Fcitx5` while preserving daemon arguments, adds the legacy-compatible `ExecStop`, atomically installs the user unit, and reloads the host user manager; dry-run exposes the exact rendered unit without writing. `VINPST_FLATPAK_INFO_PATH`, `VINPST_FLATPAK_SPAWN`, `VINPST_FLATPAK_APP_ID`, and `VINPST_FLATPAK_ADDON_ROOT` are deterministic test/tool overrides. The checked Flatpak extension now has a real build/install/update/bundle/remove transaction gate; live desktop-session proof of host-systemd control, PipeWire recording, and Fcitx addon loading remains.
+When `/.flatpak-info` exists, CLI daemon-management commands treat service control and direct-owner signaling as host operations. The shared command builder prefixes `systemctl`, `journalctl`, and guarded `kill` invocations with `flatpak-spawn --host`; daemon logs use the legacy Flatpak journal filter `journalctl --user -t flatpak --grep vinpst` rather than a host unit selector. JSON and text diagnostics preserve the logical tool separately from the host wrapper and expose the final argv. `vinpst doctor` parses the Flatpak `[Context]` section and reports missing `pipewire`, `xdg-config/systemd`, and `xdg-cache` grants. `vinpst daemon install-service` reads the packaged user-service template, rewrites `ExecStart` to `flatpak run --command=/app/addons/Vinpst/bin/vinpst-daemon org.fcitx.Fcitx5` while preserving daemon arguments, adds the checked `ExecStop`, atomically installs the user unit, and reloads the host user manager; dry-run exposes the exact rendered unit without writing. `VINPST_FLATPAK_INFO_PATH`, `VINPST_FLATPAK_SPAWN`, `VINPST_FLATPAK_APP_ID`, and `VINPST_FLATPAK_ADDON_ROOT` are deterministic test/tool overrides. The checked Flatpak extension now has a real build/install/update/bundle/remove transaction gate; live desktop-session proof of host-systemd control, PipeWire recording, and Fcitx addon loading remains.
 
 ## Test coverage
 
@@ -77,15 +77,15 @@ Unit tests call the service facade directly and assert runtime transitions and J
 dbus-run-session -- cargo test -p vinpst-daemon --features dbus-integration --test dbus_integration
 ```
 
-That test starts the Rust service, builds a `zbus::Proxy`, calls legacy methods by their exact wire names, and parses returned recognition payload JSON.
+That test starts the Rust service, builds a `zbus::Proxy`, calls the current methods by their exact wire names, and parses returned recognition payload JSON.
 
 `vinpst-cli protocol` serializes method and signal names from `vinpst-protocol`, so smoke commands and service tests read the same member list.
 
-## Compatibility status
+## Contract status
 
-The Rust service pins these legacy-visible behaviors with unit and D-Bus integration tests:
+The Rust service pins these current Vinpst behaviors with unit and D-Bus integration tests:
 
-- operation failures use the legacy error name `org.fcitx.Vinpst.Error.OperationFailed`;
+- operation failures use the Vinpst error name `org.fcitx.Vinpst.Error.OperationFailed`;
 - `GetAsrBackendState` combines the configured target provider/model with the descriptor of the backend that is actually effective in the runtime; it must not report a merely constructible configured backend as already active;
 - `ReloadAsrBackend` re-reads the daemon config file when an explicit startup path exists, updates the ASR/default-language target, and queues the configured backend through the prepare-before-swap path rather than refreshing metadata only;
 - one non-blocking reload worker performs backend construction and warmup outside the runtime mutex, while `reload_in_progress` covers both queued and physical preparation;
@@ -93,16 +93,16 @@ The Rust service pins these legacy-visible behaviors with unit and D-Bus integra
 - failed background or deferred reloads keep the previously working backend and surface the error in diagnostics; current-generation background preparation failures also emit `DaemonNotification` with the same message;
 - configured daemon startup failures leave the service idle with no effective ASR backend, preserve the target/error in `GetAsrBackendState`, reject recording without mock output, and remain recoverable through `ReloadAsrBackend`;
 - `GetSceneState` returns the active scene plus typed id/label pairs without making the C++ frontend parse daemon config JSON;
-- `SetActiveScene` is idle-only, rejects unknown scenes with the legacy operation error, updates runtime state, and atomically persists the explicit or automatically discovered daemon config when one exists; its boolean reply distinguishes persistent and runtime-only selection;
+- `SetActiveScene` is idle-only, rejects unknown scenes with the Vinpst operation error, updates runtime state, and atomically persists the explicit or automatically discovered daemon config when one exists; its boolean reply distinguishes persistent and runtime-only selection;
 - `GetCaptureDevice` returns the normalized config value used by the next recording; `SetCaptureDevice` is idle-only, validates through the typed `CaptureTarget` parser, atomically persists the explicit or discovered config when available, and changes the target used by the same daemon/recorder on the next start without restarting the owner;
 - `GetAsrMenuState` exposes configured target, actual effective provider/model, reload progress, the last reload error, and typed provider id/kind/model rows without making C++ parse config JSON;
 - `SetActiveAsrProvider` rejects unknown providers, atomically persists the explicit or automatically discovered daemon config when one exists, and queues the selected provider through the same non-blocking prepare-before-swap worker; its boolean reply distinguishes persistent and runtime-only selection;
-- `GetAsrTargetMenuState` scans the configured model root outside the runtime mutex, combines flat Rust and legacy engine/model install layouts with configured provider rows, and preserves its original stable item-id/concrete-value ABI;
+- `GetAsrTargetMenuState` scans the configured model root outside the runtime mutex, combines supported installed-model layouts with configured provider rows, and preserves its current item-id/concrete-value ABI within the Vinpst client set;
 - `GetAsrDisplayMenuState` adds a display-title field without changing that older method, uses the daemon locale preference order, reads only installed metadata, and falls back to the stable registry/layout id for old or unmanaged models;
 - `SetActiveAsrTarget` accepts only a configured model or a path returned by installed-model discovery, atomically persists provider/model selection, and queues the same background prepare-before-swap reload;
-- `StopRecording` exposes the legacy `postprocessing` phase before scene text processing, preserves the synchronous final payload reply, and returns to idle on every begin/finish/abort path;
-- status strings and core legacy method/signal names remain centralized in `vinpst-protocol`.
+- `StopRecording` exposes the `postprocessing` phase before scene text processing, preserves the synchronous final payload reply, and returns to idle on every begin/finish/abort path;
+- status strings and core method/signal names remain centralized in `vinpst-protocol`.
 
-## Compatibility rule
+## Change rule
 
-The frontend should not need to know whether the daemon is C++ or Rust. Any service method rename, object path change, status string change, signal shape change, recognition payload shape change, or D-Bus error behavior change must be pinned by compatibility tests before it reaches runtime code.
+Every current Vinpst client must agree on the same service contract. Before 0.1.0, a method, path, status, signal, payload, or error may change when it improves the product, but the protocol crate, daemon, retained frontend, CLI/GUI clients, activation metadata, tests, and documentation must change atomically. Do not retain aliases solely for unreleased internal compatibility.

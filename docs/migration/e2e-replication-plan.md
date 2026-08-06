@@ -1,100 +1,105 @@
-# E2E replication plan
+# 0.1.0 functional-parity plan
 
-Reviewed: 2026-08-03
+Reviewed: 2026-08-06
 
-This is the active execution plan. Status belongs in [`function-gap-audit.md`](function-gap-audit.md); subsystem detail belongs in [`e2e-capability-matrix.md`](e2e-capability-matrix.md).
+This is the active execution plan. Current implementation status belongs in [`function-gap-audit.md`](function-gap-audit.md), the user-task mapping belongs in [`user-capability-audit.md`](user-capability-audit.md), detailed evidence belongs in [`e2e-capability-matrix.md`](e2e-capability-matrix.md), and real-session procedures belong in [`live-desktop-validation.md`](live-desktop-validation.md).
 
 ## Product target
 
-A compatible replacement must let a user:
+Vinpst 0.1.0 should let users complete substantially the same useful tasks as the upstream C++ project:
 
-- initialize configuration and managed directories from CLI;
-- discover, install, select, and diagnose a registry model;
-- load the retained addon in Fcitx5;
-- dictate normally with visible partial preedit and final application commit;
-- dictate commands over selected text and replace it safely;
-- configure keys, scenes, models, providers, adapters, and devices without manual JSON edits;
-- diagnose daemon, activation, native runtime, audio, and frontend failures;
-- install, upgrade, and remove the product predictably.
+- install and initialize the product under Vinpst names and paths;
+- discover, install, select, and diagnose ASR models/providers;
+- dictate normally with visible partial preedit and final application commits;
+- speak commands over selected text and replace it safely;
+- configure keys, scenes, LLM providers, adapters, devices, VAD, hotwords, and output ducking without requiring manual JSON editing;
+- manage resources through the Rust GUI or focused CLI commands;
+- diagnose daemon, activation, native runtime, audio, provider, and frontend failures;
+- install, update, and remove Vinpst predictably;
+- use clear user-facing installation, usage, configuration, troubleshooting, and limitation documentation.
 
-Compatibility means preserving user-visible contracts, not mechanically translating C++ source.
+This is practical functional parity, not identity or implementation compatibility. Vinpst keeps its own package, executable, addon, D-Bus, systemd, environment-variable, and XDG identities. It does not replace or migrate another package, and pre-0.1.0 Vinpst interfaces may change when needed.
 
 ## Milestones
 
 | Milestone | State | Exit criteria |
 | --- | --- | --- |
-| M0 Repository health | complete | clean deterministic checks and current docs |
-| M1 Deterministic product spine | complete | staged addon/daemon and outcome smokes |
-| M2 Native ASR proof | complete for current families | registry model construction and real WAV recognition |
-| M3 Usable CLI/daemon alpha | complete | management flow without manual JSON edits |
-| M4 Real desktop native alpha | active; core, toolkit, fallback, menu, localization, notification, model-switch, command/Whisper/remote provider success/failure, external-text-provider, trigger-mode, physical-microphone, and recovery paths live-proven | real Fcitx client, isolated PipeWire injection, typed same-daemon source A -> source B switching, default physical ALSA Digital Microphone dictation, GTK3/GTK4/Qt6/Chromium, GNOME Text Editor, kitty, and VS Code/Electron normal and command paths including explicit Chromium and VS Code renderer-sandbox proof, three-cycle GTK4 repetition, and ten-cycle normal/command bounded GTK4 soak in one window and one daemon owner, local and loopback OpenAI-compatible text replacement, primary-selection fallback, scene/ASR selection and paging, installed-catalog zh_CN menu, official English/zh_CN configuration-form labels and trigger-mode choices, scene-info/ASR-switch/error-summary notification localization, same-provider/command/independent-Whisper switching, invalid-remote prepare preservation, and successful remote HTTP multipart recognition, persisted Tap/Hold/Both timing, notifications, focus handoff, owner loss, and reload are proven; additional physical-device switching breadth, hour-scale soak, and real hosted-ASR/cloud-text plus credential operations remain; deterministic ASR and text-provider plain-HTTP proxy routing, Basic authentication for direct HTTP over plain-HTTP proxies and CONNECT through both plain-HTTP and TLS-protected HTTPS proxy endpoints, `NO_PROXY`, additional PEM roots through `SSL_CERT_FILE`, retained built-in `WebPKI` verification, one local CA-signed TLS interception relay with no retained plaintext, same-daemon atomic replacement of one CA-file path with mismatch rejection and idle recovery, 429/503, fail-closed 3xx handling with an untouched redirect target, request and response-body timeouts, a 1 MiB cap for success and error response bodies, untrusted self-signed TLS rejection, DNS failure, connection-refusal and redaction semantics are complete, the text path preserves the legacy 4000 ms default for omitted scene timeouts, and local text and command-ASR helpers share whole-process-group cleanup, direct-child descendant cleanup, and independent 1 MiB stdout/stderr limits; text has an effective scene deadline while command ASR keeps omitted timeout explicitly unconfigured; extra UI locales are optional beyond the legacy English/zh_CN set |
-| M5 Resource parity | complete | provider/adapter install and update-by-reinstall, localized discovery, provider script editing/removal, adapter removal/runtime selectors, and GUI model install/update/discovery/inactive removal |
-| M6 Release readiness | partial | Arch package/repository/signature/candidate, Debian 12/Ubuntu 24.04 Docker transactions, locked Nix build, RPM-family transaction baseline, and the checked x86_64 Flatpak extension build/install/update/remove/bundle transaction are complete. Live Flatpak desktop/Fcitx/PipeWire/host-systemd proof, Flatpak publication/signing policy, Fedora/openSUSE repository/signing/SELinux/live-scriptlet proof, Nix binary-cache publication, actual host upgrade, production multi-user lifecycle, publication keys, and unrelated-machine regression remain. |
-| M7 Rust management GUI | active interactive baseline | Control editing/recording plus typed daemon Start/Stop/Restart and Resources ASR-provider/scene/model lifecycle use shared typed persistence and safety contracts. The Resources page adds custom Local, Command, and Remote ASR providers and edits configured providers through shared kind-specific typed forms with creation-only id/type selection, immutable edit ids/types, positive optional timeouts, JSON command arguments, visible-key/secure-value environment rows with per-entry add/edit/remove and untouched-variable preservation, kind-specific clearing of irrelevant fields, preserved hotword/hidden fields during edit, duplicate/stale-snapshot rejection, inactive config-only user-defined removal with active/managed separation, redacted diagnostics, clean reset state, dirty-form conflict guards, full-config validation, atomic persistence, and daemon reload reporting. Scene forms add and edit fully typed definitions, keep ids immutable while editing, bind only configured LLM providers through a typed selector with an explicit no-provider choice while preserving editable model overrides, validate optional and numeric fields through the complete config contract, select the active scene, refuse active-scene removal, and remove inactive scenes with conflict-aware atomic persistence, backups, and daemon reload reporting. Model install/update/discovery/inactive removal uses shared registry safety, reports typed phase/byte progress, supports cleanup-safe cancellation and exact-selector retry, rejects stale completions, and requests cancellation on GUI shutdown. Resources and LLM install/update registry command providers and text adapters with pre-download required/optional environment entry, secure inputs and redacted diagnostics, managed-update value prefill/replacement, unrelated-environment preservation, managed script publication, user-defined-entry refusal, atomic validated config persistence, daemon reload, cooperative cancellation, retry, and stale preparation/install/recovery rejection. A published-script/config-save split failure enters an explicit recovery state that reloads and commits current config without re-downloading, revalidates the regular script path, and supports deliberate dismissal while keeping the script. Selectable model/provider/LLM/adapter detail panels expose typed metadata, redacted endpoints, and configuration counts without raw credentials or process contents. Exact managed command providers can be opened through a shared typed editor plan that preserves CLI behavior, launches direct argv, and refuses path mismatches. They also remove exact managed-root entries, reject active providers, commit validated config removal first, and clean up the unreferenced script; inactive user-defined ASR providers and user-defined text adapters use separate config-only paths. A service-name-filtered `NameOwnerChanged` subscription is installed before a non-activating owner sample, immediately reconciles owner loss/return, invalidates stale snapshot generations, reconnects after stream failure, and enables a serialized 30-second non-activating fallback only while degraded. The LLM page adds custom text adapters and edits configured adapters through shared typed id/command/arguments/environment/working-directory forms with creation-only id editing, shared daemon runtime-path validation, duplicate rejection, config-only user-defined removal, managed-cleanup separation, and forward-compatible preservation, stale-snapshot rejection, redacted diagnostics, dirty-form conflict guards, complete validation, atomic persistence, and daemon reload reporting. It exposes typed text-adapter running/PID state and production D-Bus start/stop controls with optional diagnostics, owner-generation-scoped post-action confirmation, forced post-completion current-owner refresh that replaces earlier in-flight queries instead of worker-snapshot installation, and accepted-but-unconfirmed reporting. It also adds and edits typed providers with secure API-key entry, immutable edit ids, redacted diagnostics, unknown-field preservation, dirty/reset state, shared guarded persistence, reload reporting, and reference-safe removal. It tests configured providers through the shared production text adapter on a blocking worker, keeps test input/response content out of generic state diagnostics, applies the legacy 4000 ms timeout, and reports only candidate counts.  Startup checks use the current upstream numeric-id/title/text notification schema through a five-second bounded no-redirect HTTP request, select exact locale/language/English/first-value text, accept only credential-free HTTPS Details links, fail silently on network or parse errors, show newer notifications globally, and mark them read only after OK or Details through monotonic atomic persistence at the legacy cache path; Details reuse the shell-free native/Flatpak opener and generic diagnostics redact remote title, text, URL, and local paths. The GUI exposes shell-free native/Flatpak Open Config, while the Hotwords page selects configured local/command providers, fills path drafts through an asynchronous XDG Desktop Portal chooser without bypassing validation, and persists path set/clear through the shared guarded config transaction, resolves relative Local hotword paths only for absolute provider model paths, rejects URL-like hotword values and daemon-environment-dependent relative model-plus-hotword combinations, requires absolute command-provider paths for GUI content editing, and loads/edits/saves bounded UTF-8 content with regular-file and symlink checks, config-target and content external-change rejection, missing-local-file preparation before reload with fail-safe preservation after config or reload failure, mode-preserving version-checked same-directory recovery hard links plus atomic exchange that keep the configured path continuously available, reject owner/group mismatch and files with xattr or ACL metadata the GUI cannot safely preserve, and retain an adjacent recovery of the previous file version, fail-closed refusal when the target is externally rewritten or recreated, a fail-safe no-rollback policy after publication, saved-but-unconfirmed reporting for post-publication directory-sync failures, bounded final-state confirmation, an explicit activation-retry action that survives config refresh only while the persisted provider, target, and exact file version still validate and retries without rewriting the file, and post-reload config-target revalidation that report active-provider background failures or superseding config changes without claiming the file was applied, stale-result rejection, redacted diagnostics, and unsaved-change guards. The global shell, Control, daemon/recording lifecycle, desktop/notification actions, file chooser labels, complete Hotwords interaction surface, Resources/LLM page chrome and rows, adapter runtime states, secret-safe resource details, scene lifecycle/forms/provider choices, custom ASR provider forms, LLM provider forms/connectivity results, text-adapter forms, model/script install/progress/cancellation/retry, published-script recovery, managed removal, adapter lifecycle, and provider-script editing plus fixed mutation outcomes now use typed English/zh_CN presentation while machine ids and raw diagnostic values remain stable. Real niri gates now prove isolated English/zh_CN launch, localized current-page titles, Ctrl+1–4 page switching, navigation-button Tab focus plus Enter/Space activation, mixed-control Tab/Shift+Tab, backend-native clipboard copy/restoration, and hardware-uinput Fcitx5/Rime commit for both native Wayland and a GUI forced onto X11/Xwayland through XIM, including matching X11 client PID/title properties and no retained text or process residue. A shared visible-focus wrapper covers every enabled button, checkbox, selector, and slider while preserving pointer/overlay behavior; the headless capability snapshot records this complete keyboard boundary and explicitly reports that Iced 0.14 still lacks an accessibility tree. Every blocking GUI action now uses the named plain-thread plus oneshot boundary with typed result projection. Remaining work includes broader resource-specific error taxonomy, an assistive-technology accessibility tree, and live install/recovery and remaining resource-mutation result proof. |
+| M0 Repository health | complete | Clean deterministic checks, bounded source layout, and current developer contracts. |
+| M1 Product spine | complete | CLI, daemon, typed config, D-Bus service, retained Fcitx addon, and deterministic command-demo paths work together. |
+| M2 Native and provider ASR | complete for the current registry families | Local offline/online models, command providers, remote providers, failure preservation, and representative real-WAV/live paths pass. |
+| M3 Real desktop input | complete for the core 0.1.0 path | Normal dictation, command replacement, menus, localization, notifications, focus/owner recovery, model/provider switching, physical microphone, and representative applications are live-proven. |
+| M4 Resource management | complete for ordinary workflows | CLI and GUI manage models, providers, adapters, scenes, LLM providers, devices, and hotwords without manual JSON editing. |
+| M5 Rust management GUI | interactive baseline complete; accessibility/result proof active | Control, Resources, LLM, and Hotwords workflows are typed, conflict-aware, redacted, keyboard-operable, and packaged; remaining release work is assistive-technology policy, broader error taxonomy, and representative install/recovery result proof. |
+| M6 Exhaustive user-capability audit | active | The generated 164-file/1,559-callable baseline is current, every delta is reviewed, and every meaningful upstream user task is mapped to Vinpst implementation/evidence or an explicit non-applicable rationale. |
+| M7 User documentation | active | Strict MkDocs site covers installation, quick start, usage, ASR, scenes, settings, CLI, troubleshooting, and limitations using only Vinpst identities and verified commands. |
+| M8 Release readiness | active | Selected artifacts build from one checked source archive, install/runtime smokes run on produced artifacts, manifest/checksum/signing policy is wired, required CI is enforced, and an unrelated environment passes the release candidate. |
+| M9 0.1.0 publication | pending | Version/tag consistency, release notes, publication, post-publication install, normal dictation, command replacement, diagnostics, and removal all pass. |
 
-## Completed: usable CLI/daemon alpha
+## Current priority order
 
-The following are implemented and covered by deterministic tests:
+### P0: exhaustive capability review
 
-- model registry list/info/install/use/remove;
-- current ASR provider registry list/install with batch/streaming validation, short ids, mirror fallback, managed overwrite protection, executable scripts, timeout/env preservation, and config backups;
-- legacy-compatible provider removal with local-provider protection, active-selection clearing, and explicit short-id resolution;
-- legacy-compatible command-provider script editing with installed-selector validation, command/argument file resolution, editor fallback, and dry-run diagnostics;
-- current adapter registry list/install with short ids, mirror fallback, managed overwrite protection, executable scripts, and config backups;
-- adapter short-id removal with config backup, `--output` preservation, and guarded in-place cleanup limited to the expected managed script path;
-- adapter start/stop/status selectors validate installed config entries and resolve explicit registry short ids before D-Bus calls;
-- localized provider/adapter title and description loading from root-level registry i18n files with stable machine-id fallback;
-- config initialization and mutation;
-- provider, hotword, device, scene, LLM, and adapter management;
-- daemon and recording control;
-- doctor/runtime/audio/owner diagnostics;
-- native offline/online ASR for current registry families;
-- generic native runtime bundle installation and D-Bus activation;
-- retained-addon menus, keys, filtering, i18n, notifications, owner recovery, partial preedit, commit, and command replacement.
+1. Keep [`../legacy/upstream-source-inventory.json`](../legacy/upstream-source-inventory.json) synchronized with a clean upstream checkout.
+2. Review every source/callable delta through [`user-capability-audit.md`](user-capability-audit.md).
+3. Treat source mechanics as `not applicable` when the user task is already provided through a different Vinpst design.
+4. Mark a real `missing` item only when a user cannot complete a meaningful upstream task through any normal Vinpst path.
+5. Add deterministic tests or live evidence for newly discovered behavior gaps.
 
-Implemented through D-Bus, the streaming path delivers recorder chunks, emits deduplicated live `RecognitionPartial` signals, renders partial-first preedit, and preserves final results for synchronous stop.
+### P1: close release-relevant functional gaps
 
-Live in a real user session, `scripts/live/niri/run-ime-fcitx-virtual-source-live.sh` now proves F9 normal dictation and F10 selected-text command replacement through the installed addon, current session-bus activation, a non-silent preflight-verified PipeWire virtual source, a streaming native model, input-panel partials, deletion, and final commit in real Fcitx clients. The gate does not use or claim physical speaker/microphone behavior.
+- Resolve the GUI assistive-technology accessibility decision for 0.1.0.
+- Add representative live result proof for remaining GUI install/recovery and resource mutations.
+- Continue broadening application/device behavior only where the audit finds a practical user gap or a release blocker.
+- Keep normal dictation, command replacement, provider failure preservation, owner recovery, menus, localization, and current package transactions green.
 
-## P0: real desktop native alpha
+### P2: user documentation
 
-1. Run the deterministic gate before live work.
-2. Install `sherpa-native-live` with a registry-installed supported model.
-3. Restart Fcitx5 through the generated environment wrapper.
-4. Prove addon discovery and D-Bus activation in the real session.
-5. Keep the live-proven GTK3, Qt6, Chromium/Ozone and VS Code/Electron renderer-sandbox, surrounding-text, and primary-selection-fallback paths green.
-6. Keep the live-proven focus-handoff, owner-loss, same-provider reload, default physical-microphone dictation, same-recorder two-source PipeWire target switching, isolated real-`wpctl` output duck/restore, scene/ASR selection and paging, installed-catalog zh_CN menu, official English/zh_CN configuration-form labels and trigger-mode choices, plus scene-info/ASR-switch/error-summary notification localization, F8 model/command/Whisper/remote success plus remote prepare-failure preservation, Tap/Hold/Both timing, and notification paths green; next exercise additional physical-device breadth, audible hardware-output ducking, and real hosted-ASR/provider credential behavior beyond the deterministic local network-semantics gate. English fallback plus zh_CN already matches the legacy locale set.
-7. Keep both live-proven command paths and the deterministic `vinpst llm test` network-semantics gate green; next prove real hosted-provider credential lifecycle and production CA distribution/revocation operations, PAC, NTLM/Kerberos, enterprise TLS-interception policy and certificate deployment, provider-specific outage behavior, and cross-application recovery.
-8. Record exact failures and add deterministic regressions before fixing them.
+- Keep the root README concise and task-oriented.
+- Build the Markdown tree with MkDocs Material in strict mode.
+- Write commands from actual `vinpst --help` surfaces and exercise representative flows in isolated tests.
+- Keep migration/evidence detail out of ordinary user procedures; link to limitations rather than embedding test transcripts.
+- Borrow useful topic structure from upstream documentation only after rewriting it for Vinpst behavior, names, and paths.
+- Continue to use rustdoc for Rust API documentation rather than mixing crate API reference into the user guide.
 
-The validation procedure is [`live-desktop-validation.md`](live-desktop-validation.md).
+### P3: release pipeline
 
-## P1: parity after live alpha
+- Select the public 0.1.0 artifacts and architectures.
+- Keep the completed one-source boundary green: current Arch, Debian, and Flatpak tag jobs consume the exact archive generated by the source job; Arch and Flatpak recheck the consumed archive digest before publication selection.
+- Add the already-implemented Arch/RPM/release-manifest/signature boundaries to the tag workflow where selected for publication.
+- Verify installation and a basic runtime path from each produced artifact.
+- Keep the completed release gate green: tag publication calls the reusable CI workflow for docs, Rust/integration, and Nix checks and also requires every selected package job; configure the same checks as required before merge.
+- Exercise release assembly without publishing before creating the tag.
 
-- Port other remaining native model layouts only when registry or user demand is concrete.
-- Validate one real third-party OpenAI-compatible text service, including credential handling and network failure behavior.
-- Broaden daemon-originated notification categories from observed needs.
-- Keep the source-layout regression guard green and continue splitting only when data, orchestration, transport, formatting, or platform integration form distinct feature boundaries.
-- Keep the real Chromium same-host LAN gate green, then complete `scripts/live/network/run-remote-text-external-device-live.sh` from another physical device and repeat that flow using a redacted endpoint reported by `vinpst daemon status`.
+## Completion gate
 
-## P2: release readiness
+Do not claim 0.1.0 functional parity until a clean installation can complete this user path without manual JSON editing:
 
-- keep shared release-time native-runtime validation, the Arch package/repository/signature/candidate pipeline, and the RPM release-1/release-2 build plus user-namespace transaction green through `just package-check`, `just package-smoke`, and `just rpm-package-smoke`;
-- validate current-metadata restart and the implemented ownership-verified cross-user guarded handoff through an actual host package-installed upgrade and live multi-user environment; keep every handoff conditional, identity-guarded, and post-verified. Keep unknown future schemas refusal-only and byte-preserving; add migration rollback only when a second production schema exists;
-- publish the selected production package, signatures, repository metadata, detached manifest signature and independently distributed pinned fingerprint, following the tracked external-user path in [`../user/installation.md`](../user/installation.md); do not publish synthetic `pkgrel=2` or ephemeral-key test artifacts;
-- run live validation on supported desktop/application combinations;
-- add external-user regression coverage.
+```sh
+vinpst init
+vinpst model list --available
+vinpst model install <id-or-short-id>
+vinpst model use <id-or-short-id> --in-place --reload-daemon
+vinpst doctor
+vinpst daemon status
+```
 
-## Work selection rules
+The same installation must then pass:
 
-- Prefer work that directly advances M7, the Rust management GUI baseline.
-- Treat M4 desktop and M6 release work as regression maintenance unless a blocking issue or explicit user request requires new expansion.
-- Keep mock, file-input, session-bus, temporary-HOME, desktop, and package evidence green.
-- Do not call deterministic evidence live proof.
+- live normal dictation with partials and a final commit;
+- live command replacement with failure preservation;
+- scene and ASR selection;
+- restart, reload, owner-loss/recovery, and diagnostics;
+- GUI or CLI resource management for the selected release workflows;
+- package removal while preserving Vinpst user state;
+- strict documentation build and verified release artifacts.
+
+The final review must freeze the current upstream commit and confirm that no known user-facing capability was silently omitted. It must not add upstream package/path identities merely to make names match.
+
+## Work rules
+
+- Prefer user journeys and release blockers over generic cleanup.
+- Keep the retained Fcitx C++ layer thin and the standalone GUI in Rust.
+- Distinguish `implemented`, `deterministic`, and `live-proven`.
 - Keep real-profile mutation explicit and opt-in.
-- Preserve public wire and frontend contracts.
-- Keep commits focused and avoid broad cleanup.
-
-## Next recommended slice
-
-Continue the GUI track with broader resource-specific error taxonomy and an assistive-technology accessibility tree, then extend the completed native-Wayland, forced-X11, desktop-opener/notification, private-portal, and Control-mutation result proof to the remaining install/recovery and resource-mutation result paths. Keep the recorded release and platform gaps intact, but defer new packaging work until the GUI management baseline advances; retained package and desktop evidence must remain green.
+- Preserve stable Vinpst contracts where intentional; do not create compatibility debt for unreleased internal interfaces.
+- Keep commits reviewable and update the user-capability audit when status changes.

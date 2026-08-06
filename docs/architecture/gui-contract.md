@@ -52,7 +52,7 @@ The next GUI slices are:
 
 Command-mode selected-text acquisition remains owned by the retained Fcitx frontend, where it is already implemented and live-proven. The legacy standalone Qt management GUI exposed no command-recording or selection action, so duplicating that frontend behavior in `vinpst-gui` is not a parity requirement.
 
-Until those slices are complete, documentation must call the GUI a management baseline rather than a full replacement.
+Until those slices are complete, documentation must call the GUI a management baseline rather than a complete accessibility-validated management surface.
 
 ## Testing rules
 

@@ -13,6 +13,45 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
+usage() {
+  cat <<'EOF'
+usage: run-arch-package-smoke.sh [--source-archive ARCHIVE]
+
+Without --source-archive, creates a deterministic archive from the current
+checkout. Release workflows should pass the single archive produced by the
+source job so the Arch package consumes those exact bytes.
+EOF
+}
+
+input_source_archive=""
+while (($# > 0)); do
+  case "$1" in
+  --source-archive)
+    input_source_archive="${2:-}"
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "unknown argument: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+  esac
+done
+if [[ -n "${input_source_archive}" ]]; then
+  if [[ ! -f "${input_source_archive}" || -L "${input_source_archive}" ]]; then
+    echo "Arch source archive must be a regular file: ${input_source_archive}" >&2
+    exit 2
+  fi
+  input_source_archive="$(
+    cd "$(dirname "${input_source_archive}")"
+    pwd
+  )/$(basename "${input_source_archive}")"
+fi
+
 version="$(
   cargo metadata --no-deps --format-version 1 |
     jq -r '.packages[] | select(.name == "vinpst-cli") | .version'
@@ -66,8 +105,17 @@ cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  ${source_cache
 2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c  ${source_cache}/onnxruntime-LICENSE-1.24.4
 EOF
 
-scripts/release/create-source-archive.sh "${source_archive}" "${version}" >/dev/null
+if [[ -n "${input_source_archive}" ]]; then
+  if [[ "${input_source_archive}" != "${source_archive}" ]]; then
+    cp --reflink=auto "${input_source_archive}" "${source_archive}"
+    cmp "${input_source_archive}" "${source_archive}"
+  fi
+else
+  scripts/release/create-source-archive.sh "${source_archive}" "${version}" >/dev/null
+fi
 source_sha256="$(sha256sum "${source_archive}" | awk '{print $1}')"
+printf '%s  %s\n' "${source_sha256}" "$(basename "${source_archive}")" \
+  >"${stage_root}/source-archive.sha256"
 
 scripts/release/render-arch-pkgbuild.py \
   --version "${version}" \

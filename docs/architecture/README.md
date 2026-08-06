@@ -5,9 +5,9 @@ This directory contains tracked architecture and compatibility contracts for the
 ## Reading order
 
 1. [`target-architecture.md`](target-architecture.md): crate boundaries, runtime actors, state machine target, and migration principles.
-2. [`identity-contract.md`](identity-contract.md): canonical project names and the explicit absence of rename compatibility.
+2. [`identity-contract.md`](identity-contract.md): canonical Vinpst names, independent product identity, and the explicit absence of old-name migration or aliases.
 3. Subsystem contract for the area being changed:
-   - [`dbus-service.md`](dbus-service.md): legacy D-Bus service facade, diagnostic extension, and compatibility rules.
+   - [`dbus-service.md`](dbus-service.md): current Vinpst D-Bus service contract, diagnostic extensions, and atomic change rules.
    - [`config-contract.md`](config-contract.md): default config fixture, parsing, validation, and diagnostics behavior.
    - [`process-contract.md`](process-contract.md): shared command-helper process groups, deadlines, descendant cleanup, zombie-aware liveness, and bounded output capture.
    - [`registry-contract.md`](registry-contract.md): registry metadata, dry-run planning, and sample fixture contracts.

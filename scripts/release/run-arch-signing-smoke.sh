@@ -16,7 +16,7 @@ export LC_ALL=C
 # shellcheck source=scripts/release/gpg-session-common.sh
 source "${script_dir}/gpg-session-common.sh"
 
-for command in bsdtar fakeroot gpg gpgconf pacman pacman-key python3 repo-add sha256sum; do
+for command in bsdtar fakeroot gpg gpgconf pacman python3 repo-add sha256sum; do
   command -v "${command}" >/dev/null
 done
 
@@ -42,15 +42,14 @@ package_version() {
 
 initial_version="$(package_version "${initial_package}")"
 upgrade_version="$(package_version "${upgrade_package}")"
-package_base_version="${initial_version%-*}"
 test -n "${initial_version}"
 test -n "${upgrade_version}"
-test -n "${package_base_version}"
 test "${initial_version}" != "${upgrade_version}"
 
 stage_root="${repo_root}/target/tmp/arch-signing-smoke"
 signing_home="${stage_root}/signing-home"
 trusted_keyring="${stage_root}/trusted-keyring"
+untrusted_keyring="${stage_root}/untrusted-keyring"
 repository_root="${stage_root}/repository"
 repository_name="vinpst-signed"
 repository_database="${repository_root}/${repository_name}.db.tar.gz"
@@ -59,12 +58,16 @@ user_config_relative="home/test/.config/fcitx-vinpst/config.json"
 
 cleanup() {
   gpg_session_stop "${signing_home}"
+  gpg_session_stop "${trusted_keyring}"
+  gpg_session_stop "${untrusted_keyring}"
 }
 trap cleanup EXIT
 cleanup
 rm -rf "${stage_root}"
 mkdir -p "${signing_home}" "${trusted_keyring}" "${repository_root}"
 chmod 700 "${signing_home}" "${trusted_keyring}"
+gpg_session_prepare "${signing_home}"
+gpg_session_prepare "${trusted_keyring}"
 
 initial_repository_package="${repository_root}/$(basename "${initial_package}")"
 upgrade_repository_package="${repository_root}/$(basename "${upgrade_package}")"
@@ -99,11 +102,11 @@ GNUPGHOME="${signing_home}" repo-add \
 test -f "${repository_database}.sig"
 test -f "${repository_root}/${repository_name}.files.tar.gz.sig"
 
-fakeroot pacman-key --gpgdir "${trusted_keyring}" --init >/dev/null
-fakeroot pacman-key --gpgdir "${trusted_keyring}" --add "${public_key}"
-fakeroot pacman-key --gpgdir "${trusted_keyring}" --lsign-key "${fingerprint}"
-fakeroot pacman-key --gpgdir "${trusted_keyring}" --verify \
-  "${repository_database}.sig" >/dev/null
+gpg --homedir "${trusted_keyring}" --batch --import "${public_key}" >/dev/null
+printf '%s:6:\n' "${fingerprint}" |
+  gpg --homedir "${trusted_keyring}" --batch --import-ownertrust
+gpg --homedir "${trusted_keyring}" --batch --verify \
+  "${repository_database}.sig" "${repository_database}" >/dev/null 2>&1
 
 write_pacman_config() {
   local output="$1"
@@ -174,7 +177,9 @@ assert_signed_repository_version() {
   info="$(fakeroot pacman "${pacman_args[@]}" -Si fcitx-vinpst)"
   grep -qx "Repository      : ${repository_name}" <<<"${info}"
   grep -qx "Version         : ${expected_version}" <<<"${info}"
-  grep -qx "Provides        : fcitx5-vinpst=${package_base_version}" <<<"${info}"
+  grep -qx 'Provides        : None' <<<"${info}"
+  grep -qx 'Conflicts With  : None' <<<"${info}"
+  grep -qx 'Replaces        : None' <<<"${info}"
   grep -qx 'Validated By    : SHA-256 Sum  Signature' <<<"${info}"
 }
 
@@ -196,8 +201,8 @@ test -f "${cache_path}/$(basename "${initial_package}")"
 GNUPGHOME="${signing_home}" repo-add \
   --include-sigs --verify --sign --key "${fingerprint}" \
   "${repository_database}" "${upgrade_repository_package}"
-fakeroot pacman-key --gpgdir "${trusted_keyring}" --verify \
-  "${repository_database}.sig" >/dev/null
+gpg --homedir "${trusted_keyring}" --batch --verify \
+  "${repository_database}.sig" "${repository_database}" >/dev/null 2>&1
 fakeroot pacman "${pacman_args[@]}" -Syy
 assert_signed_repository_version "${upgrade_version}"
 fakeroot pacman "${pacman_args[@]}" -Sdd --noscriptlet fcitx-vinpst
@@ -207,10 +212,10 @@ fakeroot pacman "${pacman_args[@]}" -Rdd --noscriptlet fcitx-vinpst
 ! fakeroot pacman "${pacman_args[@]}" -Q fcitx-vinpst >/dev/null 2>&1
 assert_user_config_unchanged
 
-untrusted_keyring="${stage_root}/untrusted-keyring"
 mkdir -p "${untrusted_keyring}"
 chmod 700 "${untrusted_keyring}"
-fakeroot pacman-key --gpgdir "${untrusted_keyring}" --init >/dev/null
+gpg_session_prepare "${untrusted_keyring}"
+gpg --homedir "${untrusted_keyring}" --batch --list-keys >/dev/null
 printf '%s\n' 'keyserver hkp://127.0.0.1:9' \
   >>"${untrusted_keyring}/gpg.conf"
 read_root_values untrusted "${untrusted_keyring}" "${repository_root}"

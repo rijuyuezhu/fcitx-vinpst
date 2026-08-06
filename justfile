@@ -28,6 +28,14 @@ ci: check
 build:
     cargo build --workspace
 
+# Build the user and developer documentation site strictly.
+docs:
+    scripts/tests/docs-build.sh
+
+# Serve the documentation site for local preview.
+docs-serve:
+    scripts/tools/docs-serve.sh
+
 # Build the retained addon without requiring installed Fcitx development packages.
 addon-build:
     scripts/tests/addon-build.sh

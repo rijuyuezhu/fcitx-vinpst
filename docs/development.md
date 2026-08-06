@@ -59,6 +59,7 @@ just test
 just lint
 just check
 just ci
+just docs
 ```
 
 `just ci` is the deterministic project gate. It includes Rust checks, D-Bus integration, retained-addon checks, staged integration, temporary-HOME user-install smokes, and lightweight Arch, Debian, Nix, RPM, source-archive, and release metadata validation. Live desktop, microphone, and full package builds are excluded by design.
@@ -69,9 +70,20 @@ just ci
 
 ```sh
 git diff --check
+just docs
 ```
 
-Documentation is reviewed as documentation. Do not add tests that assert exact README wording, architecture prose, docstrings, source declarations, recipe names, or other implementation text. Run behavior tests only when documentation changes public commands, fixtures, generated artifacts, or executable contracts.
+The MkDocs build runs in strict mode and checks navigation plus internal links. Documentation is still reviewed as documentation: do not add tests that assert exact README wording, architecture prose, docstrings, source declarations, recipe names, or other implementation text. Run behavior tests only when documentation changes public commands, fixtures, generated artifacts, or executable contracts.
+
+The upstream source/callable inventory is generated separately from a clean C++ checkout:
+
+```sh
+scripts/tools/generate-upstream-inventory.py \
+  --upstream-root /path/to/fcitx5-vinput
+scripts/tests/check-upstream-inventory.py
+```
+
+The JSON inventory detects source and callable drift. Human review groups those entries by user-visible capability in [`migration/user-capability-audit.md`](migration/user-capability-audit.md); it does not require one Rust function per C++ function.
 
 ### Rust and core behavior
 

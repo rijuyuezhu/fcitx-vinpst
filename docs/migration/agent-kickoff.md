@@ -1,42 +1,45 @@
 # Agent kickoff
 
-Reviewed: 2026-08-03
+Reviewed: 2026-08-06
 
 Use this as the compact handoff for implementation work. It points to current sources of truth; it is not another progress log.
 
 ## Mission
 
-Continue `fcitx-vinpst` from the usable CLI/daemon alpha, live-proven retained Fcitx frontend, broad deterministic release baseline, and packaged Rust management GUI baseline. Do not rebuild completed management, registry, native ASR, activation, frontend, or package transaction surfaces.
+Prepare `fcitx-vinpst` 0.1.0 by completing the exhaustive user-capability audit, closing meaningful functional gaps, finishing user-facing documentation, and integrating the selected release artifacts.
 
-The active priority is **M7: Rust management GUI**. Broaden resource-specific error taxonomy and resolve the remaining assistive-technology blocker: every blocking HTTP/D-Bus/filesystem/process action uses the named plain-thread task boundary, and complete enabled-control keyboard traversal/activation, clipboard, Fcitx5/Rime input, bilingual titles, and page shortcuts are live-proven on native Wayland and forced X11/Xwayland; the current Iced 0.14 dependency graph and upstream main branch still provide no AccessKit accessibility tree, so GTK4 remains a documented whole-view fallback rather than an in-progress switch. Open Config plus startup-notification Details/read-state are live-proven through isolated direct-argv and loopback fixtures. The Hotwords Browse path is live-proven through a private-session XDG FileChooser service, including UTF-8 URI selection, cancellation, current-folder/filter request semantics, draft-only mutation, and unchanged config evidence. Control save/reload, private config/backup permissions, relaunch, and external-conflict refusal are live-proven through a private daemon and isolated XDG roots. Extend live result-path proof to install/recovery panels and remaining resource mutation forms. Treat new packaging and unrelated desktop breadth as deferred expansion unless a regression, blocker, or explicit user request requires it.
+Vinpst is an independent product. Keep `vinpst` / `fcitx-vinpst` package, executable, addon, D-Bus, systemd, environment-variable, and XDG identities. Do not add upstream package replacement, old-name aliases, automatic migration, or pre-0.1.0 internal compatibility unless the product decision is explicitly changed.
+
+The target is practical feature parity: users should be able to complete substantially the same useful voice-input, command-editing, configuration, resource-management, and diagnostic tasks as the upstream C++ project. It is not a source-level or interface-name port.
 
 ## Repositories
 
-- Rust rewrite: `/workspace/fcitx-vinpst`
-- Legacy reference: `/workspace/fcitx5-vinput`
+- Vinpst: `/workspace/fcitx-vinpst`
+- Upstream reference: `/workspace/fcitx5-vinput`
 
 ## Required reading
 
-1. [`../../AGENTS.md`](../../AGENTS.md)
-2. [`../README.md`](../README.md)
+1. the repository `AGENTS.md`
+2. [`../development-index.md`](../development-index.md)
 3. [`../development.md`](../development.md)
 4. [`function-gap-audit.md`](function-gap-audit.md)
-5. [`e2e-capability-matrix.md`](e2e-capability-matrix.md)
-6. [`e2e-replication-plan.md`](e2e-replication-plan.md)
-7. [`live-desktop-validation.md`](live-desktop-validation.md) when touching live behavior
-8. the relevant [`../architecture/`](../architecture/) contract
-9. [`../legacy/source-annotations.md`](../legacy/source-annotations.md) only when comparing legacy behavior
+5. [`user-capability-audit.md`](user-capability-audit.md)
+6. [`e2e-capability-matrix.md`](e2e-capability-matrix.md)
+7. [`e2e-replication-plan.md`](e2e-replication-plan.md)
+8. [`live-desktop-validation.md`](live-desktop-validation.md) when touching live behavior
+9. the relevant [`../architecture/README.md`](../architecture/README.md) contract
+10. [`../legacy/README.md`](../legacy/README.md) when refreshing or reviewing upstream source/callable drift
 
 ## Current baseline
 
-- CLI, daemon, typed configuration, registry lifecycle, native/command/remote ASR, text processing, diagnostics, and retained-addon integration are broadly implemented and tested.
-- The real Fcitx path is live-proven for normal and command dictation, multiple GTK/Qt/Chromium/Electron/application surfaces, menus, localization, provider/model switching, notifications, focus handoff, owner loss, reload, a physical microphone, and bounded GTK4 soak. Exact scope and remaining live gaps belong in the audit and matrix.
-- The Rust/Iced GUI provides Control, Resources, LLM, and Hotwords pages, including typed daemon Start/Stop/Restart controls. Its interaction capability snapshot reports complete enabled-control focus/activation, clipboard, and IME behavior while explicitly retaining the unavailable accessibility tree; the repository Wayland and forced-X11 gates live-prove English/zh_CN title changes, Ctrl+1–4, Escape focus reset, navigation-button Tab plus Enter/Space, mixed-control Tab/Shift+Tab, backend-native clipboard reads, and Fcitx5/Rime commit over Wayland input-method and XIM transports with context-aware focused-window, clipboard, and Fcitx restoration; a separate isolated gate proves exact Open Config/Details direct-argv targets and read-state suppression after relaunch. It uses shared typed config/protocol/registry APIs; supports scene and LLM-provider lifecycle, configured-only scene provider selection, typed custom Local/Command/Remote ASR provider creation, configured-provider editing, and inactive config-only removal, typed custom text-adapter creation/config editing, status/start/stop controls, daemon-runtime-safe ids, and config-only removal, model and managed provider/adapter install/update, progress, cancellation, retry, guarded removal, production-adapter connectivity testing, shell-free native/Flatpak Open Config and notification Details, a bounded current-upstream startup notification feed with locale fallback and monotonic legacy read state, portal-backed hotword path selection, hotword provider/path/content lifecycle with conflict-aware atomic writes, committed-file preservation after unconfirmed activation, validated activation retry, non-activating owner recovery, and typed English/zh_CN presentation for the window shell, navigation, Control, daemon/recording lifecycle, desktop and notification actions, Hotwords, Resources/LLM page chrome and rows, adapter runtime states, secret-safe resource details, scene lifecycle/forms, custom ASR provider forms, LLM provider forms/connectivity results, text-adapter forms, model/script install/progress/cancellation/retry, published-script recovery, managed removal, adapter lifecycle, and provider-script editing plus fixed mutation outcomes while retaining stable machine ids, selectors, paths, byte/candidate counts, and raw diagnostic values; and is installed by the checked package paths.
-- Arch, Debian 12, Ubuntu 24.04, Nix, RPM-family, and Flatpak baselines are deterministic. Production publication, host-installed and multi-user lifecycle proof, broader supported-distro operations, and unrelated-machine regression remain release work.
-- Command helpers use shared process-group supervision with lifecycle-wide deadlines when configured, concurrent bounded stdout/stderr, and descendant cleanup. Long-lived adapters create their runtime directory before spawn, fingerprint PID records, preserve legacy TERM/KILL timing, and treat Linux zombie-only groups as cleaned without ignoring live descendants.
-- The implementation through `c507807` with synchronized GUI status documentation passes the complete deterministic `just ci` gate. The last pushed baseline with the complete remote Rust, Nix, Debian 12, and Ubuntu 24.04 matrix is `9d31f70`.
+- CLI, daemon, typed configuration, registry lifecycle, native/command/remote ASR, text processing, diagnostics, and the retained Fcitx addon are broadly implemented and tested.
+- Normal dictation and selected-text command replacement are live-proven across representative applications, provider paths, menus, localization, notifications, focus/owner recovery, and physical/isolated audio boundaries.
+- The Rust/Iced GUI provides Control, Resources, LLM, and Hotwords workflows with typed persistence, safe resource operations, redacted diagnostics, complete keyboard interaction, and representative Wayland/X11 desktop proof. Remaining release work includes assistive-technology policy, broader resource-specific error taxonomy, and live install/recovery result paths.
+- Arch, Debian 12, Ubuntu 24.04, Nix, RPM-family, and Flatpak baselines exist at different evidence levels. The selected public artifacts still need one-source release assembly, integrated signing/install checks, production publication policy, and unrelated-environment validation.
+- A generated upstream baseline tracks 164 production C/C++ files and 1,559 callable occurrences. Human review maps those entries to user journeys rather than requiring one Rust function per C++ function.
+- MkDocs Material is the user/developer documentation generator; rustdoc remains the Rust API reference.
 
-Do not maintain or quote a parity percentage. Use the evidence stages in the audit and matrix.
+Do not maintain or quote a parity percentage. Use `implemented`, `deterministic`, `live-proven`, `partial`, `not applicable`, and `missing`.
 
 ## Start-of-session checks
 
@@ -52,20 +55,22 @@ Run the narrowest relevant check while iterating and the complete relevant tier 
 
 - Communicate with the user in Chinese.
 - Keep code, comments, test names, documentation identifiers, and commit messages in English.
-- Preserve legacy service names, methods, signals, status strings, config semantics, and recognition JSON.
-- Keep the retained C++ frontend thin; backend logic and the standalone GUI belong in Rust.
+- Prefer user journeys and release blockers over generic cleanup.
+- Keep the retained C++ frontend thin; backend policy and the standalone GUI belong in Rust.
+- Preserve intentionally stable Vinpst contracts; do not create compatibility debt for unreleased internal interfaces.
 - Treat mock, file, session-bus, package, and temporary-HOME evidence as deterministic, not live.
 - Keep real-profile changes explicit and opt-in.
-- Prefer one milestone-enabling change over broad cleanup.
 - Add focused regression coverage for every live-facing fix.
-- Keep commits small and Conventional Commit formatted.
+- Keep commits reviewable and Conventional Commit formatted.
 
 ## Validation
 
-Documentation-only:
+Documentation and audit:
 
 ```sh
 git diff --check
+just docs
+scripts/tests/check-upstream-inventory.py
 ```
 
 Rust/core:
@@ -75,18 +80,10 @@ cargo test --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-D-Bus/frontend:
-
-```sh
-just fmt-check
-just test
-just lint
-```
-
-Full deterministic handoff:
+Complete deterministic gate:
 
 ```sh
 just ci
 ```
 
-Live checks require a real desktop and follow [`live-desktop-validation.md`](live-desktop-validation.md). Record exact failures; never mark a path complete because a deterministic smoke passed.
+Package and live gates are selected from [`../development.md`](../development.md) according to the changed subsystem and release claim.

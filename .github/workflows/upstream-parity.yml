@@ -1,0 +1,35 @@
+name: Upstream parity drift
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-parity
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out Vinpst
+        uses: actions/checkout@v5
+      - name: Check out upstream C++ project
+        uses: actions/checkout@v5
+        with:
+          repository: xifan2333/fcitx5-vinput
+          path: target/upstream/fcitx5-vinput
+      - name: Install Universal Ctags
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y universal-ctags
+      - name: Check source and callable inventory
+        run: |
+          scripts/tools/generate-upstream-inventory.py \
+            --upstream-root target/upstream/fcitx5-vinput \
+            --check

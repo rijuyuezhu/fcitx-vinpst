@@ -11,7 +11,7 @@ cargo run -q -p vinpst-cli -- config validate data/default-config.json --summary
 cargo run -q -p vinpst-cli -- asr-state --config data/default-config.json
 ```
 
-Daemon config resolution preserves the legacy user-path behavior. An explicit `--config` path has highest priority. Without it, the daemon reads `$XDG_CONFIG_HOME/fcitx-vinpst/config.json`, falling back to `$HOME/.config/fcitx-vinpst/config.json`; only a missing user file falls back to the bundled default. A discovered user file is retained as the runtime persistence path, so D-Bus scene/provider selection and config reload update the same file. `scripts/tests/daemon/run-daemon-default-config-smoke.sh` starts the daemon on a private session bus without `--config`, switches the active scene, and verifies the discovered file is atomically updated.
+Daemon config resolution uses the canonical Vinpst XDG path. An explicit `--config` path has highest priority. Without it, the daemon reads `$XDG_CONFIG_HOME/fcitx-vinpst/config.json`, falling back to `$HOME/.config/fcitx-vinpst/config.json`; only a missing user file falls back to the bundled default. A discovered user file is retained as the runtime persistence path, so D-Bus scene/provider selection and config reload update the same file. `scripts/tests/daemon/run-daemon-default-config-smoke.sh` starts the daemon on a private session bus without `--config`, switches the active scene, and verifies the discovered file is atomically updated.
 
 Integration tests consume the same committed fixture directly, so changes to config parsing or defaults must keep the CLI summary and ASR diagnostics contracts stable.
 
