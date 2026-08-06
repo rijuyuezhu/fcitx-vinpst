@@ -1,18 +1,19 @@
 # Legacy source annotations
-Generated from `../fcitx5-vinput/src` as the first tracked annotation pass. This document is intentionally file-granular: every C++ source/header under `src/` has a migration target, responsibility summary, extracted symbol hints, and a porting note.
-The notes are a starting point for TDD migration. Before porting complex behavior, refine the relevant row with exact invariants, fixtures, and acceptance tests.
+Generated from the upstream `fcitx5-vinput/src` tree as a file-level navigation map. Every production C/C++ source/header has a Rust or retained-C++ target, responsibility summary, symbol hints, and a review note. The machine-readable file and callable inventory is tracked in [`upstream-source-inventory.json`](upstream-source-inventory.json).
+
+This map supports functional-parity review. It does not require Vinpst to reuse upstream names, paths, package identities, CLI spelling, or internal architecture. Review functions in terms of the user-visible task or behavior they contribute to, then record capability status in the migration audit.
 ## Summary
-- Files covered: **162**
-- Total source lines: **27006**
+- Files covered: **164**
+- Total source lines: **28168**
 - Scope: `*.cpp`, `*.h`, `*.hpp`, `*.cc`, `*.cxx` under original `src/`
 
 | Subsystem | Files | LOC |
 |---|---:|---:|
 | CLI | 44 | 4327 |
-| Daemon backend | 34 | 8290 |
-| Fcitx5 addon frontend | 6 | 3502 |
-| Qt GUI | 23 | 3755 |
-| Shared common library | 55 | 7132 |
+| Daemon backend | 36 | 8965 |
+| Fcitx5 addon frontend | 6 | 3503 |
+| Qt GUI | 23 | 4031 |
+| Shared common library | 55 | 7342 |
 
 ## Annotation legend
 
@@ -95,6 +96,8 @@ The notes are a starting point for TDD migration. Before porting complex behavio
 | `daemon/audio/audio_capture.h` | 49 | Daemon low-level audio capture, gain/normalization, silence/chunk handling. | crates/vinpst-audio | `AudioCapture`, `spa_pod`, `pw_thread_loop`, `pw_stream`, `pw_stream_events`, `Start`, `StopAndGetBuffer`, `Stop` | Wrap PipeWire behind trait; unit-test pure audio transforms separately from integration tests. |
 | `daemon/audio/audio_utils.cpp` | 49 | Daemon low-level audio capture, gain/normalization, silence/chunk handling. | crates/vinpst-audio | `PeakNormalize`, `ApplyGain`, `ApplyGainI16` | Wrap PipeWire behind trait; unit-test pure audio transforms separately from integration tests. |
 | `daemon/audio/audio_utils.h` | 19 | Daemon low-level audio capture, gain/normalization, silence/chunk handling. | crates/vinpst-audio | `amplifies`, `ApplyGain`, `ApplyGainI16` | Wrap PipeWire behind trait; unit-test pure audio transforms separately from integration tests. |
+| `daemon/audio/output_ducker.cpp` | 109 | Output-volume ducking and exact restoration around recording sessions. | crates/vinpst-audio / crates/vinpst-daemon | `RunWpctl`, `ParseVolume`, `ReadDefaultSinkVolume`, `SetDefaultSinkVolume`, `OutputDucker::Duck`, `OutputDucker::Restore` | Preserve best-effort ducking, bounded helper execution, and restore-on-stop/error behavior with deterministic and live evidence. |
+| `daemon/audio/output_ducker.h` | 34 | Output-volume ducking lifecycle boundary. | crates/vinpst-audio / crates/vinpst-daemon | `OutputDucker`, `Duck`, `Restore` | Keep volume policy in Rust and prove restoration across normal stop and failure paths. |
 | `daemon/main.cpp` | 676 | Daemon composition root, signal handling, poll loop, adapter supervisor, service startup/shutdown. | crates/vinpst-daemon binary composition root | `AdapterSupervisor`, `Type`, `ManagedAdapter`, `Request`, `signal_handler`, `ReadAvailableText`, `WaitForProcessExit`, `TerminateProcessBounded` | Annotate in more detail before porting. |
 | `daemon/postprocess/post_processor.cpp` | 671 | Scene/LLM post-processing pipeline and prompt rendering. | crates/vinpst-postprocess | `CurlGuard`, `curl_slist`, `CurlRequestContext`, `WriteResponseCallback`, `ProgressCallback`, `TrimAsciiWhitespace`, `BuildCandidatesResponseFormat`, `BuildRequestUrl` | Annotate in more detail before porting. |
 | `daemon/postprocess/post_processor.h` | 30 | Scene/LLM post-processing pipeline and prompt rendering. | crates/vinpst-postprocess | `PostProcessor`, `Shutdown`, `Process`, `ProcessCommand` | Annotate in more detail before porting. |
@@ -113,12 +116,12 @@ The notes are a starting point for TDD migration. Before porting complex behavio
 
 | Legacy file | LOC | Role | Rust target | Symbol hints | Porting note |
 |---|---:|---|---|---|---|
-| `addon/core/vinpst.cpp` | 413 | Fcitx AddonInstance lifecycle, event watcher registration, config reload, context/preedit/session state. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `CurrentUnixTimestamp`, `ensureDaemonServiceInstalled`, `src_f`, `VinpstEngine::VinpstEngine`, `VinpstEngine::reloadConfig`, `VinpstEngine::save`, `VinpstEngine::setConfig`, `VinpstEngine::applySettings` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
-| `addon/core/vinpst.h` | 196 | Fcitx AddonInstance lifecycle, event watcher registration, config reload, context/preedit/session state. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `VinpstNotifierDBusObject`, `VinpstEngine`, `Phase`, `VinpstEngineFactory`, `AsrMenuItem`, `Session`, `selectScene`, `selectAsrItem` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
+| `addon/core/vinput.cpp` | 413 | Fcitx AddonInstance lifecycle, event watcher registration, config reload, context/preedit/session state. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `CurrentUnixTimestamp`, `ensureDaemonServiceInstalled`, `src_f`, `VinpstEngine::VinpstEngine`, `VinpstEngine::reloadConfig`, `VinpstEngine::save`, `VinpstEngine::setConfig`, `VinpstEngine::applySettings` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
+| `addon/core/vinput.h` | 196 | Fcitx AddonInstance lifecycle, event watcher registration, config reload, context/preedit/session state. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `VinpstNotifierDBusObject`, `VinpstEngine`, `Phase`, `VinpstEngineFactory`, `AsrMenuItem`, `Session`, `selectScene`, `selectAsrItem` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
 | `addon/dbus/notifier_dbus_object.h` | 32 | Frontend-side D-Bus signal/method glue, daemon status sync, notification bridge. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `VinpstNotifierDBusObject`, `Notify`, `FCITX_OBJECT_VTABLE_METHOD` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
-| `addon/dbus/vinpst_dbus.cpp` | 1038 | Frontend-side D-Bus signal/method glue, daemon status sync, notification bridge. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `StartingPreeditText`, `_`, `RecordingPreeditText`, `CommandingPreeditText`, `InferringPreeditText`, `PostprocessingPreeditText`, `DaemonUnavailablePreeditText`, `DaemonNotRespondingPreeditText` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
-| `addon/input/vinpst_keyevent.cpp` | 484 | Fcitx key event state machine for hold/tap/both trigger and command mode. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `NoSelectionPreeditText`, `_`, `CommandDisabledPreeditText`, `CommandNoProviderPreeditText`, `DaemonUnavailablePreeditText`, `DaemonNotRespondingPreeditText`, `VinpstEngine::handleKeyEvent`, `irrelevant` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
-| `addon/menu/vinpst_menu.cpp` | 1339 | Fcitx candidate/menu construction for ASR provider, scene, and result selection. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `SceneCandidateWord`, `AsrCandidateWord`, `ResultCandidateWord`, `SceneOption`, `SceneMenuTitle`, `_`, `AsrMenuTitle`, `CurrentItemText` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
+| `addon/dbus/vinput_dbus.cpp` | 1038 | Frontend-side D-Bus signal/method glue, daemon status sync, notification bridge. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `StartingPreeditText`, `_`, `RecordingPreeditText`, `CommandingPreeditText`, `InferringPreeditText`, `PostprocessingPreeditText`, `DaemonUnavailablePreeditText`, `DaemonNotRespondingPreeditText` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
+| `addon/input/vinput_keyevent.cpp` | 484 | Fcitx key event state machine for hold/tap/both trigger and command mode. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `NoSelectionPreeditText`, `_`, `CommandDisabledPreeditText`, `CommandNoProviderPreeditText`, `DaemonUnavailablePreeditText`, `DaemonNotRespondingPreeditText`, `VinpstEngine::handleKeyEvent`, `irrelevant` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
+| `addon/menu/vinput_menu.cpp` | 1339 | Fcitx candidate/menu construction for ASR provider, scene, and result selection. | cpp/fcitx5-addon thin bridge + vinpst-protocol | `SceneCandidateWord`, `AsrCandidateWord`, `ResultCandidateWord`, `SceneOption`, `SceneMenuTitle`, `_`, `AsrMenuTitle`, `CurrentItemText` | Keep C++ first; shrink to frontend-only bridge after Rust daemon DBus ABI is stable. |
 
 ## Qt GUI
 
@@ -168,8 +171,8 @@ The notes are a starting point for TDD migration. Before porting complex behavio
 | `common/config/core_config_store.cpp` | 194 | Config schema, normalization, routing, persistence, defaults, and scene config behavior. | crates/vinpst-config | `ConfigCache`, `GetConfigStat`, `MaterializeBuiltinSceneLabels`, `LoadCoreConfigFromFile`, `file`, `GetCoreConfigPath`, `LoadCoreConfig`, `lock` | Port with golden JSON tests before changing any defaults or normalization behavior. |
 | `common/config/core_config_types.h` | 97 | Config schema, normalization, routing, persistence, defaults, and scene config behavior. | crates/vinpst-config | `LlmProvider`, `LlmAdapter`, `AsrProviderBase`, `LocalAsrProvider`, `CommandAsrProvider`, `CoreConfig`, `Registry`, `Global` | Port with golden JSON tests before changing any defaults or normalization behavior. |
 | `common/config/core_config_validate.cpp` | 104 | Config schema, normalization, routing, persistence, defaults, and scene config behavior. | crates/vinpst-config | `SetError`, `CheckUniqueId`, `ValidateCoreConfig` | Port with golden JSON tests before changing any defaults or normalization behavior. |
-| `common/config/vinpst_config.cpp` | 144 | Config schema, normalization, routing, persistence, defaults, and scene config behavior. | crates/vinpst-config | `TriggerKeyListConstrain`, `SceneMenuKeyListConstrain`, `UserPkgConfigPath`, `TriggerKeyLabel`, `_`, `TriggerKeyTooltip`, `CommandKeysLabel`, `CommandKeysTooltip` | Port with golden JSON tests before changing any defaults or normalization behavior. |
-| `common/config/vinpst_config.h` | 83 | Config schema, normalization, routing, persistence, defaults, and scene config behavior. | crates/vinpst-config | `VinpstConfig`, `VinpstSettings`, `settings`, `LoadVinpstSettings`, `SaveVinpstSettings`, `BuildVinpstConfig` | Port with golden JSON tests before changing any defaults or normalization behavior. |
+| `common/config/vinput_config.cpp` | 144 | Config schema, normalization, routing, persistence, defaults, and scene config behavior. | crates/vinpst-config | `TriggerKeyListConstrain`, `SceneMenuKeyListConstrain`, `UserPkgConfigPath`, `TriggerKeyLabel`, `_`, `TriggerKeyTooltip`, `CommandKeysLabel`, `CommandKeysTooltip` | Port with golden JSON tests before changing any defaults or normalization behavior. |
+| `common/config/vinput_config.h` | 83 | Config schema, normalization, routing, persistence, defaults, and scene config behavior. | crates/vinpst-config | `VinputConfig`, `VinputSettings`, `settings`, `LoadVinpstSettings`, `SaveVinpstSettings`, `BuildVinpstConfig` | Port with golden JSON tests before changing any defaults or normalization behavior. |
 | `common/dbus/asr_backend_state_utils.h` | 54 | Stable D-Bus ABI constants and state serialization helpers. | crates/vinpst-protocol | `RequestedAsrBackendStatus`, `MatchesRequestedAsrBackend`, `ClassifyRequestedAsrBackend` | Treat as ABI contract; every constant/string needs tests against legacy values. |
 | `common/dbus/dbus_interface.h` | 83 | Stable D-Bus ABI constants and state serialization helpers. | crates/vinpst-protocol | `Status`, `AsrBackendState`, `StringToStatus` | Treat as ABI contract; every constant/string needs tests against legacy values. |
 | `common/dbus/error_info.cpp` | 374 | Stable D-Bus ABI constants and state serialization helpers. | crates/vinpst-protocol | `TrimAsciiWhitespace`, `std::string`, `ConsumePrefix`, `ParseQuotedValue`, `AdoptNested`, `ClassifyKnownDetail`, `original`, `ClassifyErrorText` | Treat as ABI contract; every constant/string needs tests against legacy values. |

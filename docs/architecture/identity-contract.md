@@ -1,6 +1,6 @@
 # Project identity contract
 
-`fcitx-vinpst` is the only supported project identity. The repository does not provide rename compatibility because no released user installation predates this identity.
+`fcitx-vinpst` is the only supported project identity. This is an explicit product boundary: Vinpst does not reuse or migrate upstream identities, and unreleased pre-0.1.0 internal names do not receive compatibility aliases.
 
 ## Canonical names
 
@@ -16,7 +16,7 @@
 
 ## No compatibility aliases
 
-The project must not install old executable symlinks, old D-Bus activation files, old systemd unit aliases, package `Provides`/`Replaces` entries for earlier names, environment-variable fallbacks, or automatic old-path migration. Runtime code reads and writes only the canonical identity.
+The project must not install old executable symlinks, old D-Bus activation files, old systemd unit aliases, package `Provides`/`Conflicts`/`Replaces`/`Obsoletes` entries for other identities, environment-variable fallbacks, or automatic old-path migration. Runtime code reads and writes only the canonical identity.
 
 Historical upstream names may appear only in migration/source-analysis documentation or in URLs for genuinely external resources that have not been renamed. They must not be exposed as supported runtime identities.
 

@@ -29,8 +29,9 @@ The package builds the PipeWire and sherpa-onnx features, installs the retained
 Fcitx addon plus D-Bus/systemd activation files, and bundles the exact sherpa
 1.13.3/ONNX Runtime 1.24.4 shared libraries under `/usr/lib/fcitx-vinpst`.
 Private rpaths prevent those pinned libraries from replacing unrelated system
-copies. `fcitx-vinpst` conflicts with and provides `fcitx5-vinpst` because
-both projects own the same addon, bus name, and user service.
+copies. The package uses only Vinpst identities and deliberately declares no
+replacement, conflict, or compatibility relationship with another voice-input
+package.
 
 Run `just package-smoke` to render a local-source PKGBUILD, execute
 `makepkg`, inspect the package archive, run both extracted Rust binaries, create
