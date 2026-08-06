@@ -352,7 +352,20 @@ The runner requires a live niri/Wayland session, writable `/dev/uinput`, and `wl
 
 Hardware-uinput Ctrl+2 and Tab traversal reach the Resources filter and model selector; clipboard readback distinguishes editable fields from ignored button shortcuts before entering the fixture short id. Enter activates the real install action. The gate then requires one catalog request and one archive request, checksum-backed publication under the temporary managed-model root, regular `tokens.txt`, `model.onnx`, and generated `vinpst-model.json`, plus the expected registry id, backend, and family. A fresh focus traversal reaches the newly reconciled installed-model row and activates its inactive managed Remove action; success is accepted only when that exact managed directory disappears while the original config SHA-256 remains unchanged.
 
-Evidence under `target/tmp/gui-resource-install-live/summary.json` records only model ids, archive digest/size, structural result booleans, request counts, and isolation/restoration results. The fixture never contacts a production registry, the GUI never requests a daemon reload for this config-independent operation, and cleanup restores the previous niri window and standard text clipboard while leaving zero GUI, HTTP fixture, daemon fixture, and private-bus processes. This proves one representative model install/result-row/removal journey. It does not prove provider/adapter publication recovery, hosted registries, or production model archives.
+Evidence under `target/tmp/gui-resource-install-live/summary.json` records only model ids, archive digest/size, structural result booleans, request counts, and isolation/restoration results. The fixture never contacts a production registry, the GUI never requests a daemon reload for this config-independent operation, and cleanup restores the previous niri window and standard text clipboard while leaving zero GUI, HTTP fixture, daemon fixture, and private-bus processes. This proves one representative model install/result-row/removal journey. It does not prove script publication recovery, hosted registries, or production model archives.
+
+Run the published command-provider recovery gate:
+
+```sh
+cargo build -p vinpst-gui
+scripts/live/niri/run-gui-script-recovery-live.sh
+```
+
+The runner uses the same live niri/Wayland, writable `/dev/uinput`, clipboard, private-session daemon, and temporary XDG isolation as the model gate. A loopback-only `registry/providers.json` exposes one deterministic command ASR provider and one small Python script. After the real GUI loads a valid isolated config, the runner makes only that config directory read-only. Hardware-uinput traversal enters the provider short id and activates installation. The gate requires the executable managed script to be published with the exact fixture digest while adjacent backup/config publication fails, leaving the original config bytes unchanged, creating no backup, and sending no daemon reload.
+
+After restoring directory permissions, the runner reaches the rendered Retry Configuration Update action through the real RecoveryRequired focus order. Success requires the typed command provider entry to reference the existing managed script, the published script digest to remain unchanged, a mode-0600 config and exact original-byte mode-0600 backup, and exactly one `ReloadAsrBackend`. The retained request log must still contain exactly one catalog request and one script request, proving recovery performs only the config commit and does not resolve or download the resource again.
+
+Evidence under `target/tmp/gui-script-recovery-live/summary.json` retains only provider ids, asset digest/size, structural recovery booleans, request counts, and isolation/restoration results. It retains no environment values, config paths, script paths, or script body. Cleanup restores the previous niri window and standard text clipboard and leaves zero GUI, HTTP fixture, daemon fixture, and private-bus processes. This proves command ASR provider publication followed by config-only recovery on the current niri host. It does not prove text-adapter recovery, required-environment confirmation, managed script update/replacement, hosted registries, or another compositor.
 
 ## 8. Frontend behavior
 
