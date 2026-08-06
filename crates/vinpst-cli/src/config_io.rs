@@ -1,7 +1,11 @@
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 use anyhow::Context;
 use vinpst_config::{
@@ -43,6 +47,40 @@ pub(crate) fn write_file_atomically(path: &Path, contents: &str) -> anyhow::Resu
     })
 }
 
+pub(crate) fn write_private_file_atomically(path: &Path, contents: &str) -> anyhow::Result<()> {
+    let temp_path = atomic_temp_path(path);
+    let result = (|| {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut temporary = options.open(&temp_path).with_context(|| {
+            format!("create private temporary config `{}`", temp_path.display())
+        })?;
+        temporary
+            .write_all(contents.as_bytes())
+            .with_context(|| format!("write private temporary config `{}`", temp_path.display()))?;
+        temporary.sync_all().with_context(|| {
+            format!(
+                "synchronize private temporary config `{}`",
+                temp_path.display()
+            )
+        })?;
+        drop(temporary);
+        fs::rename(&temp_path, path).with_context(|| {
+            format!(
+                "rename private temporary config `{}` to `{}`",
+                temp_path.display(),
+                path.display()
+            )
+        })
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
+}
+
 pub(crate) fn atomic_temp_path(path: &Path) -> PathBuf {
     let mut temp = path.as_os_str().to_os_string();
     temp.push(format!(".tmp-{}", std::process::id()));
@@ -65,7 +103,7 @@ pub(crate) fn write_config_json_value(
             .with_context(|| format!("create config output directory `{}`", parent.display()))?;
     }
     let contents = serde_json::to_string_pretty(document).context("serialize updated config")?;
-    write_file_atomically(output_path, &format!("{contents}\n"))
+    write_private_file_atomically(output_path, &format!("{contents}\n"))
         .with_context(|| format!("write updated config `{}`", output_path.display()))
 }
 
@@ -164,7 +202,10 @@ pub(crate) fn write_config_set_document(
             backup_path,
         } => {
             if let Some(backup_path) = backup_path {
-                fs::copy(config_path, backup_path).with_context(|| {
+                let current = fs::read_to_string(config_path).with_context(|| {
+                    format!("read config `{}` for backup", config_path.display())
+                })?;
+                write_private_file_atomically(backup_path, &current).with_context(|| {
                     format!(
                         "backup config `{}` to `{}`",
                         config_path.display(),

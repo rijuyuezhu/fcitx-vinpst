@@ -3,7 +3,7 @@ use crate::{
     SherpaOnnxVadProbe, VinpstConfig, audio_devices_json, config_example_contents,
     config_summary_json, daemon_owner_probe_plan_json, dbus, default_cache_root,
     default_config_path, default_model_root, fs, load_config_file, quote_exec_arg, sandbox,
-    user_activation_service_path, user_data_home, user_home, write_file_atomically,
+    user_activation_service_path, user_data_home, user_home, write_private_file_atomically,
 };
 
 pub(crate) fn print_protocol() -> anyhow::Result<()> {
@@ -105,7 +105,7 @@ fn run_init(request: &InitRequest<'_>) -> anyhow::Result<InitOutcome> {
                     .with_context(|| format!("create config directory `{}`", parent.display()))?;
             }
             let contents = config_example_contents(ConfigExample::Default);
-            write_file_atomically(&config_path, contents)
+            write_private_file_atomically(&config_path, contents)
                 .with_context(|| format!("write default config `{}`", config_path.display()))?;
             wrote_config = true;
         }
