@@ -19,13 +19,14 @@ done
 cd "${repo_root}"
 
 output="$1"
-version="${2:-}"
-if [[ -z "${version}" ]]; then
-  version="$(cargo metadata --no-deps --format-version 1 \
-    | jq -r '.packages[] | select(.name == "vinpst-cli") | .version')"
-fi
+workspace_version="$(scripts/release/check-release-metadata.sh --print-version)"
+version="${2:-${workspace_version}}"
 if [[ ! "${version}" =~ ^[0-9][0-9A-Za-z.+~-]*$ ]]; then
   echo "invalid source archive version: ${version@Q}" >&2
+  exit 2
+fi
+if [[ "${version}" != "${workspace_version}" ]]; then
+  echo "source archive version ${version} does not match workspace ${workspace_version}" >&2
   exit 2
 fi
 

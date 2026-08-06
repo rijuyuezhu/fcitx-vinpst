@@ -28,6 +28,12 @@ grep -Eq '^fcitx-vinpst-0.1.0/(\./)?Cargo.toml$' "${check_root}/listing"
 grep -Eq '^fcitx-vinpst-0.1.0/(\./)?Cargo.lock$' "${check_root}/listing"
 grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/create-source-archive.sh$' \
   "${check_root}/listing"
+grep -Eq '^fcitx-vinpst-0.1.0/(\./)?RELEASE_NOTES.md$' \
+  "${check_root}/listing"
+grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/check-release-metadata.sh$' \
+  "${check_root}/listing"
+grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/publish-github-release.sh$' \
+  "${check_root}/listing"
 if grep -Eq '(^|/)(\.git|target|dist|__pycache__|\.ruff_cache|\.cache)(/|$)' \
   "${check_root}/listing"; then
   echo "source archive includes excluded build or VCS state" >&2
@@ -47,6 +53,9 @@ extracted_source="$(scripts/release/extract-source-archive.py \
 test -f "${extracted_source}/Cargo.toml"
 test -f "${extracted_source}/Cargo.lock"
 test -x "${extracted_source}/scripts/release/create-source-archive.sh"
+test -f "${extracted_source}/RELEASE_NOTES.md"
+test -x "${extracted_source}/scripts/release/check-release-metadata.sh"
+test -x "${extracted_source}/scripts/release/publish-github-release.sh"
 
 source_sha256="$(sha256sum "${archive_one}" | awk '{print $1}')"
 extracted_manifest="${extracted_source}/target/tmp/source-archive-flatpak-manifest.json"
