@@ -112,6 +112,8 @@ The GUI provides Control, Resources, LLM, and Hotwords pages. It uses the same t
 vinpst-gui --check --offline
 ```
 
+The GUI is keyboard-operable, but `0.1.0` does not claim screen-reader or assistive-technology semantic-tree support. See [Accessibility](accessibility.md) for the exact keyboard contract and CLI/Fcitx fallback paths.
+
 ## Environment variables
 
 Remote provider HTTP clients use standard proxy environment variables such as `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. `SSL_CERT_FILE` may point to an additional PEM CA bundle.

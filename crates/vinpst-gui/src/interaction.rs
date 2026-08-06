@@ -35,6 +35,16 @@ pub(crate) fn capability_snapshot() -> Value {
             "available": false,
             "status": "blocked-by-toolkit",
         },
+        "assistive_technology": {
+            "screen_reader_supported": false,
+            "release_policy": "unsupported-in-0.1.0",
+            "fallbacks": {
+                "management_command": "vinpst",
+                "fcitx_configuration_command": "fcitx5-configtool",
+                "fcitx_configuration_file": "fcitx5/conf/vinpst.conf under XDG_CONFIG_HOME",
+                "fcitx_reload_command": "fcitx5-remote --check -r",
+            },
+        },
         "keyboard": {
             "tab_focus_traversal": true,
             "focus_reset": "Escape",
@@ -184,6 +194,30 @@ mod tests {
     fn capability_snapshot_reports_supported_and_blocked_boundaries() {
         let snapshot = capability_snapshot();
         assert_eq!(snapshot["accessibility_tree"]["available"], false);
+        assert_eq!(
+            snapshot["assistive_technology"]["screen_reader_supported"],
+            false
+        );
+        assert_eq!(
+            snapshot["assistive_technology"]["release_policy"],
+            "unsupported-in-0.1.0"
+        );
+        assert_eq!(
+            snapshot["assistive_technology"]["fallbacks"]["management_command"],
+            "vinpst"
+        );
+        assert_eq!(
+            snapshot["assistive_technology"]["fallbacks"]["fcitx_configuration_command"],
+            "fcitx5-configtool"
+        );
+        assert_eq!(
+            snapshot["assistive_technology"]["fallbacks"]["fcitx_configuration_file"],
+            "fcitx5/conf/vinpst.conf under XDG_CONFIG_HOME"
+        );
+        assert_eq!(
+            snapshot["assistive_technology"]["fallbacks"]["fcitx_reload_command"],
+            "fcitx5-remote --check -r"
+        );
         assert_eq!(snapshot["keyboard"]["tab_focus_traversal"], true);
         assert_eq!(snapshot["keyboard"]["focus_reset"], "Escape");
         assert_eq!(snapshot["keyboard"]["focus_scope"], "all-enabled-controls");

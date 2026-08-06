@@ -29,7 +29,7 @@ This is practical functional parity, not identity or implementation compatibilit
 | M2 Native and provider ASR | complete for the current registry families | Local offline/online models, command providers, remote providers, failure preservation, and representative real-WAV/live paths pass. |
 | M3 Real desktop input | complete for the core 0.1.0 path | Normal dictation, command replacement, menus, localization, notifications, focus/owner recovery, model/provider switching, physical microphone, and representative applications are live-proven. |
 | M4 Resource management | complete for ordinary workflows | CLI and GUI manage models, providers, adapters, scenes, LLM providers, devices, and hotwords without manual JSON editing. |
-| M5 Rust management GUI | interactive baseline complete; accessibility/result proof active | Control, Resources, LLM, and Hotwords workflows are typed, conflict-aware, redacted, keyboard-operable, and packaged; remaining release work is assistive-technology policy, broader error taxonomy, and representative install/recovery result proof. |
+| M5 Rust management GUI | interactive baseline and accessibility policy complete; result proof active | Control, Resources, LLM, and Hotwords workflows are typed, conflict-aware, redacted, keyboard-operable, and packaged. `0.1.0` explicitly supports keyboard operation but not screen-reader semantic trees, with CLI/Fcitx fallbacks; remaining release work is broader error taxonomy and representative install/recovery result proof. |
 | M6 Exhaustive user-capability audit | active | The generated 164-file/1,559-callable baseline is current, every delta is reviewed, and every meaningful upstream user task is mapped to Vinpst implementation/evidence or an explicit non-applicable rationale. |
 | M7 User documentation | active | Strict MkDocs site covers installation, quick start, usage, ASR, scenes, settings, CLI, troubleshooting, and limitations using only Vinpst identities and verified commands. |
 | M8 Release readiness | active | Selected artifacts build from one checked source archive, install/runtime smokes run on produced artifacts, manifest/checksum/signing policy is wired, required CI is enforced, and an unrelated environment passes the release candidate. |
@@ -47,7 +47,7 @@ This is practical functional parity, not identity or implementation compatibilit
 
 ### P1: close release-relevant functional gaps
 
-- Resolve the GUI assistive-technology accessibility decision for 0.1.0.
+- Keep the explicit GUI accessibility contract green: keyboard support is live-proven, screen-reader semantic trees are unsupported for `0.1.0`, and CLI/Fcitx fallbacks remain documented and machine-reported.
 - Add representative live result proof for remaining GUI install/recovery and resource mutations.
 - Continue broadening application/device behavior only where the audit finds a practical user gap or a release blocker.
 - Keep normal dictation, command replacement, provider failure preservation, owner recovery, menus, localization, and current package transactions green.

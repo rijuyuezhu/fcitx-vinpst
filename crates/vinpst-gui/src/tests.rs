@@ -20,6 +20,18 @@ fn bundled_snapshot_is_redacted_and_has_legacy_pages() {
         snapshot["interaction"]["accessibility_tree"]["available"],
         false
     );
+    assert_eq!(
+        snapshot["interaction"]["assistive_technology"]["release_policy"],
+        "unsupported-in-0.1.0"
+    );
+    assert_eq!(
+        snapshot["interaction"]["assistive_technology"]["fallbacks"]["management_command"],
+        "vinpst"
+    );
+    assert_eq!(
+        snapshot["interaction"]["assistive_technology"]["fallbacks"]["fcitx_reload_command"],
+        "fcitx5-remote --check -r"
+    );
     assert!(!snapshot.to_string().contains("api_key"));
 }
 
