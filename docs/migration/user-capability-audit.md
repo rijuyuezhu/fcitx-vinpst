@@ -63,7 +63,7 @@ Every file is present in [`../legacy/source-annotations.md`](../legacy/source-an
 | Configure and test LLM providers | LLM config and Qt LLM page | OpenAI-compatible provider add/edit/test/remove with secure inputs and redacted diagnostics | implemented; deterministic; loopback command replacement live-proven | Real hosted-provider operations and credential lifecycle evidence. |
 | Install and manage text adapters | adapter registry, process manager, Qt LLM page | registry install/update/remove, custom adapters, process start/stop/status, guarded script editing | implemented; deterministic | Broader resource-specific error messages in the GUI. |
 | Install, update, select, and remove models/providers/adapters | registry fetch/cache/download/extraction and Qt resource page | shared Rust registry with mirror fallback, checksum validation, safe extraction, staging, atomic publication, localized metadata, managed-root guards | implemented; deterministic | Remaining GUI install/recovery result paths need representative live proof. |
-| Manage settings without editing JSON | Qt pages and Fcitx config | Rust GUI Control/Resources/LLM/Hotwords pages plus focused CLI commands and editor flows | implemented; deterministic; representative GUI desktop interaction live-proven | Assistive-technology semantic tree is a meaningful accessibility gap; broader error taxonomy remains. |
+| Manage settings without editing JSON | Qt pages and Fcitx config | Rust GUI Control/Resources/LLM/Hotwords pages plus focused CLI commands and editor flows | implemented; deterministic; representative GUI desktop interaction live-proven | `0.1.0` explicitly supports keyboard operation but not a screen-reader semantic tree. Use `vinpst` for management/diagnostics and `fcitx5-configtool` or the guarded terminal configuration-file fallback for frontend-only settings; broader error taxonomy remains. |
 | Open the management application from a desktop environment | Qt desktop entry and Fcitx external option | packaged `vinpst-gui.desktop`, desktop launcher, direct `vinpst-gui` command | implemented; deterministic package checks | The exact upstream Fcitx “open settings” option is not required because the same task has a normal desktop/CLI entry. |
 | Use the remote text browser/WebSocket interface | remote text daemon and web assets | Axum HTTP/WebSocket runtime, browser UI, authentication, debounce, provider selection, daemon ownership | implemented; deterministic; same-host Chromium path live-proven | Successful proof from a separately confirmed physical device remains an evidence gap. |
 | Use English or Simplified Chinese interfaces | common/addon/GUI i18n | English fallback and zh_CN Fcitx plus Rust GUI presentation | implemented; deterministic; desktop localization live-proven | Additional locales are optional expansion beyond the current parity target. |
@@ -85,10 +85,9 @@ A callable is not considered “ported” merely because a similarly named Rust 
 ## Current release blockers from this audit
 
 1. Complete review of every inventory delta against the journey table before the release candidate.
-2. Resolve the GUI assistive-technology accessibility decision for 0.1.0 and document any supported fallback.
-3. Add representative live proof for remaining GUI install/recovery and resource-mutation result paths.
-4. Select and wire the public release artifact matrix from one checked source archive, including manifest/checksum/signing policy and artifact-installed smokes.
-5. Run the release candidate on an unrelated user or machine and repeat normal dictation, command replacement, diagnostics, and removal.
-6. Finish the user documentation and keep its strict MkDocs build green.
+2. Add representative live proof for remaining GUI install/recovery and resource-mutation result paths.
+3. Complete production manifest/package signing policy and artifact-installed smokes for the selected release matrix.
+4. Run the release candidate on an unrelated user or machine and repeat normal dictation, command replacement, diagnostics, and removal.
+5. Keep the user documentation and strict MkDocs build green, including the explicit keyboard-supported/screen-reader-unsupported GUI policy and fallback paths.
 
 No current blocker requires changing Vinpst identities to upstream names or adding package/D-Bus/path compatibility.

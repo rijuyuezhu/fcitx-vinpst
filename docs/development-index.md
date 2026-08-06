@@ -12,6 +12,7 @@ Users should start with [`index.md`](index.md), then follow:
 - [`user/asr.md`](user/asr.md): local, command, and remote ASR providers, models, and hotwords;
 - [`user/scenes.md`](user/scenes.md): scenes, LLM providers, and text adapters;
 - [`user/settings.md`](user/settings.md): daemon and Fcitx settings;
+- [`user/accessibility.md`](user/accessibility.md): the `0.1.0` keyboard and assistive-technology support boundary plus non-GUI fallbacks;
 - [`user/cli.md`](user/cli.md): CLI command groups and safe mutation patterns;
 - [`user/troubleshooting.md`](user/troubleshooting.md): diagnosis and recovery;
 - [`user/limitations.md`](user/limitations.md): current release and evidence boundaries.

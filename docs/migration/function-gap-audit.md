@@ -24,7 +24,7 @@ Vinpst already provides the core product experience expected for a voice-input s
 - CLI diagnostics and a Rust/Iced management GUI;
 - checked Arch, Debian, RPM, Nix, Flatpak, source-archive, manifest, and signing boundaries at different publication-readiness levels.
 
-The project is no longer blocked on a missing core dictation or command-editing implementation. The active 0.1.0 work is exhaustive user-capability review, accessibility/result-path closure in the GUI, user documentation, selection of the public artifact matrix, release-workflow integration, and unrelated-environment validation.
+The project is no longer blocked on a missing core dictation or command-editing implementation. The active 0.1.0 work is exhaustive user-capability review, GUI result-path evidence, production signing/release operations, and unrelated-environment validation. The GUI accessibility policy is explicit: keyboard operation is supported, screen-reader semantic trees are not, and CLI/Fcitx fallbacks are documented.
 
 Vinpst is not an in-place replacement for the upstream package. Its package, executable, addon, D-Bus, service, environment-variable, and XDG identities remain Vinpst-only, and no upstream migration or pre-0.1.0 internal compatibility is required.
 
@@ -44,7 +44,7 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 | Fcitx localization/notifications | `live-proven` for English and zh_CN | Additional locales are optional expansion. |
 | Remote text HTTP/WebSocket | `deterministic`; same-host browser `live-proven` | A separately confirmed physical-device collector run. |
 | CLI management and diagnostics | `deterministic` | UX polish from concrete audit findings. |
-| Rust management GUI | packaged interactive baseline; desktop keyboard/IME paths `live-proven` | Assistive-technology semantic tree/policy, broader error taxonomy, and remaining live result paths. |
+| Rust management GUI | packaged interactive baseline; desktop keyboard/IME paths `live-proven`; `0.1.0` accessibility policy explicit | Post-`0.1.0` semantic-tree implementation, broader error taxonomy, and remaining live result paths. |
 | Arch package/repository/signature/candidate | `deterministic`; explicit package smoke; tag job consumes the byte-identical source-job archive | Production package/repository signing and unrelated-environment validation. |
 | Debian 12 / Ubuntu 24.04 | Docker install/upgrade/remove transactions complete; tag jobs build from the one source-job archive | Production publication and unrelated-environment validation. |
 | RPM family | build and isolated transaction baseline | Fedora/openSUSE support claims require distro/repository/signing/SELinux/live-scriptlet evidence. |
@@ -56,9 +56,9 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 ## Highest-risk gaps
 
 1. **Audit completeness:** the generated inventory detects source/callable drift, but every current and future delta still needs a human user-capability classification.
-2. **GUI accessibility:** keyboard operation is proven, but a real assistive-technology semantic tree is not yet established. This needs an explicit 0.1.0 support decision rather than an implicit claim.
+2. **GUI accessibility policy:** the `0.1.0` decision is now explicit and machine-reported: keyboard operation is supported and live-proven, while screen-reader/semantic-tree operation is unsupported. The supported fallbacks are the `vinpst` CLI for management/diagnostics plus `fcitx5-configtool` or guarded terminal editing of the XDG Fcitx addon file for frontend-only settings; semantic-tree implementation remains post-`0.1.0` work.
 3. **GUI result-path breadth:** common configuration and interaction paths are proven; remaining install/recovery/resource mutation outcomes need representative real-session evidence.
-4. **Release assembly:** the current Arch, Debian, and Flatpak publication matrix builds from one exact source-job archive, and tag publication now waits for the reusable docs/Rust/Nix CI workflow. Production package/manifest signing, merge required-check configuration, and unrelated-environment validation remain.
+4. **Release assembly:** the current Arch, Debian, and Flatpak publication matrix builds from one exact source-job archive, and tag publication now waits for the reusable docs/Rust/Nix CI workflow. Production package/manifest signing and unrelated-environment validation remain; strict merge required checks are already configured.
 5. **Operational external evidence:** hosted providers, an unrelated machine/user, production signing/key custody, and some long-duration/device/application breadth remain.
 
 These are release and evidence risks. They do not justify changing Vinpst identities to upstream names.

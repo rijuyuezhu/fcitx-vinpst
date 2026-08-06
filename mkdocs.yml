@@ -17,6 +17,7 @@ nav:
       - ASR models and providers: user/asr.md
       - Scenes and text processing: user/scenes.md
       - Settings: user/settings.md
+      - Accessibility: user/accessibility.md
       - CLI overview: user/cli.md
       - Troubleshooting: user/troubleshooting.md
       - Known limitations: user/limitations.md
