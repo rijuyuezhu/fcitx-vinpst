@@ -17,3 +17,6 @@
 
 # C++ tooling
 /compile_commands.json
+
+# Generated documentation site
+/site/
