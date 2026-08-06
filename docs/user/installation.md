@@ -19,7 +19,7 @@ Vinpst does not replace or migrate another voice-input package. Do not rename it
 
 ## Release packages
 
-The repository currently validates Debian 12, Ubuntu 24.04, Flatpak, Arch, RPM, and Nix packaging paths at different evidence levels. The final `0.1.0` publication matrix will be listed here after release CI is complete.
+The current `0.1.0` release workflow selects an Arch Linux x86_64 package, Debian 12 and Ubuntu 24.04 amd64 packages, and an x86_64 Flatpak extension bundle. These artifacts are still pre-release: the repository is validating the complete workflow before publishing them. RPM and Nix remain validated build paths rather than selected public artifacts.
 
 When release artifacts are published:
 

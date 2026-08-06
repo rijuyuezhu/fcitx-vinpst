@@ -42,10 +42,8 @@ package_version() {
 
 initial_version="$(package_version "${initial_package}")"
 upgrade_version="$(package_version "${upgrade_package}")"
-package_base_version="${initial_version%-*}"
 test -n "${initial_version}"
 test -n "${upgrade_version}"
-test -n "${package_base_version}"
 test "${initial_version}" != "${upgrade_version}"
 
 stage_root="${repo_root}/target/tmp/arch-signing-smoke"
@@ -174,7 +172,9 @@ assert_signed_repository_version() {
   info="$(fakeroot pacman "${pacman_args[@]}" -Si fcitx-vinpst)"
   grep -qx "Repository      : ${repository_name}" <<<"${info}"
   grep -qx "Version         : ${expected_version}" <<<"${info}"
-  grep -qx "Provides        : fcitx5-vinpst=${package_base_version}" <<<"${info}"
+  grep -qx 'Provides        : None' <<<"${info}"
+  grep -qx 'Conflicts With  : None' <<<"${info}"
+  grep -qx 'Replaces        : None' <<<"${info}"
   grep -qx 'Validated By    : SHA-256 Sum  Signature' <<<"${info}"
 }
 

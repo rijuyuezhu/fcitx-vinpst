@@ -29,16 +29,18 @@ scripts/release/run-nix-package-smoke.sh
 scripts/release/run-rpm-package-smoke.sh
 ```
 
-The tag workflow creates one deterministic source archive. Debian and Flatpak
-jobs download that artifact, materialize it through
+The tag workflow creates one deterministic source archive. Arch, Debian, and
+Flatpak jobs download that artifact, materialize it through
 `extract-source-archive.py`, and run package construction from the extracted
-tree rather than the Actions checkout. Flatpak additionally copies the exact
-archive bytes into its local build inputs and records/rechecks their SHA-256
-before publication selection.
+tree rather than the Actions checkout. Arch and Flatpak record/recheck the
+consumed archive SHA-256 before publication selection; Flatpak additionally
+copies the exact archive bytes into its local build inputs.
 
-The Arch path builds the checked runtime bundle, package, and synthetic upgrade
-archive, then runs isolated pacman transaction/repository/signing tests and
-promotes a verified release candidate. The Debian Docker matrix builds release
+The Arch path builds the checked runtime bundle, formal package, and synthetic
+upgrade archive, then runs isolated pacman transaction/repository/signing tests
+and promotes a verified release candidate. The tag workflow selects only the
+formal unsigned `pkgrel=1` package; temporary signatures, keys, repository
+metadata, and `pkgrel=2` remain test evidence. The Debian Docker matrix builds release
 1 and synthetic release 2 for Debian 12 and Ubuntu 24.04, performs real `dpkg`
 install/upgrade/removal transactions, and publishes only release 1. The Nix
 path evaluates the lock file and builds the immutable closure. The Flatpak path

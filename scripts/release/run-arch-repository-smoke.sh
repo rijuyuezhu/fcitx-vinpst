@@ -103,8 +103,9 @@ assert_repository_version() {
   grep -qx 'Name            : fcitx-vinpst' <<<"${info}"
   grep -qx "Version         : ${expected_version}" <<<"${info}"
   grep -qx 'Architecture    : x86_64' <<<"${info}"
-  grep -qx 'Provides        : fcitx5-vinpst=0.1.0' <<<"${info}"
-  grep -qx 'Conflicts With  : fcitx5-vinpst' <<<"${info}"
+  grep -qx 'Provides        : None' <<<"${info}"
+  grep -qx 'Conflicts With  : None' <<<"${info}"
+  grep -qx 'Replaces        : None' <<<"${info}"
 }
 
 assert_installed_version() {

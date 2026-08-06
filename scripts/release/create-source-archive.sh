@@ -48,8 +48,8 @@ rm -f "${temporary}" "${listing}"
 trap 'rm -f "${temporary}" "${listing}"' EXIT
 
 export TZ=UTC
-if git diff --quiet --ignore-submodules HEAD -- && \
-  git diff --cached --quiet --ignore-submodules HEAD --; then
+if [[ -z "$(git status --porcelain=v1 --untracked-files=normal \
+  --ignore-submodules=dirty)" ]]; then
   git archive \
     --format=tar \
     --prefix="${source_dir}/" \

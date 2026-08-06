@@ -112,6 +112,115 @@ jobs:
           path: dist/${{ matrix.distribution }}/*.deb
           if-no-files-found: error
 
+  arch-package:
+    needs:
+      - source-archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-archive
+          path: release-inputs/source-archive
+      - id: release-source
+        name: Materialize checked release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.source-archive.outputs.version }}'
+          archive="${GITHUB_WORKSPACE}/release-inputs/source-archive/fcitx-vinpst-${version}.tar.gz"
+          source_dir="$(scripts/release/extract-source-archive.py \
+            --archive "${archive}" \
+            --version "${version}" \
+            --output-root target/release-source)"
+          source_sha256="$(sha256sum "${archive}" | awk '{print $1}')"
+          {
+            echo "archive=${archive}"
+            echo "path=${source_dir}"
+            echo "sha256=${source_sha256}"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Build and transaction-test Arch package
+        shell: bash
+        run: |
+          set -euo pipefail
+          host_uid="$(id -u)"
+          host_gid="$(id -g)"
+          source_dir='${{ steps.release-source.outputs.path }}'
+          archive='${{ steps.release-source.outputs.archive }}'
+          docker run --rm --privileged \
+            --env "VINPST_HOST_UID=${host_uid}" \
+            --env "VINPST_HOST_GID=${host_gid}" \
+            --env "VINPST_SOURCE_DIR=${source_dir}" \
+            --env "VINPST_SOURCE_ARCHIVE=${archive}" \
+            --volume "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
+            --workdir "${source_dir}" \
+            archlinux:base-devel \
+            bash -lc '
+              set -euo pipefail
+              pacman -Syu --noconfirm --needed \
+                cargo \
+                clang \
+                cmake \
+                curl \
+                dbus \
+                fcitx5 \
+                fontconfig \
+                gettext \
+                git \
+                glib2 \
+                gnupg \
+                jq \
+                libpipewire \
+                libx11 \
+                libxkbcommon \
+                ninja \
+                patchelf \
+                pkgconf \
+                python \
+                rust \
+                systemd \
+                util-linux \
+                wayland
+              useradd --create-home --uid 1000 --user-group builder
+              chown -R builder:builder "${VINPST_SOURCE_DIR}"
+              cleanup() {
+                chown -R "${VINPST_HOST_UID}:${VINPST_HOST_GID}" \
+                  "${VINPST_SOURCE_DIR}" 2>/dev/null || true
+              }
+              trap cleanup EXIT
+              runuser -u builder -- env \
+                HOME=/home/builder \
+                scripts/release/run-arch-package-smoke.sh \
+                  --source-archive "${VINPST_SOURCE_ARCHIVE}"
+            '
+      - name: Select publication package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.source-archive.outputs.version }}'
+          source_dir='${{ steps.release-source.outputs.path }}'
+          recorded_source_sha256="$(awk '{print $1}' \
+            "${source_dir}/target/tmp/arch-package-smoke/source-archive.sha256")"
+          test "${recorded_source_sha256}" = '${{ steps.release-source.outputs.sha256 }}'
+          package="$(find "${source_dir}/target/tmp/arch-package-smoke/build" \
+            -maxdepth 1 -type f \
+            -name "fcitx-vinpst-${version}-1-x86_64.pkg.tar.zst" \
+            -print -quit)"
+          test -n "${package}"
+          mkdir -p dist/arch
+          cp "${package}" dist/arch/
+          if find dist/arch -type f -name '*-2-*.pkg.tar.zst' \
+            -print -quit | grep -q .; then
+            echo "synthetic Arch upgrade package entered publication selection" >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-arch-x86_64
+          path: dist/arch/*.pkg.tar.zst
+          if-no-files-found: error
+
   flatpak-package:
     needs:
       - source-archive
@@ -178,6 +287,7 @@ jobs:
   release-bundle:
     needs:
       - source-archive
+      - arch-package
       - deb-packages
       - flatpak-package
     runs-on: ubuntu-latest
@@ -193,6 +303,8 @@ jobs:
           version='${{ needs.source-archive.outputs.version }}'
           source_archive="$(find release-inputs/source-archive -type f \
             -name "fcitx-vinpst-${version}.tar.gz" -print -quit)"
+          arch_package="$(find release-inputs/release-arch-x86_64 -type f \
+            -name "fcitx-vinpst-${version}-1-x86_64.pkg.tar.zst" -print -quit)"
           debian_package="$(find release-inputs/release-deb-debian12 -type f \
             -name 'fcitx-vinpst_*-1_debian12_amd64.deb' -print -quit)"
           ubuntu_package="$(find release-inputs/release-deb-ubuntu24.04 -type f \
@@ -201,6 +313,7 @@ jobs:
             -name "fcitx-vinpst-${version}-x86_64.flatpak" -print -quit)"
           for artifact in \
             "${source_archive}" \
+            "${arch_package}" \
             "${debian_package}" \
             "${ubuntu_package}" \
             "${flatpak_bundle}"; do
@@ -210,12 +323,18 @@ jobs:
             echo "release inputs contain a synthetic upgrade package" >&2
             exit 1
           fi
+          if find release-inputs -type f -name '*-2-*.pkg.tar.zst' \
+            -print -quit | grep -q .; then
+            echo "release inputs contain a synthetic Arch upgrade package" >&2
+            exit 1
+          fi
           scripts/release/release_manifest.py assemble \
             --package-name fcitx-vinpst \
             --version "${version}" \
-            --architecture amd64 \
+            --architecture x86_64 \
             --output-dir "dist/fcitx-vinpst-${version}-release" \
             --artifact "source-archive=${source_archive}" \
+            --artifact "arch-x86_64=${arch_package}" \
             --artifact "deb-debian12=${debian_package}" \
             --artifact "deb-ubuntu24.04=${ubuntu_package}" \
             --artifact "flatpak-x86_64=${flatpak_bundle}"
