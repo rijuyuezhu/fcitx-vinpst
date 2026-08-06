@@ -58,7 +58,7 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 1. **Audit completeness:** the generated inventory detects source/callable drift, but every current and future delta still needs a human user-capability classification.
 2. **GUI accessibility:** keyboard operation is proven, but a real assistive-technology semantic tree is not yet established. This needs an explicit 0.1.0 support decision rather than an implicit claim.
 3. **GUI result-path breadth:** common configuration and interaction paths are proven; remaining install/recovery/resource mutation outcomes need representative real-session evidence.
-4. **Release assembly:** the current Arch, Debian, and Flatpak publication matrix now builds from one exact source-job archive, but production package/manifest signing, required-check policy, and unrelated-environment validation remain.
+4. **Release assembly:** the current Arch, Debian, and Flatpak publication matrix builds from one exact source-job archive, and tag publication now waits for the reusable docs/Rust/Nix CI workflow. Production package/manifest signing, merge required-check configuration, and unrelated-environment validation remain.
 5. **Operational external evidence:** hosted providers, an unrelated machine/user, production signing/key custody, and some long-duration/device/application breadth remain.
 
 These are release and evidence risks. They do not justify changing Vinpst identities to upstream names.

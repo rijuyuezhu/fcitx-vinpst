@@ -14,6 +14,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  quality:
+    uses: ./.github/workflows/ci.yml
+    with:
+      run-deb-packages: false
+
   source-archive:
     runs-on: ubuntu-latest
     outputs:
@@ -288,6 +293,7 @@ jobs:
 
   release-bundle:
     needs:
+      - quality
       - source-archive
       - arch-package
       - deb-packages

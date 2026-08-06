@@ -29,8 +29,11 @@ scripts/release/run-nix-package-smoke.sh
 scripts/release/run-rpm-package-smoke.sh
 ```
 
-The tag workflow creates one deterministic source archive. Arch, Debian, and
-Flatpak jobs download that artifact, materialize it through
+The tag workflow first calls the same reusable CI workflow used for pull
+requests, retaining strict docs, complete Rust/FFI/integration, and locked Nix
+checks while skipping its duplicate Debian matrix. It then creates one
+deterministic source archive. Arch, Debian, and Flatpak jobs download that
+artifact, materialize it through
 `extract-source-archive.py`, and run package construction from the extracted
 tree rather than the Actions checkout. Arch and Flatpak record/recheck the
 consumed archive SHA-256 before publication selection; Flatpak additionally
