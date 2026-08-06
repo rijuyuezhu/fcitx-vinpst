@@ -1,6 +1,6 @@
 # 0.1.0 functional-parity plan
 
-Reviewed: 2026-08-06
+Reviewed: 2026-08-07
 
 This is the active execution plan. Current implementation status belongs in [`function-gap-audit.md`](function-gap-audit.md), the user-task mapping belongs in [`user-capability-audit.md`](user-capability-audit.md), detailed evidence belongs in [`e2e-capability-matrix.md`](e2e-capability-matrix.md), and real-session procedures belong in [`live-desktop-validation.md`](live-desktop-validation.md).
 
@@ -29,28 +29,27 @@ This is practical functional parity, not identity or implementation compatibilit
 | M2 Native and provider ASR | complete for the current registry families | Local offline/online models, command providers, remote providers, failure preservation, and representative real-WAV/live paths pass. |
 | M3 Real desktop input | complete for the core 0.1.0 path | Normal dictation, command replacement, menus, localization, notifications, focus/owner recovery, model/provider switching, physical microphone, and representative applications are live-proven. |
 | M4 Resource management | complete for ordinary workflows | CLI and GUI manage models, providers, adapters, scenes, LLM providers, devices, and hotwords without manual JSON editing. |
-| M5 Rust management GUI | interactive baseline and accessibility policy complete; result proof active | Control, Resources, LLM, and Hotwords workflows are typed, conflict-aware, redacted, keyboard-operable, and packaged. `0.1.0` explicitly supports keyboard operation but not screen-reader semantic trees, with CLI/Fcitx fallbacks. Checksum-verified model install/rendered-row reconciliation/inactive removal plus command ASR provider and required-environment text-adapter published-script config-only recovery are live-proven; remaining release work is broader error taxonomy, managed script update/replacement, and other mutation result proof. |
-| M6 Exhaustive user-capability audit | active | The generated 164-file/1,559-callable baseline is current, every delta is reviewed, and every meaningful upstream user task is mapped to Vinpst implementation/evidence or an explicit non-applicable rationale. |
-| M7 User documentation | active | Strict MkDocs site covers installation, quick start, usage, ASR, scenes, settings, CLI, troubleshooting, and limitations using only Vinpst identities and verified commands. |
-| M8 Release readiness | active | Selected artifacts build from one checked source archive, install/runtime smokes run on produced artifacts, manifest/checksum/signing policy is wired, required CI is enforced, and an unrelated environment passes the release candidate. |
+| M5 Rust management GUI | complete for 0.1.0 | Control, Resources, LLM, and Hotwords workflows are typed, conflict-aware, redacted, keyboard-operable, packaged, and deterministically covered. Representative desktop paths are retained. Screen-reader semantic trees are explicitly unsupported for 0.1.0 with CLI/Fcitx fallbacks; further per-mutation live collectors are post-0.1.0. |
+| M6 Exhaustive user-capability audit | complete for the frozen release baseline | The 164-file/1,559-callable upstream inventory was refreshed unchanged on 2026-08-07, and every meaningful user task is mapped to Vinpst implementation/evidence or an explicit product rationale. |
+| M7 User documentation | complete for the release candidate | Strict MkDocs covers installation, quick start, usage, ASR, scenes, settings, accessibility, CLI, troubleshooting, limitations, release readiness, notes, publication, and rollback using Vinpst identities. |
+| M8 Release readiness | active | Selected artifacts build from one checked source archive, package transactions run on clean hosted runners, manifest/checksum/provenance and draft-first publication are wired, and the final candidate still needs exact-commit rehearsal plus artifact-installed desktop verification. |
 | M9 0.1.0 publication | pending | Version/tag consistency, release notes, publication, post-publication install, normal dictation, command replacement, diagnostics, and removal all pass. |
 
 ## Current priority order
 
-### P0: exhaustive capability review
+### P0: finish the release candidate
 
-1. Keep [`../legacy/upstream-source-inventory.json`](../legacy/upstream-source-inventory.json) synchronized with a clean upstream checkout.
-2. Review every source/callable delta through [`user-capability-audit.md`](user-capability-audit.md).
-3. Treat source mechanics as `not applicable` when the user task is already provided through a different Vinpst design.
-4. Mark a real `missing` item only when a user cannot complete a meaningful upstream task through any normal Vinpst path.
-5. Add deterministic tests or live evidence for newly discovered behavior gaps.
+1. Merge release-blocking fixes and keep protected-`main` checks green.
+2. Run the non-publishing release workflow on the exact final commit.
+3. Verify the downloaded manifest, checksums, and GitHub/Sigstore provenance.
+4. Install the candidate in an unrelated clean user environment and repeat the required native desktop/removal path.
+5. Review release notes and limitations, publish `v0.1.0`, then repeat the smoke from freshly downloaded public assets.
 
-### P1: close release-relevant functional gaps
+### P1: preserve the completed product path
 
-- Keep the explicit GUI accessibility contract green: keyboard support is live-proven, screen-reader semantic trees are unsupported for `0.1.0`, and CLI/Fcitx fallbacks remain documented and machine-reported.
-- Add representative live result proof for managed script update/replacement and remaining GUI resource mutations; keep the completed private-registry model lifecycle and provider/required-environment-adapter published-script recovery modes green.
-- Continue broadening application/device behavior only where the audit finds a practical user gap or a release blocker.
-- Keep normal dictation, command replacement, provider failure preservation, owner recovery, menus, localization, and current package transactions green.
+- Keep normal dictation, command replacement, provider failure preservation, owner recovery, menus, localization, deterministic GUI management, and package transactions green.
+- Add implementation or deterministic regression work only when a concrete release-blocking defect is found.
+- Do not add more per-mutation GUI live collectors as a condition for 0.1.0.
 
 ### P2: user documentation
 
@@ -63,9 +62,9 @@ This is practical functional parity, not identity or implementation compatibilit
 
 ### P3: release pipeline
 
-- Select the public 0.1.0 artifacts and architectures.
+- Keep the selected source, Arch x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, and Flatpak x86_64 matrix frozen.
 - Keep the completed one-source boundary green: current Arch, Debian, and Flatpak tag jobs consume the exact archive generated by the source job; Arch and Flatpak recheck the consumed archive digest before publication selection.
-- Add the already-implemented Arch/RPM/release-manifest/signature boundaries to the tag workflow where selected for publication.
+- Keep strict manifest/checksum generation, GitHub/Sigstore provenance, release notes, and draft-first exact-inventory publication green.
 - Verify installation and a basic runtime path from each produced artifact.
 - Keep the completed release gate green: tag publication calls the reusable CI workflow for docs, Rust/integration, and Nix checks and also requires every selected package job; configure the same checks as required before merge.
 - Exercise release assembly without publishing before creating the tag.

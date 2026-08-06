@@ -28,7 +28,7 @@ The project combines:
 
 ## Release status
 
-Vinpst is preparing its first `0.1.0` release. The repository already contains deterministic package checks and extensive real-desktop evidence, but final public artifacts and the supported release matrix are still being completed.
+Vinpst is preparing its first `0.1.0` release. The supported artifact matrix is frozen, release packages are built from one checked source archive, and the remaining work is the final release-candidate rehearsal, artifact-installed check, tag publication, and post-publication smoke.
 
 ## Independent project identity
 

@@ -4,7 +4,7 @@ Voice input for Fcitx 5, built around a Rust daemon, CLI, and management GUI wit
 
 Vinpst supports local, command, and OpenAI-compatible remote ASR; normal dictation; selected-text command editing; scenes and LLM post-processing; model/provider/adapter registries; configurable audio and VAD behavior; and English/zh_CN frontend localization.
 
-> **Release status:** the project is preparing its first `0.1.0` release. Package and desktop behavior are already exercised extensively, but public release artifacts and their final support matrix are not published yet.
+> **Release status:** the project is preparing its first `0.1.0` release. The source, Arch x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, and Flatpak x86_64 matrix is frozen; final candidate and post-publication checks remain before public artifacts are announced.
 
 ## Get started
 
@@ -16,6 +16,7 @@ Vinpst supports local, command, and OpenAI-compatible remote ASR; normal dictati
 - [Settings](docs/user/settings.md)
 - [Troubleshooting](docs/user/troubleshooting.md)
 - [Known limitations](docs/user/limitations.md)
+- [0.1.0 release notes](RELEASE_NOTES.md)
 
 The documentation is also built as a MkDocs site. Run `just docs` for a strict local build or `just docs-serve` for a preview server.
 

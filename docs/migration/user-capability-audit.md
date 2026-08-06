@@ -1,8 +1,8 @@
 # User-capability parity audit
 
-Reviewed: 2026-08-06
+Reviewed: 2026-08-07
 
-This audit maps user-visible capabilities from the upstream C++ project to Vinpst. It is the review layer above the generated [`../legacy/upstream-source-inventory.json`](../legacy/upstream-source-inventory.json), which records 164 production files and 1,559 callable occurrences at upstream commit `6cdcac8b4300ff347ad3157bf61cd09a5302f7a9`.
+This audit maps user-visible capabilities from the upstream C++ project to Vinpst. It is the review layer above the generated [`../legacy/upstream-source-inventory.json`](../legacy/upstream-source-inventory.json), which records 164 production files and 1,559 callable occurrences at upstream commit `6cdcac8b4300ff347ad3157bf61cd09a5302f7a9`. The upstream default branch was refreshed on 2026-08-07 and still points to that exact commit, so there are no source or callable deltas to classify for the release candidate.
 
 ## Scope and non-goals
 
@@ -44,8 +44,8 @@ Every file is present in [`../legacy/source-annotations.md`](../legacy/source-an
 
 | User journey | Upstream source areas | Vinpst implementation | State and evidence | Remaining functional work |
 | --- | --- | --- | --- | --- |
-| Install the product and discover the Fcitx addon | build/package metadata, addon registration, daemon service | checked Arch, Debian, RPM, Nix, and Flatpak packaging; `vinpst`, `vinpst-daemon`, `vinpst-gui`; `fcitx5-vinpst.so`; `org.fcitx.Vinpst`; `vinpst-daemon.service` | implemented; deterministic package transactions for current checked paths | Publish the selected 0.1.0 artifact matrix and verify one unrelated machine. No upstream-package migration is planned. |
-| Initialize user configuration and managed directories | CLI init and config store | `vinpst init`, typed config defaults, XDG roots, guarded first-file creation | implemented; deterministic | Final release documentation and artifact-installed smoke. |
+| Install the product and discover the Fcitx addon | build/package metadata, addon registration, daemon service | checked Arch, Debian, RPM, Nix, and Flatpak packaging; `vinpst`, `vinpst-daemon`, `vinpst-gui`; `fcitx5-vinpst.so`; `org.fcitx.Vinpst`; `vinpst-daemon.service` | implemented; deterministic package transactions on clean GitHub-hosted runners and local package gates | Publish the selected 0.1.0 bundle and complete the final artifact-installed/post-publication checks. No upstream-package migration is planned. |
+| Initialize user configuration and managed directories | CLI init and config store | `vinpst init`, typed config defaults, XDG roots, guarded first-file creation | implemented; deterministic | Complete the final artifact-installed and post-publication verification. |
 | Start, stop, restart, inspect, and recover the daemon | daemon CLI, D-Bus service, process lifecycle | D-Bus activation, systemd user service, `vinpst daemon *`, owner diagnostics, guarded handoff, removal preflight | implemented; deterministic; owner-loss/reload paths live-proven | Actual package-installed multi-user lifecycle proof remains release evidence work. |
 | Dictate normally into applications | addon input path, recorder, native/command/remote ASR | Fcitx trigger, PipeWire capture, streaming partials, final commit | implemented; live-proven with isolated audio, physical microphone, GTK, Qt, Chromium, GNOME Text Editor, kitty, and VS Code/Electron | Broader application and physical-device breadth; no known core task is missing. |
 | Edit selected text by voice | surrounding-text access, command ASR, scenes, post-processing, candidates | Fcitx selected text plus primary-selection fallback, command scene, adapter/LLM processing, guarded delete-and-replace | implemented; live-proven for local adapter and independent loopback HTTP provider, including failure preservation and no-selection refusal | More applications and real hosted-provider operations remain evidence breadth. |
@@ -62,7 +62,7 @@ Every file is present in [`../legacy/source-annotations.md`](../legacy/source-an
 | Create, edit, select, and remove scenes | scene config and Qt scene page | CLI and Rust GUI typed scene lifecycle, provider selection, candidates, timeout, context | implemented; deterministic | None identified for the ordinary management workflow. |
 | Configure and test LLM providers | LLM config and Qt LLM page | OpenAI-compatible provider add/edit/test/remove with secure inputs and redacted diagnostics | implemented; deterministic; loopback command replacement live-proven | Real hosted-provider operations and credential lifecycle evidence. |
 | Install and manage text adapters | adapter registry, process manager, Qt LLM page | registry install/update/remove, custom adapters, process start/stop/status, guarded script editing | implemented; deterministic | Broader resource-specific error messages in the GUI. |
-| Install, update, select, and remove models/providers/adapters | registry fetch/cache/download/extraction and Qt resource page | shared Rust registry with mirror fallback, checksum validation, safe extraction, staging, atomic publication, localized metadata, managed-root guards | implemented; deterministic; model install/rendered-row/inactive managed removal live-proven through loopback registry and private daemon | Provider/adapter install-recovery and remaining mutation result paths still need representative live proof. |
+| Install, update, select, and remove models/providers/adapters | registry fetch/cache/download/extraction and Qt resource page | shared Rust registry with mirror fallback, checksum validation, safe extraction, staging, atomic publication, localized metadata, managed-root guards | implemented; deterministic; representative model/provider/adapter desktop paths retained | No ordinary workflow gap is known. Additional per-mutation GUI live collectors are post-0.1.0 evidence work, not a release gate. |
 | Manage settings without editing JSON | Qt pages and Fcitx config | Rust GUI Control/Resources/LLM/Hotwords pages plus focused CLI commands and editor flows | implemented; deterministic; representative GUI desktop interaction live-proven | `0.1.0` explicitly supports keyboard operation but not a screen-reader semantic tree. Use `vinpst` for management/diagnostics and `fcitx5-configtool` or the guarded terminal configuration-file fallback for frontend-only settings; broader error taxonomy remains. |
 | Open the management application from a desktop environment | Qt desktop entry and Fcitx external option | packaged `vinpst-gui.desktop`, desktop launcher, direct `vinpst-gui` command | implemented; deterministic package checks | The exact upstream Fcitx “open settings” option is not required because the same task has a normal desktop/CLI entry. |
 | Use the remote text browser/WebSocket interface | remote text daemon and web assets | Axum HTTP/WebSocket runtime, browser UI, authentication, debounce, provider selection, daemon ownership | implemented; deterministic; same-host Chromium path live-proven | Successful proof from a separately confirmed physical device remains an evidence gap. |
@@ -84,10 +84,13 @@ A callable is not considered “ported” merely because a similarly named Rust 
 
 ## Current release blockers from this audit
 
-1. Complete review of every inventory delta against the journey table before the release candidate.
-2. Add representative live proof for managed script update/replacement and remaining GUI resource-mutation result paths; checksum-verified model install/rendered reconciliation/inactive removal plus command ASR provider and required-environment text-adapter published-script config-only recovery are complete.
-3. Complete production manifest/package signing policy and artifact-installed smokes for the selected release matrix.
-4. Run the release candidate on an unrelated user or machine and repeat normal dictation, command replacement, diagnostics, and removal.
-5. Keep the user documentation and strict MkDocs build green, including the explicit keyboard-supported/screen-reader-unsupported GUI policy and fallback paths.
+The upstream baseline is frozen and unchanged, every user journey has an implementation mapping or explicit product rationale, and no meaningful task is marked `missing`. Additional GUI live collectors are not required for 0.1.0 because the ordinary management paths already have deterministic coverage and representative desktop evidence.
+
+The remaining release blockers are operational:
+
+1. merge the final release-blocking fixes and keep required clean-checkout CI green;
+2. run the final non-publishing release workflow, verify its manifest/checksums/provenance, and install the candidate in an unrelated clean user environment;
+3. repeat the required native desktop and removal checks from the produced artifact;
+4. review release notes and limitations, create `v0.1.0`, and repeat the post-publication smoke from freshly downloaded assets.
 
 No current blocker requires changing Vinpst identities to upstream names or adding package/D-Bus/path compatibility.

@@ -1,6 +1,6 @@
 # Agent kickoff
 
-Reviewed: 2026-08-06
+Reviewed: 2026-08-07
 
 Use this as the compact handoff for implementation work. It points to current sources of truth; it is not another progress log.
 
@@ -34,9 +34,9 @@ The target is practical feature parity: users should be able to complete substan
 
 - CLI, daemon, typed configuration, registry lifecycle, native/command/remote ASR, text processing, diagnostics, and the retained Fcitx addon are broadly implemented and tested.
 - Normal dictation and selected-text command replacement are live-proven across representative applications, provider paths, menus, localization, notifications, focus/owner recovery, and physical/isolated audio boundaries.
-- The Rust/Iced GUI provides Control, Resources, LLM, and Hotwords workflows with typed persistence, safe resource operations, redacted diagnostics, complete keyboard interaction, and representative Wayland/X11 desktop proof. The `0.1.0` policy explicitly supports keyboard operation but not screen-reader semantic trees, with `vinpst`, `fcitx5-configtool`, and guarded terminal configuration-file fallbacks; remaining release work is broader resource-specific error taxonomy and live install/recovery result paths.
-- Source, Arch x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, and Flatpak x86_64 now assemble from one checked source archive behind reusable docs/Rust/Nix quality gates. Production signing/key custody, public repository policy, artifact-installed host proof, and unrelated-environment validation remain; RPM and Nix publication stay outside the selected initial artifact bundle.
-- A generated upstream baseline tracks 164 production C/C++ files and 1,559 callable occurrences. Human review maps those entries to user journeys rather than requiring one Rust function per C++ function.
+- The Rust/Iced GUI provides Control, Resources, LLM, and Hotwords workflows with typed persistence, safe resource operations, redacted diagnostics, deterministic coverage, and representative Wayland/X11 desktop evidence. The `0.1.0` policy supports keyboard operation but not screen-reader semantic trees, with `vinpst`, `fcitx5-configtool`, and guarded terminal configuration-file fallbacks. Additional per-mutation GUI live collectors are post-0.1.0 and are not release blockers.
+- Source, Arch x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, and Flatpak x86_64 assemble from one checked source archive behind reusable docs/Rust/Nix quality gates. Release assets use manifest/checksum verification plus GitHub/Sigstore provenance, and publication is draft-first with exact remote inventory checks. The remaining work is final candidate rehearsal, artifact-installed desktop validation, tag publication, and post-publication smoke; RPM and Nix publication stay outside the selected initial bundle.
+- The upstream baseline was refreshed unchanged on 2026-08-07 at `6cdcac8b4300ff347ad3157bf61cd09a5302f7a9`: 164 production C/C++ files and 1,559 callable occurrences. Human review maps those entries to user journeys rather than requiring one Rust function per C++ function.
 - MkDocs Material is the user/developer documentation generator; rustdoc remains the Rust API reference.
 
 Do not maintain or quote a parity percentage. Use `implemented`, `deterministic`, `live-proven`, `partial`, `not applicable`, and `missing`.
