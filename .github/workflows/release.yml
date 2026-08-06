@@ -183,6 +183,7 @@ jobs:
                 util-linux \
                 wayland
               useradd --create-home --uid 1000 --user-group builder
+              install -d -m 700 -o builder -g builder /run/user/1000
               chown -R builder:builder "${VINPST_SOURCE_DIR}"
               cleanup() {
                 chown -R "${VINPST_HOST_UID}:${VINPST_HOST_GID}" \
@@ -191,6 +192,7 @@ jobs:
               trap cleanup EXIT
               runuser -u builder -- env \
                 HOME=/home/builder \
+                XDG_RUNTIME_DIR=/run/user/1000 \
                 scripts/release/run-arch-package-smoke.sh \
                   --source-archive "${VINPST_SOURCE_ARCHIVE}"
             '
