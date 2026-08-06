@@ -114,16 +114,6 @@ pub fn write_config_file(
         })?;
     }
 
-    if let Some(backup_path) = backup_path {
-        fs::copy(output_path, backup_path)
-            .and_then(|_| set_private_file_permissions(backup_path))
-            .map_err(|source| ConfigWriteError::Backup {
-                path: output_path.to_path_buf(),
-                backup_path: backup_path.to_path_buf(),
-                source,
-            })?;
-    }
-
     let mut contents = serde_json::to_string_pretty(config)?;
     contents.push('\n');
 
@@ -140,6 +130,21 @@ pub fn write_config_file(
         });
     }
     drop(temporary_file);
+
+    // Stage and synchronize the complete replacement before touching an
+    // existing backup. This keeps a prior recovery point intact when the
+    // destination directory cannot even accept the candidate transaction.
+    if let Some(backup_path) = backup_path
+        && let Err(source) = fs::copy(output_path, backup_path)
+            .and_then(|_| set_private_file_permissions(backup_path))
+    {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(ConfigWriteError::Backup {
+            path: output_path.to_path_buf(),
+            backup_path: backup_path.to_path_buf(),
+            source,
+        });
+    }
 
     if let Err(source) = fs::rename(&temporary_path, output_path) {
         let _ = fs::remove_file(&temporary_path);
@@ -280,6 +285,36 @@ mod tests {
                     .file_name()
                     .to_string_lossy()
                     .starts_with(&temporary_prefix))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn candidate_staging_failure_preserves_existing_config_and_backup() {
+        let directory = tempfile::tempdir().expect("create temp directory");
+        let path = directory.path().join("config.json");
+        let backup_path = config_backup_path(&path);
+        fs::write(&path, "current-config\n").expect("write current config");
+        fs::write(&backup_path, "previous-backup\n").expect("write previous backup");
+        let config = VinpstConfig::bundled_default().expect("bundled config");
+
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o500))
+            .expect("make directory read-only");
+        let result = write_config_file(&config, &path, Some(&backup_path));
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700))
+            .expect("restore directory permissions");
+
+        assert!(matches!(
+            result,
+            Err(ConfigWriteError::CreateTemporary { .. })
+        ));
+        assert_eq!(
+            fs::read_to_string(&path).expect("read current config"),
+            "current-config\n"
+        );
+        assert_eq!(
+            fs::read_to_string(&backup_path).expect("read previous backup"),
+            "previous-backup\n"
         );
     }
 
