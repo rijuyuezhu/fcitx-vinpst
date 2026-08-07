@@ -99,6 +99,14 @@ docker run --rm \
   bash -lc '
     set -euo pipefail
 
+    # The official Ubuntu container excludes documentation and translations to
+    # reduce image size. Re-include Vinpst release payload so `dpkg -V` verifies
+    # the complete package rather than the container image policy.
+    cat >/etc/dpkg/dpkg.cfg.d/zz-vinpst-release-smoke <<"EOF"
+path-include=/usr/share/doc/fcitx-vinpst/*
+path-include=/usr/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo
+EOF
+
     apt_options=(
       -o Acquire::Retries=3
       -o Acquire::http::Timeout=30
@@ -122,14 +130,30 @@ docker run --rm \
     for required_path in \
       /usr/bin/vinpst \
       /usr/bin/vinpst-daemon \
-      /usr/bin/vinpst-gui; do
+      /usr/bin/vinpst-gui \
+      /usr/share/doc/fcitx-vinpst/LICENSE \
+      /usr/share/doc/fcitx-vinpst/onnxruntime-LICENSE \
+      /usr/share/doc/fcitx-vinpst/sherpa-onnx-LICENSE \
+      /usr/share/doc/fcitx-vinpst/silero-vad-LICENSE \
+      /usr/share/locale/zh_CN/LC_MESSAGES/fcitx5-vinpst.mo; do
       grep -Fxq "${required_path}" <<<"${package_files}"
+      [[ -e "${required_path}" ]] || {
+        echo "installed runtime payload is missing ${required_path}" >&2
+        exit 1
+      }
     done
-    grep -Eq "/fcitx5/fcitx5-vinpst\\.so$" <<<"${package_files}"
-    grep -Eq "/share/fcitx5/addon/vinpst\\.conf$" <<<"${package_files}"
-    grep -Eq "/share/dbus-1/services/org\\.fcitx\\.Vinpst\\.service$" <<<"${package_files}"
-    grep -Eq "/(lib|share)/systemd/user/vinpst-daemon\\.service$" <<<"${package_files}"
-    grep -Eq "/share/applications/vinpst-gui\\.desktop$" <<<"${package_files}"
+    for required_pattern in \
+      "/fcitx5/fcitx5-vinpst\\.so$" \
+      "/share/fcitx5/addon/vinpst\\.conf$" \
+      "/share/dbus-1/services/org\\.fcitx\\.Vinpst\\.service$" \
+      "/(lib|share)/systemd/user/vinpst-daemon\\.service$" \
+      "/share/applications/vinpst-gui\\.desktop$"; do
+      required_path="$(grep -E "${required_pattern}" <<<"${package_files}" | head -n1)"
+      [[ -n "${required_path}" && -e "${required_path}" ]] || {
+        echo "installed runtime payload matching ${required_pattern} is missing" >&2
+        exit 1
+      }
+    done
 
     useradd --create-home --user-group candidate
     runuser -u candidate -- env \
