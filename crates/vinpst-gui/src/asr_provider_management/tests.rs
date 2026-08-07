@@ -308,7 +308,7 @@ fn dirty_provider_form_blocks_navigation_and_resource_mutations() {
     assert_eq!(app.page, crate::Page::Resources);
     assert!(app.asr_provider_editor.is_some());
 
-    let _ = app.update(Message::InstallModel);
+    let _ = app.update(Message::InstallRegistryModel("fixture-model".to_owned()));
     assert!(app.asr_provider_editor.is_some());
     assert!(matches!(app.operation, OperationState::Failed(_)));
 }

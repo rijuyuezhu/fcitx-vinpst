@@ -8,14 +8,44 @@ use std::{
 
 use vinpst_config::{AsrProviderKind, VinpstConfig};
 use vinpst_registry::{
-    InstalledModelInfo, LiveModelInstallError, LiveModelInstallRequest, LiveModelRegistry,
-    ManagedModelRemoveRequest, RegistryOperationControl, RegistryOperationProgress,
-    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
-    install_live_model_controlled, managed_model_dir_name, remove_managed_model,
-    scan_installed_models,
+    InstalledModelInfo, LiveModelFamily, LiveModelInstallError, LiveModelInstallRequest,
+    LiveModelRegistry, LiveRegistryI18n, ManagedModelRemoveRequest, RegistryOperationControl,
+    RegistryOperationProgress, RegistryTextSource, ReqwestRegistryAssetSource,
+    ReqwestRegistryTextSource, install_live_model_controlled, managed_model_dir_name,
+    remove_managed_model, scan_installed_models,
 };
 
 use crate::{GuiLocale, model_install::ModelInstallOutcome};
+
+/// One display-safe model entry loaded from the configured live registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryModelSummary {
+    pub(crate) id: String,
+    pub(crate) short_id: Option<String>,
+    pub(crate) title: String,
+    pub(crate) description: Option<String>,
+    pub(crate) model_type: Option<String>,
+    pub(crate) language: Option<String>,
+    pub(crate) size_bytes: Option<u64>,
+    pub(crate) runtime: Option<String>,
+    pub(crate) supports_hotwords: bool,
+    pub(crate) supported: bool,
+}
+
+impl RegistryModelSummary {
+    pub(crate) fn selector(&self) -> &str {
+        self.short_id.as_deref().unwrap_or(&self.id)
+    }
+}
+
+/// Asynchronous live-registry catalog state shown by the Resources page.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum ModelCatalogState {
+    #[default]
+    Loading,
+    Ready(Vec<RegistryModelSummary>),
+    Failed(String),
+}
 
 /// Returns the managed ASR model root used by CLI and GUI workflows.
 pub fn default_model_root() -> Result<PathBuf, String> {
@@ -52,6 +82,110 @@ fn user_home() -> Result<PathBuf, String> {
 pub(crate) fn load_installed_models() -> Result<Vec<InstalledModelInfo>, String> {
     let root = default_model_root()?;
     scan_installed_models(&root).map_err(|error| error.to_string())
+}
+
+pub(crate) fn load_registry_model_catalog(
+    config: &VinpstConfig,
+    locale: GuiLocale,
+) -> Result<Vec<RegistryModelSummary>, String> {
+    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    fetch_registry_model_catalog_from(config, locale, &source)
+}
+
+fn fetch_registry_model_catalog_from(
+    config: &VinpstConfig,
+    locale: GuiLocale,
+    source: &impl RegistryTextSource,
+) -> Result<Vec<RegistryModelSummary>, String> {
+    if config.registry.base_urls.is_empty() {
+        return Err("No registry mirrors are configured.".to_owned());
+    }
+    let mut failure_count = 0;
+    for base in &config.registry.base_urls {
+        let url = format!("{}/registry/models.json", base.trim_end_matches('/'));
+        let Ok(text) = source.fetch_registry_text(&url) else {
+            failure_count += 1;
+            continue;
+        };
+        let Ok(registry) = LiveModelRegistry::from_json_str(&text) else {
+            failure_count += 1;
+            continue;
+        };
+        let i18n = fetch_registry_i18n(source, base, locale);
+        return Ok(registry
+            .items
+            .iter()
+            .map(|model| RegistryModelSummary {
+                id: model.id.clone(),
+                short_id: model.short_id.clone(),
+                title: model.resolved_title(i18n.as_ref()),
+                description: model.resolved_description(i18n.as_ref()),
+                model_type: model
+                    .vinpst_model
+                    .as_ref()
+                    .and_then(|metadata| metadata.model_family().map(str::to_owned)),
+                language: model.language.clone(),
+                size_bytes: model.size_bytes,
+                runtime: model
+                    .vinpst_model
+                    .as_ref()
+                    .and_then(|metadata| metadata.runtime.clone()),
+                supports_hotwords: model.supports_hotwords(),
+                supported: model_is_supported(model),
+            })
+            .collect());
+    }
+    Err(format!(
+        "All {failure_count} configured registry mirrors failed."
+    ))
+}
+
+fn fetch_registry_i18n(
+    source: &impl RegistryTextSource,
+    base: &str,
+    locale: GuiLocale,
+) -> Option<LiveRegistryI18n> {
+    let base = base.trim_end_matches('/');
+    let preferred = locale.code();
+    let fallback = (preferred != "en_US")
+        .then(|| fetch_i18n_layer(source, &format!("{base}/i18n/en_US.json")))
+        .flatten();
+    let preferred = fetch_i18n_layer(source, &format!("{base}/i18n/{preferred}.json"));
+    let merged = LiveRegistryI18n::merge_layers([fallback, preferred].into_iter().flatten());
+    (!merged.entries.is_empty()).then_some(merged)
+}
+
+fn fetch_i18n_layer(source: &impl RegistryTextSource, url: &str) -> Option<LiveRegistryI18n> {
+    source
+        .fetch_registry_text(url)
+        .ok()
+        .and_then(|text| LiveRegistryI18n::from_json_str(&text).ok())
+}
+
+fn model_is_supported(model: &vinpst_registry::LiveModelEntry) -> bool {
+    let runtime = model
+        .vinpst_model
+        .as_ref()
+        .and_then(|metadata| metadata.runtime.as_deref());
+    matches!(
+        (model.backend(), model.classified_model_family(), runtime),
+        (
+            Some("sherpa-offline"),
+            Some(
+                LiveModelFamily::Dolphin
+                    | LiveModelFamily::Transducer
+                    | LiveModelFamily::SenseVoice
+                    | LiveModelFamily::Paraformer
+                    | LiveModelFamily::Qwen3Asr
+                    | LiveModelFamily::Moonshine
+            ),
+            Some("offline")
+        ) | (
+            Some("sherpa-streaming"),
+            Some(LiveModelFamily::Transducer | LiveModelFamily::Zipformer2Ctc),
+            Some("online")
+        )
+    )
 }
 
 pub(crate) fn install_registry_model_controlled(
@@ -247,6 +381,92 @@ mod tests {
         assert_eq!(error, "All 2 configured registry mirrors failed.");
         assert!(!error.contains("super-secret"));
         assert!(!error.contains("first.invalid"));
+    }
+
+    #[test]
+    fn registry_model_catalog_exposes_localized_browsable_metadata() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        let base = "https://registry.invalid".to_owned();
+        config.registry.base_urls = vec![base.clone()];
+        let model_json = json!({
+            "version": 1,
+            "items": [{
+                "id": "model.test.streaming",
+                "short_id": "test-stream",
+                "urls": ["https://assets.invalid/model.tar.zst"],
+                "size_bytes": 21_264_113,
+                "language": "zh",
+                "vinpst_model": {
+                    "backend": "sherpa-streaming",
+                    "runtime": "online",
+                    "family": "zipformer2_ctc",
+                    "supports_hotwords": false
+                }
+            }]
+        })
+        .to_string();
+        let i18n_json = json!({
+            "model.test.streaming.title": "测试流式模型",
+            "model.test.streaming.description": "流式/中文"
+        })
+        .to_string();
+        let source = StubRegistryTextSource {
+            responses: HashMap::from([
+                (format!("{base}/registry/models.json"), Ok(model_json)),
+                (format!("{base}/i18n/zh_CN.json"), Ok(i18n_json)),
+            ]),
+        };
+
+        let catalog =
+            fetch_registry_model_catalog_from(&config, GuiLocale::ZhCn, &source).expect("catalog");
+        assert_eq!(catalog.len(), 1);
+        let model = &catalog[0];
+        assert_eq!(model.selector(), "test-stream");
+        assert_eq!(model.title, "测试流式模型");
+        assert_eq!(model.description.as_deref(), Some("流式/中文"));
+        assert_eq!(model.model_type.as_deref(), Some("zipformer2_ctc"));
+        assert_eq!(model.language.as_deref(), Some("zh"));
+        assert_eq!(model.size_bytes, Some(21_264_113));
+        assert_eq!(model.runtime.as_deref(), Some("online"));
+        assert!(!model.supports_hotwords);
+        assert!(model.supported);
+    }
+
+    #[test]
+    fn registry_model_catalog_skips_a_malformed_mirror() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        let first = "https://first.invalid".to_owned();
+        let second = "https://second.invalid".to_owned();
+        config.registry.base_urls = vec![first.clone(), second.clone()];
+        let valid_registry = json!({
+            "version": 1,
+            "items": [{
+                "id": "model.test.fallback",
+                "short_id": "fallback",
+                "urls": ["https://assets.invalid/model.tar.zst"],
+                "vinpst_model": {
+                    "backend": "sherpa-offline",
+                    "runtime": "offline",
+                    "family": "sense_voice"
+                }
+            }]
+        })
+        .to_string();
+        let source = StubRegistryTextSource {
+            responses: HashMap::from([
+                (
+                    format!("{first}/registry/models.json"),
+                    Ok("not valid registry json".to_owned()),
+                ),
+                (format!("{second}/registry/models.json"), Ok(valid_registry)),
+            ]),
+        };
+
+        let catalog = fetch_registry_model_catalog_from(&config, GuiLocale::EnUs, &source)
+            .expect("malformed mirror must fall through");
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(catalog[0].selector(), "fallback");
+        assert!(catalog[0].supported);
     }
 
     #[test]

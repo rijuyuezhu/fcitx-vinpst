@@ -410,6 +410,8 @@ fn hotword_changes_block_navigation_and_reload_until_reset() {
         OperationState::Failed(ref error) if !error.is_empty()
     ));
 
+    drop(app.update(Message::DismissError));
+    assert!(matches!(app.operation, OperationState::Idle));
     drop(app.update(Message::Hotword(HotwordMessage::ResetChanges)));
     drop(app.update(Message::SelectPage(Page::Control)));
     assert_eq!(app.page, Page::Control);
@@ -421,6 +423,34 @@ fn hotword_activation_retry_is_blocked_while_busy() {
         Message::Hotword(HotwordMessage::RetryActivation).blocked_while_busy(),
         "a queued retry must not start a second daemon reload"
     );
+}
+
+#[test]
+fn failed_operation_uses_modal_state_without_inline_layout_notice() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    app.page = Page::Control;
+    app.operation = OperationState::Failed("fixture failure".to_owned());
+
+    assert!(app.operation_notice().is_none());
+    assert!(app.error_dialog_view().is_some());
+    assert!(app.is_busy());
+
+    drop(app.update(Message::SelectPage(Page::Resources)));
+    assert_eq!(
+        app.page,
+        Page::Control,
+        "modal errors must block page changes"
+    );
+    drop(app.update(Message::FilterChanged("must-not-leak".to_owned())));
+    assert!(
+        app.filter.is_empty(),
+        "modal errors must block focused page input"
+    );
+
+    drop(app.update(Message::Interaction(InteractionMessage::ClearFocus)));
+    assert!(matches!(app.operation, OperationState::Idle));
+    assert!(!app.has_error_dialog());
 }
 
 #[test]
@@ -698,9 +728,7 @@ fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
 #[test]
 fn model_install_cancel_completion_retains_exact_retry_selector() {
     let (mut app, _) = App::boot();
-    let _ = app.update(Message::ModelSelectorChanged("fixture-short-id".to_owned()));
-
-    let first_task = app.update(Message::InstallModel);
+    let first_task = app.update(Message::InstallRegistryModel("fixture-short-id".to_owned()));
     assert_eq!(first_task.units(), 1);
     assert!(app.model_install.is_active());
 
@@ -717,5 +745,4 @@ fn model_install_cancel_completion_retains_exact_retry_selector() {
     let retry_task = app.update(Message::RetryModelInstall);
     assert_eq!(retry_task.units(), 1);
     assert!(app.model_install.is_active());
-    assert_eq!(app.model_selector, "fixture-short-id");
 }

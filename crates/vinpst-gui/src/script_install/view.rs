@@ -61,7 +61,7 @@ impl ScriptInstallPlan {
 impl ScriptInstallState {
     pub(crate) fn view(&self, locale: GuiLocale) -> Option<Element<'_, Message>> {
         match self {
-            Self::Idle => None,
+            Self::Idle | Self::Failed { .. } => None,
             Self::Preparing(active) => Some(active.view(locale)),
             Self::AwaitingEnvironment(plan) => Some(plan.view(locale)),
             Self::Active(active) => Some(active.view(locale)),
@@ -111,16 +111,6 @@ impl ScriptInstallState {
                         .on_press(Message::RetryScriptInstall),
                 ]
                 .spacing(10)
-                .into(),
-            ),
-            Self::Failed { error, .. } => Some(
-                column![
-                    text(locale.operation_error(error)),
-                    keyboard_button(locale.text(GuiText::Retry))
-                        .id(script_primary_action_id())
-                        .on_press(Message::RetryScriptInstall),
-                ]
-                .spacing(8)
                 .into(),
             ),
         }

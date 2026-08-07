@@ -10,7 +10,7 @@ use std::{
 
 use iced::{
     Element, Length, Subscription, Task, Theme,
-    widget::{column, container, row, scrollable, text},
+    widget::{column, container, row, scrollable, stack, text},
 };
 use serde_json::{Value, json};
 #[cfg(test)]
@@ -29,6 +29,7 @@ mod daemon_client;
 mod daemon_control;
 mod daemon_owner_monitor;
 mod desktop_actions;
+mod error_dialog;
 mod form_guards;
 mod hotword_activation_retry;
 mod hotword_management;
@@ -89,8 +90,11 @@ pub use llm_provider_management::{
 pub use message::{ConfigDraftMessage, Message};
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
-pub use model_management::default_model_root;
-use model_management::{load_installed_models, model_is_active, remove_installed_model};
+use model_management::{
+    ModelCatalogState, load_installed_models, load_registry_model_catalog, model_is_active,
+    remove_installed_model,
+};
+pub use model_management::{RegistryModelSummary, default_model_root};
 pub use page::Page;
 use resource_details::ResourceSelection;
 use scene_management::SceneEditorState;
@@ -219,7 +223,8 @@ pub struct App {
     next_daemon_control_id: u64,
     operation: OperationState,
     startup_notification: StartupNotificationState,
-    model_selector: String,
+    model_filter: String,
+    model_catalog: ModelCatalogState,
     model_install: ModelInstallState,
     next_model_install_id: u64,
     provider_selector: String,
@@ -267,7 +272,8 @@ impl App {
             next_daemon_control_id: 1,
             operation: OperationState::Idle,
             startup_notification: StartupNotificationState::Loading,
-            model_selector: String::new(),
+            model_filter: String::new(),
+            model_catalog: ModelCatalogState::Loading,
             model_install: ModelInstallState::default(),
             next_model_install_id: 1,
             provider_selector: String::new(),
@@ -287,11 +293,18 @@ impl App {
         };
         let daemon_task = app.begin_daemon_refresh(true);
         let notification_task = app.begin_startup_notification_load();
-        (app, Task::batch([daemon_task, notification_task]))
+        let model_catalog_task = app.begin_model_catalog_refresh();
+        (
+            app,
+            Task::batch([daemon_task, notification_task, model_catalog_task]),
+        )
     }
 
     /// Applies a GUI message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if self.has_error_dialog() && !self.error_dialog_allows(&message) {
+            return Task::none();
+        }
         if let Some(task) = self.intercept_startup_notification_message(&message) {
             return task;
         }
@@ -315,10 +328,28 @@ impl App {
         }
         self.update_unblocked(message)
     }
+
+    fn error_dialog_allows(&self, message: &Message) -> bool {
+        match message {
+            Message::DismissError
+            | Message::Interaction(InteractionMessage::ClearFocus)
+            | Message::DaemonLoaded { .. }
+            | Message::DaemonFallbackPollTick
+            | Message::DaemonFallbackPolled { .. }
+            | Message::DaemonOwnerEvent(_)
+            | Message::ModelCatalogLoaded(_)
+            | Message::StartupNotification(StartupNotificationMessage::Loaded(_)) => true,
+            Message::RetryModelInstall => self.model_install.failure_message().is_some(),
+            Message::RetryScriptInstall => self.script_install.failure_message().is_some(),
+            _ => false,
+        }
+    }
+
     fn update_unblocked(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::SelectPage(page) => self.select_page(page),
             Message::FilterChanged(filter) => self.filter = filter,
+            Message::ModelFilterChanged(filter) => self.model_filter = filter,
             Message::Interaction(message) => return self.handle_interaction_message(message),
             Message::RefreshDaemon => return self.begin_daemon_refresh(true),
             Message::DaemonLoaded {
@@ -344,8 +375,12 @@ impl App {
             Message::RecordingActionFinished { start, result } => {
                 return self.finish_recording(start, result);
             }
-            Message::ModelSelectorChanged(value) => self.model_selector = value,
-            Message::InstallModel => return self.begin_model_install(),
+            Message::RefreshModelCatalog => return self.begin_model_catalog_refresh(),
+            Message::ModelCatalogLoaded(result) => self.finish_model_catalog_refresh(result),
+            Message::InstallRegistryModel(selector) => {
+                return self.begin_model_install_for(selector);
+            }
+            Message::DismissError => self.dismiss_error(),
             Message::CancelModelInstall => self.model_install.cancel(),
             Message::RetryModelInstall => return self.retry_model_install(),
             Message::ModelInstallProgressTick => self.model_install.refresh_progress(),
@@ -535,26 +570,48 @@ impl App {
         self.begin_daemon_refresh(false)
     }
 
-    fn begin_model_install(&mut self) -> Task<Message> {
-        let selector = self.model_selector.trim().to_owned();
-        self.begin_model_install_for(selector)
+    fn begin_model_catalog_refresh(&mut self) -> Task<Message> {
+        let Ok(document) = &self.config else {
+            self.model_catalog = ModelCatalogState::Failed(
+                self.locale.text(GuiText::NoValidConfigLoaded).to_owned(),
+            );
+            return Task::none();
+        };
+        let config = document.config.clone();
+        let locale = self.locale;
+        self.model_catalog = ModelCatalogState::Loading;
+        blocking_task::perform(
+            "vinpst-gui-model-catalog",
+            move || load_registry_model_catalog(&config, locale),
+            |result| {
+                Message::ModelCatalogLoaded(result.unwrap_or_else(|failure| {
+                    Err(format!(
+                        "Model catalog worker stopped unexpectedly: {failure}"
+                    ))
+                }))
+            },
+        )
+    }
+
+    fn finish_model_catalog_refresh(
+        &mut self,
+        result: Result<Vec<model_management::RegistryModelSummary>, String>,
+    ) {
+        self.model_catalog = match result {
+            Ok(models) => ModelCatalogState::Ready(models),
+            Err(error) => ModelCatalogState::Failed(error),
+        };
     }
 
     fn retry_model_install(&mut self) -> Task<Message> {
         let Some(selector) = self.model_install.retry_selector() else {
             return Task::none();
         };
-        self.model_selector.clone_from(&selector);
         self.begin_model_install_for(selector)
     }
 
     fn begin_model_install_for(&mut self, selector: String) -> Task<Message> {
         if selector.is_empty() {
-            self.operation = OperationState::Failed(
-                self.locale
-                    .text(GuiText::EnterRegistryModelSelector)
-                    .to_owned(),
-            );
             return Task::none();
         }
         let Ok(document) = &self.config else {
@@ -643,7 +700,7 @@ impl App {
             None => column![page_content],
         };
 
-        container(
+        let base: Element<'_, Message> = container(
             row![
                 container(navigation).width(190).padding(18),
                 container(content).width(Length::Fill).padding(24)
@@ -652,7 +709,15 @@ impl App {
         )
         .width(Length::Fill)
         .height(Length::Fill)
-        .into()
+        .into();
+
+        match self.error_dialog_view() {
+            Some(dialog) => stack([base, dialog])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            None => base,
+        }
     }
 
     fn control_page(&self) -> Element<'_, Message> {
@@ -714,6 +779,13 @@ impl App {
         matches!(self.operation, OperationState::Running(_))
             || self.model_install.is_active()
             || self.script_install.blocks_operations()
+            || self.has_error_dialog()
+    }
+
+    fn has_error_dialog(&self) -> bool {
+        matches!(self.operation, OperationState::Failed(_))
+            || self.model_install.failure_message().is_some()
+            || self.script_install.failure_message().is_some()
     }
 
     fn operation_notice(&self) -> Option<Element<'_, Message>> {
@@ -726,10 +798,20 @@ impl App {
             OperationState::Succeeded(message) => {
                 Some(text(self.locale.operation_success(message)).into())
             }
-            OperationState::Failed(message) => {
-                Some(text(self.locale.operation_error(message)).into())
-            }
+            OperationState::Failed(_) => None,
         }
+    }
+
+    fn dismiss_error(&mut self) {
+        if matches!(self.operation, OperationState::Failed(_)) {
+            self.operation = OperationState::Idle;
+            return;
+        }
+        if self.model_install.failure_message().is_some() {
+            self.model_install.dismiss_failure();
+            return;
+        }
+        self.script_install.dismiss_failure();
     }
 }
 

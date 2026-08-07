@@ -203,6 +203,26 @@ impl ScriptInstallState {
             | Self::Succeeded(_) => None,
         }
     }
+
+    pub(crate) fn failure_message(&self) -> Option<&str> {
+        match self {
+            Self::Failed { error, .. } => Some(error),
+            Self::Idle
+            | Self::Preparing(_)
+            | Self::AwaitingEnvironment(_)
+            | Self::Active(_)
+            | Self::Recovering(_)
+            | Self::RecoveryRequired { .. }
+            | Self::Succeeded(_)
+            | Self::Cancelled { .. } => None,
+        }
+    }
+
+    pub(crate) fn dismiss_failure(&mut self) {
+        if matches!(self, Self::Failed { .. }) {
+            *self = Self::Idle;
+        }
+    }
 }
 
 #[derive(Debug)]

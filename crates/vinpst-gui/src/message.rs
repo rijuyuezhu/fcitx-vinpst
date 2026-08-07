@@ -37,6 +37,8 @@ pub enum Message {
     SelectPage(Page),
     /// Update the current resource filter.
     FilterChanged(String),
+    /// Update the model-catalog filter on the Resources page.
+    ModelFilterChanged(String),
     /// Apply an ignored keyboard interaction owned by the application shell.
     Interaction(InteractionMessage),
     /// Apply one startup-notification interaction.
@@ -98,10 +100,14 @@ pub enum Message {
         /// Secret-free D-Bus action outcome.
         result: Result<(), String>,
     },
-    /// Update the live registry model id or short id to install.
-    ModelSelectorChanged(String),
-    /// Install or update the selected live registry model.
-    InstallModel,
+    /// Refresh the browsable live registry model catalog.
+    RefreshModelCatalog,
+    /// Result of an asynchronous live registry model catalog refresh.
+    ModelCatalogLoaded(Result<Vec<crate::RegistryModelSummary>, String>),
+    /// Install or update one model selected from the browsable registry catalog.
+    InstallRegistryModel(String),
+    /// Dismiss the currently presented non-recovery error dialog.
+    DismissError,
     /// Request cancellation of the active model installation.
     CancelModelInstall,
     /// Retry the last failed or cancelled model installation.

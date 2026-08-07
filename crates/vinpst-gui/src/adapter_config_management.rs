@@ -272,7 +272,7 @@ impl App {
             message,
             Message::ReloadConfig
                 | Message::SaveConfig
-                | Message::InstallModel
+                | Message::InstallRegistryModel(_)
                 | Message::RetryModelInstall
                 | Message::RemoveInstalledModel(_)
                 | Message::Scene(_)

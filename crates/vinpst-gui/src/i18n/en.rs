@@ -81,6 +81,7 @@ const fn english_hotwords(key: GuiText) -> &'static str {
     match key {
         GuiText::Details => "Details",
         GuiText::Ok => "OK",
+        GuiText::ErrorDialogTitle => "Error",
         GuiText::NoValidConfig => "No valid configuration is loaded.",
         GuiText::NoHotwordProvider => "No local or command ASR provider supports hotword files.",
         GuiText::NoHotwordProviderSelected => "No hotword-capable provider is selected.",
@@ -183,8 +184,13 @@ const fn english_desktop(key: GuiText) -> &'static str {
 const fn english_resources(key: GuiText) -> &'static str {
     match key {
         GuiText::FilterProvidersAndScenes => "Filter providers and scenes",
+        GuiText::FilterModels => "Filter models",
         GuiText::ManagedAsrModels => "Managed ASR models",
-        GuiText::RegistryModelSelector => "Registry model id or short id",
+        GuiText::InstalledModels => "Installed models",
+        GuiText::AvailableModels => "Available models",
+        GuiText::RefreshCatalog => "Refresh catalog",
+        GuiText::LoadingModelCatalog => "Loading model catalog…",
+        GuiText::NoRegistryModelsAvailable => "No registry models match the current filter.",
         GuiText::InstallOrUpdate => "Install or update",
         GuiText::ManagedCommandAsrProviders => "Managed command ASR providers",
         GuiText::NoManagedModelsInstalled => "No managed ASR models installed.",
@@ -223,6 +229,8 @@ const fn english_resources(key: GuiText) -> &'static str {
         GuiText::DeclaredSize => "Declared size",
         GuiText::RegularFiles => "Regular files",
         GuiText::Supported => "supported",
+        GuiText::Installed => "installed",
+        GuiText::Unsupported => "unsupported",
         GuiText::NotDeclared => "not declared",
         GuiText::InstallDirectory => "Install directory",
         GuiText::MetadataFile => "Metadata file",
@@ -390,9 +398,6 @@ const fn english_install(key: GuiText) -> &'static str {
 const fn english_install_tail(key: GuiText) -> &'static str {
     match key {
         GuiText::ConfigurationSaved => "Configuration saved.",
-        GuiText::EnterRegistryModelSelector => {
-            "Enter a registry model id or short id before installing."
-        }
         GuiText::RemovingModel => "Removing model…",
         GuiText::RemovingProvider => "Removing provider…",
         GuiText::RemovingAdapter => "Removing adapter…",

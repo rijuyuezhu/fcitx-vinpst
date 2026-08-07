@@ -79,6 +79,7 @@ const fn simplified_chinese_hotwords(key: GuiText) -> &'static str {
     match key {
         GuiText::Details => "查看详情",
         GuiText::Ok => "确定",
+        GuiText::ErrorDialogTitle => "错误",
         GuiText::NoValidConfig => "未加载有效配置。",
         GuiText::NoHotwordProvider => "没有支持热词文件的本地或命令 ASR 提供商。",
         GuiText::NoHotwordProviderSelected => "未选择支持热词的提供商。",
@@ -151,8 +152,13 @@ const fn simplified_chinese_desktop(key: GuiText) -> &'static str {
 const fn simplified_chinese_resources(key: GuiText) -> &'static str {
     match key {
         GuiText::FilterProvidersAndScenes => "筛选提供商和场景",
+        GuiText::FilterModels => "筛选模型",
         GuiText::ManagedAsrModels => "托管 ASR 模型",
-        GuiText::RegistryModelSelector => "注册表模型 ID 或短 ID",
+        GuiText::InstalledModels => "已安装模型",
+        GuiText::AvailableModels => "可用模型",
+        GuiText::RefreshCatalog => "刷新模型列表",
+        GuiText::LoadingModelCatalog => "正在加载模型列表…",
+        GuiText::NoRegistryModelsAvailable => "没有注册表模型匹配当前筛选条件。",
         GuiText::InstallOrUpdate => "安装或更新",
         GuiText::ManagedCommandAsrProviders => "托管命令 ASR 提供商",
         GuiText::NoManagedModelsInstalled => "未安装托管 ASR 模型。",
@@ -191,6 +197,8 @@ const fn simplified_chinese_resources(key: GuiText) -> &'static str {
         GuiText::DeclaredSize => "声明大小",
         GuiText::RegularFiles => "普通文件",
         GuiText::Supported => "支持",
+        GuiText::Installed => "已安装",
+        GuiText::Unsupported => "不支持",
         GuiText::NotDeclared => "未声明",
         GuiText::InstallDirectory => "安装目录",
         GuiText::MetadataFile => "元数据文件",
@@ -347,7 +355,6 @@ const fn simplified_chinese_install(key: GuiText) -> &'static str {
 const fn simplified_chinese_install_tail(key: GuiText) -> &'static str {
     match key {
         GuiText::ConfigurationSaved => "配置已保存。",
-        GuiText::EnterRegistryModelSelector => "安装前请输入注册表模型 ID 或短 ID。",
         GuiText::RemovingModel => "正在移除模型…",
         GuiText::RemovingProvider => "正在移除提供商…",
         GuiText::RemovingAdapter => "正在移除适配器…",

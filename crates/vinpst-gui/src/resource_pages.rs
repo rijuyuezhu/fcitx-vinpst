@@ -4,13 +4,14 @@ use crate::keyboard_action::keyboard_button;
 
 use iced::{
     Element, Length,
-    widget::{column, row, scrollable, text, text_input},
+    widget::{column, container, row, scrollable, text, text_input},
 };
 use vinpst_config::AsrProviderKind;
 use vinpst_registry::InstalledModelInfo;
 
 use crate::{
     App, GuiLocale, GuiText, Message, model_is_active,
+    model_management::{ModelCatalogState, RegistryModelSummary},
     script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
 
@@ -20,33 +21,35 @@ impl App {
         let resource_controls_busy = busy || self.asr_provider_editor.is_some();
         let mut body = column![
             text(self.locale.text(GuiText::Resources)).size(30),
+            text(self.locale.text(GuiText::ManagedAsrModels)).size(22),
+            text(self.locale.text(GuiText::InstalledModels)).size(18),
+            self.installed_models_view(resource_controls_busy),
+            row![
+                text(self.locale.text(GuiText::AvailableModels))
+                    .size(18)
+                    .width(Length::Fill),
+                keyboard_button(self.locale.text(GuiText::RefreshCatalog)).on_press_maybe(
+                    (!resource_controls_busy
+                        && !matches!(self.model_catalog, ModelCatalogState::Loading))
+                    .then_some(Message::RefreshModelCatalog),
+                ),
+            ]
+            .spacing(10),
+            text_input(self.locale.text(GuiText::FilterModels), &self.model_filter,)
+                .on_input(Message::ModelFilterChanged),
+            self.available_models_view(resource_controls_busy),
+            text(self.locale.text(GuiText::ManagedCommandAsrProviders)).size(22),
+            self.provider_install_controls(resource_controls_busy),
             text_input(
                 self.locale.text(GuiText::FilterProvidersAndScenes),
                 &self.filter
             )
             .on_input(Message::FilterChanged),
-            text(self.locale.text(GuiText::ManagedAsrModels)).size(22),
-            row![
-                text_input(
-                    self.locale.text(GuiText::RegistryModelSelector),
-                    &self.model_selector
-                )
-                .on_input(Message::ModelSelectorChanged)
-                .width(Length::Fill),
-                keyboard_button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
-                    (!resource_controls_busy && !self.model_selector.trim().is_empty())
-                        .then_some(Message::InstallModel),
-                ),
-            ]
-            .spacing(10),
-            text(self.locale.text(GuiText::ManagedCommandAsrProviders)).size(22),
-            self.provider_install_controls(resource_controls_busy),
         ]
         .spacing(12);
         if let Some(notice) = self.operation_notice() {
             body = body.push(notice);
         }
-        body = body.push(self.installed_models_view(resource_controls_busy));
         body = body.push(self.configured_asr_resources_view(busy, resource_controls_busy));
         if let Some(detail) = self.resource_detail_view() {
             body = body.push(detail);
@@ -74,6 +77,43 @@ impl App {
             }
         }
         body.into()
+    }
+
+    fn available_models_view(&self, busy: bool) -> Element<'_, Message> {
+        match &self.model_catalog {
+            ModelCatalogState::Loading => {
+                text(self.locale.text(GuiText::LoadingModelCatalog)).into()
+            }
+            ModelCatalogState::Failed(error) => column![
+                text(error),
+                keyboard_button(self.locale.text(GuiText::RefreshCatalog))
+                    .on_press_maybe((!busy).then_some(Message::RefreshModelCatalog)),
+            ]
+            .spacing(8)
+            .into(),
+            ModelCatalogState::Ready(models) => {
+                let filter = self.model_filter.trim();
+                let installed = self.installed_models.as_ref().ok();
+                let mut body = column![].spacing(10);
+                let mut visible = 0_usize;
+                for model in models {
+                    if !registry_model_matches_filter(model, filter) {
+                        continue;
+                    }
+                    visible += 1;
+                    let is_installed = installed.is_some_and(|installed| {
+                        installed
+                            .iter()
+                            .any(|candidate| candidate.stable_model_id() == model.id)
+                    });
+                    body = body.push(registry_model_row(self.locale, model, is_installed, busy));
+                }
+                if visible == 0 {
+                    body = body.push(text(self.locale.text(GuiText::NoRegistryModelsAvailable)));
+                }
+                body.into()
+            }
+        }
     }
 
     fn configured_asr_resources_view(
@@ -190,6 +230,106 @@ impl App {
     }
 }
 
+fn registry_model_matches_filter(model: &RegistryModelSummary, filter: &str) -> bool {
+    let filter = filter.trim().to_ascii_lowercase();
+    if filter.is_empty() {
+        return true;
+    }
+    [
+        Some(model.id.as_str()),
+        model.short_id.as_deref(),
+        Some(model.title.as_str()),
+        model.description.as_deref(),
+        model.model_type.as_deref(),
+        model.language.as_deref(),
+        model.runtime.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value.to_ascii_lowercase().contains(&filter))
+}
+
+fn registry_model_row(
+    locale: GuiLocale,
+    model: &RegistryModelSummary,
+    installed: bool,
+    busy: bool,
+) -> Element<'static, Message> {
+    let model_type = model
+        .model_type
+        .as_deref()
+        .or(model.runtime.as_deref())
+        .unwrap_or_else(|| locale.text(GuiText::NotDeclared));
+    let language = model
+        .language
+        .as_deref()
+        .unwrap_or_else(|| locale.text(GuiText::NotDeclared));
+    let size = model.size_bytes.map_or_else(
+        || locale.text(GuiText::NotDeclared).to_owned(),
+        format_model_size,
+    );
+    let hotwords = locale.text(if model.supports_hotwords {
+        GuiText::Yes
+    } else {
+        GuiText::No
+    });
+    let status = locale.text(if installed {
+        GuiText::Installed
+    } else if model.supported {
+        GuiText::Available
+    } else {
+        GuiText::Unsupported
+    });
+    let metadata = format!(
+        "{}: {model_type} · {}: {language} · {}: {size} · {}: {hotwords} · {}: {status}",
+        locale.text(GuiText::Kind),
+        locale.text(GuiText::Language),
+        locale.text(GuiText::DeclaredSize),
+        locale.text(GuiText::Hotwords),
+        locale.text(GuiText::Status),
+    );
+    let mut details = column![text(model.title.clone()).size(18)].spacing(4);
+    if let Some(description) = model
+        .description
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        details = details.push(text(description.clone()));
+    }
+    details = details.push(text(metadata));
+
+    let action = keyboard_button(locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
+        (!busy && model.supported)
+            .then(|| Message::InstallRegistryModel(model.selector().to_owned())),
+    );
+    container(row![details.width(Length::Fill), action].spacing(12))
+        .padding(12)
+        .width(Length::Fill)
+        .style(container::rounded_box)
+        .into()
+}
+
+fn format_model_size(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = KIB * 1024;
+    const GIB: u64 = MIB * 1024;
+    const TIB: u64 = GIB * 1024;
+    let (divisor, unit) = if bytes >= TIB {
+        (TIB, "TiB")
+    } else if bytes >= GIB {
+        (GIB, "GiB")
+    } else if bytes >= MIB {
+        (MIB, "MiB")
+    } else if bytes >= KIB {
+        (KIB, "KiB")
+    } else {
+        return format!("{bytes} B");
+    };
+    let whole = bytes / divisor;
+    let tenth = (bytes % divisor).saturating_mul(10) / divisor;
+    format!("{whole}.{tenth} {unit}")
+}
+
 fn installed_model_row(
     locale: GuiLocale,
     model: &InstalledModelInfo,
@@ -288,4 +428,42 @@ fn adapter_row(
     ]
     .spacing(10)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture_model() -> RegistryModelSummary {
+        RegistryModelSummary {
+            id: "model.test.zh.streaming".to_owned(),
+            short_id: Some("zh-stream".to_owned()),
+            title: "Chinese Streaming Model".to_owned(),
+            description: Some("Low-latency Mandarin recognition".to_owned()),
+            model_type: Some("zipformer2_ctc".to_owned()),
+            language: Some("zh".to_owned()),
+            size_bytes: Some(21_264_113),
+            runtime: Some("online".to_owned()),
+            supports_hotwords: true,
+            supported: true,
+        }
+    }
+
+    #[test]
+    fn registry_model_filter_searches_user_visible_metadata_and_ids() {
+        let model = fixture_model();
+        assert!(registry_model_matches_filter(&model, ""));
+        assert!(registry_model_matches_filter(&model, "mandarin"));
+        assert!(registry_model_matches_filter(&model, "ZIPFORMER"));
+        assert!(registry_model_matches_filter(&model, "zh-stream"));
+        assert!(!registry_model_matches_filter(&model, "english-only"));
+    }
+
+    #[test]
+    fn registry_model_sizes_use_stable_binary_units_without_float_rounding() {
+        assert_eq!(format_model_size(999), "999 B");
+        assert_eq!(format_model_size(1536), "1.5 KiB");
+        assert_eq!(format_model_size(21_264_113), "20.2 MiB");
+        assert_eq!(format_model_size(5 * 1024 * 1024 * 1024), "5.0 GiB");
+    }
 }
