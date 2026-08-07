@@ -2,7 +2,7 @@ use crate::{
     AsrBackendFactory, AsrTimeoutProbe, ConfigExample, Context, Path, PathBuf, ServiceStatus,
     SherpaOnnxVadProbe, VinpstConfig, audio_devices_json, config_example_contents,
     config_summary_json, daemon_owner_probe_plan_json, dbus, default_cache_root,
-    default_config_path, default_model_root, fs, load_config_file, quote_exec_arg, sandbox,
+    default_config_path, default_model_root, fs, load_config_json, quote_exec_arg, sandbox,
     user_activation_service_path, user_data_home, user_home, write_private_file_atomically,
 };
 
@@ -246,24 +246,14 @@ pub(crate) fn validate_config() -> anyhow::Result<()> {
 }
 
 pub(crate) fn print_asr_state(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
-    let config = match config_path {
-        Some(path) => load_config_file(path)?,
-        None => VinpstConfig::bundled_default().context("parse bundled config")?,
-    };
-    config.validate().context("validate config for ASR state")?;
+    let (_, config) = load_diagnostic_config(config_path, "ASR state")?;
     let state = AsrBackendFactory::state_for_config(&config.asr);
     println!("{}", serde_json::to_string_pretty(&state)?);
     Ok(())
 }
 
 pub(crate) fn print_audio_devices(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
-    let config = match config_path {
-        Some(path) => load_config_file(path)?,
-        None => VinpstConfig::bundled_default().context("parse bundled config")?,
-    };
-    config
-        .validate()
-        .context("validate config for audio device diagnostics")?;
+    let (_, config) = load_diagnostic_config(config_path, "audio device diagnostics")?;
     println!(
         "{}",
         serde_json::to_string_pretty(&audio_devices_json(&config)?)?
@@ -272,11 +262,7 @@ pub(crate) fn print_audio_devices(config_path: Option<&PathBuf>) -> anyhow::Resu
 }
 
 pub(crate) fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> {
-    let config = match config_path {
-        Some(path) => load_config_file(path)?,
-        None => VinpstConfig::bundled_default().context("parse bundled config")?,
-    };
-    config.validate().context("validate config for doctor")?;
+    let (resolved_config_path, config) = load_diagnostic_config(config_path, "doctor")?;
     let asr_state = AsrBackendFactory::state_for_config(&config.asr);
     let vad = SherpaOnnxVadProbe::inspect(&config.asr.vad);
     let timeout = AsrTimeoutProbe::inspect(&config.asr);
@@ -293,9 +279,13 @@ pub(crate) fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> 
         }),
     };
     let sandbox_report = sandbox::permission_report_json();
+    let ready = asr_state.has_effective_backend;
+    let status = if ready { "ready" } else { "setup-required" };
+    let target_model_is_empty = asr_state.target_model_id.is_empty();
     let summary = serde_json::json!({
-        "ok": true,
-        "config_path": config_path.map(|path| path.to_string_lossy().into_owned()),
+        "ok": ready,
+        "status": status,
+        "config_path": resolved_config_path.map(|path| path.to_string_lossy().into_owned()),
         "config": config_summary_json(&config),
         "asr": asr_state,
         "vad": doctor_vad_json(&vad),
@@ -305,10 +295,31 @@ pub(crate) fn print_doctor(config_path: Option<&PathBuf>) -> anyhow::Result<()> 
         "sandbox": sandbox_report,
         "fcitx_addon": user_fcitx_addon_json(),
         "daemon_owner_probe": daemon_owner_probe_plan_json(),
-        "next_steps": doctor_next_steps(&config, &vad, &timeout),
+        "next_steps": doctor_next_steps(
+            &config,
+            ready,
+            target_model_is_empty,
+            &vad,
+            &timeout,
+        ),
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
+}
+
+fn load_diagnostic_config(
+    config_path: Option<&PathBuf>,
+    purpose: &str,
+) -> anyhow::Result<(Option<PathBuf>, VinpstConfig)> {
+    let loaded = load_config_json(config_path)?;
+    let contents = serde_json::to_string(&loaded.document)
+        .with_context(|| format!("serialize config for {purpose}"))?;
+    let config = VinpstConfig::from_json_str(&contents)
+        .with_context(|| format!("parse config for {purpose}"))?;
+    config
+        .validate()
+        .with_context(|| format!("validate config for {purpose}"))?;
+    Ok((loaded.path, config))
 }
 
 fn doctor_vad_json(probe: &SherpaOnnxVadProbe) -> serde_json::Value {
@@ -336,10 +347,28 @@ fn doctor_vad_json(probe: &SherpaOnnxVadProbe) -> serde_json::Value {
 
 fn doctor_next_steps(
     config: &VinpstConfig,
+    asr_ready: bool,
+    target_model_is_empty: bool,
     vad: &SherpaOnnxVadProbe,
     timeout: &AsrTimeoutProbe,
 ) -> Vec<String> {
-    let mut next_steps = vec![
+    let mut next_steps = Vec::new();
+    if !asr_ready {
+        next_steps.push(
+            "run vinpst asr-state --json to inspect why the active ASR backend is unavailable"
+                .to_owned(),
+        );
+        if target_model_is_empty {
+            next_steps.extend([
+                "run vinpst model list --available to choose a compatible managed model".to_owned(),
+                "run vinpst model install <id-or-short-id> to install the selected model"
+                    .to_owned(),
+                "run vinpst model use <id-or-short-id> --in-place --reload-daemon to activate it"
+                    .to_owned(),
+            ]);
+        }
+    }
+    next_steps.extend([
         "run vinpst provider list to inspect configured ASR providers".to_owned(),
         format!(
             "run vinpst provider use {} --dry-run --json to preview provider selection",
@@ -351,7 +380,7 @@ fn doctor_next_steps(
             .to_owned(),
         "run vinpst daemon status --dry-run --json to inspect daemon D-Bus owner/procfs probes"
             .to_owned(),
-    ];
+    ]);
     if vad.enabled && !vad.available {
         next_steps.push(
             "install silero_vad.onnx under $XDG_DATA_HOME/fcitx-vinpst/vad or set VINPST_SHERPA_VAD_MODEL"

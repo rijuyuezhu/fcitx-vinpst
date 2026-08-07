@@ -20,7 +20,54 @@ daemon_log="${stage_root}/daemon.log"
 
 rm -rf "${stage_root}"
 install -Dm644 data/default-config.json "${config_path}"
-cargo build -q -p vinpst-daemon --bin vinpst-daemon
+cargo build -q -p vinpst-daemon --bin vinpst-daemon --features pipewire-backend
+
+# Match the native package service shape first. Constructing a PipeWire recorder
+# must not turn an unconfigured ASR model into a daemon-startup failure. This
+# phase never starts recording, so it does not require a live PipeWire server.
+timeout 10s dbus-run-session -- bash -euo pipefail -c '
+  daemon_path="$1"
+  config_home="$2"
+  daemon_log="$3"
+
+  XDG_CONFIG_HOME="${config_home}" "${daemon_path}" --dbus --configured-backends \
+    --audio-backend pipewire >"${daemon_log}" 2>&1 &
+  daemon_pid=$!
+  cleanup() {
+    kill "${daemon_pid}" 2>/dev/null || true
+    wait "${daemon_pid}" 2>/dev/null || true
+  }
+  trap cleanup EXIT
+
+  call() {
+    gdbus call --session \
+      --dest org.fcitx.Vinpst \
+      --object-path /org/fcitx/Vinpst \
+      --method "org.fcitx.Vinpst.Service.$1" "${@:2}"
+  }
+
+  for _ in $(seq 1 100); do
+    kill -0 "${daemon_pid}" 2>/dev/null || {
+      cat "${daemon_log}" >&2
+      echo "spawned Vinpst daemon exited before owning D-Bus" >&2
+      exit 1
+    }
+    owner=$(gdbus call --session \
+      --dest org.freedesktop.DBus \
+      --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinpst)
+    if [[ "${owner}" == "(true,)" ]]; then
+      break
+    fi
+    sleep 0.05
+  done
+  test "${owner}" = "(true,)"
+
+  test "$(call GetStatus)" = "('"'"'idle'"'"',)"
+  state=$(call GetAsrBackendState)
+  grep -q "sherpa-onnx" <<<"${state}"
+  grep -q "false, false" <<<"${state}"
+' bash "${repo_root}/target/debug/vinpst-daemon" "${config_home}" "${daemon_log}"
 
 timeout 25s dbus-run-session -- bash -euo pipefail -c '
   daemon_path="$1"
@@ -45,11 +92,21 @@ timeout 25s dbus-run-session -- bash -euo pipefail -c '
   }
 
   for _ in $(seq 1 100); do
-    if call GetStatus >/dev/null 2>&1; then
+    kill -0 "${daemon_pid}" 2>/dev/null || {
+      cat "${daemon_log}" >&2
+      echo "spawned Vinpst daemon exited before owning D-Bus" >&2
+      exit 1
+    }
+    owner=$(gdbus call --session \
+      --dest org.freedesktop.DBus \
+      --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.NameHasOwner org.fcitx.Vinpst)
+    if [[ "${owner}" == "(true,)" ]]; then
       break
     fi
     sleep 0.05
   done
+  test "${owner}" = "(true,)"
 
   state=$(call GetAsrBackendState)
   grep -q "sherpa-onnx" <<<"${state}"

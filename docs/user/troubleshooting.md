@@ -47,12 +47,13 @@ Then run `vinpst doctor`. It checks common addon metadata and library locations.
 ## No usable ASR backend
 
 ```sh
+vinpst doctor
 vinpst asr-state
 vinpst model list --installed
 vinpst provider list
 ```
 
-Install/select a compatible model or provider, then reload:
+The packaged daemon is allowed to stay running while the active ASR backend is unavailable. On a fresh configuration this is the expected setup state until a model is installed and selected; `vinpst doctor` reports `"status": "setup-required"` while keeping the diagnostic command itself usable. Install/select a compatible model or provider, then reload:
 
 ```sh
 vinpst daemon reload-asr

@@ -502,9 +502,7 @@ fn build_runtime(args: &Args, config: VinpstConfig) -> anyhow::Result<RuntimeSta
 
     if let Some(audio_recorder) = selected_audio_recorder(args)? {
         return if args.configured_backends {
-            let backend = AsrBackendFactory::build_active(&config.asr)
-                .context("build configured ASR backend")?;
-            RuntimeState::with_configured_audio_recorder(config, backend, audio_recorder)
+            RuntimeState::with_configured_audio_recorder_or_unavailable(config, audio_recorder)
                 .context("build configured runtime with selected audio recorder")
         } else {
             let backend = MockAsrBackend::streaming("mock partial", "mock recognition result");

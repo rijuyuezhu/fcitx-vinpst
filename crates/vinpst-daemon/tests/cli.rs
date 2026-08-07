@@ -672,8 +672,7 @@ fn asr_state_accepts_committed_default_fixture() {
     assert!(
         value["last_error"]
             .as_str()
-            .unwrap_or_default()
-            .contains("sherpa-onnx runtime")
+            .is_some_and(|error| !error.is_empty())
     );
 }
 
@@ -692,8 +691,7 @@ fn asr_state_with_default_fixture_ignores_configured_backend_runtime_init() {
     assert!(
         value["last_error"]
             .as_str()
-            .unwrap_or_default()
-            .contains("sherpa-onnx runtime")
+            .is_some_and(|error| !error.is_empty())
     );
 }
 

@@ -79,10 +79,12 @@ jq -e '
 
 "${cli}" doctor --config "${config}" --json >"${root}/doctor.json"
 jq -e '
-  .ok == true and
+  .ok == false and
+  .status == "setup-required" and
   .config.ok == true and
   .audio.ok == true and
-  .activation_service.user_service_exists == false
+  .activation_service.user_service_exists == false and
+  any(.next_steps[]; contains("vinpst model list --available"))
 ' "${root}/doctor.json" >/dev/null
 
 "${cli}" activation-service \
