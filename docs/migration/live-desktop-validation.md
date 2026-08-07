@@ -288,85 +288,13 @@ The 2026-08-01 VS Code 1.131.0 run retained seven normal-mode partial signals an
 
 Widget-backed command cases emit `selection-ready`, but selection transport is application-dependent. GTK/Qt and the standalone editor paths require the widget selection in the final replacement; kitty proves PRIMARY fallback directly. Chromium and VS Code deliberately use different application-selection and PRIMARY sentinels and require the PRIMARY sentinel in the result, recording that neither application exposes its selection as Fcitx surrounding text in these gates. All command cases observe same-run daemon partials and require the expected `adapter-backed:` replacement. The toolkit probes combine daemon `RecognitionPartial` evidence with the final text observed by the real application widget because Fcitx input-panel preedit is not exposed as client-side preedit in every toolkit. The current Chinese Zipformer model may render English abbreviations as `<unk>`; that is an ASR model limitation, not a toolkit transport failure.
 
-## 7. Rust management GUI interaction
+## 7. Rust management GUI validation
 
-Build the current GUI and run the isolated niri/Wayland interaction gate:
+The positional management-GUI live collectors have been retired. They located controls by counting `Tab` or `Shift+Tab` focus steps, so ordinary layout changes could invalidate the test without changing the user-visible capability being tested. The associated niri/Wayland and X11/Xwayland interaction, desktop-integration, portal-picker, config-mutation, registry-model, and script-recovery runners and their dedicated fixtures are no longer retained as release evidence.
 
-```sh
-cargo build -p vinpst-gui
-scripts/live/niri/run-gui-interaction-live.sh
-```
+GUI behavior remains covered by deterministic Rust tests for typed state transitions, form guards, persistence and conflict handling, registry projection and installation workflows, modal error handling, keyboard-action semantics, localization, D-Bus integration, and secret-safe diagnostics. These tests run under `just ci` and do not depend on compositor focus order.
 
-The gate requires one live niri socket, a writable `/dev/uinput`, Fcitx5 with a `rime` input method, and `wl-copy`/`wl-paste`. It never saves a GUI draft. Separate temporary XDG roots are used for English and zh_CN launches; the notification URL is redirected to a fail-fast loopback endpoint. Repository-owned uinput probes perform Ctrl+1–4, Tab/Shift+Tab, Ctrl+A/C, bounded ASCII typing, and Rime candidate commit. Page-shortcut checks explicitly refocus the target window and use bounded retries to reject compositor focus races without weakening the final localized-title assertion. Cleanup restores the previously focused niri window and standard text clipboard, terminates both GUI instances, and removes temporary XDG state. If a focused Fcitx input context existed before the gate, its active state and input-method name are restored exactly; otherwise the runner preserves and verifies the controller, current group, and group default without inventing a new context.
-
-Evidence under `target/tmp/gui-interaction-live/summary.json` must report:
-
-- English `Control -> Resources -> Hotwords -> Control` and zh_CN `控制 -> 资源 -> 热词 -> 控制` native title transitions;
-- navigation-button focus plus Enter/Space activation and forward/reverse traversal through the mixed control tree;
-- exact standard clipboard copy plus restoration;
-- a non-empty non-ASCII Fcitx5/Rime commit, recorded only as UTF-8 byte length rather than retained content;
-- zero GUI process residue and restored Fcitx state/input method.
-
-This is live proof for complete enabled-control keyboard traversal/activation, clipboard, input-method transport, bilingual titles, and page shortcuts on niri/Wayland. The GUI's bounded custom wrapper adds a visible focus ring, Enter/Space action activation, and arrow-key selector/slider adjustment while preserving the existing pointer widgets. It is still not screen-reader proof: Iced 0.14 currently exposes no AccessKit accessibility tree.
-
-Run the independent forced-X11 gate on the same niri host:
-
-```sh
-scripts/live/x11/run-gui-interaction-live.sh
-```
-
-The X11 runner removes `WAYLAND_DISPLAY` from each GUI process, sets `WINIT_UNIX_BACKEND=x11`, and requires the resulting client to expose a matching `_NET_WM_PID` and UTF-8 `_NET_WM_NAME` through `xprop`. It repeats the English/zh_CN title transitions, complete keyboard traversal/activation, and Fcitx5/Rime commit while reading copied text through `xclip`; the input-method transport is recorded as XIM. Wayland is used only to focus the rootless Xwayland client, restore the pre-test niri window, and restore the host clipboard; Fcitx restoration follows the same context-aware state/IM versus group/default rule as the native-Wayland gate. Evidence under `target/tmp/gui-x11-interaction-live/summary.json` retains only booleans, titles, transport names, and the committed UTF-8 byte count. This proves the Iced X11 backend under xwayland-satellite, not a standalone non-composited Xorg session and not a screen-reader tree.
-
-Run the reversible desktop-integration result gate:
-
-```sh
-scripts/live/niri/run-gui-desktop-integration-live.sh
-```
-
-The runner copies the bundled config into a temporary user config root, serves one current-schema startup notification from loopback, and replaces the configured desktop opener with a repository fixture that records exactly one argv target. Escape clears widget focus before each deterministic traversal. The first launch proves Open Config receives the exact loaded file, Details receives the validated credential-free HTTPS URL, and the notification id is atomically persisted at the legacy cache path as a regular mode-0600 file. A second launch with the same isolated cache still fetches the feed but cannot expose Details again; Open Config remains available and no fourth opener call occurs. The fixture never starts a real browser, retains no remote title/text, touches no user config/cache, and leaves no GUI or fixture process. Evidence is written under `target/tmp/gui-desktop-integration-live/summary.json`.
-
-Run the private-session portal picker result gate:
-
-```sh
-scripts/live/niri/run-gui-portal-picker-live.sh
-```
-
-The runner starts a private `dbus-daemon` and repository-owned `org.freedesktop.portal.Desktop` service, then launches the GUI with that private session bus so the real `rfd` backend cannot contact the host portal. An isolated local provider begins with an existing configured hotword file. The fixture records two `FileChooser.OpenFile` requests and verifies the generated handle token, single-file/non-directory flags, current folder, and text/all filter patterns. The first response returns a percent-encoded `file://` URI whose path contains spaces and Chinese characters; clipboard inspection proves the GUI decodes it into the exact UTF-8 draft while the config SHA-256 remains unchanged. A fresh launch receives a cancellation response and retains the configured draft, again without writing config. The gate restores the previous niri window and text clipboard and leaves no GUI, portal, or private-bus process. Its summary records only structural booleans and retains no selected path.
-
-Run the private-daemon Control mutation gate:
-
-```sh
-scripts/live/niri/run-gui-config-mutation-live.sh
-```
-
-The runner owns `org.fcitx.Vinpst` on a private session bus and exposes only typed idle status, inactive-session runtime state, empty adapter diagnostics, and a counted `ReloadAsrBackend`. It launches the real GUI against isolated success and conflict config roots. Clipboard paste changes the default-language draft without invoking the input method, a freshly rendered dirty text field submits through Enter, and the success path proves an atomic replacement, exact original-byte `.bak`, mode-0600 config and backup, one reload request, and the saved value after a second launch. The conflict path edits a separate draft, atomically publishes a different valid disk version outside the GUI, then proves Enter submission preserves the external bytes and still-visible draft, creates no backup, and sends no second reload. The shared writer's Unix tests separately begin with a legacy mode-0644 file and prove both replacement and backup are tightened to 0600. The live summary retains no configured values or paths, restores the previous niri window and text clipboard, does not contact the real daemon, and leaves no GUI, fixture, or private-bus process.
-
-Run the private-registry model install and removal result gate:
-
-```sh
-cargo build -p vinpst-gui
-scripts/live/niri/run-gui-resource-install-live.sh
-```
-
-The runner requires a live niri/Wayland session, writable `/dev/uinput`, and `wl-copy`/`wl-paste`. It generates a small deterministic plain-tar model at runtime, computes its SHA-256 and byte size, and serves both `registry/models.json` and the archive from a repository-owned loopback-only HTTP fixture. A private session bus hosts the same typed idle daemon fixture used by the Control mutation gate. The real Iced GUI receives temporary `HOME` and XDG config/cache/data roots whose only registry base is the loopback fixture.
-
-Hardware-uinput Ctrl+2 and Tab traversal reach the Resources filter and model selector; clipboard readback distinguishes editable fields from ignored button shortcuts before entering the fixture short id. Enter activates the real install action. The gate then requires one catalog request and one archive request, checksum-backed publication under the temporary managed-model root, regular `tokens.txt`, `model.onnx`, and generated `vinpst-model.json`, plus the expected registry id, backend, and family. A fresh focus traversal reaches the newly reconciled installed-model row and activates its inactive managed Remove action; success is accepted only when that exact managed directory disappears while the original config SHA-256 remains unchanged.
-
-Evidence under `target/tmp/gui-resource-install-live/summary.json` records only model ids, archive digest/size, structural result booleans, request counts, and isolation/restoration results. The fixture never contacts a production registry, the GUI never requests a daemon reload for this config-independent operation, and cleanup restores the previous niri window and standard text clipboard while leaving zero GUI, HTTP fixture, daemon fixture, and private-bus processes. This proves one representative model install/result-row/removal journey. It does not prove script publication recovery, hosted registries, or production model archives.
-
-Run the published-script recovery gates:
-
-```sh
-cargo build -p vinpst-gui
-scripts/live/niri/run-gui-script-recovery-live.sh provider
-scripts/live/niri/run-gui-script-recovery-live.sh adapter
-```
-
-Both modes use the same live niri/Wayland, writable `/dev/uinput`, clipboard, private-session daemon, and temporary XDG isolation as the model gate. Loopback-only provider or adapter registries expose one deterministic entry and one small Python script. After the real GUI loads a valid isolated config, the runner makes only that config directory read-only. Hardware-uinput traversal enters the short id and activates installation. The provider path proceeds directly. The adapter path first requires one catalog request and zero asset requests while a declared required secure environment value is blank, fills that secure field through keyboard input, and only then permits the asset request.
-
-Each mode requires the executable managed script to be published with the exact fixture digest while adjacent backup/config publication fails, leaving the original config bytes unchanged, creating no backup, and sending no daemon reload. After restoring directory permissions, the runner reaches Retry Configuration Update through the mode-specific RecoveryRequired focus order. Success requires the typed provider or adapter entry to reference the existing managed script, the published script digest to remain unchanged, a mode-0600 config and exact original-byte mode-0600 backup, and exactly one `ReloadAsrBackend`. The request log must still contain exactly one catalog request and one script request, proving recovery performs only the config commit and does not resolve or download the resource again.
-
-Evidence under `target/tmp/gui-script-recovery-live/summary.json` and `target/tmp/gui-script-recovery-live-adapter/summary.json` retains only script kind/ids, asset digest/size, whether required environment confirmation occurred, structural recovery booleans, request counts, and isolation/restoration results. It retains no environment name or value, config path, script path, or script body. Cleanup restores the previous niri window and standard text clipboard and leaves zero GUI, HTTP fixture, daemon fixture, and private-bus processes. This records representative command ASR provider and required-environment text-adapter publication followed by config-only recovery on the current niri host. It does not claim hosted registries or another compositor, and no additional per-mutation GUI collector is required for 0.1.0.
+Future desktop GUI automation must address controls through a stable semantic identity or accessibility/test API. A test that depends on a fixed number of focus-navigation steps is not accepted as durable validation. The retained desktop live gates in this document are for Fcitx/input-method, toolkit text-entry, audio, notification, and provider integration paths rather than positional management-GUI traversal.
 
 ## 8. Frontend behavior
 

@@ -24,7 +24,7 @@ Vinpst already provides the core product experience expected for a voice-input s
 - CLI diagnostics and a Rust/Iced management GUI;
 - checked Arch, Debian, RPM, Nix, Flatpak, source-archive, manifest, and signing boundaries at different publication-readiness levels.
 
-The project is no longer blocked on a missing user capability. The frozen upstream inventory has no release-candidate delta, ordinary GUI workflows have deterministic coverage plus representative desktop evidence, and additional per-mutation GUI collectors are explicitly non-blocking. The active 0.1.0 work is release-candidate rehearsal, provenance/publication operations, artifact-installed validation, and post-publication verification. The GUI accessibility policy is explicit: keyboard operation is supported, screen-reader semantic trees are not, and CLI/Fcitx fallbacks are documented.
+The project is no longer blocked on a missing user capability. The frozen upstream inventory has no release-candidate delta, and ordinary GUI workflows have deterministic coverage. Positional focus-order management-GUI collectors are intentionally retired and are not release evidence. The active 0.1.0 work is release-candidate rehearsal, provenance/publication operations, artifact-installed validation, and post-publication verification. The GUI accessibility policy is explicit: keyboard operation is supported, screen-reader semantic trees are not, and CLI/Fcitx fallbacks are documented.
 
 Vinpst is not an in-place replacement for the upstream package. Its package, executable, addon, D-Bus, service, environment-variable, and XDG identities remain Vinpst-only, and no upstream migration or pre-0.1.0 internal compatibility is required.
 
@@ -40,11 +40,11 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 | Remote ASR | `deterministic`; loopback `live-proven` | Hosted-provider operational and credential evidence. |
 | Audio/VAD/device/output ducking | `deterministic`; representative `live-proven` | Additional physical-device and audible-output breadth. |
 | Scenes/LLM/adapters | `deterministic`; command replacement `live-proven` | Hosted-provider evidence and broader GUI error categories. |
-| Registry/resource lifecycle | `deterministic`; representative model/provider/adapter desktop paths retained | No known ordinary workflow gap; additional per-mutation GUI live collectors are post-0.1.0. |
+| Registry/resource lifecycle | `deterministic` | No known ordinary workflow gap; positional management-GUI collectors are intentionally not retained. |
 | Fcitx localization/notifications | `live-proven` for English and zh_CN | Additional locales are optional expansion. |
 | Remote text HTTP/WebSocket | `deterministic`; same-host browser `live-proven` | A separately confirmed physical-device collector run. |
 | CLI management and diagnostics | `deterministic` | UX polish from concrete audit findings. |
-| Rust management GUI | packaged interactive baseline; deterministic management coverage; representative keyboard/IME desktop paths retained; `0.1.0` accessibility policy explicit | Post-`0.1.0` semantic-tree implementation and error-message refinement from concrete reports. |
+| Rust management GUI | packaged interactive baseline; deterministic management coverage; `0.1.0` accessibility policy explicit | Positional focus-order collectors are retired; future desktop automation requires stable semantic control identities. Post-`0.1.0` semantic-tree work remains. |
 | Arch package/repository/signature/candidate | `deterministic`; explicit package smoke; tag job consumes the byte-identical source-job archive | Release-asset provenance, final unrelated-environment installation, and publication; a distribution repository is not selected for 0.1.0. |
 | Debian 12 / Ubuntu 24.04 | Docker install/upgrade/remove transactions complete; tag jobs build from the one source-job archive | Production publication and unrelated-environment validation. |
 | RPM family | build and isolated transaction baseline | Fedora/openSUSE support claims require distro/repository/signing/SELinux/live-scriptlet evidence. |
