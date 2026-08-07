@@ -209,6 +209,24 @@ impl RuntimeState {
         Ok(runtime)
     }
 
+    /// Builds a configured runtime with an injected recorder even when ASR is unavailable.
+    pub fn with_configured_audio_recorder_or_unavailable(
+        config: VinpstConfig,
+        audio_recorder: Box<dyn AudioRecorder>,
+    ) -> Result<Self, RuntimeError> {
+        match AsrBackendFactory::build_active(&config.asr) {
+            Ok(backend) => Self::with_configured_audio_recorder(config, backend, audio_recorder),
+            Err(error) => {
+                let message = error.to_string();
+                let backend = Box::new(UnavailableAsrBackend::new(&message));
+                let mut runtime =
+                    Self::with_configured_audio_recorder(config, backend, audio_recorder)?;
+                runtime.asr_reload_last_error = Some(message);
+                Ok(runtime)
+            }
+        }
+    }
+
     /// Builds an idle runtime from validated config and injected component seams.
     pub fn with_components(
         config: VinpstConfig,

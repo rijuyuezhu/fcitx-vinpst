@@ -738,6 +738,7 @@ fn default_mock_audio_source_supports_two_roundtrips() {
     assert_eq!(runtime.status(), ServiceStatus::Idle);
 }
 
+#[cfg(not(feature = "sherpa-onnx-backend"))]
 #[test]
 fn configured_asr_state_reports_default_backend_without_runtime() {
     let config = VinpstConfig::bundled_default().unwrap();
@@ -1771,6 +1772,26 @@ fn reload_configured_asr_backend_swaps_to_configured_provider() {
 fn configured_runtime_starts_without_a_usable_asr_backend() {
     let config = VinpstConfig::bundled_default().unwrap();
     let mut runtime = RuntimeState::with_configured_backends_or_unavailable(config).unwrap();
+
+    let state = runtime.asr_backend_state();
+    assert_eq!(state.target_provider_id, "sherpa-onnx");
+    assert!(state.target_model_id.is_empty());
+    assert!(!state.has_effective_backend);
+    assert!(!state.last_error.is_empty());
+
+    let error = runtime.start_recording().unwrap_err();
+    assert!(matches!(error, super::RuntimeError::Asr(_)));
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
+fn configured_recorder_runtime_starts_without_a_usable_asr_backend() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let recorder = Box::new(SourceAudioRecorder::new(Box::new(
+        super::default_mock_audio_source(),
+    )));
+    let mut runtime =
+        RuntimeState::with_configured_audio_recorder_or_unavailable(config, recorder).unwrap();
 
     let state = runtime.asr_backend_state();
     assert_eq!(state.target_provider_id, "sherpa-onnx");
