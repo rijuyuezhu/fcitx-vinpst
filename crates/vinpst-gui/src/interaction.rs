@@ -76,6 +76,12 @@ impl App {
         &mut self,
         message: InteractionMessage,
     ) -> Task<Message> {
+        if self.has_error_dialog() {
+            if message == InteractionMessage::ClearFocus {
+                self.dismiss_error();
+            }
+            return Task::none();
+        }
         match message {
             InteractionMessage::ClearFocus => operate(focusable::unfocus()),
             InteractionMessage::FocusRegistryWorkflow => {

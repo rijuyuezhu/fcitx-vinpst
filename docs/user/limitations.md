@@ -47,7 +47,7 @@ Repeated and bounded soak tests exist, including multi-cycle real-desktop runs. 
 
 ## GUI accessibility
 
-Vinpst `0.1.0` supports complete keyboard operation of the Rust management GUI, including focus traversal, action activation, value adjustment, page shortcuts, clipboard editing, and Fcitx input in text fields. These paths are live-proven on Wayland and X11/Xwayland.
+Vinpst `0.1.0` implements keyboard focus, action activation, value adjustment, page shortcuts, clipboard editing, and input-method handling in the Rust management GUI. These behaviors are covered by deterministic widget/state tests. Positional live collectors that inferred controls by counting `Tab` or `Shift+Tab` steps are not retained as evidence.
 
 The GUI does not expose a platform assistive-technology semantic tree, so screen-reader navigation is not supported or claimed for `0.1.0`. Use the `vinpst` CLI for application management and diagnostics. For Fcitx-only trigger keys and trigger mode, use `fcitx5-configtool` or the documented guarded terminal configuration-file fallback. See [Accessibility](accessibility.md) for the complete fallback matrix.
 

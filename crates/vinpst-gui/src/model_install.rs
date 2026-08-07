@@ -145,9 +145,22 @@ impl ModelInstallState {
         }
     }
 
+    pub(crate) fn failure_message(&self) -> Option<&str> {
+        match self {
+            Self::Failed { error, .. } => Some(error),
+            Self::Idle | Self::Active(_) | Self::Succeeded(_) | Self::Cancelled { .. } => None,
+        }
+    }
+
+    pub(crate) fn dismiss_failure(&mut self) {
+        if matches!(self, Self::Failed { .. }) {
+            *self = Self::Idle;
+        }
+    }
+
     pub(crate) fn view(&self, locale: GuiLocale) -> Option<Element<'_, Message>> {
         match self {
-            Self::Idle => None,
+            Self::Idle | Self::Failed { .. } => None,
             Self::Active(active) => Some(active.view(locale)),
             Self::Succeeded(summary) => Some(text(locale.operation_success(summary)).into()),
             Self::Cancelled { .. } => Some(
@@ -157,15 +170,6 @@ impl ModelInstallState {
                         .on_press(Message::RetryModelInstall),
                 ]
                 .spacing(10)
-                .into(),
-            ),
-            Self::Failed { error, .. } => Some(
-                column![
-                    text(locale.operation_error(error)),
-                    keyboard_button(locale.text(GuiText::Retry))
-                        .on_press(Message::RetryModelInstall),
-                ]
-                .spacing(8)
                 .into(),
             ),
         }

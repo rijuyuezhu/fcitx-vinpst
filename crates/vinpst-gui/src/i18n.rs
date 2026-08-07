@@ -126,13 +126,6 @@ impl GuiLocale {
         }
     }
 
-    pub(crate) fn operation_error(self, message: &str) -> String {
-        match self {
-            Self::EnUs => format!("Error: {message}"),
-            Self::ZhCn => format!("错误：{message}"),
-        }
-    }
-
     pub(crate) fn daemon_action_failure(self, action: DaemonActionName) -> String {
         match (self, action) {
             (Self::EnUs, DaemonActionName::Start) => {
