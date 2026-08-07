@@ -364,6 +364,7 @@ const fn simplified_chinese_install_tail(key: GuiText) -> &'static str {
         }
         GuiText::ChecksumVerified => "校验和已验证",
         GuiText::RegistryNoChecksum => "注册表未提供校验和",
+        GuiText::SelectingModel => "正在选择模型…",
         _ => unreachable!(),
     }
 }

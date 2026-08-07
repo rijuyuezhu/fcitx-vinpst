@@ -454,6 +454,36 @@ fn failed_operation_uses_modal_state_without_inline_layout_notice() {
 }
 
 #[test]
+fn resource_details_are_modal_and_escape_closes_them() {
+    let (mut app, boot_task) = App::boot();
+    drop(boot_task);
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    let provider_id = config.asr.active_provider.clone();
+    app.config = Ok(ConfigDocument {
+        path: PathBuf::from("/tmp/vinpst-gui-resource-detail-modal.json"),
+        from_disk: false,
+        config,
+    });
+    app.page = Page::Resources;
+    app.select_asr_provider_detail(provider_id);
+
+    assert!(app.has_resource_detail());
+    assert!(app.resource_detail_view().is_some());
+
+    drop(
+        app.update(Message::Interaction(InteractionMessage::SelectPage(
+            Page::Control,
+        ))),
+    );
+    assert_eq!(app.page, Page::Resources);
+    assert!(app.has_resource_detail());
+
+    drop(app.update(Message::Interaction(InteractionMessage::ClearFocus)));
+    assert!(!app.has_resource_detail());
+    assert_eq!(app.page, Page::Resources);
+}
+
+#[test]
 fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
     let config = VinpstConfig::bundled_default().expect("bundled config");
     let document = ConfigDocument {

@@ -10,7 +10,7 @@ use vinpst_config::AsrProviderKind;
 use vinpst_registry::InstalledModelInfo;
 
 use crate::{
-    App, GuiLocale, GuiText, Message, model_is_active,
+    App, GuiLocale, GuiText, Message, model_is_active, model_is_selected_by_active_provider,
     model_management::{ModelCatalogState, RegistryModelSummary},
     script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
@@ -51,9 +51,6 @@ impl App {
             body = body.push(notice);
         }
         body = body.push(self.configured_asr_resources_view(busy, resource_controls_busy));
-        if let Some(detail) = self.resource_detail_view() {
-            body = body.push(detail);
-        }
         scrollable(body).into()
     }
 
@@ -65,11 +62,23 @@ impl App {
             }
             Ok(models) => {
                 for model in models {
-                    let active = self
-                        .config
-                        .as_ref()
-                        .is_ok_and(|document| model_is_active(&document.config, &model.model_dir));
-                    body = body.push(installed_model_row(self.locale, model, active, busy));
+                    let (selected, referenced) =
+                        self.config.as_ref().map_or((false, false), |document| {
+                            (
+                                model_is_selected_by_active_provider(
+                                    &document.config,
+                                    &model.model_dir,
+                                ),
+                                model_is_active(&document.config, &model.model_dir),
+                            )
+                        });
+                    body = body.push(installed_model_row(
+                        self.locale,
+                        model,
+                        selected,
+                        referenced,
+                        busy,
+                    ));
                 }
             }
             Err(error) => {
@@ -223,9 +232,6 @@ impl App {
             }
             Err(error) => body = body.push(text(self.locale.config_error(error))),
         }
-        if let Some(detail) = self.resource_detail_view() {
-            body = body.push(detail);
-        }
         scrollable(body).into()
     }
 }
@@ -333,7 +339,8 @@ fn format_model_size(bytes: u64) -> String {
 fn installed_model_row(
     locale: GuiLocale,
     model: &InstalledModelInfo,
-    active: bool,
+    selected: bool,
+    referenced: bool,
     busy: bool,
 ) -> Element<'static, Message> {
     let locale_code = locale.code().to_owned();
@@ -346,12 +353,16 @@ fn installed_model_row(
         .and_then(|name| name.to_str())
         .unwrap_or("managed-model");
     row![
-        text(locale.installed_model_row(title, directory, model.file_count, active))
+        text(locale.installed_model_row(title, directory, model.file_count, selected))
             .width(Length::Fill),
         keyboard_button(locale.text(GuiText::Details))
             .on_press(Message::SelectInstalledModelDetail(model.model_dir.clone())),
+        keyboard_button(locale.text(GuiText::Use)).on_press_maybe(
+            (!busy && !selected).then_some(Message::UseInstalledModel(model.model_dir.clone())),
+        ),
         keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
-            (!busy && !active).then_some(Message::RemoveInstalledModel(model.model_dir.clone())),
+            (!busy && !referenced)
+                .then_some(Message::RemoveInstalledModel(model.model_dir.clone())),
         ),
     ]
     .spacing(10)

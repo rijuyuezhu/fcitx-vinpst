@@ -82,6 +82,12 @@ impl App {
             }
             return Task::none();
         }
+        if self.has_resource_detail() {
+            if message == InteractionMessage::ClearFocus {
+                self.clear_resource_detail();
+            }
+            return Task::none();
+        }
         match message {
             InteractionMessage::ClearFocus => operate(focusable::unfocus()),
             InteractionMessage::FocusRegistryWorkflow => {

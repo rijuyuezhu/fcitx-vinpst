@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use iced::{
     Element, Length,
-    widget::{column, row, text},
+    widget::{column, container, opaque, row, scrollable, text},
 };
 use vinpst_config::{
     AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, LlmProviderConfig, VinpstConfig,
@@ -74,8 +74,23 @@ impl ResourceDetail {
                 .spacing(10),
             );
         }
-        body.into()
+        resource_detail_modal(body.into())
     }
+}
+
+fn resource_detail_modal(content: Element<'static, Message>) -> Element<'static, Message> {
+    let dialog = container(scrollable(content).height(Length::Shrink))
+        .padding(24)
+        .max_width(760)
+        .max_height(640)
+        .style(container::rounded_box);
+    opaque(
+        container(dialog)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),
+    )
 }
 
 impl App {
@@ -99,6 +114,10 @@ impl App {
         self.selected_resource = None;
     }
 
+    pub(crate) fn has_resource_detail(&self) -> bool {
+        self.selected_resource.is_some()
+    }
+
     pub(crate) fn resource_detail_view(&self) -> Option<Element<'static, Message>> {
         let selection = self.selected_resource.as_ref()?;
         Some(
@@ -109,19 +128,21 @@ impl App {
                 self.installed_models.as_ref().map(Vec::as_slice),
             ) {
                 Ok(detail) => detail.view(self.locale),
-                Err(error) => column![
-                    row![
-                        text(self.locale.text(GuiText::ResourceDetailsUnavailable))
-                            .size(20)
-                            .width(Length::Fill),
-                        keyboard_button(self.locale.text(GuiText::CloseDetails))
-                            .on_press(Message::ClearResourceDetail),
+                Err(error) => resource_detail_modal(
+                    column![
+                        row![
+                            text(self.locale.text(GuiText::ResourceDetailsUnavailable))
+                                .size(20)
+                                .width(Length::Fill),
+                            keyboard_button(self.locale.text(GuiText::CloseDetails))
+                                .on_press(Message::ClearResourceDetail),
+                        ]
+                        .spacing(10),
+                        text(error),
                     ]
-                    .spacing(10),
-                    text(error),
-                ]
-                .spacing(7)
-                .into(),
+                    .spacing(7)
+                    .into(),
+                ),
             },
         )
     }

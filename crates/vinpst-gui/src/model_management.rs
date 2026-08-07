@@ -325,6 +325,46 @@ pub(crate) fn model_is_active(config: &VinpstConfig, model_dir: &Path) -> bool {
     })
 }
 
+pub(crate) fn model_is_selected_by_active_provider(
+    config: &VinpstConfig,
+    model_dir: &Path,
+) -> bool {
+    config.asr.providers.iter().any(|provider| {
+        provider.id == config.asr.active_provider
+            && provider.kind == AsrProviderKind::Local
+            && provider
+                .model
+                .as_deref()
+                .is_some_and(|model| Path::new(model) == model_dir)
+    })
+}
+
+pub(crate) fn select_model_for_active_provider(
+    config: &VinpstConfig,
+    model_dir: &Path,
+) -> Result<(VinpstConfig, String), String> {
+    let provider_id = config.asr.active_provider.clone();
+    let provider_index = config
+        .asr
+        .providers
+        .iter()
+        .position(|provider| provider.id == provider_id)
+        .ok_or_else(|| format!("ASR provider `{provider_id}` not found in config"))?;
+    if config.asr.providers[provider_index].kind != AsrProviderKind::Local {
+        return Err(format!(
+            "ASR provider `{provider_id}` is not local and cannot use a managed model"
+        ));
+    }
+
+    let mut updated = config.clone();
+    updated.asr.active_provider.clone_from(&provider_id);
+    updated.asr.providers[provider_index].model = Some(model_dir.to_string_lossy().into_owned());
+    updated
+        .validate()
+        .map_err(|error| format!("Validate updated configuration: {error}"))?;
+    Ok((updated, provider_id))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -485,5 +525,71 @@ mod tests {
             &config,
             Path::new("/managed/models/inactive")
         ));
+    }
+
+    #[test]
+    fn active_provider_selection_is_distinct_from_inactive_provider_references() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        let active_model = PathBuf::from("/managed/models/active");
+        let inactive_model = PathBuf::from("/managed/models/inactive-reference");
+        let active_provider_id = config.asr.active_provider.clone();
+        let active_provider = config
+            .asr
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == active_provider_id)
+            .expect("active provider");
+        active_provider.model = Some(active_model.to_string_lossy().into_owned());
+
+        let mut inactive_provider = active_provider.clone();
+        inactive_provider.id = "inactive-local".to_owned();
+        inactive_provider.model = Some(inactive_model.to_string_lossy().into_owned());
+        config.asr.providers.push(inactive_provider);
+
+        assert!(model_is_active(&config, &inactive_model));
+        assert!(!model_is_selected_by_active_provider(
+            &config,
+            &inactive_model
+        ));
+        assert!(model_is_selected_by_active_provider(&config, &active_model));
+    }
+
+    #[test]
+    fn model_selection_targets_the_active_local_provider() {
+        let config = VinpstConfig::bundled_default().expect("bundled config");
+        let model_dir = PathBuf::from("/managed/models/selected");
+        let active_provider = config.asr.active_provider.clone();
+
+        let (updated, provider_id) = select_model_for_active_provider(&config, &model_dir)
+            .expect("active local provider should accept a managed model");
+
+        assert_eq!(provider_id, active_provider);
+        let provider = updated
+            .asr
+            .providers
+            .iter()
+            .find(|provider| provider.id == active_provider)
+            .expect("active provider");
+        assert_eq!(provider.model.as_deref(), model_dir.to_str());
+        assert!(model_is_active(&updated, &model_dir));
+    }
+
+    #[test]
+    fn model_selection_rejects_a_non_local_active_provider() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        let provider_id = config.asr.active_provider.clone();
+        let provider = config
+            .asr
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == provider_id)
+            .expect("active provider");
+        provider.kind = AsrProviderKind::Remote;
+
+        let error = select_model_for_active_provider(&config, Path::new("/managed/models/model"))
+            .expect_err("remote provider must reject managed model selection");
+
+        assert!(error.contains(&provider_id));
+        assert!(error.contains("is not local"));
     }
 }
