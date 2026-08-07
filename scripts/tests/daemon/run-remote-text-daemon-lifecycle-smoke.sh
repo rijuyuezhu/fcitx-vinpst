@@ -12,6 +12,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -30,7 +31,9 @@ daemon_bin="${repo_root}/target/debug/vinpst-daemon"
 cli_bin="${repo_root}/target/debug/vinpst"
 root="${repo_root}/target/tmp/remote-text-daemon-lifecycle-smoke"
 rm -rf "${root}"
-mkdir -p "${root}"
+mkdir -p "${root}/dbus-services"
+dbus_config="${root}/session.conf"
+write_isolated_dbus_session_config "${dbus_config}" "${root}/dbus-services"
 config_path="${root}/config.json"
 log_path="${root}/daemon.log"
 port="$(python3 - <<'PY'
@@ -79,7 +82,7 @@ export VINPST_REMOTE_LIFECYCLE_CONFIG="${config_path}"
 export VINPST_REMOTE_LIFECYCLE_LOG="${log_path}"
 export VINPST_REMOTE_LIFECYCLE_PORT="${port}"
 
-timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
+timeout 30s dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 daemon_bin="${VINPST_REMOTE_LIFECYCLE_DAEMON_BIN}"
 cli_bin="${VINPST_REMOTE_LIFECYCLE_CLI_BIN}"
 config_path="${VINPST_REMOTE_LIFECYCLE_CONFIG}"

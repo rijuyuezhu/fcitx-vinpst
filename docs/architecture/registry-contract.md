@@ -7,7 +7,7 @@
 The registry crate is split so each side-effectful boundary stays reviewable:
 
 - `schema.rs`: legacy dry-run registry index, model, adapter, asset, summary, validation, and URL resolution helpers;
-- `live.rs`: live registry v2 `registry/models.json` parsing, `short_id` lookup, i18n title/description fallback, and typed/raw `vinpst_model` metadata;
+- `live.rs`: live registry v2 `registry/models.json` parsing, `short_id` lookup, i18n title/description fallback, and typed/raw `vinpst_model` metadata; the external bundled registry's `vinput_model` spelling is accepted only as a deserialization alias at this ingress boundary;
 - `script.rs`: live `registry/providers.json` and `registry/adapters.json` parsing, legacy-compatible managed script paths, mirror-backed executable publication, environment defaults, and guarded config materialization; `provider_script.rs`: shared command-provider script resolution, exact direct-argv editor planning/execution, legacy editor priority, and typed failures for CLI/GUI use;
 - `installed.rs`: shared installed-model discovery, typed `vinpst-model.json` loading, stable registry-id/display-title access, and regular-file inventory for both the current flat Rust managed layout and the legacy two-level engine/model layout;
 - `plan.rs`: planned assets, dry-run install plans, checksum policy planning, and target path calculation;
@@ -38,7 +38,7 @@ The live registry v2 model catalog is a separate `registry/models.json` shape wi
 
 - `version`: live registry schema version.
 - `items`: ASR model entries with `id`, `short_id`, ordered `urls`, `sha256`, `size_bytes`, `language`, and optional inline `title`/`description`.
-- `vinpst_model`: typed metadata for fields such as `backend`, `family`, `model_type`, `runtime`, `supports_hotwords`, plus raw backend-specific `recognizer` and `model` JSON subtrees.
+- `vinpst_model`: canonical typed metadata for fields such as `backend`, `family`, `model_type`, `runtime`, `supports_hotwords`, plus raw backend-specific `recognizer` and `model` JSON subtrees. Live registry parsing accepts `vinput_model` as an ingress-only alias because the bundled external registry still publishes that spelling. Vinpst serialization, installed `vinpst-model.json` files, configuration, CLI, and D-Bus surfaces do not emit or persist the alias.
 
 Live `i18n/*.json` files are flat string maps. Model display text resolves through inline `title`/`description`, then `<model-id>.title` / `<model-id>.description` i18n keys, then `short_id` or full `id` fallback for the title.
 

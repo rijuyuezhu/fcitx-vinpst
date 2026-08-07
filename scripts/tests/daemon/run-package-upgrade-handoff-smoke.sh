@@ -12,6 +12,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 for command in dbus-run-session gdbus jq timeout; do
   command -v "${command}" >/dev/null
@@ -21,12 +22,14 @@ cargo build -q -p vinpst-cli --bin vinpst -p vinpst-daemon --bin vinpst-daemon
 
 root="${repo_root}/target/tmp/package-upgrade-handoff-smoke"
 rm -rf "${root}"
-mkdir -p "${root}/data-home" "${root}/data-dirs"
+mkdir -p "${root}/data-home" "${root}/data-dirs" "${root}/dbus-services"
+dbus_config="${root}/session.conf"
+write_isolated_dbus_session_config "${dbus_config}" "${root}/dbus-services"
 
 XDG_DATA_HOME="${root}/data-home" \
 XDG_DATA_DIRS="${root}/data-dirs" \
 VINPST_UPGRADE_ROOT="${root}" \
-  timeout 30s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 30s dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 root="${VINPST_UPGRADE_ROOT}"
 uid="$(id -u)"
 runtime_root="$(mktemp -d "${TMPDIR:-/tmp}/vinpst-upgrade-runtime.XXXXXX")"
