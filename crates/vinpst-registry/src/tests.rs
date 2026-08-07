@@ -164,6 +164,10 @@ fn parses_live_models_json_sensevoice_metadata() {
             .and_then(serde_json::Value::as_bool),
         Some(true)
     );
+
+    let serialized = serde_json::to_value(&registry).unwrap();
+    assert!(serialized.pointer("/items/0/vinpst_model").is_some());
+    assert!(serialized.pointer("/items/0/vinput_model").is_none());
 }
 
 #[test]

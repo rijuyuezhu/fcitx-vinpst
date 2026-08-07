@@ -12,7 +12,7 @@
       "sha256": "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
       "size_bytes": 165675008,
       "language": "zh",
-      "vinpst_model": {
+      "vinput_model": {
         "backend": "sherpa-offline",
         "language": "zh",
         "size_bytes": 165675008,

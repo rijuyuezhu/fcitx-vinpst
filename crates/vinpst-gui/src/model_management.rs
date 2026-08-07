@@ -396,7 +396,7 @@ mod tests {
                 "urls": ["https://assets.invalid/model.tar.zst"],
                 "size_bytes": 21_264_113,
                 "language": "zh",
-                "vinpst_model": {
+                "vinput_model": {
                     "backend": "sherpa-streaming",
                     "runtime": "online",
                     "family": "zipformer2_ctc",

@@ -1,9 +1,14 @@
 //! Live registry v2 model metadata parsing.
 //!
-//! The legacy registry used by `xifan2333/vinpst-registry` publishes ASR
+//! The external registry used by the bundled defaults, `xifan2333/vinput-registry`, publishes ASR
 //! models in `registry/models.json` with a top-level `items` array. This
 //! module parses that live shape without replacing the older `index.json`
 //! dry-run planner schema used by existing tests and smoke fixtures.
+//!
+//! The live ingress also accepts the external registry's historical
+//! `vinput_model` key as an alias for canonical `vinpst_model` metadata. The
+//! alias is deserialization-only: Vinpst serialization and installed metadata
+//! continue to use the Vinpst identity.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -157,7 +162,10 @@ pub struct LiveModelEntry {
     #[serde(default)]
     pub description: Option<String>,
     /// Pre-built `vinpst-model.json` metadata to write after extraction.
-    #[serde(default)]
+    ///
+    /// The bundled external registry still publishes this object as
+    /// `vinput_model`; accept that spelling only at deserialization ingress.
+    #[serde(default, alias = "vinput_model")]
     pub vinpst_model: Option<LiveVinpstModelMetadata>,
 }
 
