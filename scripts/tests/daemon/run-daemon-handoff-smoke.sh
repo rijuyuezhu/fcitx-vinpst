@@ -12,6 +12,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 for command in dbus-run-session gdbus install jq readlink timeout; do
   command -v "${command}" >/dev/null
@@ -19,7 +20,9 @@ done
 
 root="${repo_root}/target/tmp/daemon-handoff-smoke"
 rm -rf "${root}"
-mkdir -p "${root}"
+mkdir -p "${root}/dbus-services"
+dbus_config="${root}/session.conf"
+write_isolated_dbus_session_config "${dbus_config}" "${root}/dbus-services"
 
 cargo build -q -p vinpst-cli --bin vinpst -p vinpst-daemon --bin vinpst-daemon
 
@@ -51,7 +54,7 @@ exit 97
 SH
 chmod +x "${current}/must-not-run"
 
-VINPST_HANDOFF_ROOT="${current}" timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
+VINPST_HANDOFF_ROOT="${current}" timeout 20s dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 root="${VINPST_HANDOFF_ROOT}"
 "${root}/bin/vinpst-daemon" --dbus >"${root}/daemon.log" 2>&1 &
 daemon_pid=$!
@@ -113,7 +116,7 @@ esac
 SH
 chmod +x "${systemd_case}/systemctl"
 
-VINPST_HANDOFF_ROOT="${systemd_case}" timeout 25s dbus-run-session -- bash -euo pipefail <<'INNER'
+VINPST_HANDOFF_ROOT="${systemd_case}" timeout 25s dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 root="${VINPST_HANDOFF_ROOT}"
 "${root}/old/vinpst-daemon" --dbus >"${root}/old-daemon.log" 2>&1 &
 old_pid=$!
@@ -301,7 +304,7 @@ esac
 SH
 chmod +x "${failure}/systemctl"
 
-VINPST_HANDOFF_ROOT="${failure}" timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
+VINPST_HANDOFF_ROOT="${failure}" timeout 20s dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 root="${VINPST_HANDOFF_ROOT}"
 "${root}/old/vinpst-daemon" --dbus >"${root}/old-daemon.log" 2>&1 &
 old_pid=$!

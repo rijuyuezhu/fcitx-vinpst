@@ -12,17 +12,22 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 stage_root="${repo_root}/target/tmp/daemon-default-config-smoke"
 config_home="${stage_root}/config"
 config_path="${config_home}/fcitx-vinpst/config.json"
 daemon_log="${stage_root}/daemon.log"
+dbus_service_dir="${stage_root}/dbus-services"
+dbus_config="${stage_root}/session.conf"
 
 rm -rf "${stage_root}"
 install -Dm644 data/default-config.json "${config_path}"
+mkdir -p "${dbus_service_dir}"
+write_isolated_dbus_session_config "${dbus_config}" "${dbus_service_dir}"
 cargo build -q -p vinpst-daemon --bin vinpst-daemon
 
-timeout 20s dbus-run-session -- bash -euo pipefail -c '
+timeout 20s dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail -c '
   daemon_path="$1"
   config_home="$2"
   daemon_log="$3"

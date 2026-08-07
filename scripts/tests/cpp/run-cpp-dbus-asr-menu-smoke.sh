@@ -12,6 +12,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 just addon-build
 cargo build -q -p vinpst-daemon
@@ -21,8 +22,11 @@ config_path="${smoke_dir}/config.json"
 model_root="${smoke_dir}/models"
 model_dir="${model_root}/installed-one"
 log_file="${smoke_dir}/daemon.log"
+dbus_service_dir="${smoke_dir}/dbus-services"
+dbus_config="${smoke_dir}/session.conf"
 rm -rf "${smoke_dir}"
-mkdir -p "${model_dir}"
+mkdir -p "${model_dir}" "${dbus_service_dir}"
+write_isolated_dbus_session_config "${dbus_config}" "${dbus_service_dir}"
 cat >"${model_dir}/vinpst-model.json" <<'JSON'
 {
   "backend": "sherpa-offline",
@@ -51,7 +55,7 @@ config["asr"]["providers"].append(
 output.write_text(json.dumps(config, indent=2) + "\n")
 PY
 
-dbus-run-session -- bash -euo pipefail <<INNER
+dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<INNER
 config_path="${config_path}"
 log_file="${log_file}"
 model_root="${model_root}"
@@ -66,6 +70,33 @@ cleanup() {
   wait "\${daemon_pid}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+wait_for_spawned_owner() {
+  local owner_pid
+  for _ in \$(seq 1 100); do
+    if ! kill -0 "\${daemon_pid}" >/dev/null 2>&1; then
+      cat "\${log_file}" >&2
+      echo "spawned Vinpst daemon exited before owning D-Bus" >&2
+      return 1
+    fi
+    if [[ "\$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+      org.freedesktop.DBus NameHasOwner s org.fcitx.Vinpst)" == "b true" ]]; then
+      owner_pid="\$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+        org.freedesktop.DBus GetConnectionUnixProcessID s org.fcitx.Vinpst | awk '\$1 == "u" { print \$2 }')"
+      if [[ "\${owner_pid}" == "\${daemon_pid}" ]]; then
+        return 0
+      fi
+      echo "unexpected Vinpst D-Bus owner pid: \${owner_pid}; expected \${daemon_pid}" >&2
+      return 1
+    fi
+    sleep 0.05
+  done
+  cat "\${log_file}" >&2
+  echo "spawned Vinpst daemon did not acquire D-Bus ownership" >&2
+  return 1
+}
+
+wait_for_spawned_owner
 
 for _ in \$(seq 1 50); do
   if VINPST_DBUS_SMOKE_EXPECT_SCENE_PERSISTED=1 \

@@ -12,6 +12,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 for command in dbus-run-session jq readlink timeout; do
   command -v "${command}" >/dev/null
@@ -20,9 +21,12 @@ done
 stage_root="${repo_root}/target/tmp/daemon-handoff-diagnostics-smoke"
 mismatch_root="${stage_root}/mismatch"
 deleted_root="${stage_root}/deleted"
+dbus_service_dir="${stage_root}/dbus-services"
+dbus_config="${stage_root}/session.conf"
 rm -rf "${stage_root}"
 mkdir -p "${mismatch_root}/bin" "${mismatch_root}/config" \
-  "${deleted_root}/bin" "${deleted_root}/config"
+  "${deleted_root}/bin" "${deleted_root}/config" "${dbus_service_dir}"
+write_isolated_dbus_session_config "${dbus_config}" "${dbus_service_dir}"
 
 cargo build -q -p vinpst-cli --bin vinpst -p vinpst-daemon --bin vinpst-daemon
 
@@ -34,7 +38,7 @@ VINPST_HANDOFF_CLI="${repo_root}/target/debug/vinpst" \
 VINPST_HANDOFF_DAEMON="${mismatch_root}/bin/vinpst-daemon-old" \
 VINPST_HANDOFF_CONFIG_HOME="${mismatch_root}/config" \
 VINPST_HANDOFF_STATUS="${mismatch_root}/status.json" \
-  timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 20s dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 "${VINPST_HANDOFF_DAEMON}" --dbus >"${VINPST_HANDOFF_STATUS}.daemon.log" 2>&1 &
 daemon_pid=$!
 cleanup() {
@@ -75,7 +79,7 @@ VINPST_HANDOFF_DAEMON="${deleted_root}/bin/vinpst-daemon" \
 VINPST_HANDOFF_REPLACEMENT="${repo_root}/target/debug/vinpst-daemon" \
 VINPST_HANDOFF_CONFIG_HOME="${deleted_root}/config" \
 VINPST_HANDOFF_STATUS="${deleted_root}/status.json" \
-  timeout 20s dbus-run-session -- bash -euo pipefail <<'INNER'
+  timeout 20s dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 "${VINPST_HANDOFF_DAEMON}" --dbus >"${VINPST_HANDOFF_STATUS}.daemon.log" 2>&1 &
 daemon_pid=$!
 cleanup() {

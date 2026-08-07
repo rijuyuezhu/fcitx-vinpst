@@ -12,11 +12,19 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
   repo_root="${parent}"
 done
 cd "${repo_root}"
+source scripts/tests/dbus-session-common.sh
 
 just addon-build
 cargo build -q -p vinpst-daemon
 
-dbus-run-session -- bash -euo pipefail <<'INNER'
+dbus_root="target/tmp/vinpst-cpp-dbus-smoke-bus"
+dbus_service_dir="${repo_root}/${dbus_root}/services"
+dbus_config="${repo_root}/${dbus_root}/session.conf"
+rm -rf "${dbus_root}"
+mkdir -p "${dbus_service_dir}"
+write_isolated_dbus_session_config "${dbus_config}" "${dbus_service_dir}"
+
+dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 log_file="target/tmp/vinpst-cpp-dbus-smoke-daemon.log"
 config_home="target/tmp/vinpst-cpp-dbus-smoke-config"
 bridge_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_bridge_dbus_smoke"
@@ -33,7 +41,33 @@ cleanup() {
   wait "${daemon_pid}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
-sleep 0.5
+
+wait_for_spawned_owner() {
+  local owner_pid
+  for _ in $(seq 1 100); do
+    if ! kill -0 "${daemon_pid}" >/dev/null 2>&1; then
+      cat "${log_file}" >&2
+      echo "spawned Vinpst daemon exited before owning D-Bus" >&2
+      return 1
+    fi
+    if [[ "$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+      org.freedesktop.DBus NameHasOwner s org.fcitx.Vinpst)" == "b true" ]]; then
+      owner_pid="$(busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+        org.freedesktop.DBus GetConnectionUnixProcessID s org.fcitx.Vinpst | awk '$1 == "u" { print $2 }')"
+      if [[ "${owner_pid}" == "${daemon_pid}" ]]; then
+        return 0
+      fi
+      echo "unexpected Vinpst D-Bus owner pid: ${owner_pid}; expected ${daemon_pid}" >&2
+      return 1
+    fi
+    sleep 0.05
+  done
+  cat "${log_file}" >&2
+  echo "spawned Vinpst daemon did not acquire D-Bus ownership" >&2
+  return 1
+}
+
+wait_for_spawned_owner
 
 run_smokes() {
   "${bridge_smoke_bin}" || return 1
