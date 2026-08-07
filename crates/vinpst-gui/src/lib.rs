@@ -42,6 +42,7 @@ mod llm_provider_management;
 mod message;
 mod model_install;
 mod model_management;
+mod model_selection;
 mod page;
 mod provider_script_edit;
 mod resource_details;
@@ -92,7 +93,7 @@ pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
 use model_management::{
     ModelCatalogState, load_installed_models, load_registry_model_catalog, model_is_active,
-    remove_installed_model,
+    model_is_selected_by_active_provider, remove_installed_model, select_model_for_active_provider,
 };
 pub use model_management::{RegistryModelSummary, default_model_root};
 pub use page::Page;
@@ -385,11 +386,13 @@ impl App {
             Message::RetryModelInstall => return self.retry_model_install(),
             Message::ModelInstallProgressTick => self.model_install.refresh_progress(),
             Message::RemoveInstalledModel(path) => return self.begin_model_remove(path),
+            Message::UseInstalledModel(path) => return self.begin_model_select(path),
             Message::ModelInstalled {
                 operation_id,
                 outcome,
             } => return self.finish_model_install(operation_id, outcome),
             Message::ModelRemoved(result) => return self.finish_model_remove(result),
+            Message::ModelSelected(result) => return self.finish_model_select(result),
             Message::SelectInstalledModelDetail(path) => self.select_installed_model_detail(path),
             Message::SelectAsrProviderDetail(id) => self.select_asr_provider_detail(id),
             Message::SelectLlmProviderDetail(id) => self.select_llm_provider_detail(id),
@@ -710,6 +713,14 @@ impl App {
         .width(Length::Fill)
         .height(Length::Fill)
         .into();
+
+        let base = match self.resource_detail_view() {
+            Some(detail) => stack([base, detail])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            None => base,
+        };
 
         match self.error_dialog_view() {
             Some(dialog) => stack([base, dialog])

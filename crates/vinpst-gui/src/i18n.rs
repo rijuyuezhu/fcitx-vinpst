@@ -647,6 +647,22 @@ impl GuiLocale {
         }
     }
 
+    pub(crate) fn model_selected(
+        self,
+        directory: &str,
+        provider_id: &str,
+        daemon_reload: &str,
+    ) -> String {
+        match self {
+            Self::EnUs => format!(
+                "Selected managed model `{directory}` for ASR provider `{provider_id}`; {daemon_reload}."
+            ),
+            Self::ZhCn => format!(
+                "已为 ASR 提供商“{provider_id}”选择托管模型“{directory}”；{daemon_reload}。"
+            ),
+        }
+    }
+
     pub(crate) fn script_installed(
         self,
         updated: bool,

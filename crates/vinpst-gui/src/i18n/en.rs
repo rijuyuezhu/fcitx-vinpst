@@ -407,6 +407,7 @@ const fn english_install_tail(key: GuiText) -> &'static str {
         }
         GuiText::ChecksumVerified => "checksum verified",
         GuiText::RegistryNoChecksum => "registry provided no checksum",
+        GuiText::SelectingModel => "Selecting model…",
         _ => unreachable!(),
     }
 }

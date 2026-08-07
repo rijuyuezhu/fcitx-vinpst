@@ -125,6 +125,10 @@ pub enum Message {
     RemoveInstalledModel(PathBuf),
     /// Result of an installed model removal.
     ModelRemoved(Result<String, String>),
+    /// Select one installed model for the active local ASR provider.
+    UseInstalledModel(PathBuf),
+    /// Result of selecting an installed model and reloading the daemon backend.
+    ModelSelected(Result<String, String>),
     /// Show typed details for one installed model.
     SelectInstalledModelDetail(PathBuf),
     /// Show typed details for one ASR provider.

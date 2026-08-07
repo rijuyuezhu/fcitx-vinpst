@@ -290,10 +290,11 @@ pub(crate) enum GuiText {
     HotwordActivationNotApplied,
     ChecksumVerified,
     RegistryNoChecksum,
+    SelectingModel,
 }
 #[cfg(test)]
 impl GuiText {
-    pub(super) const ALL: [Self; 288] = [
+    pub(super) const ALL: [Self; 289] = [
         Self::ApplicationTitle,
         Self::Control,
         Self::Resources,
@@ -582,5 +583,6 @@ impl GuiText {
         Self::HotwordActivationNotApplied,
         Self::ChecksumVerified,
         Self::RegistryNoChecksum,
+        Self::SelectingModel,
     ];
 }
