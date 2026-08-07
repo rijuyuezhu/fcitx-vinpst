@@ -38,7 +38,7 @@ vinpst daemon status
 vinpst doctor
 ```
 
-Resolve model, audio, activation, or addon errors reported by `doctor` before testing dictation.
+A fresh configuration intentionally has no selected ASR model yet. The daemon remains available in this setup state so the GUI can install resources and reload the backend. Before model selection, `vinpst doctor` reports `"ok": false` with `"status": "setup-required"`; treat that as an incomplete setup rather than a daemon startup failure. Resolve any additional audio, activation, or addon errors before testing dictation.
 
 ## 3. Install and select an ASR model
 

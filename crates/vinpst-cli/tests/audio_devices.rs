@@ -145,6 +145,59 @@ fn audio_devices_reports_pipewire_enumeration_error_without_failing() {
 }
 
 #[test]
+fn diagnostics_discover_user_config_before_bundled_default() {
+    let (root, mut doctor) = isolated_vinpst_command("vinpst-diagnostics-user-config");
+    let config_path = root.path().join("config/fcitx-vinpst/config.json");
+    fs::create_dir_all(config_path.parent().expect("config parent"))
+        .expect("create user config directory");
+    fs::write(
+        &config_path,
+        r#"{
+          "version": 1,
+          "asr": {
+            "active_provider": "mock",
+            "providers": [{
+              "id": "mock",
+              "type": "local",
+              "model": "fixture"
+            }]
+          }
+        }"#,
+    )
+    .expect("write user diagnostic config");
+
+    let doctor_output = doctor
+        .arg("doctor")
+        .output()
+        .expect("run doctor with discovered user config");
+    let doctor_value = assert_json_success(doctor_output, "discovered doctor config");
+    assert_eq!(doctor_value["ok"], true);
+    assert_eq!(doctor_value["status"], "ready");
+    assert_eq!(
+        doctor_value["config_path"],
+        config_path.to_string_lossy().as_ref()
+    );
+    assert_eq!(doctor_value["asr"]["target_provider_id"], "mock");
+
+    let mut asr_state = vinpst_command();
+    asr_state
+        .env("HOME", root.path().join("home"))
+        .env("XDG_CONFIG_HOME", root.path().join("config"))
+        .env("XDG_DATA_HOME", root.path().join("data"))
+        .env("XDG_CACHE_HOME", root.path().join("cache"))
+        .arg("asr-state");
+    let asr_value = assert_json_success(
+        asr_state
+            .output()
+            .expect("run ASR state with discovered config"),
+        "discovered ASR config",
+    );
+    assert_eq!(asr_value["target_provider_id"], "mock");
+    assert_eq!(asr_value["target_model_id"], "fixture");
+    assert_eq!(asr_value["has_effective_backend"], true);
+}
+
+#[test]
 fn doctor_reports_combined_local_diagnostics() {
     let data_home = std::env::temp_dir().join(format!(
         "vinpst-doctor-data-home-{}-{}",
@@ -168,7 +221,8 @@ fn doctor_reports_combined_local_diagnostics() {
         .expect("run vinpst doctor");
 
     let value = assert_json_success(output, "doctor summary");
-    assert_eq!(value["ok"], true);
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["status"], "setup-required");
     assert_eq!(value["config"]["ok"], true);
     assert_eq!(value["asr"]["target_provider_id"], "sherpa-onnx");
     assert_eq!(value["asr_timeout"]["provider_id"], "sherpa-onnx");
@@ -231,6 +285,10 @@ fn doctor_reports_combined_local_diagnostics() {
     );
     assert_eq!(value["fcitx_addon"]["user_addon_metadata_exists"], false);
     let next_steps_text = doctor_next_steps_text(&value);
+    assert!(next_steps_text.contains("vinpst asr-state --json"));
+    assert!(next_steps_text.contains("vinpst model list --available"));
+    assert!(next_steps_text.contains("vinpst model install <id-or-short-id>"));
+    assert!(next_steps_text.contains("vinpst model use <id-or-short-id>"));
     assert!(next_steps_text.contains("vinpst provider list"));
     assert!(next_steps_text.contains("vinpst provider use sherpa-onnx"));
     assert!(next_steps_text.contains("vinpst hotword get"));
@@ -239,6 +297,37 @@ fn doctor_reports_combined_local_diagnostics() {
     assert!(next_steps_text.contains("daemon D-Bus owner/procfs probes"));
     assert!(next_steps_text.contains("VINPST_SHERPA_VAD_MODEL"));
     assert!(next_steps_text.contains("cancellable command ASR provider"));
+}
+
+#[test]
+fn doctor_reports_ready_when_the_active_backend_is_usable() {
+    let config = write_temp_json(
+        "vinpst-doctor-ready",
+        r#"{
+          "version": 1,
+          "asr": {
+            "active_provider": "mock",
+            "providers": [{
+              "id": "mock",
+              "type": "local",
+              "model": "fixture"
+            }]
+          }
+        }"#,
+    );
+    let output = vinpst_command()
+        .args(["doctor", "--config"])
+        .arg(&config)
+        .output()
+        .expect("run vinpst doctor with a usable mock backend");
+    fs::remove_file(&config).expect("remove doctor ready fixture");
+
+    let value = assert_json_success(output, "doctor ready summary");
+    assert_eq!(value["ok"], true);
+    assert_eq!(value["status"], "ready");
+    assert_eq!(value["asr"]["has_effective_backend"], true);
+    let next_steps = doctor_next_steps_text(&value);
+    assert!(!next_steps.contains("vinpst model list --available"));
 }
 
 #[test]

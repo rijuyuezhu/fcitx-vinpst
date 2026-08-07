@@ -25,7 +25,7 @@ Most commands that can emit structured data accept `--json`; `-j/--json` is also
 | `llm` | Manage and test OpenAI-compatible LLM providers. |
 | `adapter` | Manage command text adapters and their daemon processes. |
 | `registry` | Validate registry metadata and inspect installation plans. |
-| `doctor` | Run combined configuration, ASR, audio, activation, and addon diagnostics. |
+| `doctor` | Run combined configuration, ASR, audio, activation, and addon diagnostics; `ok` reflects active ASR readiness and `status` distinguishes `ready` from `setup-required`. |
 
 ## Safe mutation pattern
 

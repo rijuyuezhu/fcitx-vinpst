@@ -125,7 +125,9 @@ The local smoke prepends `target/debug` to `LD_LIBRARY_PATH` by default so the c
 
 ## Diagnostics
 
-Both `vinpst-cli asr-state` and `vinpst-daemon asr-state` serialize `AsrBackendState` from config only. They do not construct, reload, or probe the runtime backend. Remote endpoint entries use the shared redacted URL representation, so an endpoint can remain identifiable without exposing URL credentials, fragment data, or query values. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable. An empty active provider is the explicit legacy-compatible unselected state and reports `no active ASR provider is configured`; runtime construction fails rather than selecting a fallback implicitly.
+The CLI diagnostics `vinpst doctor`, `vinpst asr-state`, and `vinpst audio-devices` resolve configuration consistently: an explicit `--config` path wins, otherwise an existing Vinpst XDG user config is used, and only a missing user config falls back to the bundled default. `doctor` keeps returning a structured report when setup is incomplete; its top-level `ok` reflects whether the active ASR backend can be constructed and prepared, with `status` set to `ready` or `setup-required`.
+
+Both `vinpst-cli asr-state` and `vinpst-daemon asr-state` serialize `AsrBackendState` from config only. They do not reload or mutate the runtime backend. Remote endpoint entries use the shared redacted URL representation, so an endpoint can remain identifiable without exposing URL credentials, fragment data, or query values. The daemon diagnostic remains usable with `--configured-backends` even when the selected runtime backend is unavailable. A configured daemon using the normal recorder path also remains reachable with an unavailable-backend placeholder when initial ASR construction fails, allowing a later reload after model/provider repair. An empty active provider is the explicit legacy-compatible unselected state and reports `no active ASR provider is configured`; no fallback provider is selected implicitly.
 
 ## Known compatibility gaps
 
