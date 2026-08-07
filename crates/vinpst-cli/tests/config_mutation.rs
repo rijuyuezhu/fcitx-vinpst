@@ -4,6 +4,9 @@ mod common;
 
 use common::{assert_json_success, assert_stdout_success, vinpst_command, workspace_file};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!(
@@ -378,6 +381,19 @@ fn config_set_in_place_writes_backup() {
         original
     );
     assert_eq!(read_json(&config_path)["asr"]["normalize_audio"], false);
+    #[cfg(unix)]
+    for path in [&config_path, &backup_path] {
+        assert_eq!(
+            std::fs::metadata(path)
+                .expect("stat private config transaction file")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600,
+            "{} must be private",
+            path.display()
+        );
+    }
 }
 
 #[test]

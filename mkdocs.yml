@@ -28,6 +28,8 @@ nav:
       - Migration status: migration/function-gap-audit.md
       - Capability matrix: migration/e2e-capability-matrix.md
       - Active plan: migration/e2e-replication-plan.md
+      - 0.1.0 release readiness: release/readiness.md
+      - Publishing and rollback: release/publishing.md
       - Upstream source analysis: legacy/README.md
 
 not_in_nav: |

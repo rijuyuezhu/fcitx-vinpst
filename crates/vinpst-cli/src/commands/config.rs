@@ -3,7 +3,7 @@ use crate::{
     VinpstConfig, config_backup_path, config_example_contents, config_example_description,
     config_set_write_target, config_summary_json, default_config_path, fs, load_config_json,
     split_editor_argv, validate_config_json_value, write_config_set_document,
-    write_file_atomically,
+    write_private_file_atomically,
 };
 
 pub(crate) fn handle_config_get(
@@ -362,7 +362,9 @@ fn run_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Result<ConfigEditO
     let changed = normalized != contents || !target_path.exists();
     if changed {
         if let Some(backup_path) = &plan.backup_path {
-            fs::copy(&target_path, backup_path).with_context(|| {
+            let current = fs::read_to_string(&target_path)
+                .with_context(|| format!("read config `{}` for backup", target_path.display()))?;
+            write_private_file_atomically(backup_path, &current).with_context(|| {
                 format!(
                     "backup config `{}` to `{}`",
                     target_path.display(),
@@ -377,7 +379,7 @@ fn run_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Result<ConfigEditO
             fs::create_dir_all(parent)
                 .with_context(|| format!("create config directory `{}`", parent.display()))?;
         }
-        write_file_atomically(&target_path, &normalized)
+        write_private_file_atomically(&target_path, &normalized)
             .with_context(|| format!("write edited config `{}`", target_path.display()))?;
     }
     fs::remove_file(&temp_path)
@@ -484,8 +486,8 @@ fn write_config_edit_temp_file(path: &Path, contents: &str) -> anyhow::Result<()
         fs::create_dir_all(parent)
             .with_context(|| format!("create temporary edit directory `{}`", parent.display()))?;
     }
-    fs::write(path, contents)
-        .with_context(|| format!("write temporary edit file `{}`", path.display()))
+    write_private_file_atomically(path, contents)
+        .with_context(|| format!("write private temporary edit file `{}`", path.display()))
 }
 
 pub(crate) fn validate_config_file(path: &PathBuf, _summary_only: bool) -> anyhow::Result<()> {

@@ -4,7 +4,7 @@ This page distinguishes missing product capability from evidence that has not ye
 
 ## Release status
 
-Vinpst has not published `0.1.0` yet. The final supported package/architecture matrix, production signing trust root, and public download instructions are still being completed.
+Vinpst has not published `0.1.0` yet. The selected matrix is source, Arch Linux x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, and a Flatpak x86_64 preview. Release assets use a checked manifest, `SHA256SUMS`, and GitHub/Sigstore provenance attestations; public download links appear only after the final release candidate passes.
 
 ## Desktop and application behavior
 

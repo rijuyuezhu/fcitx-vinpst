@@ -4,6 +4,9 @@ mod common;
 
 use common::{assert_json_success, assert_stdout_success, vinpst_command, workspace_file};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!(
@@ -108,6 +111,15 @@ fn init_writes_default_config_and_managed_dirs_idempotently() {
     assert_eq!(value["directories"]["model_root"]["created"], true);
     assert_eq!(value["directories"]["cache_root"]["created"], true);
     assert_valid_config(&config_path);
+    #[cfg(unix)]
+    assert_eq!(
+        std::fs::metadata(&config_path)
+            .expect("stat initialized config")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
     assert!(model_root.is_dir());
     assert!(cache_root.is_dir());
 
@@ -182,6 +194,15 @@ fn init_force_overwrites_existing_config() {
     assert_eq!(value["config"]["existed"], true);
     assert_eq!(value["config"]["wrote"], true);
     assert_valid_config(&config_path);
+    #[cfg(unix)]
+    assert_eq!(
+        std::fs::metadata(&config_path)
+            .expect("stat forced config")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
     assert_eq!(
         std::fs::read_to_string(&config_path).expect("read forced config"),
         std::fs::read_to_string(workspace_file("data/default-config.json"))

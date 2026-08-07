@@ -54,7 +54,9 @@ package-check:
     scripts/release/check-rpm-spec.sh
     scripts/release/check-source-archive.sh
     scripts/release/check-release-manifest.sh
+    scripts/release/check-release-metadata.sh
     scripts/release/check-release-signature.sh
+    scripts/release/check-github-release-publish.sh
     scripts/release/check-arch-release-candidate.sh
 
 # Build and validate the complete Arch package/repository/release pipeline.

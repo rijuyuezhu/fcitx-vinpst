@@ -15,7 +15,9 @@ scripts/release/check-nix-flake.sh
 scripts/release/check-rpm-spec.sh
 scripts/release/check-source-archive.sh
 scripts/release/check-release-manifest.sh
+scripts/release/check-release-metadata.sh
 scripts/release/check-release-signature.sh
+scripts/release/check-github-release-publish.sh
 scripts/release/check-arch-release-candidate.sh
 ```
 
@@ -28,6 +30,12 @@ scripts/release/run-flatpak-package-smoke.sh
 scripts/release/run-nix-package-smoke.sh
 scripts/release/run-rpm-package-smoke.sh
 ```
+
+After bundle assembly, the release workflow runs
+`run-release-bundle-install-smoke.sh` in a fresh Ubuntu 24.04 container. It
+verifies the final manifest and checksums, installs the selected Ubuntu package,
+runs the installed CLI and offline GUI check, initializes a new user profile,
+removes the package, and requires that user configuration remain byte-identical.
 
 The tag workflow first calls the same reusable CI workflow used for pull
 requests, retaining strict docs, complete Rust/FFI/integration, and locked Nix
@@ -63,3 +71,16 @@ The package lifecycle contract installs three cooperating files:
 - `package-remove-handoff.sh`: all-session removal preflight, guarded mutation, and activation rollback.
 
 They are product lifecycle code, not developer convenience scripts.
+
+## Publication boundary
+
+The release-bundle job creates GitHub/Sigstore provenance attestations for every
+checked asset. A version tag uses `RELEASE_NOTES.md`, creates or reuses only a
+draft GitHub Release, uploads the complete checked bundle, compares the remote
+asset names, sizes, and GitHub-reported SHA-256 digests with the local bundle,
+and publishes only after they match. The workflow refuses to replace assets on
+an already-public release.
+
+Run the workflow with `workflow_dispatch` for a non-publishing release-candidate
+rehearsal. The operator procedure and incident policy are documented in
+`docs/release/publishing.md`.

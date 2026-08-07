@@ -27,7 +27,13 @@ When release artifacts are published, download the complete checked release dire
 sha256sum -c SHA256SUMS
 ```
 
-The checksum file detects corruption or mismatched artifacts. It is not proof of publisher identity unless the release also provides a signed manifest and a separately authenticated public key.
+The checksum file detects corruption or mismatched artifacts. The release workflow also creates signed GitHub/Sigstore provenance attestations for every asset. Verify a downloaded artifact against the release workflow identity with:
+
+```sh
+gh attestation verify ./fcitx-vinpst-0.1.0.tar.gz \
+  --repo rijuyuezhu/fcitx-vinpst \
+  --signer-workflow rijuyuezhu/fcitx-vinpst/.github/workflows/release.yml
+```
 
 ### Arch Linux
 

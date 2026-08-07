@@ -27,7 +27,17 @@ scripts/release/check-nix-flake.sh
 scripts/release/check-rpm-spec.sh
 scripts/release/check-source-archive.sh
 scripts/release/check-release-manifest.sh
+scripts/release/check-release-metadata.sh
+release_version="$(scripts/release/check-release-metadata.sh --print-version)"
+scripts/release/check-release-metadata.sh --tag "v${release_version}"
+if scripts/release/check-release-metadata.sh --tag "v${release_version}.mismatch" \
+  >target/tmp/release-metadata-mismatch.out \
+  2>target/tmp/release-metadata-mismatch.err; then
+  echo "release metadata checker accepted a mismatched tag" >&2
+  exit 1
+fi
 scripts/release/check-release-signature.sh
+scripts/release/check-github-release-publish.sh
 scripts/release/check-arch-release-candidate.sh
 
 scripts/tests/asr/run-command-asr-wav-helper-smoke.sh

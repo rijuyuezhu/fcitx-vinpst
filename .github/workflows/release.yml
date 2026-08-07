@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -33,15 +33,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(cargo metadata --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.name == "vinpst-cli") | .version')"
+          metadata_args=(--print-version)
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            tag_version="${GITHUB_REF_NAME#v}"
-            if [[ "${tag_version}" != "${version}" ]]; then
-              echo "tag version ${tag_version} does not match workspace ${version}" >&2
-              exit 1
-            fi
+            metadata_args+=(--tag "${GITHUB_REF_NAME}")
           fi
+          version="$(scripts/release/check-release-metadata.sh "${metadata_args[@]}")"
           echo "version=${version}" >>"${GITHUB_OUTPUT}"
       - name: Create source archive
         shell: bash
@@ -99,12 +95,19 @@ jobs:
         run: |
           set -euo pipefail
           source_dir='${{ steps.release-source.outputs.path }}'
+          mapfile -d '' -t packages < <(
+            find "${source_dir}/target/tmp/deb-package-smoke/${{ matrix.distribution }}" \
+              -maxdepth 1 -type f \
+              -name 'fcitx-vinpst_*-1_${{ matrix.distribution }}_amd64.deb' \
+              -print0
+          )
+          if ((${#packages[@]} != 1)); then
+            echo "expected exactly one formal ${{ matrix.distribution }} package, found ${#packages[@]}" >&2
+            exit 1
+          fi
+          package="${packages[0]}"
+          rm -rf "dist/${{ matrix.distribution }}"
           mkdir -p "dist/${{ matrix.distribution }}"
-          package="$(find "${source_dir}/target/tmp/deb-package-smoke/${{ matrix.distribution }}" \
-            -maxdepth 1 -type f \
-            -name 'fcitx-vinpst_*-1_${{ matrix.distribution }}_amd64.deb' \
-            -print -quit)"
-          test -n "${package}"
           cp "${package}" "dist/${{ matrix.distribution }}/"
           if find "dist/${{ matrix.distribution }}" -type f -name '*-2_*.deb' \
             -print -quit | grep -q .; then
@@ -210,11 +213,18 @@ jobs:
           recorded_source_sha256="$(awk '{print $1}' \
             "${source_dir}/target/tmp/arch-package-smoke/source-archive.sha256")"
           test "${recorded_source_sha256}" = '${{ steps.release-source.outputs.sha256 }}'
-          package="$(find "${source_dir}/target/tmp/arch-package-smoke/build" \
-            -maxdepth 1 -type f \
-            -name "fcitx-vinpst-${version}-1-x86_64.pkg.tar.zst" \
-            -print -quit)"
-          test -n "${package}"
+          mapfile -d '' -t packages < <(
+            find "${source_dir}/target/tmp/arch-package-smoke/build" \
+              -maxdepth 1 -type f \
+              -name "fcitx-vinpst-${version}-1-x86_64.pkg.tar.zst" \
+              -print0
+          )
+          if ((${#packages[@]} != 1)); then
+            echo "expected exactly one formal Arch package, found ${#packages[@]}" >&2
+            exit 1
+          fi
+          package="${packages[0]}"
+          rm -rf dist/arch
           mkdir -p dist/arch
           cp "${package}" dist/arch/
           if find dist/arch -type f -name '*-2-*.pkg.tar.zst' \
@@ -299,6 +309,10 @@ jobs:
       - deb-packages
       - flatpak-package
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
@@ -309,24 +323,41 @@ jobs:
         run: |
           set -euo pipefail
           version='${{ needs.source-archive.outputs.version }}'
-          source_archive="$(find release-inputs/source-archive -type f \
-            -name "fcitx-vinpst-${version}.tar.gz" -print -quit)"
-          arch_package="$(find release-inputs/release-arch-x86_64 -type f \
-            -name "fcitx-vinpst-${version}-1-x86_64.pkg.tar.zst" -print -quit)"
-          debian_package="$(find release-inputs/release-deb-debian12 -type f \
-            -name 'fcitx-vinpst_*-1_debian12_amd64.deb' -print -quit)"
-          ubuntu_package="$(find release-inputs/release-deb-ubuntu24.04 -type f \
-            -name 'fcitx-vinpst_*-1_ubuntu24.04_amd64.deb' -print -quit)"
-          flatpak_bundle="$(find release-inputs/release-flatpak -type f \
-            -name "fcitx-vinpst-${version}-x86_64.flatpak" -print -quit)"
-          for artifact in \
-            "${source_archive}" \
-            "${arch_package}" \
-            "${debian_package}" \
-            "${ubuntu_package}" \
-            "${flatpak_bundle}"; do
-            test -f "${artifact}"
-          done
+          select_exact_artifact() {
+            local directory="$1"
+            local pattern="$2"
+            local label="$3"
+            local -a files=()
+            mapfile -d '' -t files < <(find "${directory}" -type f -print0)
+            # The caller supplies the intentional basename glob.
+            # shellcheck disable=SC2053
+            if ((${#files[@]} != 1)) || [[ "${files[0]##*/}" != ${pattern} ]]; then
+              echo "expected exactly one ${label} artifact matching ${pattern@Q}" >&2
+              printf 'found: %q\n' "${files[@]}" >&2
+              exit 1
+            fi
+            printf '%s\n' "${files[0]}"
+          }
+          source_archive="$(select_exact_artifact \
+            release-inputs/source-archive \
+            "fcitx-vinpst-${version}.tar.gz" \
+            source-archive)"
+          arch_package="$(select_exact_artifact \
+            release-inputs/release-arch-x86_64 \
+            "fcitx-vinpst-${version}-1-x86_64.pkg.tar.zst" \
+            arch-x86_64)"
+          debian_package="$(select_exact_artifact \
+            release-inputs/release-deb-debian12 \
+            'fcitx-vinpst_*-1_debian12_amd64.deb' \
+            deb-debian12)"
+          ubuntu_package="$(select_exact_artifact \
+            release-inputs/release-deb-ubuntu24.04 \
+            'fcitx-vinpst_*-1_ubuntu24.04_amd64.deb' \
+            deb-ubuntu24.04)"
+          flatpak_bundle="$(select_exact_artifact \
+            release-inputs/release-flatpak \
+            "fcitx-vinpst-${version}-x86_64.flatpak" \
+            flatpak-x86_64)"
           if find release-inputs -type f -name '*-2_*.deb' -print -quit | grep -q .; then
             echo "release inputs contain a synthetic upgrade package" >&2
             exit 1
@@ -348,22 +379,53 @@ jobs:
             --artifact "flatpak-x86_64=${flatpak_bundle}"
           scripts/release/release_manifest.py verify \
             "dist/fcitx-vinpst-${version}-release"
+      - name: Attest checked release artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/fcitx-vinpst-${{ needs.source-archive.outputs.version }}-release/*
       - uses: actions/upload-artifact@v4
         with:
           name: checked-release-bundle
           path: dist/fcitx-vinpst-${{ needs.source-archive.outputs.version }}-release/*
           if-no-files-found: error
 
+  release-candidate-install:
+    needs:
+      - release-bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: checked-release-bundle
+          path: release
+      - name: Install checked bundle in an unrelated environment
+        shell: bash
+        run: |
+          scripts/release/run-release-bundle-install-smoke.sh \
+            --bundle-dir release \
+            --image ubuntu:24.04
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - source-archive
       - release-bundle
+      - release-candidate-install
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           name: checked-release-bundle
@@ -371,14 +433,9 @@ jobs:
       - name: Publish checked artifacts
         shell: bash
         run: |
-          set -euo pipefail
-          if ! gh release view "${GITHUB_REF_NAME}" --repo "${GH_REPO}" >/dev/null 2>&1; then
-            gh release create "${GITHUB_REF_NAME}" \
-              --repo "${GH_REPO}" \
-              --title "${GITHUB_REF_NAME}" \
-              --generate-notes
-          fi
-          gh release upload "${GITHUB_REF_NAME}" \
-            --repo "${GH_REPO}" \
-            release/* \
-            --clobber
+          scripts/release/publish-github-release.sh \
+            --tag "${GITHUB_REF_NAME}" \
+            --version '${{ needs.source-archive.outputs.version }}' \
+            --bundle-dir release \
+            --notes-file RELEASE_NOTES.md \
+            --repo "${GH_REPO}"
