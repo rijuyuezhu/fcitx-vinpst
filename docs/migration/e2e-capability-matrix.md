@@ -44,7 +44,7 @@ The comparison is now based on the compiled upstream CLI, not only source inspec
 
 Upstream exposes the public root groups `init`, `daemon`, `recording`, `config`, `model`, `provider`, `adapter`, `device`, `hotword`, `scene`, and `llm`. Rust exposes the same user groups plus `doctor`. Protocol dumps, registry validators, package-lifecycle helpers, fixture roots, local registry/i18n injection, transport-plan dry runs, and other test-oriented entry points remain callable where project tooling needs them but are hidden from ordinary help.
 
-Familiar upstream spellings remain accepted without expanding the normal help surface, including `model ls/add/rm`, `provider ls/add/edit/e/rm`, `adapter ls/add`, `device ls`, `hotword e`, `config e`, and `llm ls/e/rm`. Managed-provider and managed-adapter installation therefore accept the upstream `add` spelling, and `provider edit/e` keeps the upstream meaning of editing the installed provider script. Rust-specific typed custom resources use unambiguous `provider create`, `provider configure`, and `adapter create` commands instead.
+Familiar upstream spellings remain accepted without expanding the normal help surface, including `model ls/add/rm`, `provider ls/add/edit/e/rm`, `adapter ls/add`, `device ls`, `hotword e`, `scene ls/e/rm`, `config e`, and `llm ls/e/rm`. Managed-provider and managed-adapter installation therefore accept the upstream `add` spelling, and `provider edit/e` keeps the upstream meaning of editing the installed provider script. Rust-specific typed custom resources use unambiguous `provider create`, `provider configure`, and `adapter create` commands instead.
 
 Intentional command-shape differences now add capabilities without changing the meaning of familiar upstream commands:
 
