@@ -29,6 +29,7 @@ pub(crate) enum ProviderCommand {
         json: bool,
     },
     /// Install or update an ASR provider from the live script registry.
+    #[command(alias = "add")]
     Install {
         /// Full provider id or registry `short_id`.
         id: String,
@@ -74,7 +75,8 @@ pub(crate) enum ProviderCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Add an ASR provider to config.
+    /// Create a custom ASR provider in config.
+    #[command(name = "create")]
     Add {
         /// New ASR provider id.
         id: String,
@@ -118,7 +120,8 @@ pub(crate) enum ProviderCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Edit an existing ASR provider in config.
+    /// Configure an existing ASR provider in config.
+    #[command(name = "configure")]
     Edit {
         /// Existing ASR provider id to edit.
         id: String,
@@ -184,7 +187,7 @@ pub(crate) enum ProviderCommand {
         json: bool,
     },
     /// Open the script referenced by an installed command ASR provider.
-    #[command(aliases = ["e", "es"])]
+    #[command(name = "edit", aliases = ["e", "edit-script", "es"])]
     EditScript {
         /// Existing provider id or registry `short_id` to edit.
         id: String,

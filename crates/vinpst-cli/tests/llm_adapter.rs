@@ -592,14 +592,14 @@ fn llm_mutations_reject_invalid_inputs() {
 }
 
 #[test]
-fn adapter_add_dry_run_json_validates_without_writing() {
+fn adapter_create_dry_run_json_validates_without_writing() {
     let path = write_llm_fixture("vinpst-adapter-add-dry-run");
     let before = fs::read_to_string(&path).expect("read original adapter config");
 
     let output = vinpst_command()
         .args([
             "adapter",
-            "add",
+            "create",
             "extra-adapter",
             "--command",
             "extra-helper",
@@ -616,7 +616,7 @@ fn adapter_add_dry_run_json_validates_without_writing() {
             "--json",
         ])
         .output()
-        .expect("run vinpst adapter add dry-run");
+        .expect("run vinpst adapter create dry-run");
 
     let value = assert_json_success(output, "adapter add dry-run json");
     assert_eq!(value["ok"], true);
@@ -634,13 +634,13 @@ fn adapter_add_dry_run_json_validates_without_writing() {
 }
 
 #[test]
-fn adapter_add_text_dry_run_outputs_expected_fields_without_secrets() {
+fn adapter_create_text_dry_run_outputs_expected_fields_without_secrets() {
     let path = write_llm_fixture("vinpst-adapter-add-text-dry-run");
 
     let output = vinpst_command()
         .args([
             "adapter",
-            "add",
+            "create",
             "extra-adapter",
             "--command",
             "extra-helper",
@@ -649,7 +649,7 @@ fn adapter_add_text_dry_run_outputs_expected_fields_without_secrets() {
         .arg(&path)
         .args(["--env", "TOKEN=secret-token", "--dry-run"])
         .output()
-        .expect("run vinpst adapter add text dry-run");
+        .expect("run vinpst adapter create text dry-run");
     fs::remove_file(&path).expect("remove temporary adapter config");
 
     let stdout = assert_stdout_success(output, "adapter add text dry-run");
@@ -671,7 +671,7 @@ fn adapter_add_text_dry_run_outputs_expected_fields_without_secrets() {
 }
 
 #[test]
-fn adapter_add_output_writes_valid_config_without_overwriting_input() {
+fn adapter_create_output_writes_valid_config_without_overwriting_input() {
     let root = unique_temp_dir("vinpst-adapter-add-output");
     let config_path = root.join("config.json");
     fs::write(&config_path, llm_fixture_json()).expect("write adapter config");
@@ -681,7 +681,7 @@ fn adapter_add_output_writes_valid_config_without_overwriting_input() {
     let output = vinpst_command()
         .args([
             "adapter",
-            "add",
+            "create",
             "extra-adapter",
             "--command",
             "extra-helper",
@@ -692,7 +692,7 @@ fn adapter_add_output_writes_valid_config_without_overwriting_input() {
         .arg(&output_path)
         .arg("--json")
         .output()
-        .expect("run vinpst adapter add --output");
+        .expect("run vinpst adapter create --output");
 
     let value = assert_json_success(output, "adapter add output json");
     assert_eq!(value["wrote_config"], true);
@@ -966,7 +966,7 @@ fn adapter_mutations_reject_invalid_inputs() {
     let duplicate = vinpst_command()
         .args([
             "adapter",
-            "add",
+            "create",
             "simple-adapter",
             "--command",
             "helper",
@@ -975,17 +975,17 @@ fn adapter_mutations_reject_invalid_inputs() {
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst adapter add duplicate id");
+        .expect("run vinpst adapter create duplicate id");
     assert!(!duplicate.status.success());
     let stderr = String::from_utf8(duplicate.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("text adapter `simple-adapter` already exists"));
 
     let empty_command = vinpst_command()
-        .args(["adapter", "add", "new", "--command", "   ", "--config"])
+        .args(["adapter", "create", "new", "--command", "   ", "--config"])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst adapter add empty command");
+        .expect("run vinpst adapter create empty command");
     assert!(!empty_command.status.success());
     let stderr = String::from_utf8(empty_command.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("text adapter command cannot be empty"));
@@ -993,7 +993,7 @@ fn adapter_mutations_reject_invalid_inputs() {
     let bad_env = vinpst_command()
         .args([
             "adapter",
-            "add",
+            "create",
             "new",
             "--command",
             "helper",
@@ -1004,7 +1004,7 @@ fn adapter_mutations_reject_invalid_inputs() {
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst adapter add invalid env");
+        .expect("run vinpst adapter create invalid env");
     assert!(!bad_env.status.success());
     let stderr = String::from_utf8(bad_env.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("text adapter env `TOKEN` is not KEY=VALUE"));
@@ -1020,10 +1020,17 @@ fn adapter_mutations_reject_invalid_inputs() {
     assert!(stderr.contains("text adapter `missing` not found"));
 
     let missing_target = vinpst_command()
-        .args(["adapter", "add", "new", "--command", "helper", "--config"])
+        .args([
+            "adapter",
+            "create",
+            "new",
+            "--command",
+            "helper",
+            "--config",
+        ])
         .arg(&path)
         .output()
-        .expect("run vinpst adapter add without write target");
+        .expect("run vinpst adapter create without write target");
     assert!(!missing_target.status.success());
     let stderr = String::from_utf8(missing_target.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("config set writes require --output <path> or --in-place"));

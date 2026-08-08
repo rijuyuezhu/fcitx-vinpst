@@ -28,7 +28,8 @@ pub(crate) enum AdapterCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Add a command text adapter to config.
+    /// Create a custom command text adapter in config.
+    #[command(name = "create")]
     Add {
         /// New adapter id.
         id: String,
@@ -61,6 +62,7 @@ pub(crate) enum AdapterCommand {
         json: bool,
     },
     /// Install or update a command text adapter from the live script registry.
+    #[command(alias = "add")]
     Install {
         /// Full adapter id or registry `short_id`.
         id: String,

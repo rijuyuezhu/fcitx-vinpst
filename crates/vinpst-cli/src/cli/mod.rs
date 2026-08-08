@@ -359,7 +359,7 @@ pub(crate) fn force_json_output(command: &mut Command) {
 mod help_surface_tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{Args, Command, ConfigCommand, ProviderCommand};
+    use super::{AdapterCommand, Args, Command, ConfigCommand, ProviderCommand};
     use crate::hotword::HotwordCommand;
 
     #[test]
@@ -523,6 +523,33 @@ mod help_surface_tests {
             args.command,
             Command::Provider {
                 command: ProviderCommand::Remove { .. }
+            }
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "provider", "add", "provider.demo"])
+            .expect("upstream provider add alias");
+        assert!(matches!(
+            args.command,
+            Command::Provider {
+                command: ProviderCommand::Install { .. }
+            }
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "provider", "edit", "provider.demo"])
+            .expect("upstream provider edit command");
+        assert!(matches!(
+            args.command,
+            Command::Provider {
+                command: ProviderCommand::EditScript { .. }
+            }
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "adapter", "add", "adapter.demo"])
+            .expect("upstream adapter add alias");
+        assert!(matches!(
+            args.command,
+            Command::Adapter {
+                command: AdapterCommand::Install { .. }
             }
         ));
     }

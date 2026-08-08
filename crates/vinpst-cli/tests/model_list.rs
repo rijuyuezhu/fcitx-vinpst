@@ -890,7 +890,7 @@ fn model_use_dry_run_text_accepts_installed_path_without_registry() {
 }
 
 #[test]
-fn model_use_without_dry_run_is_rejected_until_config_mutation_exists() {
+fn model_use_without_write_target_requires_output_or_in_place() {
     let output = vinpst_command()
         .args(["model", "use", "/tmp/vinpst-models/custom"])
         .output()
@@ -1217,7 +1217,7 @@ fn model_remove_dry_run_rejects_path_outside_model_root() {
 }
 
 #[test]
-fn model_remove_without_dry_run_is_rejected_until_real_remove_exists() {
+fn model_remove_without_yes_requires_confirmation() {
     let output = vinpst_command()
         .args(["model", "remove", "custom-model"])
         .output()

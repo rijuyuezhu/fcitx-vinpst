@@ -254,12 +254,12 @@ fn provider_use_rejects_empty_missing_and_missing_write_target() {
 }
 
 #[test]
-fn provider_add_dry_run_json_validates_local_provider_without_writing() {
+fn provider_create_dry_run_json_validates_local_provider_without_writing() {
     let path = write_provider_fixture("vinpst-provider-add-dry-run");
     let before = fs::read_to_string(&path).expect("read original provider config");
 
     let output = vinpst_command()
-        .args(["provider", "add", "extra", "--config"])
+        .args(["provider", "create", "extra", "--config"])
         .arg(&path)
         .args([
             "--model",
@@ -269,7 +269,7 @@ fn provider_add_dry_run_json_validates_local_provider_without_writing() {
         ])
         .args(["--dry-run", "--json"])
         .output()
-        .expect("run vinpst provider add dry-run");
+        .expect("run vinpst provider create dry-run");
 
     let value = assert_json_success(output, "provider add dry-run json");
     assert_eq!(value["ok"], true);
@@ -289,15 +289,15 @@ fn provider_add_dry_run_json_validates_local_provider_without_writing() {
 }
 
 #[test]
-fn provider_add_text_dry_run_outputs_expected_fields() {
+fn provider_create_text_dry_run_outputs_expected_fields() {
     let path = write_provider_fixture("vinpst-provider-add-text-dry-run");
 
     let output = vinpst_command()
-        .args(["provider", "add", "extra", "--config"])
+        .args(["provider", "create", "extra", "--config"])
         .arg(&path)
         .args(["--model", "extra-model", "--dry-run"])
         .output()
-        .expect("run vinpst provider add text dry-run");
+        .expect("run vinpst provider create text dry-run");
     fs::remove_file(&path).expect("remove temporary provider config");
 
     let stdout = assert_stdout_success(output, "provider add text dry-run");
@@ -319,7 +319,7 @@ fn provider_add_text_dry_run_outputs_expected_fields() {
 }
 
 #[test]
-fn provider_add_output_writes_command_provider_without_overwriting_input() {
+fn provider_create_output_writes_command_provider_without_overwriting_input() {
     let root = unique_temp_dir("vinpst-provider-add-output");
     let config_path = root.join("config.json");
     fs::write(&config_path, provider_fixture_json()).expect("write provider config");
@@ -329,7 +329,7 @@ fn provider_add_output_writes_command_provider_without_overwriting_input() {
     let output = vinpst_command()
         .args([
             "provider",
-            "add",
+            "create",
             "cmd2",
             "--type",
             "command",
@@ -349,7 +349,7 @@ fn provider_add_output_writes_command_provider_without_overwriting_input() {
         .arg(&output_path)
         .arg("--json")
         .output()
-        .expect("run vinpst provider add command --output");
+        .expect("run vinpst provider create command --output");
 
     let value = assert_json_success(output, "provider add output json");
     assert_eq!(value["wrote_config"], true);
@@ -377,7 +377,7 @@ fn provider_add_output_writes_command_provider_without_overwriting_input() {
 }
 
 #[test]
-fn provider_add_in_place_writes_remote_provider_and_backup() {
+fn provider_create_in_place_writes_remote_provider_and_backup() {
     let root = unique_temp_dir("vinpst-provider-add-in-place");
     let config_path = root.join("config.json");
     fs::write(&config_path, provider_fixture_json()).expect("write provider config");
@@ -387,7 +387,7 @@ fn provider_add_in_place_writes_remote_provider_and_backup() {
     let output = vinpst_command()
         .args([
             "provider",
-            "add",
+            "create",
             "cloud",
             "--type",
             "remote",
@@ -398,7 +398,7 @@ fn provider_add_in_place_writes_remote_provider_and_backup() {
         .arg(&config_path)
         .args(["--in-place", "--json"])
         .output()
-        .expect("run vinpst provider add remote --in-place");
+        .expect("run vinpst provider create remote --in-place");
 
     let value = assert_json_success(output, "provider add in-place json");
     assert_eq!(value["wrote_config"], true);
@@ -423,55 +423,59 @@ fn provider_add_in_place_writes_remote_provider_and_backup() {
 }
 
 #[test]
-fn provider_add_rejects_invalid_duplicate_and_missing_write_target() {
+fn provider_create_rejects_invalid_duplicate_and_missing_write_target() {
     let path = write_provider_fixture("vinpst-provider-add-errors");
 
     let empty = vinpst_command()
-        .args(["provider", "add", "   ", "--config"])
+        .args(["provider", "create", "   ", "--config"])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider add empty id");
+        .expect("run vinpst provider create empty id");
     assert!(!empty.status.success());
     let stderr = String::from_utf8(empty.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("ASR provider id cannot be empty"));
 
     let duplicate = vinpst_command()
-        .args(["provider", "add", "cmd", "--config"])
+        .args(["provider", "create", "cmd", "--config"])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider add duplicate id");
+        .expect("run vinpst provider create duplicate id");
     assert!(!duplicate.status.success());
     let stderr = String::from_utf8(duplicate.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("ASR provider `cmd` already exists"));
 
     let invalid_type = vinpst_command()
-        .args(["provider", "add", "new", "--type", "bad", "--config"])
+        .args(["provider", "create", "new", "--type", "bad", "--config"])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider add invalid type");
+        .expect("run vinpst provider create invalid type");
     assert!(!invalid_type.status.success());
     let stderr = String::from_utf8(invalid_type.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("unsupported ASR provider type `bad`"));
 
     let missing_command = vinpst_command()
-        .args(["provider", "add", "cmd2", "--type", "command", "--config"])
+        .args([
+            "provider", "create", "cmd2", "--type", "command", "--config",
+        ])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider add command without command");
+        .expect("run vinpst provider create command without command");
     assert!(!missing_command.status.success());
     let stderr = String::from_utf8(missing_command.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("command ASR provider `cmd2` must configure a command"));
 
     let missing_endpoint = vinpst_command()
-        .args(["provider", "add", "cloud", "--type", "remote", "--config"])
+        .args([
+            "provider", "create", "cloud", "--type", "remote", "--config",
+        ])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider add remote without endpoint");
+        .expect("run vinpst provider create remote without endpoint");
     assert!(!missing_endpoint.status.success());
     let stderr = String::from_utf8(missing_endpoint.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("remote ASR provider `cloud` must configure an endpoint"));
@@ -479,7 +483,7 @@ fn provider_add_rejects_invalid_duplicate_and_missing_write_target() {
     let bad_env = vinpst_command()
         .args([
             "provider",
-            "add",
+            "create",
             "cmd3",
             "--type",
             "command",
@@ -492,16 +496,16 @@ fn provider_add_rejects_invalid_duplicate_and_missing_write_target() {
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider add invalid env");
+        .expect("run vinpst provider create invalid env");
     assert!(!bad_env.status.success());
     let stderr = String::from_utf8(bad_env.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("provider env `TOKEN` is not KEY=VALUE"));
 
     let missing_target = vinpst_command()
-        .args(["provider", "add", "new", "--config"])
+        .args(["provider", "create", "new", "--config"])
         .arg(&path)
         .output()
-        .expect("run vinpst provider add without write target");
+        .expect("run vinpst provider create without write target");
     assert!(!missing_target.status.success());
     let stderr = String::from_utf8(missing_target.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("config set writes require --output <path> or --in-place"));
@@ -510,12 +514,12 @@ fn provider_add_rejects_invalid_duplicate_and_missing_write_target() {
 }
 
 #[test]
-fn provider_edit_dry_run_json_updates_command_provider_without_writing() {
+fn provider_configure_dry_run_json_updates_command_provider_without_writing() {
     let path = write_provider_fixture("vinpst-provider-edit-dry-run");
     let before = fs::read_to_string(&path).expect("read original provider config");
 
     let output = vinpst_command()
-        .args(["provider", "edit", "cmd", "--config"])
+        .args(["provider", "configure", "cmd", "--config"])
         .arg(&path)
         .args([
             "--command",
@@ -529,7 +533,7 @@ fn provider_edit_dry_run_json_updates_command_provider_without_writing() {
             "--json",
         ])
         .output()
-        .expect("run vinpst provider edit dry-run");
+        .expect("run vinpst provider configure dry-run");
 
     let value = assert_json_success(output, "provider edit dry-run json");
     assert_eq!(value["ok"], true);
@@ -553,15 +557,15 @@ fn provider_edit_dry_run_json_updates_command_provider_without_writing() {
 }
 
 #[test]
-fn provider_edit_text_dry_run_outputs_expected_fields() {
+fn provider_configure_text_dry_run_outputs_expected_fields() {
     let path = write_provider_fixture("vinpst-provider-edit-text-dry-run");
 
     let output = vinpst_command()
-        .args(["provider", "edit", "local", "--config"])
+        .args(["provider", "configure", "local", "--config"])
         .arg(&path)
         .args(["--model", "/tmp/new-model", "--dry-run"])
         .output()
-        .expect("run vinpst provider edit text dry-run");
+        .expect("run vinpst provider configure text dry-run");
     fs::remove_file(&path).expect("remove temporary provider config");
 
     let stdout = assert_stdout_success(output, "provider edit text dry-run");
@@ -584,7 +588,7 @@ fn provider_edit_text_dry_run_outputs_expected_fields() {
 }
 
 #[test]
-fn provider_edit_output_writes_valid_config_without_overwriting_input() {
+fn provider_configure_output_writes_valid_config_without_overwriting_input() {
     let root = unique_temp_dir("vinpst-provider-edit-output");
     let config_path = root.join("config.json");
     fs::write(&config_path, provider_fixture_json()).expect("write provider config");
@@ -592,14 +596,14 @@ fn provider_edit_output_writes_valid_config_without_overwriting_input() {
     let before = fs::read_to_string(&config_path).expect("read original provider config");
 
     let output = vinpst_command()
-        .args(["provider", "edit", "local", "--config"])
+        .args(["provider", "configure", "local", "--config"])
         .arg(&config_path)
         .args(["--model", "/tmp/new-model", "--clear-hotwords-file"])
         .arg("--output")
         .arg(&output_path)
         .arg("--json")
         .output()
-        .expect("run vinpst provider edit --output");
+        .expect("run vinpst provider configure --output");
 
     let value = assert_json_success(output, "provider edit output json");
     assert_eq!(value["wrote_config"], true);
@@ -623,7 +627,7 @@ fn provider_edit_output_writes_valid_config_without_overwriting_input() {
 }
 
 #[test]
-fn provider_edit_in_place_writes_remote_provider_and_backup() {
+fn provider_configure_in_place_writes_remote_provider_and_backup() {
     let root = unique_temp_dir("vinpst-provider-edit-in-place");
     let config_path = root.join("config.json");
     fs::write(&config_path, provider_fixture_json()).expect("write provider config");
@@ -631,7 +635,7 @@ fn provider_edit_in_place_writes_remote_provider_and_backup() {
     let before = fs::read_to_string(&config_path).expect("read original provider config");
 
     let output = vinpst_command()
-        .args(["provider", "edit", "remote", "--config"])
+        .args(["provider", "configure", "remote", "--config"])
         .arg(&config_path)
         .args([
             "--endpoint",
@@ -642,7 +646,7 @@ fn provider_edit_in_place_writes_remote_provider_and_backup() {
             "--json",
         ])
         .output()
-        .expect("run vinpst provider edit --in-place");
+        .expect("run vinpst provider configure --in-place");
 
     let value = assert_json_success(output, "provider edit in-place json");
     assert_eq!(value["wrote_config"], true);
@@ -663,35 +667,35 @@ fn provider_edit_in_place_writes_remote_provider_and_backup() {
 }
 
 #[test]
-fn provider_edit_rejects_invalid_missing_noop_conflicts_and_invalid_config() {
+fn provider_configure_rejects_invalid_missing_noop_conflicts_and_invalid_config() {
     let path = write_provider_fixture("vinpst-provider-edit-errors");
 
     let empty = vinpst_command()
-        .args(["provider", "edit", "   ", "--config"])
+        .args(["provider", "configure", "   ", "--config"])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider edit empty id");
+        .expect("run vinpst provider configure empty id");
     assert!(!empty.status.success());
     let stderr = String::from_utf8(empty.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("ASR provider id cannot be empty"));
 
     let missing = vinpst_command()
-        .args(["provider", "edit", "missing", "--config"])
+        .args(["provider", "configure", "missing", "--config"])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider edit missing id");
+        .expect("run vinpst provider configure missing id");
     assert!(!missing.status.success());
     let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("ASR provider `missing` not found"));
 
     let noop = vinpst_command()
-        .args(["provider", "edit", "local", "--config"])
+        .args(["provider", "configure", "local", "--config"])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider edit without field changes");
+        .expect("run vinpst provider configure without field changes");
     assert!(!noop.status.success());
     let stderr = String::from_utf8(noop.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("provider edit requires at least one field change"));
@@ -699,7 +703,7 @@ fn provider_edit_rejects_invalid_missing_noop_conflicts_and_invalid_config() {
     let conflict = vinpst_command()
         .args([
             "provider",
-            "edit",
+            "configure",
             "local",
             "--model",
             "new",
@@ -709,27 +713,39 @@ fn provider_edit_rejects_invalid_missing_noop_conflicts_and_invalid_config() {
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider edit conflicting model flags");
+        .expect("run vinpst provider configure conflicting model flags");
     assert!(!conflict.status.success());
     let stderr = String::from_utf8(conflict.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("provider edit cannot combine --model and --clear-model"));
 
     let invalid_command = vinpst_command()
-        .args(["provider", "edit", "cmd", "--clear-command", "--config"])
+        .args([
+            "provider",
+            "configure",
+            "cmd",
+            "--clear-command",
+            "--config",
+        ])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider edit invalid command provider");
+        .expect("run vinpst provider configure invalid command provider");
     assert!(!invalid_command.status.success());
     let stderr = String::from_utf8(invalid_command.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("command ASR provider `cmd` must configure a command"));
 
     let invalid_remote = vinpst_command()
-        .args(["provider", "edit", "remote", "--clear-endpoint", "--config"])
+        .args([
+            "provider",
+            "configure",
+            "remote",
+            "--clear-endpoint",
+            "--config",
+        ])
         .arg(&path)
         .arg("--dry-run")
         .output()
-        .expect("run vinpst provider edit invalid remote provider");
+        .expect("run vinpst provider configure invalid remote provider");
     assert!(!invalid_remote.status.success());
     let stderr = String::from_utf8(invalid_remote.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("remote ASR provider `remote` must configure an endpoint"));
