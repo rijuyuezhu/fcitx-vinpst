@@ -128,10 +128,7 @@ fn validate_asr(asr: &AsrConfig) -> Result<(), ConfigError> {
         return Err(ConfigError::InvalidActiveAsrProviderId);
     }
 
-    if !asr.active_provider.is_empty()
-        && !asr.providers.is_empty()
-        && !provider_ids.contains(asr.active_provider.as_str())
-    {
+    if !asr.active_provider.is_empty() && !provider_ids.contains(asr.active_provider.as_str()) {
         return Err(ConfigError::UnknownActiveAsrProvider(
             asr.active_provider.clone(),
         ));
