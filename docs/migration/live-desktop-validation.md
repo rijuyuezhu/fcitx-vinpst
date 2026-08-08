@@ -295,6 +295,8 @@ GUI behavior remains covered by deterministic Rust tests for typed state transit
 
 Management-GUI interaction and visual acceptance are manual-only. Automated coverage must stop below the Iced window/widget boundary and use crate-internal semantic state/message/persistence tests; it must not drive desktop GUI controls. The retained desktop live gates in this document are for Fcitx/input-method, toolkit text-entry, audio, notification, and provider integration paths rather than management-GUI traversal.
 
+The manual management-GUI checklist must include Chinese IME preedit and commit in at least one editable field on both the normal Wayland path and an X11/Xwayland session. The upstream Qt GUI fills absent `QT_IM_MODULE=fcitx` and `XMODIFIERS=@im=fcitx` before creating `QApplication`; the Rust Iced/winit GUI instead relies on the toolkit's native Wayland text-input and X11 XIM discovery and does not add an unsafe process-environment mutation. This is therefore a human interaction acceptance item, not a desktop automation gate. If either backend fails, fix the Iced/winit integration boundary rather than adding positional GUI automation or copying the Qt startup workaround blindly.
+
 ## 8. Frontend behavior
 
 Verify in the real session:
