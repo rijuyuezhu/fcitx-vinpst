@@ -40,24 +40,26 @@ This matrix describes user-visible parity and the evidence level for each path. 
 
 ## CLI command surface comparison
 
-The Rust CLI covers the major legacy management groups:
+The comparison is now based on the compiled upstream CLI, not only source inspection. `/workspace/fcitx5-vinput` was built at `6cdcac8b4300ff347ad3157bf61cd09a5302f7a9` (`v2.3.5-1-g6cdcac8`) with the `debug-clang-mold` preset and the `vinput` target. Its root help, every public subcommand help surface, and representative text output were inspected under an isolated temporary HOME/XDG profile.
 
-```text
-init
-config validate/example/get/set/edit
-model list/info/install/add/use/remove/rm
-provider list/add/edit/edit-script/use/remove
-hotword get/set/clear/edit
-device list/use
-scene list/add/edit/use/remove
-llm list/add/edit/remove/test
-adapter list/add/edit/install/install-plan/start/stop/status/remove
-daemon start/status/reload-asr/install-service/stop/restart/log
-recording start/stop/toggle/status
-doctor, asr-state, audio-devices, activation-service
-```
+Upstream exposes the public root groups `init`, `daemon`, `recording`, `config`, `model`, `provider`, `adapter`, `device`, `hotword`, `scene`, and `llm`. Rust exposes the same user groups plus `doctor`. Protocol dumps, registry validators, package-lifecycle helpers, fixture roots, local registry/i18n injection, transport-plan dry runs, and other test-oriented entry points remain callable where project tooling needs them but are hidden from ordinary help.
 
-Current CLI gaps are not command-group gaps. Flatpak host-command routing, permission diagnostics, native/Flatpak user-service installation, and the extension package transaction are deterministic. The remaining Flatpak boundary is live desktop/Fcitx/PipeWire/host-systemd integration and production publication policy. Other gaps are output polish, non-systemd behavior, and further feature-driven extraction from the CLI composition files.
+Familiar non-conflicting upstream shorthand remains accepted without expanding normal help, including `model ls/add/rm`, `provider ls/e/rm`, `adapter ls`, `device ls`, `hotword e`, `config e`, and `llm ls/e/rm`. In particular, `provider e` keeps the upstream meaning of editing the installed provider script and therefore maps to Rust `provider edit-script`, not typed-config `provider edit`.
+
+Intentional command-shape differences preserve useful Rust behavior instead of mechanically copying the C++ spelling:
+
+| Upstream C++ | Rust CLI | Reason |
+| --- | --- | --- |
+| `model add` | `model install` with `add` alias | Make managed installation explicit while retaining the familiar alias. |
+| `provider add` installs a registry provider | `provider install` for managed registry providers; `provider add` for custom typed entries | Keep managed publication distinct from user-authored configuration. |
+| `provider edit` edits the installed script | `provider edit` edits typed config; `provider edit-script` edits a managed script | Avoid overloading configuration editing and executable-file editing. |
+| `adapter add` installs a registry adapter | `adapter install` for managed adapters; `adapter add/edit/remove` for custom entries | Same managed-versus-custom boundary as providers. |
+| no combined diagnostic command | `doctor` | Give users one setup/readiness entry point. |
+| human text only | concise human text plus `--json` | Human output stays at the resource/action level; exact paths, transport plans, counters, and maintenance state remain machine-readable. |
+
+The default Rust text surface now follows the upstream abstraction level: resource lists show identifiers, names/types, relevant model metadata, and active/installed/available state rather than config sources, command/environment contents, working directories, fixture paths, timeout internals, or struct-field names. Mutation commands report the action performed or previewed instead of serializing `dry_run`, before/after counters, write flags, or transport details. Exact internal state remains covered by JSON integration tests.
+
+There is no remaining CLI command-group capability gap for the ordinary management workflow. Remaining work is concrete message refinement, non-systemd behavior where applicable, release/artifact-installed evidence, and further implementation extraction when a composition file becomes too large; it is not a reason to expand the public help surface.
 
 ## Daemon capability comparison
 

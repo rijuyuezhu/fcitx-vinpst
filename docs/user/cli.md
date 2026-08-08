@@ -9,6 +9,7 @@ vinpst <command> --help
 
 Most commands that can emit structured data accept `--json`; `-j/--json` is also available as a global option.
 The normal text output is intended for people. Use `--json` when you need transport details, exact paths, maintenance plans, or stable fields for automation.
+Resource tables and mutation messages intentionally omit implementation plumbing such as config-source labels, command/environment contents, fixture roots, internal counters, and D-Bus plans. Human-readable text is not a machine contract.
 
 ## Main command groups
 
@@ -27,7 +28,7 @@ The normal text output is intended for people. Use `--json` when you need transp
 | `adapter` | Manage command text adapters and their daemon processes. |
 | `doctor` | Run combined configuration, ASR, audio, activation, and addon diagnostics; `ok` reflects active ASR readiness and `status` distinguishes `ready` from `setup-required`. |
 
-Low-level protocol, registry-validation, package-lifecycle, and test helpers remain callable for project tooling but are intentionally omitted from `--help`. They are not part of the ordinary user workflow.
+Low-level protocol, registry-validation, package-lifecycle, fixture-path, and test helpers remain callable for project tooling but are intentionally omitted from `--help`. They are not part of the ordinary user workflow.
 
 ## Safe mutation pattern
 
