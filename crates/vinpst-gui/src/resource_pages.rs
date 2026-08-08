@@ -11,7 +11,9 @@ use vinpst_registry::InstalledModelInfo;
 
 use crate::{
     App, GuiLocale, GuiText, Message, model_is_active, model_is_selected_by_active_provider,
-    model_management::{ModelCatalogState, RegistryModelSummary},
+    model_management::{
+        ModelCatalogState, RegistryModelSummary, active_provider_can_use_managed_models,
+    },
     script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
 
@@ -55,11 +57,21 @@ impl App {
 
     fn installed_models_view(&self, busy: bool) -> Element<'_, Message> {
         let mut body = column![].spacing(12);
+        let can_select_model = self
+            .config
+            .as_ref()
+            .is_ok_and(|document| active_provider_can_use_managed_models(&document.config));
         match &self.installed_models {
             Ok(models) if models.is_empty() => {
                 body = body.push(text(self.locale.text(GuiText::NoManagedModelsInstalled)));
             }
             Ok(models) => {
+                if self.config.is_ok() && !can_select_model {
+                    body = body.push(text(
+                        self.locale
+                            .text(GuiText::SelectLocalProviderForManagedModel),
+                    ));
+                }
                 for model in models {
                     let (selected, referenced) =
                         self.config.as_ref().map_or((false, false), |document| {
@@ -75,8 +87,8 @@ impl App {
                         self.locale,
                         model,
                         selected,
-                        referenced,
-                        busy,
+                        !busy && can_select_model && !selected,
+                        !busy && !referenced,
                     ));
                 }
             }
@@ -356,8 +368,8 @@ fn installed_model_row(
     locale: GuiLocale,
     model: &InstalledModelInfo,
     selected: bool,
-    referenced: bool,
-    busy: bool,
+    use_enabled: bool,
+    remove_enabled: bool,
 ) -> Element<'static, Message> {
     let locale_code = locale.code().to_owned();
     let title = model
@@ -374,13 +386,11 @@ fn installed_model_row(
         keyboard_button(locale.text(GuiText::Details))
             .on_press(Message::SelectInstalledModelDetail(model.model_dir.clone())),
         keyboard_button(locale.text(GuiText::Use)).on_press_maybe(
-            (!busy && !selected).then_some(Message::UseInstalledModel(model.model_dir.clone())),
+            use_enabled.then_some(Message::UseInstalledModel(model.model_dir.clone())),
         ),
-        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
-            (!busy && !referenced).then_some(Message::RequestRemoveInstalledModel(
-                model.model_dir.clone()
-            )),
-        ),
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(remove_enabled.then_some(
+            Message::RequestRemoveInstalledModel(model.model_dir.clone())
+        ),),
     ]
     .spacing(10)
     .into()

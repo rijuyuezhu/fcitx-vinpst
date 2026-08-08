@@ -183,6 +183,9 @@ const fn english_resources(key: GuiText) -> &'static str {
         GuiText::Continue => "Continue",
         GuiText::ManagedCommandAsrProviders | GuiText::AsrProviders => "ASR providers",
         GuiText::NoManagedModelsInstalled => "No models installed.",
+        GuiText::SelectLocalProviderForManagedModel => {
+            "Select a local ASR provider before choosing an installed model."
+        }
         GuiText::AddCustomProvider => "Add custom provider",
         GuiText::ManagedTextAdapters | GuiText::Adapters => "LLM adapters",
         GuiText::AddCustomAdapter => "Add custom adapter",
@@ -305,7 +308,6 @@ const fn english_llm_adapter_forms(key: GuiText) -> &'static str {
         GuiText::ProvidersTitle => "Providers",
         GuiText::TestInput => "Test input",
         GuiText::TestInputPlaceholder => "short connectivity-test text",
-        GuiText::DefaultModelFallback => "default model",
         GuiText::NoLlmProviders => "No LLM providers.",
         GuiText::Test => "Test",
         GuiText::BaseUrl => "Base URL",

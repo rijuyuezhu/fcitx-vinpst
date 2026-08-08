@@ -155,6 +155,9 @@ const fn simplified_chinese_resources(key: GuiText) -> &'static str {
         GuiText::Continue => "继续",
         GuiText::ManagedCommandAsrProviders | GuiText::AsrProviders => "ASR 提供商",
         GuiText::NoManagedModelsInstalled => "尚未安装模型。",
+        GuiText::SelectLocalProviderForManagedModel => {
+            "请先选择本地 ASR 提供商，再选择已安装模型。"
+        }
         GuiText::AddCustomProvider => "添加自定义提供商",
         GuiText::ManagedTextAdapters | GuiText::Adapters => "LLM 适配器",
         GuiText::AddCustomAdapter => "添加自定义适配器",
@@ -274,7 +277,7 @@ const fn simplified_chinese_llm_adapter_forms(key: GuiText) -> &'static str {
         GuiText::ProvidersTitle => "提供商",
         GuiText::TestInput => "测试输入",
         GuiText::TestInputPlaceholder => "简短的连通性测试文本",
-        GuiText::DefaultModelFallback | GuiText::DefaultModel => "默认模型",
+        GuiText::DefaultModel => "默认模型",
         GuiText::NoLlmProviders => "没有 LLM 提供商。",
         GuiText::Test => "测试",
         GuiText::BaseUrl => "基础 URL",

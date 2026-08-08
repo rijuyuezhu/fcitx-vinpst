@@ -339,6 +339,12 @@ pub(crate) fn model_is_selected_by_active_provider(
     })
 }
 
+pub(crate) fn active_provider_can_use_managed_models(config: &VinpstConfig) -> bool {
+    config.asr.providers.iter().any(|provider| {
+        provider.id == config.asr.active_provider && provider.kind == AsrProviderKind::Local
+    })
+}
+
 pub(crate) fn select_model_for_active_provider(
     config: &VinpstConfig,
     model_dir: &Path,
@@ -591,5 +597,23 @@ mod tests {
 
         assert!(error.contains(&provider_id));
         assert!(error.contains("is not local"));
+    }
+
+    #[test]
+    fn managed_model_selection_availability_tracks_the_active_provider_kind() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        assert!(active_provider_can_use_managed_models(&config));
+
+        let active_provider = config
+            .asr
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == config.asr.active_provider)
+            .expect("active provider");
+        active_provider.kind = AsrProviderKind::Remote;
+        assert!(!active_provider_can_use_managed_models(&config));
+
+        config.asr.active_provider = "missing-provider".to_owned();
+        assert!(!active_provider_can_use_managed_models(&config));
     }
 }
