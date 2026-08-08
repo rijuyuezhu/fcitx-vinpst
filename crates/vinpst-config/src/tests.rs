@@ -334,6 +334,20 @@ fn vad_defaults_match_legacy_offline_contract() {
 }
 
 #[test]
+fn validation_rejects_out_of_range_input_gain() {
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    for invalid in [0.0, 10.1, f32::NAN] {
+        config.asr.input_gain = invalid;
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::InvalidInputGain(value))
+                if (value.is_nan() && invalid.is_nan())
+                    || (value - invalid).abs() < f32::EPSILON
+        ));
+    }
+}
+
+#[test]
 fn validation_rejects_out_of_range_vad_values() {
     let mut config = VinpstConfig::bundled_default().unwrap();
     config.asr.vad.threshold = 1.0;

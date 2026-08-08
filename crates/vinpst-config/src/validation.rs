@@ -118,6 +118,9 @@ fn validate_scene_definition<'a>(
 }
 
 fn validate_asr(asr: &AsrConfig) -> Result<(), ConfigError> {
+    if !asr.input_gain.is_finite() || !(0.1..=10.0).contains(&asr.input_gain) {
+        return Err(ConfigError::InvalidInputGain(asr.input_gain));
+    }
     validate_vad(&asr.vad)?;
     let mut provider_ids = HashSet::new();
     for provider in &asr.providers {
