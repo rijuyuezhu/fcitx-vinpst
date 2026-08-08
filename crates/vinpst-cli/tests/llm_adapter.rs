@@ -82,11 +82,21 @@ fn llm_list_text_prints_table_without_secret_values() {
     fs::remove_file(&path).expect("remove temporary llm config");
 
     let stdout = assert_stdout_success(output, "llm list text");
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("provider_count: 2"));
-    assert!(stdout.contains("id	base_url	api_key	model	extra_body	extra_fields"));
-    assert!(stdout.contains("openai	yes	yes	gpt-4o-mini	yes	0"));
-    assert!(stdout.contains("local	yes	no	-	no	0"));
+    assert!(stdout.contains("ID\tBASE URL\tMODEL\tAPI KEY"));
+    assert!(stdout.contains("openai\thttps://llm.example.test/v1\tgpt-4o-mini\tset"));
+    assert!(stdout.contains("local\thttp://127.0.0.1:11434/v1\t-\tnot set"));
+    for internal in [
+        "source:",
+        "config_path:",
+        "provider_count:",
+        "extra_body",
+        "extra_fields",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal list detail: {internal}"
+        );
+    }
     assert!(!stdout.contains("secret-token"));
 }
 
@@ -153,13 +163,20 @@ fn llm_add_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary llm config");
 
     let stdout = assert_stdout_success(output, "llm add text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("provider_id: anthropic"));
-    assert!(stdout.contains("before_provider_count: 2"));
-    assert!(stdout.contains("after_provider_count: 3"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would add LLM provider `anthropic`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "before_provider_count",
+        "after_provider_count",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
     assert!(!stdout.contains("secret-token"));
 }
 
@@ -267,12 +284,19 @@ fn llm_edit_text_dry_run_outputs_expected_fields_without_secrets() {
     fs::remove_file(&path).expect("remove temporary llm config");
 
     let stdout = assert_stdout_success(output, "llm edit text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("provider_id: openai"));
-    assert!(stdout.contains("changed_fields: api_key"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would update LLM provider `openai`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "changed_fields",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
     assert!(!stdout.contains("new-secret-token"));
 }
 
@@ -629,13 +653,20 @@ fn adapter_add_text_dry_run_outputs_expected_fields_without_secrets() {
     fs::remove_file(&path).expect("remove temporary adapter config");
 
     let stdout = assert_stdout_success(output, "adapter add text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("adapter_id: extra-adapter"));
-    assert!(stdout.contains("before_adapter_count: 2"));
-    assert!(stdout.contains("after_adapter_count: 3"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would add text adapter `extra-adapter`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "before_adapter_count",
+        "after_adapter_count",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
     assert!(!stdout.contains("secret-token"));
 }
 
@@ -1059,12 +1090,19 @@ fn adapter_edit_text_dry_run_outputs_expected_fields_without_secrets() {
     fs::remove_file(&path).expect("remove temporary adapter config");
 
     let stdout = assert_stdout_success(output, "adapter edit text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("adapter_id: command-adapter"));
-    assert!(stdout.contains("changed_fields: env"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would update text adapter `command-adapter`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "changed_fields",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
     assert!(!stdout.contains("new-secret"));
 }
 
@@ -1508,13 +1546,20 @@ fn llm_test_text_dry_run_outputs_expected_fields_without_secrets() {
     fs::remove_file(&path).expect("remove temporary llm config");
 
     let stdout = assert_stdout_success(output, "llm test text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("provider_id: openai"));
-    assert!(stdout.contains("timeout_ms: 1500"));
-    assert!(stdout.contains("will_call_http: false"));
-    assert!(stdout.contains("called: false"));
-    assert!(stdout.contains("url: https://llm.example.test/v1/chat/completions"));
+    assert!(stdout.contains("Would test LLM provider `openai`."));
+    assert!(stdout.contains("Request: https://llm.example.test/v1/chat/completions"));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "timeout_ms:",
+        "will_call_http",
+        "called:",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal request detail: {internal}"
+        );
+    }
     assert!(!stdout.contains("secret-token"));
 }
 
@@ -1724,13 +1769,23 @@ fn adapter_list_available_text_prints_live_registry_table() {
     fs::remove_file(&i18n_path).expect("remove temporary i18n");
 
     let stdout = assert_stdout_success(output, "adapter list available text");
-    assert!(stdout.contains("registry_source:"));
-    assert!(stdout.contains("config_source: file"));
-    assert!(stdout.contains("adapter_count: 2"));
-    assert!(stdout.contains("title\tmachine_id\tstatus\tcommand\tenvs\treadme\tdescription"));
-    assert!(stdout.contains("MTranServer 代理\tadapter.mtranserver.proxy\tinstalled\tpython3\t2"));
-    assert!(stdout.contains("本地翻译代理"));
-    assert!(stdout.contains("other\tadapter.other.proxy\tavailable\tpython3\t0"));
+    assert!(stdout.contains("ID\tTITLE\tSTATUS"));
+    assert!(stdout.contains("adapter.mtranserver.proxy\tMTranServer 代理\tinstalled"));
+    assert!(stdout.contains("adapter.other.proxy\tother\tavailable"));
+    for internal in [
+        "registry_source:",
+        "config_source:",
+        "adapter_count:",
+        "command",
+        "envs",
+        "readme",
+        "description",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal list detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -1938,11 +1993,24 @@ fn adapter_list_text_prints_table_without_secret_values() {
     fs::remove_file(&path).expect("remove temporary adapter config");
 
     let stdout = assert_stdout_success(output, "adapter list text");
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("adapter_count: 2"));
-    assert!(stdout.contains("id	command	args	env	working_dir	extra_fields"));
-    assert!(stdout.contains("command-adapter	yes	2	1	yes	0"));
-    assert!(stdout.contains("simple-adapter	yes	0	0	no	0"));
+    assert!(stdout.contains("ID\tSTATUS"));
+    assert!(stdout.contains("command-adapter\tconfigured"));
+    assert!(stdout.contains("simple-adapter\tconfigured"));
+    for internal in [
+        "source:",
+        "config_path:",
+        "adapter_count:",
+        "command\t",
+        "args\t",
+        "env\t",
+        "working_dir",
+        "extra_fields",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal list detail: {internal}"
+        );
+    }
     assert!(!stdout.contains("secret-token"));
 }
 

@@ -13,13 +13,13 @@ pub(crate) enum ProviderCommand {
         #[arg(short = 'a', long)]
         available: bool,
         /// Optional local registry/providers.json file. Omitted to fetch configured mirrors.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         registry: Option<PathBuf>,
         /// Optional local registry i18n JSON used by --available.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         i18n: Option<PathBuf>,
         /// Registry locale used by --available.
-        #[arg(long, default_value_t = detect_preferred_registry_locale())]
+        #[arg(long, default_value_t = detect_preferred_registry_locale(), hide = true)]
         locale: String,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
@@ -33,10 +33,10 @@ pub(crate) enum ProviderCommand {
         /// Full provider id or registry `short_id`.
         id: String,
         /// Optional local registry/providers.json file. Omitted to fetch configured mirrors.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         registry: Option<PathBuf>,
         /// Managed provider script root. Defaults to $XDG_DATA_HOME/fcitx-vinpst/providers.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         provider_root: Option<PathBuf>,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
@@ -184,12 +184,12 @@ pub(crate) enum ProviderCommand {
         json: bool,
     },
     /// Open the script referenced by an installed command ASR provider.
-    #[command(alias = "es")]
+    #[command(aliases = ["e", "es"])]
     EditScript {
         /// Existing provider id or registry `short_id` to edit.
         id: String,
         /// Optional local registry/providers.json file used for short-id resolution.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         registry: Option<PathBuf>,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
@@ -205,11 +205,12 @@ pub(crate) enum ProviderCommand {
         json: bool,
     },
     /// Remove a non-local ASR provider from config.
+    #[command(alias = "rm")]
     Remove {
         /// Existing provider id or registry `short_id` to remove.
         id: String,
         /// Optional local registry/providers.json file used for short-id resolution.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         registry: Option<PathBuf>,
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]

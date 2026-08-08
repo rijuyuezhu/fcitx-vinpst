@@ -8,7 +8,7 @@ pub(crate) enum DaemonCommand {
     /// Start the daemon if it is not already running.
     Start {
         /// Print the D-Bus activation plan without contacting the daemon.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
@@ -17,7 +17,7 @@ pub(crate) enum DaemonCommand {
     /// Show daemon and ASR status.
     Status {
         /// Print the D-Bus call plan without contacting the daemon.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
@@ -27,7 +27,7 @@ pub(crate) enum DaemonCommand {
     #[command(hide = true)]
     Handoff {
         /// Print the conditional restart plan without contacting the daemon or systemd.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
@@ -37,7 +37,7 @@ pub(crate) enum DaemonCommand {
     #[command(hide = true)]
     PrepareRemove {
         /// Print the guarded removal plan without contacting D-Bus or systemd.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Probe the live session and removal guards without stopping or signalling anything.
         #[arg(long, conflicts_with = "dry_run")]
@@ -49,7 +49,7 @@ pub(crate) enum DaemonCommand {
     /// Reload the selected ASR backend.
     ReloadAsr {
         /// Print the D-Bus call plan without contacting the daemon.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
@@ -65,7 +65,7 @@ pub(crate) enum DaemonCommand {
         #[arg(long)]
         output: Option<PathBuf>,
         /// Print the rendered service without writing or reloading systemd.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
@@ -75,7 +75,7 @@ pub(crate) enum DaemonCommand {
     /// Stop the user daemon service.
     Stop {
         /// Print the stop plan without mutating user services.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
@@ -84,7 +84,7 @@ pub(crate) enum DaemonCommand {
     /// Restart the user daemon service.
     Restart {
         /// Print the restart plan without mutating user services.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]
@@ -96,7 +96,7 @@ pub(crate) enum DaemonCommand {
         #[arg(short = 'n', long)]
         lines: Option<u16>,
         /// Print the log retrieval plan without invoking external tools.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         dry_run: bool,
         /// Print machine-readable JSON instead of text output.
         #[arg(long)]

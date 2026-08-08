@@ -85,14 +85,25 @@ fn provider_list_text_prints_table_and_active_marker() {
     fs::remove_file(&path).expect("remove temporary provider config");
 
     let stdout = assert_stdout_success(output, "provider list text");
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("active_provider: cmd"));
-    assert!(stdout.contains("provider_count: 3"));
-    assert!(stdout.contains("active\tid\ttype\tmodel\thotwords\tcommand\tendpoint\ttimeout_ms"));
-    assert!(stdout.contains("\tlocal\tlocal\t/tmp/model\tyes\tno\tno\t-"));
-    assert!(stdout.contains("*\tcmd\tcommand\t-\tno\tyes\tno\t20000"));
+    assert!(stdout.contains("ID\tTYPE\tMODEL\tSTATUS"));
+    assert!(stdout.contains("local\tlocal\t/tmp/model\t"));
+    assert!(stdout.contains("cmd\tcommand\t-\tactive"));
+    assert!(stdout.contains("remote\tremote\tcloud\t"));
+    for internal in [
+        "source:",
+        "config_path:",
+        "active_provider:",
+        "provider_count:",
+        "hotwords",
+        "endpoint",
+        "timeout_ms",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal list detail: {internal}"
+        );
+    }
 }
-
 #[test]
 fn provider_use_dry_run_json_validates_existing_provider_without_writing() {
     let path = write_provider_fixture("vinpst-provider-use-dry-run");
@@ -133,13 +144,21 @@ fn provider_use_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary provider config");
 
     let stdout = assert_stdout_success(output, "provider use text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("before: cmd"));
-    assert!(stdout.contains("after: remote"));
-    assert!(stdout.contains("provider_type: remote"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would select ASR provider `remote`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "before:",
+        "after:",
+        "provider_type:",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -282,15 +301,21 @@ fn provider_add_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary provider config");
 
     let stdout = assert_stdout_success(output, "provider add text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("provider_id: extra"));
-    assert!(stdout.contains("provider_type: local"));
-    assert!(stdout.contains("active_provider: cmd"));
-    assert!(stdout.contains("before_provider_count: 3"));
-    assert!(stdout.contains("after_provider_count: 4"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would add ASR provider `extra` (local)."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "active_provider:",
+        "before_provider_count",
+        "after_provider_count",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -540,15 +565,22 @@ fn provider_edit_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary provider config");
 
     let stdout = assert_stdout_success(output, "provider edit text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("provider_id: local"));
-    assert!(stdout.contains("before_provider_type: local"));
-    assert!(stdout.contains("after_provider_type: local"));
-    assert!(stdout.contains("active_provider: cmd"));
-    assert!(stdout.contains("changed_fields: model"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would update ASR provider `local`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "before_provider_type",
+        "after_provider_type",
+        "active_provider:",
+        "changed_fields",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -942,15 +974,22 @@ fn provider_remove_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary provider config");
 
     let stdout = assert_stdout_success(output, "provider remove text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("removed_provider_id: remote"));
-    assert!(stdout.contains("removed_provider_type: remote"));
-    assert!(stdout.contains("active_provider: cmd"));
-    assert!(stdout.contains("before_provider_count: 3"));
-    assert!(stdout.contains("after_provider_count: 2"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would remove ASR provider `remote`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "removed_provider_type",
+        "active_provider:",
+        "before_provider_count",
+        "after_provider_count",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -1257,17 +1296,27 @@ fn provider_list_available_text_prints_live_registry_table() {
     fs::remove_file(&i18n_path).expect("remove temporary i18n");
 
     let stdout = assert_stdout_success(output, "provider list available text");
-    assert!(stdout.contains("registry_source:"));
-    assert!(stdout.contains("config_source: file"));
-    assert!(stdout.contains("provider_count: 2"));
+    assert!(stdout.contains("ID\tTITLE\tMODE\tSTATUS"));
     assert!(
-        stdout.contains("title\tmachine_id\tstatus\tprotocol\tcommand\tenvs\treadme\tdescription")
+        stdout.contains(
+            "provider.openai-compatible.streaming\tOpenAI 兼容流式\tstreaming\tinstalled"
+        )
     );
-    assert!(stdout.contains(
-        "OpenAI 兼容流式\tprovider.openai-compatible.streaming\tinstalled\tstreaming\tpython3\t2"
-    ));
-    assert!(stdout.contains("OpenAI 兼容流式识别"));
-    assert!(stdout.contains("doubao-batch\tprovider.doubao.batch\tavailable\tbatch\tpython3\t1"));
+    assert!(stdout.contains("provider.doubao.batch\tdoubao-batch\tbatch\tavailable"));
+    for internal in [
+        "registry_source:",
+        "config_source:",
+        "provider_count:",
+        "command",
+        "envs",
+        "readme",
+        "description",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal list detail: {internal}"
+        );
+    }
 }
 
 #[test]
