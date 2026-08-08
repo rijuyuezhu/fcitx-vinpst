@@ -461,6 +461,7 @@ fn llm_remove_dry_run_json_validates_without_writing() {
     assert_eq!(value["dry_run"], true);
     assert_eq!(value["source"], "file");
     assert_eq!(value["removed_provider_id"], "local");
+    assert_eq!(value["cleared_scene_references"], 0);
     assert_eq!(value["before_provider_count"], 2);
     assert_eq!(value["after_provider_count"], 1);
     assert_eq!(value["wrote_config"], false);
@@ -500,6 +501,45 @@ fn llm_remove_in_place_writes_backup() {
         .clone();
     assert!(providers.iter().all(|provider| provider["id"] != "local"));
     fs::remove_dir_all(root).expect("remove llm remove in-place fixture dir");
+}
+
+#[test]
+fn llm_remove_clears_scene_binding_and_preserves_unknown_fields() {
+    let root = unique_temp_dir("vinpst-llm-remove-scene-binding");
+    let config_path = root.join("config.json");
+    let mut config: serde_json::Value = serde_json::from_str(llm_fixture_json()).unwrap();
+    config["scenes"]["definitions"][0]["model"] = serde_json::json!("scene-model");
+    config["scenes"]["definitions"][0]["future_field"] = serde_json::json!({"keep": true});
+    fs::write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize scene-bound config"),
+    )
+    .expect("write scene-bound config");
+
+    let output = vinpst_command()
+        .args(["llm", "remove", "openai", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run vinpst llm remove referenced provider");
+
+    let value = assert_json_success(output, "llm remove referenced provider json");
+    assert_eq!(value["cleared_scene_references"], 1);
+    let updated = read_json(&config_path);
+    let scene = updated["scenes"]["definitions"][0]
+        .as_object()
+        .expect("scene object");
+    assert!(scene.get("provider_id").is_none());
+    assert!(scene.get("model").is_none());
+    assert_eq!(scene["future_field"], serde_json::json!({"keep": true}));
+    assert!(
+        updated["llm"]["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|provider| provider["id"] != "openai")
+    );
+    fs::remove_dir_all(root).expect("remove scene binding removal fixture dir");
 }
 
 #[test]
@@ -561,16 +601,6 @@ fn llm_mutations_reject_invalid_inputs() {
     assert!(!missing.status.success());
     let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("LLM provider `missing` not found"));
-
-    let referenced = vinpst_command()
-        .args(["llm", "remove", "openai", "--config"])
-        .arg(&path)
-        .arg("--dry-run")
-        .output()
-        .expect("run vinpst llm remove provider used by scene");
-    assert!(!referenced.status.success());
-    let stderr = String::from_utf8(referenced.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("references unknown LLM provider `openai`"));
 
     let missing_target = vinpst_command()
         .args([

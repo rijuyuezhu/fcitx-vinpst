@@ -365,6 +365,22 @@ impl GuiLocale {
         }
     }
 
+    pub(crate) fn llm_provider_removed(self, provider_id: &str, cleared_scenes: usize) -> String {
+        if cleared_scenes == 0 {
+            return self.llm_provider_changed("remove", provider_id);
+        }
+        match self {
+            Self::EnUs => format!(
+                "Removed LLM provider `{provider_id}` and cleared it from {cleared_scenes} scene(s)."
+            ),
+            Self::ZhCn => {
+                format!(
+                    "已移除 LLM 提供商“{provider_id}”，并从 {cleared_scenes} 个场景中清除其引用。"
+                )
+            }
+        }
+    }
+
     pub(crate) fn llm_provider_test_succeeded(
         self,
         provider_id: &str,

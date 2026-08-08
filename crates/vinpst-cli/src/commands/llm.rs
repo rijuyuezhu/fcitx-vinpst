@@ -78,6 +78,7 @@ struct LlmRemoveOutcome {
     config_path: Option<PathBuf>,
     source: &'static str,
     removed_provider_id: String,
+    cleared_scene_references: usize,
     before_provider_count: usize,
     after_provider_count: usize,
     output_path: Option<PathBuf>,
@@ -593,6 +594,7 @@ fn run_llm_remove(request: &LlmRemoveRequest<'_>) -> anyhow::Result<LlmRemoveOut
     let before_provider_count = config.llm.providers.len();
     let provider_index = explicit_llm_provider_index(&loaded.document, &id)?;
     llm_providers_array_mut(&mut loaded.document)?.remove(provider_index);
+    let cleared_scene_references = clear_llm_provider_scene_references(&mut loaded.document, &id)?;
     validate_config_json_value(&loaded.document, "validate updated LLM config")?;
 
     let write_target = config_set_write_target(
@@ -611,6 +613,7 @@ fn run_llm_remove(request: &LlmRemoveRequest<'_>) -> anyhow::Result<LlmRemoveOut
         config_path: loaded.path.take(),
         source: loaded.source,
         removed_provider_id: id,
+        cleared_scene_references,
         before_provider_count,
         after_provider_count: before_provider_count - 1,
         output_path: write_target.output_path(),
@@ -676,6 +679,32 @@ fn llm_providers_array_mut(
         .with_context(|| "config pointer `/llm/providers` not found or not an array")
 }
 
+fn clear_llm_provider_scene_references(
+    document: &mut serde_json::Value,
+    provider_id: &str,
+) -> anyhow::Result<usize> {
+    let scenes = document
+        .pointer_mut("/scenes/definitions")
+        .and_then(serde_json::Value::as_array_mut)
+        .with_context(|| "config pointer `/scenes/definitions` not found or not an array")?;
+    let mut cleared = 0;
+    for scene in scenes {
+        let object = scene
+            .as_object_mut()
+            .with_context(|| "scene definition is not a JSON object")?;
+        let references_provider = object
+            .get("provider_id")
+            .and_then(serde_json::Value::as_str)
+            == Some(provider_id);
+        if references_provider {
+            object.remove("provider_id");
+            object.remove("model");
+            cleared += 1;
+        }
+    }
+    Ok(cleared)
+}
+
 fn explicit_llm_provider_index(document: &serde_json::Value, id: &str) -> anyhow::Result<usize> {
     document
         .pointer("/llm/providers")
@@ -731,6 +760,7 @@ fn llm_remove_outcome_json(outcome: &LlmRemoveOutcome) -> serde_json::Value {
         "config_path": outcome.config_path.as_ref(),
         "source": outcome.source,
         "removed_provider_id": outcome.removed_provider_id,
+        "cleared_scene_references": outcome.cleared_scene_references,
         "before_provider_count": outcome.before_provider_count,
         "after_provider_count": outcome.after_provider_count,
         "output_path": outcome.output_path,
@@ -759,11 +789,25 @@ fn print_llm_add_text(outcome: &LlmAddOutcome) {
 }
 
 fn print_llm_remove_text(outcome: &LlmRemoveOutcome) {
-    let preview = format!(
-        "Would remove LLM provider `{}`.",
-        outcome.removed_provider_id
-    );
-    let applied = format!("Removed LLM provider `{}`.", outcome.removed_provider_id);
+    let preview = if outcome.cleared_scene_references == 0 {
+        format!(
+            "Would remove LLM provider `{}`.",
+            outcome.removed_provider_id
+        )
+    } else {
+        format!(
+            "Would remove LLM provider `{}` and clear it from {} scene(s).",
+            outcome.removed_provider_id, outcome.cleared_scene_references
+        )
+    };
+    let applied = if outcome.cleared_scene_references == 0 {
+        format!("Removed LLM provider `{}`.", outcome.removed_provider_id)
+    } else {
+        format!(
+            "Removed LLM provider `{}` and cleared it from {} scene(s).",
+            outcome.removed_provider_id, outcome.cleared_scene_references
+        )
+    };
     crate::human_output::print_config_mutation(
         outcome.dry_run,
         &preview,

@@ -49,6 +49,8 @@ vinpst llm test local
 
 Avoid storing or sharing literal API keys when the provider can read them from a deployment-specific environment source.
 
+Removing a provider leaves its scenes in place, but clears their provider and model choices so they can be configured again.
+
 ## LLM adapters
 
 If a local model or service needs a bridge process:
