@@ -74,7 +74,7 @@ vinpst adapter status <adapter-id>
 vinpst adapter stop <adapter-id>
 ```
 
-Manually configured adapters are added with `vinpst adapter add`; registry resources use `vinpst adapter install`.
+Manually configured adapters are created with `vinpst adapter create`; registry resources use `vinpst adapter install` (or the upstream-compatible `adapter add` spelling).
 
 ## Command scene
 

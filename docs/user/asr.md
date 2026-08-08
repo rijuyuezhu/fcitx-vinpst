@@ -63,17 +63,17 @@ You can also select providers/models from the Fcitx ASR menu or the management G
 
 ## Custom command providers
 
-Use `vinpst provider add --type command` for a manually configured executable. Command providers run under bounded process supervision: Vinpst applies a deadline, drains stdout and stderr independently, limits output size, and terminates the helper process group on timeout or overflow.
+Use `vinpst provider create --type command` for a manually configured executable. Command providers run under bounded process supervision: Vinpst applies a deadline, drains stdout and stderr independently, limits output size, and terminates the helper process group on timeout or overflow.
 
 Review the full command syntax before creating one:
 
 ```sh
-vinpst provider add --help
+vinpst provider create --help
 ```
 
 ## Remote providers
 
-Use `vinpst provider add --type remote` for an OpenAI-compatible transcription endpoint. Remote recognition sends a WAV multipart request with the configured model, language, prompt, authentication, and timeout fields.
+Use `vinpst provider create --type remote` for an OpenAI-compatible transcription endpoint. Remote recognition sends a WAV multipart request with the configured model, language, prompt, authentication, and timeout fields.
 
 Provider redirects are disabled. TLS verification remains enabled, response bodies are bounded, and known credentials are redacted from generic diagnostics.
 

@@ -53,8 +53,8 @@ Use `--reload-daemon` where provided, or reload/restart the daemon after changin
 
 The CLI distinguishes managed registry resources from custom configuration:
 
-- `model install`, `provider install`, and `adapter install` resolve registry metadata and publish managed files;
-- `provider add`, `adapter add`, and `llm add` create explicit custom configuration entries.
+- `model install`, `provider install`, and `adapter install` resolve registry metadata and publish managed files; the upstream-compatible `add` spelling remains accepted for all three managed installs;
+- `provider create` and `adapter create` create explicit custom configuration entries, while `provider configure` edits typed provider configuration; `llm add` keeps its upstream configuration-management meaning.
 
 Review the subcommand help before running a mutation. Pre-release Vinpst does not promise command-line compatibility with another project.
 
