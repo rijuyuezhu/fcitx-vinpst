@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 cd "${repo_root}"
 
-scripts/tests/format.sh --check
+scripts/tools/format.sh --check
 scripts/tests/scripts-lint.sh
 export PYTHONDONTWRITEBYTECODE=1
 scripts/tests/lint.sh
@@ -16,8 +16,7 @@ scripts/tests/addon-install-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-asr-menu-smoke.sh
 scripts/tests/cpp/run-cpp-dbus-configured-activation-smoke.sh
-scripts/tests/toolkit-probe-check.sh
-scripts/tests/niri-live-argument-smoke.sh
+scripts/tools/build-toolkit-probes.sh
 
 scripts/release/check-arch-install-script.sh
 scripts/release/check-arch-pkgbuild.sh

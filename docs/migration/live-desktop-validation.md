@@ -294,7 +294,7 @@ The positional management-GUI live collectors have been retired. They located co
 
 GUI behavior remains covered by deterministic Rust tests for typed state transitions, form guards, persistence and conflict handling, registry projection and installation workflows, modal error handling, keyboard-action semantics, localization, D-Bus integration, and secret-safe diagnostics. These tests run under `just ci` and do not depend on compositor focus order.
 
-Future desktop GUI automation must address controls through a stable semantic identity or accessibility/test API. A test that depends on a fixed number of focus-navigation steps is not accepted as durable validation. The retained desktop live gates in this document are for Fcitx/input-method, toolkit text-entry, audio, notification, and provider integration paths rather than positional management-GUI traversal.
+Management-GUI interaction and visual acceptance are manual-only. Automated coverage must stop below the Iced window/widget boundary and use crate-internal semantic state/message/persistence tests; it must not drive desktop GUI controls. The retained desktop live gates in this document are for Fcitx/input-method, toolkit text-entry, audio, notification, and provider integration paths rather than management-GUI traversal.
 
 ## 8. Frontend behavior
 
