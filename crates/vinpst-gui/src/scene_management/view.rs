@@ -127,7 +127,7 @@ fn scene_row(
         ),
         keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
             (controls_enabled && !active)
-                .then_some(Message::Scene(SceneMessage::Remove(scene_id.to_owned()))),
+                .then_some(Message::RequestRemoveScene(scene_id.to_owned())),
         ),
     ]
     .spacing(10)

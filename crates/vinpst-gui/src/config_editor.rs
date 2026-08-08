@@ -29,7 +29,11 @@ impl App {
                 self.update_draft(|draft| draft.duck_output_while_recording = value);
             }
             ConfigDraftMessage::DuckVolume(value) => {
-                self.update_draft(|draft| draft.duck_output_volume = value);
+                self.update_draft(|draft| {
+                    if draft.duck_output_while_recording {
+                        draft.duck_output_volume = value;
+                    }
+                });
             }
             ConfigDraftMessage::VadEnabled(value) => {
                 self.update_draft(|draft| draft.vad_enabled = value);
@@ -76,9 +80,7 @@ impl App {
     }
 
     fn audio_vad_editor(&self, draft: &ConfigDraft, busy: bool) -> Element<'_, Message> {
-        let capture_device_control = self.capture_device_control(draft, busy);
         let input_gain_control = self.input_gain_control(draft, busy);
-        let duck_volume_control = self.duck_volume_control(draft, busy);
         let normalize_action = (!busy).then_some(Message::ConfigDraft(
             ConfigDraftMessage::NormalizeAudio(!draft.normalize_audio),
         ));
@@ -112,12 +114,8 @@ impl App {
                 })),
             vad_action,
         );
-        column![
-            row![
-                text(self.locale.text(GuiText::CaptureDevice)).width(180),
-                capture_device_control,
-            ]
-            .spacing(12),
+        let mut body = column![
+            self.capture_device_section(draft, busy),
             normalize_checkbox,
             row![
                 text(self.locale.input_gain(draft.input_gain)).width(180),
@@ -125,15 +123,40 @@ impl App {
             ]
             .spacing(12),
             duck_checkbox,
-            row![
-                text(self.locale.duck_volume(draft.duck_output_volume * 100.0),).width(180),
-                duck_volume_control,
-            ]
-            .spacing(12),
-            vad_checkbox,
         ]
-        .spacing(12)
-        .into()
+        .spacing(12);
+        if draft.duck_output_while_recording {
+            body = body.push(
+                row![
+                    text(self.locale.duck_volume(draft.duck_output_volume * 100.0),).width(180),
+                    self.duck_volume_control(draft, busy),
+                ]
+                .spacing(12),
+            );
+        }
+        body.push(vad_checkbox).into()
+    }
+
+    fn capture_device_section(&self, draft: &ConfigDraft, busy: bool) -> Element<'_, Message> {
+        let mut section = column![
+            row![
+                text(self.locale.text(GuiText::CaptureDevice)).width(180),
+                self.capture_device_control(draft, busy),
+            ]
+            .spacing(12)
+        ]
+        .spacing(8);
+        if matches!(&self.audio_devices, AudioDeviceState::Failed(_)) {
+            section = section.push(
+                row![
+                    text(self.locale.text(GuiText::AudioDevicesUnavailable)),
+                    keyboard_button(self.locale.text(GuiText::Retry))
+                        .on_press_maybe((!busy).then_some(Message::RefreshAudioDevices)),
+                ]
+                .spacing(10),
+            );
+        }
+        section.into()
     }
 
     fn capture_device_control(&self, draft: &ConfigDraft, busy: bool) -> Element<'_, Message> {

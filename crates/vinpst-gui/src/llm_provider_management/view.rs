@@ -102,9 +102,9 @@ fn llm_provider_row(
         keyboard_button(locale.text(GuiText::Edit)).on_press_maybe(controls_enabled.then_some(
             Message::LlmProvider(LlmProviderMessage::BeginEdit(provider_id.to_owned())),
         )),
-        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(controls_enabled.then_some(
-            Message::LlmProvider(LlmProviderMessage::Remove(provider_id.to_owned())),
-        )),
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
+            controls_enabled.then_some(Message::RequestRemoveLlmProvider(provider_id.to_owned()),)
+        ),
     ]
     .spacing(10)
     .into()

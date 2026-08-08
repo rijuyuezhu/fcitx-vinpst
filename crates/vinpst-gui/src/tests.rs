@@ -130,6 +130,30 @@ fn config_draft_applies_every_editable_field() {
 }
 
 #[test]
+fn duck_volume_changes_only_while_ducking_is_enabled() {
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    let mut app = crate::test_support::GuiHarness::with_config(
+        config,
+        "/tmp/vinpst-gui-duck-volume.json",
+        Page::Control,
+    );
+    let original = app.draft.as_ref().expect("config draft").duck_output_volume;
+
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DuckOutput(false)));
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DuckVolume(0.15)));
+    assert!(
+        (app.draft.as_ref().expect("config draft").duck_output_volume - original).abs()
+            < f32::EPSILON
+    );
+
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DuckOutput(true)));
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DuckVolume(0.15)));
+    assert!(
+        (app.draft.as_ref().expect("config draft").duck_output_volume - 0.15).abs() < f32::EPSILON
+    );
+}
+
+#[test]
 fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
     let config = VinpstConfig::bundled_default().expect("bundled config");
     let mut app = crate::test_support::GuiHarness::with_config(
@@ -670,10 +694,7 @@ fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
         daemon_state_from_poll(Ok(Some(snapshot.clone()))),
         DaemonLoadState::Ready(snapshot)
     );
-    assert_eq!(
-        daemon_state_from_poll(Ok(None)),
-        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
-    );
+    assert_eq!(daemon_state_from_poll(Ok(None)), DaemonLoadState::Stopped);
     assert_eq!(
         daemon_state_from_poll(Err("session bus unavailable".to_owned())),
         DaemonLoadState::Failed("session bus unavailable".to_owned())
@@ -701,10 +722,7 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
         owned: false,
     }));
     assert_eq!(app.active_daemon_refresh_id, None);
-    assert_eq!(
-        app.daemon,
-        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
-    );
+    assert_eq!(app.daemon, DaemonLoadState::Stopped);
 
     let _ = app.update(Message::DaemonLoaded {
         operation_id: 1,
@@ -714,7 +732,7 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
         operation_id: 2,
         result: Ok(snapshot.clone()),
     });
-    assert!(matches!(app.daemon, DaemonLoadState::Failed(_)));
+    assert_eq!(app.daemon, DaemonLoadState::Stopped);
 
     let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Changed {
         owned: true,
@@ -760,10 +778,7 @@ fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
         result: Ok(None),
     });
     assert_eq!(app.active_daemon_refresh_id, None);
-    assert_eq!(
-        app.daemon,
-        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
-    );
+    assert_eq!(app.daemon, DaemonLoadState::Stopped);
 }
 
 #[test]

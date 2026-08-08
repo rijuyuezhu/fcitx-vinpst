@@ -274,7 +274,12 @@ impl App {
                 | Message::SaveConfig
                 | Message::InstallRegistryModel(_)
                 | Message::RetryModelInstall
+                | Message::RequestRemoveInstalledModel(_)
                 | Message::RemoveInstalledModel(_)
+                | Message::RequestRemoveAsrProvider { .. }
+                | Message::RequestRemoveTextAdapter { .. }
+                | Message::RequestRemoveLlmProvider(_)
+                | Message::RequestRemoveScene(_)
                 | Message::Scene(_)
                 | Message::AsrProvider(_)
                 | Message::LlmProvider(_)

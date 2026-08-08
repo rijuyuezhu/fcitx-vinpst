@@ -44,7 +44,7 @@ See [ASR models and providers](asr.md) for the full workflow.
 
 ## Daemon
 
-The daemon controls are at the bottom of the Control page. In normal use you should only need **Start**, **Stop**, or **Restart** when changing setup or recovering from a problem. Internal D-Bus owner/reconciliation diagnostics are intentionally not part of the normal settings UI; use `vinpst doctor` when service behavior needs investigation.
+The daemon controls are at the bottom of the Control page. In normal use you should only need **Start**, **Stop**, or **Restart** when changing setup or recovering from a problem. If the daemon behaves unexpectedly, run `vinpst doctor`.
 
 ## Fcitx keys and trigger mode
 

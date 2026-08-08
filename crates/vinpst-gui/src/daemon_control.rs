@@ -127,7 +127,7 @@ impl DaemonControlFailure {
 impl App {
     pub(super) fn daemon_control_actions(&self, busy: bool) -> Element<'_, Message> {
         let running = matches!(self.daemon, DaemonLoadState::Ready(_));
-        let stopped = matches!(self.daemon, DaemonLoadState::Failed(_));
+        let stopped = matches!(self.daemon, DaemonLoadState::Stopped);
         row![
             keyboard_button(self.locale.text(GuiText::RefreshDaemon))
                 .on_press_maybe((!busy).then_some(Message::RefreshDaemon)),

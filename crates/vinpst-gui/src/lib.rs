@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use vinpst_config::AsrProviderKind;
 use vinpst_config::{VinpstConfig, config_backup_path, write_config_file};
 use vinpst_protocol::{TextAdapterState, dbus};
-use vinpst_registry::{InstalledModelInfo, LiveScriptKind};
+use vinpst_registry::InstalledModelInfo;
 
 mod adapter_config_management;
 mod adapter_runtime;
@@ -44,6 +44,7 @@ mod model_management;
 mod model_selection;
 mod page;
 mod provider_script_edit;
+mod removal_confirmation;
 mod resource_details;
 mod resource_pages;
 mod scene_management;
@@ -101,6 +102,7 @@ use model_management::{
 };
 pub use model_management::{RegistryModelSummary, default_model_root};
 pub use page::Page;
+use removal_confirmation::RemovalConfirmation;
 use resource_details::ResourceSelection;
 use scene_management::SceneEditorState;
 pub use scene_management::{
@@ -215,6 +217,7 @@ enum OperationState {
 #[derive(Debug, Clone, PartialEq)]
 enum DaemonLoadState {
     Loading,
+    Stopped,
     Ready(DaemonSnapshot),
     Failed(String),
 }
@@ -247,6 +250,7 @@ pub struct App {
     next_script_install_id: u64,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
     selected_resource: Option<ResourceSelection>,
+    removal_confirmation: Option<RemovalConfirmation>,
     scene_editor: Option<SceneEditorState>,
     asr_provider_editor: Option<AsrProviderEditorState>,
     llm_provider_editor: Option<LlmProviderEditorState>,
@@ -297,6 +301,7 @@ impl App {
             next_script_install_id: 1,
             installed_models: load_installed_models(),
             selected_resource: None,
+            removal_confirmation: None,
             scene_editor: None,
             asr_provider_editor: None,
             llm_provider_editor: None,
@@ -330,6 +335,9 @@ impl App {
         if self.has_error_dialog() && !self.error_dialog_allows(&message) {
             return Task::none();
         }
+        if let Some(task) = self.intercept_removal_confirmation_message(&message) {
+            return task;
+        }
         if let Some(task) = self.intercept_startup_notification_message(&message) {
             return task;
         }
@@ -346,6 +354,9 @@ impl App {
             return task;
         }
         if let Some(task) = self.intercept_asr_provider_message(&message) {
+            return task;
+        }
+        if let Some(task) = self.intercept_script_removal_message(&message) {
             return task;
         }
         if self.is_busy() && message.blocked_while_busy() {
@@ -407,6 +418,7 @@ impl App {
                 return self.finish_recording(start, result);
             }
             Message::RefreshModelCatalog => return self.begin_model_catalog_refresh(),
+            Message::RefreshInstalledModels => self.installed_models = load_installed_models(),
             Message::ModelCatalogLoaded(result) => self.finish_model_catalog_refresh(result),
             Message::RefreshAudioDevices => return self.begin_audio_device_refresh(),
             Message::AudioDevicesLoaded(result) => self.finish_audio_device_refresh(result),
@@ -455,19 +467,22 @@ impl App {
             } => return self.finish_script_install(operation_id, outcome),
             Message::EditProviderScript(id) => return self.begin_provider_script_edit(&id),
             Message::ProviderScriptEdited(result) => self.finish_provider_script_edit(result),
-            Message::RemoveProvider(id) => {
-                return self.begin_script_remove(LiveScriptKind::AsrProvider, id);
-            }
-            Message::RemoveAdapter(id) => {
-                return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
-            }
-            Message::ScriptRemoved(result) => return self.finish_script_remove(result),
             Message::StartupNotification(_)
             | Message::DesktopAction(_)
             | Message::DaemonControl(_)
             | Message::AdapterRuntime(_)
             | Message::AdapterConfig(_)
-            | Message::AsrProvider(_) => unreachable!("domain messages are intercepted"),
+            | Message::AsrProvider(_)
+            | Message::RequestRemoveInstalledModel(_)
+            | Message::RequestRemoveAsrProvider { .. }
+            | Message::RequestRemoveTextAdapter { .. }
+            | Message::RequestRemoveLlmProvider(_)
+            | Message::RequestRemoveScene(_)
+            | Message::ConfirmRemoval
+            | Message::CancelRemoval
+            | Message::RemoveProvider(_)
+            | Message::RemoveAdapter(_)
+            | Message::ScriptRemoved(_) => unreachable!("intercepted message reached app routing"),
         }
         Task::none()
     }
@@ -756,6 +771,14 @@ impl App {
             None => base,
         };
 
+        let base = match self.removal_confirmation_view() {
+            Some(dialog) => stack([base, dialog])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            None => base,
+        };
+
         match self.error_dialog_view() {
             Some(dialog) => stack([base, dialog])
                 .width(Length::Fill)
@@ -786,8 +809,12 @@ impl App {
     fn daemon_status_view(&self) -> Element<'_, Message> {
         match &self.daemon {
             DaemonLoadState::Loading => text(self.locale.text(GuiText::DaemonLoading)),
+            DaemonLoadState::Stopped => text(
+                self.locale
+                    .daemon_status(self.locale.text(GuiText::Stopped)),
+            ),
             DaemonLoadState::Ready(snapshot) => text(self.locale.daemon_status(&snapshot.status)),
-            DaemonLoadState::Failed(error) => text(self.locale.daemon_unavailable(error)),
+            DaemonLoadState::Failed(_) => text(self.locale.text(GuiText::DaemonStatusUnavailable)),
         }
         .into()
     }
@@ -797,6 +824,7 @@ impl App {
             || self.model_install.is_active()
             || self.script_install.blocks_operations()
             || self.has_error_dialog()
+            || self.removal_confirmation.is_some()
     }
 
     fn has_error_dialog(&self) -> bool {
@@ -874,9 +902,7 @@ pub fn load_config_document(path: Option<&Path>) -> Result<ConfigDocument, Strin
 fn daemon_state_from_poll(result: Result<Option<DaemonSnapshot>, String>) -> DaemonLoadState {
     match result {
         Ok(Some(snapshot)) => DaemonLoadState::Ready(snapshot),
-        Ok(None) => DaemonLoadState::Failed(
-            "Daemon is not running; waiting for its D-Bus owner.".to_owned(),
-        ),
+        Ok(None) => DaemonLoadState::Stopped,
         Err(error) => DaemonLoadState::Failed(error),
     }
 }

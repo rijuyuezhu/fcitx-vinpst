@@ -108,6 +108,8 @@ pub enum Message {
     },
     /// Refresh the browsable live registry model catalog.
     RefreshModelCatalog,
+    /// Rescan locally installed model metadata.
+    RefreshInstalledModels,
     /// Result of an asynchronous live registry model catalog refresh.
     ModelCatalogLoaded(Result<Vec<crate::RegistryModelSummary>, String>),
     /// Refresh available `PipeWire` capture devices.
@@ -139,6 +141,8 @@ pub enum Message {
         /// Typed worker outcome.
         outcome: ModelInstallOutcome,
     },
+    /// Ask for confirmation before removing one inactive installed model.
+    RequestRemoveInstalledModel(PathBuf),
     /// Remove one inactive installed model directory.
     RemoveInstalledModel(PathBuf),
     /// Result of an installed model removal.
@@ -198,6 +202,28 @@ pub enum Message {
     EditProviderScript(String),
     /// Result of a managed provider script editor process.
     ProviderScriptEdited(Result<String, String>),
+    /// Ask for confirmation before removing one ASR provider.
+    RequestRemoveAsrProvider {
+        /// Stable configured provider id.
+        id: String,
+        /// Whether removal also deletes a managed installed script.
+        managed: bool,
+    },
+    /// Ask for confirmation before removing one text adapter.
+    RequestRemoveTextAdapter {
+        /// Stable configured adapter id.
+        id: String,
+        /// Whether removal also deletes a managed installed script.
+        managed: bool,
+    },
+    /// Ask for confirmation before removing one LLM provider.
+    RequestRemoveLlmProvider(String),
+    /// Ask for confirmation before removing one inactive scene.
+    RequestRemoveScene(String),
+    /// Continue the pending destructive removal through its normal validated path.
+    ConfirmRemoval,
+    /// Dismiss the pending destructive removal without changing configuration or files.
+    CancelRemoval,
     /// Remove one inactive managed command ASR provider.
     RemoveProvider(String),
     /// Remove one managed text adapter.
@@ -212,6 +238,11 @@ impl Message {
             self,
             Self::SelectPage(_)
                 | Self::Interaction(InteractionMessage::SelectPage(_))
+                | Self::RequestRemoveInstalledModel(_)
+                | Self::RequestRemoveAsrProvider { .. }
+                | Self::RequestRemoveTextAdapter { .. }
+                | Self::RequestRemoveLlmProvider(_)
+                | Self::RequestRemoveScene(_)
                 | Self::UseAsrProvider(_)
                 | Self::DaemonControl(
                     DaemonControlMessage::Start

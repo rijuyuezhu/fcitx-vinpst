@@ -18,8 +18,10 @@ use crate::{
 impl App {
     pub(super) fn resources_page(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
-        let resource_controls_busy =
-            busy || self.asr_provider_editor.is_some() || self.adapter_config_editor.is_some();
+        let resource_controls_busy = busy
+            || self.asr_provider_editor.is_some()
+            || self.adapter_config_editor.is_some()
+            || self.ensure_no_unsaved_config_draft().is_err();
         let mut body = column![
             text(self.locale.text(GuiText::Resources)).size(30),
             text(self.locale.text(GuiText::ManagedAsrModels)).size(22),
@@ -78,8 +80,15 @@ impl App {
                     ));
                 }
             }
-            Err(error) => {
-                body = body.push(text(self.locale.installed_model_scan_failed(error)));
+            Err(_) => {
+                body = body.push(
+                    row![
+                        text(self.locale.text(GuiText::CatalogUnavailable)),
+                        keyboard_button(self.locale.text(GuiText::Retry))
+                            .on_press_maybe((!busy).then_some(Message::RefreshInstalledModels)),
+                    ]
+                    .spacing(10),
+                );
             }
         }
         body.into()
@@ -90,8 +99,8 @@ impl App {
             ModelCatalogState::Loading => {
                 text(self.locale.text(GuiText::LoadingModelCatalog)).into()
             }
-            ModelCatalogState::Failed(error) => column![
-                text(error),
+            ModelCatalogState::Failed(_) => column![
+                text(self.locale.text(GuiText::CatalogUnavailable)),
                 keyboard_button(self.locale.text(GuiText::RefreshCatalog))
                     .on_press_maybe((!busy).then_some(Message::RefreshModelCatalog)),
             ]
@@ -306,7 +315,12 @@ fn registry_model_row(
     }
     details = details.push(text(metadata));
 
-    let action = keyboard_button(locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
+    let action = keyboard_button(locale.text(if installed {
+        GuiText::Update
+    } else {
+        GuiText::Install
+    }))
+    .on_press_maybe(
         (!busy && model.supported)
             .then(|| Message::InstallRegistryModel(model.selector().to_owned())),
     );
@@ -363,8 +377,9 @@ fn installed_model_row(
             (!busy && !selected).then_some(Message::UseInstalledModel(model.model_dir.clone())),
         ),
         keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
-            (!busy && !referenced)
-                .then_some(Message::RemoveInstalledModel(model.model_dir.clone())),
+            (!busy && !referenced).then_some(Message::RequestRemoveInstalledModel(
+                model.model_dir.clone()
+            )),
         ),
     ]
     .spacing(10)
@@ -392,15 +407,12 @@ fn provider_row(
         keyboard_button(locale.text(GuiText::Use)).on_press_maybe(
             (!busy && !active).then_some(Message::UseAsrProvider(provider_id.to_owned())),
         ),
-        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy && !active).then(
-            || {
-                if managed {
-                    Message::RemoveProvider(provider_id.to_owned())
-                } else {
-                    Message::AsrProvider(crate::AsrProviderMessage::Remove(provider_id.to_owned()))
-                }
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy && !active).then_some(
+            Message::RequestRemoveAsrProvider {
+                id: provider_id.to_owned(),
+                managed,
             }
-        )),
+        ),),
     ]
     .spacing(10)
     .into()
@@ -434,13 +446,12 @@ fn adapter_row(
                 crate::AdapterRuntimeMessage::Stop(stop_id),
             )),
         ),
-        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy).then(|| {
-            if managed {
-                Message::RemoveAdapter(adapter_id.to_owned())
-            } else {
-                Message::AdapterConfig(crate::AdapterConfigMessage::Remove(adapter_id.to_owned()))
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy).then_some(
+            Message::RequestRemoveTextAdapter {
+                id: adapter_id.to_owned(),
+                managed,
             }
-        })),
+        ),),
     ]
     .spacing(10)
     .into()
