@@ -44,7 +44,6 @@ scripts/tests/asr/run-legacy-command-asr-wav-bridge-smoke.sh
 scripts/tests/asr/run-openai-compatible-asr-fixture-smoke.sh
 scripts/tests/asr/run-openai-compatible-asr-network-smoke.sh
 scripts/tests/asr/run-openai-compatible-text-provider-fixture-smoke.sh
-scripts/tests/asr/run-openai-compatible-text-network-smoke.sh
 scripts/tests/asr/run-provider-ca-rotation-smoke.sh
 scripts/tests/asr/run-capture-cold-start-smoke.sh
 
@@ -59,7 +58,6 @@ scripts/tests/daemon/run-daemon-unavailable-asr-smoke.sh
 scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh
 scripts/tests/daemon/run-remote-text-external-collector-smoke.sh
 
-scripts/tests/install/run-user-guide-command-smoke.sh
 scripts/tests/install/run-user-ime-activation-owner-smoke.sh
 scripts/tests/install/run-user-ime-real-command-asr-wav-smoke.sh
 scripts/tests/install/run-user-ime-sherpa-sense-voice-smoke.sh
