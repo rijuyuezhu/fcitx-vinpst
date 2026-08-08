@@ -4,8 +4,7 @@ use super::*;
 
 #[test]
 fn dirty_control_draft_blocks_script_install_and_removal_entry_points() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = vinpst_config::VinpstConfig::bundled_default().expect("bundled config");
     app.config = Ok(ConfigDocument {
         path: "/tmp/vinpst-gui-dirty-script-draft.json".into(),
@@ -51,8 +50,7 @@ fn dirty_control_draft_blocks_script_install_and_removal_entry_points() {
 
 #[test]
 fn open_scene_editor_blocks_script_install_without_losing_input() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = vinpst_config::VinpstConfig::bundled_default().expect("bundled config");
     app.config = Ok(ConfigDocument {
         path: "/tmp/vinpst-gui-scene-script-draft.json".into(),
@@ -83,8 +81,7 @@ fn open_scene_editor_blocks_script_install_without_losing_input() {
 
 #[test]
 fn open_llm_provider_editor_blocks_adapter_changes_without_losing_input() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = vinpst_config::VinpstConfig::bundled_default().expect("bundled config");
     app.config = Ok(ConfigDocument {
         path: "/tmp/vinpst-gui-provider-adapter-draft.json".into(),

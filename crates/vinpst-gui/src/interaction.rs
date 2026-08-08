@@ -230,8 +230,7 @@ mod tests {
 
     #[test]
     fn dynamic_title_distinguishes_pages_and_locales() {
-        let (mut app, boot_task) = App::boot();
-        drop(boot_task);
+        let mut app = crate::test_support::GuiHarness::new();
         let control_title = app.window_title();
         app.page = Page::Resources;
         let resources_title = app.window_title();

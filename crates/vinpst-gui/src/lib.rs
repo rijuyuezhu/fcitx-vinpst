@@ -54,6 +54,8 @@ mod script_recovery;
 mod script_removal;
 mod script_transaction;
 mod startup_notifications;
+#[cfg(test)]
+mod test_support;
 
 use adapter_config_management::AdapterConfigEditorState;
 pub use adapter_config_management::{

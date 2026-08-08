@@ -822,7 +822,7 @@ mod tests {
 
     #[test]
     fn dirty_adapter_form_blocks_runtime_control_and_cross_page_navigation() {
-        let (mut app, _) = App::boot();
+        let mut app = crate::test_support::GuiHarness::new();
         let original = adapter();
         app.config
             .as_mut()

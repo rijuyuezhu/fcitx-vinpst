@@ -633,8 +633,7 @@ mod tests {
             crate::GuiLocale::EnUs.scene_provider_choice(Some("No provider"))
         );
 
-        let (mut app, boot_task) = App::boot();
-        drop(boot_task);
+        let mut app = crate::test_support::GuiHarness::new();
         app.scene_editor = Some(new_scene_editor());
         drop(app.handle_scene_message(SceneMessage::ProviderSelected(
             SceneProviderSelection::Configured("cloud".to_owned()),

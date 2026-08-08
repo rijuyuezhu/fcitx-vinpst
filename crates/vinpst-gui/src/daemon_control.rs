@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn stale_completion_does_not_replace_current_daemon_state() {
-        let (mut app, _) = App::boot();
+        let mut app = crate::test_support::GuiHarness::new();
         app.active_daemon_control_id = Some(9);
         app.daemon = DaemonLoadState::Ready(snapshot());
         let _ = app.finish_daemon_control(

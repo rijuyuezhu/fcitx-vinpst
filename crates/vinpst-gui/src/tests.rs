@@ -127,16 +127,12 @@ fn config_draft_applies_every_editable_field() {
 
 #[test]
 fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
     let config = VinpstConfig::bundled_default().expect("bundled config");
-    app.config = Ok(ConfigDocument {
-        path: PathBuf::from("/tmp/vinpst-gui-in-flight-config.json"),
-        from_disk: false,
-        config: config.clone(),
-    });
-    app.draft = Some(ConfigDraft::from_config(&config));
-    app.page = Page::Resources;
+    let mut app = crate::test_support::GuiHarness::with_config(
+        config,
+        "/tmp/vinpst-gui-in-flight-config.json",
+        Page::Resources,
+    );
     app.begin_add_scene();
     let editor_before = format!("{:?}", app.scene_editor);
     let language_before = app
@@ -147,17 +143,15 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
         .clone();
     app.operation = OperationState::Running("Saving scene…");
 
-    drop(
-        app.update(Message::ConfigDraft(ConfigDraftMessage::DefaultLanguage(
-            "zh-CN".to_owned(),
-        ))),
-    );
-    drop(app.update(Message::SelectPage(Page::Control)));
-    drop(app.update(Message::ReloadConfig));
-    drop(app.update(Message::Scene(SceneMessage::EditorChanged {
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DefaultLanguage(
+        "zh-CN".to_owned(),
+    )));
+    app.send(Message::SelectPage(Page::Control));
+    app.send(Message::ReloadConfig);
+    app.send(Message::Scene(SceneMessage::EditorChanged {
         field: SceneEditorField::Label,
         value: "late editor change".to_owned(),
-    })));
+    }));
 
     assert_eq!(app.page, Page::Resources);
     assert_eq!(
@@ -169,11 +163,9 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
     );
     assert_eq!(format!("{:?}", app.scene_editor), editor_before);
 
-    drop(
-        app.update(Message::Scene(SceneMessage::MutationFinished(Err(
-            "fixture completion".to_owned(),
-        )))),
-    );
+    app.send(Message::Scene(SceneMessage::MutationFinished(Err(
+        "fixture completion".to_owned(),
+    ))));
     assert!(matches!(
         app.operation,
         OperationState::Failed(ref error) if error == "fixture completion"
@@ -182,8 +174,6 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
 
 #[test]
 fn llm_provider_forms_and_mutations_reject_dirty_control_draft() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
     let mut config = VinpstConfig::bundled_default().expect("bundled config");
     config.llm.providers.push(vinpst_config::LlmProviderConfig {
         id: "existing".to_owned(),
@@ -193,17 +183,16 @@ fn llm_provider_forms_and_mutations_reject_dirty_control_draft() {
         extra_body: serde_json::json!({}),
         extra: HashMap::new(),
     });
-    app.config = Ok(ConfigDocument {
-        path: PathBuf::from("/tmp/vinpst-gui-dirty-llm-provider.json"),
-        from_disk: false,
-        config: config.clone(),
-    });
+    let mut app = crate::test_support::GuiHarness::with_config(
+        config.clone(),
+        "/tmp/vinpst-gui-dirty-llm-provider.json",
+        Page::Llm,
+    );
     let mut draft = ConfigDraft::from_config(&config);
     draft.default_language = "zh-CN".to_owned();
     app.draft = Some(draft);
-    app.page = Page::Llm;
 
-    drop(app.update(Message::LlmProvider(LlmProviderMessage::BeginAdd)));
+    app.send(Message::LlmProvider(LlmProviderMessage::BeginAdd));
     assert!(matches!(
         app.operation,
         OperationState::Failed(ref error) if error.contains("Save or reset")
@@ -245,8 +234,7 @@ fn llm_provider_forms_and_mutations_reject_dirty_control_draft() {
 
 #[test]
 fn scene_forms_reject_dirty_control_draft() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     let scene_id = config.scenes.definitions[0].id.clone();
     app.config = Ok(ConfigDocument {
@@ -284,8 +272,7 @@ fn scene_forms_reject_dirty_control_draft() {
 
 #[test]
 fn in_flight_llm_provider_mutation_freezes_form_messages() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     app.config = Ok(ConfigDocument {
         path: PathBuf::from("/tmp/vinpst-gui-in-flight-llm-provider.json"),
@@ -336,8 +323,7 @@ fn in_flight_llm_provider_mutation_freezes_form_messages() {
 
 #[test]
 fn same_page_navigation_preserves_page_local_editors() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     app.config = Ok(ConfigDocument {
         path: PathBuf::from("/tmp/vinpst-gui-same-page-navigation.json"),
@@ -380,8 +366,7 @@ fn same_page_navigation_preserves_page_local_editors() {
 
 #[test]
 fn hotword_changes_block_navigation_and_reload_until_reset() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     let document = Ok(ConfigDocument {
         path: PathBuf::from("/tmp/vinpst-gui-hotword-navigation.json"),
@@ -427,8 +412,7 @@ fn hotword_activation_retry_is_blocked_while_busy() {
 
 #[test]
 fn failed_operation_uses_modal_state_without_inline_layout_notice() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     app.page = Page::Control;
     app.operation = OperationState::Failed("fixture failure".to_owned());
 
@@ -455,8 +439,7 @@ fn failed_operation_uses_modal_state_without_inline_layout_notice() {
 
 #[test]
 fn resource_details_are_modal_and_escape_closes_them() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     let provider_id = config.asr.active_provider.clone();
     app.config = Ok(ConfigDocument {
@@ -671,7 +654,7 @@ fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
 
 #[test]
 fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
-    let (mut app, _) = App::boot();
+    let mut app = crate::test_support::GuiHarness::new();
     assert_eq!(app.active_daemon_refresh_id, Some(1));
 
     let snapshot = DaemonSnapshot {
@@ -720,7 +703,7 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
 
 #[test]
 fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
-    let (mut app, _) = App::boot();
+    let mut app = crate::test_support::GuiHarness::new();
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
@@ -757,7 +740,7 @@ fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
 
 #[test]
 fn model_install_cancel_completion_retains_exact_retry_selector() {
-    let (mut app, _) = App::boot();
+    let mut app = crate::test_support::GuiHarness::new();
     let first_task = app.update(Message::InstallRegistryModel("fixture-short-id".to_owned()));
     assert_eq!(first_task.units(), 1);
     assert!(app.model_install.is_active());
