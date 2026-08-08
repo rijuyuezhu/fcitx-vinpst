@@ -9,7 +9,7 @@ pub(crate) enum AdapterCommand {
     /// List configured text adapters.
     #[command(alias = "ls")]
     List {
-        /// Legacy-compatible flag for listing registry-available text adapters.
+        /// List text adapters available for installation.
         #[arg(short = 'a', long)]
         available: bool,
         /// Optional local registry index JSON used by --available.

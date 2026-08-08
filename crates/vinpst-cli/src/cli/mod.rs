@@ -126,7 +126,7 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: ProviderCommand,
     },
-    /// Manage ASR models from the live registry catalog.
+    /// Manage ASR models.
     Model {
         /// Model operation.
         #[command(subcommand)]
