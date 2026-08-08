@@ -113,10 +113,6 @@ Then follow [Quick start](quick-start.md) to install an ASR model and verify the
 
 ## Uninstalling a release package
 
-Before removing a release package, finish any active recording and stop the user service:
+Before removing a release package, finish any active recording, then remove the package through the package manager that installed it. The package hook performs the guarded daemon shutdown/removal handoff automatically; users should not need to invoke the internal maintenance command themselves.
 
-```sh
-vinpst daemon prepare-remove
-```
-
-Remove the package through the package manager that installed it. Package removal must not delete user configuration, downloaded models, provider scripts, adapter scripts, hotword files, or caches. Remove those directories manually only when you intentionally want to discard all Vinpst user state.
+Package removal must not delete user configuration, downloaded models, provider scripts, adapter scripts, hotword files, or caches. Remove those directories manually only when you intentionally want to discard all Vinpst user state.

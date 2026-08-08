@@ -210,6 +210,7 @@ fn doctor_reports_combined_local_diagnostics() {
     let addon_lib_dir = data_home.join("lib/fcitx5");
 
     let output = vinpst_command()
+        .env("XDG_CONFIG_HOME", data_home.join("config-home"))
         .env("XDG_DATA_HOME", &data_home)
         .env(
             "VINPST_SHERPA_VAD_MODEL",

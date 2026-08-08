@@ -87,6 +87,7 @@ pub(crate) enum AdapterCommand {
         json: bool,
     },
     /// Print a dry-run install plan for a registry adapter.
+    #[command(hide = true)]
     InstallPlan {
         /// Adapter id from the registry index.
         id: String,

@@ -26,7 +26,7 @@ pub(crate) use recording::RecordingCommand;
 pub(crate) use registry::RegistryCommand;
 pub(crate) use scene::SceneCommand;
 
-/// CLI for inspecting and controlling the vinpst daemon.
+/// Manage Vinpst voice input, configuration, and diagnostics.
 #[derive(Debug, Parser)]
 #[command(version, about)]
 pub(crate) struct Args {
@@ -62,27 +62,29 @@ pub(crate) enum Command {
         json: bool,
     },
     /// Print stable D-Bus names and methods.
+    #[command(hide = true)]
     Protocol,
-    /// Inspect or validate vinpst config metadata.
+    /// Manage Vinpst configuration.
     Config {
         /// Config operation. Omitted to validate the bundled default config.
         #[command(subcommand)]
         command: Option<ConfigCommand>,
     },
     /// Inspect or validate registry metadata.
+    #[command(hide = true)]
     Registry {
         /// Registry operation. Omitted to print URL resolution for the bundled config.
         #[command(subcommand)]
         command: Option<RegistryCommand>,
     },
-    /// Control or inspect the running vinpst daemon.
+    /// Start, stop, or inspect the Vinpst daemon.
     Daemon {
         /// Daemon operation.
         #[command(subcommand)]
         command: DaemonCommand,
     },
 
-    /// Control daemon recording over D-Bus.
+    /// Start, stop, toggle, or inspect recording.
     Recording {
         /// Recording operation.
         #[command(subcommand)]
@@ -131,24 +133,27 @@ pub(crate) enum Command {
         command: ModelCommand,
     },
     /// Print ASR backend availability diagnostics from config.
+    #[command(hide = true)]
     AsrState {
         /// Optional config JSON file. Omitted to inspect the bundled default config.
         #[arg(long)]
         config: Option<PathBuf>,
     },
     /// Print capture-device diagnostics from config and optional live backend.
+    #[command(hide = true)]
     AudioDevices {
         /// Optional config JSON file. Omitted to inspect the bundled default config.
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    /// Print combined local diagnostics for config, ASR, audio, and activation setup.
+    /// Check the local Vinpst setup and report problems.
     Doctor {
         /// Optional config JSON file. Omitted to inspect the bundled default config.
         #[arg(long)]
         config: Option<PathBuf>,
     },
     /// Generate, install, or remove an org.fcitx.Vinpst D-Bus activation service file.
+    #[command(hide = true)]
     ActivationService {
         /// Path to the vinpst-daemon executable used by D-Bus activation.
         #[arg(long, required_unless_present_any = ["remove_user", "user_status"])]
@@ -202,11 +207,13 @@ pub(crate) enum Command {
         output: Option<PathBuf>,
     },
     /// Create a recognition JSON payload for tests/manual inspection.
+    #[command(hide = true)]
     MockResult {
         /// Commit text for the payload.
         text: String,
     },
     /// Parse a status string and print the normalized wire value.
+    #[command(hide = true)]
     Status {
         /// Status string such as idle, recording, inferring, postprocessing, or error.
         status: String,
@@ -345,5 +352,73 @@ pub(crate) fn force_json_output(command: &mut Command) {
         | Command::ActivationService { .. }
         | Command::MockResult { .. }
         | Command::Status { .. } => {}
+    }
+}
+
+#[cfg(test)]
+mod help_surface_tests {
+    use clap::CommandFactory;
+
+    use super::Args;
+
+    #[test]
+    fn internal_top_level_commands_are_hidden_but_registered() {
+        let command = Args::command();
+        for name in [
+            "protocol",
+            "registry",
+            "asr-state",
+            "audio-devices",
+            "activation-service",
+            "mock-result",
+            "status",
+        ] {
+            let subcommand = command
+                .find_subcommand(name)
+                .expect("registered subcommand");
+            assert!(subcommand.is_hide_set(), "{name} should be hidden");
+        }
+    }
+
+    #[test]
+    fn user_command_groups_remain_visible() {
+        let command = Args::command();
+        for name in [
+            "init",
+            "config",
+            "daemon",
+            "recording",
+            "device",
+            "hotword",
+            "llm",
+            "adapter",
+            "scene",
+            "provider",
+            "model",
+            "doctor",
+        ] {
+            let subcommand = command
+                .find_subcommand(name)
+                .expect("registered subcommand");
+            assert!(!subcommand.is_hide_set(), "{name} should remain visible");
+        }
+    }
+
+    #[test]
+    fn maintenance_subcommands_are_hidden_but_registered() {
+        let command = Args::command();
+        let daemon = command.find_subcommand("daemon").expect("daemon command");
+        for name in ["handoff", "prepare-remove", "install-service"] {
+            let subcommand = daemon
+                .find_subcommand(name)
+                .expect("maintenance subcommand");
+            assert!(subcommand.is_hide_set(), "daemon {name} should be hidden");
+        }
+
+        let adapter = command.find_subcommand("adapter").expect("adapter command");
+        let install_plan = adapter
+            .find_subcommand("install-plan")
+            .expect("adapter install-plan");
+        assert!(install_plan.is_hide_set());
     }
 }

@@ -5,7 +5,7 @@ use clap::Subcommand;
 /// Daemon-related commands backed by the D-Bus service contract.
 #[derive(Debug, Subcommand)]
 pub(crate) enum DaemonCommand {
-    /// Trigger daemon D-Bus activation by querying status.
+    /// Start the daemon if it is not already running.
     Start {
         /// Print the D-Bus activation plan without contacting the daemon.
         #[arg(long)]
@@ -14,7 +14,7 @@ pub(crate) enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Query daemon status and runtime diagnostics over D-Bus.
+    /// Show daemon and ASR status.
     Status {
         /// Print the D-Bus call plan without contacting the daemon.
         #[arg(long)]
@@ -24,6 +24,7 @@ pub(crate) enum DaemonCommand {
         json: bool,
     },
     /// Restart the user service only when daemon status reports a stale owner.
+    #[command(hide = true)]
     Handoff {
         /// Print the conditional restart plan without contacting the daemon or systemd.
         #[arg(long)]
@@ -33,6 +34,7 @@ pub(crate) enum DaemonCommand {
         json: bool,
     },
     /// Stop and disable the running daemon before package removal.
+    #[command(hide = true)]
     PrepareRemove {
         /// Print the guarded removal plan without contacting D-Bus or systemd.
         #[arg(long)]
@@ -44,7 +46,7 @@ pub(crate) enum DaemonCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Reload the selected ASR backend on the running daemon.
+    /// Reload the selected ASR backend.
     ReloadAsr {
         /// Print the D-Bus call plan without contacting the daemon.
         #[arg(long)]
@@ -54,6 +56,7 @@ pub(crate) enum DaemonCommand {
         json: bool,
     },
     /// Install or refresh the per-user daemon service, rewriting it for Flatpak when detected.
+    #[command(hide = true)]
     InstallService {
         /// Read an explicit service template instead of the packaged default.
         #[arg(long)]

@@ -1256,45 +1256,30 @@ fn adapter_start_stop_dry_run_json_reports_dbus_plan() {
 }
 
 #[test]
-fn adapter_start_stop_text_dry_run_outputs_expected_fields() {
+fn adapter_lifecycle_text_hides_transport_details() {
     let path = write_llm_fixture("vinpst-adapter-lifecycle-text");
-    let start = vinpst_command()
-        .args(["adapter", "start", "command-adapter", "--config"])
-        .arg(&path)
-        .arg("--dry-run")
-        .output()
-        .expect("run vinpst adapter start text dry-run");
-    let stdout = assert_stdout_success(start, "adapter start text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("selector: command-adapter"));
-    assert!(stdout.contains("adapter_id: command-adapter"));
-    assert!(stdout.contains("config_source: file"));
-    assert!(stdout.contains("action: start"));
-    assert!(stdout.contains("will_call_dbus: false"));
-    assert!(stdout.contains("called: false"));
-    assert!(stdout.contains("method: StartAdapter"));
-    assert!(
-        stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
-    assert!(stdout.contains("next_step: run vinpst daemon status --dry-run --json"));
-
-    let stop = vinpst_command()
-        .args(["adapter", "stop", "command-adapter", "--config"])
-        .arg(&path)
-        .arg("--dry-run")
-        .output()
-        .expect("run vinpst adapter stop text dry-run");
-    let stdout = assert_stdout_success(stop, "adapter stop text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("adapter_id: command-adapter"));
-    assert!(stdout.contains("action: stop"));
-    assert!(stdout.contains("method: StopAdapter"));
-    assert!(
-        stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
-    assert!(stdout.contains("next_step: run vinpst daemon status --dry-run --json"));
+    for action in ["start", "stop"] {
+        let output = vinpst_command()
+            .args(["adapter", action, "command-adapter", "--config"])
+            .arg(&path)
+            .arg("--dry-run")
+            .output()
+            .expect("run adapter lifecycle text dry-run");
+        let stdout = assert_stdout_success(output, "adapter lifecycle text dry-run");
+        assert!(stdout.contains("command-adapter"));
+        for internal in [
+            "org.fcitx.Vinpst",
+            "StartAdapter",
+            "StopAdapter",
+            "owner_probe",
+            "will_call_dbus",
+        ] {
+            assert!(
+                !stdout.contains(internal),
+                "leaked internal detail: {internal}"
+            );
+        }
+    }
     fs::remove_file(path).expect("remove adapter lifecycle text fixture");
 }
 
@@ -1323,24 +1308,25 @@ fn adapter_status_dry_run_json_reports_text_adapter_state_plan() {
 }
 
 #[test]
-fn adapter_status_dry_run_text_outputs_expected_fields() {
+fn adapter_status_text_hides_transport_details() {
     let output = vinpst_command()
         .args(["adapter", "status", "--dry-run"])
         .output()
         .expect("run vinpst adapter status text dry-run");
 
     let stdout = assert_stdout_success(output, "adapter status text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("action: status"));
-    assert!(stdout.contains("adapter_id: -"));
-    assert!(stdout.contains("will_call_dbus: false"));
-    assert!(stdout.contains("called: false"));
-    assert!(stdout.contains("method: GetTextAdapterState"));
-    assert!(
-        stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
-    assert!(stdout.contains("next_step: run vinpst adapter status without --dry-run"));
+    assert!(!stdout.is_empty());
+    for internal in [
+        "org.fcitx.Vinpst",
+        "GetTextAdapterState",
+        "owner_probe",
+        "will_call_dbus",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal detail: {internal}"
+        );
+    }
 }
 
 #[test]

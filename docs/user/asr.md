@@ -95,7 +95,6 @@ Hotword support depends on the selected provider/model family. Vinpst rejects UR
 ## Diagnostics
 
 ```sh
-vinpst asr-state
 vinpst doctor
 vinpst daemon status
 vinpst daemon log --lines 100
