@@ -140,7 +140,7 @@ fn fetch_registry_model_catalog_from(
     ))
 }
 
-fn fetch_registry_i18n(
+pub(crate) fn fetch_registry_i18n(
     source: &impl RegistryTextSource,
     base: &str,
     locale: GuiLocale,

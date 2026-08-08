@@ -105,6 +105,8 @@ fn config_draft_applies_every_editable_field() {
     let mut draft = ConfigDraft::from_config(&config);
     draft.default_language = "zh-CN".to_owned();
     draft.capture_device = "test-source".to_owned();
+    draft.normalize_audio = false;
+    draft.input_gain = 1.4;
     draft.duck_output_while_recording = true;
     draft.duck_output_volume = 0.4;
     draft.vad_enabled = false;
@@ -117,6 +119,8 @@ fn config_draft_applies_every_editable_field() {
     config.validate().expect("validate edited config");
     assert_eq!(config.global.default_language, "zh-CN");
     assert_eq!(config.global.capture_device, "test-source");
+    assert!(!config.asr.normalize_audio);
+    assert!((config.asr.input_gain - 1.4).abs() < f32::EPSILON);
     assert!(config.global.duck_output_while_recording);
     assert!((config.global.duck_output_volume - 0.4).abs() < f32::EPSILON);
     assert!(!config.asr.vad.enabled);
@@ -483,6 +487,30 @@ fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
         .expect_err("dirty Control draft must block resource mutation");
     assert!(error.contains("Save or reset"));
     assert_eq!(dirty.default_language, "zh-CN");
+}
+
+#[test]
+fn provider_use_does_not_save_unrelated_dirty_audio_settings() {
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    let original_provider = config.asr.active_provider.clone();
+    let mut app = crate::test_support::GuiHarness::with_config(
+        config,
+        "/tmp/vinpst-gui-provider-use.json",
+        Page::Control,
+    );
+    app.draft.as_mut().expect("config draft").capture_device = "unsaved-device".to_owned();
+
+    app.send(Message::UseAsrProvider("other-provider".to_owned()));
+
+    assert_eq!(
+        app.draft.as_ref().expect("preserved draft").active_provider,
+        original_provider
+    );
+    assert_eq!(
+        app.draft.as_ref().expect("preserved draft").capture_device,
+        "unsaved-device"
+    );
+    assert!(matches!(app.operation, OperationState::Failed(_)));
 }
 
 #[test]

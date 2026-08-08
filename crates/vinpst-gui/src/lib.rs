@@ -1,7 +1,5 @@
 //! Rust management GUI state, data loading, and D-Bus integration.
 
-use crate::keyboard_action::keyboard_button;
-
 use std::{
     env,
     path::{Path, PathBuf},
@@ -23,6 +21,7 @@ mod adapter_config_management;
 mod adapter_runtime;
 mod asr_provider_management;
 mod asr_reload_confirmation;
+mod audio_devices;
 mod blocking_task;
 mod config_editor;
 mod daemon_client;
@@ -48,6 +47,7 @@ mod provider_script_edit;
 mod resource_details;
 mod resource_pages;
 mod scene_management;
+mod script_catalog;
 mod script_install;
 mod script_management;
 mod script_recovery;
@@ -72,6 +72,8 @@ pub use asr_provider_management::{
 pub(crate) use asr_reload_confirmation::{
     reload_asr_backend, reload_asr_backend_and_wait, wait_for_requested_asr_backend,
 };
+use audio_devices::AudioDeviceState;
+pub use audio_devices::CaptureDeviceChoice;
 pub use daemon_client::query_daemon_snapshot;
 pub(crate) use daemon_client::{daemon_proxy, query_daemon_snapshot_if_owned};
 pub use daemon_control::{
@@ -104,6 +106,8 @@ use scene_management::SceneEditorState;
 pub use scene_management::{
     SceneEditorField, SceneMessage, SceneMutationOutcome, SceneProviderSelection,
 };
+pub use script_catalog::RegistryScriptSummary;
+use script_catalog::ScriptCatalogState;
 use script_install::ScriptInstallState;
 pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretInput};
 use startup_notifications::StartupNotificationState;
@@ -139,6 +143,8 @@ pub struct DaemonSnapshot {
 struct ConfigDraft {
     default_language: String,
     capture_device: String,
+    normalize_audio: bool,
+    input_gain: f32,
     duck_output_while_recording: bool,
     duck_output_volume: f32,
     vad_enabled: bool,
@@ -152,6 +158,8 @@ impl ConfigDraft {
         Self {
             default_language: config.global.default_language.clone(),
             capture_device: config.global.capture_device.clone(),
+            normalize_audio: config.asr.normalize_audio,
+            input_gain: config.asr.input_gain,
             duck_output_while_recording: config.global.duck_output_while_recording,
             duck_output_volume: config.global.duck_output_volume,
             vad_enabled: config.asr.vad.enabled,
@@ -174,6 +182,8 @@ impl ConfigDraft {
             .global
             .capture_device
             .clone_from(&self.capture_device);
+        config.asr.normalize_audio = self.normalize_audio;
+        config.asr.input_gain = self.input_gain;
         config.global.duck_output_while_recording = self.duck_output_while_recording;
         config.global.duck_output_volume = self.duck_output_volume;
         config.asr.vad.enabled = self.vad_enabled;
@@ -230,8 +240,9 @@ pub struct App {
     model_catalog: ModelCatalogState,
     model_install: ModelInstallState,
     next_model_install_id: u64,
-    provider_selector: String,
-    adapter_selector: String,
+    audio_devices: AudioDeviceState,
+    provider_catalog: ScriptCatalogState,
+    adapter_catalog: ScriptCatalogState,
     script_install: ScriptInstallState,
     next_script_install_id: u64,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
@@ -279,8 +290,9 @@ impl App {
             model_catalog: ModelCatalogState::Loading,
             model_install: ModelInstallState::default(),
             next_model_install_id: 1,
-            provider_selector: String::new(),
-            adapter_selector: String::new(),
+            audio_devices: AudioDeviceState::Loading,
+            provider_catalog: ScriptCatalogState::Loading,
+            adapter_catalog: ScriptCatalogState::Loading,
             script_install: ScriptInstallState::default(),
             next_script_install_id: 1,
             installed_models: load_installed_models(),
@@ -297,9 +309,19 @@ impl App {
         let daemon_task = app.begin_daemon_refresh(true);
         let notification_task = app.begin_startup_notification_load();
         let model_catalog_task = app.begin_model_catalog_refresh();
+        let audio_devices_task = app.begin_audio_device_refresh();
+        let provider_catalog_task = app.begin_provider_catalog_refresh();
+        let adapter_catalog_task = app.begin_adapter_catalog_refresh();
         (
             app,
-            Task::batch([daemon_task, notification_task, model_catalog_task]),
+            Task::batch([
+                daemon_task,
+                notification_task,
+                model_catalog_task,
+                audio_devices_task,
+                provider_catalog_task,
+                adapter_catalog_task,
+            ]),
         )
     }
 
@@ -341,6 +363,9 @@ impl App {
             | Message::DaemonFallbackPolled { .. }
             | Message::DaemonOwnerEvent(_)
             | Message::ModelCatalogLoaded(_)
+            | Message::AudioDevicesLoaded(_)
+            | Message::ProviderCatalogLoaded(_)
+            | Message::AdapterCatalogLoaded(_)
             | Message::StartupNotification(StartupNotificationMessage::Loaded(_)) => true,
             Message::RetryModelInstall => self.model_install.failure_message().is_some(),
             Message::RetryScriptInstall => self.script_install.failure_message().is_some(),
@@ -353,6 +378,9 @@ impl App {
             Message::SelectPage(page) => self.select_page(page),
             Message::FilterChanged(filter) => self.filter = filter,
             Message::ModelFilterChanged(filter) => self.model_filter = filter,
+            Message::UseAsrProvider(provider_id) => {
+                return self.begin_asr_provider_use(provider_id);
+            }
             Message::Interaction(message) => return self.handle_interaction_message(message),
             Message::RefreshDaemon => return self.begin_daemon_refresh(true),
             Message::DaemonLoaded {
@@ -380,6 +408,12 @@ impl App {
             }
             Message::RefreshModelCatalog => return self.begin_model_catalog_refresh(),
             Message::ModelCatalogLoaded(result) => self.finish_model_catalog_refresh(result),
+            Message::RefreshAudioDevices => return self.begin_audio_device_refresh(),
+            Message::AudioDevicesLoaded(result) => self.finish_audio_device_refresh(result),
+            Message::RefreshProviderCatalog => return self.begin_provider_catalog_refresh(),
+            Message::ProviderCatalogLoaded(result) => self.finish_provider_catalog_refresh(result),
+            Message::RefreshAdapterCatalog => return self.begin_adapter_catalog_refresh(),
+            Message::AdapterCatalogLoaded(result) => self.finish_adapter_catalog_refresh(result),
             Message::InstallRegistryModel(selector) => {
                 return self.begin_model_install_for(selector);
             }
@@ -400,10 +434,8 @@ impl App {
             Message::SelectLlmProviderDetail(id) => self.select_llm_provider_detail(id),
             Message::SelectLlmAdapterDetail(id) => self.select_llm_adapter_detail(id),
             Message::ClearResourceDetail => self.clear_resource_detail(),
-            Message::ProviderSelectorChanged(value) => self.provider_selector = value,
-            Message::AdapterSelectorChanged(value) => self.adapter_selector = value,
-            Message::InstallProvider => return self.begin_provider_install(),
-            Message::InstallAdapter => return self.begin_adapter_install(),
+            Message::InstallProvider(selector) => return self.begin_provider_install(selector),
+            Message::InstallAdapter(selector) => return self.begin_adapter_install(selector),
             Message::ScriptPrepared {
                 operation_id,
                 outcome,
@@ -737,55 +769,27 @@ impl App {
         let busy = self.is_busy();
         let mut body = column![
             text(self.locale.text(GuiText::Control)).size(30),
-            text(self.locale.text(GuiText::DaemonService)).size(22),
-            self.daemon_control_actions(busy),
-            self.daemon_status_view(),
-            text(self.locale.text(GuiText::Recording)).size(22),
-            self.recording_actions(busy),
+            self.config_editor(busy),
+            self.configured_asr_providers_view(busy),
         ]
         .spacing(14);
         if let Some(notice) = self.operation_notice() {
             body = body.push(notice);
         }
-        body = body.push(self.config_editor(busy));
+        body = body
+            .push(text(self.locale.text(GuiText::DaemonService)).size(22))
+            .push(self.daemon_control_actions(busy))
+            .push(self.daemon_status_view());
         scrollable(body).into()
     }
 
-    fn recording_actions(&self, busy: bool) -> Element<'_, Message> {
-        let daemon_status = match &self.daemon {
-            DaemonLoadState::Ready(snapshot) => Some(snapshot.status.as_str()),
-            DaemonLoadState::Loading | DaemonLoadState::Failed(_) => None,
-        };
-        let can_start = !busy && daemon_status == Some("idle");
-        let can_stop = !busy && daemon_status == Some("recording");
-        row![
-            keyboard_button(self.locale.text(GuiText::ReloadConfig))
-                .on_press_maybe((!busy).then_some(Message::ReloadConfig)),
-            keyboard_button(self.locale.text(GuiText::StartRecording))
-                .on_press_maybe(can_start.then_some(Message::StartRecording)),
-            keyboard_button(self.locale.text(GuiText::StopRecording))
-                .on_press_maybe(can_stop.then_some(Message::StopRecording)),
-        ]
-        .spacing(10)
-        .into()
-    }
-
     fn daemon_status_view(&self) -> Element<'_, Message> {
-        let daemon = match &self.daemon {
+        match &self.daemon {
             DaemonLoadState::Loading => text(self.locale.text(GuiText::DaemonLoading)),
             DaemonLoadState::Ready(snapshot) => text(self.locale.daemon_status(&snapshot.status)),
             DaemonLoadState::Failed(error) => text(self.locale.daemon_unavailable(error)),
-        };
-        let monitor = match &self.daemon_owner_monitor {
-            DaemonOwnerMonitorState::Connecting => {
-                self.locale.text(GuiText::OwnerMonitorConnecting).to_owned()
-            }
-            DaemonOwnerMonitorState::Ready => {
-                self.locale.text(GuiText::OwnerMonitorReady).to_owned()
-            }
-            DaemonOwnerMonitorState::Failed(error) => self.locale.owner_monitor_degraded(error),
-        };
-        column![daemon, text(monitor)].spacing(5).into()
+        }
+        .into()
     }
 
     fn is_busy(&self) -> bool {

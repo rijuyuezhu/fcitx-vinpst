@@ -10,9 +10,9 @@ use vinpst_registry::{LiveScriptKind, RegistryOperationProgress};
 
 use super::{
     ActiveScriptInstall, ActiveScriptPreparation, ScriptInstallPlan, ScriptInstallState,
-    adapter_selector_id, provider_selector_id, script_primary_action_id,
+    script_primary_action_id,
 };
-use crate::{App, GuiLocale, GuiText, Message, SecretInput};
+use crate::{App, GuiLocale, GuiText, Message, SecretInput, script_catalog::ScriptCatalogState};
 
 impl ScriptInstallPlan {
     fn view(&self, locale: GuiLocale) -> Element<'_, Message> {
@@ -119,49 +119,72 @@ impl ScriptInstallState {
 
 impl App {
     pub(crate) fn provider_install_controls(&self, busy: bool) -> Element<'_, Message> {
-        let input = text_input(
-            self.locale.text(GuiText::RegistryProviderSelector),
-            &self.provider_selector,
+        script_catalog_view(
+            &self.provider_catalog,
+            self.locale,
+            busy,
+            Message::RefreshProviderCatalog,
+            Message::InstallProvider,
         )
-        .id(provider_selector_id())
-        .width(Length::Fill);
-        let input = if busy {
-            input
-        } else {
-            input.on_input(Message::ProviderSelectorChanged)
-        };
-        row![
-            input,
-            keyboard_button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
-                (!busy && !self.provider_selector.trim().is_empty())
-                    .then_some(Message::InstallProvider),
-            ),
-        ]
-        .spacing(10)
-        .into()
     }
 
     pub(crate) fn adapter_install_controls(&self, busy: bool) -> Element<'_, Message> {
-        let input = text_input(
-            self.locale.text(GuiText::RegistryAdapterSelector),
-            &self.adapter_selector,
+        script_catalog_view(
+            &self.adapter_catalog,
+            self.locale,
+            busy,
+            Message::RefreshAdapterCatalog,
+            Message::InstallAdapter,
         )
-        .id(adapter_selector_id())
-        .width(Length::Fill);
-        let input = if busy {
-            input
-        } else {
-            input.on_input(Message::AdapterSelectorChanged)
-        };
-        row![
-            input,
-            keyboard_button(self.locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
-                (!busy && !self.adapter_selector.trim().is_empty())
-                    .then_some(Message::InstallAdapter),
-            ),
+    }
+}
+
+fn script_catalog_view(
+    state: &ScriptCatalogState,
+    locale: GuiLocale,
+    busy: bool,
+    refresh: Message,
+    install: fn(String) -> Message,
+) -> Element<'_, Message> {
+    match state {
+        ScriptCatalogState::Loading => text(locale.text(GuiText::LoadingCatalog)).into(),
+        ScriptCatalogState::Failed(error) => column![
+            text(error),
+            keyboard_button(locale.text(GuiText::RefreshCatalog))
+                .on_press_maybe((!busy).then_some(refresh)),
         ]
-        .spacing(10)
-        .into()
+        .spacing(8)
+        .into(),
+        ScriptCatalogState::Ready(entries) if entries.is_empty() => column![
+            text(locale.text(GuiText::NoCatalogItems)),
+            keyboard_button(locale.text(GuiText::RefreshCatalog))
+                .on_press_maybe((!busy).then_some(refresh)),
+        ]
+        .spacing(8)
+        .into(),
+        ScriptCatalogState::Ready(entries) => {
+            let mut body = column![].spacing(8);
+            for entry in entries {
+                let selector = entry.selector().to_owned();
+                let mut label = column![text(&entry.title)];
+                if let Some(description) = entry.description.as_deref() {
+                    label = label.push(text(description).size(12));
+                }
+                body = body.push(
+                    row![
+                        label.width(Length::Fill),
+                        keyboard_button(locale.text(GuiText::InstallOrUpdate))
+                            .on_press_maybe((!busy).then_some(install(selector))),
+                    ]
+                    .spacing(10),
+                );
+            }
+            body.push(
+                keyboard_button(locale.text(GuiText::RefreshCatalog))
+                    .on_press_maybe((!busy).then_some(refresh)),
+            )
+            .into()
+        }
     }
 }
 

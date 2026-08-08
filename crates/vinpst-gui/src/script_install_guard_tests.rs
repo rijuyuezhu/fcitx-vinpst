@@ -14,9 +14,7 @@ fn dirty_control_draft_blocks_script_install_and_removal_entry_points() {
     let mut draft = crate::ConfigDraft::from_config(&config);
     draft.default_language = "zh-CN".to_owned();
     app.draft = Some(draft);
-    app.provider_selector = "fixture".to_owned();
-
-    drop(app.begin_script_install(LiveScriptKind::AsrProvider));
+    drop(app.begin_script_install(LiveScriptKind::AsrProvider, "fixture".to_owned()));
     assert!(matches!(
         app.operation,
         OperationState::Failed(ref error) if error.contains("Save or reset")
@@ -58,7 +56,6 @@ fn open_scene_editor_blocks_script_install_without_losing_input() {
         config: config.clone(),
     });
     app.draft = Some(crate::ConfigDraft::from_config(&config));
-    app.provider_selector = "fixture".to_owned();
     drop(app.update(Message::Scene(crate::SceneMessage::BeginAdd)));
     drop(
         app.update(Message::Scene(crate::SceneMessage::EditorChanged {
@@ -68,7 +65,7 @@ fn open_scene_editor_blocks_script_install_without_losing_input() {
     );
     let editor_before = format!("{:?}", app.scene_editor);
 
-    drop(app.begin_script_install(LiveScriptKind::AsrProvider));
+    drop(app.begin_script_install(LiveScriptKind::AsrProvider, "fixture".to_owned()));
 
     assert!(matches!(
         app.operation,
@@ -89,7 +86,6 @@ fn open_llm_provider_editor_blocks_adapter_changes_without_losing_input() {
         config: config.clone(),
     });
     app.draft = Some(crate::ConfigDraft::from_config(&config));
-    app.adapter_selector = "fixture".to_owned();
     drop(app.update(Message::LlmProvider(crate::LlmProviderMessage::BeginAdd)));
     drop(app.update(Message::LlmProvider(
         crate::LlmProviderMessage::EditorChanged {
@@ -99,7 +95,7 @@ fn open_llm_provider_editor_blocks_adapter_changes_without_losing_input() {
     )));
     let editor_before = format!("{:?}", app.llm_provider_editor);
 
-    drop(app.begin_script_install(LiveScriptKind::LlmAdapter));
+    drop(app.begin_script_install(LiveScriptKind::LlmAdapter, "fixture".to_owned()));
     assert!(matches!(
         app.operation,
         OperationState::Failed(ref error) if error.contains("open LLM provider form")

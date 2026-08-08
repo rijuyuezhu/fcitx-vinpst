@@ -18,7 +18,8 @@ use crate::{
 impl App {
     pub(super) fn resources_page(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
-        let resource_controls_busy = busy || self.asr_provider_editor.is_some();
+        let resource_controls_busy =
+            busy || self.asr_provider_editor.is_some() || self.adapter_config_editor.is_some();
         let mut body = column![
             text(self.locale.text(GuiText::Resources)).size(30),
             text(self.locale.text(GuiText::ManagedAsrModels)).size(22),
@@ -40,17 +41,13 @@ impl App {
             self.available_models_view(resource_controls_busy),
             text(self.locale.text(GuiText::ManagedCommandAsrProviders)).size(22),
             self.provider_install_controls(resource_controls_busy),
-            text_input(
-                self.locale.text(GuiText::FilterProvidersAndScenes),
-                &self.filter
-            )
-            .on_input(Message::FilterChanged),
+            text(self.locale.text(GuiText::ManagedTextAdapters)).size(22),
+            self.adapter_install_controls(resource_controls_busy),
         ]
         .spacing(12);
         if let Some(notice) = self.operation_notice() {
             body = body.push(notice);
         }
-        body = body.push(self.configured_asr_resources_view(busy, resource_controls_busy));
         scrollable(body).into()
     }
 
@@ -125,11 +122,10 @@ impl App {
         }
     }
 
-    fn configured_asr_resources_view(
-        &self,
-        busy: bool,
-        resource_controls_busy: bool,
-    ) -> Element<'_, Message> {
+    pub(super) fn configured_asr_providers_view(&self, busy: bool) -> Element<'_, Message> {
+        let provider_controls_busy = busy
+            || self.asr_provider_editor.is_some()
+            || self.ensure_no_unsaved_config_draft().is_err();
         let mut body = column![].spacing(12);
         match &self.config {
             Ok(document) => {
@@ -139,13 +135,12 @@ impl App {
                             .size(22)
                             .width(Length::Fill),
                         keyboard_button(self.locale.text(GuiText::AddCustomProvider))
-                            .on_press_maybe((!resource_controls_busy).then_some(
+                            .on_press_maybe((!provider_controls_busy).then_some(
                                 Message::AsrProvider(crate::AsrProviderMessage::BeginAdd,)
                             ),),
                     ]
                     .spacing(10),
                 );
-                let filter = self.filter.to_ascii_lowercase();
                 for provider in &document.config.asr.providers {
                     let kind = self.locale.text(match provider.kind {
                         AsrProviderKind::Local => GuiText::Local,
@@ -156,17 +151,22 @@ impl App {
                         .model
                         .as_deref()
                         .unwrap_or_else(|| self.locale.text(GuiText::UnselectedModel));
-                    let label = format!("{} · {kind} · {model}", provider.id);
-                    if !label.to_ascii_lowercase().contains(&filter) {
-                        continue;
-                    }
                     let active = provider.id == document.config.asr.active_provider;
+                    let label = if active {
+                        format!(
+                            "{} · {kind} · {model} · {}",
+                            provider.id,
+                            self.locale.text(GuiText::Active)
+                        )
+                    } else {
+                        format!("{} · {kind} · {model}", provider.id)
+                    };
                     let managed = managed_provider_script_path(provider).is_some();
                     body = body.push(provider_row(
                         self.locale,
                         label,
                         &provider.id,
-                        resource_controls_busy,
+                        provider_controls_busy,
                         managed,
                         active,
                     ));
@@ -174,7 +174,6 @@ impl App {
                 if let Some(editor) = self.asr_provider_editor_view(busy) {
                     body = body.push(editor);
                 }
-                body = body.push(self.scene_management_view(resource_controls_busy));
             }
             Err(error) => body = body.push(text(self.locale.config_error(error))),
         }
@@ -185,12 +184,7 @@ impl App {
         let busy = self.is_busy();
         let adapter_controls_busy =
             busy || self.llm_provider_editor.is_some() || self.adapter_config_editor.is_some();
-        let mut body = column![
-            text(self.locale.text(GuiText::Llm)).size(30),
-            text(self.locale.text(GuiText::ManagedTextAdapters)).size(22),
-            self.adapter_install_controls(adapter_controls_busy),
-        ]
-        .spacing(12);
+        let mut body = column![text(self.locale.text(GuiText::Llm)).size(30)].spacing(12);
         if let Some(notice) = self.operation_notice() {
             body = body.push(notice);
         }
@@ -229,6 +223,14 @@ impl App {
                 if document.config.llm.adapters.is_empty() {
                     body = body.push(text(self.locale.text(GuiText::NoTextAdaptersConfigured)));
                 }
+                body = body.push(
+                    text_input(
+                        self.locale.text(GuiText::FilterProvidersAndScenes),
+                        &self.filter,
+                    )
+                    .on_input(Message::FilterChanged),
+                );
+                body = body.push(self.scene_management_view(adapter_controls_busy));
             }
             Err(error) => body = body.push(text(self.locale.config_error(error))),
         }
@@ -386,6 +388,9 @@ fn provider_row(
         )),
         keyboard_button(locale.text(GuiText::EditScript)).on_press_maybe(
             (!busy && managed).then_some(Message::EditProviderScript(provider_id.to_owned())),
+        ),
+        keyboard_button(locale.text(GuiText::Use)).on_press_maybe(
+            (!busy && !active).then_some(Message::UseAsrProvider(provider_id.to_owned())),
         ),
         keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy && !active).then(
             || {

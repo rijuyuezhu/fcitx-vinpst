@@ -280,8 +280,8 @@ impl App {
                 | Message::LlmProvider(_)
                 | Message::Hotword(_)
                 | Message::AdapterRuntime(_)
-                | Message::InstallProvider
-                | Message::InstallAdapter
+                | Message::InstallProvider(_)
+                | Message::InstallAdapter(_)
                 | Message::ConfirmScriptInstall
                 | Message::RetryScriptInstall
                 | Message::RetryScriptConfigUpdate

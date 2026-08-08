@@ -90,19 +90,10 @@ impl App {
         }
         match message {
             InteractionMessage::ClearFocus => operate(focusable::unfocus()),
-            InteractionMessage::FocusRegistryWorkflow => {
-                let primary_action = self.script_install.primary_action_focus_id();
-                match (self.page, primary_action) {
-                    (Page::Resources | Page::Llm, Some(id)) => operation::focus(id),
-                    (Page::Resources, None) => {
-                        operation::focus(crate::script_install::provider_selector_id())
-                    }
-                    (Page::Llm, None) => {
-                        operation::focus(crate::script_install::adapter_selector_id())
-                    }
-                    (Page::Control | Page::Hotwords, _) => Task::none(),
-                }
-            }
+            InteractionMessage::FocusRegistryWorkflow => self
+                .script_install
+                .primary_action_focus_id()
+                .map_or_else(operation::focus_next, operation::focus),
             InteractionMessage::FocusNext => operation::focus_next(),
             InteractionMessage::FocusPrevious => operation::focus_previous(),
             InteractionMessage::SelectPage(page) => {

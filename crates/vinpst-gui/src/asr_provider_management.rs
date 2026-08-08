@@ -339,6 +339,15 @@ impl AsrProviderEditorState {
 }
 
 impl App {
+    pub(super) fn begin_asr_provider_use(&mut self, provider_id: String) -> Task<Message> {
+        if let Err(error) = self.ensure_no_unsaved_config_draft() {
+            self.operation = OperationState::Failed(error);
+            return Task::none();
+        }
+        self.update_config_draft(crate::ConfigDraftMessage::ActiveProvider(provider_id));
+        self.begin_config_save()
+    }
+
     pub(super) fn intercept_asr_provider_message(
         &mut self,
         message: &Message,
@@ -368,8 +377,8 @@ impl App {
                 | Message::Scene(_)
                 | Message::LlmProvider(_)
                 | Message::Hotword(_)
-                | Message::InstallProvider
-                | Message::InstallAdapter
+                | Message::InstallProvider(_)
+                | Message::InstallAdapter(_)
                 | Message::ConfirmScriptInstall
                 | Message::RetryScriptInstall
                 | Message::RetryScriptConfigUpdate

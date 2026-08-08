@@ -16,6 +16,10 @@ pub enum ConfigDraftMessage {
     DefaultLanguage(String),
     /// Update the capture target.
     CaptureDevice(String),
+    /// Toggle audio normalization before recognition.
+    NormalizeAudio(bool),
+    /// Update the input gain applied before recognition.
+    InputGain(f32),
     /// Toggle output ducking.
     DuckOutput(bool),
     /// Update the output ducking volume.
@@ -39,6 +43,8 @@ pub enum Message {
     FilterChanged(String),
     /// Update the model-catalog filter on the Resources page.
     ModelFilterChanged(String),
+    /// Select and persist one configured ASR provider from the Control page.
+    UseAsrProvider(String),
     /// Apply an ignored keyboard interaction owned by the application shell.
     Interaction(InteractionMessage),
     /// Apply one startup-notification interaction.
@@ -104,6 +110,18 @@ pub enum Message {
     RefreshModelCatalog,
     /// Result of an asynchronous live registry model catalog refresh.
     ModelCatalogLoaded(Result<Vec<crate::RegistryModelSummary>, String>),
+    /// Refresh available `PipeWire` capture devices.
+    RefreshAudioDevices,
+    /// Result of asynchronous capture-device discovery.
+    AudioDevicesLoaded(Result<Vec<crate::CaptureDeviceChoice>, String>),
+    /// Refresh the browsable ASR provider catalog.
+    RefreshProviderCatalog,
+    /// Result of an asynchronous ASR provider catalog refresh.
+    ProviderCatalogLoaded(Result<Vec<crate::RegistryScriptSummary>, String>),
+    /// Refresh the browsable LLM adapter catalog.
+    RefreshAdapterCatalog,
+    /// Result of an asynchronous LLM adapter catalog refresh.
+    AdapterCatalogLoaded(Result<Vec<crate::RegistryScriptSummary>, String>),
     /// Install or update one model selected from the browsable registry catalog.
     InstallRegistryModel(String),
     /// Dismiss the currently presented non-recovery error dialog.
@@ -139,14 +157,10 @@ pub enum Message {
     SelectLlmAdapterDetail(String),
     /// Close the current resource detail panel.
     ClearResourceDetail,
-    /// Update the live registry ASR provider id or short id to install.
-    ProviderSelectorChanged(String),
-    /// Update the live registry text adapter id or short id to install.
-    AdapterSelectorChanged(String),
-    /// Install or update the selected command ASR provider.
-    InstallProvider,
-    /// Install or update the selected text adapter.
-    InstallAdapter,
+    /// Install or update one ASR provider selected from the browsable catalog.
+    InstallProvider(String),
+    /// Install or update one LLM adapter selected from the browsable catalog.
+    InstallAdapter(String),
     /// Result of resolving one provider or adapter registry entry.
     ScriptPrepared {
         /// Operation generation used to reject stale completions.
@@ -198,6 +212,7 @@ impl Message {
             self,
             Self::SelectPage(_)
                 | Self::Interaction(InteractionMessage::SelectPage(_))
+                | Self::UseAsrProvider(_)
                 | Self::DaemonControl(
                     DaemonControlMessage::Start
                         | DaemonControlMessage::Stop
