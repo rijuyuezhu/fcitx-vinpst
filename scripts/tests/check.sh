@@ -10,6 +10,7 @@ scripts/tests/scripts-lint.sh
 export PYTHONDONTWRITEBYTECODE=1
 scripts/tests/lint.sh
 python3 -B scripts/tests/check-upstream-inventory.py
+python3 -B scripts/tests/check-module-parity-ledger.py
 scripts/tests/test.sh
 python3 -B scripts/tests/check_fcitx_ffi_abi.py
 scripts/tests/addon-install-smoke.sh
