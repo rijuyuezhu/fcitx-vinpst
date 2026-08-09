@@ -273,6 +273,281 @@ fn legacy_command_streaming_line_parser_defaults_blank_error_message() {
 }
 
 #[test]
+fn legacy_command_streaming_session_emits_partial_before_finish_and_preserves_chunk_commits() {
+    let directory = tempfile::tempdir().unwrap();
+    let capture_path = directory.path().join("events.jsonl");
+    let script_path = write_temp_script(
+        "vinpst-incremental-command-streaming-asr",
+        r"
+import json
+import os
+import sys
+capture = open(os.environ['CAPTURE'], 'a', encoding='utf-8', buffering=1)
+for raw in sys.stdin:
+    if not raw.strip():
+        continue
+    event = json.loads(raw)
+    capture.write(json.dumps(event, separators=(',', ':')) + '\n')
+    capture.flush()
+    if event.get('type') == 'audio' and event.get('commit') is False:
+        print(json.dumps({'type':'partial','text':'live partial'}), flush=True)
+    elif event.get('type') == 'finish':
+        print(json.dumps({'type':'final','text':'stream final'}), flush=True)
+        print(json.dumps({'type':'closed'}), flush=True)
+        break
+",
+    );
+    let provider = AsrProviderConfig {
+        id: "cmd.streaming".to_owned(),
+        kind: AsrProviderKind::Command,
+        timeout_ms: Some(1_000),
+        model: None,
+        hotwords_file: None,
+        command: Some("python3".to_owned()),
+        args: vec![script_path.to_string_lossy().into_owned()],
+        env: std::collections::HashMap::from([(
+            "CAPTURE".to_owned(),
+            capture_path.to_string_lossy().into_owned(),
+        )]),
+        endpoint: None,
+    };
+    let backend = LegacyCommandStreamingBackend::with_config(&provider).unwrap();
+    let mut session = backend
+        .create_session(RecognitionContext::normal("raw", None))
+        .unwrap();
+
+    session.push_audio(&[1, 2]).unwrap();
+    assert!(session.poll_events().unwrap().is_empty());
+    session.push_audio(&[3, 4]).unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let partial = loop {
+        let events = session.poll_events().unwrap();
+        if let Some(event) = events
+            .into_iter()
+            .find(|event| matches!(event, RecognitionEvent::PartialText { .. }))
+        {
+            break event;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "streaming helper did not emit a live partial before finish"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    assert_eq!(
+        partial,
+        RecognitionEvent::PartialText {
+            text: "live partial".to_owned()
+        }
+    );
+
+    session.finish().unwrap();
+    let final_events = session.poll_events().unwrap();
+    assert!(final_events.contains(&RecognitionEvent::FinalText {
+        text: "stream final".to_owned()
+    }));
+    assert!(final_events.contains(&RecognitionEvent::Completed));
+
+    let input = std::fs::read_to_string(&capture_path).unwrap();
+    let lines = input
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0]["type"], "audio");
+    assert_eq!(lines[0]["commit"], false);
+    assert_eq!(lines[1]["type"], "audio");
+    assert_eq!(lines[1]["commit"], true);
+    assert_eq!(lines[2], serde_json::json!({"type":"finish"}));
+
+    std::fs::remove_file(script_path).unwrap();
+}
+
+#[test]
+fn legacy_command_streaming_session_cancel_cleans_descendants() {
+    let directory = tempfile::tempdir().unwrap();
+    let child_pid_path = directory.path().join("child.pid");
+    let script_path = write_temp_script(
+        "vinpst-incremental-command-streaming-cancel",
+        r"
+import os
+import subprocess
+import sys
+child = subprocess.Popen(['sleep', '30'])
+with open(os.environ['CHILD_PID'], 'w', encoding='utf-8') as out:
+    out.write(str(child.pid))
+    out.flush()
+for _ in sys.stdin:
+    pass
+",
+    );
+    let provider = AsrProviderConfig {
+        id: "cmd.streaming".to_owned(),
+        kind: AsrProviderKind::Command,
+        timeout_ms: Some(1_000),
+        model: None,
+        hotwords_file: None,
+        command: Some("python3".to_owned()),
+        args: vec![script_path.to_string_lossy().into_owned()],
+        env: std::collections::HashMap::from([(
+            "CHILD_PID".to_owned(),
+            child_pid_path.to_string_lossy().into_owned(),
+        )]),
+        endpoint: None,
+    };
+    let backend = LegacyCommandStreamingBackend::with_config(&provider).unwrap();
+    let mut session = backend
+        .create_session(RecognitionContext::normal("raw", None))
+        .unwrap();
+
+    session.push_audio(&[1, 2]).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while !child_pid_path.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "streaming helper did not create its descendant"
+        );
+        let _ = session.poll_events().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let child_pid = std::fs::read_to_string(&child_pid_path)
+        .unwrap()
+        .trim()
+        .parse::<u32>()
+        .unwrap();
+
+    session.cancel().unwrap();
+    wait_until_process_stops_running(child_pid);
+    assert_eq!(
+        session.poll_events().unwrap(),
+        vec![RecognitionEvent::Completed]
+    );
+    std::fs::remove_file(script_path).unwrap();
+}
+
+#[test]
+fn legacy_command_streaming_session_final_wait_uses_provider_timeout() {
+    let script_path = write_temp_script(
+        "vinpst-incremental-command-streaming-timeout",
+        r"
+import json
+import sys
+import time
+for raw in sys.stdin:
+    if not raw.strip():
+        continue
+    event = json.loads(raw)
+    if event.get('type') == 'finish':
+        time.sleep(30)
+",
+    );
+    let provider = AsrProviderConfig {
+        id: "cmd.streaming".to_owned(),
+        kind: AsrProviderKind::Command,
+        timeout_ms: Some(25),
+        model: None,
+        hotwords_file: None,
+        command: Some("python3".to_owned()),
+        args: vec![script_path.to_string_lossy().into_owned()],
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let backend = LegacyCommandStreamingBackend::with_config(&provider).unwrap();
+    let mut session = backend
+        .create_session(RecognitionContext::normal("raw", None))
+        .unwrap();
+    session.push_audio(&[1, 2, 3]).unwrap();
+
+    let started = std::time::Instant::now();
+    let error = session.finish().unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(matches!(
+        error,
+        AsrError::Backend(message) if message.contains("timed out")
+    ));
+    std::fs::remove_file(script_path).unwrap();
+}
+
+fn assert_incremental_streaming_output_limit(stream: &str) {
+    let script_body = match stream {
+        "stdout" => {
+            r"
+import json
+import sys
+for raw in sys.stdin:
+    event = json.loads(raw)
+    if event.get('type') == 'audio' and event.get('commit') is False:
+        sys.stdout.write('x' * 1100000)
+        sys.stdout.flush()
+        break
+"
+        }
+        "stderr" => {
+            r"
+import json
+import sys
+for raw in sys.stdin:
+    event = json.loads(raw)
+    if event.get('type') == 'audio' and event.get('commit') is False:
+        sys.stderr.write('x' * 1100000)
+        sys.stderr.flush()
+        break
+"
+        }
+        _ => unreachable!(),
+    };
+    let script_path = write_temp_script("vinpst-incremental-command-streaming-limit", script_body);
+    let provider = AsrProviderConfig {
+        id: "cmd.streaming".to_owned(),
+        kind: AsrProviderKind::Command,
+        timeout_ms: Some(2_000),
+        model: None,
+        hotwords_file: None,
+        command: Some("python3".to_owned()),
+        args: vec![script_path.to_string_lossy().into_owned()],
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+    let backend = LegacyCommandStreamingBackend::with_config(&provider).unwrap();
+    let mut session = backend
+        .create_session(RecognitionContext::normal("raw", None))
+        .unwrap();
+    session.push_audio(&[1]).unwrap();
+    session.push_audio(&[2]).unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let error = loop {
+        match session.poll_events() {
+            Ok(_) => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "streaming {stream} limit was not enforced"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(error) => break error,
+        }
+    };
+    assert!(matches!(
+        error,
+        AsrError::Backend(message)
+            if message.contains(stream) && message.contains("1048576-byte limit")
+    ));
+    std::fs::remove_file(script_path).unwrap();
+}
+
+#[test]
+fn legacy_command_streaming_session_bounds_stdout() {
+    assert_incremental_streaming_output_limit("stdout");
+}
+
+#[test]
+fn legacy_command_streaming_session_bounds_stderr() {
+    assert_incremental_streaming_output_limit("stderr");
+}
+
+#[test]
 fn legacy_command_streaming_runner_sends_audio_and_finish_lines() {
     let script_path = write_temp_script(
         "vinpst-legacy-command-streaming-asr",

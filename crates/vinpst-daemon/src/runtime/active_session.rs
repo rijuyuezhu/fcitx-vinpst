@@ -143,7 +143,14 @@ impl ActiveRecognitionSession {
         let Some(state) = &self.streaming_state else {
             return Ok(Vec::new());
         };
+        // A streaming backend may produce output asynchronously after the audio
+        // push returns (for example a long-lived command helper). Poll the
+        // backend on every live tick before projecting queued text. Do this
+        // before taking the streaming-state lock to preserve the session ->
+        // state lock ordering used by live audio delivery.
+        let new_events = self.lock_session()?.poll_events()?;
         let mut state = lock_streaming_state(state)?;
+        state.events.extend(new_events);
         let mut retained = Vec::with_capacity(state.events.len());
         let mut partials = Vec::new();
         for event in std::mem::take(&mut state.events) {

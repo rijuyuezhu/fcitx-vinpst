@@ -1,11 +1,12 @@
 use super::{
     AsrBackend, AsrBackendFactory, AsrError, AudioDeliveryMode, CommandAsrBackend,
     CommandAsrRequest, CommandAsrResponse, CommandAsrRunner, CommandAsrSpec,
-    LegacyCommandBatchRunner, LegacyCommandStreamingRunner, MockAsrAudioLog, MockAsrAudioPush,
-    MockAsrBackend, ProcessCommandAsrRunner, RecognitionContext, RecognitionEvent,
-    SherpaOnnxModelPathError, SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan,
-    SherpaOnnxSpec, events_to_payload, legacy_command_streaming_audio_line,
-    legacy_command_streaming_finish_line, parse_legacy_command_streaming_line,
+    LegacyCommandBatchRunner, LegacyCommandStreamingBackend, LegacyCommandStreamingRunner,
+    MockAsrAudioLog, MockAsrAudioPush, MockAsrBackend, ProcessCommandAsrRunner, RecognitionContext,
+    RecognitionEvent, SherpaOnnxModelPathError, SherpaOnnxOfflineModelLayout,
+    SherpaOnnxOfflineRuntimePlan, SherpaOnnxSpec, events_to_payload,
+    legacy_command_streaming_audio_line, legacy_command_streaming_finish_line,
+    parse_legacy_command_streaming_line,
 };
 use vinpst_audio::{PcmBuffer, PcmSpec};
 use vinpst_config::{AsrConfig, AsrProviderConfig, AsrProviderKind};
@@ -659,6 +660,42 @@ fn backend_factory_marks_streaming_command_provider_capabilities() {
         AudioDeliveryMode::Chunked
     );
     assert!(descriptor.capabilities.partial_results);
+}
+
+#[test]
+fn command_asr_session_cancel_emits_completed_and_finish_is_idempotent() {
+    let backend = CommandAsrBackend::with_runner(
+        CommandAsrSpec {
+            provider_id: "cmd".to_owned(),
+            command: "helper".to_owned(),
+            args: Vec::new(),
+            env: std::collections::HashMap::default(),
+            model_id: None,
+            hotwords_file: None,
+            timeout_ms: None,
+        },
+        FinalTextCommandRunner,
+    );
+    let mut cancelled = backend
+        .create_session(RecognitionContext::normal("raw", None))
+        .unwrap();
+    cancelled.push_audio(&[1, 2]).unwrap();
+    cancelled.cancel().unwrap();
+    assert_eq!(
+        cancelled.poll_events().unwrap(),
+        vec![RecognitionEvent::Completed]
+    );
+
+    let mut finished = backend
+        .create_session(RecognitionContext::normal("raw", None))
+        .unwrap();
+    finished.push_audio(&[1, 2]).unwrap();
+    finished.finish().unwrap();
+    finished.finish().unwrap();
+    assert!(matches!(
+        finished.push_audio(&[3]).unwrap_err(),
+        AsrError::AlreadyFinished
+    ));
 }
 
 #[test]

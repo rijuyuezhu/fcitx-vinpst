@@ -8,9 +8,8 @@ use vinpst_protocol::AsrBackendState;
 #[cfg(feature = "sherpa-onnx-backend")]
 use crate::SherpaOnnxBackend;
 use crate::{
-    AsrBackend, AsrError, BackendCapabilities, CommandAsrBackend, CommandAsrSpec,
-    LegacyCommandBatchRunner, LegacyCommandStreamingRunner, MockAsrBackend, RecognitionContext,
-    RemoteAsrBackend,
+    AsrBackend, AsrError, CommandAsrBackend, CommandAsrSpec, LegacyCommandBatchRunner,
+    LegacyCommandStreamingBackend, MockAsrBackend, RecognitionContext, RemoteAsrBackend,
 };
 
 const WARMUP_SCENE_ID: &str = "__vinpst_asr_warmup__";
@@ -95,10 +94,8 @@ impl AsrBackendFactory {
         }
         if provider.kind == AsrProviderKind::Command {
             if is_legacy_streaming_command_provider(&provider.id) {
-                return Ok(Box::new(CommandAsrBackend::with_config_and_capabilities(
+                return Ok(Box::new(LegacyCommandStreamingBackend::with_config(
                     provider,
-                    LegacyCommandStreamingRunner,
-                    BackendCapabilities::streaming(),
                 )?));
             }
             return Ok(Box::new(CommandAsrBackend::with_config(

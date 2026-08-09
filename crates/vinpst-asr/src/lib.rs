@@ -5,6 +5,7 @@
 //! should implement these traits after their contracts are covered by tests.
 
 mod command;
+mod command_streaming;
 mod error;
 mod factory;
 mod mock;
@@ -17,12 +18,15 @@ mod timeout;
 mod traits;
 mod unavailable;
 
+#[cfg(test)]
+pub(crate) use command::LegacyCommandStreamingRunner;
 pub use command::{
     CommandAsrBackend, CommandAsrRequest, CommandAsrResponse, CommandAsrRunner, CommandAsrSpec,
-    LegacyCommandBatchRunner, LegacyCommandStreamingRunner, ProcessCommandAsrRunner,
-    UnsupportedCommandAsrRunner, legacy_command_streaming_audio_line,
-    legacy_command_streaming_finish_line, parse_legacy_command_streaming_line,
+    LegacyCommandBatchRunner, ProcessCommandAsrRunner, UnsupportedCommandAsrRunner,
+    legacy_command_streaming_audio_line, legacy_command_streaming_finish_line,
+    parse_legacy_command_streaming_line,
 };
+pub use command_streaming::LegacyCommandStreamingBackend;
 pub use error::AsrError;
 pub use factory::AsrBackendFactory;
 pub use mock::{MockAsrAudioLog, MockAsrAudioPush, MockAsrBackend};

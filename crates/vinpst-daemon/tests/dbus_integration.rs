@@ -176,7 +176,7 @@ fn configured_command_runtime() -> anyhow::Result<RuntimeState> {
     RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
 }
 
-fn configured_streaming_command_runtime() -> anyhow::Result<RuntimeState> {
+fn configured_streaming_command_runtime() -> anyhow::Result<(RuntimeState, ManualRecorderHandle)> {
     let mut config = VinpstConfig::bundled_default()?;
     "cmd.streaming".clone_into(&mut config.asr.active_provider);
     config.asr.providers.push(AsrProviderConfig {
@@ -185,22 +185,38 @@ fn configured_streaming_command_runtime() -> anyhow::Result<RuntimeState> {
         timeout_ms: Some(1_000),
         model: Some("cmd-model".to_owned()),
         hotwords_file: None,
-        command: Some("sh".to_owned()),
+        command: Some("python3".to_owned()),
         args: vec![
+            "-u".to_owned(),
             "-c".to_owned(),
-            r#"cat >/dev/null; printf '%s
-' '{"type":"partial","text":"bus partial"}' '{"type":"final","text":"bus streaming final"}' '{"type":"closed"}'"#.to_owned(),
+            r"
+import json
+import sys
+for raw in sys.stdin:
+    if not raw.strip():
+        continue
+    event = json.loads(raw)
+    if event.get('type') == 'audio' and event.get('commit') is False:
+        print(json.dumps({'type':'partial','text':'bus partial'}), flush=True)
+    elif event.get('type') == 'finish':
+        print(json.dumps({'type':'final','text':'bus streaming final'}), flush=True)
+        print(json.dumps({'type':'closed'}), flush=True)
+        break
+"
+            .to_owned(),
         ],
         env: std::collections::HashMap::new(),
         endpoint: None,
     });
     config.validate()?;
     let backend = AsrBackendFactory::build_active(&config.asr)?;
-    let audio_source = MockAudioSource::once(CapturedAudio::named(
-        PcmBuffer::at_default_rate(recognizable_samples(&[1_000, -1_000, 2_000, -2_000])),
+    let captured = CapturedAudio::named(
+        PcmBuffer::at_default_rate(vec![1_000; MIN_SAMPLES_FOR_RECOGNITION]),
         "dbus-streaming-command-e2e",
-    ));
-    RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
+    );
+    let (recorder, handle) = ManualAudioRecorder::new(captured);
+    let runtime = RuntimeState::with_audio_recorder(config, backend, Box::new(recorder))?;
+    Ok((runtime, handle))
 }
 
 #[derive(Clone, Default)]
@@ -1214,8 +1230,9 @@ async fn chunked_runtime_emits_partial_before_stop_without_duplicate() -> anyhow
 }
 
 #[tokio::test]
-async fn configured_streaming_command_backend_emits_stop_partial_signal() -> anyhow::Result<()> {
-    let runtime = configured_streaming_command_runtime()?;
+async fn configured_streaming_command_backend_emits_live_partial_before_stop() -> anyhow::Result<()>
+{
+    let (runtime, recorder) = configured_streaming_command_runtime()?;
     let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
     let client_connection = zbus::Connection::session().await?;
     let proxy = Proxy::new(
@@ -1237,7 +1254,13 @@ async fn configured_streaming_command_backend_emits_stop_partial_signal() -> any
         .call::<_, _, ()>(dbus::method::START_RECORDING, &())
         .await?;
     assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
+    recorder.emit(&PcmBuffer::at_default_rate(vec![1_000; 800]));
     expect_no_string_signal(&mut partial_signals).await?;
+    recorder.emit(&PcmBuffer::at_default_rate(vec![2_000; 800]));
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "bus partial"
+    );
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
@@ -1247,10 +1270,7 @@ async fn configured_streaming_command_backend_emits_stop_partial_signal() -> any
         next_string_signal(&mut status_signals).await?,
         "postprocessing"
     );
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "bus partial"
-    );
+    expect_no_string_signal(&mut partial_signals).await?;
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload.commit_text, "bus streaming final");
