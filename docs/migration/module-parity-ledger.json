@@ -1209,15 +1209,46 @@
         "Vinpst intentionally requires --in-place or --output for scene mutations instead of silently writing the canonical config. This preserves the rewrite-wide safe mutation/backup policy. Neither frozen scene CLI nor current file-based scene CLI performs an implicit daemon runtime mutation after writing; live scene selection remains owned by the daemon/Fcitx typed D-Bus surfaces audited separately.",
         "Deterministic evidence includes the scene integration suite, which now pins --id scene creation with an omitted label, candidate_count=1, omitted serialized timeout, and list-time label fallback, plus an exact parser test for the frozen add/edit short-option and legacy long-option forms. Strict all-target vinpst-cli Clippy remains green."
       ]
+    },
+    {
+      "id": "CLI-RECORDING-001",
+      "state": "audited-fixed",
+      "title": "CLI recording control workflows",
+      "upstream_files": [
+        "cli/control/recording_actions.cpp",
+        "cli/control/recording_actions.h",
+        "cli/control/register_recording.cpp"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/cli/recording.rs",
+        "crates/vinpst-cli/src/recording_control.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/cli/mod.rs",
+        "crates/vinpst-cli/src/daemon_control/asr.rs",
+        "crates/vinpst-cli/src/daemon_control/mod.rs",
+        "crates/vinpst-cli/src/daemon_control/removal.rs",
+        "crates/vinpst-cli/src/daemon_control/status.rs",
+        "crates/vinpst-cli/tests/recording.rs",
+        "crates/vinpst-protocol/src/status.rs",
+        "docs/user/troubleshooting.md",
+        "scripts/tests/cli/run-recording-no-activation-smoke.sh"
+      ],
+      "notes": [
+        "The frozen recording task surface remains available as recording/rec start, stop, and toggle. Vinpst adds recording status plus hidden selected-text command-mode and dry-run controls, but these do not replace the familiar tasks. Restored the frozen -s/--scene spelling on stop and toggle; the user-facing help now states that an omitted scene means the active scene.",
+        "Fixed a runtime-control regression: frozen EnsureDaemon probes org.freedesktop.DBus.NameHasOwner before every start/stop/toggle call, so recording control never activates a stopped daemon. Vinpst now shares one non-activating daemon_name_has_owner helper across recording, ASR config reload, and daemon-removal verification; recording start/stop/toggle and the additive status command all fail with Daemon is not running when no owner exists instead of constructing an activating service call.",
+        "Restored the frozen toggle state policy before issuing a mutating call. recording toggles recording -> stop and idle -> start, rejects inferring/postprocessing as busy, and rejects error explicitly. Unknown wire strings intentionally use ServiceStatus::parse_legacy_wire and therefore fall back to idle/start exactly like the frozen status conversion semantics instead of silently broadening the strict parser used elsewhere.",
+        "Frozen resolves an omitted stop/toggle scene in the CLI by re-reading the on-disk config and sending its active scene id. Vinpst deliberately sends the empty legacy sentinel and lets the already-running daemon resolve the active scene from its authoritative runtime config. This avoids a stale CLI-side config read while preserving the same user result.",
+        "Stop-result handling is an intentional Rust-service extension. Frozen StopRecording is a successful/failed void control call and the CLI prints only the action/scene. The audited Vinpst D-Bus contract synchronously returns the final recognition payload; the CLI therefore reports committed text/candidate metadata after stop while retaining the same scene control semantics.",
+        "Frozen command-local JSON failures print {ok:false,error} before returning exit 1. Vinpst currently uses the rewrite-wide anyhow stderr/nonzero error path for live command failures even when JSON output was requested. This audit does not add a recording-only exit/error framework; the remaining cross-command formatter/error-shape question stays with the pending CLI utility/runtime audit rather than duplicating infrastructure here.",
+        "Deterministic evidence includes the existing recording integration tests, an exact rec stop/toggle -s parser compatibility test, a pure toggle-state regression test covering idle/recording/inferring/postprocessing/error/unknown status, strict all-target vinpst-cli Clippy, and a private-session-bus smoke with an observable activation service proving recording start and status fail without ever activating org.fcitx.Vinpst."
+      ]
     }
   ],
   "upstream_pending": [
     "cli/control/daemon_actions.cpp",
     "cli/control/daemon_actions.h",
-    "cli/control/recording_actions.cpp",
-    "cli/control/recording_actions.h",
     "cli/control/register_daemon.cpp",
-    "cli/control/register_recording.cpp",
     "cli/runtime/dbus_client.cpp",
     "cli/runtime/dbus_client.h",
     "cli/runtime/systemd_client.cpp",
@@ -1290,7 +1321,6 @@
     "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-audio/src/lib.rs",
     "crates/vinpst-cli/src/cli/daemon.rs",
-    "crates/vinpst-cli/src/cli/recording.rs",
     "crates/vinpst-cli/src/cli/registry.rs",
     "crates/vinpst-cli/src/commands/mod.rs",
     "crates/vinpst-cli/src/commands/registry.rs",
@@ -1307,7 +1337,6 @@
     "crates/vinpst-cli/src/human_output.rs",
     "crates/vinpst-cli/src/live_i18n.rs",
     "crates/vinpst-cli/src/paths.rs",
-    "crates/vinpst-cli/src/recording_control.rs",
     "crates/vinpst-cli/src/registry_support.rs",
     "crates/vinpst-cli/src/sandbox.rs",
     "crates/vinpst-config/src/diagnostics.rs",
