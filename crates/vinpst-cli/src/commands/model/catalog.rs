@@ -262,6 +262,8 @@ fn installed_model_list_item_json(info: &InstalledModelInfo) -> serde_json::Valu
         "name": installed_model_dir_name(&info.model_dir),
         "model_dir": info.model_dir,
         "metadata_path": info.metadata_path,
+        "state": info.state.as_str(),
+        "metadata_error": info.metadata_error,
         "backend": info.metadata.backend,
         "family": info.metadata.model_family(),
         "language": info.metadata.language,
@@ -285,6 +287,8 @@ fn installed_model_info_json(info: &InstalledModelInfo) -> anyhow::Result<serde_
             "id": info.model_id,
             "model_dir": info.model_dir,
             "metadata_path": info.metadata_path,
+            "state": info.state.as_str(),
+            "metadata_error": info.metadata_error,
             "backend": info.metadata.backend,
             "family": info.metadata.model_family(),
             "language": info.metadata.language,
@@ -351,7 +355,7 @@ fn print_installed_model_list_text(_model_root: &Path, models: &[InstalledModelI
     println!("ID\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS");
     for model in models {
         println!(
-            "{}\t{}\t{}\t{}\t{}\tinstalled",
+            "{}\t{}\t{}\t{}\t{}\t{}",
             model.model_id,
             optional_str(model.metadata.language.as_deref()),
             format_size_bytes(model.metadata.size_bytes),
@@ -361,6 +365,7 @@ fn print_installed_model_list_text(_model_root: &Path, models: &[InstalledModelI
             } else {
                 "no"
             },
+            model.state.as_str(),
         );
     }
 }
@@ -377,6 +382,10 @@ fn print_installed_model_info_text(info: &InstalledModelInfo) {
     println!("id: {}", info.model_id);
     println!("model_dir: {}", info.model_dir.display());
     println!("metadata_path: {}", info.metadata_path.display());
+    println!("status: {}", info.state.as_str());
+    if let Some(error) = info.metadata_error.as_deref() {
+        println!("metadata_error: {error}");
+    }
     println!(
         "backend: {}",
         optional_str(info.metadata.backend.as_deref())

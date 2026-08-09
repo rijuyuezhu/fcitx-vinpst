@@ -88,6 +88,12 @@ pub enum ManagedModelRemoveError {
         /// Rejected target path.
         target: String,
     },
+    /// Target is a symbolic link rather than a managed directory.
+    #[error("refusing symbolic-link model remove target `{target}`")]
+    SymlinkTarget {
+        /// Rejected symbolic link.
+        target: String,
+    },
     /// Target does not exist.
     #[error("model remove target `{target}` does not exist")]
     Missing {
@@ -129,7 +135,7 @@ pub fn remove_managed_model(
     request: &ManagedModelRemoveRequest<'_>,
 ) -> Result<ManagedModelRemoveResult, ManagedModelRemoveError> {
     validate_managed_model_target(request.model_root, request.target_path)?;
-    let metadata = fs::metadata(request.target_path).map_err(|error| {
+    let target_metadata = fs::symlink_metadata(request.target_path).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             ManagedModelRemoveError::Missing {
                 target: display_path(request.target_path),
@@ -141,16 +147,34 @@ pub fn remove_managed_model(
             }
         }
     })?;
-    if !metadata.is_dir() {
+    if target_metadata.file_type().is_symlink() {
+        return Err(ManagedModelRemoveError::SymlinkTarget {
+            target: display_path(request.target_path),
+        });
+    }
+    if !target_metadata.is_dir() {
         return Err(ManagedModelRemoveError::NotDirectory {
             target: display_path(request.target_path),
         });
     }
-    if request
-        .active_model_paths
-        .iter()
-        .any(|active| active == request.target_path)
-    {
+    let canonical_root = canonical_model_path(request.model_root, request.model_root)?;
+    let canonical_target = canonical_model_path(request.target_path, request.target_path)?;
+    if canonical_target == canonical_root {
+        return Err(ManagedModelRemoveError::RootTarget {
+            root: display_path(request.model_root),
+        });
+    }
+    if !canonical_target.starts_with(&canonical_root) {
+        return Err(ManagedModelRemoveError::OutsideRoot {
+            target: display_path(request.target_path),
+            root: display_path(request.model_root),
+        });
+    }
+    if active_model_matches(
+        request.active_model_paths,
+        request.target_path,
+        &canonical_target,
+    ) {
         return Err(ManagedModelRemoveError::Active {
             target: display_path(request.target_path),
         });
@@ -161,6 +185,21 @@ pub fn remove_managed_model(
     })?;
     Ok(ManagedModelRemoveResult {
         target_path: request.target_path.to_path_buf(),
+    })
+}
+
+fn canonical_model_path(path: &Path, target: &Path) -> Result<PathBuf, ManagedModelRemoveError> {
+    fs::canonicalize(path).map_err(|error| ManagedModelRemoveError::Inspect {
+        target: display_path(target),
+        message: error.kind().to_string(),
+    })
+}
+
+fn active_model_matches(active_paths: &[PathBuf], target: &Path, canonical_target: &Path) -> bool {
+    active_paths.iter().any(|active| {
+        active == target
+            || fs::canonicalize(active)
+                .is_ok_and(|canonical_active| canonical_active == canonical_target)
     })
 }
 
@@ -248,6 +287,34 @@ mod tests {
         .expect_err("active model must be rejected");
         assert!(matches!(error, ManagedModelRemoveError::Active { .. }));
         assert!(target.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn delete_rejects_symlink_target_even_when_lexically_below_root() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().expect("temp dir");
+        let root = directory.path().join("models");
+        let outside = directory.path().join("outside");
+        fs::create_dir_all(&root).expect("model root");
+        fs::create_dir(&outside).expect("outside model");
+        fs::write(outside.join("model.onnx"), b"fixture").expect("fixture");
+        let link = root.join("linked");
+        symlink(&outside, &link).expect("model symlink");
+
+        let error = remove_managed_model(&ManagedModelRemoveRequest {
+            model_root: &root,
+            target_path: &link,
+            active_model_paths: &[],
+        })
+        .expect_err("symlink model target must be rejected");
+        assert!(matches!(
+            error,
+            ManagedModelRemoveError::SymlinkTarget { .. }
+        ));
+        assert!(outside.join("model.onnx").is_file());
+        assert!(link.exists());
     }
 
     #[test]

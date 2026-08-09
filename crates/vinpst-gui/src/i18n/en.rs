@@ -202,6 +202,7 @@ const fn english_resources(key: GuiText) -> &'static str {
         GuiText::UnselectedModel => "unselected model",
         GuiText::Active => "active",
         GuiText::Inactive => "inactive",
+        GuiText::Broken => "broken",
         GuiText::CommandAdapter => "command adapter",
         GuiText::RuntimeUnavailable => "status unavailable",
         GuiText::NotReportedByDaemon => "not reported by daemon",

@@ -1,3 +1,5 @@
+mod moonshine;
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -5,7 +7,7 @@ use std::{
 
 use super::{
     InferredOfflineLayout, SherpaOnnxModelPathError, SherpaOnnxOfflineModelLayout,
-    SherpaOnnxOfflineSettings,
+    SherpaOnnxOfflineSettings, SherpaOnnxOfflineSingleModelKind,
 };
 
 pub(super) fn infer_offline_layout(
@@ -41,7 +43,150 @@ fn infer_offline_layout_from_metadata(
             message: error.to_string(),
         }
     })?;
-    let family = metadata
+    let family = metadata_family(&metadata, model_dir)?;
+    if !is_supported_offline_family(family) {
+        return Err(SherpaOnnxModelPathError::UnsupportedOfflineFamily {
+            path: display_path(model_dir),
+            family: family.to_owned(),
+        });
+    }
+    let settings = parse_offline_settings(model_dir, &metadata, &metadata_path, family)?;
+    let runtime_language = metadata_runtime_language_hint(&metadata, family);
+    let runtime_language = runtime_language.as_deref();
+    let inferred = match family {
+        "transducer" | "nemo_transducer" => infer_offline_transducer_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path,
+            settings,
+            family,
+        ),
+        "dolphin" => infer_single_model_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path,
+            settings,
+            "dolphin",
+            |model, tokens| SherpaOnnxOfflineModelLayout::Dolphin { model, tokens },
+        ),
+        "paraformer" => {
+            infer_paraformer_layout_from_metadata(model_dir, &metadata, metadata_path, settings)
+        }
+        "whisper" => infer_whisper_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path,
+            settings,
+            runtime_language,
+        ),
+        "zipformer_ctc" | "fire_red_asr_ctc" | "nemo_ctc" | "wenet_ctc" | "tdnn"
+        | "omnilingual" | "medasr" => infer_single_model_ctc_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path,
+            settings,
+            family,
+        ),
+        "telespeech_ctc" => {
+            infer_telespeech_layout_from_metadata(model_dir, &metadata, metadata_path, settings)
+        }
+        "fire_red_asr" => {
+            infer_fire_red_asr_layout_from_metadata(model_dir, &metadata, metadata_path, settings)
+        }
+        "canary" => infer_canary_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path,
+            settings,
+            runtime_language,
+        ),
+        "funasr_nano" => infer_funasr_nano_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path,
+            settings,
+            runtime_language,
+        ),
+        "qwen3_asr" => {
+            infer_qwen3_asr_layout_from_metadata(model_dir, &metadata, metadata_path, settings)
+        }
+        "moonshine" | "moonshine_v1" => moonshine::infer_moonshine_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path,
+            settings,
+        ),
+        "sense_voice" => infer_sense_voice_layout_from_metadata(
+            model_dir,
+            &metadata,
+            metadata_path,
+            settings,
+            runtime_language,
+        ),
+        _ => unreachable!("validated offline model family"),
+    }?;
+    Ok(Some(inferred))
+}
+
+fn is_supported_offline_family(family: &str) -> bool {
+    matches!(
+        family,
+        "transducer"
+            | "nemo_transducer"
+            | "dolphin"
+            | "paraformer"
+            | "whisper"
+            | "zipformer_ctc"
+            | "fire_red_asr_ctc"
+            | "nemo_ctc"
+            | "wenet_ctc"
+            | "tdnn"
+            | "omnilingual"
+            | "medasr"
+            | "telespeech_ctc"
+            | "fire_red_asr"
+            | "canary"
+            | "funasr_nano"
+            | "qwen3_asr"
+            | "moonshine"
+            | "moonshine_v1"
+            | "sense_voice"
+    )
+}
+
+fn metadata_runtime_language_hint(metadata: &serde_json::Value, family: &str) -> Option<String> {
+    let family_config = metadata
+        .pointer(&format!("/model/{family}"))
+        .and_then(serde_json::Value::as_object);
+    for field in ["language", "src_lang"] {
+        if let Some(value) = family_config
+            .and_then(|config| config.get(field))
+            .and_then(serde_json::Value::as_str)
+        {
+            return Some(value.to_owned());
+        }
+    }
+    metadata
+        .get("language")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| is_runtime_language_hint(value))
+        .map(str::to_owned)
+}
+
+fn is_runtime_language_hint(value: &str) -> bool {
+    !value.is_empty()
+        && value != "multilingual"
+        && !value.contains('_')
+        && value
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character == '-' || character == '_')
+}
+
+fn metadata_family<'a>(
+    metadata: &'a serde_json::Value,
+    model_dir: &Path,
+) -> Result<&'a str, SherpaOnnxModelPathError> {
+    metadata
         .pointer("/family")
         .and_then(serde_json::Value::as_str)
         .or_else(|| {
@@ -53,57 +198,7 @@ fn infer_offline_layout_from_metadata(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| SherpaOnnxModelPathError::UnsupportedOfflineLayout {
             path: display_path(model_dir),
-        })?;
-    match family {
-        "transducer" => infer_offline_transducer_layout_from_metadata(
-            model_dir,
-            &metadata,
-            metadata_path.clone(),
-            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
-        )
-        .map(Some),
-        "dolphin" => infer_single_model_layout_from_metadata(
-            model_dir,
-            &metadata,
-            metadata_path.clone(),
-            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
-            "dolphin",
-            |model, tokens| SherpaOnnxOfflineModelLayout::Dolphin { model, tokens },
-        )
-        .map(Some),
-        "paraformer" => infer_paraformer_layout_from_metadata(
-            model_dir,
-            &metadata,
-            metadata_path.clone(),
-            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
-        )
-        .map(Some),
-        "qwen3_asr" => infer_qwen3_asr_layout_from_metadata(
-            model_dir,
-            &metadata,
-            metadata_path.clone(),
-            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
-        )
-        .map(Some),
-        "moonshine" | "moonshine_v1" => infer_moonshine_layout_from_metadata(
-            model_dir,
-            &metadata,
-            metadata_path.clone(),
-            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
-        )
-        .map(Some),
-        "sense_voice" => infer_sense_voice_layout_from_metadata(
-            model_dir,
-            &metadata,
-            metadata_path.clone(),
-            parse_offline_settings(model_dir, &metadata, &metadata_path, family)?,
-        )
-        .map(Some),
-        _ => Err(SherpaOnnxModelPathError::UnsupportedOfflineFamily {
-            path: display_path(model_dir),
-            family: family.to_owned(),
-        }),
-    }
+        })
 }
 
 fn infer_sense_voice_layout_from_metadata(
@@ -111,6 +206,7 @@ fn infer_sense_voice_layout_from_metadata(
     metadata: &serde_json::Value,
     metadata_path: PathBuf,
     settings: SherpaOnnxOfflineSettings,
+    runtime_language: Option<&str>,
 ) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
     let sense_voice = metadata.pointer("/model/sense_voice");
     let model = sense_voice
@@ -118,7 +214,8 @@ fn infer_sense_voice_layout_from_metadata(
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|value| resolve_against(model_dir, value))
+        .map(|value| validated_metadata_asset(model_dir, value, "sense_voice", "model", false))
+        .transpose()?
         .or_else(|| find_sense_voice_model_file(model_dir))
         .ok_or_else(|| SherpaOnnxModelPathError::UnsupportedOfflineLayout {
             path: display_path(model_dir),
@@ -134,9 +231,9 @@ fn infer_sense_voice_layout_from_metadata(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map_or_else(
-            || model_dir.join("tokens.txt"),
-            |value| resolve_against(model_dir, value),
-        );
+            || Ok(model_dir.join("tokens.txt")),
+            |value| validated_metadata_asset(model_dir, value, "sense_voice", "tokens", false),
+        )?;
     if !tokens.is_file() {
         return Err(SherpaOnnxModelPathError::MissingTokensFile {
             path: display_path(model_dir),
@@ -145,10 +242,10 @@ fn infer_sense_voice_layout_from_metadata(
     let language = sense_voice
         .and_then(|value| value.get("language"))
         .and_then(serde_json::Value::as_str)
-        .or_else(|| metadata.get("language").and_then(serde_json::Value::as_str))
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("auto")
+        .or(runtime_language)
+        .unwrap_or_default()
         .to_owned();
     let use_itn = sense_voice
         .and_then(|value| value.get("use_itn"))
@@ -172,26 +269,22 @@ fn infer_offline_transducer_layout_from_metadata(
     metadata: &serde_json::Value,
     metadata_path: PathBuf,
     settings: SherpaOnnxOfflineSettings,
+    family: &str,
 ) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let pointer = format!("/model/{family}");
     let transducer = metadata
-        .pointer("/model/transducer")
+        .pointer(&pointer)
         .and_then(serde_json::Value::as_object)
         .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
             path: display_path(&metadata_path),
-            message: "missing object `/model/transducer`".to_owned(),
+            message: format!("missing object `{pointer}`"),
         })?;
     Ok(InferredOfflineLayout {
         layout: SherpaOnnxOfflineModelLayout::Transducer {
-            encoder: required_model_asset(model_dir, transducer, "transducer", "encoder")?,
-            decoder: required_model_asset(model_dir, transducer, "transducer", "decoder")?,
-            joiner: required_model_asset(model_dir, transducer, "transducer", "joiner")?,
-            tokens: metadata_asset_path(
-                model_dir,
-                metadata,
-                "/model/tokens",
-                "transducer",
-                "tokens",
-            )?,
+            encoder: required_model_asset(model_dir, transducer, family, "encoder")?,
+            decoder: required_model_asset(model_dir, transducer, family, "decoder")?,
+            joiner: required_model_asset(model_dir, transducer, family, "joiner")?,
+            tokens: metadata_asset_path(model_dir, metadata, "/model/tokens", family, "tokens")?,
         },
         settings,
         source: "metadata".to_owned(),
@@ -241,6 +334,270 @@ fn infer_paraformer_layout_from_metadata(
     )
 }
 
+fn infer_whisper_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+    runtime_language: Option<&str>,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let language = metadata_optional_string(metadata, "/model/whisper/language")
+        .or_else(|| runtime_language.map(str::to_owned))
+        .unwrap_or_default();
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::Whisper {
+            encoder: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/whisper/encoder",
+                "whisper",
+                "encoder",
+            )?,
+            decoder: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/whisper/decoder",
+                "whisper",
+                "decoder",
+            )?,
+            tokens: metadata_asset_path(model_dir, metadata, "/model/tokens", "whisper", "tokens")?,
+            language,
+            task: metadata_optional_string(metadata, "/model/whisper/task")
+                .unwrap_or_else(|| "transcribe".to_owned()),
+            tail_paddings: metadata_i32(
+                metadata,
+                "/model/whisper/tail_paddings",
+                -1,
+                &metadata_path,
+            )?,
+            enable_token_timestamps: metadata_boolish(
+                metadata,
+                "/model/whisper/enable_token_timestamps",
+                false,
+                &metadata_path,
+            )?,
+            enable_segment_timestamps: metadata_boolish(
+                metadata,
+                "/model/whisper/enable_segment_timestamps",
+                false,
+                &metadata_path,
+            )?,
+        },
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
+fn infer_single_model_ctc_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+    family: &str,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let native_family = match family {
+        "zipformer_ctc" => SherpaOnnxOfflineSingleModelKind::ZipformerCtc,
+        "fire_red_asr_ctc" => SherpaOnnxOfflineSingleModelKind::FireRedAsrCtc,
+        "nemo_ctc" => SherpaOnnxOfflineSingleModelKind::NemoCtc,
+        "wenet_ctc" => SherpaOnnxOfflineSingleModelKind::WenetCtc,
+        "tdnn" => SherpaOnnxOfflineSingleModelKind::Tdnn,
+        "omnilingual" => SherpaOnnxOfflineSingleModelKind::Omnilingual,
+        "medasr" => SherpaOnnxOfflineSingleModelKind::MedAsr,
+        _ => unreachable!("validated single-model offline family"),
+    };
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::SingleModel {
+            family: native_family,
+            model: metadata_asset_path(
+                model_dir,
+                metadata,
+                &format!("/model/{family}/model"),
+                family,
+                "model",
+            )?,
+            tokens: metadata_asset_path(model_dir, metadata, "/model/tokens", family, "tokens")?,
+        },
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
+fn infer_telespeech_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::SingleModel {
+            family: SherpaOnnxOfflineSingleModelKind::TelespeechCtc,
+            model: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/telespeech_ctc",
+                "telespeech_ctc",
+                "telespeech_ctc",
+            )?,
+            tokens: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/tokens",
+                "telespeech_ctc",
+                "tokens",
+            )?,
+        },
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
+fn infer_fire_red_asr_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::FireRedAsr {
+            encoder: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/fire_red_asr/encoder",
+                "fire_red_asr",
+                "encoder",
+            )?,
+            decoder: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/fire_red_asr/decoder",
+                "fire_red_asr",
+                "decoder",
+            )?,
+            tokens: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/tokens",
+                "fire_red_asr",
+                "tokens",
+            )?,
+        },
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
+fn infer_canary_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+    runtime_language: Option<&str>,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let fallback = runtime_language.unwrap_or_default();
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::Canary {
+            encoder: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/canary/encoder",
+                "canary",
+                "encoder",
+            )?,
+            decoder: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/canary/decoder",
+                "canary",
+                "decoder",
+            )?,
+            tokens: metadata_asset_path(model_dir, metadata, "/model/tokens", "canary", "tokens")?,
+            src_lang: metadata_optional_string(metadata, "/model/canary/src_lang")
+                .unwrap_or_else(|| fallback.to_owned()),
+            tgt_lang: metadata_optional_string(metadata, "/model/canary/tgt_lang")
+                .unwrap_or_else(|| fallback.to_owned()),
+            use_pnc: metadata_boolish(metadata, "/model/canary/use_pnc", false, &metadata_path)?,
+        },
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
+fn infer_funasr_nano_layout_from_metadata(
+    model_dir: &Path,
+    metadata: &serde_json::Value,
+    metadata_path: PathBuf,
+    settings: SherpaOnnxOfflineSettings,
+    runtime_language: Option<&str>,
+) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
+    let tokenizer_value = metadata_optional_string(metadata, "/model/funasr_nano/tokenizer")
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&metadata_path),
+            message: "missing string `/model/funasr_nano/tokenizer`".to_owned(),
+        })?;
+    let tokenizer = validated_metadata_asset(
+        model_dir,
+        &tokenizer_value,
+        "funasr_nano",
+        "tokenizer",
+        true,
+    )?;
+    Ok(InferredOfflineLayout {
+        layout: SherpaOnnxOfflineModelLayout::FunAsrNano {
+            encoder_adaptor: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/funasr_nano/encoder_adapter",
+                "funasr_nano",
+                "encoder_adapter",
+            )?,
+            llm: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/funasr_nano/llm",
+                "funasr_nano",
+                "llm",
+            )?,
+            embedding: metadata_asset_path(
+                model_dir,
+                metadata,
+                "/model/funasr_nano/embedding",
+                "funasr_nano",
+                "embedding",
+            )?,
+            tokenizer,
+            max_new_tokens: metadata_positive_i32(
+                metadata,
+                "/model/funasr_nano/max_new_tokens",
+                1024,
+                &metadata_path,
+            )?,
+            temperature: metadata_finite_f32(
+                metadata,
+                "/model/funasr_nano/temperature",
+                1.0,
+                &metadata_path,
+            )?,
+            top_p: metadata_finite_f32(metadata, "/model/funasr_nano/top_p", 0.9, &metadata_path)?,
+            seed: metadata_i32(metadata, "/model/funasr_nano/seed", 0, &metadata_path)?,
+            language: metadata_optional_string(metadata, "/model/funasr_nano/language")
+                .or_else(|| runtime_language.map(str::to_owned))
+                .unwrap_or_default(),
+            itn: metadata_boolish(metadata, "/model/funasr_nano/itn", false, &metadata_path)?,
+            system_prompt: metadata_optional_string(metadata, "/model/funasr_nano/system_prompt"),
+            user_prompt: metadata_optional_string(metadata, "/model/funasr_nano/user_prompt"),
+            hotwords: metadata_optional_string(metadata, "/model/funasr_nano/hotwords"),
+        },
+        settings,
+        source: "metadata".to_owned(),
+        metadata_path: Some(metadata_path),
+    })
+}
+
 fn infer_qwen3_asr_layout_from_metadata(
     model_dir: &Path,
     metadata: &serde_json::Value,
@@ -265,11 +622,11 @@ fn infer_qwen3_asr_layout_from_metadata(
             encoder,
             decoder,
             tokenizer,
-            max_total_len: qwen3_i32(qwen3, "max_total_len", 512, &metadata_path)?,
-            max_new_tokens: qwen3_i32(qwen3, "max_new_tokens", 128, &metadata_path)?,
-            temperature: qwen3_f32(qwen3, "temperature", 1e-6, &metadata_path)?,
-            top_p: qwen3_f32(qwen3, "top_p", 0.8, &metadata_path)?,
-            seed: qwen3_i32(qwen3, "seed", 42, &metadata_path)?,
+            max_total_len: qwen3_i32(qwen3, "max_total_len", 4096, &metadata_path)?,
+            max_new_tokens: qwen3_i32(qwen3, "max_new_tokens", 1024, &metadata_path)?,
+            temperature: qwen3_f32(qwen3, "temperature", 1.0, &metadata_path)?,
+            top_p: qwen3_f32(qwen3, "top_p", 0.9, &metadata_path)?,
+            seed: qwen3_i32(qwen3, "seed", 0, &metadata_path)?,
             hotwords,
         },
         settings,
@@ -278,54 +635,47 @@ fn infer_qwen3_asr_layout_from_metadata(
     })
 }
 
-fn infer_moonshine_layout_from_metadata(
+pub(crate) fn validated_metadata_asset(
     model_dir: &Path,
-    metadata: &serde_json::Value,
-    metadata_path: PathBuf,
-    settings: SherpaOnnxOfflineSettings,
-) -> Result<InferredOfflineLayout, SherpaOnnxModelPathError> {
-    let model_type = metadata
-        .pointer("/model_type")
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("moonshine_v1");
-    if model_type != "moonshine_v1" && model_type != "moonshine" {
-        return Err(SherpaOnnxModelPathError::UnsupportedOfflineFamily {
-            path: display_path(model_dir),
-            family: model_type.to_owned(),
+    value: &str,
+    family: &str,
+    asset: &str,
+    allow_directory: bool,
+) -> Result<PathBuf, SherpaOnnxModelPathError> {
+    let path = resolve_against(model_dir, value);
+    let valid_shape = if allow_directory {
+        path.exists()
+    } else {
+        path.is_file()
+    };
+    if !valid_shape {
+        return Err(SherpaOnnxModelPathError::MissingModelAsset {
+            family: family.to_owned(),
+            asset: asset.to_owned(),
+            path: display_path(&path),
         });
     }
-    let moonshine = metadata
-        .pointer("/model/moonshine")
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
-            path: display_path(&metadata_path),
-            message: "missing object `/model/moonshine`".to_owned(),
-        })?;
-    let tokens = metadata_asset_path(model_dir, metadata, "/model/tokens", "moonshine", "tokens")?;
-    Ok(InferredOfflineLayout {
-        layout: SherpaOnnxOfflineModelLayout::MoonshineV1 {
-            preprocessor: required_model_asset(model_dir, moonshine, "moonshine", "preprocessor")?,
-            encoder: required_model_asset(model_dir, moonshine, "moonshine", "encoder")?,
-            uncached_decoder: required_model_asset(
-                model_dir,
-                moonshine,
-                "moonshine",
-                "uncached_decoder",
-            )?,
-            cached_decoder: required_model_asset(
-                model_dir,
-                moonshine,
-                "moonshine",
-                "cached_decoder",
-            )?,
-            tokens,
-        },
-        settings,
-        source: "metadata".to_owned(),
-        metadata_path: Some(metadata_path),
-    })
+    let canonical_root = fs::canonicalize(model_dir).map_err(|error| {
+        SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&model_dir.join("vinpst-model.json")),
+            message: format!("failed to canonicalize model root: {}", error.kind()),
+        }
+    })?;
+    let canonical_path = fs::canonicalize(&path).map_err(|error| {
+        SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(&model_dir.join("vinpst-model.json")),
+            message: format!("failed to canonicalize model asset: {}", error.kind()),
+        }
+    })?;
+    if !canonical_path.starts_with(&canonical_root) {
+        return Err(SherpaOnnxModelPathError::ModelAssetEscapesRoot {
+            family: family.to_owned(),
+            asset: asset.to_owned(),
+            model_root: display_path(&canonical_root),
+            path: display_path(&canonical_path),
+        });
+    }
+    Ok(path)
 }
 
 fn required_model_asset(
@@ -343,15 +693,7 @@ fn required_model_asset(
             path: display_path(&model_dir.join("vinpst-model.json")),
             message: format!("missing string `/model/{family}/{field}`"),
         })?;
-    let path = resolve_against(model_dir, value);
-    if !path.is_file() {
-        return Err(SherpaOnnxModelPathError::MissingModelAsset {
-            family: family.to_owned(),
-            asset: field.to_owned(),
-            path: display_path(&path),
-        });
-    }
-    Ok(path)
+    validated_metadata_asset(model_dir, value, family, field, false)
 }
 
 fn metadata_asset_path(
@@ -370,15 +712,7 @@ fn metadata_asset_path(
             path: display_path(&model_dir.join("vinpst-model.json")),
             message: format!("missing string `{pointer}`"),
         })?;
-    let path = resolve_against(model_dir, value);
-    if !path.is_file() {
-        return Err(SherpaOnnxModelPathError::MissingModelAsset {
-            family: family.to_owned(),
-            asset: field.to_owned(),
-            path: display_path(&path),
-        });
-    }
-    Ok(path)
+    validated_metadata_asset(model_dir, value, family, field, false)
 }
 
 fn default_offline_settings(family: &str) -> SherpaOnnxOfflineSettings {
@@ -567,15 +901,25 @@ fn metadata_optional_file(
     let Some(value) = metadata_optional_string(metadata, pointer) else {
         return Ok(None);
     };
-    let path = resolve_against(model_dir, &value);
-    if !path.is_file() {
-        return Err(SherpaOnnxModelPathError::MissingModelAsset {
-            family: family.to_owned(),
-            asset: asset.to_owned(),
-            path: display_path(&path),
-        });
-    }
-    Ok(Some(path))
+    validated_metadata_asset(model_dir, &value, family, asset, false).map(Some)
+}
+
+fn metadata_i32(
+    metadata: &serde_json::Value,
+    pointer: &str,
+    default: i32,
+    metadata_path: &Path,
+) -> Result<i32, SherpaOnnxModelPathError> {
+    let Some(value) = metadata.pointer(pointer) else {
+        return Ok(default);
+    };
+    value
+        .as_i64()
+        .and_then(|value| i32::try_from(value).ok())
+        .ok_or_else(|| SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("`{pointer}` must be a 32-bit integer"),
+        })
 }
 
 fn metadata_positive_i32(
@@ -659,20 +1003,7 @@ fn required_qwen3_asset(
             path: display_path(&model_dir.join("vinpst-model.json")),
             message: format!("missing string `/model/qwen3_asr/{field}`"),
         })?;
-    let path = resolve_against(model_dir, value);
-    let valid = if allow_directory {
-        path.exists()
-    } else {
-        path.is_file()
-    };
-    if !valid {
-        return Err(SherpaOnnxModelPathError::MissingModelAsset {
-            family: "qwen3_asr".to_owned(),
-            asset: field.to_owned(),
-            path: display_path(&path),
-        });
-    }
-    Ok(path)
+    validated_metadata_asset(model_dir, value, "qwen3_asr", field, allow_directory)
 }
 
 fn optional_qwen3_asset(
@@ -688,15 +1019,7 @@ fn optional_qwen3_asset(
     else {
         return Ok(None);
     };
-    let path = resolve_against(model_dir, value);
-    if !path.is_file() {
-        return Err(SherpaOnnxModelPathError::MissingModelAsset {
-            family: "qwen3_asr".to_owned(),
-            asset: field.to_owned(),
-            path: display_path(&path),
-        });
-    }
-    Ok(Some(path))
+    validated_metadata_asset(model_dir, value, "qwen3_asr", field, false).map(Some)
 }
 
 fn qwen3_i32(

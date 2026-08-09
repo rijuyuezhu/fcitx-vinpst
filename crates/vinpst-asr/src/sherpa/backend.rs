@@ -10,8 +10,8 @@ use crate::{
 #[cfg(feature = "sherpa-onnx-backend")]
 use super::sherpa_result_text;
 use super::{
-    SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan, SherpaOnnxSpec,
-    offline_layout::display_path,
+    SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan, SherpaOnnxOfflineSingleModelKind,
+    SherpaOnnxSpec, offline_layout::display_path,
 };
 
 /// Feature-gated offline `sherpa-onnx` backend using the official Rust API.
@@ -181,6 +181,34 @@ fn offline_recognizer_config(
     let mut config = sherpa_onnx::OfflineRecognizerConfig::default();
     apply_offline_settings(&mut config, plan);
     match &plan.layout {
+        SherpaOnnxOfflineModelLayout::Transducer { .. }
+        | SherpaOnnxOfflineModelLayout::Dolphin { .. }
+        | SherpaOnnxOfflineModelLayout::Paraformer { .. }
+        | SherpaOnnxOfflineModelLayout::SenseVoice { .. }
+        | SherpaOnnxOfflineModelLayout::SingleModel { .. } => {
+            apply_classic_offline_layout(&mut config, &plan.layout);
+        }
+        SherpaOnnxOfflineModelLayout::Whisper { .. }
+        | SherpaOnnxOfflineModelLayout::FireRedAsr { .. }
+        | SherpaOnnxOfflineModelLayout::Canary { .. } => {
+            apply_language_offline_layout(&mut config, &plan.layout);
+        }
+        SherpaOnnxOfflineModelLayout::FunAsrNano { .. }
+        | SherpaOnnxOfflineModelLayout::Qwen3Asr { .. }
+        | SherpaOnnxOfflineModelLayout::MoonshineV1 { .. }
+        | SherpaOnnxOfflineModelLayout::MoonshineV2 { .. } => {
+            apply_large_offline_layout(&mut config, &plan.layout);
+        }
+    }
+    config
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+fn apply_classic_offline_layout(
+    config: &mut sherpa_onnx::OfflineRecognizerConfig,
+    layout: &SherpaOnnxOfflineModelLayout,
+) {
+    match layout {
         SherpaOnnxOfflineModelLayout::Transducer {
             encoder,
             decoder,
@@ -219,6 +247,152 @@ fn offline_recognizer_config(
             };
             config.model_config.tokens = Some(display_path(tokens));
         }
+        SherpaOnnxOfflineModelLayout::SingleModel {
+            family,
+            model,
+            tokens,
+        } => {
+            apply_single_model_layout(config, *family, model);
+            config.model_config.tokens = Some(display_path(tokens));
+        }
+        _ => unreachable!("classic offline layout group"),
+    }
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+fn apply_single_model_layout(
+    config: &mut sherpa_onnx::OfflineRecognizerConfig,
+    family: SherpaOnnxOfflineSingleModelKind,
+    model: &std::path::Path,
+) {
+    let model = Some(display_path(model));
+    match family {
+        SherpaOnnxOfflineSingleModelKind::ZipformerCtc => {
+            config.model_config.zipformer_ctc =
+                sherpa_onnx::OfflineZipformerCtcModelConfig { model };
+        }
+        SherpaOnnxOfflineSingleModelKind::FireRedAsrCtc => {
+            config.model_config.fire_red_asr_ctc =
+                sherpa_onnx::OfflineFireRedAsrCtcModelConfig { model };
+        }
+        SherpaOnnxOfflineSingleModelKind::NemoCtc => {
+            config.model_config.nemo_ctc = sherpa_onnx::OfflineNemoEncDecCtcModelConfig { model };
+        }
+        SherpaOnnxOfflineSingleModelKind::WenetCtc => {
+            config.model_config.wenet_ctc = sherpa_onnx::OfflineWenetCtcModelConfig { model };
+        }
+        SherpaOnnxOfflineSingleModelKind::Tdnn => {
+            config.model_config.tdnn = sherpa_onnx::OfflineTdnnModelConfig { model };
+        }
+        SherpaOnnxOfflineSingleModelKind::Omnilingual => {
+            config.model_config.omnilingual =
+                sherpa_onnx::OfflineOmnilingualAsrCtcModelConfig { model };
+        }
+        SherpaOnnxOfflineSingleModelKind::MedAsr => {
+            config.model_config.medasr = sherpa_onnx::OfflineMedAsrCtcModelConfig { model };
+        }
+        SherpaOnnxOfflineSingleModelKind::TelespeechCtc => {
+            config.model_config.telespeech_ctc = model;
+        }
+    }
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+fn apply_language_offline_layout(
+    config: &mut sherpa_onnx::OfflineRecognizerConfig,
+    layout: &SherpaOnnxOfflineModelLayout,
+) {
+    match layout {
+        SherpaOnnxOfflineModelLayout::Whisper {
+            encoder,
+            decoder,
+            tokens,
+            language,
+            task,
+            tail_paddings,
+            enable_token_timestamps,
+            enable_segment_timestamps,
+        } => {
+            config.model_config.whisper = sherpa_onnx::OfflineWhisperModelConfig {
+                encoder: Some(display_path(encoder)),
+                decoder: Some(display_path(decoder)),
+                language: Some(language.clone()),
+                task: Some(task.clone()),
+                tail_paddings: *tail_paddings,
+                enable_token_timestamps: *enable_token_timestamps,
+                enable_segment_timestamps: *enable_segment_timestamps,
+            };
+            config.model_config.tokens = Some(display_path(tokens));
+        }
+        SherpaOnnxOfflineModelLayout::FireRedAsr {
+            encoder,
+            decoder,
+            tokens,
+        } => {
+            config.model_config.fire_red_asr = sherpa_onnx::OfflineFireRedAsrModelConfig {
+                encoder: Some(display_path(encoder)),
+                decoder: Some(display_path(decoder)),
+            };
+            config.model_config.tokens = Some(display_path(tokens));
+        }
+        SherpaOnnxOfflineModelLayout::Canary {
+            encoder,
+            decoder,
+            tokens,
+            src_lang,
+            tgt_lang,
+            use_pnc,
+        } => {
+            config.model_config.canary = sherpa_onnx::OfflineCanaryModelConfig {
+                encoder: Some(display_path(encoder)),
+                decoder: Some(display_path(decoder)),
+                src_lang: Some(src_lang.clone()),
+                tgt_lang: Some(tgt_lang.clone()),
+                use_pnc: *use_pnc,
+            };
+            config.model_config.tokens = Some(display_path(tokens));
+        }
+        _ => unreachable!("language-sensitive offline layout group"),
+    }
+}
+
+#[cfg(feature = "sherpa-onnx-backend")]
+fn apply_large_offline_layout(
+    config: &mut sherpa_onnx::OfflineRecognizerConfig,
+    layout: &SherpaOnnxOfflineModelLayout,
+) {
+    match layout {
+        SherpaOnnxOfflineModelLayout::FunAsrNano {
+            encoder_adaptor,
+            llm,
+            embedding,
+            tokenizer,
+            max_new_tokens,
+            temperature,
+            top_p,
+            seed,
+            language,
+            itn,
+            system_prompt,
+            user_prompt,
+            hotwords,
+        } => {
+            config.model_config.funasr_nano = sherpa_onnx::OfflineFunASRNanoModelConfig {
+                encoder_adaptor: Some(display_path(encoder_adaptor)),
+                llm: Some(display_path(llm)),
+                embedding: Some(display_path(embedding)),
+                tokenizer: Some(display_path(tokenizer)),
+                system_prompt: system_prompt.clone(),
+                user_prompt: user_prompt.clone(),
+                max_new_tokens: *max_new_tokens,
+                temperature: *temperature,
+                top_p: *top_p,
+                seed: *seed,
+                language: Some(language.clone()),
+                itn: i32::from(*itn),
+                hotwords: hotwords.clone(),
+            };
+        }
         SherpaOnnxOfflineModelLayout::Qwen3Asr {
             conv_frontend,
             encoder,
@@ -249,6 +423,7 @@ fn offline_recognizer_config(
             encoder,
             uncached_decoder,
             cached_decoder,
+            merged_decoder,
             tokens,
         } => {
             config.model_config.moonshine = sherpa_onnx::OfflineMoonshineModelConfig {
@@ -256,12 +431,26 @@ fn offline_recognizer_config(
                 encoder: Some(display_path(encoder)),
                 uncached_decoder: Some(display_path(uncached_decoder)),
                 cached_decoder: Some(display_path(cached_decoder)),
-                merged_decoder: None,
+                merged_decoder: merged_decoder.as_deref().map(display_path),
             };
             config.model_config.tokens = Some(display_path(tokens));
         }
+        SherpaOnnxOfflineModelLayout::MoonshineV2 {
+            encoder,
+            merged_decoder,
+            tokens,
+        } => {
+            config.model_config.moonshine = sherpa_onnx::OfflineMoonshineModelConfig {
+                preprocessor: None,
+                encoder: Some(display_path(encoder)),
+                uncached_decoder: None,
+                cached_decoder: None,
+                merged_decoder: Some(display_path(merged_decoder)),
+            };
+            config.model_config.tokens = Some(display_path(tokens));
+        }
+        _ => unreachable!("large offline layout group"),
     }
-    config
 }
 
 #[cfg(feature = "sherpa-onnx-backend")]

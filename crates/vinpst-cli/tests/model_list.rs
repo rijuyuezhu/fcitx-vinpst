@@ -836,6 +836,33 @@ fn model_use_installed_bypasses_registry_id_resolution() {
 }
 
 #[test]
+fn model_use_rejects_broken_installed_metadata() {
+    let temp_root = unique_temp_dir("vinpst-cli-model-use-broken");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("broken");
+    std::fs::create_dir_all(&model_dir).expect("create broken model dir");
+    std::fs::write(model_dir.join("vinpst-model.json"), "not-json").expect("write broken metadata");
+
+    for installed_flag in [false, true] {
+        let mut command = vinpst_command();
+        command.args(["model", "use", "broken"]);
+        if installed_flag {
+            command.arg("--installed");
+        }
+        let output = command
+            .arg("--model-root")
+            .arg(&model_root)
+            .args(["--dry-run", "--json"])
+            .output()
+            .expect("run vinpst model use broken installed model");
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+        assert!(stderr.contains("has broken metadata and cannot be selected"));
+    }
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
 fn model_use_installed_rejects_path_selector() {
     let output = vinpst_command()
         .args([

@@ -50,7 +50,7 @@ pub use install::{
     install_live_model_controlled,
 };
 pub use installed::{
-    INSTALLED_MODEL_METADATA_FILE, InstalledModelError, InstalledModelInfo,
+    INSTALLED_MODEL_METADATA_FILE, InstalledModelError, InstalledModelInfo, InstalledModelState,
     load_installed_model_info, scan_installed_models,
 };
 pub use live::{

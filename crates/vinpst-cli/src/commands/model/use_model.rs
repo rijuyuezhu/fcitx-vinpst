@@ -1,8 +1,8 @@
 use super::{
     AsrProviderKind, Context, ModelUsePreview, ModelUseRequest, ModelUseResolution,
     ModelUseWriteTarget, Path, PathBuf, VinpstConfig, config_backup_path, dbus, default_model_root,
-    load_config_file, reload_asr_backend_via_dbus, same_path_text, write_config_in_place,
-    write_config_output,
+    load_config_file, load_registry_installed_model_info, reload_asr_backend_via_dbus,
+    same_path_text, write_config_in_place, write_config_output,
 };
 use super::{
     catalog::load_live_model_catalog,
@@ -162,16 +162,31 @@ fn resolve_model_use_value(
         });
     }
 
+    let model_dir = model_root.join(safe_path_component(selector));
+    validate_managed_model_use_target(&model_dir)?;
     Ok(ModelUseResolution {
-        model_value: model_root
-            .join(safe_path_component(selector))
-            .to_string_lossy()
-            .into_owned(),
+        model_value: model_dir.to_string_lossy().into_owned(),
         selector_kind: "managed-dir".to_owned(),
         resolved_model_id: None,
         resolved_short_id: None,
         resolved_title: None,
     })
+}
+
+fn validate_managed_model_use_target(model_dir: &Path) -> anyhow::Result<()> {
+    let metadata_path = model_dir.join(vinpst_registry::INSTALLED_MODEL_METADATA_FILE);
+    if !metadata_path.exists() {
+        return Ok(());
+    }
+    let info = load_registry_installed_model_info(model_dir)
+        .with_context(|| format!("read installed model `{}`", model_dir.display()))?;
+    if info.is_broken() {
+        anyhow::bail!(
+            "installed model `{}` has broken metadata and cannot be selected",
+            info.model_id
+        );
+    }
+    Ok(())
 }
 
 fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {

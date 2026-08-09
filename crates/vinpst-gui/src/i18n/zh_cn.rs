@@ -174,6 +174,7 @@ const fn simplified_chinese_resources(key: GuiText) -> &'static str {
         GuiText::UnselectedModel => "未选择模型",
         GuiText::Active => "已激活",
         GuiText::Inactive => "未激活",
+        GuiText::Broken => "损坏",
         GuiText::CommandAdapter => "命令适配器",
         GuiText::RuntimeUnavailable => "状态不可用",
         GuiText::NotReportedByDaemon => "守护进程未报告",

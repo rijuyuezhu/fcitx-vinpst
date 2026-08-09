@@ -87,7 +87,7 @@ impl App {
                         self.locale,
                         model,
                         selected,
-                        !busy && can_select_model && !selected,
+                        !busy && can_select_model && !selected && !model.is_broken(),
                         !busy && !referenced,
                     ));
                 }

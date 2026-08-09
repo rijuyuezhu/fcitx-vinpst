@@ -132,6 +132,7 @@ pub(crate) enum GuiText {
     UnselectedModel,
     Active,
     Inactive,
+    Broken,
     CommandAdapter,
     RuntimeUnavailable,
     NotReportedByDaemon,
@@ -287,7 +288,7 @@ pub(crate) enum GuiText {
 }
 #[cfg(test)]
 impl GuiText {
-    pub(super) const ALL: [Self; 282] = [
+    pub(super) const ALL: [Self; 283] = [
         Self::ApplicationTitle,
         Self::Control,
         Self::Resources,
@@ -418,6 +419,7 @@ impl GuiText {
         Self::UnselectedModel,
         Self::Active,
         Self::Inactive,
+        Self::Broken,
         Self::CommandAdapter,
         Self::RuntimeUnavailable,
         Self::NotReportedByDaemon,

@@ -50,6 +50,28 @@ pub struct SherpaOnnxModelPaths {
     pub hotwords_file: Option<PathBuf>,
 }
 
+/// Frozen-upstream single-file offline model families.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SherpaOnnxOfflineSingleModelKind {
+    /// Zipformer CTC.
+    ZipformerCtc,
+    /// `FireRed` ASR CTC.
+    FireRedAsrCtc,
+    /// `NeMo` CTC.
+    NemoCtc,
+    /// `WeNet` CTC.
+    WenetCtc,
+    /// TDNN.
+    Tdnn,
+    /// Omnilingual ASR CTC.
+    Omnilingual,
+    /// `MedASR` CTC.
+    MedAsr,
+    /// `TeleSpeech` CTC.
+    TelespeechCtc,
+}
+
 /// Supported local `sherpa-onnx` offline model layout.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -90,6 +112,90 @@ pub enum SherpaOnnxOfflineModelLayout {
         /// Whether sherpa-onnx inverse text normalization is enabled.
         use_itn: bool,
     },
+    /// Single-file CTC/TDNN layout selected by a typed native family.
+    SingleModel {
+        /// Native family selector.
+        family: SherpaOnnxOfflineSingleModelKind,
+        /// ONNX model file.
+        model: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
+    /// Whisper encoder/decoder layout.
+    Whisper {
+        /// Encoder model.
+        encoder: PathBuf,
+        /// Decoder model.
+        decoder: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+        /// Recognition language.
+        language: String,
+        /// Whisper task.
+        task: String,
+        /// Tail padding frames.
+        tail_paddings: i32,
+        /// Whether token timestamps are enabled.
+        enable_token_timestamps: bool,
+        /// Whether segment timestamps are enabled.
+        enable_segment_timestamps: bool,
+    },
+    /// `FireRed` ASR encoder/decoder layout.
+    FireRedAsr {
+        /// Encoder model.
+        encoder: PathBuf,
+        /// Decoder model.
+        decoder: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
+    /// Canary encoder/decoder layout.
+    Canary {
+        /// Encoder model.
+        encoder: PathBuf,
+        /// Decoder model.
+        decoder: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+        /// Source language.
+        src_lang: String,
+        /// Target language.
+        tgt_lang: String,
+        /// Whether punctuation/casing is enabled.
+        use_pnc: bool,
+    },
+    /// `FunASR` Nano layout.
+    FunAsrNano {
+        /// Encoder adaptor model.
+        encoder_adaptor: PathBuf,
+        /// LLM model.
+        llm: PathBuf,
+        /// Embedding model.
+        embedding: PathBuf,
+        /// Tokenizer directory or file.
+        tokenizer: PathBuf,
+        /// Maximum generated tokens.
+        max_new_tokens: i32,
+        /// Sampling temperature.
+        temperature: f32,
+        /// Nucleus sampling threshold.
+        top_p: f32,
+        /// Random seed.
+        seed: i32,
+        /// Optional language hint.
+        language: String,
+        /// Whether ITN is enabled.
+        itn: bool,
+        /// Optional system prompt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system_prompt: Option<String>,
+        /// Optional user prompt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_prompt: Option<String>,
+        /// Optional inline hotwords string.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hotwords: Option<String>,
+    },
     /// Qwen3 ASR model directory with encoder, decoder, frontend, and tokenizer assets.
     Qwen3Asr {
         /// Convolution frontend ONNX model.
@@ -124,6 +230,18 @@ pub enum SherpaOnnxOfflineModelLayout {
         uncached_decoder: PathBuf,
         /// Decoder used after the first token.
         cached_decoder: PathBuf,
+        /// Optional merged decoder used by newer Moonshine exports.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        merged_decoder: Option<PathBuf>,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
+    /// Moonshine v2 layout with encoder and merged decoder assets.
+    MoonshineV2 {
+        /// Encoder ONNX model.
+        encoder: PathBuf,
+        /// Merged decoder ONNX model.
+        merged_decoder: PathBuf,
         /// Tokens file.
         tokens: PathBuf,
     },
@@ -302,6 +420,20 @@ pub enum SherpaOnnxModelPathError {
         /// Declared model family.
         family: String,
     },
+    /// Model metadata resolves an asset outside the model directory.
+    #[error(
+        "sherpa-onnx {family} model asset `{asset}` escapes model root `{model_root}` via `{path}`"
+    )]
+    ModelAssetEscapesRoot {
+        /// Declared model family.
+        family: String,
+        /// Family-specific asset field.
+        asset: String,
+        /// Canonical model root.
+        model_root: String,
+        /// Canonical escaped asset path.
+        path: String,
+    },
     /// A family-specific model asset is absent from the extracted model directory.
     #[error("sherpa-onnx {family} model asset `{asset}` is missing at `{path}`")]
     MissingModelAsset {
@@ -461,7 +593,7 @@ impl SherpaOnnxSpec {
 
 #[cfg(feature = "sherpa-onnx-backend")]
 mod backend;
-mod offline_layout;
+pub(crate) mod offline_layout;
 
 #[cfg(feature = "sherpa-onnx-backend")]
 pub use backend::SherpaOnnxBackend;

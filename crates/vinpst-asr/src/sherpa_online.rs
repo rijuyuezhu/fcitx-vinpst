@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::sherpa::sherpa_result_text;
 use crate::{SherpaOnnxModelPathError, SherpaOnnxModelPaths};
 
+use crate::sherpa::offline_layout::validated_metadata_asset;
+
 #[cfg(any(feature = "sherpa-onnx-backend", test))]
 const ONLINE_WARMUP_DURATION_MS: u64 = 200;
 
@@ -396,15 +398,13 @@ fn required_file(
             message: format!("missing string `{pointer}`"),
         }
     })?;
-    let path = resolve_against(model_dir, &value);
-    if !path.is_file() {
-        return Err(SherpaOnnxModelPathError::MissingModelAsset {
-            family: family.to_owned(),
-            asset: pointer.rsplit('/').next().unwrap_or(pointer).to_owned(),
-            path: display_path(&path),
-        });
-    }
-    Ok(path)
+    validated_metadata_asset(
+        model_dir,
+        &value,
+        family,
+        pointer.rsplit('/').next().unwrap_or(pointer),
+        false,
+    )
 }
 
 fn optional_file(
@@ -416,15 +416,14 @@ fn optional_file(
     let Some(value) = optional_string(metadata, pointer) else {
         return Ok(None);
     };
-    let path = resolve_against(model_dir, &value);
-    if !path.is_file() {
-        return Err(SherpaOnnxModelPathError::MissingModelAsset {
-            family: family.to_owned(),
-            asset: pointer.rsplit('/').next().unwrap_or(pointer).to_owned(),
-            path: display_path(&path),
-        });
-    }
-    Ok(Some(path))
+    validated_metadata_asset(
+        model_dir,
+        &value,
+        family,
+        pointer.rsplit('/').next().unwrap_or(pointer),
+        false,
+    )
+    .map(Some)
 }
 
 fn positive_i32(
@@ -500,15 +499,6 @@ fn invalid_metadata(path: &Path, message: String) -> SherpaOnnxModelPathError {
     SherpaOnnxModelPathError::InvalidModelMetadata {
         path: display_path(path),
         message,
-    }
-}
-
-fn resolve_against(root: &Path, value: &str) -> PathBuf {
-    let path = Path::new(value);
-    if path.is_absolute() {
-        path.to_owned()
-    } else {
-        root.join(path)
     }
 }
 
@@ -1109,6 +1099,87 @@ mod tests {
         assert!(!plan.supports_hotwords);
         assert!(plan.hotwords_file.is_none());
         assert_eq!(plan.decoding_method, "greedy_search");
+    }
+
+    #[test]
+    fn online_metadata_rejects_parent_asset_escape() {
+        let temp = tempfile::tempdir().unwrap();
+        let model_dir = temp.path().join("model");
+        fs::create_dir(&model_dir).unwrap();
+        write_model_file(temp.path(), "outside.onnx");
+        for name in ["decoder.onnx", "joiner.onnx", "tokens.txt"] {
+            write_model_file(&model_dir, name);
+        }
+        fs::write(
+            model_dir.join("vinpst-model.json"),
+            serde_json::json!({
+                "backend":"sherpa-streaming",
+                "family":"transducer",
+                "model":{
+                    "tokens":"tokens.txt",
+                    "transducer":{
+                        "encoder":"../outside.onnx",
+                        "decoder":"decoder.onnx",
+                        "joiner":"joiner.onnx"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let paths = SherpaOnnxModelPaths {
+            model_dir,
+            hotwords_file: None,
+        };
+
+        assert!(matches!(
+            resolve_online_runtime_plan(&paths).unwrap_err(),
+            SherpaOnnxModelPathError::ModelAssetEscapesRoot { asset, .. }
+                if asset == "encoder"
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn online_metadata_rejects_symlink_asset_escape() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let model_dir = temp.path().join("model");
+        fs::create_dir(&model_dir).unwrap();
+        let outside = temp.path().join("outside.onnx");
+        fs::write(&outside, b"fixture").unwrap();
+        symlink(&outside, model_dir.join("encoder.onnx")).unwrap();
+        for name in ["decoder.onnx", "joiner.onnx", "tokens.txt"] {
+            write_model_file(&model_dir, name);
+        }
+        fs::write(
+            model_dir.join("vinpst-model.json"),
+            serde_json::json!({
+                "backend":"sherpa-streaming",
+                "family":"transducer",
+                "model":{
+                    "tokens":"tokens.txt",
+                    "transducer":{
+                        "encoder":"encoder.onnx",
+                        "decoder":"decoder.onnx",
+                        "joiner":"joiner.onnx"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let paths = SherpaOnnxModelPaths {
+            model_dir,
+            hotwords_file: None,
+        };
+
+        assert!(matches!(
+            resolve_online_runtime_plan(&paths).unwrap_err(),
+            SherpaOnnxModelPathError::ModelAssetEscapesRoot { asset, .. }
+                if asset == "encoder"
+        ));
     }
 
     #[test]
