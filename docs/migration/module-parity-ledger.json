@@ -1181,12 +1181,37 @@
         "Adapter registry installation preserves short-id resolution, live registry/i18n metadata, script materialization, and configuration publication while adding staging, dry-run, explicit write targets, required/optional environment reporting, and refusal to replace user-defined adapters with managed content. Start/stop resolve configured ids (or registry short ids when explicitly supplied) before invoking the stable StartAdapter/StopAdapter D-Bus methods; status is an additive daemon-authoritative diagnostic command.",
         "Deterministic evidence includes the existing llm_adapter suite for secret-free LLM/adapter listing, registry installation, selector resolution, StartAdapter/StopAdapter plans, mutation validation, redacted LLM request plans, the legacy 4000 ms text-scene timeout, and removal safety. This audit additionally pins frozen llm ls/e/rm and adapter ls -a/add parser forms plus the frozen-compatible llm edit --extra-body {} persistence behavior; strict all-target vinpst-cli Clippy remains green."
       ]
+    },
+    {
+      "id": "CLI-SCENE-001",
+      "state": "audited-fixed",
+      "title": "CLI recognition-scene workflows",
+      "upstream_files": [
+        "cli/config/register_scene.cpp",
+        "cli/config/scene_actions.cpp",
+        "cli/config/scene_actions.h"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/cli/scene.rs",
+        "crates/vinpst-cli/src/commands/scene.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/cli/mod.rs",
+        "crates/vinpst-cli/tests/scene.rs",
+        "crates/vinpst-config/src/schema.rs",
+        "docs/architecture/config-contract.md"
+      ],
+      "notes": [
+        "The frozen scene task surface remains available as scene list/ls, add, use, remove/rm, and edit/e. Vinpst keeps its clearer positional add ID and explicit mutation targets, but now also accepts the frozen --id form plus -l/--label, -t/--prompt, -p/--provider, -m/--model, -c/--candidates, and --timeout spellings as aliases of the typed current options. Current clear-* edit switches, dry-run/JSON, backups, and offline --output remain additive.",
+        "Fixed a behavioral default regression in scene add. Frozen custom scenes start with candidate_count=1; the rewrite CLI had defaulted to 0, which can skip candidate post-processing entirely. Vinpst scene add now defaults candidate_count to 1 again. Frozen writes timeout_ms=4000 on add, while Vinpst intentionally omits the field and relies on SceneDefinition::effective_timeout_ms()=4000; the runtime deadline is therefore equivalent without serializing a redundant legacy default.",
+        "Frozen permits an omitted or explicitly empty scene label and DisplayLabel then falls back to the builtin label or scene id. Vinpst typed config rejects empty labels globally, so the CLI preserves the user-visible frozen behavior by normalizing an omitted/empty custom label to the scene id rather than weakening config validation. Scene list JSON/text also uses display-label fallback semantics, including builtin labels, so imported legacy empty-label data remains presented sensibly where it can be loaded.",
+        "Scene remove/use constraints align: frozen RemoveScene(force=false) and Vinpst both reject built-in scenes and the active scene, while scene use requires an existing scene. Vinpst continues to reject no-op edit requests and represents cleared optional prompt/provider/model/timeout fields by omission through explicit --clear-* controls instead of frozen empty-string storage; this is the rewrite typed-schema policy rather than a missing user task.",
+        "Vinpst intentionally requires --in-place or --output for scene mutations instead of silently writing the canonical config. This preserves the rewrite-wide safe mutation/backup policy. Neither frozen scene CLI nor current file-based scene CLI performs an implicit daemon runtime mutation after writing; live scene selection remains owned by the daemon/Fcitx typed D-Bus surfaces audited separately.",
+        "Deterministic evidence includes the scene integration suite, which now pins --id scene creation with an omitted label, candidate_count=1, omitted serialized timeout, and list-time label fallback, plus an exact parser test for the frozen add/edit short-option and legacy long-option forms. Strict all-target vinpst-cli Clippy remains green."
+      ]
     }
   ],
   "upstream_pending": [
-    "cli/config/register_scene.cpp",
-    "cli/config/scene_actions.cpp",
-    "cli/config/scene_actions.h",
     "cli/control/daemon_actions.cpp",
     "cli/control/daemon_actions.h",
     "cli/control/recording_actions.cpp",
@@ -1267,10 +1292,8 @@
     "crates/vinpst-cli/src/cli/daemon.rs",
     "crates/vinpst-cli/src/cli/recording.rs",
     "crates/vinpst-cli/src/cli/registry.rs",
-    "crates/vinpst-cli/src/cli/scene.rs",
     "crates/vinpst-cli/src/commands/mod.rs",
     "crates/vinpst-cli/src/commands/registry.rs",
-    "crates/vinpst-cli/src/commands/scene.rs",
     "crates/vinpst-cli/src/commands/system.rs",
     "crates/vinpst-cli/src/config_examples.rs",
     "crates/vinpst-cli/src/config_io.rs",
