@@ -372,10 +372,19 @@ if(Fcitx5Core_FOUND)
     NAME vinpst_fcitx_bridge_i18n_smoke
     COMMAND vinpst_fcitx_bridge_i18n_smoke
   )
+  add_test(
+    NAME vinpst_fcitx_bridge_i18n_language_override_smoke
+    COMMAND vinpst_fcitx_bridge_i18n_smoke
+  )
   set_tests_properties(
     vinpst_fcitx_bridge_i18n_smoke
     PROPERTIES ENVIRONMENT
       "LANGUAGE=zh_CN;LC_ALL=zh_CN.utf8;VINPST_FCITX_LOCALEDIR=${VINPST_FCITX_BUILD_LOCALEDIR}"
+  )
+  set_tests_properties(
+    vinpst_fcitx_bridge_i18n_language_override_smoke
+    PROPERTIES ENVIRONMENT
+      "LANGUAGE=zh_CN;LC_ALL=C;VINPST_FCITX_LOCALEDIR=${VINPST_FCITX_BUILD_LOCALEDIR}"
   )
 
   add_executable(
