@@ -561,6 +561,31 @@
         "The Rust text device list deliberately retains the canonical default capture target even when live discovery fails, whereas frozen device list exits after its ambiguous empty-result message before printing default. This is consistent with Vinpst typed config: default remains a valid selection independent of whether live enumeration is currently available.",
         "The shared Rust implementation file remains owned by AUDIO-CAPTURE-001 and is supporting evidence here. Device-list/use CLI command semantics beyond enumeration, and standalone-GUI presentation behavior beyond consuming the enumerator result, remain owned by their pending CLI/GUI audit units."
       ]
+    },
+    {
+      "id": "AUDIO-UTILS-001",
+      "state": "audited-fixed",
+      "title": "Audio gain and quiet peak-normalization algebra",
+      "upstream_files": [
+        "daemon/audio/audio_utils.cpp",
+        "daemon/audio/audio_utils.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-audio/src/lib.rs",
+        "crates/vinpst-audio/src/tests.rs",
+        "crates/vinpst-daemon/src/runtime.rs",
+        "crates/vinpst-daemon/src/runtime/tests.rs",
+        "docs/architecture/audio-contract.md"
+      ],
+      "notes": [
+        "Fixed the shared Rust i16 gain helper to match frozen ApplyGainI16 exactly at the sample boundary: multiply in f32, clamp to [-32768, 32767], then truncate toward zero. The previous generic helper rounded first, which could differ by one LSB; daemon buffered and streaming delivery now delegate to the corrected vinpst-audio implementation instead of maintaining duplicate controller math.",
+        "Moved frozen default PeakNormalize algebra into PcmBuffer::normalize_quiet_to_full_scale and made the controller delegate to it. Non-zero peaks below 0.1 full scale are amplified to full scale, peaks at or above the threshold are never attenuated, and zero audio is unchanged. Deterministic tests cover quiet/loud/silent cases and the exact i16 threshold boundary where 3276 is below 0.1 but 3277 is above it.",
+        "Removed the pre-parity AudioProcessingOptions abstraction plus its generic target-normalization and fixed-threshold silence-trimming helpers. Repository-wide search found no production consumer; the abstraction encoded the obsolete trim -> normalize -> gain order and its architecture documentation contradicted the audited runtime contract. Silence trimming remains owned by the separate Silero VAD backend rather than a fixed PCM threshold.",
+        "Updated the audio architecture contract to the actual product path: input gain is applied at capture delivery, buffered sessions optionally perform quiet-only peak normalization after gain, and this layer performs no fixed-threshold trim. Earlier prose claiming trim/normalize/gain was the buffered backend contract was stale scaffold documentation.",
+        "Frozen ApplyGain(float) has no caller and Rust has no product float-PCM processing surface, so Vinpst intentionally does not reproduce that dead generic helper. Frozen PeakNormalize's custom target_peak/low_threshold parameters are likewise unused; Rust exposes only the default production behavior instead of widening the public API for unexercised knobs.",
+        "Vinpst keeps its existing fail-closed handling for non-finite gain values: PcmBuffer leaves audio unchanged, while typed configuration rejects non-finite/out-of-range input_gain before runtime. Frozen product configuration also constrains gain, so this hardening does not change valid user behavior. The separate buffered-input-gain divergence caused by frozen StopAndGetBuffer overwrite remains documented under DAEMON-CONTROLLER-001."
+      ]
     }
   ],
   "upstream_pending": [
@@ -647,8 +672,6 @@
     "common/utils/string_utils.h",
     "common/utils/url_utils.h",
     "daemon/asr/asr_config.h",
-    "daemon/audio/audio_utils.cpp",
-    "daemon/audio/audio_utils.h",
     "daemon/main.cpp",
     "daemon/remote/remote_text_service.cpp",
     "daemon/remote/remote_text_service.h",
