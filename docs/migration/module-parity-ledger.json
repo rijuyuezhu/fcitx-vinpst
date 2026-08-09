@@ -290,8 +290,8 @@
         "Model hotwords are now gated by top-level supports_hotwords. Provider hotwords override model hotwords, unsupported models ignore them at runtime, and an effective hotword path forces modified_beam_search for both offline and online recognizers.",
         "Added all frozen-upstream online families supported by the sherpa-onnx Rust binding: transducer, zipformer2_ctc, paraformer, nemo_ctc, and t_one_ctc, with path-level metadata tests and native-feature compilation.",
         "Aligned thread policy: offline metadata defaults to 4 threads when omitted while explicit offline model metadata may override it; online runtime uses the frozen upstream runtime default of 4 threads rather than model metadata.",
-        "The currently supported offline layouts retain their native runtime mappings. Additional frozen-upstream offline model families remain owned by the pending model/layout audit, not this runtime unit.",
-        "Known gap: frozen upstream can supply model tokens and hotwords through in-memory tokens_buf/hotwords_buf JSON byte strings. The Rust sherpa binding can represent these, but current Vinpst model metadata/runtime plans do not yet carry the byte buffers. This stays explicit for the pending model metadata audit rather than being silently ignored.",
+        "All frozen offline family mappings are now owned and completed by ASR-MODEL-001; this runtime unit retains only recognizer/session behavior ownership.",
+        "Known gap: frozen upstream can supply model tokens and hotwords through in-memory tokens_buf/hotwords_buf JSON byte strings. The later model-manager audit verified that sherpa-onnx 1.13.3 safe high-level OfflineModelConfig/OnlineModelConfig does not expose those C-API fields, so Vinpst keeps the gap explicit rather than adding raw unsafe FFI.",
         "Model path discovery/layout inference and VAD remain supporting evidence only and stay pending for their own non-overlapping audits."
       ]
     },
@@ -319,6 +319,44 @@
         "Vinpst intentionally adds a 500 ms cold-start guard for the first detected segment: if its padded start lies within the first 500 ms, trimming preserves audio from sample zero to reduce first-syllable clipping after capture startup. Frozen vad_trimmer.cpp has no equivalent guard.",
         "Frozen upstream initializes the detector at 16 kHz and ignores the sample_rate argument passed to Trim. Vinpst production capture is likewise 16 kHz, but injected/non-16-kHz PCM explicitly bypasses VAD instead of running a 16-kHz detector against mismatched-rate samples.",
         "VAD remains offline/buffered only in both implementations; online/streaming Sherpa recognition does not use this trimmer."
+      ]
+    },
+    {
+      "id": "ASR-MODEL-001",
+      "state": "audited-with-gap",
+      "title": "Installed ASR model discovery, metadata, layout, and removal",
+      "upstream_files": [
+        "common/asr/model_manager.cpp",
+        "common/asr/model_manager.h"
+      ],
+      "current_files": [
+        "crates/vinpst-asr/src/sherpa/mod.rs",
+        "crates/vinpst-asr/src/sherpa/offline_layout.rs",
+        "crates/vinpst-asr/src/sherpa/offline_layout/moonshine.rs",
+        "crates/vinpst-registry/src/installed.rs",
+        "crates/vinpst-registry/src/managed.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/sherpa/backend.rs",
+        "crates/vinpst-asr/src/sherpa_online.rs",
+        "crates/vinpst-cli/src/commands/model/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/use_model.rs",
+        "crates/vinpst-daemon/src/runtime/asr_menu.rs",
+        "crates/vinpst-gui/src/i18n/en.rs",
+        "crates/vinpst-gui/src/i18n/keys.rs",
+        "crates/vinpst-gui/src/i18n/zh_cn.rs",
+        "crates/vinpst-gui/src/resource_details.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-registry/src/lib.rs",
+        "crates/vinpst-registry/src/live.rs"
+      ],
+      "notes": [
+        "Audited frozen installed-model discovery, metadata/path validation, runtime-language hints, model validation/removal safety, and native Sherpa family asset mapping without absorbing live registry network/schema ownership.",
+        "Fixed metadata path containment for offline and online Sherpa assets, including parent and symlink escapes; managed removal now rejects symlink targets and verifies canonical root containment while retaining Vinpst active-model protection.",
+        "Fixed native model coverage and metadata semantics: all 19 frozen offline families and all five frozen streaming families are accepted, including nemo_transducer family-keyed assets, Moonshine v2 encoder+merged-decoder layouts, frozen Qwen3/FunASR defaults, Whisper timestamp flags, and frozen RuntimeLanguageHint behavior.",
+        "Installed discovery now preserves malformed metadata entries as explicit broken models instead of failing the whole catalog; CLI reports broken state, daemon target menus exclude broken models, and GUI semantic state disables Use while keeping removal available.",
+        "Intentional Vinpst extensions remain: flat managed-model discovery in addition to the frozen two-level layout, a moonshine_v1 compatibility alias, and stronger active-model/symlink removal guards.",
+        "Remaining dependency gap: frozen tokens_buf/hotwords_buf in-memory Sherpa metadata cannot be represented through sherpa-onnx 1.13.3 safe Rust Offline/Online model configs; normal crates remain unsafe-free rather than bypassing the binding with raw FFI."
       ]
     }
   ],
@@ -373,8 +411,6 @@
     "cli/utils/formatter.h",
     "cli/utils/resource_utils.cpp",
     "cli/utils/resource_utils.h",
-    "common/asr/model_manager.cpp",
-    "common/asr/model_manager.h",
     "common/audio/pipewire_device.cpp",
     "common/audio/pipewire_device.h",
     "common/config/config_router.cpp",
@@ -474,8 +510,6 @@
     "crates/vinpst-asr/src/lib.rs",
     "crates/vinpst-asr/src/mock.rs",
     "crates/vinpst-asr/src/remote.rs",
-    "crates/vinpst-asr/src/sherpa/mod.rs",
-    "crates/vinpst-asr/src/sherpa/offline_layout.rs",
     "crates/vinpst-asr/src/timeout.rs",
     "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-audio/src/lib.rs",
@@ -634,10 +668,8 @@
     "crates/vinpst-registry/src/error.rs",
     "crates/vinpst-registry/src/fetch.rs",
     "crates/vinpst-registry/src/install.rs",
-    "crates/vinpst-registry/src/installed.rs",
     "crates/vinpst-registry/src/lib.rs",
     "crates/vinpst-registry/src/live.rs",
-    "crates/vinpst-registry/src/managed.rs",
     "crates/vinpst-registry/src/materialize.rs",
     "crates/vinpst-registry/src/operation.rs",
     "crates/vinpst-registry/src/plan.rs",

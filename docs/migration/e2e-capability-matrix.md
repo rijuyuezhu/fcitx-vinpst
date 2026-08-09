@@ -142,6 +142,7 @@ Current model, provider, and adapter lists resolve localized titles/descriptions
 | Paraformer | real registry-model WAV smoke |
 | Dolphin | real registry-model WAV smoke |
 | Moonshine v1 | local WAV and D-Bus reload smoke |
+| Other frozen offline families, including Moonshine v2 | typed metadata/path fixtures plus native-feature config compilation; no blanket real-WAV claim |
 | Offline transducer | real registry-model WAV smoke |
 | Online transducer | real registry-model WAV smoke and activation/addon path |
 | Zipformer2 CTC | real registry-model WAV smoke |
