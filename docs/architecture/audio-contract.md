@@ -10,7 +10,7 @@ The canonical in-memory representation is signed 16-bit interleaved PCM carried 
 - `channels`: non-zero interleaved channel count, defaulting to mono when omitted from JSON.
 - `samples`: raw `i16` samples whose length must align to the channel count.
 
-Frame-oriented calculations, duration, silence trimming, and deterministic chunk planning use frames rather than raw sample count. Multi-channel buffers are preserved as complete interleaved frames and chunk helpers never split a frame across chunk boundaries.
+Frame-oriented calculations, duration, and deterministic chunk planning use frames rather than raw sample count. Multi-channel buffers are preserved as complete interleaved frames and chunk helpers never split a frame across chunk boundaries.
 
 ## Byte formats
 
@@ -38,7 +38,7 @@ Desktop recorders should implement the stateful `AudioRecorder` contract instead
 
 `RuntimeState` consumes `AudioRecorder` directly and selects delivery from the active backend descriptor. Recording startup follows the upstream cold-press ordering: capture begins before ASR session creation so backend setup cannot delay microphone opening. A `CaptureStartGate` is installed first; it buffers any early `PcmBuffer` chunks until session construction succeeds, then replays them in order through the real session callback. Recorder-start failure therefore creates no ASR session. Conversely, session-creation or gate-arming failure cancels the already-started capture, clears the callback, and leaves the runtime idle.
 
-Buffered sessions keep the stop-time path: collect the final buffer, trim/normalize/apply gain, push one processed `PcmBuffer` with explicit `PcmSpec`, drain pending events, finish, and merge final events. Chunked sessions apply input gain at the device boundary, combine arbitrary callback sizes into legacy-compatible 800-frame batches, push and poll each batch under shared session ownership, and flush only the final short batch on stop. The complete accumulated stop buffer is not replayed to chunked sessions. Callback errors and PCM metadata changes are retained and returned through the normal stop/cancel path. The existing `AudioSource` trait remains a one-shot source for deterministic tests and file-input demos. `SourceAudioRecorder` adapts those one-shot sources into the stateful runtime path, while `RecorderAudioSource` adapts stateful recorders back into legacy one-shot call sites.
+Buffered sessions keep the stop-time path: collect the final buffer, apply input gain and optional quiet-only peak normalization, push one processed `PcmBuffer` with explicit `PcmSpec`, drain pending events, finish, and merge final events. Chunked sessions apply input gain at the device boundary, combine arbitrary callback sizes into legacy-compatible 800-frame batches, push and poll each batch under shared session ownership, and flush only the final short batch on stop. The complete accumulated stop buffer is not replayed to chunked sessions. Callback errors and PCM metadata changes are retained and returned through the normal stop/cancel path. The existing `AudioSource` trait remains a one-shot source for deterministic tests and file-input demos. `SourceAudioRecorder` adapts those one-shot sources into the stateful runtime path, while `RecorderAudioSource` adapts stateful recorders back into legacy one-shot call sites.
 
 ASR session ownership is explicit across recorder callbacks and the stop path. Chunked delivery shares the session through a mutex because live PipeWire callbacks run on the recorder worker thread; callbacks are detached before cancellation or drop. If recorder stop, PCM delivery, ASR polling, payload conversion, or text finishing fails, `RuntimeState` calls `RecognitionSession::cancel` before returning the error and resetting to idle. Dropping a runtime with an active recording also clears the callback, cancels the active ASR session, and then cancels the recorder.
 
@@ -52,13 +52,11 @@ When `global.duck_output_while_recording` is enabled, `RuntimeState` lowers the 
 
 ## Processing order
 
-`AudioProcessingOptions::process` applies deterministic transforms in this order:
+The runtime applies configured input gain at the capture boundary using the frozen `ApplyGainI16` algebra: multiply each sample, clamp to the `i16` range, then truncate toward zero. Streaming sessions use that gained PCM directly.
 
-1. Trim leading and trailing silent frames using the absolute silence threshold.
-2. Optionally normalize to a target peak.
-3. Apply input gain with saturating `i16` conversion.
+Buffered sessions use the same gained PCM. When `normalize_audio` is enabled, a non-zero peak below 0.1 full scale is amplified to full scale; louder audio is never attenuated. No fixed amplitude-threshold silence trimming is injected by this layer. Offline Silero VAD remains a separate ASR-backend concern and may trim speech according to its own configured policy.
 
-This full-buffer order is part of the buffered backend contract. Streaming delivery cannot normalize or trim against a future complete recording, so it applies only input gain at the callback boundary, matching the legacy runtime. `PcmBuffer::chunk_ranges_by_frames` can plan complete-frame chunk ranges without copying, and `PcmBuffer::chunks_by_frames` can materialize those ranges for deterministic tests or helper boundaries.
+`PcmBuffer::chunk_ranges_by_frames` can plan complete-frame chunk ranges without copying, and `PcmBuffer::chunks_by_frames` can materialize those ranges for deterministic tests or helper boundaries.
 
 ## Deterministic chunk callback seams
 

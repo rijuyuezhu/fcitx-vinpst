@@ -402,37 +402,11 @@ impl RuntimeState {
 }
 
 fn apply_controller_input_gain(pcm: &mut PcmBuffer, gain: f32) {
-    if pcm.is_empty() || !gain.is_finite() {
-        return;
-    }
-    for sample in pcm.samples_mut() {
-        let scaled = (f32::from(*sample) * gain).clamp(f32::from(i16::MIN), f32::from(i16::MAX));
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            *sample = scaled as i16;
-        }
-    }
+    pcm.apply_gain(gain);
 }
 
 fn normalize_quiet_buffered_pcm(pcm: &mut PcmBuffer) {
-    let peak = pcm
-        .samples()
-        .iter()
-        .map(|sample| (f32::from(*sample) / 32_768.0).abs())
-        .fold(0.0_f32, f32::max);
-    if !(1.0e-8..0.1).contains(&peak) {
-        return;
-    }
-
-    let scale = 1.0 / peak;
-    for sample in pcm.samples_mut() {
-        let normalized = (f32::from(*sample) / 32_768.0) * scale;
-        let scaled = (normalized * 32_768.0).clamp(f32::from(i16::MIN), f32::from(i16::MAX));
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            *sample = scaled as i16;
-        }
-    }
+    pcm.normalize_quiet_to_full_scale();
 }
 
 fn process_buffered_pcm(pcm: &PcmBuffer, input_gain: f32, normalize_audio: bool) -> PcmBuffer {

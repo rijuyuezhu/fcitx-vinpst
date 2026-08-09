@@ -327,9 +327,12 @@ fn wav_pcm16le_parser_rejects_unsupported_format() {
 }
 
 #[test]
-fn gain_saturates_to_i16_range() {
-    let pcm = PcmBuffer::at_default_rate(vec![20_000, -20_000]).with_gain(2.0);
-    assert_eq!(pcm.samples(), &[i16::MAX, i16::MIN]);
+fn gain_matches_frozen_i16_clamp_and_truncation() {
+    let pcm = PcmBuffer::at_default_rate(vec![1, -1, 20_000, -20_000]).with_gain(1.5);
+    assert_eq!(pcm.samples(), &[1, -1, 30_000, -30_000]);
+
+    let saturated = PcmBuffer::at_default_rate(vec![20_000, -20_000]).with_gain(2.0);
+    assert_eq!(saturated.samples(), &[i16::MAX, i16::MIN]);
 }
 
 #[test]
@@ -340,73 +343,27 @@ fn non_finite_gain_is_ignored() {
 }
 
 #[test]
-fn normalization_scales_peak() {
-    let pcm = PcmBuffer::at_default_rate(vec![0, 1_000, -2_000]).normalized_to_peak(10_000);
-    assert_eq!(pcm.samples(), &[0, 5_000, -10_000]);
-    assert_eq!(pcm.peak_abs(), 10_000);
-}
+fn quiet_peak_normalization_matches_frozen_default_policy() {
+    let mut quiet = PcmBuffer::at_default_rate(vec![0, 1_000, -500, 0]);
+    quiet.normalize_quiet_to_full_scale();
+    assert_eq!(quiet.samples(), &[0, i16::MAX, -16_384, 0]);
 
-#[test]
-fn silence_detection_uses_absolute_threshold() {
-    assert!(PcmBuffer::at_default_rate(vec![0, 2, -2]).is_silent(2));
-    assert!(!PcmBuffer::at_default_rate(vec![0, 3]).is_silent(2));
-    assert!(PcmBuffer::at_default_rate(vec![0, 2, -2]).is_silent(-2));
-}
+    let mut loud = PcmBuffer::at_default_rate(vec![0, 4_000, -2_000, 0]);
+    let loud_before = loud.clone();
+    loud.normalize_quiet_to_full_scale();
+    assert_eq!(loud, loud_before);
 
-#[test]
-fn trim_removes_leading_and_trailing_silence() {
-    let pcm = PcmBuffer::at_default_rate(vec![0, 1, 5, -6, 1, 0]).trimmed_silence(1);
-    assert_eq!(pcm.samples(), &[5, -6]);
-    let negative_threshold =
-        PcmBuffer::at_default_rate(vec![0, 1, 5, -6, 1, 0]).trimmed_silence(-1);
-    assert_eq!(negative_threshold.samples(), &[5, -6]);
-}
+    let mut just_below_threshold = PcmBuffer::at_default_rate(vec![3_276]);
+    just_below_threshold.normalize_quiet_to_full_scale();
+    assert_eq!(just_below_threshold.samples(), &[i16::MAX]);
 
-#[test]
-fn multi_channel_trim_preserves_complete_frames() {
-    let pcm = PcmBuffer::with_spec(
-        PcmSpec {
-            sample_rate_hz: DEFAULT_SAMPLE_RATE_HZ,
-            channels: 2,
-        },
-        vec![0, 0, 1, 2, 5, 0, 0, 0],
-    )
-    .unwrap()
-    .trimmed_silence(2);
+    let mut just_above_threshold = PcmBuffer::at_default_rate(vec![3_277]);
+    just_above_threshold.normalize_quiet_to_full_scale();
+    assert_eq!(just_above_threshold.samples(), &[3_277]);
 
-    assert_eq!(pcm.samples(), &[5, 0]);
-    assert_eq!(pcm.frame_len(), 1);
-    assert_eq!(pcm.channels(), 2);
-}
-
-#[test]
-fn trim_all_silence_returns_empty_buffer() {
-    let pcm = PcmBuffer::at_default_rate(vec![0, 1, -1]).trimmed_silence(1);
-    assert!(pcm.is_empty());
-    assert_eq!(pcm.sample_rate_hz(), DEFAULT_SAMPLE_RATE_HZ);
-}
-
-#[test]
-fn processing_options_apply_trim_normalize_then_gain() {
-    let pcm = PcmBuffer::at_default_rate(vec![0, 1, 10, -20, 1, 0]);
-    let options = super::AudioProcessingOptions::new(1, Some(10_000), 0.5);
-    let processed = options.process(&pcm);
-    assert_eq!(processed.samples(), &[2_500, -5_000]);
-}
-
-#[test]
-fn processing_options_preserve_multi_channel_spec_and_frames() {
-    let spec = PcmSpec {
-        sample_rate_hz: 48_000,
-        channels: 2,
-    };
-    let pcm = PcmBuffer::with_spec(spec, vec![0, 0, 10, -10, 0, 0]).unwrap();
-    let options = super::AudioProcessingOptions::new(1, None, 2.0);
-    let processed = options.process(&pcm);
-
-    assert_eq!(processed.spec(), spec);
-    assert_eq!(processed.samples(), &[20, -20]);
-    assert_eq!(processed.frame_len(), 1);
+    let mut silence = PcmBuffer::at_default_rate(vec![0, 0, 0]);
+    silence.normalize_quiet_to_full_scale();
+    assert_eq!(silence.samples(), &[0, 0, 0]);
 }
 
 #[test]
