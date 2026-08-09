@@ -1144,12 +1144,46 @@
         "Vinpst intentionally requires --in-place or --output for device use instead of silently mutating the user config as frozen does. This matches the rewrite-wide explicit-mutation policy, preserves backup/atomic-write behavior, allows deterministic dry-run and offline config generation, and does not remove the familiar device use task.",
         "Deterministic evidence includes the full PipeWire-feature audio_devices integration suite (19 tests), the exact device ls parser compatibility test, canonical in-place restart-hint coverage, unavailable-PipeWire best-effort selection coverage, and strict all-target vinpst-cli Clippy with and without pipewire-backend."
       ]
+    },
+    {
+      "id": "CLI-LLM-ADAPTER-001",
+      "state": "audited-intentional-divergence",
+      "title": "CLI LLM provider and text-adapter workflows",
+      "upstream_files": [
+        "cli/config/llm_actions.cpp",
+        "cli/config/llm_actions.h",
+        "cli/config/register_llm.cpp"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/cli/adapter.rs",
+        "crates/vinpst-cli/src/cli/llm.rs",
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/adapter/lifecycle.rs",
+        "crates/vinpst-cli/src/commands/adapter/mod.rs",
+        "crates/vinpst-cli/src/commands/adapter/mutation.rs",
+        "crates/vinpst-cli/src/commands/llm.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/cli/mod.rs",
+        "crates/vinpst-cli/src/daemon_control/mod.rs",
+        "crates/vinpst-cli/src/live_i18n.rs",
+        "crates/vinpst-cli/src/registry_support.rs",
+        "crates/vinpst-cli/tests/llm_adapter.rs",
+        "docs/architecture/text-contract.md",
+        "docs/live-toolkit-debugging.md",
+        "docs/migration/e2e-capability-matrix.md"
+      ],
+      "notes": [
+        "Frozen owns LLM-provider and LLM-adapter commands in the same llm_actions/register_llm files, so this audit intentionally keeps them in one non-overlapping unit. The familiar provider surface remains available as llm list/ls, add, edit/e, remove/rm, and test. The familiar adapter surface remains available as adapter list/ls -a/--available, registry add (accepted as an alias of the clearer install command), start, and stop; Vinpst adds custom create/edit/remove, runtime status, dry-run/JSON, and safer explicit write targets.",
+        "LLM mutation semantics preserve the meaningful frozen behavior while strengthening validation. Provider ids/base URLs are trimmed and validated, extra_body must be an object, and the frozen edit -e/--extra-body {} form remains accepted and persists an empty object. Vinpst intentionally rejects no-op edits and uses explicit --clear-* controls for optional scalar fields instead of treating ambiguous empty strings as mutation instructions. Provider removal also clears scene provider/model bindings that would otherwise dangle, and all writes use the shared validated backup/atomic persistence path.",
+        "LLM list output intentionally minimizes credentials and endpoints more aggressively than frozen. Frozen JSON returns raw base_url plus an empty api_key placeholder and text prints raw base_url plus a partially masked key; Vinpst reports configuration booleans/model metadata in JSON, redacts URL diagnostics in text, and never emits configured API-key material. Adapter installed-list JSON likewise reports command/argument/environment counts and configured-state flags rather than frozen raw command, args, and env values. Runtime adapter state moved to the daemon-authoritative adapter status surface instead of inferring running state from local process metadata.",
+        "vinpst llm test is an intentional product divergence from frozen. Frozen performs a fixed-10-second GET of the OpenAI-compatible /models endpoint and reports model ids. Vinpst exercises the actual production non-streaming /chat/completions text-processing path, with the same scene timeout/request builder/response parser used by runtime post-processing, plus a no-network --dry-run and structural credential/URL redaction. The text architecture and live validation documents explicitly use vinpst llm test as the production authenticated chat request/result boundary, so reverting it to /models would reduce coverage of the user-visible path.",
+        "Adapter registry installation preserves short-id resolution, live registry/i18n metadata, script materialization, and configuration publication while adding staging, dry-run, explicit write targets, required/optional environment reporting, and refusal to replace user-defined adapters with managed content. Start/stop resolve configured ids (or registry short ids when explicitly supplied) before invoking the stable StartAdapter/StopAdapter D-Bus methods; status is an additive daemon-authoritative diagnostic command.",
+        "Deterministic evidence includes the existing llm_adapter suite for secret-free LLM/adapter listing, registry installation, selector resolution, StartAdapter/StopAdapter plans, mutation validation, redacted LLM request plans, the legacy 4000 ms text-scene timeout, and removal safety. This audit additionally pins frozen llm ls/e/rm and adapter ls -a/add parser forms plus the frozen-compatible llm edit --extra-body {} persistence behavior; strict all-target vinpst-cli Clippy remains green."
+      ]
     }
   ],
   "upstream_pending": [
-    "cli/config/llm_actions.cpp",
-    "cli/config/llm_actions.h",
-    "cli/config/register_llm.cpp",
     "cli/config/register_scene.cpp",
     "cli/config/scene_actions.cpp",
     "cli/config/scene_actions.h",
@@ -1230,17 +1264,10 @@
     "crates/vinpst-asr/src/timeout.rs",
     "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-audio/src/lib.rs",
-    "crates/vinpst-cli/src/cli/adapter.rs",
     "crates/vinpst-cli/src/cli/daemon.rs",
-    "crates/vinpst-cli/src/cli/llm.rs",
     "crates/vinpst-cli/src/cli/recording.rs",
     "crates/vinpst-cli/src/cli/registry.rs",
     "crates/vinpst-cli/src/cli/scene.rs",
-    "crates/vinpst-cli/src/commands/adapter/catalog.rs",
-    "crates/vinpst-cli/src/commands/adapter/lifecycle.rs",
-    "crates/vinpst-cli/src/commands/adapter/mod.rs",
-    "crates/vinpst-cli/src/commands/adapter/mutation.rs",
-    "crates/vinpst-cli/src/commands/llm.rs",
     "crates/vinpst-cli/src/commands/mod.rs",
     "crates/vinpst-cli/src/commands/registry.rs",
     "crates/vinpst-cli/src/commands/scene.rs",
