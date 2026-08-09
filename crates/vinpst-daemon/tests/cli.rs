@@ -1316,6 +1316,7 @@ fn text_adapters_reports_configured_adapter_summary() {
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "llm": {
             "adapters": [{
               "id":"cmd-adapter",
@@ -1364,6 +1365,7 @@ fn text_adapters_reports_empty_adapter_summary() {
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "scenes": {
             "active_scene": "raw",
             "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
@@ -1393,6 +1395,7 @@ fn text_adapters_reports_multiple_adapter_ids() {
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "llm": {
             "adapters": [
               {"id":"first","command":"first-helper"},

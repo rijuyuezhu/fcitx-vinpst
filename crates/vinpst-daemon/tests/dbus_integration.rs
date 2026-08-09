@@ -1189,6 +1189,7 @@ async fn configured_adapter_supervision_roundtrips_through_session_bus() -> anyh
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "llm": {
             "adapters": [{"id":"cmd-adapter","command":"sleep","args":["30"]}]
           },
@@ -1255,6 +1256,7 @@ async fn exited_adapter_is_reaped_from_dbus_diagnostics() -> anyhow::Result<()> 
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "llm": {
             "adapters": [{"id":"cmd-adapter","command":"true"}]
           },
