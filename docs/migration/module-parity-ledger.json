@@ -509,6 +509,32 @@
         "Frozen OutputDucker uses an internal mutex because it may be called across its native controller threads. Rust requires mutable ownership of OutputDucker and serializes controller transitions instead, so reproducing the mutex would add no product behavior. Logging is routed through tracing rather than frozen stderr/debug helpers.",
         "Controller-level duck/restore call ordering and shutdown restoration are already owned and covered by DAEMON-CONTROLLER-001; this unit only owns the volume-control implementation and process boundary."
       ]
+    },
+    {
+      "id": "AUDIO-CAPTURE-001",
+      "state": "audited-fixed",
+      "title": "PipeWire capture lifecycle, target binding, and reusable stream policy",
+      "upstream_files": [
+        "daemon/audio/audio_capture.cpp",
+        "daemon/audio/audio_capture.h"
+      ],
+      "current_files": [
+        "crates/vinpst-audio/src/pipewire_backend.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-audio/src/lib.rs",
+        "crates/vinpst-daemon/src/runtime/capture.rs"
+      ],
+      "notes": [
+        "Aligned the live PipeWire stream contract with frozen AudioCapture: S16LE at 16 kHz mono, Audio/Capture/Communication properties, stream.capture.sink=false so autoconnect targets sources rather than sink output, optional target.object for explicit sources, and AUTOCONNECT|INACTIVE|MAP_BUFFERS stream flags.",
+        "Removed Vinpst's extra RT_PROCESS request. The frozen capture stream does not request realtime process callbacks, while the Rust process path allocates a chunk Vec, extends the accumulated buffer, locks the callback holder, and may invoke a user callback; advertising that callback as RT-process-safe was both unnecessary for parity and a poor fit for its actual work.",
+        "Fixed reusable-stream fallback cleanup: when set_active(true) fails on a reused stream, Rust now drops the failed stream before creating the replacement, matching frozen DestroyStream-before-recreate semantics. A failed replacement therefore cannot leave the known-bad stream cached for another retry.",
+        "Reusable stream policy otherwise matches: reuse defaults on, explicit false-like opt-outs disable it, idle destroy defaults to 15000 ms and caps at 600000 ms, target/PCM mismatch forces recreation, successful stop deactivates and preserves the stream, and failed deactivation destroys it. Rust uses a generation-guarded timer worker instead of frozen daemon-main-loop polling for idle expiration; stale timers cannot destroy a new recording.",
+        "PCM delivery matches the frozen process callback: malformed/empty buffers are ignored, byte bounds are checked, odd trailing bytes are ignored, every accepted i16 sample is appended to the stop buffer and also forwarded to the installed chunk callback, and first-buffer latency is recorded once per recording. Rust copies PipeWire bytes into owned little-endian samples before callback delivery instead of exposing the mapped PipeWire buffer span directly.",
+        "Stop/cancel/drop semantics are equivalent at the product boundary: normal stop returns accumulated audio and either leaves a bounded inactive reusable stream or tears the worker down; cancellation discards the recording and destroys reusable state; Drop shuts down the worker and stream. Rust's dedicated worker owns its PipeWire main loop/context, whereas frozen AudioCapture keeps one pw_thread_loop for object lifetime.",
+        "Vinpst intentionally keeps independent environment names (VINPST_CAPTURE_REUSE / VINPST_CAPTURE_IDLE_DESTROY_MS), stream/client identity, and typed capture targets. Empty capture targets are rejected by typed config instead of being a second spelling of frozen default; the canonical user value is default. Idle target changes are lazily invalidated at the next Begin through config mismatch rather than immediately destroying the inactive stream, but the next recording cannot reuse the old target.",
+        "Frozen onParamChanged only prints the negotiated format; it does not reject a negotiated mismatch. Vinpst does not reproduce that stderr-only diagnostic. Device discovery code shares the Rust source file but remains pending for the separate common/audio/pipewire_device audit, and controller preprocessing/call ordering remains owned by DAEMON-CONTROLLER-001."
+      ]
     }
   ],
   "upstream_pending": [
@@ -597,8 +623,6 @@
     "common/utils/string_utils.h",
     "common/utils/url_utils.h",
     "daemon/asr/asr_config.h",
-    "daemon/audio/audio_capture.cpp",
-    "daemon/audio/audio_capture.h",
     "daemon/audio/audio_utils.cpp",
     "daemon/audio/audio_utils.h",
     "daemon/main.cpp",
@@ -652,7 +676,6 @@
     "crates/vinpst-asr/src/timeout.rs",
     "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-audio/src/lib.rs",
-    "crates/vinpst-audio/src/pipewire_backend.rs",
     "crates/vinpst-cli/src/audio_diagnostics.rs",
     "crates/vinpst-cli/src/cli/adapter.rs",
     "crates/vinpst-cli/src/cli/config.rs",
