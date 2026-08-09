@@ -535,6 +535,32 @@
         "Vinpst intentionally keeps independent environment names (VINPST_CAPTURE_REUSE / VINPST_CAPTURE_IDLE_DESTROY_MS), stream/client identity, and typed capture targets. Empty capture targets are rejected by typed config instead of being a second spelling of frozen default; the canonical user value is default. Idle target changes are lazily invalidated at the next Begin through config mismatch rather than immediately destroying the inactive stream, but the next recording cannot reuse the old target.",
         "Frozen onParamChanged only prints the negotiated format; it does not reject a negotiated mismatch. Vinpst does not reproduce that stderr-only diagnostic. Device discovery code shares the Rust source file but remains pending for the separate common/audio/pipewire_device audit, and controller preprocessing/call ordering remains owned by DAEMON-CONTROLLER-001."
       ]
+    },
+    {
+      "id": "PIPEWIRE-DEVICE-001",
+      "state": "audited-intentional-divergence",
+      "title": "PipeWire audio-source discovery and enumeration failure semantics",
+      "upstream_files": [
+        "common/audio/pipewire_device.cpp",
+        "common/audio/pipewire_device.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-audio/src/lib.rs",
+        "crates/vinpst-audio/src/pipewire_backend.rs",
+        "crates/vinpst-cli/src/audio_diagnostics.rs",
+        "crates/vinpst-cli/src/commands/device.rs",
+        "crates/vinpst-daemon/src/main.rs",
+        "crates/vinpst-gui/src/audio_devices.rs"
+      ],
+      "notes": [
+        "Frozen and Rust discovery agree on the core registry contract: only PipeWire Node globals with media.class=Audio/Source are returned, registry arrival order is preserved, the registry object id is retained, and missing node.name/node.description values become empty strings. A direct run of both compiled CLIs against the live user PipeWire session returned the same two sources in the same 69 -> 55 order.",
+        "The one-shot synchronization model is equivalent: both attach the registry listener before issuing a core sync and stop the main loop only when the matching core done sequence arrives. Rust relies on pipewire-rs RAII for registry/core/context/main-loop cleanup instead of explicit destroy/disconnect calls.",
+        "Vinpst intentionally does not reproduce frozen failure ambiguity. Frozen EnumerateAudioSources returns an empty vector for main-loop/context/core setup failure, so its CLI cannot distinguish no microphones from PipeWire being unavailable. Rust returns AudioError::DeviceEnumerationFailed; CLI/daemon diagnostics degrade that to devices=[] plus live=false and enumeration_error while still exiting successfully, and the GUI surfaces a retryable microphone-refresh failure. Direct compiled-binary comparison with PIPEWIRE_REMOTE pointing at a missing server confirms this distinction.",
+        "Vinpst also keeps process-global pipewire-rs initialization instead of frozen per-call pw_init/pw_deinit. pipewire-rs guards pw_init with OnceLock, avoiding repeated global initialization/deinitialization when CLI/GUI discovery is invoked more than once or from independent product surfaces.",
+        "The Rust text device list deliberately retains the canonical default capture target even when live discovery fails, whereas frozen device list exits after its ambiguous empty-result message before printing default. This is consistent with Vinpst typed config: default remains a valid selection independent of whether live enumeration is currently available.",
+        "The shared Rust implementation file remains owned by AUDIO-CAPTURE-001 and is supporting evidence here. Device-list/use CLI command semantics beyond enumeration, and standalone-GUI presentation behavior beyond consuming the enumerator result, remain owned by their pending CLI/GUI audit units."
+      ]
     }
   ],
   "upstream_pending": [
@@ -588,8 +614,6 @@
     "cli/utils/formatter.h",
     "cli/utils/resource_utils.cpp",
     "cli/utils/resource_utils.h",
-    "common/audio/pipewire_device.cpp",
-    "common/audio/pipewire_device.h",
     "common/config/config_router.cpp",
     "common/config/config_router.h",
     "common/config/vinput_config.cpp",
