@@ -183,6 +183,54 @@ fn scene_add_output_writes_valid_config_without_overwriting_input() {
 }
 
 #[test]
+fn scene_add_preserves_frozen_default_candidate_and_label_fallback() {
+    let root = unique_temp_dir("vinpst-scene-add-frozen-defaults");
+    let input_path = root.join("input.json");
+    let output_path = root.join("output.json");
+    fs::write(&input_path, scene_fixture_json()).expect("write scene config");
+
+    let output = vinpst_command()
+        .args(["scene", "add", "--id", "legacy", "--config"])
+        .arg(&input_path)
+        .args(["--output"])
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run frozen-compatible scene add defaults");
+    let value = assert_json_success(output, "scene add frozen defaults json");
+    assert_eq!(value["wrote_config"], true);
+
+    let config = read_json(&output_path);
+    let scene = config["scenes"]["definitions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|scene| scene["id"] == "legacy")
+        .expect("legacy scene");
+    assert_eq!(scene["label"], "legacy");
+    assert_eq!(scene["candidate_count"], 1);
+    assert!(scene.get("timeout_ms").is_none());
+
+    let list = vinpst_command()
+        .args(["scene", "list", "--config"])
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("list frozen-compatible scene");
+    let list = assert_json_success(list, "scene list frozen defaults json");
+    let scene = list["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|scene| scene["id"] == "legacy")
+        .expect("listed legacy scene");
+    assert_eq!(scene["label"], "legacy");
+    assert_eq!(scene["candidate_count"], 1);
+
+    fs::remove_dir_all(root).expect("remove scene frozen-default fixture dir");
+}
+
+#[test]
 fn scene_remove_dry_run_json_validates_inactive_scene_without_writing() {
     let path = write_scene_fixture("vinpst-scene-remove-dry-run");
     let before = fs::read_to_string(&path).expect("read original scene config");

@@ -127,35 +127,7 @@ struct SceneUseOutcome {
 pub(crate) fn handle_scene_command(command: SceneCommand) -> anyhow::Result<()> {
     match command {
         SceneCommand::List { config, json } => print_scene_list(config.as_ref(), json),
-        SceneCommand::Add {
-            id,
-            label,
-            prompt,
-            provider_id,
-            model,
-            candidate_count,
-            timeout_ms,
-            context_lines,
-            config,
-            output,
-            in_place,
-            dry_run,
-            json,
-        } => print_scene_add(SceneAddRequest {
-            id: &id,
-            label: &label,
-            prompt: prompt.as_deref(),
-            provider_id: provider_id.as_deref(),
-            model: model.as_deref(),
-            candidate_count,
-            timeout_ms,
-            context_lines,
-            config_path: config.as_ref(),
-            output_path: output.as_deref(),
-            in_place,
-            dry_run,
-            json_output: json,
-        }),
+        command @ SceneCommand::Add { .. } => handle_scene_add_command(command),
         SceneCommand::Edit {
             id,
             label,
@@ -226,6 +198,44 @@ pub(crate) fn handle_scene_command(command: SceneCommand) -> anyhow::Result<()> 
     }
 }
 
+fn handle_scene_add_command(command: SceneCommand) -> anyhow::Result<()> {
+    let SceneCommand::Add {
+        id,
+        explicit_id,
+        label,
+        prompt,
+        provider_id,
+        model,
+        candidate_count,
+        timeout_ms,
+        context_lines,
+        config,
+        output,
+        in_place,
+        dry_run,
+        json,
+    } = command
+    else {
+        unreachable!("scene add dispatcher received a non-add command");
+    };
+    let id = resolve_scene_add_id(id.as_deref(), explicit_id.as_deref())?;
+    print_scene_add(SceneAddRequest {
+        id: &id,
+        label: label.as_deref().unwrap_or(""),
+        prompt: prompt.as_deref(),
+        provider_id: provider_id.as_deref(),
+        model: model.as_deref(),
+        candidate_count,
+        timeout_ms,
+        context_lines,
+        config_path: config.as_ref(),
+        output_path: output.as_deref(),
+        in_place,
+        dry_run,
+        json_output: json,
+    })
+}
+
 fn print_scene_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
     let context = load_scene_list_context(config_path)?;
     if json_output {
@@ -284,7 +294,7 @@ fn scene_summary_json(
 ) -> serde_json::Value {
     serde_json::json!({
         "id": scene.id.as_str(),
-        "label": scene.label.as_str(),
+        "label": scene_display_label(&scene.id, &scene.label),
         "active": scene.id.as_str() == active_scene,
         "prompt_configured": scene.prompt.as_ref().is_some_and(|value| !value.trim().is_empty()),
         "provider_id": scene.provider_id.as_deref(),
@@ -301,7 +311,7 @@ fn print_scene_list_text(context: &SceneListContext) {
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}",
             scene.id,
-            scene_display_label(&scene.label),
+            scene_display_label(&scene.id, &scene.label),
             scene.provider_id.as_deref().unwrap_or("-"),
             scene.model.as_deref().unwrap_or("-"),
             scene.candidate_count,
@@ -314,10 +324,15 @@ fn print_scene_list_text(context: &SceneListContext) {
     }
 }
 
-fn scene_display_label(label: &str) -> &str {
+fn scene_display_label<'a>(id: &'a str, label: &'a str) -> &'a str {
     match label {
         "__label_raw__" => "Raw",
         "__label_command__" => "Command",
+        "" => match id {
+            "__raw__" => "Raw",
+            "__command__" => "Command",
+            _ => id,
+        },
         _ => label,
     }
 }
@@ -338,7 +353,7 @@ fn print_scene_add(request: SceneAddRequest<'_>) -> anyhow::Result<()> {
 
 fn run_scene_add(request: &SceneAddRequest<'_>) -> anyhow::Result<SceneAddOutcome> {
     let id = normalize_scene_id(request.id)?;
-    let label = normalize_scene_label(request.label)?;
+    let label = normalize_scene_label(request.label, &id);
     let default_path = default_config_path()?;
     let mut loaded = load_config_json(request.config_path)?;
     let contents =
@@ -566,7 +581,7 @@ fn apply_scene_edit(
     if let Some(label) = request.label {
         scene_object.insert(
             "label".to_owned(),
-            serde_json::Value::String(normalize_scene_label(label)?),
+            serde_json::Value::String(normalize_scene_label(label, request.id)),
         );
         changed.push("label".to_owned());
     }
@@ -665,12 +680,24 @@ fn scene_definitions_array_mut(
         .with_context(|| "config pointer `/scenes/definitions` not found or not an array")
 }
 
-fn normalize_scene_label(label: &str) -> anyhow::Result<String> {
+fn normalize_scene_label(label: &str, scene_id: &str) -> String {
     let label = label.trim();
     if label.is_empty() {
-        anyhow::bail!("scene label cannot be empty");
+        scene_id.to_owned()
+    } else {
+        label.to_owned()
     }
-    Ok(label.to_owned())
+}
+
+fn resolve_scene_add_id(
+    positional: Option<&str>,
+    explicit: Option<&str>,
+) -> anyhow::Result<String> {
+    match (positional, explicit) {
+        (Some(_), Some(_)) => anyhow::bail!("scene add accepts either <ID> or --id <ID>, not both"),
+        (Some(id), None) | (None, Some(id)) => Ok(id.to_owned()),
+        (None, None) => anyhow::bail!("scene add requires <ID> or --id <ID>"),
+    }
 }
 
 fn scene_add_outcome_json(outcome: &SceneAddOutcome) -> serde_json::Value {

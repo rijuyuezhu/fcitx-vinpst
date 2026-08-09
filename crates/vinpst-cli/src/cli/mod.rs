@@ -653,6 +653,66 @@ mod help_surface_tests {
     }
 
     #[test]
+    fn frozen_scene_command_shape_remains_accepted() {
+        let args = Args::try_parse_from([
+            "vinpst",
+            "scene",
+            "add",
+            "--id",
+            "legacy",
+            "-l",
+            "Legacy",
+            "-t",
+            "Rewrite",
+            "-p",
+            "provider.demo",
+            "-m",
+            "model.demo",
+            "-c",
+            "2",
+            "--timeout",
+            "2500",
+            "--context-lines",
+            "3",
+            "--dry-run",
+        ])
+        .expect("upstream scene add option shape");
+        assert!(matches!(
+            args.command,
+            Some(Command::Scene {
+                command: SceneCommand::Add {
+                    explicit_id: Some(_),
+                    candidate_count: 2,
+                    timeout_ms: Some(2500),
+                    context_lines: 3,
+                    ..
+                }
+            })
+        ));
+
+        let args = Args::try_parse_from([
+            "vinpst",
+            "scene",
+            "e",
+            "legacy",
+            "-l",
+            "",
+            "-c",
+            "1",
+            "--timeout",
+            "4000",
+            "--dry-run",
+        ])
+        .expect("upstream scene edit option shape");
+        assert!(matches!(
+            args.command,
+            Some(Command::Scene {
+                command: SceneCommand::Edit { .. }
+            })
+        ));
+    }
+
+    #[test]
     fn frozen_llm_and_adapter_command_shape_remains_accepted() {
         let args = Args::try_parse_from(["vinpst", "llm", "ls"]).expect("upstream LLM list alias");
         assert!(matches!(

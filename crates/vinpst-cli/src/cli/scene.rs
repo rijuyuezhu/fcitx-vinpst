@@ -17,25 +17,33 @@ pub(crate) enum SceneCommand {
     },
     /// Add a recognition scene to config.
     Add {
-        /// New scene id.
-        id: String,
+        /// New scene id. May also be provided with --id.
+        id: Option<String>,
+        /// Scene id as an alternative to the positional ID.
+        #[arg(long = "id")]
+        explicit_id: Option<String>,
         /// Display label or translation key for the scene.
-        #[arg(long)]
-        label: String,
+        #[arg(short = 'l', long)]
+        label: Option<String>,
         /// Optional prompt template for post-processing.
-        #[arg(long)]
+        #[arg(short = 't', long)]
         prompt: Option<String>,
         /// Optional LLM provider id for this scene.
-        #[arg(long)]
+        #[arg(short = 'p', long = "provider-id", alias = "provider")]
         provider_id: Option<String>,
         /// Optional model override for this scene.
-        #[arg(long)]
+        #[arg(short = 'm', long)]
         model: Option<String>,
         /// Number of result candidates requested from post-processing.
-        #[arg(long, default_value_t = 0)]
+        #[arg(
+            short = 'c',
+            long = "candidate-count",
+            alias = "candidates",
+            default_value_t = 1
+        )]
         candidate_count: u8,
         /// Optional per-scene timeout in milliseconds.
-        #[arg(long)]
+        #[arg(long = "timeout-ms", alias = "timeout")]
         timeout_ms: Option<u64>,
         /// Recent input context lines to include.
         #[arg(long, default_value_t = 0)]
@@ -62,31 +70,31 @@ pub(crate) enum SceneCommand {
         /// Existing scene id to edit.
         id: String,
         /// Set display label or translation key for the scene.
-        #[arg(long)]
+        #[arg(short = 'l', long)]
         label: Option<String>,
         /// Set prompt template for post-processing.
-        #[arg(long)]
+        #[arg(short = 't', long)]
         prompt: Option<String>,
         /// Clear prompt from this scene.
         #[arg(long)]
         clear_prompt: bool,
         /// Set LLM provider id for this scene.
-        #[arg(long)]
+        #[arg(short = 'p', long = "provider-id", alias = "provider")]
         provider_id: Option<String>,
         /// Clear LLM provider id from this scene.
         #[arg(long)]
         clear_provider_id: bool,
         /// Set model override for this scene.
-        #[arg(long)]
+        #[arg(short = 'm', long)]
         model: Option<String>,
         /// Clear model override from this scene.
         #[arg(long)]
         clear_model: bool,
         /// Set candidate count.
-        #[arg(long)]
+        #[arg(short = 'c', long = "candidate-count", alias = "candidates")]
         candidate_count: Option<u8>,
         /// Set per-scene timeout in milliseconds.
-        #[arg(long)]
+        #[arg(long = "timeout-ms", alias = "timeout")]
         timeout_ms: Option<u64>,
         /// Clear per-scene timeout.
         #[arg(long)]
