@@ -459,6 +459,34 @@
         "Frozen debug mode logs recognized text, truncated after 2048 bytes. Vinpst intentionally does not copy that diagnostic because its architecture contract forbids structured tracing from including recognized text; timing and target metadata remain sufficient for runtime diagnostics without retaining user dictation content.",
         "The controller's worker scheduling, capture lifetime, status callbacks, and stop/reload state-machine ownership remain pending in DAEMON-CONTROLLER-001 and are not duplicated here."
       ]
+    },
+    {
+      "id": "DAEMON-CONTROLLER-001",
+      "state": "audited-fixed",
+      "title": "Daemon recording controller state machine and active-session orchestration",
+      "upstream_files": [
+        "daemon/runtime/daemon_runtime_controller.cpp",
+        "daemon/runtime/daemon_runtime_controller.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/runtime.rs",
+        "crates/vinpst-daemon/src/runtime/active_session.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/runtime/recording.rs",
+        "crates/vinpst-daemon/src/runtime/reload.rs"
+      ],
+      "notes": [
+        "Fixed controller-level buffered preprocessing to follow the frozen audio algebra instead of the earlier generic Rust helper: fixed silence-threshold trimming is no longer injected at this layer, i16 gain uses clamp plus truncation toward zero, and normalize_audio only amplifies a non-silent peak below 0.1 to full scale without attenuating louder audio. Silero VAD remains owned by ASR-VAD-001 rather than being duplicated in the controller.",
+        "Vinpst intentionally applies configured input_gain to both buffered and streaming sessions. Frozen streaming delivery applies the gain, but frozen buffered StopRecording overwrites its gain-adjusted callback buffer with raw StopAndGetBuffer PCM before inference and therefore drops the gain. That contradicts the frozen GUI/config contract describing input gain as a microphone multiplier applied to captured audio; Vinpst retains the user-facing contract rather than reproducing that upstream buffered-path bug.",
+        "Fixed live streaming PushAudio failures to become observable immediately instead of being deferred until StopRecording: the next live poll enters Error, disables capture callbacks, cancels the active recognition session/capture, restores output, emits error status plus the raw daemon notification, then recovers to Idle. Runtime and private-session D-Bus coverage prove this path without requiring a StopRecording call. RecognitionEvent::Error remains the separate frozen behavior owned by ERROR-INFO-001: it emits a classified notification while recording and is not promoted to the controller Error phase.",
+        "Start/rollback ordering is aligned and pinned: capture begins before RecognitionSession creation; session-creation failure cancels already-started capture and returns Idle; successful setup then exposes Recording and output ducking. Rust additionally gates early recorder callbacks until the session is installed and replays them in order, avoiding a frozen-style start-window race without changing delivered PCM order.",
+        "Streaming delivery matches the frozen controller's 800-sample chunk size, applies gain before each push, and flushes one final short tail without replaying already-delivered samples. Buffered and streaming paths both retain the frozen 8000 raw-sample minimum recording gate before ASR finishing.",
+        "Stop/reload/shutdown ownership is intentionally split rather than duplicated: Vinpst's serialized synchronous StopRecording transaction is recorded under DBUS-SERVICE-001, backend preparation/generation semantics under ASR-SESSION-001, and output-ducker/capture internals remain pending dedicated audio units. Reset-to-idle still applies a deferred reload, and RuntimeState Drop disables callbacks, cancels active recognition/capture, restores output, and cleans up supervised adapters.",
+        "Frozen eventfd notification, deferred capture-stop queue, start_recording_in_progress flag, and native worker thread primarily serialize races created by its callback/thread model. Vinpst intentionally uses the D-Bus recording transaction lock, Rust ownership/RAII, the capture-start gate, and async task cancellation instead of recreating those mechanisms. The frozen timing-only debug markers for recording start, first non-silent chunk, and first partial are not required product behavior and are not copied into user-content-safe tracing.",
+        "Recognition postprocessing remains owned by RECOGNITION-PIPELINE-001; audio capture implementation and output-ducker internals remain separate pending units, so this controller audit does not claim those files by supporting reference."
+      ]
     }
   ],
   "upstream_pending": [
@@ -556,8 +584,6 @@
     "daemon/main.cpp",
     "daemon/remote/remote_text_service.cpp",
     "daemon/remote/remote_text_service.h",
-    "daemon/runtime/daemon_runtime_controller.cpp",
-    "daemon/runtime/daemon_runtime_controller.h",
     "gui/app/main.cpp",
     "gui/app/mainwindow.cpp",
     "gui/app/mainwindow.h",
@@ -665,8 +691,6 @@
     "crates/vinpst-daemon/src/main.rs",
     "crates/vinpst-daemon/src/remote.rs",
     "crates/vinpst-daemon/src/remote/server.rs",
-    "crates/vinpst-daemon/src/runtime.rs",
-    "crates/vinpst-daemon/src/runtime/active_session.rs",
     "crates/vinpst-daemon/src/runtime/adapter_process.rs",
     "crates/vinpst-daemon/src/runtime/asr_menu.rs",
     "crates/vinpst-daemon/src/runtime/capture.rs",
