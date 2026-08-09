@@ -663,13 +663,55 @@
         "Top-level cleanup is equivalent through explicit remote shutdown plus Rust ownership. RuntimeState::Drop restores output ducking, removes the audio callback, cancels the active ASR session and capture, and stops supervised adapters; recorder/backend/process destructors then release their remaining resources. This replaces frozen's explicit postprocessor/remote/controller/recognition/adapter Shutdown sequence and releases the zbus connection before runtime teardown so no new service call can race cleanup.",
         "The audit deliberately does not claim the AdapterSupervisor implementation embedded in frozen main.cpp: adapter process supervision remains owned by pending Rust adapter-process units. Likewise controller, D-Bus service, remote protocol, capture, and ASR internals are referenced only for startup/shutdown evidence and retain their dedicated audit ownership."
       ]
+    },
+    {
+      "id": "FCITX-DBUS-001",
+      "state": "audited-fixed",
+      "title": "Fcitx frontend D-Bus transport, daemon reconciliation, and signal delivery",
+      "upstream_files": [
+        "addon/dbus/vinput_dbus.cpp",
+        "common/runtime/runtime_defaults.h"
+      ],
+      "current_files": [
+        "cpp/fcitx5-addon/src/fcitx_daemon_signal_monitor.cpp",
+        "cpp/fcitx5-addon/src/fcitx_notifications.cpp",
+        "cpp/fcitx5-addon/src/sd_bus_daemon_client.cpp",
+        "crates/vinpst-fcitx-dbus/src/lib.rs",
+        "crates/vinpst-fcitx-ffi/src/daemon.rs",
+        "crates/vinpst-fcitx-ffi/src/daemon_signal.rs"
+      ],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/src/fcitx_addon.cpp",
+        "cpp/fcitx5-addon/src/fcitx_addon_menu.cpp",
+        "cpp/fcitx5-addon/src/frontend_bridge.cpp",
+        "cpp/fcitx5-addon/tests/fcitx_addon_dbus_smoke.cpp",
+        "cpp/fcitx5-addon/tests/fcitx_daemon_signal_monitor_smoke.cpp",
+        "cpp/fcitx5-addon/tests/native_fcitx_addon_dbus_smoke.cpp",
+        "crates/vinpst-fcitx-core/src/daemon_signal.rs",
+        "crates/vinpst-fcitx-core/src/frontend.rs",
+        "crates/vinpst-fcitx-ffi/src/frontend.rs",
+        "docs/architecture/dbus-service.md",
+        "docs/architecture/target-architecture.md",
+        "scripts/tests/cpp/run-cpp-dbus-smoke.sh"
+      ],
+      "notes": [
+        "Fixed the frontend method deadline from the rewrite's former 60 seconds to the frozen five-second D-Bus deadline. The same five-second boundary now applies to the retained Fcitx event-loop Start/Stop calls and the safe Rust blocking status/menu client. The other runtime_defaults values are also preserved exactly: daemon failure cooldown 1500 ms, information notification timeout 3000 ms, and warning/error notification timeout 5000 ms.",
+        "Restored frozen responsiveness for StartRecording, StartCommandRecording, and StopRecording. They are dispatched with Fcitx callAsync instead of blocking zbus on the Fcitx thread. Rust still owns operation selection, active-scene/selected-text arguments, frontend session state, and response projection through a narrow prepare/pending/complete FFI seam; C++ owns only the mechanical Fcitx event-loop call required by the toolkit boundary.",
+        "Start sequencing now matches frozen behavior: once callAsync is successfully queued, the Rust frontend state is completed immediately into Recording/Commanding preedit. The later Start reply only clears or activates transport health/cooldown state and never consumes a subsequently prepared Stop call. This removes the rewrite race where a fast key release could prepare Stop before a late Start reply arrived.",
+        "Restored RecognitionResult as the final-result signal path. The retained Fcitx signal monitor now subscribes to RecognitionResult beside RecognitionPartial, StatusChanged, DaemonNotification, and owner changes. Rust now has a dedicated complete_recognition_result boundary independent of any pending Stop call, so both locally stopped and externally stopped sessions share the frozen final-signal semantics; the asynchronous Stop reply is only a transport-success/failure boundary and ASR/text postprocessing cannot block the Fcitx event loop.",
+        "Preserved frozen pending-call lifetime ordering. Start and Stop own independent Fcitx D-Bus slots, and frontend session reset no longer destroys either slot. Each callback reclaims its own slot, which is required when RecognitionResult and idle StatusChanged arrive before the Stop method reply. A native InputContext smoke schedules a timer 10 ms after Stop dispatch and requires it to fire before the final result, directly proving event-loop responsiveness.",
+        "Restored the frozen 1.5-second daemon-sync cooldown across session-bus connection failure, blocking status/menu RPC failure, scene/ASR selection failure, and asynchronous Start/Stop transport failure. A successful call or service-owner recovery clears the cooldown. Current error strings remain typed/localized at the Rust/frontend boundary rather than reproducing frozen ad-hoc reply-name formatting byte-for-byte.",
+        "Frozen queryAsrBackendState and restartDaemon have no callers in the frozen tree and are not reproduced as dead frontend interfaces. Frozen ASR menu selection persisted config and then separately called ReloadAsrBackend; current SetActiveAsrTarget performs validated selection, optional atomic persistence, and reload queueing as one typed daemon operation while preserving the same visible switch-request and failure behavior.",
+        "Current frontend reconciliation intentionally remains signal-driven rather than reproducing frozen ensureStatusSync's one-second blocking GetStatus poll. Like frozen rememberInputContext, every key event records the latest live Fcitx InputContext through a TrackableObjectReference. An unsolicited external recording/inferring/postprocessing status automatically adopts a normal Rust frontend session on that remembered context, so subsequent partial/result signals are displayed and committed without a Vinpst trigger. The monitor also samples the initial owner and performs an explicit bounded GetStatus before each local start; avoiding periodic blocking RPC keeps the Fcitx loop responsive without losing current-daemon transitions.",
+        "The full upstream file audit also covers preedit/status projection and notification handling. Current live-status state preserves partial-over-status priority, owner-loss reset, error-like notification reset, and information-notification non-interruption; notification icons and 3/5-second timeouts match frozen behavior. Vinpst namespace/app-name changes remain intentional independent-product identity changes.",
+        "The private-session async addon smoke uses a fresh daemon per frontend fixture and condition-driven Fcitx time events rather than fixed timing or mock-audio reuse, and passes three consecutive runs. Native InputContext evidence separately proves normal and command async paths plus a no-trigger external-session case: an independent client starts recording, the addon automatically renders the live partial on the remembered context, and the independent stop produces the final commit. The deterministic FFI ABI gate reports 65 public declarations matching archive symbols, the complete Fcitx CTest suite passes 11/11, and focused Rust frontend/core/transport tests pass 53/3/27 with strict Clippy. A cached real online-transducer gate could not run in this workspace because the raw model cache lacks the required vinpst-model.json typed metadata."
+      ]
     }
   ],
   "upstream_pending": [
     "addon/core/vinput.cpp",
     "addon/core/vinput.h",
     "addon/dbus/notifier_dbus_object.h",
-    "addon/dbus/vinput_dbus.cpp",
     "addon/input/vinput_keyevent.cpp",
     "addon/menu/vinput_menu.cpp",
     "cli/action.h",
@@ -732,7 +774,6 @@
     "common/registry/registry_models.h",
     "common/registry/registry_scripts.cpp",
     "common/registry/registry_scripts.h",
-    "common/runtime/runtime_defaults.h",
     "common/utils/debug_log.h",
     "common/utils/download_progress.cpp",
     "common/utils/download_progress.h",
@@ -778,17 +819,14 @@
     "cpp/fcitx5-addon/src/fcitx_addon_menu.cpp",
     "cpp/fcitx5-addon/src/fcitx_candidates.cpp",
     "cpp/fcitx5-addon/src/fcitx_config.cpp",
-    "cpp/fcitx5-addon/src/fcitx_daemon_signal_monitor.cpp",
     "cpp/fcitx5-addon/src/fcitx_i18n.cpp",
     "cpp/fcitx5-addon/src/fcitx_key_trigger.cpp",
     "cpp/fcitx5-addon/src/fcitx_menu_filter.cpp",
     "cpp/fcitx5-addon/src/fcitx_menu_projection.cpp",
-    "cpp/fcitx5-addon/src/fcitx_notifications.cpp",
     "cpp/fcitx5-addon/src/fcitx_outcome.cpp",
     "cpp/fcitx5-addon/src/fcitx_selection.cpp",
     "cpp/fcitx5-addon/src/fcitx_trigger_mode.cpp",
     "cpp/fcitx5-addon/src/frontend_bridge.cpp",
-    "cpp/fcitx5-addon/src/sd_bus_daemon_client.cpp",
     "crates/vinpst-asr/src/error.rs",
     "crates/vinpst-asr/src/lib.rs",
     "crates/vinpst-asr/src/mock.rs",
@@ -868,9 +906,6 @@
     "crates/vinpst-fcitx-core/src/menu_projection.rs",
     "crates/vinpst-fcitx-core/src/menu_snapshot.rs",
     "crates/vinpst-fcitx-core/src/trigger_mode.rs",
-    "crates/vinpst-fcitx-dbus/src/lib.rs",
-    "crates/vinpst-fcitx-ffi/src/daemon.rs",
-    "crates/vinpst-fcitx-ffi/src/daemon_signal.rs",
     "crates/vinpst-fcitx-ffi/src/ffi_string.rs",
     "crates/vinpst-fcitx-ffi/src/frontend.rs",
     "crates/vinpst-fcitx-ffi/src/lib.rs",
