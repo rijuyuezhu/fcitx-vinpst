@@ -980,11 +980,42 @@
         "The current helper also owns formatted count/value/page translation wrappers so C++ call sites do not duplicate snprintf allocation logic. These helpers preserve translated formatting behavior without expanding semantic frontend state.",
         "Deterministic evidence includes the existing localized message/format/fallback smoke plus a second invocation with LANGUAGE=zh_CN and LC_ALL=C. Both pass against the built zh_CN catalog, proving the frozen LANGUAGE override behavior while retaining Fcitx-native domain registration."
       ]
+    },
+    {
+      "id": "CLI-ROOT-001",
+      "state": "audited-intentional-divergence",
+      "title": "CLI root parser, registration, and dispatch surface",
+      "upstream_files": [
+        "cli/action.h",
+        "cli/config/action.h",
+        "cli/config/register.cpp",
+        "cli/config/register.h",
+        "cli/control/action.h",
+        "cli/control/register.cpp",
+        "cli/control/register.h",
+        "cli/main.cpp"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/cli/mod.rs",
+        "crates/vinpst-cli/src/main.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/Cargo.toml",
+        "crates/vinpst-cli/tests/common/mod.rs",
+        "crates/vinpst-cli/tests/root_cli.rs",
+        "docs/user/cli.md"
+      ],
+      "notes": [
+        "The frozen root registration surface is preserved under the Vinpst executable identity. init, model, provider, llm, adapter, hotword, device, scene, config, daemon, and recording are all registered as user commands; recording again exposes the frozen visible rec alias. Current doctor is an additive user-facing Vinpst diagnostic, while protocol, registry transport inspection, ASR state, raw audio-device, activation-service, mock-result, and status plumbing remain callable but hidden from ordinary root help.",
+        "Fixed root parser regressions introduced by the Clap rewrite. The root subcommand is optional again: invoking vinpst without arguments prints the generated root help to stdout and exits successfully. The version flag is again visible as -v,--version, while the previously generated Clap -V remains a hidden accepted short alias so pre-0.1 rewrite users are not broken. The generated program name is explicitly vinpst instead of leaking the Rust package name vinpst-cli into help/version output.",
+        "Global -j,--json remains available and current parsing intentionally accepts it both before and after subcommands, which is more permissive than the frozen CLI11 root option placement. Deep command JSON forcing is delegated through the typed Command enum instead of a shared mutable Formatter/CliAction closure; individual command output contracts remain owned by later CLI units.",
+        "The root dispatch architecture intentionally differs from frozen CliAction registration. CLI11 stores one std::function selected during registration; Clap parses a typed enum and main.rs dispatches it. This removes callback wiring without changing the user command selected. The config/control action headers are alias-only registration glue and are accounted here rather than treated as behavior modules.",
+        "Parser-library error exit codes are intentionally not normalized. Frozen CLI11 returns its library-specific code 109 for unknown commands/options, while Clap uses conventional CLI parse exit code 2; both fail before action dispatch and write the diagnostic to stderr. Help, version, no-argument help, and rec help all exit 0.",
+        "Deterministic evidence includes structural help-surface tests for the exact visible root command set, hidden maintenance commands/options, familiar upstream aliases, optional root subcommand, rec, the vinpst program identity, and -v metadata; process-level tests prove no-argument help exits 0 and both -v plus the hidden -V compatibility alias succeed. The complete vinpst-cli test suite and strict all-target Clippy pass."
+      ]
     }
   ],
   "upstream_pending": [
-    "cli/action.h",
-    "cli/config/action.h",
     "cli/config/asr_actions.cpp",
     "cli/config/asr_actions.h",
     "cli/config/config_actions.cpp",
@@ -995,8 +1026,6 @@
     "cli/config/init_actions.h",
     "cli/config/llm_actions.cpp",
     "cli/config/llm_actions.h",
-    "cli/config/register.cpp",
-    "cli/config/register.h",
     "cli/config/register_asr.cpp",
     "cli/config/register_config.cpp",
     "cli/config/register_device.cpp",
@@ -1005,16 +1034,12 @@
     "cli/config/register_scene.cpp",
     "cli/config/scene_actions.cpp",
     "cli/config/scene_actions.h",
-    "cli/control/action.h",
     "cli/control/daemon_actions.cpp",
     "cli/control/daemon_actions.h",
     "cli/control/recording_actions.cpp",
     "cli/control/recording_actions.h",
-    "cli/control/register.cpp",
-    "cli/control/register.h",
     "cli/control/register_daemon.cpp",
     "cli/control/register_recording.cpp",
-    "cli/main.cpp",
     "cli/runtime/dbus_client.cpp",
     "cli/runtime/dbus_client.h",
     "cli/runtime/systemd_client.cpp",
@@ -1092,7 +1117,6 @@
     "crates/vinpst-cli/src/cli/daemon.rs",
     "crates/vinpst-cli/src/cli/device.rs",
     "crates/vinpst-cli/src/cli/llm.rs",
-    "crates/vinpst-cli/src/cli/mod.rs",
     "crates/vinpst-cli/src/cli/model.rs",
     "crates/vinpst-cli/src/cli/provider.rs",
     "crates/vinpst-cli/src/cli/recording.rs",
@@ -1131,7 +1155,6 @@
     "crates/vinpst-cli/src/hotword.rs",
     "crates/vinpst-cli/src/human_output.rs",
     "crates/vinpst-cli/src/live_i18n.rs",
-    "crates/vinpst-cli/src/main.rs",
     "crates/vinpst-cli/src/paths.rs",
     "crates/vinpst-cli/src/recording_control.rs",
     "crates/vinpst-cli/src/registry_support.rs",
