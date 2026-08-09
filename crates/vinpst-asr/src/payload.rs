@@ -6,10 +6,20 @@ use crate::{AsrError, RecognitionEvent};
 
 /// Converts recognition events into a legacy result payload.
 pub fn events_to_payload(events: &[RecognitionEvent]) -> Result<RecognitionPayload, AsrError> {
-    let final_text = events.iter().find_map(|event| match event {
-        RecognitionEvent::FinalText { text } => Some(text.as_str()),
+    if let Some(message) = events.iter().rev().find_map(|event| match event {
         RecognitionEvent::Error { message } => Some(message.as_str()),
-        RecognitionEvent::PartialText { .. } | RecognitionEvent::Completed => None,
+        RecognitionEvent::PartialText { .. }
+        | RecognitionEvent::FinalText { .. }
+        | RecognitionEvent::Completed => None,
+    }) {
+        return Err(AsrError::Backend(message.to_owned()));
+    }
+
+    let final_text = events.iter().rev().find_map(|event| match event {
+        RecognitionEvent::FinalText { text } => Some(text.as_str()),
+        RecognitionEvent::PartialText { .. }
+        | RecognitionEvent::Error { .. }
+        | RecognitionEvent::Completed => None,
     });
 
     match final_text {

@@ -259,12 +259,44 @@ fn mock_streaming_backend_can_emit_final_before_finish() {
 }
 
 #[test]
-fn error_event_maps_to_payload() {
-    let payload = events_to_payload(&[RecognitionEvent::Error {
+fn error_event_fails_instead_of_becoming_committed_text() {
+    let error = events_to_payload(&[RecognitionEvent::Error {
         message: "err".to_owned(),
     }])
+    .unwrap_err();
+    assert!(matches!(error, AsrError::Backend(message) if message == "err"));
+}
+
+#[test]
+fn error_event_wins_over_final_text() {
+    let error = events_to_payload(&[
+        RecognitionEvent::FinalText {
+            text: "must not commit".to_owned(),
+        },
+        RecognitionEvent::Error {
+            message: "backend failed".to_owned(),
+        },
+    ])
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        AsrError::Backend(message) if message == "backend failed"
+    ));
+}
+
+#[test]
+fn last_final_text_wins_like_upstream_event_consumption() {
+    let payload = events_to_payload(&[
+        RecognitionEvent::FinalText {
+            text: "stale final".to_owned(),
+        },
+        RecognitionEvent::FinalText {
+            text: "latest final".to_owned(),
+        },
+        RecognitionEvent::Completed,
+    ])
     .unwrap();
-    assert_eq!(payload.commit_text, "err");
+    assert_eq!(payload.commit_text, "latest final");
 }
 
 #[test]
@@ -355,7 +387,7 @@ fn backend_factory_reports_unselected_active_provider() {
     let state = AsrBackendFactory::state_for_config(&config);
     assert_eq!(state.target_provider_id, "");
     assert!(!state.has_effective_backend);
-    assert_eq!(state.last_error, "no active ASR provider is configured");
+    assert!(state.last_error.is_empty());
 }
 
 #[test]
@@ -865,6 +897,50 @@ fn sherpa_onnx_spec_preserves_local_provider_config() {
     assert_eq!(spec.model.as_deref(), Some("paraformer"));
     assert_eq!(spec.hotwords_file.as_deref(), Some("hotwords.txt"));
     assert_eq!(spec.timeout_ms, Some(12_000));
+}
+
+#[test]
+fn sherpa_onnx_spec_accepts_custom_local_provider_id() {
+    let provider = AsrProviderConfig {
+        id: "my-local-provider".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: Some(2_500),
+        model: Some("model-dir".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    assert_eq!(spec.provider_id, "my-local-provider");
+    assert_eq!(spec.model.as_deref(), Some("model-dir"));
+    assert_eq!(spec.timeout_ms, Some(2_500));
+}
+
+#[cfg(not(feature = "sherpa-onnx-backend"))]
+#[test]
+fn backend_factory_routes_custom_local_provider_to_sherpa_runtime() {
+    let provider = AsrProviderConfig {
+        id: "my-local-provider".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("model-dir".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+
+    let Err(error) = AsrBackendFactory::build_provider(&provider) else {
+        panic!("feature-less build should report the missing sherpa runtime");
+    };
+    let message = error.to_string();
+    assert!(message.contains("sherpa-onnx runtime"));
+    assert!(message.contains("my-local-provider"));
 }
 
 #[test]
@@ -1935,30 +2011,6 @@ fn backend_factory_reports_sherpa_onnx_runtime_unavailable() {
         error,
         AsrError::Backend(message)
             if message == "sherpa-onnx runtime for provider `sherpa-onnx` is not enabled; build with feature `sherpa-onnx-backend`"
-    ));
-}
-
-#[test]
-fn backend_factory_reports_unimplemented_provider_kind() {
-    let provider = AsrProviderConfig {
-        id: "local-other".to_owned(),
-        kind: AsrProviderKind::Local,
-        timeout_ms: None,
-        model: None,
-        hotwords_file: None,
-        command: None,
-        args: Vec::new(),
-        env: std::collections::HashMap::default(),
-        endpoint: None,
-    };
-
-    let Err(error) = AsrBackendFactory::build_provider(&provider) else {
-        panic!("unsupported provider should fail");
-    };
-    assert!(matches!(
-        error,
-        AsrError::UnsupportedProviderKind { provider_id, kind }
-            if provider_id == "local-other" && kind == "local"
     ));
 }
 

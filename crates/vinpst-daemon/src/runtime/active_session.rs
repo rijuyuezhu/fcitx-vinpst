@@ -135,7 +135,10 @@ impl ActiveRecognitionSession {
         Ok(std::mem::take(&mut state.events))
     }
 
-    /// Removes new streaming partial hypotheses while retaining final/completed events for stop.
+    /// Takes new text emitted over the legacy `RecognitionPartial` signal.
+    ///
+    /// Upstream projects both partial and early final events onto that signal.
+    /// Final events remain retained so stop-time payload construction still sees them.
     pub(super) fn take_streaming_partial_texts(&self) -> Result<Vec<String>, AsrError> {
         let Some(state) = &self.streaming_state else {
             return Ok(Vec::new());
@@ -145,7 +148,17 @@ impl ActiveRecognitionSession {
         let mut partials = Vec::new();
         for event in std::mem::take(&mut state.events) {
             match event {
-                RecognitionEvent::PartialText { text } => partials.push(text),
+                RecognitionEvent::PartialText { text } => {
+                    if !text.is_empty() {
+                        partials.push(text);
+                    }
+                }
+                RecognitionEvent::FinalText { text } => {
+                    if !text.is_empty() {
+                        partials.push(text.clone());
+                    }
+                    retained.push(RecognitionEvent::FinalText { text });
+                }
                 event => retained.push(event),
             }
         }
@@ -456,7 +469,7 @@ mod tests {
 
         assert_eq!(
             session.take_streaming_partial_texts().unwrap(),
-            ["first", "second"]
+            ["first", "final", "second"]
         );
         assert_eq!(
             session.finish_streaming_delivery().unwrap(),

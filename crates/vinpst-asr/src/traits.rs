@@ -6,6 +6,12 @@ use vinpst_audio::PcmBuffer;
 
 use crate::AsrError;
 
+/// Minimum raw i16 sample count required before recognition starts.
+///
+/// This preserves the current upstream daemon contract: shorter captures are
+/// cancelled and returned to idle without entering inference.
+pub const MIN_SAMPLES_FOR_RECOGNITION: usize = 8_000;
+
 /// How audio should be delivered to an ASR session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

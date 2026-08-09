@@ -15,8 +15,9 @@ use crate::{
     RuntimeError, RuntimeState,
     remote::{RemoteTextLifecycle, RemoteTextLifecycleError, RemoteTextLifecycleStatus},
     runtime::{
-        AsrReloadWorkerStep, PendingStopRecording, locale_candidates_from_environment,
-        persist_config_atomically, select_asr_provider, select_asr_target,
+        AsrReloadWorkerStep, PendingStopRecording, PreparedStopRecording, ReadyStopRecording,
+        locale_candidates_from_environment, persist_config_atomically, select_asr_provider,
+        select_asr_target,
     },
 };
 
@@ -382,14 +383,24 @@ impl VinpstDbusService {
         }
     }
 
-    async fn begin_stop_recording_payload(
+    async fn prepare_stop_recording_payload(
         &self,
         scene_id: &str,
-    ) -> DbusResult<PendingStopRecording> {
+    ) -> DbusResult<PreparedStopRecording> {
         let scene = (!scene_id.is_empty()).then_some(scene_id);
         let mut runtime = self.runtime.lock().await;
         runtime
-            .begin_stop_recording(scene)
+            .prepare_stop_recording(scene)
+            .map_err(|error| Self::map_runtime_error(&error))
+    }
+
+    async fn begin_stop_inference_payload(
+        &self,
+        prepared: Box<ReadyStopRecording>,
+    ) -> DbusResult<PendingStopRecording> {
+        let mut runtime = self.runtime.lock().await;
+        runtime
+            .begin_stop_inference(prepared)
             .map_err(|error| Self::map_runtime_error(&error))
     }
 
@@ -433,9 +444,15 @@ impl VinpstDbusService {
         &self,
         scene_id: &str,
     ) -> DbusResult<(String, String, Option<String>)> {
-        let pending = self.begin_stop_recording_payload(scene_id).await?;
-        let (payload, status, partial, _) = self.finish_stop_recording_payload(pending).await?;
-        Ok((payload, status, partial))
+        match self.prepare_stop_recording_payload(scene_id).await? {
+            PreparedStopRecording::TooShort => Ok((String::new(), "idle".to_owned(), None)),
+            PreparedStopRecording::Ready(prepared) => {
+                let pending = self.begin_stop_inference_payload(prepared).await?;
+                let (payload, status, partial, _) =
+                    self.finish_stop_recording_payload(pending).await?;
+                Ok((payload, status, partial))
+            }
+        }
     }
 
     async fn begin_live_partial_emission(&self, last_emitted: Option<String>) -> u64 {
@@ -551,10 +568,23 @@ impl VinpstDbusService {
         let _operation = self.lock_recording_operation().await;
         self.ensure_recording_for_stop().await?;
         let last_emitted_partial = self.cancel_live_partial_emission().await;
+        let prepared = match self.prepare_stop_recording_payload(scene_id).await {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                let _ = Self::status_changed(&emitter, "idle").await;
+                return Err(error);
+            }
+        };
+        let PreparedStopRecording::Ready(prepared) = prepared else {
+            Self::status_changed(&emitter, "idle")
+                .await
+                .map_err(|error| Self::map_signal_error(&error))?;
+            return Ok(String::new());
+        };
         Self::status_changed(&emitter, "inferring")
             .await
             .map_err(|error| Self::map_signal_error(&error))?;
-        let pending = match self.begin_stop_recording_payload(scene_id).await {
+        let pending = match self.begin_stop_inference_payload(prepared).await {
             Ok(pending) => pending,
             Err(error) => {
                 let _ = Self::status_changed(&emitter, "idle").await;

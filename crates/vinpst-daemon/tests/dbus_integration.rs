@@ -8,7 +8,7 @@ use std::{
 
 use futures_util::StreamExt;
 use tokio::time::{sleep, timeout};
-use vinpst_asr::{AsrBackendFactory, MockAsrBackend};
+use vinpst_asr::{AsrBackendFactory, MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend};
 use vinpst_audio::{
     AudioChunkCallback, AudioError, AudioRecorder, CaptureTarget, CapturedAudio, MockAudioSource,
     PcmBuffer,
@@ -67,6 +67,16 @@ static WELL_KNOWN_NAME_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::c
 
 fn fixture_json(input: &str) -> &str {
     input.trim_end()
+}
+
+fn recognizable_samples(pattern: &[i16]) -> Vec<i16> {
+    assert!(!pattern.is_empty());
+    pattern
+        .iter()
+        .copied()
+        .cycle()
+        .take(MIN_SAMPLES_FOR_RECOGNITION)
+        .collect()
 }
 
 async fn spawn_service() -> anyhow::Result<zbus::Connection> {
@@ -160,7 +170,7 @@ fn configured_command_runtime() -> anyhow::Result<RuntimeState> {
     config.validate()?;
     let backend = AsrBackendFactory::build_active(&config.asr)?;
     let audio_source = MockAudioSource::once(CapturedAudio::named(
-        PcmBuffer::at_default_rate(vec![1_000, -1_000, 2_000, -2_000]),
+        PcmBuffer::at_default_rate(recognizable_samples(&[1_000, -1_000, 2_000, -2_000])),
         "dbus-e2e",
     ));
     RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
@@ -187,7 +197,7 @@ fn configured_streaming_command_runtime() -> anyhow::Result<RuntimeState> {
     config.validate()?;
     let backend = AsrBackendFactory::build_active(&config.asr)?;
     let audio_source = MockAudioSource::once(CapturedAudio::named(
-        PcmBuffer::at_default_rate(vec![1_000, -1_000, 2_000, -2_000]),
+        PcmBuffer::at_default_rate(recognizable_samples(&[1_000, -1_000, 2_000, -2_000])),
         "dbus-streaming-command-e2e",
     ));
     RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
@@ -256,7 +266,7 @@ fn live_partial_runtime() -> anyhow::Result<(RuntimeState, ManualRecorderHandle)
     let config = VinpstConfig::bundled_default()?;
     let backend = MockAsrBackend::streaming("live bus partial", "live bus final");
     let captured = CapturedAudio::named(
-        PcmBuffer::at_default_rate(vec![1_000; 800]),
+        PcmBuffer::at_default_rate(vec![1_000; MIN_SAMPLES_FOR_RECOGNITION]),
         "manual-live-partial",
     );
     let (recorder, handle) = ManualAudioRecorder::new(captured);
@@ -288,7 +298,7 @@ fn configured_command_text_runtime() -> anyhow::Result<RuntimeState> {
     config.validate()?;
     let backend = AsrBackendFactory::build_active(&config.asr)?;
     let audio_source = MockAudioSource::once(CapturedAudio::named(
-        PcmBuffer::at_default_rate(vec![1_000, -1_000, 2_000, -2_000]),
+        PcmBuffer::at_default_rate(recognizable_samples(&[1_000, -1_000, 2_000, -2_000])),
         "dbus-text-e2e",
     ));
     RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
@@ -567,6 +577,64 @@ async fn dbus_reload_rereads_config_and_rebuilds_backend() -> anyhow::Result<()>
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "mock recognition result");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dbus_reload_to_unselected_provider_clears_effective_backend() -> anyhow::Result<()> {
+    let mut active_config = VinpstConfig::bundled_default()?;
+    active_config.asr.active_provider = "mock".to_owned();
+    active_config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("mock-model".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&active_config)?)?;
+
+    let mut runtime = RuntimeState::with_configured_asr(active_config.clone())?;
+    runtime.set_config_path(Some(config_path.clone()));
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+
+    let before = get_asr_backend_state(&proxy).await?;
+    assert_eq!(before.0, "mock");
+    assert_eq!(before.2, "mock");
+    assert!(before.6);
+
+    let mut unselected = active_config;
+    unselected.asr.active_provider.clear();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&unselected)?)?;
+    proxy
+        .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
+        .await?;
+
+    let after = get_asr_backend_state(&proxy).await?;
+    assert!(after.0.is_empty());
+    assert!(after.1.is_empty());
+    assert!(after.2.is_empty());
+    assert!(after.3.is_empty());
+    assert!(after.4.is_empty());
+    assert!(!after.5);
+    assert!(!after.6);
+
+    let start: zbus::Result<()> = proxy.call(dbus::method::START_RECORDING, &()).await;
+    assert_legacy_operation_failed(&start.unwrap_err(), "ASR backend is not ready.");
 
     Ok(())
 }
@@ -851,7 +919,10 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
     assert_eq!(status, "recording");
     assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
-    expect_no_string_signal(&mut partial_signals).await?;
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "mock partial"
+    );
 
     let duplicate_start: zbus::Result<()> = proxy.call(dbus::method::START_RECORDING, &()).await;
     let duplicate_start_error = duplicate_start.expect_err("duplicate start should fail");
@@ -894,10 +965,7 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         next_string_signal(&mut status_signals).await?,
         "postprocessing"
     );
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "mock partial"
-    );
+    expect_no_string_signal(&mut partial_signals).await?;
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     assert_eq!(result_payload_json, fixture_json(RAW_PAYLOAD_JSON));
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
@@ -912,7 +980,10 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
     assert_eq!(status, "recording");
     assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
-    expect_no_string_signal(&mut partial_signals).await?;
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "mock partial"
+    );
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
@@ -925,10 +996,7 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         next_string_signal(&mut status_signals).await?,
         "postprocessing"
     );
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "mock partial"
-    );
+    expect_no_string_signal(&mut partial_signals).await?;
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(
@@ -1031,7 +1099,14 @@ async fn early_final_roundtrips_through_session_bus() -> anyhow::Result<()> {
         .call::<_, _, ()>(dbus::method::START_RECORDING, &())
         .await?;
     assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
-    expect_no_string_signal(&mut partial_signals).await?;
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "early partial"
+    );
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "early final"
+    );
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
@@ -1041,10 +1116,7 @@ async fn early_final_roundtrips_through_session_bus() -> anyhow::Result<()> {
         next_string_signal(&mut status_signals).await?,
         "postprocessing"
     );
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "early partial"
-    );
+    expect_no_string_signal(&mut partial_signals).await?;
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload.commit_text, "early final");
@@ -1077,7 +1149,10 @@ async fn configured_command_backend_roundtrips_through_session_bus() -> anyhow::
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
-    assert_eq!(payload.commit_text.trim(), "8");
+    assert_eq!(
+        payload.commit_text.trim(),
+        (MIN_SAMPLES_FOR_RECOGNITION * 2).to_string()
+    );
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
     assert_eq!(
         next_string_signal(&mut status_signals).await?,
@@ -1085,7 +1160,10 @@ async fn configured_command_backend_roundtrips_through_session_bus() -> anyhow::
     );
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
-    assert_eq!(signal_payload.commit_text.trim(), "8");
+    assert_eq!(
+        signal_payload.commit_text.trim(),
+        (MIN_SAMPLES_FOR_RECOGNITION * 2).to_string()
+    );
     assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
 
     Ok(())

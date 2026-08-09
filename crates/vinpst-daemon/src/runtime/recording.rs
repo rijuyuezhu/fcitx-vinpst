@@ -2,13 +2,17 @@
 
 use std::time::{Duration, Instant};
 
-use vinpst_asr::{AudioDeliveryMode, RecognitionContext, RecognitionEvent, events_to_payload};
+use vinpst_asr::{
+    AudioDeliveryMode, MIN_SAMPLES_FOR_RECOGNITION, RecognitionContext, RecognitionEvent,
+    events_to_payload,
+};
 use vinpst_audio::{AudioProcessingOptions, PcmBuffer};
 use vinpst_protocol::{RecognitionPayload, ServiceStatus};
 use vinpst_text::TextRequest;
 
 use super::{
-    MOCK_SILENCE_THRESHOLD, PendingStopRecording, RuntimeError, RuntimeState, StopRecordingReport,
+    MOCK_SILENCE_THRESHOLD, PendingStopRecording, PreparedStopRecording, ReadyStopRecording,
+    RuntimeError, RuntimeState, StopRecordingReport,
 };
 
 fn duration_millis(duration: Duration) -> u64 {
@@ -68,40 +72,97 @@ impl RuntimeState {
         &mut self,
         scene_id: Option<&str>,
     ) -> Result<StopRecordingReport, RuntimeError> {
-        let pending = self.begin_stop_recording(scene_id)?;
-        self.finish_stop_recording(pending)
+        match self.prepare_stop_recording(scene_id)? {
+            PreparedStopRecording::TooShort => Ok(StopRecordingReport {
+                payload: RecognitionPayload {
+                    commit_text: String::new(),
+                    candidates: Vec::new(),
+                },
+                partial_text: None,
+                postprocess_warning: None,
+            }),
+            PreparedStopRecording::Ready(prepared) => {
+                let pending = self.begin_stop_inference(prepared)?;
+                self.finish_stop_recording(pending)
+            }
+        }
     }
 
-    /// Stops capture and ASR, leaving the runtime in the postprocessing phase.
-    pub(crate) fn begin_stop_recording(
+    /// Stops capture and decides whether the recording is long enough for inference.
+    pub(crate) fn prepare_stop_recording(
         &mut self,
         scene_id: Option<&str>,
-    ) -> Result<PendingStopRecording, RuntimeError> {
+    ) -> Result<PreparedStopRecording, RuntimeError> {
         if self.status != ServiceStatus::Recording {
             return Err(RuntimeError::NotRecording(self.status));
         }
 
-        self.status = ServiceStatus::Inferring;
         let scene = scene_id
             .map(ToOwned::to_owned)
             .or_else(|| self.current_scene.clone())
             .unwrap_or_else(|| self.config.scenes.active_scene.clone());
-
         let result = (|| {
             let session = self
                 .active_session
                 .take()
                 .ok_or(RuntimeError::MissingAsrSession)?;
-            let captured_result = self.stop_recording_buffer();
-            self.output_ducker.restore();
-            let captured = match captured_result {
+            let captured = match self.stop_recording_buffer() {
                 Ok(pcm) => pcm,
                 Err(error) => {
                     let _ = session.cancel();
                     return Err(error);
                 }
             };
+            self.output_ducker.restore();
 
+            if captured.len() < MIN_SAMPLES_FOR_RECOGNITION {
+                tracing::debug!(
+                    sample_count = captured.len(),
+                    minimum_sample_count = MIN_SAMPLES_FOR_RECOGNITION,
+                    "recording too short; skipping recognition inference"
+                );
+                let _ = session.cancel();
+                self.reset_to_idle();
+                return Ok(PreparedStopRecording::TooShort);
+            }
+
+            self.status = ServiceStatus::Inferring;
+            Ok(PreparedStopRecording::Ready(Box::new(ReadyStopRecording {
+                session,
+                captured,
+                scene: self.scene_definition(&scene),
+                selected_text: self.selected_text.clone(),
+            })))
+        })();
+
+        if result.is_err() {
+            if self.audio_recorder.is_recording() {
+                let _ = self.audio_recorder.cancel_recording();
+            }
+            self.audio_recorder.set_chunk_callback(None);
+            self.output_ducker.restore();
+            self.reset_to_idle();
+        }
+        result
+    }
+
+    /// Runs ASR inference after capture length has passed the upstream minimum gate.
+    pub(crate) fn begin_stop_inference(
+        &mut self,
+        prepared: Box<ReadyStopRecording>,
+    ) -> Result<PendingStopRecording, RuntimeError> {
+        if self.status != ServiceStatus::Inferring {
+            let _ = prepared.session.cancel();
+            return Err(RuntimeError::Busy(self.status));
+        }
+
+        let ReadyStopRecording {
+            session,
+            captured,
+            scene,
+            selected_text,
+        } = *prepared;
+        let result = (|| {
             let mut events = match session.delivery_mode() {
                 AudioDeliveryMode::Buffered => {
                     let pcm = self.process_captured_pcm(&captured);
@@ -148,17 +209,12 @@ impl RuntimeState {
             Ok(PendingStopRecording {
                 session,
                 raw_payload,
-                scene: self.scene_definition(&scene),
-                selected_text: self.selected_text.clone(),
+                scene,
+                selected_text,
                 partial_text,
             })
         })();
 
-        if result.is_err() && self.audio_recorder.is_recording() {
-            let _ = self.audio_recorder.cancel_recording();
-        }
-        self.audio_recorder.set_chunk_callback(None);
-        self.output_ducker.restore();
         if result.is_ok() {
             self.status = ServiceStatus::Postprocessing;
         } else {

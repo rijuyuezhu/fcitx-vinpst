@@ -310,9 +310,13 @@ pub enum SherpaOnnxModelPathError {
 }
 
 impl SherpaOnnxSpec {
-    /// Parses a config provider into the future local `sherpa-onnx` spec.
+    /// Parses a local config provider into the `sherpa-onnx` runtime spec.
+    ///
+    /// `SHERPA_ONNX_PROVIDER_ID` is the bundled/default provider id, not a
+    /// runtime type discriminator. Custom local provider ids use the same
+    /// model-metadata-driven runtime selection as upstream.
     pub fn from_provider(provider: &AsrProviderConfig) -> Result<Self, AsrError> {
-        if provider.id != SHERPA_ONNX_PROVIDER_ID || provider.kind != AsrProviderKind::Local {
+        if provider.kind != AsrProviderKind::Local {
             return Err(AsrError::UnsupportedProviderKind {
                 provider_id: provider.id.clone(),
                 kind: crate::factory::provider_kind_label(&provider.kind).to_owned(),

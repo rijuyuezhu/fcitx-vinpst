@@ -43,8 +43,8 @@ pub use sherpa_online::{SherpaOnnxOnlineModelLayout, SherpaOnnxOnlineRuntimePlan
 pub use sherpa_vad::{SherpaOnnxVadModelSource, SherpaOnnxVadPlan, SherpaOnnxVadProbe};
 pub use timeout::{AsrTimeoutEnforcement, AsrTimeoutProbe};
 pub use traits::{
-    AsrBackend, AudioDeliveryMode, BackendCapabilities, BackendDescriptor, RecognitionContext,
-    RecognitionEvent, RecognitionSession,
+    AsrBackend, AudioDeliveryMode, BackendCapabilities, BackendDescriptor,
+    MIN_SAMPLES_FOR_RECOGNITION, RecognitionContext, RecognitionEvent, RecognitionSession,
 };
 pub use unavailable::UnavailableAsrBackend;
 

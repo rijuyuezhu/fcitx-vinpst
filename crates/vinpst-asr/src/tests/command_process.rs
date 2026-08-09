@@ -919,10 +919,11 @@ fn command_asr_response_accepts_failure_alias() {
     let response: CommandAsrResponse =
         serde_json::from_str(r#"{"failure":"legacy failed"}"#).unwrap();
     let events = response.into_events().unwrap();
-    assert_eq!(
-        events_to_payload(&events).unwrap().commit_text,
-        "legacy failed"
-    );
+    let error = events_to_payload(&events).unwrap_err();
+    assert!(matches!(
+        error,
+        AsrError::Backend(message) if message == "legacy failed"
+    ));
 }
 
 #[test]
@@ -1012,10 +1013,11 @@ fn command_asr_response_error_takes_priority_over_final_text() {
             RecognitionEvent::Completed,
         ]
     );
-    assert_eq!(
-        events_to_payload(&events).unwrap().commit_text,
-        "asr failed"
-    );
+    let error = events_to_payload(&events).unwrap_err();
+    assert!(matches!(
+        error,
+        AsrError::Backend(message) if message == "asr failed"
+    ));
 }
 
 #[test]
@@ -1043,8 +1045,9 @@ fn process_command_asr_runner_maps_failure_response() {
         .expect("process runner should create a buffering session");
     session.finish().unwrap();
     let events = session.poll_events().unwrap();
-    assert_eq!(
-        events_to_payload(&events).unwrap().commit_text,
-        "asr failed"
-    );
+    let error = events_to_payload(&events).unwrap_err();
+    assert!(matches!(
+        error,
+        AsrError::Backend(message) if message == "asr failed"
+    ));
 }

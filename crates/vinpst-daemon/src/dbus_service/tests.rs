@@ -3,7 +3,8 @@ use super::{
 };
 use crate::RuntimeState;
 use tokio::time::{Duration, sleep, timeout};
-use vinpst_asr::MockAsrBackend;
+use vinpst_asr::{MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend};
+use vinpst_audio::{CapturedAudio, MockAudioSource, PcmBuffer};
 use vinpst_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinpstConfig};
 use vinpst_protocol::{RecognitionPayload, TextAdapterState};
 use vinpst_text::TextError;
@@ -119,6 +120,28 @@ async fn dbus_facade_exercises_normal_mock_flow() {
             .unwrap();
     assert_eq!(payload.commit_text, "mock recognition result");
     assert_eq!(service.get_status().await, "idle");
+}
+
+#[tokio::test]
+async fn dbus_short_recording_returns_legacy_empty_payload() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        vec![64; MIN_SAMPLES_FOR_RECOGNITION - 1],
+    )));
+    let runtime = RuntimeState::with_backends(
+        config,
+        Box::new(MockAsrBackend::buffered("must not run")),
+        Box::new(source),
+    )
+    .unwrap();
+    let service = VinpstDbusService::new(runtime);
+
+    service.start_recording_state().await.unwrap();
+    let (payload, status, partial) = service.stop_recording_payload("").await.unwrap();
+
+    assert_eq!(payload, "");
+    assert_eq!(status, "idle");
+    assert_eq!(partial, None);
 }
 
 #[tokio::test]

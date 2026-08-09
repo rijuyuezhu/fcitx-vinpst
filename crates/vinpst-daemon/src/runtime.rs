@@ -27,7 +27,10 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-use vinpst_asr::{AsrBackend, AsrBackendFactory, MockAsrBackend, UnavailableAsrBackend};
+use vinpst_asr::{
+    AsrBackend, AsrBackendFactory, MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend,
+    UnavailableAsrBackend,
+};
 use vinpst_audio::{
     AudioRecorder, AudioSource, CaptureTarget, CapturedAudio, MockAudioSource, PcmBuffer,
     SourceAudioRecorder,
@@ -43,6 +46,7 @@ use vinpst_text::{
 const MOCK_PCM: &[i16] = &[256, -128, 64, -32];
 const MOCK_SILENCE_THRESHOLD: i16 = 8;
 const DEFAULT_MOCK_AUDIO_FRAMES: usize = 4;
+const ASR_NOT_READY_REASON: &str = "ASR backend is not ready.";
 
 /// In-memory runtime state for the first daemon milestone.
 pub struct RuntimeState {
@@ -99,6 +103,22 @@ pub struct StopRecordingReport {
     pub postprocess_warning: Option<vinpst_text::TextError>,
 }
 
+/// Capture-stop result before recognition inference begins.
+pub(crate) enum PreparedStopRecording {
+    /// The capture was shorter than the upstream minimum and was cancelled.
+    TooShort,
+    /// The capture is long enough to enter recognition inference.
+    Ready(Box<ReadyStopRecording>),
+}
+
+/// Captured audio and ASR session ready to enter inference.
+pub(crate) struct ReadyStopRecording {
+    session: ActiveRecognitionSession,
+    captured: PcmBuffer,
+    scene: vinpst_config::SceneDefinition,
+    selected_text: Option<String>,
+}
+
 /// ASR result waiting for scene text processing after capture has stopped.
 pub(crate) struct PendingStopRecording {
     session: ActiveRecognitionSession,
@@ -139,6 +159,13 @@ impl RuntimeState {
     pub fn with_configured_backends_or_unavailable(
         config: VinpstConfig,
     ) -> Result<Self, RuntimeError> {
+        if config.asr.active_provider.is_empty() {
+            return Self::with_configured_text(
+                config,
+                unselected_asr_backend(),
+                Box::new(default_mock_audio_source()),
+            );
+        }
         match AsrBackendFactory::build_active_prepared(
             &config.asr,
             Some(config.global.default_language.clone()),
@@ -217,6 +244,13 @@ impl RuntimeState {
         config: VinpstConfig,
         audio_recorder: Box<dyn AudioRecorder>,
     ) -> Result<Self, RuntimeError> {
+        if config.asr.active_provider.is_empty() {
+            return Self::with_configured_audio_recorder(
+                config,
+                unselected_asr_backend(),
+                audio_recorder,
+            );
+        }
         match AsrBackendFactory::build_active(&config.asr) {
             Ok(backend) => Self::with_configured_audio_recorder(config, backend, audio_recorder),
             Err(error) => {
@@ -360,8 +394,18 @@ fn configured_text_processor(config: &VinpstConfig) -> Box<dyn TextProcessor> {
     }
 }
 
+fn unselected_asr_backend() -> Box<dyn AsrBackend> {
+    Box::new(UnavailableAsrBackend::new(ASR_NOT_READY_REASON))
+}
+
 fn default_mock_audio_source() -> MockAudioSource {
-    let frame = CapturedAudio::anonymous(PcmBuffer::at_default_rate(MOCK_PCM.to_vec()));
+    let samples = MOCK_PCM
+        .iter()
+        .copied()
+        .cycle()
+        .take(MIN_SAMPLES_FOR_RECOGNITION)
+        .collect::<Vec<_>>();
+    let frame = CapturedAudio::anonymous(PcmBuffer::at_default_rate(samples));
     MockAudioSource::from_frames(vec![frame; DEFAULT_MOCK_AUDIO_FRAMES])
 }
 

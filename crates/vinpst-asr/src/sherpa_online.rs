@@ -133,15 +133,32 @@ struct OnlineRecognizerMetadata {
 }
 
 /// Returns whether typed metadata selects the native online runtime.
+///
+/// The upstream factory treats `backend` as the backend selector: missing or
+/// empty selects the offline default, `sherpa-streaming` selects streaming,
+/// and any other non-empty value is rejected. The descriptive `runtime` field
+/// does not override that contract.
 pub(crate) fn metadata_requests_online(model_dir: &Path) -> Result<bool, SherpaOnnxModelPathError> {
     let metadata_path = model_dir.join("vinpst-model.json");
     if !metadata_path.is_file() {
         return Ok(false);
     }
     let metadata = read_metadata(&metadata_path)?;
-    let runtime = optional_string(&metadata, "/runtime");
-    let backend = optional_string(&metadata, "/backend");
-    Ok(runtime.as_deref() == Some("online") || backend.as_deref() == Some("sherpa-streaming"))
+    backend_requests_online(&metadata, &metadata_path)
+}
+
+fn backend_requests_online(
+    metadata: &serde_json::Value,
+    metadata_path: &Path,
+) -> Result<bool, SherpaOnnxModelPathError> {
+    match optional_string(metadata, "/backend").as_deref() {
+        None | Some("sherpa-offline") => Ok(false),
+        Some("sherpa-streaming") => Ok(true),
+        Some(backend) => Err(SherpaOnnxModelPathError::InvalidModelMetadata {
+            path: display_path(metadata_path),
+            message: format!("unsupported ASR backend `{backend}`"),
+        }),
+    }
 }
 
 /// Resolves typed online metadata into a native recognizer plan.
@@ -155,9 +172,7 @@ pub(crate) fn resolve_online_runtime_plan(
         });
     }
     let metadata = read_metadata(&metadata_path)?;
-    let runtime = optional_string(&metadata, "/runtime");
-    let backend = optional_string(&metadata, "/backend");
-    if runtime.as_deref() != Some("online") && backend.as_deref() != Some("sherpa-streaming") {
+    if !backend_requests_online(&metadata, &metadata_path)? {
         return Err(SherpaOnnxModelPathError::UnsupportedOnlineLayout {
             path: display_path(&paths.model_dir),
         });
@@ -713,6 +728,61 @@ mod tests {
 
     fn write_model_file(root: &Path, name: &str) {
         fs::write(root.join(name), b"model").unwrap();
+    }
+
+    #[test]
+    fn unknown_backend_metadata_is_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(
+            temp.path().join("vinpst-model.json"),
+            serde_json::json!({
+                "backend": "future-backend",
+                "family": "sense_voice",
+                "runtime": "offline"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let error = metadata_requests_online(temp.path()).unwrap_err();
+        assert!(matches!(
+            error,
+            SherpaOnnxModelPathError::InvalidModelMetadata { message, .. }
+                if message == "unsupported ASR backend `future-backend`"
+        ));
+    }
+
+    #[test]
+    fn explicit_offline_backend_wins_over_conflicting_runtime_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(
+            temp.path().join("vinpst-model.json"),
+            serde_json::json!({
+                "backend": "sherpa-offline",
+                "family": "sense_voice",
+                "runtime": "online"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert!(!metadata_requests_online(temp.path()).unwrap());
+    }
+
+    #[test]
+    fn missing_backend_defaults_to_offline_even_with_online_runtime_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(
+            temp.path().join("vinpst-model.json"),
+            serde_json::json!({
+                "family": "sense_voice",
+                "runtime": "online"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert!(!metadata_requests_online(temp.path()).unwrap());
     }
 
     #[test]
