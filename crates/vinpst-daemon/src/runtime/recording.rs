@@ -224,7 +224,7 @@ impl RuntimeState {
         })();
 
         match &result {
-            Ok(pending) if pending.needs_postprocessing() => {
+            Ok(pending) if pending.enters_postprocessing() => {
                 self.status = ServiceStatus::Postprocessing;
             }
             Ok(_) => {}
@@ -238,8 +238,8 @@ impl RuntimeState {
         &mut self,
         pending: PendingStopRecording,
     ) -> Result<StopRecordingReport, RuntimeError> {
-        let needs_postprocessing = pending.needs_postprocessing();
-        let expected_status = if needs_postprocessing {
+        let needs_text_processing = pending.needs_text_processing();
+        let expected_status = if pending.enters_postprocessing() {
             ServiceStatus::Postprocessing
         } else {
             ServiceStatus::Inferring
@@ -249,7 +249,7 @@ impl RuntimeState {
             return Err(RuntimeError::Busy(self.status));
         }
 
-        let result = if needs_postprocessing {
+        let result = if needs_text_processing {
             self.text_processor
                 .finish_report(&TextRequest {
                     raw_text: &pending.raw_payload.commit_text,

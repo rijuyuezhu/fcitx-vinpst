@@ -36,7 +36,7 @@ use vinpst_audio::{
     AudioRecorder, AudioSource, CaptureTarget, CapturedAudio, MockAudioSource, PcmBuffer,
     SourceAudioRecorder,
 };
-use vinpst_config::VinpstConfig;
+use vinpst_config::{COMMAND_SCENE_ID, VinpstConfig};
 use vinpst_protocol::{RecognitionPayload, ServiceStatus};
 use vinpst_text::{
     AdapterRuntimePaths, CommandTextProcessor, MockTextProcessor, OpenAiCompatibleTextProcessor,
@@ -130,8 +130,23 @@ pub(crate) struct PendingStopRecording {
 }
 
 impl PendingStopRecording {
-    pub(crate) fn needs_postprocessing(&self) -> bool {
+    pub(crate) fn needs_text_processing(&self) -> bool {
         !self.raw_payload.commit_text.is_empty()
+    }
+
+    pub(crate) fn enters_postprocessing(&self) -> bool {
+        if !self.needs_text_processing() || self.scene.candidate_count == 0 {
+            return false;
+        }
+        if self.scene.provider_id.as_deref().is_none_or(str::is_empty) {
+            return false;
+        }
+        self.scene.id == COMMAND_SCENE_ID
+            || self
+                .scene
+                .prompt
+                .as_deref()
+                .is_some_and(|prompt| !prompt.is_empty())
     }
 }
 

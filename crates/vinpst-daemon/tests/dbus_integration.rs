@@ -1113,7 +1113,6 @@ async fn exercise_legacy_normal_recording(
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.candidates.len(), 1);
     assert_eq!(next_string_signal(status_signals).await?, "inferring");
-    assert_eq!(next_string_signal(status_signals).await?, "postprocessing");
     expect_no_string_signal(partial_signals).await?;
     let result_payload_json = next_string_signal(result_signals).await?;
     assert_eq!(result_payload_json, fixture_json(RAW_PAYLOAD_JSON));
@@ -1144,7 +1143,6 @@ async fn exercise_legacy_command_recording(
         "mock command result for: selected text"
     );
     assert_eq!(next_string_signal(status_signals).await?, "inferring");
-    assert_eq!(next_string_signal(status_signals).await?, "postprocessing");
     expect_no_string_signal(partial_signals).await?;
     let signal_payload =
         RecognitionPayload::from_json_str(&next_string_signal(result_signals).await?)?;
@@ -1300,14 +1298,80 @@ async fn early_final_roundtrips_through_session_bus() -> anyhow::Result<()> {
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "early final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
     expect_no_string_signal(&mut partial_signals).await?;
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload.commit_text, "early final");
+    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn configured_llm_scene_emits_postprocessing_status() -> anyhow::Result<()> {
+    let mut config = VinpstConfig::bundled_default()?;
+    config.llm.providers.push(vinpst_config::LlmProviderConfig {
+        id: "bus-provider".to_owned(),
+        base_url: "https://example.invalid/v1".to_owned(),
+        api_key: "test-key".to_owned(),
+        model: Some("test-model".to_owned()),
+        extra_body: serde_json::json!({}),
+        extra: std::collections::HashMap::new(),
+    });
+    config.scenes.active_scene = "bus-postprocess".to_owned();
+    config
+        .scenes
+        .definitions
+        .push(vinpst_config::SceneDefinition {
+            id: "bus-postprocess".to_owned(),
+            label: "Bus postprocess".to_owned(),
+            prompt: Some("Polish: {{ asr }}".to_owned()),
+            provider_id: Some("bus-provider".to_owned()),
+            model: None,
+            candidate_count: 1,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[64, -64]),
+    )));
+    let runtime = RuntimeState::with_components(
+        config,
+        Box::new(MockAsrBackend::buffered("bus recognized")),
+        Box::new(source),
+        Box::new(vinpst_text::MockTextProcessor::new()),
+    )?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
+    let mut result_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_RESULT)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
+
+    let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
+    let payload = RecognitionPayload::from_json_str(&payload_json)?;
+    assert_eq!(
+        payload.commit_text,
+        "mock postprocess result: bus recognized"
+    );
+    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
+    assert_eq!(
+        next_string_signal(&mut status_signals).await?,
+        "postprocessing"
+    );
+    assert_eq!(next_string_signal(&mut result_signals).await?, payload_json);
     assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
 
     Ok(())
@@ -1342,10 +1406,6 @@ async fn configured_command_backend_roundtrips_through_session_bus() -> anyhow::
         (MIN_SAMPLES_FOR_RECOGNITION * 2).to_string()
     );
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(
@@ -1438,10 +1498,6 @@ async fn configured_streaming_command_backend_emits_live_partial_before_stop() -
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "bus streaming final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
     expect_no_string_signal(&mut partial_signals).await?;
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
@@ -1711,10 +1767,6 @@ async fn configured_text_adapter_roundtrips_through_session_bus() -> anyhow::Res
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "bus adapter final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload.commit_text, "bus adapter final");

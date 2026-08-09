@@ -744,7 +744,7 @@ fn recording_at_upstream_minimum_enters_inference() {
 }
 
 #[test]
-fn stop_exposes_postprocessing_before_text_finishing() {
+fn raw_scene_stays_inferring_while_text_finishing_runs() {
     let config = VinpstConfig::bundled_default().unwrap();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let processor = RecordingTextProcessor {
@@ -764,6 +764,68 @@ fn stop_exposes_postprocessing_before_text_finishing() {
         panic!("default mock capture should satisfy the recognition minimum");
     };
     assert_eq!(runtime.status(), ServiceStatus::Inferring);
+    let pending = runtime.begin_stop_inference(prepared).unwrap();
+
+    assert_eq!(runtime.status(), ServiceStatus::Inferring);
+    assert!(
+        calls
+            .lock()
+            .expect("text processor call log poisoned")
+            .is_empty()
+    );
+
+    let report = runtime.finish_stop_recording(pending).unwrap();
+
+    assert_eq!(report.payload.commit_text, "processed: custom final");
+    assert_eq!(
+        *calls.lock().expect("text processor call log poisoned"),
+        vec!["custom final"]
+    );
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
+fn llm_scene_exposes_postprocessing_before_text_finishing() {
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    config.llm.providers.push(vinpst_config::LlmProviderConfig {
+        id: "postprocess-provider".to_owned(),
+        base_url: "https://example.invalid/v1".to_owned(),
+        api_key: "test-key".to_owned(),
+        model: Some("test-model".to_owned()),
+        extra_body: serde_json::json!({}),
+        extra: std::collections::HashMap::new(),
+    });
+    config.scenes.active_scene = "postprocess-scene".to_owned();
+    config
+        .scenes
+        .definitions
+        .push(vinpst_config::SceneDefinition {
+            id: "postprocess-scene".to_owned(),
+            label: "Postprocess scene".to_owned(),
+            prompt: Some("Polish: {{ asr }}".to_owned()),
+            provider_id: Some("postprocess-provider".to_owned()),
+            model: None,
+            candidate_count: 1,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let processor = RecordingTextProcessor {
+        calls: Arc::clone(&calls),
+    };
+    let mut runtime = RuntimeState::with_components(
+        config,
+        Box::new(MockAsrBackend::buffered("custom final")),
+        Box::new(super::default_mock_audio_source()),
+        Box::new(processor),
+    )
+    .unwrap();
+
+    runtime.start_recording().unwrap();
+    let prepared = runtime.prepare_stop_recording(None).unwrap();
+    let super::PreparedStopRecording::Ready(prepared) = prepared else {
+        panic!("default mock capture should satisfy the recognition minimum");
+    };
     let pending = runtime.begin_stop_inference(prepared).unwrap();
 
     assert_eq!(runtime.status(), ServiceStatus::Postprocessing);

@@ -631,7 +631,7 @@ impl VinpstDbusService {
                 return Err(Self::map_runtime_error(&error));
             }
         };
-        if pending.needs_postprocessing()
+        if pending.enters_postprocessing()
             && let Err(error) = Self::status_changed(&emitter, "postprocessing").await
         {
             let status = self.abort_stop_recording_payload(pending).await;
