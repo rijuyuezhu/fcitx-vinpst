@@ -26,6 +26,7 @@ pub struct FrontendState {
     recording: bool,
     command_mode: bool,
     active_scene_id: Option<String>,
+    selected_text: Option<String>,
 }
 
 impl FrontendState {
@@ -47,18 +48,26 @@ impl FrontendState {
         self.active_scene_id.as_deref()
     }
 
+    /// Returns the selected text captured for the active command session.
+    #[must_use]
+    pub fn selected_text(&self) -> Option<&str> {
+        self.selected_text.as_deref()
+    }
+
     /// Records a successful normal-dictation start.
     pub fn start_normal(&mut self, scene_id: Option<&str>) {
         self.recording = true;
         self.command_mode = false;
         self.active_scene_id = scene_id.map(str::to_owned);
+        self.selected_text = None;
     }
 
     /// Records a successful command-mode start.
-    pub fn start_command(&mut self, scene_id: Option<&str>) {
+    pub fn start_command(&mut self, selected_text: &str, scene_id: Option<&str>) {
         self.recording = true;
         self.command_mode = true;
         self.active_scene_id = scene_id.map(str::to_owned);
+        self.selected_text = Some(selected_text.to_owned());
     }
 
     /// Adopts a recording session already active in the daemon.
@@ -66,6 +75,7 @@ impl FrontendState {
         self.recording = true;
         self.command_mode = command_mode;
         self.active_scene_id = Some(scene_id.to_owned());
+        self.selected_text = None;
     }
 
     /// Resolves the stop scene while a recording is active.
@@ -97,6 +107,8 @@ pub enum FrontendCall {
         scene_id: String,
         /// Whether the completed recording is command mode.
         command_mode: bool,
+        /// Selected text captured for a locally started command session.
+        selected_text: Option<String>,
     },
 }
 
@@ -136,6 +148,7 @@ pub struct FrontendOutcome {
     text: String,
     payload: RecognitionPayload,
     command_mode: bool,
+    selected_text: Option<String>,
 }
 
 impl Default for FrontendOutcome {
@@ -148,6 +161,7 @@ impl Default for FrontendOutcome {
                 candidates: Vec::new(),
             },
             command_mode: false,
+            selected_text: None,
         }
     }
 }
@@ -177,6 +191,12 @@ impl FrontendOutcome {
         self.command_mode
     }
 
+    /// Returns selected text captured for the completed command session.
+    #[must_use]
+    pub fn selected_text(&self) -> Option<&str> {
+        self.selected_text.as_deref()
+    }
+
     fn preedit(text: &str) -> Self {
         Self {
             kind: FrontendOutcomeKind::Preedit,
@@ -196,12 +216,21 @@ impl FrontendOutcome {
     /// Builds a final frontend outcome from a daemon recognition payload.
     #[must_use]
     pub fn from_payload(json: &str, command_mode: bool) -> Self {
+        Self::from_payload_with_selected_text(json, command_mode, None)
+    }
+
+    fn from_payload_with_selected_text(
+        json: &str,
+        command_mode: bool,
+        selected_text: Option<&str>,
+    ) -> Self {
         let plan = make_commit_plan(json, command_mode);
         if plan.payload.commit_text.is_empty() {
             return Self {
                 kind: FrontendOutcomeKind::Clear,
                 payload: plan.payload,
                 command_mode,
+                selected_text: selected_text.map(str::to_owned),
                 ..Self::default()
             };
         }
@@ -210,6 +239,7 @@ impl FrontendOutcome {
                 kind: FrontendOutcomeKind::CandidateMenu,
                 payload: plan.payload,
                 command_mode,
+                selected_text: selected_text.map(str::to_owned),
                 ..Self::default()
             };
         }
@@ -219,6 +249,7 @@ impl FrontendOutcome {
             text: plan.payload.commit_text.clone(),
             payload: plan.payload,
             command_mode,
+            selected_text: selected_text.map(str::to_owned),
         }
     }
 }
@@ -355,7 +386,7 @@ impl FrontendController {
         self.pending_call = Some(FrontendCall::StartCommand {
             selected_text: selected_text.to_owned(),
         });
-        self.state.start_command(scene_id);
+        self.state.start_command(selected_text, scene_id);
         FrontendStep::CallReady
     }
 
@@ -368,6 +399,7 @@ impl FrontendController {
         self.pending_call = Some(FrontendCall::Stop {
             scene_id: scene_id.to_owned(),
             command_mode: self.state.command_mode(),
+            selected_text: self.state.selected_text().map(str::to_owned),
         });
         FrontendStep::CallReady
     }
@@ -395,10 +427,18 @@ impl FrontendController {
                     FrontendOutcome::error(response)
                 }
             }
-            FrontendCall::Stop { command_mode, .. } => {
+            FrontendCall::Stop {
+                command_mode,
+                selected_text,
+                ..
+            } => {
                 self.state.reset();
                 if success {
-                    FrontendOutcome::from_payload(response, command_mode)
+                    FrontendOutcome::from_payload_with_selected_text(
+                        response,
+                        command_mode,
+                        selected_text.as_deref(),
+                    )
                 } else {
                     FrontendOutcome::error(response)
                 }
@@ -416,11 +456,16 @@ impl FrontendController {
             return FrontendOutcome::default();
         }
         let command_mode = self.state.command_mode();
+        let selected_text = self.state.selected_text().map(str::to_owned);
         self.state.reset();
         if matches!(self.pending_call, Some(FrontendCall::Stop { .. })) {
             self.pending_call = None;
         }
-        FrontendOutcome::from_payload(response, command_mode)
+        FrontendOutcome::from_payload_with_selected_text(
+            response,
+            command_mode,
+            selected_text.as_deref(),
+        )
     }
 
     /// Adopts a recording session already active in the daemon.
@@ -545,9 +590,10 @@ mod tests {
         assert!(state.recording());
         assert!(!state.command_mode());
         assert_eq!(state.active_scene_id(), Some("normal-scene"));
-        state.start_command(None);
+        state.start_command("selected", None);
         assert!(state.command_mode());
         assert_eq!(state.active_scene_id(), None);
+        assert_eq!(state.selected_text(), Some("selected"));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vinpst_fcitx_bridge/context_history_bridge.h"
 #include "vinpst_fcitx_bridge/fcitx_config.h"
 #include "vinpst_fcitx_bridge/fcitx_daemon_signal_monitor.h"
 #include "vinpst_fcitx_bridge/fcitx_key_trigger.h"
@@ -73,6 +74,10 @@ private:
                                            std::string_view status, bool command_mode);
   void ClearRemoteDaemonStatus();
   void HandleKeyEvent(fcitx::Event &event);
+  void HandleCommitString(fcitx::Event &event);
+  void HandleInputContextDestroyed(fcitx::Event &event);
+  void ScheduleContextFlush();
+  void ApplyContextHistory(const BridgeOutcome &outcome);
   void ShowSceneMenu(fcitx::InputContext *ic);
   void RebuildSceneMenu(int page = 0);
   void HideSceneMenu();
@@ -114,6 +119,7 @@ private:
   fcitx::Instance *instance_ = nullptr;
   fcitx::dbus::Bus *daemon_bus_ = nullptr;
   FrontendBridge bridge_;
+  ContextHistoryBridge context_history_;
   FrontendSettings frontend_settings_;
   FcitxKeyTriggerPolicy trigger_policy_;
   TriggerModeController trigger_mode_controller_;
@@ -124,6 +130,7 @@ private:
   FcitxProjectedMenuState asr_menu_;
   std::unique_ptr<fcitx::EventSourceTime> pending_trigger_start_event_;
   std::unique_ptr<fcitx::EventSourceTime> pending_trigger_stop_event_;
+  std::unique_ptr<fcitx::EventSourceTime> context_flush_event_;
   fcitx::TrackableObjectReference<fcitx::InputContext> pending_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> remote_status_ic_;

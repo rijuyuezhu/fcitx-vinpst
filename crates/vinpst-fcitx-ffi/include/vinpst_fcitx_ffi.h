@@ -30,13 +30,22 @@ typedef struct VinpstFcitxFrontendPresentationView {
   VinpstFcitxStringView text;
   size_t candidate_count;
   size_t cursor_index;
+  size_t context_entry_count;
+  uint8_t suppress_commit_context;
 } VinpstFcitxFrontendPresentationView;
 
 typedef struct VinpstFcitxPresentedCandidateView {
   VinpstFcitxStringView text;
   VinpstFcitxStringView comment;
   uint8_t commit;
+  VinpstFcitxStringView context_source;
+  uint8_t suppress_commit_context;
 } VinpstFcitxPresentedCandidateView;
+
+typedef struct VinpstFcitxContextEntryView {
+  VinpstFcitxStringView text;
+  VinpstFcitxStringView source;
+} VinpstFcitxContextEntryView;
 
 typedef struct VinpstFcitxFrontendPresentationTextView {
   VinpstFcitxStringView original;
@@ -421,6 +430,29 @@ uint8_t vinpst_fcitx_frontend_presentation_view(
 uint8_t vinpst_fcitx_frontend_presentation_candidate(
     const VinpstFcitxFrontendPresentation *presentation, size_t index,
     VinpstFcitxPresentedCandidateView *view_out);
+uint8_t vinpst_fcitx_frontend_presentation_context_entry(
+    const VinpstFcitxFrontendPresentation *presentation, size_t index,
+    VinpstFcitxContextEntryView *view_out);
+
+typedef struct VinpstFcitxContextHistory VinpstFcitxContextHistory;
+VinpstFcitxContextHistory *vinpst_fcitx_context_history_new(void);
+void vinpst_fcitx_context_history_free(VinpstFcitxContextHistory *history);
+void vinpst_fcitx_context_history_reload(VinpstFcitxContextHistory *history);
+uint8_t vinpst_fcitx_context_history_user_commit(VinpstFcitxContextHistory *history,
+                                                 size_t context,
+                                                 const uint8_t *text_data,
+                                                 size_t text_len);
+void vinpst_fcitx_context_history_append_entry(VinpstFcitxContextHistory *history,
+                                               const uint8_t *text_data,
+                                               size_t text_len,
+                                               const uint8_t *source_data,
+                                               size_t source_len);
+void vinpst_fcitx_context_history_suppress_next(VinpstFcitxContextHistory *history,
+                                                const uint8_t *text_data,
+                                                size_t text_len);
+void vinpst_fcitx_context_history_context_destroyed(VinpstFcitxContextHistory *history,
+                                                    size_t context);
+void vinpst_fcitx_context_history_flush(VinpstFcitxContextHistory *history);
 
 #ifdef __cplusplus
 }

@@ -29,8 +29,10 @@ using FrontendPresentationHandle =
                     vinpst_fcitx_frontend_presentation_free>;
 
 BridgeOutcome FfiFailure() {
-  return BridgeOutcome{
-      BridgeOutcome::Kind::Error, "Voice input daemon is unavailable.", {}};
+  BridgeOutcome outcome;
+  outcome.kind = BridgeOutcome::Kind::Error;
+  outcome.text = "Voice input daemon is unavailable.";
+  return outcome;
 }
 
 BridgeOutcome TakeOutcome(VinpstFcitxFrontendOutcome *raw_outcome,
@@ -62,13 +64,26 @@ BridgeOutcome TakeOutcome(VinpstFcitxFrontendOutcome *raw_outcome,
           return std::nullopt;
         }
         return PresentedCandidate{CopyRustString(candidate.text),
-                                  CopyRustString(candidate.comment),
-                                  candidate.commit != 0};
+                                  CopyRustString(candidate.comment), candidate.commit != 0,
+                                  CopyRustString(candidate.context_source),
+                                  candidate.suppress_commit_context != 0};
       },
   };
+  std::vector<ContextEntryPresentation> context_entries;
+  context_entries.reserve(view.context_entry_count);
+  for (std::size_t index = 0; index < view.context_entry_count; ++index) {
+    VinpstFcitxContextEntryView entry{};
+    if (vinpst_fcitx_frontend_presentation_context_entry(presentation->raw_handle(), index,
+                                                         &entry) == 0) {
+      return FfiFailure();
+    }
+    context_entries.push_back(
+        ContextEntryPresentation{CopyRustString(entry.text), CopyRustString(entry.source)});
+  }
   return BridgeOutcome{static_cast<BridgeOutcome::Kind>(view.kind),
                        CopyRustString(view.text), std::move(candidate_menu),
-                       view.replace_selection != 0};
+                       view.replace_selection != 0, std::move(context_entries),
+                       view.suppress_commit_context != 0};
 }
 
 } // namespace

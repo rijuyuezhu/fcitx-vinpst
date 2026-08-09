@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace vinpst_fcitx_bridge {
 
@@ -41,6 +42,8 @@ struct BridgeOutcome {
   std::string text;
   CandidatePresentation candidate_menu;
   bool replace_selection = false;
+  std::vector<ContextEntryPresentation> context_entries;
+  bool suppress_commit_context = false;
 };
 
 class FrontendBridge {

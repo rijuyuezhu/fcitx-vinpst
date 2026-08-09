@@ -27,12 +27,14 @@ write_isolated_dbus_session_config "${dbus_config}" "${dbus_service_dir}"
 dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 log_file="target/tmp/vinpst-cpp-dbus-smoke-daemon.log"
 config_home="target/tmp/vinpst-cpp-dbus-smoke-config"
+cache_home="target/tmp/vinpst-cpp-dbus-smoke-cache"
 bridge_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_bridge_dbus_smoke"
 addon_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_addon_dbus_smoke"
 mkdir -p "$(dirname "${log_file}")"
-rm -rf "${config_home}"
-mkdir -p "${config_home}"
+rm -rf "${config_home}" "${cache_home}"
+mkdir -p "${config_home}" "${cache_home}"
 export XDG_CONFIG_HOME="$(pwd)/${config_home}"
+export XDG_CACHE_HOME="$(pwd)/${cache_home}"
 
 daemon_pid=""
 

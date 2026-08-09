@@ -11,6 +11,8 @@ fn ffi_catch<T>(fallback: T, operation: impl FnOnce() -> T) -> T {
 }
 
 #[allow(unsafe_code)]
+mod context_history;
+#[allow(unsafe_code)]
 mod daemon;
 #[allow(unsafe_code)]
 mod daemon_signal;

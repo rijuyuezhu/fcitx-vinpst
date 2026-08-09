@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vinpst_fcitx_bridge/fcitx_candidates.h"
 #include "vinpst_fcitx_bridge/frontend_bridge.h"
 
 #include <cstdint>
@@ -18,7 +19,8 @@ enum class AppliedOutcome : std::uint8_t {
   CandidateMenu
 };
 
-AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
-                                                fcitx::InputContext *ic);
+AppliedOutcome ApplyBridgeOutcomeToInputContext(
+    const BridgeOutcome &outcome, fcitx::InputContext *ic,
+    ResultCandidateSelectCallback on_candidate_select = {});
 
 } // namespace vinpst_fcitx_bridge

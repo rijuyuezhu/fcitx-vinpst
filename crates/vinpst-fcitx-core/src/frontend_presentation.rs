@@ -22,6 +22,19 @@ pub struct PresentedResultCandidate {
     pub comment: String,
     /// Whether selecting this row commits its text.
     pub commit: bool,
+    /// Explicit recent-context source to append before committing this row.
+    pub context_source: String,
+    /// Whether the matching Fcitx commit event must be suppressed as duplicate user input.
+    pub suppress_commit_context: bool,
+}
+
+/// One explicit recent-input context entry emitted before a frontend action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontendContextEntry {
+    /// Text written to the JSONL context cache.
+    pub text: String,
+    /// Stable source label (`asr` or `llm`).
+    pub source: String,
 }
 
 /// Complete platform-neutral frontend application plan.
@@ -37,6 +50,10 @@ pub struct FrontendPresentation {
     pub candidates: Vec<PresentedResultCandidate>,
     /// Preferred candidate cursor position.
     pub cursor_index: usize,
+    /// Explicit ASR/LLM history entries emitted before the presentation action.
+    pub context_entries: Vec<FrontendContextEntry>,
+    /// Whether the presentation's direct commit must be suppressed from user history.
+    pub suppress_commit_context: bool,
 }
 
 impl FrontendPresentation {
@@ -47,8 +64,49 @@ impl FrontendPresentation {
             replace_selection: false,
             candidates: Vec::new(),
             cursor_index: 0,
+            context_entries: Vec::new(),
+            suppress_commit_context: false,
         }
     }
+}
+
+fn recognition_context_entries(
+    outcome: &FrontendOutcome,
+    include_direct_llm: bool,
+) -> Vec<FrontendContextEntry> {
+    let mut entries = Vec::new();
+    let asr_candidate = outcome
+        .payload()
+        .candidates
+        .iter()
+        .find(|candidate| candidate.source == CandidateSource::Asr && !candidate.text.is_empty())
+        .or_else(|| {
+            outcome.payload().candidates.iter().find(|candidate| {
+                candidate.source == CandidateSource::Raw
+                    && !candidate.text.is_empty()
+                    && (!outcome.command_mode()
+                        || outcome.selected_text() != Some(candidate.text.as_str()))
+            })
+        });
+    if let Some(candidate) = asr_candidate {
+        entries.push(FrontendContextEntry {
+            text: candidate.text.clone(),
+            source: "asr".to_owned(),
+        });
+    }
+    if include_direct_llm
+        && let Some(candidate) = outcome.payload().candidates.iter().find(|candidate| {
+            candidate.source == CandidateSource::Llm
+                && candidate.text == outcome.payload().commit_text
+                && !candidate.text.is_empty()
+        })
+    {
+        entries.push(FrontendContextEntry {
+            text: candidate.text.clone(),
+            source: "llm".to_owned(),
+        });
+    }
+    entries
 }
 
 /// Projects one Rust frontend outcome into a platform-executable presentation plan.
@@ -81,6 +139,8 @@ pub fn present_frontend_outcome(
                 replace_selection: outcome.command_mode(),
                 candidates: Vec::new(),
                 cursor_index: 0,
+                context_entries: recognition_context_entries(outcome, true),
+                suppress_commit_context: true,
             }
         }
         FrontendOutcomeKind::CandidateMenu => {
@@ -109,6 +169,13 @@ pub fn present_frontend_outcome(
                         comment,
                         commit: candidate.source != CandidateSource::Cancel
                             && !candidate.text.is_empty(),
+                        context_source: if candidate.source == CandidateSource::Llm {
+                            "llm".to_owned()
+                        } else {
+                            String::new()
+                        },
+                        suppress_commit_context: candidate.source != CandidateSource::Cancel
+                            && !candidate.text.is_empty(),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -124,6 +191,8 @@ pub fn present_frontend_outcome(
                     replace_selection: outcome.command_mode(),
                     candidates,
                     cursor_index: 0,
+                    context_entries: recognition_context_entries(outcome, true),
+                    suppress_commit_context: true,
                 };
             }
 
@@ -133,6 +202,8 @@ pub fn present_frontend_outcome(
                 replace_selection: outcome.command_mode(),
                 candidates,
                 cursor_index,
+                context_entries: recognition_context_entries(outcome, false),
+                suppress_commit_context: false,
             }
         }
     }
@@ -140,8 +211,8 @@ pub fn present_frontend_outcome(
 
 #[cfg(test)]
 mod tests {
-    use super::{ResultCandidateText, present_frontend_outcome};
-    use crate::{FrontendOutcome, FrontendOutcomeKind};
+    use super::{FrontendContextEntry, ResultCandidateText, present_frontend_outcome};
+    use crate::{FrontendController, FrontendOutcome, FrontendOutcomeKind};
 
     const TEXT: ResultCandidateText<'static> = ResultCandidateText {
         original: "Original",
@@ -161,12 +232,30 @@ mod tests {
         assert!(presentation.replace_selection);
         assert_eq!(presentation.cursor_index, 2);
         assert_eq!(presentation.text, "second");
+        assert_eq!(
+            presentation.context_entries,
+            vec![FrontendContextEntry {
+                text: "voice".to_owned(),
+                source: "asr".to_owned(),
+            }]
+        );
+        assert!(!presentation.suppress_commit_context);
         assert_eq!(presentation.candidates[0].comment, "Original");
+        assert!(presentation.candidates[0].context_source.is_empty());
+        assert!(presentation.candidates[0].suppress_commit_context);
         assert_eq!(presentation.candidates[1].comment, "1");
+        assert_eq!(presentation.candidates[1].context_source, "llm");
+        assert!(presentation.candidates[1].suppress_commit_context);
         assert_eq!(presentation.candidates[2].comment, "2");
+        assert_eq!(presentation.candidates[2].context_source, "llm");
+        assert!(presentation.candidates[2].suppress_commit_context);
         assert_eq!(presentation.candidates[3].comment, "Voice Command");
+        assert!(presentation.candidates[3].context_source.is_empty());
+        assert!(presentation.candidates[3].suppress_commit_context);
         assert_eq!(presentation.candidates[4].comment, "Cancel");
         assert!(!presentation.candidates[4].commit);
+        assert!(presentation.candidates[4].context_source.is_empty());
+        assert!(!presentation.candidates[4].suppress_commit_context);
     }
 
     #[test]
@@ -177,6 +266,74 @@ mod tests {
         assert_eq!(presentation.text, "changed");
         assert!(presentation.replace_selection);
         assert!(presentation.candidates.is_empty());
+        assert_eq!(
+            presentation.context_entries,
+            vec![FrontendContextEntry {
+                text: "changed".to_owned(),
+                source: "asr".to_owned(),
+            }]
+        );
+        assert!(presentation.suppress_commit_context);
+    }
+
+    #[test]
+    fn projects_direct_asr_and_llm_history_entries() {
+        let outcome = FrontendOutcome::from_payload(
+            r#"{"commit_text":"changed","candidates":[{"text":"voice","source":"asr"},{"text":"changed","source":"llm"}]}"#,
+            false,
+        );
+        let presentation = present_frontend_outcome(&outcome, TEXT);
+        assert_eq!(presentation.kind, FrontendOutcomeKind::Commit);
+        assert_eq!(presentation.text, "changed");
+        assert!(!presentation.replace_selection);
+        assert_eq!(
+            presentation.context_entries,
+            vec![
+                FrontendContextEntry {
+                    text: "voice".to_owned(),
+                    source: "asr".to_owned(),
+                },
+                FrontendContextEntry {
+                    text: "changed".to_owned(),
+                    source: "llm".to_owned(),
+                },
+            ]
+        );
+        assert!(presentation.suppress_commit_context);
+    }
+
+    #[test]
+    fn treats_normal_raw_candidate_as_asr_history() {
+        let outcome = FrontendOutcome::from_payload(
+            r#"{"commit_text":"voice","candidates":[{"text":"voice","source":"raw"}]}"#,
+            false,
+        );
+        let presentation = present_frontend_outcome(&outcome, TEXT);
+        assert_eq!(
+            presentation.context_entries,
+            vec![FrontendContextEntry {
+                text: "voice".to_owned(),
+                source: "asr".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn command_raw_fallback_excludes_original_selection() {
+        let mut controller = FrontendController::default();
+        let _ = controller.start_command("selected", None);
+        let _ = controller.complete(true, "");
+        let outcome = controller.complete_recognition_result(
+            r#"{"commit_text":"voice","candidates":[{"text":"selected","source":"raw"},{"text":"voice","source":"raw"}]}"#,
+        );
+        let presentation = present_frontend_outcome(&outcome, TEXT);
+        assert_eq!(
+            presentation.context_entries,
+            vec![FrontendContextEntry {
+                text: "voice".to_owned(),
+                source: "asr".to_owned(),
+            }]
+        );
     }
 
     #[test]

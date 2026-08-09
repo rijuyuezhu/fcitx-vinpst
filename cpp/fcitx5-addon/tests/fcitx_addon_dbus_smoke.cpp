@@ -91,8 +91,9 @@ bool ExpectIgnoredTrigger(FcitxVinpstAddon *addon, FcitxTriggerAction action,
 
 namespace vinpst_fcitx_bridge {
 
-AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
-                                                fcitx::InputContext *) {
+AppliedOutcome ApplyBridgeOutcomeToInputContext(
+    const BridgeOutcome &outcome, fcitx::InputContext *,
+    ResultCandidateSelectCallback) {
   g_last_outcome = outcome;
   g_outcomes.push_back(outcome);
   switch (outcome.kind) {
@@ -110,6 +111,9 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
   }
   return AppliedOutcome::None;
 }
+
+void ApplyResultCandidateSelection(fcitx::InputContext *, const PresentedCandidate &,
+                                   bool) {}
 
 } // namespace vinpst_fcitx_bridge
 

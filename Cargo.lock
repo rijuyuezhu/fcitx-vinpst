@@ -4342,8 +4342,11 @@ dependencies = [
 name = "vinpst-fcitx-ffi"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
+ "vinpst-config",
  "vinpst-fcitx-core",
  "vinpst-fcitx-dbus",
+ "vinpst-text",
 ]
 
 [[package]]

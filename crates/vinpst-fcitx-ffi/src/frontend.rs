@@ -65,6 +65,10 @@ pub struct VinpstFcitxFrontendPresentationView {
     pub candidate_count: usize,
     /// Preferred candidate cursor position.
     pub cursor_index: usize,
+    /// Number of explicit ASR/LLM recent-context entries emitted before the action.
+    pub context_entry_count: usize,
+    /// Whether the direct commit must be suppressed from duplicate user history.
+    pub suppress_commit_context: u8,
 }
 
 /// Borrowed fully rendered result candidate row.
@@ -77,6 +81,20 @@ pub struct VinpstFcitxPresentedCandidateView {
     pub comment: VinpstFcitxStringView,
     /// Whether selecting this row commits its text.
     pub commit: u8,
+    /// Explicit recent-context source appended before this candidate commit, if any.
+    pub context_source: VinpstFcitxStringView,
+    /// Whether this candidate commit must be suppressed from duplicate user history.
+    pub suppress_commit_context: u8,
+}
+
+/// Borrowed explicit recent-context entry emitted by a presentation.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VinpstFcitxContextEntryView {
+    /// Entry text.
+    pub text: VinpstFcitxStringView,
+    /// Stable source label (`asr` or `llm`).
+    pub source: VinpstFcitxStringView,
 }
 
 /// Borrowed localized candidate annotations used to build a presentation.
@@ -759,6 +777,10 @@ pub unsafe extern "C" fn vinpst_fcitx_frontend_presentation_view(
                 text: string_view(&presentation.presentation.text),
                 candidate_count: presentation.presentation.candidates.len(),
                 cursor_index: presentation.presentation.cursor_index,
+                context_entry_count: presentation.presentation.context_entries.len(),
+                suppress_commit_context: u8::from(
+                    presentation.presentation.suppress_commit_context,
+                ),
             });
         }
         1
@@ -800,9 +822,43 @@ fn write_presented_candidate(
             text: string_view(&candidate.text),
             comment: string_view(&candidate.comment),
             commit: u8::from(candidate.commit),
+            context_source: string_view(&candidate.context_source),
+            suppress_commit_context: u8::from(candidate.suppress_commit_context),
         });
     }
     1
+}
+
+/// Borrows one explicit ASR/LLM recent-context entry from a presentation.
+///
+/// # Safety
+///
+/// `presentation` must be live and `view_out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_presentation_context_entry(
+    presentation: *const VinpstFcitxFrontendPresentation,
+    index: usize,
+    view_out: *mut VinpstFcitxContextEntryView,
+) -> u8 {
+    crate::ffi_catch(0, || {
+        if view_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(entry) = (unsafe { presentation.as_ref() })
+            .and_then(|value| value.presentation.context_entries.get(index))
+        else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe {
+            view_out.write(VinpstFcitxContextEntryView {
+                text: string_view(&entry.text),
+                source: string_view(&entry.source),
+            });
+        }
+        1
+    })
 }
 
 #[cfg(test)]

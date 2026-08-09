@@ -190,11 +190,23 @@ FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
   if (instance_ != nullptr) {
     event_handlers_.emplace_back(
         instance_->watchEvent(fcitx::EventType::InputContextKeyEvent,
-                              fcitx::EventWatcherPhase::PostInputMethod,
+                              fcitx::EventWatcherPhase::PreInputMethod,
                               [this](fcitx::Event &event) { HandleKeyEvent(event); }));
     event_handlers_.emplace_back(instance_->watchEvent(
         fcitx::EventType::InputContextCreated, fcitx::EventWatcherPhase::PreInputMethod,
-        RequestSurroundingText));
+        [this](fcitx::Event &event) {
+          RequestSurroundingText(event);
+          auto &ic_event = static_cast<fcitx::InputContextEvent &>(event);
+          if (auto *ic = ic_event.inputContext(); ic != nullptr) {
+            last_input_ic_ = ic->watch();
+          }
+        }));
+    event_handlers_.emplace_back(instance_->watchEvent(
+        fcitx::EventType::InputContextDestroyed, fcitx::EventWatcherPhase::PreInputMethod,
+        [this](fcitx::Event &event) { HandleInputContextDestroyed(event); }));
+    event_handlers_.emplace_back(instance_->watchEvent(
+        fcitx::EventType::InputContextCommitString, fcitx::EventWatcherPhase::PostInputMethod,
+        [this](fcitx::Event &event) { HandleCommitString(event); }));
   }
   if (signal_bus != nullptr) {
     SetupDaemonSignalMonitor(signal_bus);
@@ -205,6 +217,7 @@ FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
 
 void FcitxVinpstAddon::reloadConfig() {
   frontend_settings_ = LoadFrontendSettings();
+  context_history_.Reload();
   ApplyFrontendSettings();
 }
 
@@ -339,12 +352,8 @@ void FcitxVinpstAddon::ResetActiveRecording(fcitx::InputContext *ic) {
   bridge_.Reset();
   trigger_mode_controller_.RecordingStopped();
   if (ic != nullptr) {
-    const BridgeOutcome clear{
-        .kind = BridgeOutcome::Kind::Clear,
-        .text = {},
-        .candidate_menu = {},
-        .replace_selection = false,
-    };
+    BridgeOutcome clear;
+    clear.kind = BridgeOutcome::Kind::Clear;
     ApplyBridgeOutcomeToInputContext(clear, ic);
   }
   active_trigger_ic_.unwatch();
@@ -499,6 +508,7 @@ AppliedOutcome FcitxVinpstAddon::ApplyDaemonUnavailable(fcitx::InputContext *ic,
 
 AppliedOutcome FcitxVinpstAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
                                                     const BridgeOutcome &outcome) {
+  ApplyContextHistory(outcome);
   ClearRemoteDaemonStatus();
   auto display_outcome = outcome;
   if (outcome.kind == BridgeOutcome::Kind::Preedit ||
@@ -515,7 +525,68 @@ AppliedOutcome FcitxVinpstAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
   } else if (!bridge_.recording()) {
     ResetLiveSignalState();
   }
-  return ApplyBridgeOutcomeToInputContext(display_outcome, ic);
+  const auto replace_selection = display_outcome.replace_selection;
+  return ApplyBridgeOutcomeToInputContext(
+      display_outcome, ic,
+      [this, replace_selection](fcitx::InputContext *selected_context,
+                                const PresentedCandidate &candidate) {
+        if (!candidate.context_source.empty()) {
+          context_flush_event_.reset();
+          context_history_.AppendEntry(candidate.text, candidate.context_source);
+        }
+        if (candidate.suppress_commit_context && !candidate.text.empty()) {
+          context_flush_event_.reset();
+          context_history_.SuppressNext(candidate.text);
+        }
+        ApplyResultCandidateSelection(selected_context, candidate, replace_selection);
+      });
+}
+
+void FcitxVinpstAddon::ApplyContextHistory(const BridgeOutcome &outcome) {
+  if (!outcome.context_entries.empty() || outcome.suppress_commit_context) {
+    context_flush_event_.reset();
+  }
+  for (const auto &entry : outcome.context_entries) {
+    context_history_.AppendEntry(entry.text, entry.source);
+  }
+  if (outcome.suppress_commit_context && !outcome.text.empty()) {
+    context_history_.SuppressNext(outcome.text);
+  }
+}
+
+void FcitxVinpstAddon::HandleCommitString(fcitx::Event &event) {
+  auto &commit = static_cast<fcitx::CommitStringEvent &>(event);
+  auto *ic = commit.inputContext();
+  if (ic == nullptr) {
+    return;
+  }
+  const auto context = reinterpret_cast<std::size_t>(ic);
+  if (context_history_.UserCommit(context, commit.text())) {
+    ScheduleContextFlush();
+  } else {
+    context_flush_event_.reset();
+  }
+}
+
+void FcitxVinpstAddon::HandleInputContextDestroyed(fcitx::Event &event) {
+  auto &destroyed = static_cast<fcitx::InputContextEvent &>(event);
+  if (auto *ic = destroyed.inputContext(); ic != nullptr) {
+    context_history_.ContextDestroyed(reinterpret_cast<std::size_t>(ic));
+  }
+}
+
+void FcitxVinpstAddon::ScheduleContextFlush() {
+  context_flush_event_.reset();
+  if (instance_ == nullptr) {
+    return;
+  }
+  context_flush_event_ = instance_->eventLoop().addTimeEvent(
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 5'000'000, 0,
+      [this](fcitx::EventSourceTime *, std::uint64_t) {
+        context_history_.Flush();
+        return false;
+      });
+  context_flush_event_->setOneShot();
 }
 
 std::optional<AppliedOutcome>
@@ -546,12 +617,9 @@ FcitxVinpstAddon::ExecuteDaemonControl(std::uint8_t event, fcitx::InputContext *
     HideAsrMenu();
     remote_status_ic_.unwatch();
     ResetActiveRecording(ic);
-    const BridgeOutcome error{
-        .kind = BridgeOutcome::Kind::Error,
-        .text = "Voice input daemon is unavailable.",
-        .candidate_menu = {},
-        .replace_selection = false,
-    };
+    BridgeOutcome error;
+    error.kind = BridgeOutcome::Kind::Error;
+    error.text = "Voice input daemon is unavailable.";
     return ApplyBridgeOutcome(ic, error);
   }
   case DaemonControlPlan::ClearRemoteStatus:
@@ -634,12 +702,8 @@ void FcitxVinpstAddon::ClearRemoteDaemonStatus() {
   if (ic == nullptr) {
     return;
   }
-  const BridgeOutcome clear{
-      .kind = BridgeOutcome::Kind::Clear,
-      .text = {},
-      .candidate_menu = {},
-      .replace_selection = false,
-  };
+  BridgeOutcome clear;
+  clear.kind = BridgeOutcome::Kind::Clear;
   ApplyBridgeOutcomeToInputContext(clear, ic);
 }
 
