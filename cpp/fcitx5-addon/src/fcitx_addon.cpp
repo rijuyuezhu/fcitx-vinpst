@@ -508,6 +508,7 @@ AppliedOutcome FcitxVinpstAddon::ApplyDaemonUnavailable(fcitx::InputContext *ic,
 
 AppliedOutcome FcitxVinpstAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
                                                     const BridgeOutcome &outcome) {
+  HideResultMenu();
   ApplyContextHistory(outcome);
   ClearRemoteDaemonStatus();
   auto display_outcome = outcome;
@@ -526,10 +527,11 @@ AppliedOutcome FcitxVinpstAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
     ResetLiveSignalState();
   }
   const auto replace_selection = display_outcome.replace_selection;
-  return ApplyBridgeOutcomeToInputContext(
+  const auto applied = ApplyBridgeOutcomeToInputContext(
       display_outcome, ic,
       [this, replace_selection](fcitx::InputContext *selected_context,
                                 const PresentedCandidate &candidate) {
+        result_menu_ic_.unwatch();
         if (!candidate.context_source.empty()) {
           context_flush_event_.reset();
           context_history_.AppendEntry(candidate.text, candidate.context_source);
@@ -540,6 +542,10 @@ AppliedOutcome FcitxVinpstAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
         }
         ApplyResultCandidateSelection(selected_context, candidate, replace_selection);
       });
+  if (applied == AppliedOutcome::CandidateMenu && ic != nullptr) {
+    result_menu_ic_ = ic->watch();
+  }
+  return applied;
 }
 
 void FcitxVinpstAddon::ApplyContextHistory(const BridgeOutcome &outcome) {
@@ -787,10 +793,13 @@ void FcitxVinpstAddon::HandleKeyEvent(fcitx::Event &event) {
   if (key_event.inputContext() != nullptr) {
     last_input_ic_ = key_event.inputContext()->watch();
   }
-  if (HandleAsrMenuKeyEvent(key_event)) {
+  if (HandleResultMenuKeyEvent(key_event)) {
     return;
   }
   if (HandleSceneMenuKeyEvent(key_event)) {
+    return;
+  }
+  if (HandleAsrMenuKeyEvent(key_event)) {
     return;
   }
   const auto action = trigger_policy_.Classify(key_event);
@@ -800,10 +809,16 @@ void FcitxVinpstAddon::HandleKeyEvent(fcitx::Event &event) {
 
   FCITX_INFO() << "fcitx-vinpst handling trigger " << TriggerActionName(action);
   if (action == FcitxTriggerAction::ShowSceneMenu ||
-      action == FcitxTriggerAction::ConsumeSceneMenuRelease ||
-      action == FcitxTriggerAction::ShowAsrMenu ||
-      action == FcitxTriggerAction::ConsumeAsrMenuRelease) {
+      action == FcitxTriggerAction::ShowAsrMenu) {
+    if (bridge_.PlanTrigger(action) == FrontendTriggerIntent::None) {
+      return;
+    }
     ApplyTriggerAction(key_event.inputContext(), action);
+    key_event.filterAndAccept();
+    return;
+  }
+  if (action == FcitxTriggerAction::ConsumeSceneMenuRelease ||
+      action == FcitxTriggerAction::ConsumeAsrMenuRelease) {
     key_event.filterAndAccept();
     return;
   }

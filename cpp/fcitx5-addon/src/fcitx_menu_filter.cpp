@@ -166,6 +166,29 @@ MenuSessionState::HandleKey(bool release, const MenuSemanticKey &key,
   return MenuKeyDecision{*action, decision.value};
 }
 
+std::optional<MenuKeyDecision>
+PlanResultMenuKey(bool release, const MenuSemanticKey &key, bool cursor_available,
+                  int current_selection, int current_page, std::size_t item_count) {
+  const VinpstFcitxMenuKeyInputView input{
+      .release = static_cast<std::uint8_t>(release),
+      .key_kind = static_cast<std::uint8_t>(key.kind),
+      .key_value = key.value,
+      .text = ToRustStringView(key.text),
+      .cursor_available = static_cast<std::uint8_t>(cursor_available),
+      .current_selection = current_selection,
+      .visible_item_count = item_count,
+  };
+  VinpstFcitxMenuKeyDecisionView decision{};
+  if (vinpst_fcitx_result_menu_plan_key(&input, current_page, &decision) == 0) {
+    return std::nullopt;
+  }
+  const auto action = ActionFromWire(decision.action);
+  if (!action.has_value()) {
+    return std::nullopt;
+  }
+  return MenuKeyDecision{*action, decision.value};
+}
+
 const ::VinpstFcitxMenuSession *MenuSessionState::raw_handle() const {
   return state_.raw_handle();
 }

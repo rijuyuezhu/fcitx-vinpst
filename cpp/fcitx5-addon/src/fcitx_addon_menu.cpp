@@ -26,6 +26,7 @@
 #include <fcitx/text.h>
 #include <fcitx/userinterface.h>
 
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <limits>
@@ -301,6 +302,91 @@ void OpenProjectedMenu(fcitx::InputContext *input_context, bool recording,
 }
 
 } // namespace
+
+void FcitxVinpstAddon::HideResultMenu() {
+  auto *input_context = result_menu_ic_.get();
+  result_menu_ic_.unwatch();
+  ClearResultCandidateMenu(input_context);
+}
+
+bool FcitxVinpstAddon::HandleResultMenuKeyEvent(fcitx::KeyEvent &event) {
+  auto *input_context = result_menu_ic_.get();
+  if (input_context == nullptr) {
+    return false;
+  }
+
+  auto candidate_list = input_context->inputPanel().candidateList();
+  if (candidate_list == nullptr) {
+    HideResultMenu();
+    return false;
+  }
+  auto *bulk = candidate_list->toBulk();
+  auto *bulk_cursor = candidate_list->toBulkCursor();
+  auto *cursor = candidate_list->toCursorMovable();
+  auto *pageable = candidate_list->toPageable();
+  const int item_count = bulk != nullptr ? bulk->totalSize() : candidate_list->size();
+  const int current_page = pageable != nullptr && pageable->currentPage() >= 0
+                               ? pageable->currentPage()
+                               : 0;
+  const int current_selection =
+      bulk_cursor != nullptr ? bulk_cursor->globalCursorIndex() : -1;
+  const auto semantic_key =
+      ClassifyMenuKey(event.key(), false, false, frontend_settings_.page_prev_keys,
+                      frontend_settings_.page_next_keys);
+  const auto decision = PlanResultMenuKey(
+      event.isRelease(), semantic_key, cursor != nullptr, current_selection,
+      current_page, static_cast<std::size_t>(std::max(item_count, 0)));
+  if (!decision.has_value()) {
+    HideResultMenu();
+    return false;
+  }
+
+  auto consume = [&event]() {
+    event.filterAndAccept();
+    return true;
+  };
+  switch (decision->action) {
+  case MenuKeyAction::Pass:
+    return false;
+  case MenuKeyAction::Consume:
+    return consume();
+  case MenuKeyAction::CloseAndPass:
+    HideResultMenu();
+    return false;
+  case MenuKeyAction::CloseAndConsume:
+    HideResultMenu();
+    return consume();
+  case MenuKeyAction::Rebuild:
+    if (pageable != nullptr) {
+      if (decision->value < current_page && pageable->hasPrev()) {
+        pageable->prev();
+      } else if (decision->value > current_page && pageable->hasNext()) {
+        pageable->next();
+      }
+      input_context->inputPanel().setAuxUp(fcitx::Text(DecoratePagedMenuTitle(
+          ResultCandidateMenuTitle(static_cast<std::size_t>(std::max(item_count, 0))),
+          candidate_list.get())));
+      input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    }
+    return consume();
+  case MenuKeyAction::MovePrevious:
+    cursor->prevCandidate();
+    input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    return consume();
+  case MenuKeyAction::MoveNext:
+    cursor->nextCandidate();
+    input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    return consume();
+  case MenuKeyAction::Select:
+    if (bulk == nullptr || decision->value < 0 || decision->value >= item_count) {
+      HideResultMenu();
+      return consume();
+    }
+    bulk->candidateFromAll(static_cast<int>(decision->value)).select(input_context);
+    return consume();
+  }
+  return false;
+}
 
 void FcitxVinpstAddon::ShowSceneMenu(fcitx::InputContext *ic) {
   OpenProjectedMenu(

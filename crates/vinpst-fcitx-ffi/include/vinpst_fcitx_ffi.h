@@ -276,6 +276,9 @@ uint8_t vinpst_fcitx_menu_session_handle_key(
     VinpstFcitxMenuSession *session,
     const VinpstFcitxMenuKeyInputView *input,
     VinpstFcitxMenuKeyDecisionView *decision_out);
+uint8_t vinpst_fcitx_result_menu_plan_key(
+    const VinpstFcitxMenuKeyInputView *input, int32_t current_page,
+    VinpstFcitxMenuKeyDecisionView *decision_out);
 int32_t vinpst_fcitx_clamp_menu_page(int32_t total_pages,
                                      int32_t requested_page);
 

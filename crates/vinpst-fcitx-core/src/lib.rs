@@ -31,6 +31,7 @@ pub use frontend_presentation::{
 pub use menu::{MenuFilterState, MenuSessionState, clamp_menu_page};
 pub use menu_action::{
     MENU_PAGE_SIZE, MenuKeyAction, MenuKeyInput, MenuSemanticKey, MenuSessionKeyInput,
+    RESULT_MENU_PAGE_SIZE, ResultMenuKeyInput, plan_result_menu_key,
 };
 pub use menu_controller::{AsrMenuController, MenuProjection, SceneMenuController};
 pub use menu_projection::{

@@ -78,6 +78,8 @@ private:
   void HandleInputContextDestroyed(fcitx::Event &event);
   void ScheduleContextFlush();
   void ApplyContextHistory(const BridgeOutcome &outcome);
+  bool HandleResultMenuKeyEvent(fcitx::KeyEvent &event);
+  void HideResultMenu();
   void ShowSceneMenu(fcitx::InputContext *ic);
   void RebuildSceneMenu(int page = 0);
   void HideSceneMenu();
@@ -135,6 +137,7 @@ private:
   fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> remote_status_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> last_input_ic_;
+  fcitx::TrackableObjectReference<fcitx::InputContext> result_menu_ic_;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::unique_ptr<FcitxDaemonSignalMonitor> daemon_signal_monitor_;
   std::unique_ptr<FcitxNotifierDbusObject> notifier_dbus_;

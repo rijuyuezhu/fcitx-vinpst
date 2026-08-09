@@ -91,4 +91,8 @@ MenuSemanticKey ClassifyMenuKey(const fcitx::Key &key, bool passive, bool filter
                                 const fcitx::KeyList &page_prev_keys,
                                 const fcitx::KeyList &page_next_keys);
 
+std::optional<MenuKeyDecision>
+PlanResultMenuKey(bool release, const MenuSemanticKey &key, bool cursor_available,
+                  int current_selection, int current_page, std::size_t item_count);
+
 } // namespace vinpst_fcitx_bridge

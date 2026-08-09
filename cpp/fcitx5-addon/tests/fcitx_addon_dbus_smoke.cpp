@@ -112,6 +112,11 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(
   return AppliedOutcome::None;
 }
 
+
+std::string ResultCandidateMenuTitle(std::size_t) { return "Choose Result"; }
+
+void ClearResultCandidateMenu(fcitx::InputContext *) {}
+
 void ApplyResultCandidateSelection(fcitx::InputContext *, const PresentedCandidate &,
                                    bool) {}
 

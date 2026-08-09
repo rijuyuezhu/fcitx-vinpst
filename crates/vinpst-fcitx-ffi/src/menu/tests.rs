@@ -10,6 +10,7 @@ use super::{
     vinpst_fcitx_menu_session_free, vinpst_fcitx_menu_session_handle_key,
     vinpst_fcitx_menu_session_is_open, vinpst_fcitx_menu_session_new,
     vinpst_fcitx_menu_session_open, vinpst_fcitx_menu_session_set_page,
+    vinpst_fcitx_result_menu_plan_key,
 };
 use crate::ffi_string::VinpstFcitxStringView;
 
@@ -71,6 +72,22 @@ unsafe fn session_handle_key(
     // SAFETY: Test callers provide live inputs and writable output.
     let success =
         unsafe { vinpst_fcitx_menu_session_handle_key(state, &raw const input, &raw mut decision) };
+    (success != 0).then_some(decision)
+}
+
+unsafe fn result_menu_plan_key(
+    call: KeyCall<'_>,
+    current_page: i32,
+) -> Option<VinpstFcitxMenuKeyDecisionView> {
+    let mut decision = VinpstFcitxMenuKeyDecisionView {
+        action: u8::MAX,
+        value: i64::MAX,
+    };
+    let input = call.view();
+    // SAFETY: Test callers provide live inputs and writable output.
+    let success = unsafe {
+        vinpst_fcitx_result_menu_plan_key(&raw const input, current_page, &raw mut decision)
+    };
     (success != 0).then_some(decision)
 }
 
@@ -239,6 +256,52 @@ fn exposes_page_digit_cursor_enter_and_release_decisions() {
             Some(MENU_ACTION_PASS),
         );
         vinpst_fcitx_menu_session_free(state);
+    }
+}
+
+#[test]
+fn exposes_five_row_result_menu_decisions() {
+    // SAFETY: All views borrow local data for the duration of each call.
+    unsafe {
+        let digit = result_menu_plan_key(
+            KeyCall {
+                kind: MENU_KEY_DIGIT,
+                value: 0,
+                cursor_available: true,
+                current_selection: 5,
+                visible_item_count: 6,
+                ..KeyCall::default()
+            },
+            1,
+        )
+        .expect("result digit decision");
+        assert_eq!((digit.action, digit.value), (MENU_ACTION_SELECT, 5));
+
+        let invalid_digit = result_menu_plan_key(
+            KeyCall {
+                kind: MENU_KEY_DIGIT,
+                value: 1,
+                cursor_available: true,
+                current_selection: 5,
+                visible_item_count: 6,
+                ..KeyCall::default()
+            },
+            1,
+        )
+        .expect("result invalid digit decision");
+        assert_eq!(invalid_digit.action, super::MENU_ACTION_CLOSE_AND_PASS);
+
+        let release = result_menu_plan_key(
+            KeyCall {
+                release: true,
+                kind: MENU_KEY_ESCAPE,
+                visible_item_count: 6,
+                ..KeyCall::default()
+            },
+            1,
+        )
+        .expect("result release decision");
+        assert_eq!(release.action, MENU_ACTION_CONSUME);
     }
 }
 

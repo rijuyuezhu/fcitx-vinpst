@@ -4,6 +4,8 @@ use crate::{MenuFilterState, MenuSessionState};
 
 /// Candidate page size used by both retained scene and ASR menus.
 pub const MENU_PAGE_SIZE: i32 = 10;
+/// Candidate page size used by the frozen result menu.
+pub const RESULT_MENU_PAGE_SIZE: i32 = 5;
 
 /// One Fcitx key translated into a stable semantic menu input.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -77,6 +79,23 @@ pub struct MenuSessionKeyInput<'a> {
     pub current_selection: Option<usize>,
     /// Number of currently visible menu rows.
     pub visible_item_count: usize,
+}
+
+/// Fcitx-specific key context for the non-filtering result candidate menu.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ResultMenuKeyInput<'a> {
+    /// Whether this is a key-release event.
+    pub release: bool,
+    /// Semantic key translated by the retained C++ adapter.
+    pub key: MenuSemanticKey<'a>,
+    /// Whether the current Fcitx candidate list exposes cursor movement.
+    pub cursor_available: bool,
+    /// Current zero-based selection across all result rows.
+    pub current_selection: Option<usize>,
+    /// Current zero-based result page.
+    pub current_page: i32,
+    /// Number of result rows across all pages.
+    pub item_count: usize,
 }
 
 /// Action returned to the retained Fcitx adapter.
@@ -206,9 +225,75 @@ impl MenuSessionState {
     }
 }
 
+/// Plans one key event for the frozen five-row result candidate menu.
+#[must_use]
+pub fn plan_result_menu_key(input: ResultMenuKeyInput<'_>) -> MenuKeyAction {
+    if input.release {
+        return if matches!(
+            input.key,
+            MenuSemanticKey::Escape
+                | MenuSemanticKey::Page(_)
+                | MenuSemanticKey::Digit(_)
+                | MenuSemanticKey::MovePrevious
+                | MenuSemanticKey::MoveNext
+                | MenuSemanticKey::Enter
+        ) {
+            MenuKeyAction::Consume
+        } else {
+            MenuKeyAction::Pass
+        };
+    }
+
+    match input.key {
+        MenuSemanticKey::Escape => MenuKeyAction::CloseAndConsume,
+        MenuSemanticKey::Page(delta) => MenuKeyAction::Rebuild {
+            page: input.current_page.saturating_add(delta),
+        },
+        MenuSemanticKey::Digit(digit) => visible_index_with_page_size(
+            input.current_page,
+            digit,
+            input.item_count,
+            RESULT_MENU_PAGE_SIZE,
+        )
+        .map_or(MenuKeyAction::CloseAndPass, |visible_index| {
+            MenuKeyAction::Select { visible_index }
+        }),
+        MenuSemanticKey::MovePrevious if input.cursor_available => MenuKeyAction::MovePrevious,
+        MenuSemanticKey::MoveNext if input.cursor_available => MenuKeyAction::MoveNext,
+        MenuSemanticKey::Enter => input.current_selection.map_or_else(
+            || {
+                if input.item_count == 0 {
+                    MenuKeyAction::CloseAndConsume
+                } else {
+                    MenuKeyAction::Select { visible_index: 0 }
+                }
+            },
+            |visible_index| MenuKeyAction::Select { visible_index },
+        ),
+        MenuSemanticKey::Other
+        | MenuSemanticKey::Passive
+        | MenuSemanticKey::Slash
+        | MenuSemanticKey::Backspace
+        | MenuSemanticKey::DeleteWord
+        | MenuSemanticKey::ClearFilter
+        | MenuSemanticKey::Text(_)
+        | MenuSemanticKey::MovePrevious
+        | MenuSemanticKey::MoveNext => MenuKeyAction::CloseAndPass,
+    }
+}
+
 fn visible_index(current_page: i32, offset: usize, visible_item_count: usize) -> Option<usize> {
+    visible_index_with_page_size(current_page, offset, visible_item_count, MENU_PAGE_SIZE)
+}
+
+fn visible_index_with_page_size(
+    current_page: i32,
+    offset: usize,
+    visible_item_count: usize,
+    page_size: i32,
+) -> Option<usize> {
     let page = usize::try_from(current_page).ok()?;
-    let page_size = usize::try_from(MENU_PAGE_SIZE).expect("positive menu page size");
+    let page_size = usize::try_from(page_size).expect("positive menu page size");
     let index = page.checked_mul(page_size)?.checked_add(offset)?;
     (index < visible_item_count).then_some(index)
 }
@@ -217,6 +302,7 @@ fn visible_index(current_page: i32, offset: usize, visible_item_count: usize) ->
 mod tests {
     use super::{
         MENU_PAGE_SIZE, MenuKeyAction, MenuKeyInput, MenuSemanticKey, MenuSessionKeyInput,
+        ResultMenuKeyInput, plan_result_menu_key,
     };
     use crate::{MenuFilterState, MenuSessionState};
 
@@ -248,6 +334,58 @@ mod tests {
                 ..MenuKeyInput::default()
             }),
             MenuKeyAction::Consume
+        );
+    }
+
+    #[test]
+    fn plans_frozen_result_menu_keys_with_five_row_pages() {
+        let input = |key| ResultMenuKeyInput {
+            key,
+            cursor_available: true,
+            current_selection: Some(5),
+            current_page: 1,
+            item_count: 6,
+            ..ResultMenuKeyInput::default()
+        };
+        assert_eq!(
+            plan_result_menu_key(input(MenuSemanticKey::Digit(0))),
+            MenuKeyAction::Select { visible_index: 5 }
+        );
+        assert_eq!(
+            plan_result_menu_key(input(MenuSemanticKey::Digit(1))),
+            MenuKeyAction::CloseAndPass
+        );
+        assert_eq!(
+            plan_result_menu_key(input(MenuSemanticKey::Enter)),
+            MenuKeyAction::Select { visible_index: 5 }
+        );
+        assert_eq!(
+            plan_result_menu_key(input(MenuSemanticKey::Page(-1))),
+            MenuKeyAction::Rebuild { page: 0 }
+        );
+        assert_eq!(
+            plan_result_menu_key(input(MenuSemanticKey::Escape)),
+            MenuKeyAction::CloseAndConsume
+        );
+        assert_eq!(
+            plan_result_menu_key(input(MenuSemanticKey::Other)),
+            MenuKeyAction::CloseAndPass
+        );
+        assert_eq!(
+            plan_result_menu_key(ResultMenuKeyInput {
+                release: true,
+                key: MenuSemanticKey::Escape,
+                ..input(MenuSemanticKey::Other)
+            }),
+            MenuKeyAction::Consume
+        );
+        assert_eq!(
+            plan_result_menu_key(ResultMenuKeyInput {
+                release: true,
+                key: MenuSemanticKey::Other,
+                ..input(MenuSemanticKey::Other)
+            }),
+            MenuKeyAction::Pass
         );
     }
 

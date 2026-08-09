@@ -40,6 +40,14 @@ FcitxKeyTriggerPolicy FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
 }
 
 FcitxTriggerAction FcitxKeyTriggerPolicy::Classify(const fcitx::KeyEvent &event) const {
+  if (event.key().checkKeyList(asr_menu_triggers_)) {
+    return event.isRelease() ? FcitxTriggerAction::ConsumeAsrMenuRelease
+                             : FcitxTriggerAction::ShowAsrMenu;
+  }
+  if (event.key().checkKeyList(scene_menu_triggers_)) {
+    return event.isRelease() ? FcitxTriggerAction::ConsumeSceneMenuRelease
+                             : FcitxTriggerAction::ShowSceneMenu;
+  }
   if (event.key().checkKeyList(normal_triggers_)) {
     return event.isRelease() ? FcitxTriggerAction::StopNormal
                              : FcitxTriggerAction::StartNormal;
@@ -47,14 +55,6 @@ FcitxTriggerAction FcitxKeyTriggerPolicy::Classify(const fcitx::KeyEvent &event)
   if (event.key().checkKeyList(command_triggers_)) {
     return event.isRelease() ? FcitxTriggerAction::StopCommand
                              : FcitxTriggerAction::StartCommand;
-  }
-  if (event.key().checkKeyList(scene_menu_triggers_)) {
-    return event.isRelease() ? FcitxTriggerAction::ConsumeSceneMenuRelease
-                             : FcitxTriggerAction::ShowSceneMenu;
-  }
-  if (event.key().checkKeyList(asr_menu_triggers_)) {
-    return event.isRelease() ? FcitxTriggerAction::ConsumeAsrMenuRelease
-                             : FcitxTriggerAction::ShowAsrMenu;
   }
   return FcitxTriggerAction::None;
 }
