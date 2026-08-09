@@ -169,6 +169,53 @@ fn adapter_process_spec_copies_typed_config() {
 }
 
 #[test]
+fn inferred_adapter_working_dir_matches_upstream_script_discovery_order() {
+    let root = unique_runtime_dir("working-dir");
+    let current_dir = root.join("current");
+    let script_dir = current_dir.join("scripts");
+    let command_dir = current_dir.join("bin");
+    let home_dir = root.join("home");
+    std::fs::create_dir_all(&script_dir).unwrap();
+    std::fs::create_dir_all(&command_dir).unwrap();
+    std::fs::create_dir_all(home_dir.join("tools")).unwrap();
+    std::fs::write(script_dir.join("adapter.py"), "# fixture\n").unwrap();
+    std::fs::write(command_dir.join("adapter-helper"), "# fixture\n").unwrap();
+    std::fs::write(home_dir.join("tools/home.py"), "# fixture\n").unwrap();
+
+    let mut spec = AdapterProcessSpec {
+        id: "adapter.demo".to_owned(),
+        command: "bin/adapter-helper".to_owned(),
+        args: vec!["--serve".to_owned(), "scripts/adapter.py".to_owned()],
+        env: std::collections::HashMap::new(),
+        working_dir: None,
+    };
+    assert_eq!(
+        crate::adapter_runtime::infer_adapter_working_dir(&spec, &current_dir, Some(&home_dir)),
+        script_dir
+    );
+
+    spec.args = vec!["--serve".to_owned()];
+    assert_eq!(
+        crate::adapter_runtime::infer_adapter_working_dir(&spec, &current_dir, Some(&home_dir)),
+        command_dir
+    );
+
+    spec.command = "missing-helper".to_owned();
+    spec.args = vec!["~/tools/home.py".to_owned()];
+    assert_eq!(
+        crate::adapter_runtime::infer_adapter_working_dir(&spec, &current_dir, Some(&home_dir)),
+        home_dir.join("tools")
+    );
+
+    spec.args.clear();
+    assert_eq!(
+        crate::adapter_runtime::infer_adapter_working_dir(&spec, &current_dir, Some(&home_dir)),
+        current_dir
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn start_adapter_process_writes_atomic_fingerprinted_pid_file() {
     let runtime_dir = unique_runtime_dir("process-runtime");
     let paths = AdapterRuntimePaths::new(&runtime_dir);

@@ -382,6 +382,45 @@ pub fn stop_started_adapter_process(
     Ok(AdapterStopOutcome::Stopped { pid: process.pid })
 }
 
+fn expand_adapter_candidate_path(
+    candidate: &str,
+    current_dir: &Path,
+    home_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    if candidate.is_empty() {
+        return None;
+    }
+    let mut path = if let Some(suffix) = candidate.strip_prefix('~') {
+        let home_dir = home_dir?;
+        home_dir.join(suffix.strip_prefix('/').unwrap_or(suffix))
+    } else {
+        PathBuf::from(candidate)
+    };
+    if path.is_relative() {
+        path = current_dir.join(path);
+    }
+    Some(path)
+}
+
+pub(crate) fn infer_adapter_working_dir(
+    spec: &AdapterProcessSpec,
+    current_dir: &Path,
+    home_dir: Option<&Path>,
+) -> PathBuf {
+    for candidate in spec.args.iter().chain(std::iter::once(&spec.command)) {
+        let Some(path) = expand_adapter_candidate_path(candidate, current_dir, home_dir) else {
+            continue;
+        };
+        if path.is_file()
+            && let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            return parent.to_path_buf();
+        }
+    }
+    current_dir.to_path_buf()
+}
+
 /// Starts a text adapter process and writes a fingerprinted pid file.
 pub fn start_adapter_process(
     spec: &AdapterProcessSpec,
@@ -397,8 +436,16 @@ pub fn start_adapter_process(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    let inferred_working_dir;
     if let Some(working_dir) = &spec.working_dir {
         command.current_dir(working_dir);
+    } else if let Ok(current_dir) = std::env::current_dir() {
+        inferred_working_dir = infer_adapter_working_dir(
+            spec,
+            &current_dir,
+            std::env::var_os("HOME").as_deref().map(Path::new),
+        );
+        command.current_dir(&inferred_working_dir);
     }
 
     let mut child = command.spawn().map_err(|error| {
