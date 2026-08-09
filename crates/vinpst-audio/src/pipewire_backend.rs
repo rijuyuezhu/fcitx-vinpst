@@ -1,4 +1,4 @@
-//! Feature-gated `PipeWire` backend scaffolding.
+//! Feature-gated live `PipeWire` backend.
 //!
 //! Device enumeration is live when a user `PipeWire` session is available.
 //! The recorder owns a live worker thread that keeps an inactive connected
@@ -32,16 +32,16 @@ const DEFAULT_CAPTURE_IDLE_DESTROY_MS: u64 = 15_000;
 const MAX_CAPTURE_IDLE_DESTROY_MS: u64 = 600_000;
 const UNKNOWN_TIMING_MS: u64 = u64::MAX;
 
-/// `PipeWire` stream sample format requested by the future live recorder.
+/// `PipeWire` stream sample format requested by the live recorder.
 pub const RECORDING_FORMAT: &str = "S16LE";
 
-/// `PipeWire` stream sample rate requested by the future live recorder.
+/// `PipeWire` stream sample rate requested by the live recorder.
 pub const RECORDING_SAMPLE_RATE_HZ: u32 = DEFAULT_SAMPLE_RATE_HZ;
 
-/// `PipeWire` stream channel count requested by the future live recorder.
+/// `PipeWire` stream channel count requested by the live recorder.
 pub const RECORDING_CHANNELS: u16 = DEFAULT_CHANNELS;
 
-/// Returns the PCM spec that future `PipeWire` capture must deliver to ASR.
+/// Returns the PCM spec that `PipeWire` capture delivers to ASR.
 #[must_use]
 pub const fn recording_pcm_spec() -> PcmSpec {
     PcmSpec {
@@ -50,7 +50,7 @@ pub const fn recording_pcm_spec() -> PcmSpec {
     }
 }
 
-/// Planned `PipeWire` stream settings for a capture target.
+/// `PipeWire` stream settings for a capture target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PipeWireStreamConfig {
     /// Capture target selected by config or UI.
@@ -203,7 +203,7 @@ enum IdleTimerCommand {
 }
 
 impl PipeWireAudioRecorder {
-    /// Creates a recorder placeholder for future live `PipeWire` capture.
+    /// Creates a reusable live `PipeWire` recorder.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -756,6 +756,9 @@ fn begin_worker_recording(
             Ok(timing)
         }
         Err(_error) if reusable => {
+            // Match the frozen fallback: once reactivation fails, the old
+            // connected stream must not survive a failed replacement attempt.
+            state.stream = None;
             let create_at = Instant::now();
             state.stream = Some(create_persistent_stream(
                 core,
@@ -851,16 +854,9 @@ fn create_persistent_stream(
     first_buffer_latency_ms: &Arc<AtomicU64>,
     config: PipeWireStreamConfig,
 ) -> Result<PersistentPipeWireStream, AudioError> {
-    use pipewire::{properties::properties, spa};
+    use pipewire::spa;
 
-    let mut props = properties! {
-        *pipewire::keys::MEDIA_TYPE => "Audio",
-        *pipewire::keys::MEDIA_CATEGORY => "Capture",
-        *pipewire::keys::MEDIA_ROLE => "Speech",
-    };
-    if let Some(target) = config.target.target_object() {
-        props.insert("target.object", target.to_owned());
-    }
+    let props = pipewire_recording_properties(&config);
     let stream = pipewire::stream::StreamRc::new(core.clone(), "vinpst-capture", props)
         .map_err(|error| pipewire_recording_error(&config, error))?;
     let samples = Rc::new(RefCell::new(Vec::new()));
@@ -896,10 +892,7 @@ fn create_persistent_stream(
         .connect(
             spa::utils::Direction::Input,
             None,
-            pipewire::stream::StreamFlags::AUTOCONNECT
-                | pipewire::stream::StreamFlags::INACTIVE
-                | pipewire::stream::StreamFlags::MAP_BUFFERS
-                | pipewire::stream::StreamFlags::RT_PROCESS,
+            pipewire_recording_stream_flags(),
             &mut param_refs,
         )
         .map_err(|error| pipewire_recording_error(&config, error))?;
@@ -911,6 +904,29 @@ fn create_persistent_stream(
         accepting,
         recording_armed_at,
     })
+}
+
+fn pipewire_recording_properties(
+    config: &PipeWireStreamConfig,
+) -> pipewire::properties::PropertiesBox {
+    use pipewire::properties::properties;
+
+    let mut props = properties! {
+        *pipewire::keys::MEDIA_TYPE => "Audio",
+        *pipewire::keys::MEDIA_CATEGORY => "Capture",
+        *pipewire::keys::MEDIA_ROLE => "Communication",
+        *pipewire::keys::STREAM_CAPTURE_SINK => "false",
+    };
+    if let Some(target) = config.target.target_object() {
+        props.insert("target.object", target.to_owned());
+    }
+    props
+}
+
+fn pipewire_recording_stream_flags() -> pipewire::stream::StreamFlags {
+    pipewire::stream::StreamFlags::AUTOCONNECT
+        | pipewire::stream::StreamFlags::INACTIVE
+        | pipewire::stream::StreamFlags::MAP_BUFFERS
 }
 
 fn capture_stream_buffer(
