@@ -8,6 +8,8 @@ use std::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "sherpa-onnx-backend")]
+use crate::sherpa::sherpa_result_text;
 use crate::{SherpaOnnxModelPathError, SherpaOnnxModelPaths};
 
 #[cfg(any(feature = "sherpa-onnx-backend", test))]
@@ -28,6 +30,23 @@ pub enum SherpaOnnxOnlineModelLayout {
     },
     /// Streaming Zipformer2 CTC model.
     Zipformer2Ctc {
+        /// CTC model.
+        model: PathBuf,
+    },
+    /// Streaming Paraformer model.
+    Paraformer {
+        /// Encoder model.
+        encoder: PathBuf,
+        /// Decoder model.
+        decoder: PathBuf,
+    },
+    /// Streaming `NeMo` CTC model.
+    NemoCtc {
+        /// CTC model.
+        model: PathBuf,
+    },
+    /// Streaming T-One CTC model.
+    TOneCtc {
         /// CTC model.
         model: PathBuf,
     },
@@ -61,6 +80,8 @@ pub struct SherpaOnnxOnlineRuntimePlan {
     pub sample_rate: i32,
     /// Feature dimension.
     pub feature_dim: i32,
+    /// Whether model metadata declares hotword support.
+    pub supports_hotwords: bool,
     /// Decoding method.
     pub decoding_method: String,
     /// Maximum active modified-beam-search paths.
@@ -180,6 +201,15 @@ pub(crate) fn resolve_online_runtime_plan(
 
     let model = parse_model_metadata(&paths.model_dir, &metadata, &metadata_path)?;
     let recognizer = parse_recognizer_metadata(&paths.model_dir, &metadata, &metadata_path)?;
+    let supports_hotwords = boolish(&metadata, "/supports_hotwords", false, &metadata_path)?;
+    let effective_hotwords = supports_hotwords
+        .then(|| {
+            paths
+                .hotwords_file
+                .clone()
+                .or(recognizer.hotwords_file.clone())
+        })
+        .flatten();
 
     Ok(SherpaOnnxOnlineRuntimePlan {
         paths: paths.clone(),
@@ -193,13 +223,18 @@ pub(crate) fn resolve_online_runtime_plan(
         bpe_vocab: model.bpe_vocab,
         sample_rate: recognizer.sample_rate,
         feature_dim: recognizer.feature_dim,
-        decoding_method: recognizer.decoding_method,
+        supports_hotwords,
+        decoding_method: if effective_hotwords.is_some() {
+            "modified_beam_search".to_owned()
+        } else {
+            recognizer.decoding_method
+        },
         max_active_paths: recognizer.max_active_paths,
         enable_endpoint: recognizer.enable_endpoint,
         rule1_min_trailing_silence: recognizer.rule1_min_trailing_silence,
         rule2_min_trailing_silence: recognizer.rule2_min_trailing_silence,
         rule3_min_utterance_length: recognizer.rule3_min_utterance_length,
-        hotwords_file: paths.hotwords_file.clone().or(recognizer.hotwords_file),
+        hotwords_file: effective_hotwords,
         hotwords_score: recognizer.hotwords_score,
         ctc_graph: recognizer.ctc_graph,
         ctc_max_active: recognizer.ctc_max_active,
@@ -231,6 +266,16 @@ fn parse_model_metadata(
         "zipformer2_ctc" => SherpaOnnxOnlineModelLayout::Zipformer2Ctc {
             model: required_file(model_dir, metadata, "/model/zipformer2_ctc/model", &family)?,
         },
+        "paraformer" => SherpaOnnxOnlineModelLayout::Paraformer {
+            encoder: required_file(model_dir, metadata, "/model/paraformer/encoder", &family)?,
+            decoder: required_file(model_dir, metadata, "/model/paraformer/decoder", &family)?,
+        },
+        "nemo_ctc" => SherpaOnnxOnlineModelLayout::NemoCtc {
+            model: required_file(model_dir, metadata, "/model/nemo_ctc/model", &family)?,
+        },
+        "t_one_ctc" => SherpaOnnxOnlineModelLayout::TOneCtc {
+            model: required_file(model_dir, metadata, "/model/t_one_ctc/model", &family)?,
+        },
         _ => {
             return Err(SherpaOnnxModelPathError::UnsupportedOnlineFamily {
                 path: display_path(model_dir),
@@ -241,7 +286,7 @@ fn parse_model_metadata(
     Ok(OnlineModelMetadata {
         layout,
         tokens: required_file(model_dir, metadata, "/model/tokens", "online")?,
-        num_threads: positive_i32(metadata, "/model/num_threads", 1, metadata_path)?,
+        num_threads: 4,
         provider: optional_string(metadata, "/model/provider").unwrap_or_else(|| "cpu".to_owned()),
         debug: boolish(metadata, "/model/debug", false, metadata_path)?,
         model_type: optional_string(metadata, "/model/model_type"),
@@ -579,6 +624,22 @@ fn online_recognizer_config(
                 model: Some(display_path(model)),
             };
         }
+        SherpaOnnxOnlineModelLayout::Paraformer { encoder, decoder } => {
+            config.model_config.paraformer = sherpa_onnx::OnlineParaformerModelConfig {
+                encoder: Some(display_path(encoder)),
+                decoder: Some(display_path(decoder)),
+            };
+        }
+        SherpaOnnxOnlineModelLayout::NemoCtc { model } => {
+            config.model_config.nemo_ctc = sherpa_onnx::OnlineNemoCtcModelConfig {
+                model: Some(display_path(model)),
+            };
+        }
+        SherpaOnnxOnlineModelLayout::TOneCtc { model } => {
+            config.model_config.t_one_ctc = sherpa_onnx::OnlineToneCtcModelConfig {
+                model: Some(display_path(model)),
+            };
+        }
     }
     config.decoding_method = Some(plan.decoding_method.clone());
     config.max_active_paths = plan.max_active_paths;
@@ -600,6 +661,22 @@ fn online_recognizer_config(
         rule_fsts: plan.homophone_rule_fsts.as_deref().map(display_path),
     };
     config
+}
+
+#[cfg(any(test, feature = "sherpa-onnx-backend"))]
+fn enqueue_changed_hypothesis(
+    events: &mut Vec<crate::RecognitionEvent>,
+    last_hypothesis: &mut String,
+    text: &str,
+) {
+    let text = text.trim();
+    if text.is_empty() || text == last_hypothesis {
+        return;
+    }
+    text.clone_into(last_hypothesis);
+    events.push(crate::RecognitionEvent::PartialText {
+        text: text.to_owned(),
+    });
 }
 
 #[cfg(feature = "sherpa-onnx-backend")]
@@ -628,21 +705,17 @@ impl SherpaOnnxOnlineRecognitionSession {
     fn decode_available(&mut self, emit_partial: bool) {
         while self.recognizer.is_ready(&self.stream) {
             self.recognizer.decode(&self.stream);
+            if self.recognizer.is_endpoint(&self.stream) {
+                if emit_partial && let Some(result) = self.recognizer.get_result(&self.stream) {
+                    let text = sherpa_result_text(&result.text, &result.tokens);
+                    enqueue_changed_hypothesis(&mut self.events, &mut self.last_hypothesis, &text);
+                }
+                self.recognizer.reset(&self.stream);
+            }
         }
-        if !emit_partial {
-            return;
+        if emit_partial && let Some(result) = self.recognizer.get_result(&self.stream) {
+            enqueue_changed_hypothesis(&mut self.events, &mut self.last_hypothesis, &result.text);
         }
-        let Some(result) = self.recognizer.get_result(&self.stream) else {
-            return;
-        };
-        let text = result.text.trim();
-        if text.is_empty() || text == self.last_hypothesis {
-            return;
-        }
-        text.clone_into(&mut self.last_hypothesis);
-        self.events.push(crate::RecognitionEvent::PartialText {
-            text: text.to_owned(),
-        });
     }
 
     fn validate_pcm(&mut self, spec: vinpst_audio::PcmSpec) -> Result<(), crate::AsrError> {
@@ -680,7 +753,7 @@ impl crate::RecognitionSession for SherpaOnnxOnlineRecognitionSession {
         let samples = pcm
             .samples()
             .iter()
-            .map(|sample| f32::from(*sample) / f32::from(i16::MAX))
+            .map(|sample| f32::from(*sample) / 32_768.0)
             .collect::<Vec<_>>();
         self.stream.accept_waveform(sample_rate, &samples);
         self.decode_available(true);
@@ -692,28 +765,36 @@ impl crate::RecognitionSession for SherpaOnnxOnlineRecognitionSession {
     }
 
     fn finish(&mut self) -> Result<(), crate::AsrError> {
-        self.ensure_active()?;
+        if self.cancelled {
+            return Err(crate::AsrError::Cancelled);
+        }
+        if self.finished {
+            return Ok(());
+        }
         self.finished = true;
         self.stream.input_finished();
-        self.decode_available(false);
+        self.decode_available(true);
         let result = self.recognizer.get_result(&self.stream).ok_or_else(|| {
             crate::AsrError::Backend("sherpa-onnx online recognizer returned no result".to_owned())
         })?;
-        let text = result.text.trim().to_owned();
-        if text.is_empty() {
-            return Err(crate::AsrError::Backend(
-                "sherpa-onnx online recognizer returned empty text".to_owned(),
-            ));
+        let text = sherpa_result_text(&result.text, &result.tokens);
+        if !text.is_empty() {
+            enqueue_changed_hypothesis(&mut self.events, &mut self.last_hypothesis, &text);
+            self.events
+                .push(crate::RecognitionEvent::FinalText { text });
         }
-        self.events
-            .push(crate::RecognitionEvent::FinalText { text });
         self.events.push(crate::RecognitionEvent::Completed);
         Ok(())
     }
 
     fn cancel(&mut self) -> Result<(), crate::AsrError> {
+        if self.cancelled {
+            return Ok(());
+        }
         self.cancelled = true;
+        self.finished = true;
         self.events.clear();
+        self.events.push(crate::RecognitionEvent::Completed);
         Ok(())
     }
 
@@ -728,6 +809,30 @@ mod tests {
 
     fn write_model_file(root: &Path, name: &str) {
         fs::write(root.join(name), b"model").unwrap();
+    }
+
+    #[test]
+    fn changed_hypothesis_projection_trims_and_deduplicates() {
+        let mut events = Vec::new();
+        let mut last = String::new();
+
+        enqueue_changed_hypothesis(&mut events, &mut last, "  first  ");
+        enqueue_changed_hypothesis(&mut events, &mut last, "first");
+        enqueue_changed_hypothesis(&mut events, &mut last, "   ");
+        enqueue_changed_hypothesis(&mut events, &mut last, "second");
+
+        assert_eq!(last, "second");
+        assert_eq!(
+            events,
+            vec![
+                crate::RecognitionEvent::PartialText {
+                    text: "first".to_owned()
+                },
+                crate::RecognitionEvent::PartialText {
+                    text: "second".to_owned()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -828,7 +933,7 @@ mod tests {
             }
         );
         assert_eq!(plan.tokens, temp.path().join("tokens.txt"));
-        assert_eq!(plan.num_threads, 2);
+        assert_eq!(plan.num_threads, 4);
         assert!(plan.debug);
         assert_eq!(plan.sample_rate, 16_000);
         assert_eq!(plan.ctc_max_active, 3_000);
@@ -838,6 +943,63 @@ mod tests {
             let config = online_recognizer_config(&plan);
             assert!(!config.enable_endpoint);
             assert!((config.rule1_min_trailing_silence - 2.4).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn resolves_all_upstream_online_model_families() {
+        for (family, model_fields, expected) in [
+            (
+                "paraformer",
+                serde_json::json!({"encoder":"encoder.onnx","decoder":"decoder.onnx"}),
+                "paraformer",
+            ),
+            (
+                "nemo_ctc",
+                serde_json::json!({"model":"model.onnx"}),
+                "nemo_ctc",
+            ),
+            (
+                "t_one_ctc",
+                serde_json::json!({"model":"model.onnx"}),
+                "t_one_ctc",
+            ),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            for name in ["encoder.onnx", "decoder.onnx", "model.onnx", "tokens.txt"] {
+                write_model_file(temp.path(), name);
+            }
+            fs::write(
+                temp.path().join("vinpst-model.json"),
+                serde_json::json!({
+                    "backend":"sherpa-streaming",
+                    "family":family,
+                    "model": {
+                        "tokens":"tokens.txt",
+                        family:model_fields
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap();
+            let paths = SherpaOnnxModelPaths {
+                model_dir: temp.path().to_owned(),
+                hotwords_file: None,
+            };
+
+            let plan = resolve_online_runtime_plan(&paths).unwrap();
+            match (&plan.layout, expected) {
+                (SherpaOnnxOnlineModelLayout::Paraformer { encoder, decoder }, "paraformer") => {
+                    assert_eq!(encoder, &temp.path().join("encoder.onnx"));
+                    assert_eq!(decoder, &temp.path().join("decoder.onnx"));
+                }
+                (SherpaOnnxOnlineModelLayout::NemoCtc { model }, "nemo_ctc")
+                | (SherpaOnnxOnlineModelLayout::TOneCtc { model }, "t_one_ctc") => {
+                    assert_eq!(model, &temp.path().join("model.onnx"));
+                }
+                (layout, _) => panic!("unexpected layout {layout:?} for {family}"),
+            }
+            assert_eq!(plan.num_threads, 4);
         }
     }
 
@@ -859,6 +1021,7 @@ mod tests {
                 "backend": "sherpa-streaming",
                 "family": "transducer",
                 "runtime": "online",
+                "supports_hotwords": true,
                 "model": {
                     "tokens": "tokens.txt",
                     "transducer": {
@@ -886,7 +1049,9 @@ mod tests {
             plan.layout,
             SherpaOnnxOnlineModelLayout::Transducer { .. }
         ));
+        assert!(plan.supports_hotwords);
         assert_eq!(plan.hotwords_file, Some(hotwords));
+        assert_eq!(plan.decoding_method, "modified_beam_search");
         assert!((plan.hotwords_score - 2.0).abs() < f32::EPSILON);
         assert!(plan.enable_endpoint);
         assert!((plan.rule1_min_trailing_silence - 2.4).abs() < f32::EPSILON);
@@ -900,6 +1065,50 @@ mod tests {
             assert!((config.rule2_min_trailing_silence - 1.2).abs() < f32::EPSILON);
             assert!((config.rule3_min_utterance_length - 20.0).abs() < f32::EPSILON);
         }
+    }
+
+    #[test]
+    fn online_hotwords_are_ignored_without_model_capability() {
+        let temp = tempfile::tempdir().unwrap();
+        for name in [
+            "encoder.onnx",
+            "decoder.onnx",
+            "joiner.onnx",
+            "tokens.txt",
+            "hotwords.txt",
+        ] {
+            write_model_file(temp.path(), name);
+        }
+        fs::write(
+            temp.path().join("vinpst-model.json"),
+            serde_json::json!({
+                "backend": "sherpa-streaming",
+                "family": "transducer",
+                "model": {
+                    "tokens": "tokens.txt",
+                    "transducer": {
+                        "encoder": "encoder.onnx",
+                        "decoder": "decoder.onnx",
+                        "joiner": "joiner.onnx"
+                    }
+                },
+                "recognizer": {
+                    "decoding_method": "greedy_search",
+                    "hotwords_file": "hotwords.txt"
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let paths = SherpaOnnxModelPaths {
+            model_dir: temp.path().to_owned(),
+            hotwords_file: Some(temp.path().join("hotwords.txt")),
+        };
+
+        let plan = resolve_online_runtime_plan(&paths).unwrap();
+        assert!(!plan.supports_hotwords);
+        assert!(plan.hotwords_file.is_none());
+        assert_eq!(plan.decoding_method, "greedy_search");
     }
 
     #[test]

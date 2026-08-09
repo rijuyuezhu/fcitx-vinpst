@@ -301,9 +301,10 @@ fn last_final_text_wins_like_upstream_event_consumption() {
 }
 
 #[test]
-fn events_without_final_text_return_error() {
-    let error = events_to_payload(&[RecognitionEvent::Completed]).unwrap_err();
-    assert!(matches!(error, AsrError::Backend(message) if message.contains("without final text")));
+fn completed_without_final_text_returns_empty_payload() {
+    let payload = events_to_payload(&[RecognitionEvent::Completed]).unwrap();
+    assert!(payload.commit_text.is_empty());
+    assert!(payload.candidates.is_empty());
 }
 
 #[test]
@@ -1536,6 +1537,51 @@ fn sherpa_onnx_offline_runtime_plan_uses_dolphin_metadata() {
     assert_eq!(plan.settings.modeling_unit.as_deref(), Some("cjkchar"));
     assert_eq!(plan.settings.sample_rate, 16_000);
     assert_eq!(plan.settings.feature_dim, 80);
+}
+
+#[test]
+fn sherpa_onnx_offline_hotword_capability_controls_runtime_settings() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path();
+    for name in ["model.onnx", "tokens.txt", "hotwords.txt"] {
+        std::fs::write(model_dir.join(name), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline",
+            "family":"paraformer",
+            "supports_hotwords":true,
+            "model": {
+                "tokens":"tokens.txt",
+                "paraformer": {"model":"model.onnx"}
+            },
+            "recognizer": {
+                "decoding_method":"greedy_search",
+                "hotwords_file":"hotwords.txt"
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some(model_dir.to_string_lossy().into_owned()),
+        hotwords_file: Some(
+            model_dir
+                .join("hotwords.txt")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        timeout_ms: None,
+    };
+
+    let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+    assert!(plan.settings.supports_hotwords);
+    assert_eq!(
+        plan.paths.hotwords_file.as_deref(),
+        Some(model_dir.join("hotwords.txt").as_path())
+    );
 }
 
 #[test]

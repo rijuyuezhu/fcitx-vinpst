@@ -215,10 +215,12 @@ impl RuntimeState {
             })
         })();
 
-        if result.is_ok() {
-            self.status = ServiceStatus::Postprocessing;
-        } else {
-            self.reset_to_idle();
+        match &result {
+            Ok(pending) if pending.needs_postprocessing() => {
+                self.status = ServiceStatus::Postprocessing;
+            }
+            Ok(_) => {}
+            Err(_) => self.reset_to_idle(),
         }
         result
     }
@@ -228,27 +230,40 @@ impl RuntimeState {
         &mut self,
         pending: PendingStopRecording,
     ) -> Result<StopRecordingReport, RuntimeError> {
-        if self.status != ServiceStatus::Postprocessing {
+        let needs_postprocessing = pending.needs_postprocessing();
+        let expected_status = if needs_postprocessing {
+            ServiceStatus::Postprocessing
+        } else {
+            ServiceStatus::Inferring
+        };
+        if self.status != expected_status {
             let _ = pending.session.cancel();
             return Err(RuntimeError::Busy(self.status));
         }
 
-        let result = self
-            .text_processor
-            .finish_report(&TextRequest {
-                raw_text: &pending.raw_payload.commit_text,
-                scene: &pending.scene,
-                selected_text: pending.selected_text.as_deref(),
-            })
-            .map(|report| StopRecordingReport {
-                payload: report.payload,
+        let result = if needs_postprocessing {
+            self.text_processor
+                .finish_report(&TextRequest {
+                    raw_text: &pending.raw_payload.commit_text,
+                    scene: &pending.scene,
+                    selected_text: pending.selected_text.as_deref(),
+                })
+                .map(|report| StopRecordingReport {
+                    payload: report.payload,
+                    partial_text: pending.partial_text,
+                    postprocess_warning: report.warning,
+                })
+                .map_err(|error| {
+                    let _ = pending.session.cancel();
+                    RuntimeError::Finish(error)
+                })
+        } else {
+            Ok(StopRecordingReport {
+                payload: pending.raw_payload,
                 partial_text: pending.partial_text,
-                postprocess_warning: report.warning,
+                postprocess_warning: None,
             })
-            .map_err(|error| {
-                let _ = pending.session.cancel();
-                RuntimeError::Finish(error)
-            });
+        };
         self.reset_to_idle();
         result
     }

@@ -22,13 +22,14 @@ pub fn events_to_payload(events: &[RecognitionEvent]) -> Result<RecognitionPaylo
         | RecognitionEvent::Completed => None,
     });
 
-    match final_text {
-        Some(text) => Ok(RecognitionPayload {
+    Ok(match final_text {
+        Some(text) => RecognitionPayload {
             commit_text: text.to_owned(),
             candidates: vec![Candidate::new(text, CandidateSource::Raw)],
-        }),
-        None => Err(AsrError::Backend(
-            "recognition completed without final text".to_owned(),
-        )),
-    }
+        },
+        None => RecognitionPayload {
+            commit_text: String::new(),
+            candidates: Vec::new(),
+        },
+    })
 }

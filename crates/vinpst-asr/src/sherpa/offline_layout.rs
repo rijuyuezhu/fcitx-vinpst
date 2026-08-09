@@ -383,7 +383,7 @@ fn metadata_asset_path(
 
 fn default_offline_settings(family: &str) -> SherpaOnnxOfflineSettings {
     SherpaOnnxOfflineSettings {
-        num_threads: 1,
+        num_threads: 4,
         provider: "cpu".to_owned(),
         debug: false,
         model_type: Some(family.to_owned()),
@@ -394,6 +394,7 @@ fn default_offline_settings(family: &str) -> SherpaOnnxOfflineSettings {
         feature_dim: 80,
         lm_model: None,
         lm_scale: 0.5,
+        supports_hotwords: false,
         decoding_method: "greedy_search".to_owned(),
         max_active_paths: 4,
         hotwords_file: None,
@@ -413,6 +414,8 @@ fn parse_offline_settings(
     family: &str,
 ) -> Result<SherpaOnnxOfflineSettings, SherpaOnnxModelPathError> {
     let mut settings = default_offline_settings(family);
+    settings.supports_hotwords =
+        metadata_boolish(metadata, "/supports_hotwords", false, metadata_path)?;
     parse_offline_model_settings(&mut settings, model_dir, metadata, metadata_path, family)?;
     parse_offline_recognizer_settings(&mut settings, model_dir, metadata, metadata_path, family)?;
     Ok(settings)

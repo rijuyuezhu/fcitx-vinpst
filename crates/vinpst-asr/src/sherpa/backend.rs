@@ -7,6 +7,8 @@ use crate::{
     RecognitionEvent, RecognitionSession,
 };
 
+#[cfg(feature = "sherpa-onnx-backend")]
+use super::sherpa_result_text;
 use super::{
     SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan, SherpaOnnxSpec,
     offline_layout::display_path,
@@ -148,14 +150,22 @@ fn apply_offline_settings(
     config.feat_config.feature_dim = settings.feature_dim;
     config.lm_config.model = settings.lm_model.as_deref().map(display_path);
     config.lm_config.scale = settings.lm_scale;
-    config.decoding_method = Some(settings.decoding_method.clone());
+    let effective_hotwords = settings
+        .supports_hotwords
+        .then(|| {
+            plan.paths
+                .hotwords_file
+                .as_deref()
+                .or(settings.hotwords_file.as_deref())
+        })
+        .flatten();
+    config.decoding_method = Some(if effective_hotwords.is_some() {
+        "modified_beam_search".to_owned()
+    } else {
+        settings.decoding_method.clone()
+    });
     config.max_active_paths = settings.max_active_paths;
-    config.hotwords_file = plan
-        .paths
-        .hotwords_file
-        .as_deref()
-        .or(settings.hotwords_file.as_deref())
-        .map(display_path);
+    config.hotwords_file = effective_hotwords.map(display_path);
     config.hotwords_score = settings.hotwords_score;
     config.rule_fsts = settings.rule_fsts.as_deref().map(display_path);
     config.rule_fars = settings.rule_fars.as_deref().map(display_path);
@@ -343,14 +353,14 @@ impl RecognitionSession for SherpaOnnxRecognitionSession {
             return Err(AsrError::Cancelled);
         }
         if self.finished {
-            return Err(AsrError::AlreadyFinished);
+            return Ok(());
         }
         self.finished = true;
         let stream = self.recognizer.create_stream();
         let mut samples = self
             .samples
             .iter()
-            .map(|sample| f32::from(*sample) / f32::from(i16::MAX))
+            .map(|sample| f32::from(*sample) / 32_768.0)
             .collect::<Vec<_>>();
         if self.pcm.channels == 1
             && let Some(vad) = &self.vad
@@ -371,22 +381,24 @@ impl RecognitionSession for SherpaOnnxRecognitionSession {
         let result = stream.get_result().ok_or_else(|| {
             AsrError::Backend("sherpa-onnx recognizer returned no result".to_owned())
         })?;
-        let text = result.text.trim().to_owned();
-        if text.is_empty() {
-            return Err(AsrError::Backend(
-                "sherpa-onnx recognizer returned empty text".to_owned(),
-            ));
+        let text = sherpa_result_text(&result.text, &result.tokens);
+        self.events.clear();
+        if !text.is_empty() {
+            self.events.push(RecognitionEvent::FinalText { text });
         }
-        self.events = vec![
-            RecognitionEvent::FinalText { text },
-            RecognitionEvent::Completed,
-        ];
+        self.events.push(RecognitionEvent::Completed);
         Ok(())
     }
 
     fn cancel(&mut self) -> Result<(), AsrError> {
+        if self.cancelled {
+            return Ok(());
+        }
         self.cancelled = true;
+        self.finished = true;
+        self.samples.clear();
         self.events.clear();
+        self.events.push(RecognitionEvent::Completed);
         Ok(())
     }
 

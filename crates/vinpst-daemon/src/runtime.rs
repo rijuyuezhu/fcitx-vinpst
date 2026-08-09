@@ -128,6 +128,12 @@ pub(crate) struct PendingStopRecording {
     partial_text: Option<String>,
 }
 
+impl PendingStopRecording {
+    pub(crate) fn needs_postprocessing(&self) -> bool {
+        !self.raw_payload.commit_text.is_empty()
+    }
+}
+
 impl RuntimeState {
     /// Builds an idle runtime from validated config and a deterministic mock ASR backend.
     pub fn new(config: VinpstConfig) -> Result<Self, RuntimeError> {

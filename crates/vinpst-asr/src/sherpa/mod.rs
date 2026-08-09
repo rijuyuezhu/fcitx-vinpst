@@ -14,6 +14,15 @@ use vinpst_config::{AsrProviderConfig, AsrProviderKind};
 
 use crate::AsrError;
 
+#[cfg(any(test, feature = "sherpa-onnx-backend"))]
+pub(crate) fn sherpa_result_text(text: &str, tokens: &[String]) -> String {
+    let text = text.trim();
+    if !text.is_empty() {
+        return text.to_owned();
+    }
+    tokens.concat().trim().to_owned()
+}
+
 use offline_layout::{display_path, infer_offline_layout, reject_url_like, resolve_against};
 
 /// Legacy local provider id used by bundled config and diagnostics.
@@ -150,6 +159,8 @@ pub struct SherpaOnnxOfflineSettings {
     pub lm_model: Option<PathBuf>,
     /// Language-model scale.
     pub lm_scale: f32,
+    /// Whether model metadata declares hotword support.
+    pub supports_hotwords: bool,
     /// Decoding method.
     pub decoding_method: String,
     /// Maximum active decoding paths.
@@ -454,3 +465,21 @@ mod offline_layout;
 
 #[cfg(feature = "sherpa-onnx-backend")]
 pub use backend::SherpaOnnxBackend;
+
+#[cfg(test)]
+mod result_text_tests {
+    use super::sherpa_result_text;
+
+    #[test]
+    fn result_text_prefers_text_and_falls_back_to_tokens() {
+        assert_eq!(
+            sherpa_result_text("  direct  ", &["ignored".to_owned()]),
+            "direct"
+        );
+        assert_eq!(
+            sherpa_result_text("   ", &[" token".to_owned(), " text ".to_owned()]),
+            "token text"
+        );
+        assert_eq!(sherpa_result_text("", &[]), "");
+    }
+}

@@ -2093,7 +2093,6 @@ fn asr_stop_result_failures_cancel_session_and_return_to_idle() {
         SessionFailureStage::PartialPoll,
         SessionFailureStage::Finish,
         SessionFailureStage::FinalPoll,
-        SessionFailureStage::NoFinalText,
     ] {
         let config = VinpstConfig::bundled_default().unwrap();
         let cancelled = Arc::new(Mutex::new(false));
@@ -2124,6 +2123,38 @@ fn asr_stop_result_failures_cancel_session_and_return_to_idle() {
             vec!["begin", "stop"]
         );
     }
+}
+
+#[test]
+fn completed_without_final_text_skips_postprocessing_and_returns_empty_payload() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let cancelled = Arc::new(Mutex::new(false));
+    let backend =
+        SessionFailureBackend::new(Arc::clone(&cancelled), SessionFailureStage::NoFinalText);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let processor = RecordingTextProcessor {
+        calls: Arc::clone(&calls),
+    };
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[96, -96]),
+    )));
+    let mut runtime = RuntimeState::with_components(
+        config,
+        Box::new(backend),
+        Box::new(source),
+        Box::new(processor),
+    )
+    .unwrap();
+
+    runtime.start_recording().unwrap();
+    let report = runtime.stop_recording_report(None).unwrap();
+
+    assert!(report.payload.commit_text.is_empty());
+    assert!(report.payload.candidates.is_empty());
+    assert!(report.postprocess_warning.is_none());
+    assert!(calls.lock().expect("processor calls poisoned").is_empty());
+    assert!(!*cancelled.lock().expect("cancel lock poisoned"));
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
 }
 
 #[test]

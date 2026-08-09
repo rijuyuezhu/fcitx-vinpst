@@ -8,7 +8,11 @@ use std::{
 
 use futures_util::StreamExt;
 use tokio::time::{sleep, timeout};
-use vinpst_asr::{AsrBackendFactory, MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend};
+use vinpst_asr::{
+    AsrBackend, AsrBackendFactory, AsrError, BackendCapabilities, BackendDescriptor,
+    MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend, RecognitionContext, RecognitionEvent,
+    RecognitionSession,
+};
 use vinpst_audio::{
     AudioChunkCallback, AudioError, AudioRecorder, CaptureTarget, CapturedAudio, MockAudioSource,
     PcmBuffer,
@@ -77,6 +81,63 @@ fn recognizable_samples(pattern: &[i16]) -> Vec<i16> {
         .cycle()
         .take(MIN_SAMPLES_FOR_RECOGNITION)
         .collect()
+}
+
+#[derive(Debug)]
+struct EmptyRecognitionBackend;
+
+impl AsrBackend for EmptyRecognitionBackend {
+    fn describe(&self) -> BackendDescriptor {
+        BackendDescriptor::new("empty", "", "Empty ASR", BackendCapabilities::buffered())
+    }
+
+    fn create_session(
+        &self,
+        _context: RecognitionContext,
+    ) -> Result<Box<dyn RecognitionSession>, AsrError> {
+        Ok(Box::new(EmptyRecognitionSession {
+            events: Vec::new(),
+            finished: false,
+            cancelled: false,
+        }))
+    }
+}
+
+struct EmptyRecognitionSession {
+    events: Vec<RecognitionEvent>,
+    finished: bool,
+    cancelled: bool,
+}
+
+impl RecognitionSession for EmptyRecognitionSession {
+    fn push_audio(&mut self, _samples: &[i16]) -> Result<(), AsrError> {
+        if self.cancelled {
+            return Err(AsrError::Cancelled);
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), AsrError> {
+        if self.cancelled {
+            return Err(AsrError::Cancelled);
+        }
+        if !self.finished {
+            self.finished = true;
+            self.events.push(RecognitionEvent::Completed);
+        }
+        Ok(())
+    }
+
+    fn cancel(&mut self) -> Result<(), AsrError> {
+        self.cancelled = true;
+        self.events.clear();
+        self.events.push(RecognitionEvent::Completed);
+        Ok(())
+    }
+
+    fn poll_events(&mut self) -> Result<Vec<RecognitionEvent>, AsrError> {
+        Ok(std::mem::take(&mut self.events))
+    }
 }
 
 async fn spawn_service() -> anyhow::Result<zbus::Connection> {
@@ -827,6 +888,45 @@ async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> an
 }
 
 #[allow(clippy::too_many_lines)]
+#[tokio::test]
+async fn empty_recognition_skips_postprocessing_and_emits_empty_result() -> anyhow::Result<()> {
+    let config = VinpstConfig::bundled_default()?;
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[64, -64]),
+    )));
+    let runtime =
+        RuntimeState::with_backends(config, Box::new(EmptyRecognitionBackend), Box::new(source))?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
+    let mut result_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_RESULT)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
+
+    let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
+    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
+    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
+    expect_no_string_signal(&mut status_signals).await?;
+    let payload = RecognitionPayload::from_json_str(&payload_json)?;
+    assert!(payload.commit_text.is_empty());
+    assert!(payload.candidates.is_empty());
+    assert_eq!(next_string_signal(&mut result_signals).await?, payload_json);
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
     let _well_known_name_guard = WELL_KNOWN_NAME_TEST_LOCK.lock().await;
