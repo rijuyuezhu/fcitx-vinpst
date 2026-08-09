@@ -370,8 +370,8 @@ mod help_surface_tests {
     use clap::{CommandFactory, Parser};
 
     use super::{
-        AdapterCommand, Args, Command, ConfigCommand, DeviceCommand, ModelCommand, ProviderCommand,
-        RecordingCommand, SceneCommand,
+        AdapterCommand, Args, Command, ConfigCommand, DeviceCommand, LlmCommand, ModelCommand,
+        ProviderCommand, RecordingCommand, SceneCommand,
     };
     use crate::hotword::HotwordCommand;
 
@@ -648,6 +648,64 @@ mod help_surface_tests {
             args.command,
             Some(Command::Device {
                 command: DeviceCommand::List { .. }
+            })
+        ));
+    }
+
+    #[test]
+    fn frozen_llm_and_adapter_command_shape_remains_accepted() {
+        let args = Args::try_parse_from(["vinpst", "llm", "ls"]).expect("upstream LLM list alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Llm {
+                command: LlmCommand::List { .. }
+            })
+        ));
+
+        let args = Args::try_parse_from([
+            "vinpst",
+            "llm",
+            "e",
+            "provider.demo",
+            "--extra-body",
+            "{}",
+            "--dry-run",
+        ])
+        .expect("upstream LLM edit alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Llm {
+                command: LlmCommand::Edit { .. }
+            })
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "llm", "rm", "provider.demo", "--dry-run"])
+            .expect("upstream LLM remove alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Llm {
+                command: LlmCommand::Remove { .. }
+            })
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "adapter", "ls", "-a"])
+            .expect("upstream adapter available-list alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Adapter {
+                command: AdapterCommand::List {
+                    available: true,
+                    ..
+                }
+            })
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "adapter", "add", "adapter.demo", "--dry-run"])
+            .expect("upstream adapter add alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Adapter {
+                command: AdapterCommand::Install { .. }
             })
         ));
     }

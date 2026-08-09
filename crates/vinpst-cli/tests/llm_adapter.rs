@@ -383,6 +383,29 @@ fn llm_edit_in_place_writes_backup_and_clears_extra_body() {
 }
 
 #[test]
+fn llm_edit_accepts_frozen_empty_object_extra_body() {
+    let root = unique_temp_dir("vinpst-llm-edit-empty-extra-body");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, llm_fixture_json()).expect("write llm config");
+
+    let output = vinpst_command()
+        .args(["llm", "edit", "openai", "--extra-body", "{}", "--config"])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run frozen-compatible empty extra-body edit");
+
+    let value = assert_json_success(output, "llm edit empty extra-body json");
+    assert_eq!(value["wrote_config"], true);
+    let json = read_json(&config_path);
+    assert_eq!(
+        json["llm"]["providers"][0]["extra_body"],
+        serde_json::json!({})
+    );
+    fs::remove_dir_all(root).expect("remove llm empty extra-body fixture dir");
+}
+
+#[test]
 fn llm_edit_rejects_invalid_inputs() {
     let path = write_llm_fixture("vinpst-llm-edit-errors");
 
