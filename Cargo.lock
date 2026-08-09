@@ -4305,6 +4305,7 @@ dependencies = [
  "vinpst-asr",
  "vinpst-audio",
  "vinpst-config",
+ "vinpst-process",
  "vinpst-protocol",
  "vinpst-registry",
  "vinpst-text",
