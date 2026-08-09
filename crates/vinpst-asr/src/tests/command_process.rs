@@ -20,6 +20,23 @@ fn wait_until_process_stops_running(pid: u32) {
     assert!(!process_is_runnable(pid), "process {pid} remained runnable");
 }
 
+fn wait_for_pid_file(path: &std::path::Path) -> u32 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        if let Ok(contents) = std::fs::read_to_string(path)
+            && let Ok(pid) = contents.trim().parse::<u32>()
+        {
+            return pid;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "helper did not publish a parseable PID at {}",
+            path.display()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn legacy_command_batch_runner_writes_raw_little_endian_pcm() {
     let script_path = write_temp_script(
@@ -411,11 +428,7 @@ for _ in sys.stdin:
         let _ = session.poll_events().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    let child_pid = std::fs::read_to_string(&child_pid_path)
-        .unwrap()
-        .trim()
-        .parse::<u32>()
-        .unwrap();
+    let child_pid = wait_for_pid_file(&child_pid_path);
 
     session.cancel().unwrap();
     wait_until_process_stops_running(child_pid);
@@ -754,11 +767,7 @@ fn legacy_command_streaming_runner_cleans_descendants_after_direct_exit() {
             RecognitionEvent::Completed,
         ]
     );
-    let child_pid = std::fs::read_to_string(child_pid_path)
-        .unwrap()
-        .trim()
-        .parse::<u32>()
-        .unwrap();
+    let child_pid = wait_for_pid_file(&child_pid_path);
     wait_until_process_stops_running(child_pid);
 }
 
@@ -1008,11 +1017,7 @@ fn process_command_asr_runner_times_out_and_kills_descendants() {
         error,
         AsrError::Backend(message) if message == "command ASR provider `cmd` timed out after 100 ms"
     ));
-    let child_pid = std::fs::read_to_string(child_pid_path)
-        .unwrap()
-        .trim()
-        .parse::<u32>()
-        .unwrap();
+    let child_pid = wait_for_pid_file(&child_pid_path);
     wait_until_process_stops_running(child_pid);
 }
 
