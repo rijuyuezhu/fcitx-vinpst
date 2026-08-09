@@ -176,7 +176,7 @@ fn init_force_overwrites_existing_config() {
     );
 
     let output = vinpst_command()
-        .args(["init", "--force", "--json"])
+        .args(["init", "-f", "--json"])
         .arg("--config")
         .arg(&config_path)
         .arg("--model-root")

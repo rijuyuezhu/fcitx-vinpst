@@ -61,7 +61,7 @@ pub(crate) enum Command {
         #[arg(long, hide = true)]
         cache_root: Option<PathBuf>,
         /// Overwrite an existing config file with the bundled default config.
-        #[arg(long)]
+        #[arg(short = 'f', long)]
         force: bool,
         /// Print the initialization plan without writing files or creating directories.
         #[arg(long)]

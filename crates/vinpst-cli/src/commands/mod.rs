@@ -1,6 +1,7 @@
 mod adapter;
 mod config;
 mod device;
+mod init;
 mod llm;
 mod model;
 mod provider;
@@ -14,6 +15,7 @@ pub(crate) use config::{
     handle_config_get, handle_config_set, validate_config_file,
 };
 pub(crate) use device::handle_device_command;
+pub(crate) use init::{InitRequest, handle_init};
 pub(crate) use llm::handle_llm_command;
 pub(crate) use model::handle_model_command;
 pub(crate) use provider::{
@@ -25,7 +27,7 @@ pub(crate) use registry::{
 };
 pub(crate) use scene::handle_scene_command;
 pub(crate) use system::{
-    InitRequest, handle_init, print_asr_state, print_audio_devices, print_doctor, print_protocol,
+    print_asr_state, print_audio_devices, print_doctor, print_protocol,
     print_user_activation_service_status, remove_user_activation_service, validate_config,
     write_activation_service,
 };
