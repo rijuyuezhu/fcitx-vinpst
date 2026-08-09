@@ -503,6 +503,25 @@ mod help_surface_tests {
 
     #[test]
     fn familiar_upstream_edit_and_remove_aliases_remain_accepted() {
+        let args = Args::try_parse_from(["vinpst", "config", "g", "/global/default_language"])
+            .expect("upstream config get alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Config {
+                command: Some(ConfigCommand::Get { .. })
+            })
+        ));
+
+        let args =
+            Args::try_parse_from(["vinpst", "config", "s", "/global/default_language", "en"])
+                .expect("upstream config set alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Config {
+                command: Some(ConfigCommand::Set { .. })
+            })
+        ));
+
         let args =
             Args::try_parse_from(["vinpst", "config", "e"]).expect("upstream config edit alias");
         assert!(matches!(

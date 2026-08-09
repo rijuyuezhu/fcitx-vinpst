@@ -262,6 +262,44 @@ fn config_set_dry_run_json_validates_without_writing() {
 }
 
 #[test]
+fn config_set_stdin_preserves_frozen_multiline_input_semantics() {
+    let root = unique_temp_dir("vinpst-cli-config-set-stdin");
+    let config_path = copy_default_config(&root);
+
+    let mut child = vinpst_command()
+        .args([
+            "config",
+            "set",
+            "/scenes/definitions/1/prompt",
+            "-i",
+            "--config",
+        ])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn vinpst config set --stdin");
+    std::io::Write::write_all(
+        child.stdin.as_mut().expect("stdin pipe"),
+        b"first prompt line\nsecond prompt line\n",
+    )
+    .expect("write config value to stdin");
+    let output = child
+        .wait_with_output()
+        .expect("wait for config set --stdin");
+
+    let value = assert_json_success(output, "config set --stdin json");
+    assert_eq!(value["raw_value"], "first prompt line\nsecond prompt line");
+    assert_eq!(value["after"], "first prompt line\nsecond prompt line");
+    assert_eq!(
+        read_json(&config_path)["scenes"]["definitions"][1]["prompt"],
+        "first prompt line\nsecond prompt line"
+    );
+}
+
+#[test]
 fn config_set_string_flag_preserves_json_looking_value_as_string() {
     let root = unique_temp_dir("vinpst-cli-config-set-string");
     let config_path = copy_default_config(&root);
@@ -477,7 +515,15 @@ fn config_edit_dry_run_json_plans_default_user_config_without_writes() {
     let root = unique_temp_dir("vinpst-cli-config-edit-dry-run");
     let config_home = root.join("config-home");
     let output = vinpst_command()
-        .args(["config", "edit", "--dry-run", "--editor", "true", "--json"])
+        .args([
+            "config",
+            "edit",
+            "core",
+            "--dry-run",
+            "--editor",
+            "true",
+            "--json",
+        ])
         .env("XDG_CONFIG_HOME", &config_home)
         .env("XDG_DATA_HOME", root.join("data-home"))
         .env("XDG_CACHE_HOME", root.join("cache-home"))
@@ -503,6 +549,50 @@ fn config_edit_dry_run_json_plans_default_user_config_without_writes() {
     assert!(
         !config_home.exists(),
         "dry-run should not create config home"
+    );
+}
+
+#[test]
+fn config_edit_fcitx_uses_xdg_target_and_safe_backup() {
+    let root = unique_temp_dir("vinpst-cli-config-edit-fcitx");
+    let config_home = root.join("config-home");
+    let config_path = config_home.join("fcitx5/conf/vinpst.conf");
+    std::fs::create_dir_all(config_path.parent().expect("fcitx config parent"))
+        .expect("create Fcitx config parent");
+    let original = "TriggerMode=Both\n";
+    std::fs::write(&config_path, original).expect("write Fcitx config");
+    let editor = write_editor_script(
+        &root,
+        "edit_fcitx.py",
+        r#"
+import sys
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write("TriggerMode=Hold\n")
+"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "edit", "fcitx", "--editor"])
+        .arg(format!("python3 {}", editor.display()))
+        .arg("--json")
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("HOME", root.join("home"))
+        .output()
+        .expect("run vinpst config edit fcitx");
+
+    let value = assert_json_success(output, "config edit fcitx json");
+    assert_eq!(value["target"], "fcitx");
+    assert_eq!(value["config_path"], config_path.to_string_lossy().as_ref());
+    assert_eq!(value["changed"], true);
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(
+        std::fs::read_to_string(&config_path).expect("read edited Fcitx config"),
+        "TriggerMode=Hold\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(config_path.with_extension("conf.bak"))
+            .expect("read Fcitx config backup"),
+        original
     );
 }
 

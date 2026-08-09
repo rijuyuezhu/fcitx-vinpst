@@ -13,6 +13,13 @@ pub(crate) fn default_config_path() -> anyhow::Result<PathBuf> {
     Ok(user_config_home()?.join("fcitx-vinpst").join("config.json"))
 }
 
+pub(crate) fn default_fcitx_config_path() -> anyhow::Result<PathBuf> {
+    Ok(user_config_home()?
+        .join("fcitx5")
+        .join("conf")
+        .join("vinpst.conf"))
+}
+
 pub(crate) fn user_config_home() -> anyhow::Result<PathBuf> {
     match std::env::var_os("XDG_CONFIG_HOME") {
         Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),

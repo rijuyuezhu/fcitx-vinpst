@@ -54,7 +54,7 @@ use daemon_control::{
 use hotword::handle_hotword_command;
 use live_i18n::{LoadedLiveI18n, load_live_i18n};
 use paths::{
-    default_adapter_root, default_cache_root, default_config_path,
+    default_adapter_root, default_cache_root, default_config_path, default_fcitx_config_path,
     default_model_install_staging_root, default_model_root, default_provider_root, quote_exec_arg,
     user_activation_service_path, user_data_home, user_home,
 };
@@ -131,6 +131,7 @@ fn main() -> anyhow::Result<()> {
             Some(ConfigCommand::Set {
                 pointer,
                 value,
+                stdin,
                 string,
                 config,
                 output,
@@ -139,7 +140,8 @@ fn main() -> anyhow::Result<()> {
                 json,
             }) => handle_config_set(ConfigSetRequest {
                 pointer: &pointer,
-                raw_value: &value,
+                raw_value: value.as_deref(),
+                from_stdin: stdin,
                 force_string: string,
                 config_path: config.as_ref(),
                 output_path: output.as_deref(),
@@ -148,11 +150,13 @@ fn main() -> anyhow::Result<()> {
                 json_output: json,
             }),
             Some(ConfigCommand::Edit {
+                target,
                 config,
                 editor,
                 dry_run,
                 json,
             }) => handle_config_edit(ConfigEditRequest {
+                target: &target,
                 config_path: config.as_ref(),
                 editor: editor.as_deref(),
                 dry_run,

@@ -1,8 +1,10 @@
+use std::io::BufRead;
+
 use crate::{
     ConfigExample, Context, LoadedConfigJson, Path, PathBuf, ProcessCommand, ValueEnum,
     VinpstConfig, config_backup_path, config_example_contents, config_example_description,
-    config_set_write_target, config_summary_json, default_config_path, fs, load_config_json,
-    split_editor_argv, validate_config_json_value, write_config_set_document,
+    config_set_write_target, config_summary_json, default_config_path, default_fcitx_config_path,
+    fs, load_config_json, split_editor_argv, validate_config_json_value, write_config_set_document,
     write_private_file_atomically,
 };
 
@@ -82,7 +84,8 @@ fn print_config_get_exists(
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct ConfigSetRequest<'a> {
     pub(crate) pointer: &'a str,
-    pub(crate) raw_value: &'a str,
+    pub(crate) raw_value: Option<&'a str>,
+    pub(crate) from_stdin: bool,
     pub(crate) force_string: bool,
     pub(crate) config_path: Option<&'a PathBuf>,
     pub(crate) output_path: Option<&'a Path>,
@@ -110,7 +113,15 @@ struct ConfigSetOutcome {
 
 pub(crate) fn handle_config_set(request: ConfigSetRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
-    let outcome = run_config_set(&request)?;
+    let raw_value = if request.from_stdin {
+        read_config_value_from_stdin()?
+    } else {
+        request
+            .raw_value
+            .context("config set requires VALUE or --stdin")?
+            .to_owned()
+    };
+    let outcome = run_config_set(&request, &raw_value)?;
     if json_output {
         println!(
             "{}",
@@ -122,7 +133,23 @@ pub(crate) fn handle_config_set(request: ConfigSetRequest<'_>) -> anyhow::Result
     Ok(())
 }
 
-fn run_config_set(request: &ConfigSetRequest<'_>) -> anyhow::Result<ConfigSetOutcome> {
+fn read_config_value_from_stdin() -> anyhow::Result<String> {
+    let stdin = std::io::stdin();
+    let mut value = String::new();
+    for line in stdin.lock().lines() {
+        let line = line.context("read config value from stdin")?;
+        if !value.is_empty() {
+            value.push('\n');
+        }
+        value.push_str(&line);
+    }
+    Ok(value)
+}
+
+fn run_config_set(
+    request: &ConfigSetRequest<'_>,
+    raw_value: &str,
+) -> anyhow::Result<ConfigSetOutcome> {
     ensure_json_pointer(request.pointer)?;
     let default_path = default_config_path()?;
     let mut loaded = load_config_json(request.config_path)?;
@@ -131,8 +158,7 @@ fn run_config_set(request: &ConfigSetRequest<'_>) -> anyhow::Result<ConfigSetOut
         .pointer(request.pointer)
         .with_context(|| format!("config pointer `{}` not found", request.pointer))?
         .clone();
-    let (after, parsed_value_kind) =
-        parse_config_set_value(request.raw_value, request.force_string);
+    let (after, parsed_value_kind) = parse_config_set_value(raw_value, request.force_string);
     *loaded
         .document
         .pointer_mut(request.pointer)
@@ -159,7 +185,7 @@ fn run_config_set(request: &ConfigSetRequest<'_>) -> anyhow::Result<ConfigSetOut
         config_path: loaded.path.take(),
         source: loaded.source,
         pointer: request.pointer.to_owned(),
-        raw_value: request.raw_value.to_owned(),
+        raw_value: raw_value.to_owned(),
         force_string: request.force_string,
         parsed_value_kind,
         before,
@@ -246,13 +272,29 @@ fn print_config_value(value: &serde_json::Value) -> anyhow::Result<()> {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ConfigEditRequest<'a> {
+    pub(crate) target: &'a str,
     pub(crate) config_path: Option<&'a PathBuf>,
     pub(crate) editor: Option<&'a str>,
     pub(crate) dry_run: bool,
     pub(crate) json_output: bool,
 }
 
+#[derive(Clone, Copy)]
+enum ConfigEditKind {
+    Core,
+    Fcitx,
+}
+
+struct ConfigEditSource {
+    kind: ConfigEditKind,
+    target: &'static str,
+    path: PathBuf,
+    source: &'static str,
+    contents: String,
+}
+
 struct ConfigEditPlan {
+    target: &'static str,
     config_path: PathBuf,
     source: &'static str,
     editor_argv: Vec<String>,
@@ -284,21 +326,14 @@ pub(crate) fn handle_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Resu
 }
 
 fn run_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Result<ConfigEditOutcome> {
-    let default_path = default_config_path()?;
-    let target_path = request
-        .config_path
-        .cloned()
-        .unwrap_or_else(|| default_path.clone());
-    let loaded = load_config_json(request.config_path)?;
-    let contents =
-        serde_json::to_string_pretty(&loaded.document).context("serialize editable config")?;
-    let contents = format!("{contents}\n");
+    let source = prepare_config_edit_source(&request)?;
     let editor_argv = resolve_config_editor(request.editor)?;
-    let existed = target_path.exists();
-    let backup_path = existed.then(|| config_backup_path(&target_path));
+    let existed = source.path.exists();
+    let backup_path = existed.then(|| config_backup_path(&source.path));
     let plan = ConfigEditPlan {
-        config_path: target_path.clone(),
-        source: loaded.source,
+        target: source.target,
+        config_path: source.path.clone(),
+        source: source.source,
         editor_argv,
         backup_path,
         existed,
@@ -315,8 +350,8 @@ fn run_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Result<ConfigEditO
         });
     }
 
-    let temp_path = config_edit_temp_path(&target_path);
-    write_config_edit_temp_file(&temp_path, &contents)?;
+    let temp_path = config_edit_temp_path(&source.path);
+    write_config_edit_temp_file(&temp_path, &source.contents)?;
     let status = run_config_editor(&plan.editor_argv, &temp_path)?;
     let exit_status = status.code();
     if !status.success() {
@@ -330,35 +365,11 @@ fn run_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Result<ConfigEditO
 
     let edited_contents = fs::read_to_string(&temp_path)
         .with_context(|| format!("read edited config `{}`", temp_path.display()))?;
-    let edited_document = serde_json::from_str::<serde_json::Value>(&edited_contents)
-        .with_context(|| format!("parse edited config `{}` as JSON", temp_path.display()))?;
-    validate_config_json_value(&edited_document, "validate edited config")?;
-    let normalized = format!(
-        "{}\n",
-        serde_json::to_string_pretty(&edited_document).context("serialize edited config")?
-    );
-    let changed = normalized != contents || !target_path.exists();
+    let normalized = normalize_edited_config(source.kind, edited_contents, &temp_path)?;
+    let changed =
+        normalized != source.contents || (!source.path.exists() && !normalized.is_empty());
     if changed {
-        if let Some(backup_path) = &plan.backup_path {
-            let current = fs::read_to_string(&target_path)
-                .with_context(|| format!("read config `{}` for backup", target_path.display()))?;
-            write_private_file_atomically(backup_path, &current).with_context(|| {
-                format!(
-                    "backup config `{}` to `{}`",
-                    target_path.display(),
-                    backup_path.display()
-                )
-            })?;
-        }
-        if let Some(parent) = target_path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("create config directory `{}`", parent.display()))?;
-        }
-        write_private_file_atomically(&target_path, &normalized)
-            .with_context(|| format!("write edited config `{}`", target_path.display()))?;
+        write_edited_config(&plan, &normalized)?;
     }
     fs::remove_file(&temp_path)
         .with_context(|| format!("remove temporary edit file `{}`", temp_path.display()))?;
@@ -372,9 +383,101 @@ fn run_config_edit(request: ConfigEditRequest<'_>) -> anyhow::Result<ConfigEditO
     })
 }
 
+fn prepare_config_edit_source(request: &ConfigEditRequest<'_>) -> anyhow::Result<ConfigEditSource> {
+    match request.target {
+        "core" => {
+            let default_path = default_config_path()?;
+            let target_path = request
+                .config_path
+                .cloned()
+                .unwrap_or_else(|| default_path.clone());
+            let loaded = load_config_json(request.config_path)?;
+            let contents = serde_json::to_string_pretty(&loaded.document)
+                .context("serialize editable config")?;
+            Ok(ConfigEditSource {
+                kind: ConfigEditKind::Core,
+                target: "core",
+                path: target_path,
+                source: loaded.source,
+                contents: format!("{contents}\n"),
+            })
+        }
+        "fcitx" => {
+            if request.config_path.is_some() {
+                anyhow::bail!(
+                    "config edit fcitx does not accept --config; edit the Fcitx addon config target directly"
+                );
+            }
+            let target_path = default_fcitx_config_path()?;
+            let existed = target_path.exists();
+            let contents = if existed {
+                fs::read_to_string(&target_path)
+                    .with_context(|| format!("read Fcitx config `{}`", target_path.display()))?
+            } else {
+                String::new()
+            };
+            Ok(ConfigEditSource {
+                kind: ConfigEditKind::Fcitx,
+                target: "fcitx",
+                path: target_path,
+                source: if existed { "file" } else { "new" },
+                contents,
+            })
+        }
+        other => anyhow::bail!("unsupported config edit target `{other}`; use core or fcitx"),
+    }
+}
+
+fn normalize_edited_config(
+    kind: ConfigEditKind,
+    edited_contents: String,
+    temp_path: &Path,
+) -> anyhow::Result<String> {
+    match kind {
+        ConfigEditKind::Core => {
+            let edited_document = serde_json::from_str::<serde_json::Value>(&edited_contents)
+                .with_context(|| {
+                    format!("parse edited config `{}` as JSON", temp_path.display())
+                })?;
+            validate_config_json_value(&edited_document, "validate edited config")?;
+            Ok(format!(
+                "{}\n",
+                serde_json::to_string_pretty(&edited_document)
+                    .context("serialize edited config")?
+            ))
+        }
+        ConfigEditKind::Fcitx => Ok(edited_contents),
+    }
+}
+
+fn write_edited_config(plan: &ConfigEditPlan, contents: &str) -> anyhow::Result<()> {
+    if let Some(backup_path) = &plan.backup_path {
+        let current = fs::read_to_string(&plan.config_path)
+            .with_context(|| format!("read config `{}` for backup", plan.config_path.display()))?;
+        write_private_file_atomically(backup_path, &current).with_context(|| {
+            format!(
+                "backup config `{}` to `{}`",
+                plan.config_path.display(),
+                backup_path.display()
+            )
+        })?;
+    }
+    if let Some(parent) = plan
+        .config_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create config directory `{}`", parent.display()))?;
+    }
+    write_private_file_atomically(&plan.config_path, contents)
+        .with_context(|| format!("write edited config `{}`", plan.config_path.display()))
+}
+
 fn config_edit_outcome_json(outcome: &ConfigEditOutcome) -> serde_json::Value {
     serde_json::json!({
         "ok": true,
+        "target": outcome.plan.target,
         "dry_run": outcome.plan.dry_run,
         "config_path": outcome.plan.config_path,
         "source": outcome.plan.source,
