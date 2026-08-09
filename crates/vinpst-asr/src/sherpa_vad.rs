@@ -328,6 +328,17 @@ mod tests {
     }
 
     #[test]
+    fn default_vad_plan_matches_upstream_silero_parameters() {
+        let plan = SherpaOnnxVadPlan::resolve(&VadConfig::default())
+            .expect("test profile should resolve the development VAD asset");
+
+        assert!((plan.threshold - 0.45).abs() < f32::EPSILON);
+        assert!((plan.min_speech_duration - 0.15).abs() < f32::EPSILON);
+        assert!((plan.min_silence_duration - 0.5).abs() < f32::EPSILON);
+        assert_eq!(plan.speech_pad_ms, 300);
+    }
+
+    #[test]
     fn disabled_vad_has_no_runtime_plan() {
         let config = VadConfig {
             enabled: false,
