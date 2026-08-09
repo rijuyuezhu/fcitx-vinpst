@@ -706,12 +706,41 @@
         "The full upstream file audit also covers preedit/status projection and notification handling. Current live-status state preserves partial-over-status priority, owner-loss reset, error-like notification reset, and information-notification non-interruption; notification icons and 3/5-second timeouts match frozen behavior. Vinpst namespace/app-name changes remain intentional independent-product identity changes.",
         "The private-session async addon smoke uses a fresh daemon per frontend fixture and condition-driven Fcitx time events rather than fixed timing or mock-audio reuse, and passes three consecutive runs. Native InputContext evidence separately proves normal and command async paths plus a no-trigger external-session case: an independent client starts recording, the addon automatically renders the live partial on the remembered context, and the independent stop produces the final commit. The deterministic FFI ABI gate reports 65 public declarations matching archive symbols, the complete Fcitx CTest suite passes 11/11, and focused Rust frontend/core/transport tests pass 53/3/27 with strict Clippy. A cached real online-transducer gate could not run in this workspace because the raw model cache lacks the required vinpst-model.json typed metadata."
       ]
+    },
+    {
+      "id": "FCITX-NOTIFIER-001",
+      "state": "audited-fixed",
+      "title": "Fcitx frontend notifier D-Bus ingress object",
+      "upstream_files": [
+        "addon/dbus/notifier_dbus_object.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/CMakeLists.txt",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/dbus_contract.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_addon.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_notifications.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_notifier_dbus_object.h",
+        "cpp/fcitx5-addon/src/fcitx_addon.cpp",
+        "cpp/fcitx5-addon/src/fcitx_daemon_signal_monitor.cpp",
+        "cpp/fcitx5-addon/src/fcitx_notifications.cpp",
+        "cpp/fcitx5-addon/tests/fcitx_notifier_dbus_object_smoke.cpp",
+        "crates/vinpst-protocol/src/dbus.rs",
+        "docs/architecture/dbus-service.md"
+      ],
+      "notes": [
+        "Restored the frozen four-string notifier ingress contract as a thin Fcitx ObjectVTable method. The object accepts Notify(code, subject, detail, raw_message), has no output payload, and forwards the four values without reinterpretation before presentation planning.",
+        "Vinpst intentionally uses its independent frontend namespace: org.fcitx.Fcitx5.Vinpst1 at /org/fcitx/Fcitx5/Vinpst instead of the frozen Vinput interface/path. These values match the already-published vinpst-protocol frontend-notifier constants and do not add old-name aliases.",
+        "The normal addon registers the notifier object on the existing Fcitx D-Bus connection beside its signal monitor. Registration creates no extra bus, thread, or event loop; failure is a bounded warning and leaves the rest of the addon functional.",
+        "DaemonNotification signals and Notify method calls now share PlanStructuredDaemonNotification, which delegates severity/text selection to the existing Rust daemon-notification planner before using the same Fcitx presentation path. Raw/detail priority, localized unknown fallback, recording-reset policy, icons, and 3/5-second notification timeouts therefore cannot drift between the two ingress forms.",
+        "A private-session CTest owns org.fcitx.Fcitx5 on a receiver connection, registers the real object vtable, invokes Notify through a separate D-Bus sender, verifies all four strings and the empty method reply, then verifies the shared planner produces an error presentation with the expected raw text. The complete addon CTest suite passes 12/12.",
+        "This audit owns only the frontend receive object. Frozen cli/runtime/systemd_client.cpp is the live sender for daemon_start_failed/daemon_restart_failed and remains pending for the separate CLI service-control audit; restoring this ingress does not claim those current CLI failure paths already send Notify."
+      ]
     }
   ],
   "upstream_pending": [
     "addon/core/vinput.cpp",
     "addon/core/vinput.h",
-    "addon/dbus/notifier_dbus_object.h",
     "addon/input/vinput_keyevent.cpp",
     "addon/menu/vinput_menu.cpp",
     "cli/action.h",
