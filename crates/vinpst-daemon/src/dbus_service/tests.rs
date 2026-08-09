@@ -1,5 +1,6 @@
 use super::{
-    AsrBackendStateTuple, LivePartialEmissionState, VinpstDbusService, postprocess_notification,
+    AsrBackendStateTuple, LivePartialEmissionState, MAX_ERROR_DESCRIPTION_LEN, VinpstDbusService,
+    postprocess_notification, sanitize_dbus_error_message,
 };
 use crate::RuntimeState;
 use tokio::{
@@ -31,6 +32,23 @@ fn postprocess_notifications_match_upstream_error_codes() {
     ));
     assert_eq!(prompt.code, "prompt_file_load_failed");
     assert!(prompt.raw_message.starts_with("Prompt file load failed:"));
+}
+
+#[test]
+fn dbus_error_messages_are_redacted_normalized_and_bounded() {
+    assert_eq!(
+        sanitize_dbus_error_message("request failed\nAuthorization: Bearer secret-token"),
+        "operation failed"
+    );
+    assert_eq!(
+        sanitize_dbus_error_message("  capture   failed\nwith\tdevice  "),
+        "capture failed with device"
+    );
+
+    let long_message = "界".repeat(MAX_ERROR_DESCRIPTION_LEN + 32);
+    let sanitized = sanitize_dbus_error_message(&long_message);
+    assert_eq!(sanitized.chars().count(), MAX_ERROR_DESCRIPTION_LEN);
+    assert!(sanitized.ends_with('…'));
 }
 
 fn service() -> VinpstDbusService {
