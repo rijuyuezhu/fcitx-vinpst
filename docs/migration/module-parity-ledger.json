@@ -1013,6 +1013,33 @@
         "Parser-library error exit codes are intentionally not normalized. Frozen CLI11 returns its library-specific code 109 for unknown commands/options, while Clap uses conventional CLI parse exit code 2; both fail before action dispatch and write the diagnostic to stderr. Help, version, no-argument help, and rec help all exit 0.",
         "Deterministic evidence includes structural help-surface tests for the exact visible root command set, hidden maintenance commands/options, familiar upstream aliases, optional root subcommand, rec, the vinpst program identity, and -v metadata; process-level tests prove no-argument help exits 0 and both -v plus the hidden -V compatibility alias succeed. The complete vinpst-cli test suite and strict all-target Clippy pass."
       ]
+    },
+    {
+      "id": "CLI-INIT-001",
+      "state": "audited-intentional-divergence",
+      "title": "CLI first-run initialization workflow",
+      "upstream_files": [
+        "cli/config/init_actions.cpp",
+        "cli/config/init_actions.h",
+        "cli/config/register_init.cpp"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/commands/init.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/cli/mod.rs",
+        "crates/vinpst-cli/src/commands/mod.rs",
+        "crates/vinpst-cli/src/main.rs",
+        "crates/vinpst-cli/tests/init.rs",
+        "data/default-config.json"
+      ],
+      "notes": [
+        "The frozen init user task remains intact: vinpst init creates the default per-user configuration and managed model directory, leaves an existing configuration untouched by default, is idempotent when everything already exists, and -f,--force replaces only the configuration with the bundled default. The rewrite had retained --force but lost the frozen -f short form; this audit restores it and pins the short form in the force integration test.",
+        "The init implementation is now isolated in commands/init.rs instead of sharing the 652-line commands/system.rs catch-all. The move is behavior-preserving and gives the frozen init_actions/register_init ownership a dedicated Rust module; system.rs is reduced to 402 lines and remains pending for its separate diagnostics/activation-service ownership.",
+        "Vinpst intentionally extends frozen init with --dry-run, --json, hidden deterministic --config/--model-root/--cache-root overrides, XDG-aware cache-root creation, activation-service planning metadata, and concise next-step guidance. These extensions do not change the default write contract and keep fixture/path controls out of ordinary help.",
+        "Default config creation is stricter than frozen InitializeCoreConfig: the bundled typed config is parsed and validated before writes, the destination is written atomically with private permissions, and the integration gate validates the produced config. Existing model/cache directories are never replaced by --force; only missing managed directories are created.",
+        "Deterministic evidence covers XDG default path planning without writes, creation of config/model/cache roots, 0600 config permissions on Unix, config validation, idempotent rerun without rewriting, preservation of an existing config without force, and replacement through the restored -f short flag. Focused init tests and strict all-target vinpst-cli Clippy pass."
+      ]
     }
   ],
   "upstream_pending": [
@@ -1022,14 +1049,11 @@
     "cli/config/config_actions.h",
     "cli/config/device_actions.cpp",
     "cli/config/device_actions.h",
-    "cli/config/init_actions.cpp",
-    "cli/config/init_actions.h",
     "cli/config/llm_actions.cpp",
     "cli/config/llm_actions.h",
     "cli/config/register_asr.cpp",
     "cli/config/register_config.cpp",
     "cli/config/register_device.cpp",
-    "cli/config/register_init.cpp",
     "cli/config/register_llm.cpp",
     "cli/config/register_scene.cpp",
     "cli/config/scene_actions.cpp",
