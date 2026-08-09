@@ -1243,12 +1243,46 @@
         "Frozen command-local JSON failures print {ok:false,error} before returning exit 1. Vinpst currently uses the rewrite-wide anyhow stderr/nonzero error path for live command failures even when JSON output was requested. This audit does not add a recording-only exit/error framework; the remaining cross-command formatter/error-shape question stays with the pending CLI utility/runtime audit rather than duplicating infrastructure here.",
         "Deterministic evidence includes the existing recording integration tests, an exact rec stop/toggle -s parser compatibility test, a pure toggle-state regression test covering idle/recording/inferring/postprocessing/error/unknown status, strict all-target vinpst-cli Clippy, and a private-session-bus smoke with an observable activation service proving recording start and status fail without ever activating org.fcitx.Vinpst."
       ]
+    },
+    {
+      "id": "CLI-DAEMON-001",
+      "state": "audited-fixed",
+      "title": "CLI daemon lifecycle, status, and journal workflows",
+      "upstream_files": [
+        "cli/control/daemon_actions.cpp",
+        "cli/control/daemon_actions.h",
+        "cli/control/register_daemon.cpp"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/cli/daemon.rs",
+        "crates/vinpst-cli/src/daemon_control/mod.rs",
+        "crates/vinpst-cli/src/daemon_control/service.rs",
+        "crates/vinpst-cli/src/daemon_control/status.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/daemon_control/handoff.rs",
+        "crates/vinpst-cli/src/daemon_control/install_service.rs",
+        "crates/vinpst-cli/src/daemon_control/removal.rs",
+        "crates/vinpst-cli/tests/common/mod.rs",
+        "crates/vinpst-cli/tests/protocol.rs",
+        "crates/vinpst-daemon-control/src/lib.rs",
+        "docs/architecture/asr-contract.md",
+        "docs/architecture/dbus-service.md",
+        "docs/user/troubleshooting.md",
+        "scripts/tests/install/run-user-ime-activation-owner-smoke.sh"
+      ],
+      "notes": [
+        "The frozen user tasks remain available as daemon status, start, stop, restart, and log. Vinpst adds reload-asr plus hidden installation/handoff/removal controls, richer JSON diagnostics, owner/procfs inspection, and dry-run plans without removing the familiar lifecycle surface.",
+        "Fixed daemon log parity. The rewrite had lost -f/--follow and had no frozen-equivalent default tail; log now defaults to the last 100 entries and accepts -n/--lines plus -f/--follow. Follow uses an inherited-stdio Command::status execution path rather than the ordinary captured Command::output runner, so journal entries are actually streamed to the terminal instead of buffered until a never-ending follow exits. Live --follow is intentionally rejected with JSON output because the unbounded journal stream and one JSON document cannot safely share stdout; --follow --dry-run --json remains available for plan inspection.",
+        "Fixed a shell-contract regression in stop/restart/log. The rewrite previously printed a structured result with ok=false when systemctl/journalctl was missing or returned nonzero but still exited 0. The CLI now preserves the existing human/JSON diagnostic payload and then returns a command failure, so scripts receive a nonzero process status like frozen upstream. Tests cover missing executables and explicit child exit 1 for stop, restart, and log.",
+        "daemon start is an intentional Vinpst lifecycle divergence. Frozen starts the user systemd unit directly; current start triggers org.fcitx.Vinpst through the installed D-Bus activation service and reports the resulting live status/owner. The dry-run contract explicitly identifies dbus-service-activation/GetStatus, and the installed activation-owner smoke proves that the first status/start-style service call activates the expected installed daemon and reports its owner/runtime. This supports direct D-Bus activation from Fcitx and avoids making systemd the only startup authority.",
+        "daemon status intentionally queries the live service and can therefore activate a stopped daemon, unlike frozen IsDaemonRunning plus GetStatus. Owner diagnostics are deliberately collected after the first successful service method so the initial activation-backed query reports the new PID/executable rather than a pre-activation null owner. It also reports ASR readiness, runtime/text-adapter state, and stale-binary handoff guidance. Recording control retains the separately audited non-activating owner-probe behavior; status is the explicit lifecycle/diagnostic activation surface.",
+        "daemon stop/restart preserve the frozen user-systemd tasks through the shared vinpst-daemon-control command builder. Flatpak execution intentionally wraps host systemctl/journalctl with flatpak-spawn and uses the host journal filter, with exact argv tests; non-sandboxed operation still targets vinpst-daemon.service. The shared systemd runner itself remains supporting here and stays pending for the dedicated frozen cli/runtime/systemd_client audit.",
+        "Current daemon log rejects --lines 0 instead of passing an ambiguous zero tail to journalctl, a small fail-closed validation improvement. Human output also suppresses low-level tool plumbing while JSON keeps command/tool/sandbox/fallback diagnostics for troubleshooting. Deterministic evidence includes daemon start/status dry-run plans, the installed activation-owner smoke, exact Flatpak wrappers, default/follow journal tests, child-failure exit propagation, vinpst-daemon-control tests, and strict all-target Clippy for both crates."
+      ]
     }
   ],
   "upstream_pending": [
-    "cli/control/daemon_actions.cpp",
-    "cli/control/daemon_actions.h",
-    "cli/control/register_daemon.cpp",
     "cli/runtime/dbus_client.cpp",
     "cli/runtime/dbus_client.h",
     "cli/runtime/systemd_client.cpp",
@@ -1320,7 +1354,6 @@
     "crates/vinpst-asr/src/timeout.rs",
     "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-audio/src/lib.rs",
-    "crates/vinpst-cli/src/cli/daemon.rs",
     "crates/vinpst-cli/src/cli/registry.rs",
     "crates/vinpst-cli/src/commands/mod.rs",
     "crates/vinpst-cli/src/commands/registry.rs",
@@ -1330,10 +1363,7 @@
     "crates/vinpst-cli/src/daemon_control/asr.rs",
     "crates/vinpst-cli/src/daemon_control/handoff.rs",
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
-    "crates/vinpst-cli/src/daemon_control/mod.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
-    "crates/vinpst-cli/src/daemon_control/service.rs",
-    "crates/vinpst-cli/src/daemon_control/status.rs",
     "crates/vinpst-cli/src/human_output.rs",
     "crates/vinpst-cli/src/live_i18n.rs",
     "crates/vinpst-cli/src/paths.rs",
