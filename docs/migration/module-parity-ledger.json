@@ -39,7 +39,8 @@
         "crates/vinpst-daemon/src/runtime/recording.rs"
       ],
       "notes": [
-        "Fixed recognition event reduction so any Error event fails instead of becoming committed text and the last FinalText wins like upstream event consumption.",
+        "Recognition event reduction matches upstream: any Error event fails, the last FinalText wins, and Completed without Final/Error is a normal empty recognition rather than a backend failure.",
+        "Empty recognition returns an empty recognition payload, skips scene text postprocessing, and follows recording -> inferring -> idle without a postprocessing status; private D-Bus coverage proves the method reply and RecognitionResult carry the same empty payload.",
         "Restored the upstream 8000 raw-sample minimum: shorter recordings cancel the session, return directly to idle, skip ASR/text finishing, and expose an exact empty StopRecording D-Bus reply without RecognitionResult.",
         "Aligned streaming text projection so non-empty PartialText and early FinalText are emitted through RecognitionPartial during recording while early finals remain retained for stop-time payload construction and are not duplicated at stop.",
         "Rust keeps a smaller typed BackendCapabilities shape because current upstream runtime decisions read only audio_delivery_mode; upstream supports_streaming, supports_partial_results, and requires_network are descriptor metadata without runtime consumers, while hotword capability is carried by model/provider metadata in both implementations.",
@@ -259,6 +260,40 @@
         "The former one-shot LegacyCommandStreamingRunner is now test-only protocol coverage; production factory wiring uses LegacyCommandStreamingBackend. The .streaming suffix remains the authoritative selector and registry validation already requires stream metadata to agree with that suffix.",
         "Live RecognitionEvent::Error -> DaemonNotification classification remains owned by the separate pending common/dbus/error_info audit; this unit does not duplicate that responsibility."
       ]
+    },
+    {
+      "id": "ASR-SHERPA-RUNTIME-001",
+      "state": "audited-with-gap",
+      "title": "Native Sherpa offline and streaming recognition runtime",
+      "upstream_files": [
+        "daemon/asr/backends/sherpa_offline_backend.cpp",
+        "daemon/asr/backends/sherpa_offline_backend.h",
+        "daemon/asr/backends/sherpa_streaming_backend.cpp",
+        "daemon/asr/backends/sherpa_streaming_backend.h",
+        "daemon/asr/sherpa_json_helpers.h"
+      ],
+      "current_files": [
+        "crates/vinpst-asr/src/sherpa/backend.rs",
+        "crates/vinpst-asr/src/sherpa_online.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/sherpa/mod.rs",
+        "crates/vinpst-asr/src/sherpa/offline_layout.rs",
+        "crates/vinpst-asr/src/sherpa_vad.rs"
+      ],
+      "notes": [
+        "Fixed native PCM scaling to divide signed i16 samples by 32768.0 for both offline and online recognizers, matching frozen upstream full-scale normalization.",
+        "Fixed native session lifecycle parity: repeated Finish is idempotent, Cancel is idempotent and yields Completed, and a completed recognizer with no text is a normal empty recognition rather than a backend error.",
+        "Restored upstream result extraction fallback: non-empty result.text wins; otherwise concatenated result.tokens are trimmed and used for offline results, online partials/endpoints, and final results.",
+        "Fixed online endpoint behavior: after each decode step, endpoint detection emits any changed hypothesis before resetting the stream, then decoding continues. Endpoint reset does not invent an application-level final/commit; push-to-talk still finalizes on StopRecording.",
+        "Fixed stop-time online projection so a final hypothesis that differs from the last emitted partial is first emitted as PartialText and then FinalText, exactly matching frozen upstream.",
+        "Model hotwords are now gated by top-level supports_hotwords. Provider hotwords override model hotwords, unsupported models ignore them at runtime, and an effective hotword path forces modified_beam_search for both offline and online recognizers.",
+        "Added all frozen-upstream online families supported by the sherpa-onnx Rust binding: transducer, zipformer2_ctc, paraformer, nemo_ctc, and t_one_ctc, with path-level metadata tests and native-feature compilation.",
+        "Aligned thread policy: offline metadata defaults to 4 threads when omitted while explicit offline model metadata may override it; online runtime uses the frozen upstream runtime default of 4 threads rather than model metadata.",
+        "The currently supported offline layouts retain their native runtime mappings. Additional frozen-upstream offline model families remain owned by the pending model/layout audit, not this runtime unit.",
+        "Known gap: frozen upstream can supply model tokens and hotwords through in-memory tokens_buf/hotwords_buf JSON byte strings. The Rust sherpa binding can represent these, but current Vinpst model metadata/runtime plans do not yet carry the byte buffers. This stays explicit for the pending model metadata audit rather than being silently ignored.",
+        "Model path discovery/layout inference and VAD remain supporting evidence only and stay pending for their own non-overlapping audits."
+      ]
     }
   ],
   "upstream_pending": [
@@ -353,11 +388,6 @@
     "common/utils/string_utils.h",
     "common/utils/url_utils.h",
     "daemon/asr/asr_config.h",
-    "daemon/asr/backends/sherpa_offline_backend.cpp",
-    "daemon/asr/backends/sherpa_offline_backend.h",
-    "daemon/asr/backends/sherpa_streaming_backend.cpp",
-    "daemon/asr/backends/sherpa_streaming_backend.h",
-    "daemon/asr/sherpa_json_helpers.h",
     "daemon/asr/vad_trimmer.cpp",
     "daemon/asr/vad_trimmer.h",
     "daemon/audio/audio_capture.cpp",
@@ -420,10 +450,8 @@
     "crates/vinpst-asr/src/lib.rs",
     "crates/vinpst-asr/src/mock.rs",
     "crates/vinpst-asr/src/remote.rs",
-    "crates/vinpst-asr/src/sherpa/backend.rs",
     "crates/vinpst-asr/src/sherpa/mod.rs",
     "crates/vinpst-asr/src/sherpa/offline_layout.rs",
-    "crates/vinpst-asr/src/sherpa_online.rs",
     "crates/vinpst-asr/src/sherpa_vad.rs",
     "crates/vinpst-asr/src/timeout.rs",
     "crates/vinpst-asr/src/unavailable.rs",
