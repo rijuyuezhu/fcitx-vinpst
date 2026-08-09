@@ -196,6 +196,29 @@
       ]
     },
     {
+      "id": "ASR-CONFIG-001",
+      "state": "audited-intentional-divergence",
+      "title": "Sherpa runtime configuration bridge",
+      "upstream_files": [
+        "daemon/asr/asr_config.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/sherpa/backend.rs",
+        "crates/vinpst-asr/src/sherpa/mod.rs",
+        "crates/vinpst-asr/src/sherpa/offline_layout.rs",
+        "crates/vinpst-asr/src/sherpa_vad.rs",
+        "crates/vinpst-config/src/schema.rs"
+      ],
+      "notes": [
+        "Frozen AsrConfig is a transient backend-construction DTO rather than a persisted user schema. Vinpst intentionally does not recreate a parallel struct: typed provider/global/VAD config plus installed-model metadata flow directly into the Sherpa runtime plans, eliminating one copy/mapping layer.",
+        "Every product-bearing default is already pinned by the owning units: Sherpa thread count defaults to 4, offline model metadata may override it, online keeps 4; VAD defaults are enabled=true, threshold=0.45, min_speech_duration=0.15, min_silence_duration=0.5, speech_pad_ms=300; streaming disables VAD; and provider hotwords are carried into the local runtime with the audited support/override rules.",
+        "Frozen language is populated from ModelInfo::RuntimeLanguageHint rather than the global UI/default language. Rust likewise derives language-sensitive recognizer settings from installed-model metadata/runtime language hints under ASR-MODEL-001; request context default_language remains a separate recognition-context field and is not used as a substitute for this DTO member.",
+        "The only structural VAD-model member is intentionally different: frozen stores compile-time VINPUT_VAD_MODEL_PATH in this DTO, while Vinpst resolves VINPST_SHERPA_VAD_MODEL, user/system XDG data paths, or a development asset at runtime. ASR-VAD-001 owns and tests that divergence, including the same fail-open-to-untrimmed behavior when the model is absent or unloadable.",
+        "This bridge audit claims no new Sherpa model/session/VAD behavior; those implementation files are supporting evidence only and retain ownership under ASR-MODEL-001, ASR-SHERPA-001, and ASR-VAD-001."
+      ]
+    },
+    {
       "id": "ASR-SESSION-001",
       "state": "audited-fixed",
       "title": "ASR session preparation, reload, and effective-backend state",
@@ -725,7 +748,6 @@
     "common/utils/sandbox.h",
     "common/utils/string_utils.h",
     "common/utils/url_utils.h",
-    "daemon/asr/asr_config.h",
     "gui/app/main.cpp",
     "gui/app/mainwindow.cpp",
     "gui/app/mainwindow.h",
