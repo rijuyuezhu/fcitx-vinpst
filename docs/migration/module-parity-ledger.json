@@ -736,10 +736,51 @@
         "A private-session CTest owns org.fcitx.Fcitx5 on a receiver connection, registers the real object vtable, invokes Notify through a separate D-Bus sender, verifies all four strings and the empty method reply, then verifies the shared planner produces an error presentation with the expected raw text. The complete addon CTest suite passes 12/12.",
         "This audit owns only the frontend receive object. Frozen cli/runtime/systemd_client.cpp is the live sender for daemon_start_failed/daemon_restart_failed and remains pending for the separate CLI service-control audit; restoring this ingress does not claim those current CLI failure paths already send Notify."
       ]
+    },
+    {
+      "id": "FCITX-CORE-001",
+      "state": "audited-with-gap",
+      "title": "Fcitx addon lifecycle, configuration, and recent-context capture",
+      "upstream_files": [
+        "addon/core/vinput.cpp"
+      ],
+      "current_files": [
+        "cpp/fcitx5-addon/src/fcitx_addon_factory.cpp",
+        "crates/vinpst-fcitx-ffi/src/context_history.rs"
+      ],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/context_history_bridge.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_addon.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_outcome.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/frontend_bridge.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/frontend_presentation.h",
+        "cpp/fcitx5-addon/src/fcitx_addon.cpp",
+        "cpp/fcitx5-addon/src/fcitx_candidates.cpp",
+        "cpp/fcitx5-addon/src/fcitx_outcome.cpp",
+        "cpp/fcitx5-addon/src/frontend_bridge.cpp",
+        "cpp/fcitx5-addon/tests/native_fcitx_addon_dbus_smoke.cpp",
+        "crates/vinpst-fcitx-core/src/frontend.rs",
+        "crates/vinpst-fcitx-core/src/frontend_presentation.rs",
+        "crates/vinpst-fcitx-ffi/Cargo.toml",
+        "crates/vinpst-fcitx-ffi/include/vinpst_fcitx_ffi.h",
+        "crates/vinpst-fcitx-ffi/src/frontend.rs",
+        "crates/vinpst-text/src/context_cache.rs",
+        "docs/architecture/text-contract.md",
+        "packaging/flatpak/README.md",
+        "scripts/tests/cpp/run-cpp-dbus-smoke.sh"
+      ],
+      "notes": [
+        "Restored the frozen addon lifecycle boundaries without moving semantic state back into C++. InputContext key handling now runs at PreInputMethod as frozen upstream does. InputContext creation still requests SurroundingText and now immediately remembers the live TrackableObjectReference; destruction flushes only history owned by that context, while post-input-method CommitString events feed the Rust recent-context tracker. The dedicated addon factory remains a thin Fcitx construction boundary.",
+        "Fixed the previously disconnected recent-input writer. Rust now owns user-fragment buffering and persistence using the existing vinpst-text cache primitives: non-CJK fragments are space-joined, CJK boundaries remain tight, sentence-ending punctuation flushes immediately, input-context changes flush the previous buffer, ordinary fragments use the frozen five-second inactivity flush, and tracker drop performs final cleanup. File or config maintenance failure remains non-fatal to recognition.",
+        "Recognition history matches the frozen source policy. An explicit asr candidate is preferred; otherwise the first non-empty raw candidate is recorded as asr, with command mode excluding the original selected text captured by the Rust frontend session. A directly committed LLM result also records llm, candidate menus record the ASR side before display and add llm only when an LLM row is selected, and every generated non-cancel commit installs exact one-shot suppression so the following Fcitx CommitString event cannot duplicate it as user input.",
+        "The history tracker reads the canonical user JSON config on construction and frontend reload to compute the maximum scene.context_lines. It preserves the frozen every-100-writes truncation cadence when that maximum is nonzero while continuing to write history when it is zero, so later scene changes can consume existing context. The Fcitx INI remains intentionally limited to frontend trigger/mode settings; scene/provider ownership stays in the canonical daemon JSON config.",
+        "Deterministic evidence includes 56 vinpst-fcitx-core tests, 29 vinpst-fcitx-ffi tests, strict Clippy, 74 C ABI declarations matching the Rust archive, and the complete Fcitx CTest suite at 12/12. A private-session native InputContext run against the freshly rebuilt addon commits mock recognition result and leaves exactly one isolated JSONL row with source asr, proving RecognitionResult -> Rust presentation -> addon history -> disk without a duplicate user row.",
+        "One frozen sandbox lifecycle behavior remains open. Upstream addon startup automatically materializes and rewrites the user systemd service when running in a sandbox, then reloads the user manager. Current Flatpak packaging carries the unit and the typed CLI can explicitly render/install the host service, but the package smoke does not prove automatic first-use host installation after extension deployment. Reintroducing ad-hoc filesystem writes and system() calls in this thin addon would violate current ownership; this remains a service/sandbox audit gap rather than being hidden as an intentional divergence.",
+        "addon/core/vinput.h remains pending because it also owns declarations for the separately pending key-event and menu source units; this audit does not claim those mixed declarations early. D-Bus transport/notifier behavior is already owned by FCITX-DBUS-001 and FCITX-NOTIFIER-001 and is supporting context here rather than duplicate ownership."
+      ]
     }
   ],
   "upstream_pending": [
-    "addon/core/vinput.cpp",
     "addon/core/vinput.h",
     "addon/input/vinput_keyevent.cpp",
     "addon/menu/vinput_menu.cpp",
@@ -844,7 +885,6 @@
   ],
   "current_pending": [
     "cpp/fcitx5-addon/src/fcitx_addon.cpp",
-    "cpp/fcitx5-addon/src/fcitx_addon_factory.cpp",
     "cpp/fcitx5-addon/src/fcitx_addon_menu.cpp",
     "cpp/fcitx5-addon/src/fcitx_candidates.cpp",
     "cpp/fcitx5-addon/src/fcitx_config.cpp",
