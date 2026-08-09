@@ -48,7 +48,7 @@ The daemon controls are at the bottom of the Control page. In normal use you sho
 
 ## Fcitx keys and trigger mode
 
-Open the Fcitx configuration tool and select the **Vinpst** addon. You can change:
+Open the Fcitx configuration tool and select the **Vinpst** addon. It also includes **Open Vinpst Settings** for launching the full Vinpst Configuration app. You can change:
 
 - normal dictation keys;
 - command-mode keys;

@@ -930,6 +930,56 @@
         "Keeping string borrowing and output construction in one Rust FFI module is intentional: retained C++ passes byte views and never reimplements UTF-8 validation or Rust allocation ownership. The public ABI gate currently proves 75 header declarations exactly match archive symbols, while strict Clippy and the FFI unit suite cover invalid/atomic input handling.",
         "This current-only unit exists so the file-by-file ledger accounts for rewrite-specific source inventory explicitly rather than forcing glue files under unrelated frozen modules."
       ]
+    },
+    {
+      "id": "FCITX-CONFIG-001",
+      "state": "audited-intentional-divergence",
+      "title": "Fcitx frontend trigger and menu configuration",
+      "upstream_files": [
+        "common/config/vinput_config.cpp",
+        "common/config/vinput_config.h"
+      ],
+      "current_files": [
+        "cpp/fcitx5-addon/src/fcitx_config.cpp"
+      ],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_config.h",
+        "cpp/fcitx5-addon/po/zh_CN.po",
+        "cpp/fcitx5-addon/tests/fcitx_config_smoke.cpp",
+        "docs/user/settings.md"
+      ],
+      "notes": [
+        "The retained frontend INI keeps the frozen seven behavioral fields and wire keys: TriggerMode, TriggerKey, CommandKeys, SceneMenuKey, AsrMenuKey, PagePrevKeys, and PageNextKeys. Key-list constraints still allow modifier-only, modifierless, and ordinary modified keys; Tap/Hold/Both values and PageUp/KP_PageUp/PageDown/KP_PageDown paging defaults remain aligned. Load falls back to typed defaults when fields are absent and the config object round-trips all seven settings.",
+        "Vinpst intentionally uses conf/vinpst.conf instead of conf/vinput.conf and documents Right Control for normal dictation plus F10 for command dictation, while retaining Right Shift for Scene, F8 for ASR, and Both trigger mode. These defaults are the established independent-product surface and are not reverted to the frozen Alt_R/Control_R pair. The frozen source also contains stale tooltip wording that disagrees with its own Scene key initializer, so those prose tooltips are not mechanically copied into the slimmer Vinpst config page.",
+        "Fixed a discoverability regression from the rewrite by restoring the frozen ExternalOption user task. VinpstFrontendConfig now exposes a ManagementGui external action that launches vinpst-gui from the Fcitx configuration UI; it uses Vinpst names instead of restoring the frozen ModelManager/vinput-gui identity. The zh_CN catalog includes the launcher label.",
+        "Current save behavior is intentionally safer than frozen safeSaveAsIni(config): it reads the existing RawConfig, overwrites only owned typed fields, and writes the merged tree. The config smoke proves unknown legacy/future keys survive a settings save instead of being discarded, while owned settings reload exactly.",
+        "Deterministic evidence includes the localized config smoke covering defaults, all trigger/menu/page fields, Hold round-trip, unknown-key preservation, TriggerMode enum/i18n metadata, and the External launcher type plus exact vinpst-gui URI. The complete Fcitx CTest suite passes 13/13 after rebuilding translations and the addon."
+      ]
+    },
+    {
+      "id": "FCITX-I18N-001",
+      "state": "audited-intentional-divergence",
+      "title": "Fcitx frontend gettext locale and domain handling",
+      "upstream_files": [
+        "common/i18n.cpp",
+        "common/i18n.h"
+      ],
+      "current_files": [
+        "cpp/fcitx5-addon/src/fcitx_i18n.cpp"
+      ],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/CMakeLists.txt",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_i18n.h",
+        "cpp/fcitx5-addon/po/zh_CN.po",
+        "cpp/fcitx5-addon/tests/fcitx_i18n_smoke.cpp"
+      ],
+      "notes": [
+        "Locale normalization and catalog discovery remain aligned with frozen common/i18n: LANGUAGE, LC_ALL, LC_MESSAGES, LANG, and the active LC_MESSAGES locale are considered in order; encoding/modifier suffixes and LANGUAGE fallbacks are normalized; build-tree catalogs are preferred when present and installed catalogs remain the fallback.",
+        "Fixed a rewrite regression in locale-category selection. After setlocale(LC_ALL, \"\"), the frontend now restores the frozen preferred-message-locale behavior by trying the normalized LANGUAGE/LC_ALL/LC_MESSAGES/LANG choice as bare, .UTF-8, and .utf8 LC_MESSAGES values. Before this fix, LANGUAGE=zh_CN with LC_ALL=C or C.UTF-8 incorrectly fell back to English even when the Chinese catalog existed.",
+        "Vinpst intentionally uses the fcitx5-vinpst translation domain and Fcitx registerDomain/translateDomain instead of changing the process-global gettext textdomain to fcitx5-vinput. This keeps the retained addon from taking global domain ownership inside the Fcitx process while preserving domain-local UTF-8 translations. VINPST_FCITX_LOCALEDIR is an additive deterministic-test/development override.",
+        "The current helper also owns formatted count/value/page translation wrappers so C++ call sites do not duplicate snprintf allocation logic. These helpers preserve translated formatting behavior without expanding semantic frontend state.",
+        "Deterministic evidence includes the existing localized message/format/fallback smoke plus a second invocation with LANGUAGE=zh_CN and LC_ALL=C. Both pass against the built zh_CN catalog, proving the frozen LANGUAGE override behavior while retaining Fcitx-native domain registration."
+      ]
     }
   ],
   "upstream_pending": [
@@ -979,10 +1029,6 @@
     "cli/utils/resource_utils.h",
     "common/config/config_router.cpp",
     "common/config/config_router.h",
-    "common/config/vinput_config.cpp",
-    "common/config/vinput_config.h",
-    "common/i18n.cpp",
-    "common/i18n.h",
     "common/registry/registry_cache.cpp",
     "common/registry/registry_cache.h",
     "common/registry/registry_fetch.cpp",
@@ -1033,8 +1079,6 @@
     "gui/utils/i18n_cache.h"
   ],
   "current_pending": [
-    "cpp/fcitx5-addon/src/fcitx_config.cpp",
-    "cpp/fcitx5-addon/src/fcitx_i18n.cpp",
     "crates/vinpst-asr/src/error.rs",
     "crates/vinpst-asr/src/lib.rs",
     "crates/vinpst-asr/src/mock.rs",
