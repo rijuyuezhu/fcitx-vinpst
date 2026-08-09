@@ -14,10 +14,11 @@ use crate::{
     LiveModelFamily, LiveModelInstallRequest, LiveModelInstallResult, LiveModelRegistry,
     LiveRegistryI18n, LoadedLiveI18n, ModelCommand, Path, PathBuf, RegistryConfig,
     ReqwestRegistryAssetSource, ReqwestRegistryTextSource, VinpstConfig, config_backup_path, dbus,
-    default_model_install_staging_root, default_model_root, fetch_text_from_mirrors, fs,
-    install_live_model, live_registry_urls, load_config_file, load_live_i18n,
-    load_registry_installed_model_info, reload_asr_backend_via_dbus, same_path_text,
-    scan_installed_models, write_config_in_place, write_config_output,
+    default_config_path, default_model_install_staging_root, default_model_root,
+    fetch_text_from_mirrors, fs, install_live_model, live_registry_urls, load_config_file,
+    load_live_i18n, load_registry_installed_model_info, reload_asr_backend_after_canonical_write,
+    reload_asr_backend_via_dbus, same_path_text, scan_installed_models, write_config_in_place,
+    write_config_output,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -274,7 +275,7 @@ enum ModelUseWriteTarget {
     Output(PathBuf),
     InPlace {
         config_path: PathBuf,
-        backup_path: PathBuf,
+        backup_path: Option<PathBuf>,
     },
 }
 
@@ -289,7 +290,7 @@ impl ModelUseWriteTarget {
 
     fn backup_path(&self) -> Option<PathBuf> {
         match self {
-            Self::InPlace { backup_path, .. } => Some(backup_path.clone()),
+            Self::InPlace { backup_path, .. } => backup_path.clone(),
             Self::DryRun | Self::Output(_) => None,
         }
     }

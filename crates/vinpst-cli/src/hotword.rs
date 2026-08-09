@@ -10,8 +10,9 @@ use clap::Subcommand;
 use vinpst_config::{AsrProviderConfig, VinpstConfig};
 
 use crate::{
-    asr_provider_kind_label, config_set_write_target, default_config_path, hotword_supported,
-    load_config_json, normalize_provider_id, split_editor_argv, validate_config_json_value,
+    AsrReloadAfterWrite, asr_provider_kind_label, config_set_write_target, default_config_path,
+    hotword_supported, load_config_json, normalize_provider_id,
+    reload_asr_backend_after_canonical_write, split_editor_argv, validate_config_json_value,
     write_config_set_document,
 };
 
@@ -198,6 +199,7 @@ struct HotwordMutationOutcome {
     in_place: bool,
     dry_run: bool,
     wrote_config: bool,
+    runtime_reload: AsrReloadAfterWrite,
 }
 
 struct HotwordGetContext {
@@ -487,9 +489,17 @@ fn run_hotword_mutation(
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        let output_path = write_target.output_path();
+        let reload =
+            reload_asr_backend_after_canonical_write(output_path.as_deref(), &default_path);
+        if let Some(warning) = reload.warning() {
+            eprintln!("Warning: {warning}");
+        }
+        runtime_reload = reload;
     }
 
     Ok(HotwordMutationOutcome {
@@ -505,6 +515,7 @@ fn run_hotword_mutation(
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -532,6 +543,7 @@ fn hotword_mutation_json(outcome: &HotwordMutationOutcome) -> serde_json::Value 
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst hotword get to verify the configured hotwords file",
             "run vinpst asr-state to inspect the selected provider runtime readiness",
@@ -562,4 +574,7 @@ fn print_hotword_mutation_text(outcome: &HotwordMutationOutcome) {
         outcome.output_path.as_deref(),
         outcome.backup_path.as_deref(),
     );
+    if outcome.runtime_reload.reloaded() {
+        println!("Reloaded the ASR backend.");
+    }
 }

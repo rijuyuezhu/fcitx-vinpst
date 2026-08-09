@@ -370,8 +370,8 @@ mod help_surface_tests {
     use clap::{CommandFactory, Parser};
 
     use super::{
-        AdapterCommand, Args, Command, ConfigCommand, ProviderCommand, RecordingCommand,
-        SceneCommand,
+        AdapterCommand, Args, Command, ConfigCommand, ModelCommand, ProviderCommand,
+        RecordingCommand, SceneCommand,
     };
     use crate::hotword::HotwordCommand;
 
@@ -600,6 +600,42 @@ mod help_surface_tests {
             args.command,
             Some(Command::Scene {
                 command: SceneCommand::Remove { .. }
+            })
+        ));
+    }
+
+    #[test]
+    fn frozen_asr_command_shape_remains_accepted() {
+        let args = Args::try_parse_from(["vinpst", "provider", "ls", "-a"])
+            .expect("upstream provider list available alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Provider {
+                command: ProviderCommand::List {
+                    available: true,
+                    ..
+                }
+            })
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "model", "ls", "-a"])
+            .expect("upstream model list available alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Model {
+                command: ModelCommand::List {
+                    available: true,
+                    ..
+                }
+            })
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "model", "info", "model.demo"])
+            .expect("upstream model info command");
+        assert!(matches!(
+            args.command,
+            Some(Command::Model {
+                command: ModelCommand::Info { .. }
             })
         ));
     }

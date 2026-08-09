@@ -1,15 +1,19 @@
 use super::{
     AsrProviderKind, Context, ModelUsePreview, ModelUseRequest, ModelUseResolution,
-    ModelUseWriteTarget, Path, PathBuf, VinpstConfig, config_backup_path, dbus, default_model_root,
-    load_config_file, load_registry_installed_model_info, reload_asr_backend_via_dbus,
-    same_path_text, write_config_in_place, write_config_output,
+    ModelUseWriteTarget, Path, PathBuf, VinpstConfig, config_backup_path, dbus,
+    default_config_path, default_model_root, load_config_file, load_registry_installed_model_info,
+    reload_asr_backend_after_canonical_write, reload_asr_backend_via_dbus, same_path_text,
+    write_config_in_place, write_config_output,
 };
 use super::{
     catalog::load_live_model_catalog,
     support::{managed_model_dir_name, safe_path_component},
 };
 
-fn model_use_write_target(request: &ModelUseRequest<'_>) -> anyhow::Result<ModelUseWriteTarget> {
+fn model_use_write_target(
+    request: &ModelUseRequest<'_>,
+    canonical_config_path: &Path,
+) -> anyhow::Result<ModelUseWriteTarget> {
     if request.output_path.is_some() && request.in_place {
         anyhow::bail!("model use cannot combine --output and --in-place");
     }
@@ -17,12 +21,15 @@ fn model_use_write_target(request: &ModelUseRequest<'_>) -> anyhow::Result<Model
         return Ok(ModelUseWriteTarget::DryRun);
     }
     if request.in_place {
-        let config_path = request
-            .config_path
-            .with_context(|| "model use --in-place requires --config <path>")?;
+        let config_path = match request.config_path {
+            Some(path) => path.clone(),
+            None => canonical_config_path.to_path_buf(),
+        };
         return Ok(ModelUseWriteTarget::InPlace {
-            config_path: config_path.clone(),
-            backup_path: config_backup_path(config_path),
+            backup_path: config_path
+                .exists()
+                .then(|| config_backup_path(&config_path)),
+            config_path,
         });
     }
     let output_path = request.output_path.with_context(|| {
@@ -40,11 +47,16 @@ fn model_use_write_target(request: &ModelUseRequest<'_>) -> anyhow::Result<Model
 }
 
 pub(super) fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::Result<()> {
-    let write_target = model_use_write_target(&request)?;
+    let canonical_config_path = default_config_path()?;
+    let write_target = model_use_write_target(&request, &canonical_config_path)?;
 
-    let mut config = match request.config_path {
-        Some(config_path) => load_config_file(config_path)?,
-        None => VinpstConfig::bundled_default().context("parse bundled config")?,
+    let effective_config_path = request
+        .config_path
+        .cloned()
+        .or_else(|| request.in_place.then(|| canonical_config_path.clone()));
+    let mut config = match effective_config_path.as_ref() {
+        Some(path) if path.exists() => load_config_file(path)?,
+        Some(_) | None => VinpstConfig::bundled_default().context("parse bundled config")?,
     };
     let model_root = match request.model_root {
         Some(path) => path.to_path_buf(),
@@ -104,8 +116,17 @@ pub(super) fn print_model_use_preview(request: ModelUseRequest<'_>) -> anyhow::R
         write_model_use_config(&config, &write_target)?;
         preview.wrote_config = true;
         if request.reload_daemon {
-            reload_asr_backend_via_dbus().context("model use demon update")?;
+            reload_asr_backend_via_dbus().context("model use daemon update")?;
             preview.reloaded_daemon = true;
+        } else {
+            let reload = reload_asr_backend_after_canonical_write(
+                preview.output_path.as_deref(),
+                &canonical_config_path,
+            );
+            preview.reloaded_daemon = reload.reloaded();
+            if let Some(warning) = reload.warning() {
+                eprintln!("Warning: {warning}");
+            }
         }
     }
 
@@ -201,6 +222,7 @@ fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {
         "in_place": preview.in_place,
         "reload_daemon": {
             "requested": preview.reload_daemon,
+            "automatic": !preview.reload_daemon && preview.reloaded_daemon,
             "will_call_dbus": preview.reload_daemon && !preview.reloaded_daemon,
             "called": preview.reloaded_daemon,
             "dbus": {
@@ -230,8 +252,8 @@ fn model_use_preview_json(preview: &ModelUsePreview) -> serde_json::Value {
             }
         },
         "next_steps": [
-            "use the written config with vinpst asr-state --config <path>",
-            "restart or reload the daemon with the updated config"
+            "run vinpst asr-state to inspect the selected provider runtime readiness",
+            "use vinpst asr-state --config <path> when writing an offline config"
         ],
     })
 }
@@ -273,6 +295,9 @@ fn write_model_use_config(
         ModelUseWriteTarget::InPlace {
             config_path,
             backup_path,
-        } => write_config_in_place(config, config_path, backup_path),
+        } => match backup_path {
+            Some(backup_path) => write_config_in_place(config, config_path, backup_path),
+            None => write_config_output(config, config_path),
+        },
     }
 }

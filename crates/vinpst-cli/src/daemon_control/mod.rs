@@ -62,5 +62,7 @@ pub(crate) fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<(
 const HANDOFF_VERIFY_ATTEMPTS: u32 = 100;
 const HANDOFF_VERIFY_INTERVAL: Duration = Duration::from_millis(50);
 
-pub(crate) use asr::reload_asr_backend_via_dbus;
+pub(crate) use asr::{
+    AsrReloadAfterWrite, reload_asr_backend_after_canonical_write, reload_asr_backend_via_dbus,
+};
 pub(crate) use status::{daemon_owner_probe_plan_json, daemon_service_proxy, optional_json_str};

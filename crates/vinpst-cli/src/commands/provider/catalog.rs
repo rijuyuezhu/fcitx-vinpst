@@ -1,12 +1,13 @@
+use super::mutation::reload_after_canonical_provider_write;
 use super::{
-    AsrProviderConfig, Context, Duration, LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry,
-    LoadedLiveI18n, LoadedLiveScriptRegistry, Path, PathBuf, ProviderInstallOutcome,
-    ProviderInstallRequest, ProviderListContext, RegistryConfig, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, VinpstConfig, asr_provider_kind_label, config_set_write_target,
-    default_config_path, default_provider_root, fetch_text_from_mirrors, fs, install_live_script,
-    live_registry_urls, load_config_json, load_live_i18n, managed_script_relative_path,
-    materialize_asr_provider, normalize_provider_id, validate_config_json_value,
-    write_config_set_document,
+    AsrProviderConfig, AsrReloadAfterWrite, Context, Duration, LiveRegistryI18n, LiveScriptKind,
+    LiveScriptRegistry, LoadedLiveI18n, LoadedLiveScriptRegistry, Path, PathBuf,
+    ProviderInstallOutcome, ProviderInstallRequest, ProviderListContext, RegistryConfig,
+    ReqwestRegistryAssetSource, ReqwestRegistryTextSource, VinpstConfig, asr_provider_kind_label,
+    config_set_write_target, default_config_path, default_provider_root, fetch_text_from_mirrors,
+    fs, install_live_script, live_registry_urls, load_config_json, load_live_i18n,
+    managed_script_relative_path, materialize_asr_provider, normalize_provider_id,
+    validate_config_json_value, write_config_set_document,
 };
 
 pub(super) fn print_available_provider_list(
@@ -190,6 +191,7 @@ fn run_provider_install(
     )?;
     let mut wrote_script = false;
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
         let installed =
@@ -204,6 +206,7 @@ fn run_provider_install(
         wrote_script = true;
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
     let required_env = entry
         .envs
@@ -234,6 +237,7 @@ fn run_provider_install(
         dry_run: request.dry_run,
         wrote_script,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -258,6 +262,7 @@ fn provider_install_outcome_json(outcome: &ProviderInstallOutcome) -> serde_json
         "will_write_config": !outcome.dry_run,
         "wrote_script": outcome.wrote_script,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "set required provider environment values in config before selecting it",
             "run vinpst provider use <machine-id> to select the installed provider",
@@ -284,6 +289,9 @@ fn print_provider_install_text(outcome: &ProviderInstallOutcome) {
         outcome.output_path.as_deref(),
         outcome.backup_path.as_deref(),
     );
+    if outcome.runtime_reload.reloaded() {
+        println!("Reloaded the ASR backend.");
+    }
     if !outcome.required_env.is_empty() {
         println!(
             "Required configuration: {}",

@@ -49,7 +49,7 @@ vinpst scene use my-scene --in-place
 
 `config set` also accepts `-i/--stdin` for multiline values, for example `printf '%s\n' 'line one' 'line two' | vinpst config set /scenes/definitions/1/prompt --stdin --in-place`. `vinpst config edit` edits the core JSON config by default; `vinpst config edit fcitx` opens the Fcitx frontend INI through the same temporary-file, backup, and atomic-write workflow.
 
-Use `--reload-daemon` where provided, or reload/restart the daemon after changing active ASR settings.
+When a command writes ASR settings to the canonical user config, Vinpst asks an already-running daemon to reload automatically. It does not activate a stopped daemon, and writes to `--output` or another config path remain offline. Use `--reload-daemon` only when you intentionally want the explicit model-use reload path.
 
 ## Registry install versus custom entries
 

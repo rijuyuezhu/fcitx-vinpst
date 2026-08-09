@@ -197,7 +197,7 @@ fn model_remove_plan_json(plan: &ModelRemovePlan) -> serde_json::Value {
         },
         "next_steps": [
             "run vinpst model use --dry-run to verify the active config does not point at the removed model",
-            "restart or reload the daemon after removing an inactive model"
+            "run vinpst model list to inspect the remaining installed models"
         ],
     })
 }

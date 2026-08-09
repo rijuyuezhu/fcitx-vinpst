@@ -153,8 +153,7 @@ fn doctor_next_steps(
                 "run vinpst model list --available to choose a compatible managed model".to_owned(),
                 "run vinpst model install <id-or-short-id> to install the selected model"
                     .to_owned(),
-                "run vinpst model use <id-or-short-id> --in-place --reload-daemon to activate it"
-                    .to_owned(),
+                "run vinpst model use <id-or-short-id> --in-place to activate it".to_owned(),
             ]);
         }
     }

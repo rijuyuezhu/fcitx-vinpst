@@ -115,13 +115,13 @@ pub(crate) enum ModelCommand {
         /// Write the updated config to this path when not using --dry-run.
         #[arg(long)]
         output: Option<PathBuf>,
-        /// Update --config in place and write a <config>.bak backup.
+        /// Update --config in place, or the canonical user config when omitted, with a backup when it exists.
         #[arg(long)]
         in_place: bool,
         /// Managed model root. Defaults to $XDG_DATA_HOME/fcitx-vinpst/models.
         #[arg(long, hide = true)]
         model_root: Option<PathBuf>,
-        /// Reload the running daemon ASR backend after writing config. Dry-run prints the planned call.
+        /// Explicitly reload the daemon ASR backend after writing. Canonical writes already refresh a running daemon.
         #[arg(long)]
         reload_daemon: bool,
         /// Preview config changes without writing.

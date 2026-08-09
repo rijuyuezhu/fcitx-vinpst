@@ -149,7 +149,7 @@ fn init_outcome_json(outcome: &InitOutcome) -> serde_json::Value {
         "next_steps": [
             "browse available models with vinpst model list --available",
             "install a model with vinpst model install <id-or-short-id>",
-            "select it with vinpst model use <id-or-short-id> --in-place --reload-daemon",
+            "select it with vinpst model use <id-or-short-id> --in-place",
             "check setup with vinpst doctor"
         ],
     })
@@ -194,7 +194,7 @@ fn print_init_outcome_text(outcome: &InitOutcome) {
     println!("Next:");
     println!("  1. Browse models:  vinpst model list --available");
     println!("  2. Install a model: vinpst model install <id-or-short-id>");
-    println!("  3. Select it:       vinpst model use <id-or-short-id> --in-place --reload-daemon");
+    println!("  3. Select it:       vinpst model use <id-or-short-id> --in-place");
     println!("  4. Check setup:     vinpst doctor");
 }
 

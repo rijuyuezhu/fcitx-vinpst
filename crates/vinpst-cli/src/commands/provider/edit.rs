@@ -1,13 +1,15 @@
 use super::{
-    Context, InstalledProviderResolution, LiveScriptKind, Path, PathBuf, ProviderEditOutcome,
-    ProviderEditRequest, ProviderEditScriptOutcome, ProviderEditScriptRequest, VinpstConfig,
-    asr_provider_kind_label, config_set_write_target, default_config_path, load_config_json,
-    normalize_provider_id, prepare_provider_script_edit, validate_config_json_value,
-    write_config_set_document,
+    AsrReloadAfterWrite, Context, InstalledProviderResolution, LiveScriptKind, Path, PathBuf,
+    ProviderEditOutcome, ProviderEditRequest, ProviderEditScriptOutcome, ProviderEditScriptRequest,
+    VinpstConfig, asr_provider_kind_label, config_set_write_target, default_config_path,
+    load_config_json, normalize_provider_id, prepare_provider_script_edit,
+    validate_config_json_value, write_config_set_document,
 };
 use super::{
     catalog::{load_live_provider_registry, load_provider_list_context},
-    mutation::{normalize_provider_kind, parse_provider_env},
+    mutation::{
+        normalize_provider_kind, parse_provider_env, reload_after_canonical_provider_write,
+    },
 };
 
 pub(super) fn print_provider_edit(request: ProviderEditRequest<'_>) -> anyhow::Result<()> {
@@ -72,9 +74,11 @@ fn run_provider_edit(request: &ProviderEditRequest<'_>) -> anyhow::Result<Provid
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
 
     Ok(ProviderEditOutcome {
@@ -90,6 +94,7 @@ fn run_provider_edit(request: &ProviderEditRequest<'_>) -> anyhow::Result<Provid
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -109,6 +114,7 @@ fn provider_edit_outcome_json(outcome: &ProviderEditOutcome) -> serde_json::Valu
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst provider list to verify configured ASR providers",
             "run vinpst asr-state to inspect provider runtime readiness",
@@ -127,6 +133,9 @@ fn print_provider_edit_text(outcome: &ProviderEditOutcome) {
         outcome.output_path.as_deref(),
         outcome.backup_path.as_deref(),
     );
+    if outcome.runtime_reload.reloaded() {
+        println!("Reloaded the ASR backend.");
+    }
 }
 
 pub(super) fn print_provider_edit_script(

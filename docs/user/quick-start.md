@@ -33,7 +33,7 @@ CLI alternative:
 ```sh
 vinpst model list -a
 vinpst model install <model-id>
-vinpst model use <model-id> --in-place --reload-daemon
+vinpst model use <model-id> --in-place
 ```
 
 ## 3. Dictate

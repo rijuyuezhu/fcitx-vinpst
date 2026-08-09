@@ -1067,15 +1067,30 @@ fn model_use_in_place_updates_config_and_writes_backup() {
 }
 
 #[test]
-fn model_use_in_place_requires_config_path() {
-    let output = vinpst_command()
-        .args(["model", "use", "/tmp/vinpst-models/custom", "--in-place"])
+fn model_use_in_place_without_config_targets_canonical_user_config() {
+    let (root, mut command) = common::isolated_vinpst_command("vinpst-model-use-canonical");
+    let model_path = root.path().join("models/custom");
+    let output = command
+        .args(["model", "use"])
+        .arg(&model_path)
+        .args(["--in-place", "--json"])
         .output()
         .expect("run vinpst model use --in-place without config");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
-    assert!(stderr.contains("model use --in-place requires --config <path>"));
+    let value = assert_json_success(output, "model use canonical in-place json");
+    let config_path = root.path().join("config/fcitx-vinpst/config.json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["output_path"], config_path.to_string_lossy().as_ref());
+    assert_eq!(value["backup_path"], serde_json::Value::Null);
+    let updated: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&config_path).expect("read canonical updated config"),
+    )
+    .expect("parse canonical updated config");
+    assert_eq!(
+        updated["asr"]["providers"][0]["model"],
+        model_path.to_string_lossy().as_ref()
+    );
 }
 
 #[test]

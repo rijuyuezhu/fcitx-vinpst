@@ -1,10 +1,12 @@
 use super::catalog::load_live_provider_registry;
 use super::{
-    AsrProviderKind, BTreeMap, Context, LiveScriptKind, ProviderAddOutcome, ProviderAddRequest,
-    ProviderRemoveOutcome, ProviderRemoveRequest, ProviderUseOutcome, ProviderUseRequest,
-    VinpstConfig, config_set_write_target, default_config_path, load_config_json,
-    validate_config_json_value, write_config_set_document,
+    AsrProviderKind, AsrReloadAfterWrite, BTreeMap, Context, LiveScriptKind, ProviderAddOutcome,
+    ProviderAddRequest, ProviderRemoveOutcome, ProviderRemoveRequest, ProviderUseOutcome,
+    ProviderUseRequest, VinpstConfig, config_set_write_target, default_config_path,
+    load_config_json, reload_asr_backend_after_canonical_write, validate_config_json_value,
+    write_config_set_document,
 };
+use crate::config_io::ConfigSetWriteTarget;
 
 pub(super) fn print_provider_add(request: ProviderAddRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
@@ -56,9 +58,11 @@ fn run_provider_add(request: &ProviderAddRequest<'_>) -> anyhow::Result<Provider
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
 
     Ok(ProviderAddOutcome {
@@ -74,6 +78,7 @@ fn run_provider_add(request: &ProviderAddRequest<'_>) -> anyhow::Result<Provider
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -165,6 +170,7 @@ fn provider_add_outcome_json(outcome: &ProviderAddOutcome) -> serde_json::Value 
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst provider list to verify configured ASR providers",
             "run vinpst provider use <id> to activate the new provider",
@@ -189,6 +195,7 @@ fn print_provider_add_text(outcome: &ProviderAddOutcome) {
         outcome.output_path.as_deref(),
         outcome.backup_path.as_deref(),
     );
+    print_runtime_reload(&outcome.runtime_reload);
 }
 
 pub(super) fn print_provider_remove(request: ProviderRemoveRequest<'_>) -> anyhow::Result<()> {
@@ -281,9 +288,11 @@ fn run_provider_remove(
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
 
     Ok(ProviderRemoveOutcome {
@@ -303,6 +312,7 @@ fn run_provider_remove(
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -322,6 +332,7 @@ fn provider_remove_outcome_json(outcome: &ProviderRemoveOutcome) -> serde_json::
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst provider list to verify configured ASR providers",
             "run vinpst asr-state to inspect the active provider runtime readiness",
@@ -343,6 +354,7 @@ fn print_provider_remove_text(outcome: &ProviderRemoveOutcome) {
         outcome.output_path.as_deref(),
         outcome.backup_path.as_deref(),
     );
+    print_runtime_reload(&outcome.runtime_reload);
 }
 
 pub(super) fn print_provider_use(request: ProviderUseRequest<'_>) -> anyhow::Result<()> {
@@ -390,9 +402,11 @@ fn run_provider_use(request: &ProviderUseRequest<'_>) -> anyhow::Result<Provider
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
 
     Ok(ProviderUseOutcome {
@@ -406,6 +420,7 @@ fn run_provider_use(request: &ProviderUseRequest<'_>) -> anyhow::Result<Provider
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -431,6 +446,7 @@ fn provider_use_outcome_json(outcome: &ProviderUseOutcome) -> serde_json::Value 
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst provider list to verify the active provider",
             "run vinpst asr-state to inspect the selected provider runtime readiness",
@@ -449,6 +465,26 @@ fn print_provider_use_text(outcome: &ProviderUseOutcome) {
         outcome.output_path.as_deref(),
         outcome.backup_path.as_deref(),
     );
+    print_runtime_reload(&outcome.runtime_reload);
+}
+
+pub(super) fn reload_after_canonical_provider_write(
+    write_target: &ConfigSetWriteTarget,
+    canonical_config_path: &std::path::Path,
+) -> AsrReloadAfterWrite {
+    let output_path = write_target.output_path();
+    let reload =
+        reload_asr_backend_after_canonical_write(output_path.as_deref(), canonical_config_path);
+    if let Some(warning) = reload.warning() {
+        eprintln!("Warning: {warning}");
+    }
+    reload
+}
+
+fn print_runtime_reload(runtime_reload: &AsrReloadAfterWrite) {
+    if runtime_reload.reloaded() {
+        println!("Reloaded the ASR backend.");
+    }
 }
 
 pub(super) fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {

@@ -48,8 +48,8 @@ use config_io::{
     write_config_set_document, write_file_atomically, write_private_file_atomically,
 };
 use daemon_control::{
-    daemon_owner_probe_plan_json, daemon_service_proxy, handle_daemon_command,
-    reload_asr_backend_via_dbus,
+    AsrReloadAfterWrite, daemon_owner_probe_plan_json, daemon_service_proxy, handle_daemon_command,
+    reload_asr_backend_after_canonical_write, reload_asr_backend_via_dbus,
 };
 use hotword::handle_hotword_command;
 use live_i18n::{LoadedLiveI18n, load_live_i18n};
