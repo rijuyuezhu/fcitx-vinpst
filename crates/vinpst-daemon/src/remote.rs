@@ -117,9 +117,10 @@ fn parse_port(value: &str) -> Result<u16, RemoteTextSettingsError> {
 fn parse_debounce(value: &str) -> Result<u64, RemoteTextSettingsError> {
     value
         .trim()
-        .parse::<u64>()
+        .parse::<u32>()
         .ok()
-        .filter(|value| *value > 0)
+        .filter(|value| (1..=2_147_483_647).contains(value))
+        .map(u64::from)
         .ok_or_else(|| RemoteTextSettingsError::InvalidDebounce(value.trim().to_owned()))
 }
 
@@ -506,6 +507,25 @@ mod tests {
         }));
         assert!(matches!(
             remote_text_settings(&invalid_debounce),
+            Err(RemoteTextSettingsError::InvalidDebounce(_))
+        ));
+        let maximum_debounce = config_with_remote_env(&json!({
+            "VINPST_ASR_API_KEY":"key",
+            "VINPST_ASR_DEBOUNCE_MS":"2147483647"
+        }));
+        assert_eq!(
+            remote_text_settings(&maximum_debounce)
+                .unwrap()
+                .unwrap()
+                .debounce_ms,
+            2_147_483_647
+        );
+        let overflow_debounce = config_with_remote_env(&json!({
+            "VINPST_ASR_API_KEY":"key",
+            "VINPST_ASR_DEBOUNCE_MS":"2147483648"
+        }));
+        assert!(matches!(
+            remote_text_settings(&overflow_debounce),
             Err(RemoteTextSettingsError::InvalidDebounce(_))
         ));
     }

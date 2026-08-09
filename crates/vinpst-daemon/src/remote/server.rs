@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::{
     net::TcpListener,
-    sync::{Mutex, mpsc, oneshot},
+    sync::{Mutex, mpsc, oneshot, watch},
     task::JoinHandle,
 };
 
@@ -67,18 +67,24 @@ const INDEX_HTML: &str = r#"<!doctype html>
         history.replaceState(null, '', location.pathname)
         return fromHash
       }
-      return localStorage.getItem('vinpst_remote_api_key') || prompt('API key') || ''
+      const stored = localStorage.getItem('vinpst_remote_api_key') || ''
+      if (stored) return stored
+      const entered = prompt('API key') || ''
+      if (entered) localStorage.setItem('vinpst_remote_api_key', entered)
+      return entered
     }
     function updateEnabled() {
       const enabled = socket && socket.readyState === WebSocket.OPEN && outputConnected
       editor.disabled = !enabled
       sendButton.disabled = !enabled
+      if (enabled) editor.focus()
     }
     function send(payload) {
       if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload))
     }
     function connect() {
       const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      inputStatus.textContent = 'input connecting'
       socket = new WebSocket(`${scheme}//${location.host}/ws`)
       socket.onopen = () => send({type: 'auth', api_key: apiKey()})
       socket.onmessage = event => {
@@ -102,9 +108,13 @@ const INDEX_HTML: &str = r#"<!doctype html>
       socket.onclose = () => {
         inputStatus.textContent = 'input disconnected'
         outputConnected = false
+        outputStatus.textContent = 'output disconnected'
+        editor.value = ''
+        count.textContent = '0 chars'
         updateEnabled()
         setTimeout(connect, 1000)
       }
+      socket.onerror = () => socket.close()
     }
     editor.addEventListener('compositionstart', () => { composing = true })
     editor.addEventListener('compositionend', () => {
@@ -143,6 +153,7 @@ pub enum RemoteTextServerError {
 pub struct RemoteTextServer {
     local_addr: SocketAddr,
     shutdown: Option<oneshot::Sender<()>>,
+    client_shutdown: watch::Sender<bool>,
     task: Option<JoinHandle<Result<(), RemoteTextServerError>>>,
 }
 
@@ -159,7 +170,8 @@ impl RemoteTextServer {
             .await
             .map_err(RemoteTextServerError::Bind)?;
         let local_addr = listener.local_addr().map_err(RemoteTextServerError::Bind)?;
-        let state = Arc::new(RemoteServerState::new(settings));
+        let (client_shutdown, _) = watch::channel(false);
+        let state = Arc::new(RemoteServerState::new(settings, client_shutdown.clone()));
         let app = remote_router(state);
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(async move {
@@ -176,6 +188,7 @@ impl RemoteTextServer {
         Ok(Self {
             local_addr,
             shutdown: Some(shutdown),
+            client_shutdown,
             task: Some(task),
         })
     }
@@ -194,8 +207,9 @@ impl RemoteTextServer {
         self.local_addr
     }
 
-    /// Stops accepting clients and waits for the HTTP server task to finish.
+    /// Stops accepting clients, closes upgraded clients, and waits for the HTTP server task.
     pub async fn shutdown(mut self) -> Result<(), RemoteTextServerError> {
+        let _ = self.client_shutdown.send(true);
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -208,6 +222,7 @@ impl RemoteTextServer {
 
 impl Drop for RemoteTextServer {
     fn drop(&mut self) {
+        let _ = self.client_shutdown.send(true);
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -410,13 +425,15 @@ impl RemoteConnections {
 struct RemoteServerState {
     settings: RemoteTextServiceSettings,
     connections: Mutex<RemoteConnections>,
+    shutdown: watch::Sender<bool>,
 }
 
 impl RemoteServerState {
-    fn new(settings: RemoteTextServiceSettings) -> Self {
+    fn new(settings: RemoteTextServiceSettings, shutdown: watch::Sender<bool>) -> Self {
         Self {
             settings,
             connections: Mutex::new(RemoteConnections::default()),
+            shutdown,
         }
     }
 
@@ -437,8 +454,15 @@ impl RemoteServerState {
     fn spawn_debounce(self: &Arc<Self>, generation: u64) {
         let state = Arc::clone(self);
         let delay = Duration::from_millis(self.settings.debounce_ms);
+        let mut shutdown = self.shutdown.subscribe();
         tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
+            if *shutdown.borrow() {
+                return;
+            }
+            tokio::select! {
+                () = tokio::time::sleep(delay) => {}
+                _ = shutdown.changed() => return,
+            }
             let mut connections = state.connections.lock().await;
             if connections.debounce_generation != generation {
                 return;
@@ -512,6 +536,7 @@ async fn input_upgrade(
 ) -> Response {
     websocket
         .max_message_size(MAX_WEBSOCKET_MESSAGE_BYTES)
+        .max_frame_size(MAX_WEBSOCKET_MESSAGE_BYTES)
         .on_upgrade(move |socket| handle_input_socket(state, socket))
 }
 
@@ -530,6 +555,7 @@ async fn realtime_upgrade(
     }
     websocket
         .max_message_size(MAX_WEBSOCKET_MESSAGE_BYTES)
+        .max_frame_size(MAX_WEBSOCKET_MESSAGE_BYTES)
         .on_upgrade(move |socket| handle_output_socket(state, socket))
 }
 
@@ -556,11 +582,19 @@ fn protocol_error_response(error: &RemoteTextProtocolError) -> Response {
 }
 
 async fn handle_input_socket(state: Arc<RemoteServerState>, socket: WebSocket) {
+    let mut shutdown = state.shutdown.subscribe();
+    if *shutdown.borrow() {
+        return;
+    }
     let (sink, mut stream) = socket.split();
     let (sender, receiver) = mpsc::unbounded_channel();
     let writer = tokio::spawn(websocket_writer(sink, receiver));
 
-    let Some(Ok(Message::Text(authentication))) = stream.next().await else {
+    let authentication = tokio::select! {
+        _ = shutdown.changed() => None,
+        message = stream.next() => message,
+    };
+    let Some(Ok(Message::Text(authentication))) = authentication else {
         drop(sender);
         let _ = writer.await;
         return;
@@ -607,7 +641,14 @@ async fn handle_input_socket(state: Arc<RemoteServerState>, socket: WebSocket) {
         return;
     }
 
-    while let Some(message) = stream.next().await {
+    loop {
+        let message = tokio::select! {
+            _ = shutdown.changed() => break,
+            message = stream.next() => message,
+        };
+        let Some(message) = message else {
+            break;
+        };
         let Ok(message) = message else {
             break;
         };
@@ -631,6 +672,10 @@ async fn handle_input_socket(state: Arc<RemoteServerState>, socket: WebSocket) {
 }
 
 async fn handle_output_socket(state: Arc<RemoteServerState>, socket: WebSocket) {
+    let mut shutdown = state.shutdown.subscribe();
+    if *shutdown.borrow() {
+        return;
+    }
     let (sink, mut stream) = socket.split();
     let (sender, receiver) = mpsc::unbounded_channel();
     let writer = tokio::spawn(websocket_writer(sink, receiver));
@@ -662,7 +707,14 @@ async fn handle_output_socket(state: Arc<RemoteServerState>, socket: WebSocket) 
         return;
     }
 
-    while let Some(message) = stream.next().await {
+    loop {
+        let message = tokio::select! {
+            _ = shutdown.changed() => break,
+            message = stream.next() => message,
+        };
+        let Some(message) = message else {
+            break;
+        };
         let Ok(message) = message else {
             break;
         };
