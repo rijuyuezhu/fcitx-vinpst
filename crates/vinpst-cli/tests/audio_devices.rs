@@ -729,6 +729,58 @@ fn device_use_in_place_writes_backup() {
 }
 
 #[test]
+fn device_use_canonical_in_place_reports_restart_hint() {
+    let (root, mut command) = isolated_vinpst_command("vinpst-device-use-canonical");
+    let output = command
+        .args(["device", "use", "default", "--in-place", "--json"])
+        .output()
+        .expect("run canonical vinpst device use --in-place");
+
+    let value = assert_json_success(output, "canonical device use json");
+    let config_path = root.path().join("config/fcitx-vinpst/config.json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["output_path"], config_path.to_string_lossy().as_ref());
+    assert!(
+        value["restart_hint"]
+            .as_str()
+            .is_some_and(|hint| hint.contains("vinpst daemon restart"))
+    );
+    assert_eq!(
+        read_json(&config_path)["global"]["capture_device"],
+        "default"
+    );
+}
+
+#[cfg(feature = "pipewire-backend")]
+#[test]
+fn device_use_reports_unavailable_live_discovery_without_rejecting_target() {
+    let root = unique_temp_dir("vinpst-device-use-unavailable-pipewire");
+    let config_path = copy_default_config(&root);
+    let pipewire_config = root.join("missing-pipewire-config");
+    fs::create_dir(&pipewire_config).expect("create empty PipeWire config directory");
+
+    let output = vinpst_command()
+        .env("PIPEWIRE_CONFIG_DIR", &pipewire_config)
+        .env("XDG_CONFIG_HOME", &pipewire_config)
+        .env("XDG_DATA_DIRS", &pipewire_config)
+        .args(["device", "use", "alsa_input.missing", "--config"])
+        .arg(&config_path)
+        .args(["--dry-run", "--json"])
+        .output()
+        .expect("run device use without live PipeWire discovery");
+
+    let stderr = String::from_utf8(output.stderr.clone()).expect("stderr should be UTF-8");
+    let value = assert_json_success(output, "device use unavailable discovery json");
+    assert_eq!(value["wrote_config"], false);
+    assert!(
+        value["discovery_warning"]
+            .as_str()
+            .is_some_and(|warning| warning.contains("alsa_input.missing"))
+    );
+    assert!(stderr.contains("Warning:"));
+}
+
+#[test]
 fn device_use_rejects_empty_target_and_missing_write_target() {
     let root = unique_temp_dir("vinpst-device-use-errors");
     let config_path = copy_default_config(&root);

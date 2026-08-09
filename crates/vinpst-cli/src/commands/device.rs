@@ -1,7 +1,8 @@
+use crate::audio_diagnostics::enumerate_audio_devices;
 use crate::{
     CaptureTarget, Context, DeviceCommand, Path, PathBuf, VinpstConfig, audio_devices_json,
     capture_target_json, config_set_write_target, default_config_path, load_config_json,
-    validate_config_json_value, write_config_set_document,
+    same_path_text, validate_config_json_value, write_config_set_document,
 };
 
 pub(crate) fn handle_device_command(command: DeviceCommand) -> anyhow::Result<()> {
@@ -53,6 +54,8 @@ struct DeviceUseOutcome {
     in_place: bool,
     dry_run: bool,
     wrote_config: bool,
+    discovery_warning: Option<String>,
+    restart_hint: Option<&'static str>,
 }
 
 fn print_device_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
@@ -121,6 +124,9 @@ fn print_device_list_text(
 fn print_device_use(request: DeviceUseRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
     let outcome = run_device_use(&request)?;
+    if let Some(warning) = outcome.discovery_warning.as_deref() {
+        eprintln!("Warning: {warning}");
+    }
     if json_output {
         println!(
             "{}",
@@ -140,10 +146,10 @@ fn run_device_use(request: &DeviceUseRequest<'_>) -> anyhow::Result<DeviceUseOut
     let mut loaded = load_config_json(request.config_path)?;
     let contents =
         serde_json::to_string(&loaded.document).context("serialize config for device selection")?;
-    let before = VinpstConfig::from_json_str(&contents)
-        .context("parse config for device selection")?
-        .global
-        .capture_device;
+    let config =
+        VinpstConfig::from_json_str(&contents).context("parse config for device selection")?;
+    let before = config.global.capture_device.clone();
+    let discovery_warning = capture_target_discovery_warning(&capture_target);
     let root = loaded
         .document
         .as_object_mut()
@@ -172,6 +178,14 @@ fn run_device_use(request: &DeviceUseRequest<'_>) -> anyhow::Result<DeviceUseOut
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
     }
+    let written_path = write_target.output_path();
+    let restart_hint = (wrote_config
+        && written_path
+            .as_deref()
+            .is_some_and(|path| same_path_text(path, &default_path)))
+    .then_some(
+        "If the daemon is already running, apply this capture device with `vinpst daemon restart`.",
+    );
 
     Ok(DeviceUseOutcome {
         config_path: loaded.path.take(),
@@ -179,11 +193,33 @@ fn run_device_use(request: &DeviceUseRequest<'_>) -> anyhow::Result<DeviceUseOut
         before,
         after,
         capture_target,
-        output_path: write_target.output_path(),
+        output_path: written_path,
         backup_path: write_target.backup_path(),
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        discovery_warning,
+        restart_hint,
+    })
+}
+
+fn capture_target_discovery_warning(target: &CaptureTarget) -> Option<String> {
+    let CaptureTarget::Object(target) = target else {
+        return None;
+    };
+    let report = enumerate_audio_devices();
+    if report.live {
+        if report.devices.iter().any(|device| device.name == *target) {
+            return None;
+        }
+        return Some(format!(
+            "Capture device `{target}` was not found in PipeWire. It will still be saved."
+        ));
+    }
+    report.enumeration_error.map(|error| {
+        format!(
+            "Could not verify capture device `{target}` because live PipeWire discovery is unavailable: {error}. It will still be saved."
+        )
     })
 }
 
@@ -196,6 +232,13 @@ fn normalize_capture_device_value(input: &str) -> anyhow::Result<String> {
 }
 
 fn device_use_outcome_json(outcome: &DeviceUseOutcome) -> serde_json::Value {
+    let mut next_steps = vec![
+        "run vinpst device list to verify the configured capture target",
+        "run vinpst doctor to inspect audio and config diagnostics",
+    ];
+    if let Some(restart_hint) = outcome.restart_hint {
+        next_steps.insert(1, restart_hint);
+    }
     serde_json::json!({
         "ok": true,
         "dry_run": outcome.dry_run,
@@ -209,10 +252,9 @@ fn device_use_outcome_json(outcome: &DeviceUseOutcome) -> serde_json::Value {
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
-        "next_steps": [
-            "run vinpst device list to verify the configured capture target",
-            "run vinpst doctor to inspect audio and config diagnostics"
-        ],
+        "discovery_warning": outcome.discovery_warning,
+        "restart_hint": outcome.restart_hint,
+        "next_steps": next_steps,
     })
 }
 
@@ -227,6 +269,9 @@ fn print_device_use_text(outcome: &DeviceUseOutcome) {
         outcome.output_path.as_deref(),
         outcome.backup_path.as_deref(),
     );
+    if let Some(restart_hint) = outcome.restart_hint {
+        println!("{restart_hint}");
+    }
 }
 
 fn capture_target_label(target: &CaptureTarget) -> String {

@@ -370,7 +370,7 @@ mod help_surface_tests {
     use clap::{CommandFactory, Parser};
 
     use super::{
-        AdapterCommand, Args, Command, ConfigCommand, ModelCommand, ProviderCommand,
+        AdapterCommand, Args, Command, ConfigCommand, DeviceCommand, ModelCommand, ProviderCommand,
         RecordingCommand, SceneCommand,
     };
     use crate::hotword::HotwordCommand;
@@ -636,6 +636,18 @@ mod help_surface_tests {
             args.command,
             Some(Command::Model {
                 command: ModelCommand::Info { .. }
+            })
+        ));
+    }
+
+    #[test]
+    fn frozen_device_command_shape_remains_accepted() {
+        let args =
+            Args::try_parse_from(["vinpst", "device", "ls"]).expect("upstream device list alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Device {
+                command: DeviceCommand::List { .. }
             })
         ));
     }
