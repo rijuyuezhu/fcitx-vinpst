@@ -11,8 +11,8 @@ use vinpst_protocol::{RecognitionPayload, ServiceStatus};
 use vinpst_text::TextRequest;
 
 use super::{
-    MOCK_SILENCE_THRESHOLD, PendingStopRecording, PreparedStopRecording, ReadyStopRecording,
-    RuntimeError, RuntimeState, StopRecordingReport,
+    LiveRecognitionEvent, MOCK_SILENCE_THRESHOLD, PendingStopRecording, PreparedStopRecording,
+    ReadyStopRecording, RuntimeError, RuntimeState, StopRecordingReport,
 };
 
 fn duration_millis(duration: Duration) -> u64 {
@@ -36,8 +36,10 @@ impl RuntimeState {
         )
     }
 
-    /// Takes newly decoded streaming partials while a recording is active.
-    pub fn take_live_partial_texts(&mut self) -> Result<Vec<String>, RuntimeError> {
+    /// Takes newly decoded live recognition events while a recording is active.
+    pub(crate) fn take_live_recognition_events(
+        &mut self,
+    ) -> Result<Vec<LiveRecognitionEvent>, RuntimeError> {
         if self.status != ServiceStatus::Recording {
             return Ok(Vec::new());
         }
@@ -45,18 +47,24 @@ impl RuntimeState {
             .active_session
             .as_ref()
             .ok_or(RuntimeError::MissingAsrSession)?;
-        let partials = session
-            .take_streaming_partial_texts()
+        let live = session
+            .take_live_recognition_events()
             .map_err(RuntimeError::Asr)?;
-        let mut new_partials = Vec::new();
-        for text in partials {
-            if self.partial_text.as_deref() == Some(text.as_str()) {
-                continue;
+        let mut projected = Vec::with_capacity(live.len());
+        for event in live {
+            match event {
+                LiveRecognitionEvent::PartialText(text) => {
+                    if self.partial_text.as_deref() != Some(text.as_str()) {
+                        self.partial_text = Some(text.clone());
+                        projected.push(LiveRecognitionEvent::PartialText(text));
+                    }
+                }
+                LiveRecognitionEvent::Error(message) => {
+                    projected.push(LiveRecognitionEvent::Error(message));
+                }
             }
-            self.partial_text = Some(text.clone());
-            new_partials.push(text);
         }
-        Ok(new_partials)
+        Ok(projected)
     }
 
     /// Stops recording and returns a deterministic mock result payload.

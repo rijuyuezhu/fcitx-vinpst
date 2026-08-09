@@ -280,6 +280,56 @@ for raw in sys.stdin:
     Ok((runtime, handle))
 }
 
+fn configured_streaming_command_error_runtime(
+    error_on_finish: bool,
+) -> anyhow::Result<(RuntimeState, ManualRecorderHandle)> {
+    let mut config = VinpstConfig::bundled_default()?;
+    "cmd.streaming".clone_into(&mut config.asr.active_provider);
+    let trigger = if error_on_finish { "finish" } else { "audio" };
+    let script = format!(
+        r#"
+import json
+import sys
+sent = False
+trigger = {trigger:?}
+for raw in sys.stdin:
+    if not raw.strip():
+        continue
+    event = json.loads(raw)
+    should_error = (
+        (trigger == 'audio' and event.get('type') == 'audio' and event.get('commit') is False)
+        or (trigger == 'finish' and event.get('type') == 'finish')
+    )
+    if should_error and not sent:
+        print(json.dumps({{'type':'error','message':"ASR provider 'cmd': timed out. upstream detail"}}), flush=True)
+        sent = True
+    if event.get('type') == 'finish':
+        print(json.dumps({{'type':'closed'}}), flush=True)
+        break
+"#
+    );
+    config.asr.providers.push(AsrProviderConfig {
+        id: "cmd.streaming".to_owned(),
+        kind: AsrProviderKind::Command,
+        timeout_ms: Some(1_000),
+        model: Some("cmd-model".to_owned()),
+        hotwords_file: None,
+        command: Some("python3".to_owned()),
+        args: vec!["-u".to_owned(), "-c".to_owned(), script],
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    config.validate()?;
+    let backend = AsrBackendFactory::build_active(&config.asr)?;
+    let captured = CapturedAudio::named(
+        PcmBuffer::at_default_rate(vec![1_000; MIN_SAMPLES_FOR_RECOGNITION]),
+        "dbus-streaming-command-error-e2e",
+    );
+    let (recorder, handle) = ManualAudioRecorder::new(captured);
+    let runtime = RuntimeState::with_audio_recorder(config, backend, Box::new(recorder))?;
+    Ok((runtime, handle))
+}
+
 #[derive(Clone, Default)]
 struct ManualRecorderHandle {
     callback: Arc<StdMutex<Option<AudioChunkCallback>>>,
@@ -395,6 +445,19 @@ async fn next_error_info_signal(
         .await?
         .ok_or_else(|| anyhow::anyhow!("signal stream ended"))?;
     Ok(message.body().deserialize()?)
+}
+
+async fn expect_no_error_info_signal(
+    stream: &mut zbus::proxy::SignalStream<'_>,
+) -> anyhow::Result<()> {
+    match timeout(Duration::from_millis(150), stream.next()).await {
+        Err(_) => Ok(()),
+        Ok(None) => anyhow::bail!("signal stream ended"),
+        Ok(Some(message)) => {
+            let value: (String, String, String, String) = message.body().deserialize()?;
+            anyhow::bail!("unexpected error-info signal: {value:?}");
+        }
+    }
 }
 
 fn single_string_body(message: &Message) -> anyhow::Result<String> {
@@ -927,21 +990,11 @@ async fn empty_recognition_skips_postprocessing_and_emits_empty_result() -> anyh
     Ok(())
 }
 
-#[tokio::test]
-async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
-    let _well_known_name_guard = WELL_KNOWN_NAME_TEST_LOCK.lock().await;
-    let service_connection = spawn_service().await?;
-    let client_connection = zbus::Connection::session().await?;
-    let proxy = Proxy::new(
-        &client_connection,
-        dbus::SERVICE_BUS_NAME,
-        dbus::SERVICE_OBJECT_PATH,
-        dbus::SERVICE_INTERFACE,
-    )
-    .await?;
-
+async fn assert_legacy_dbus_introspection(
+    client_connection: &zbus::Connection,
+) -> anyhow::Result<()> {
     let introspection_proxy = Proxy::new(
-        &client_connection,
+        client_connection,
         dbus::SERVICE_BUS_NAME,
         dbus::SERVICE_OBJECT_PATH,
         "org.freedesktop.DBus.Introspectable",
@@ -1010,128 +1063,106 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         dbus::signature::ERROR_INFO,
     )?;
     assert_member_missing(interface_xml, "method", dbus::method::NOTIFY);
+    Ok(())
+}
 
-    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
-    let mut partial_signals = proxy
-        .receive_signal(dbus::signal::RECOGNITION_PARTIAL)
-        .await?;
-    let mut result_signals = proxy
-        .receive_signal(dbus::signal::RECOGNITION_RESULT)
-        .await?;
+async fn exercise_legacy_normal_recording(
+    proxy: &Proxy<'_>,
+    status_signals: &mut zbus::proxy::SignalStream<'_>,
+    partial_signals: &mut zbus::proxy::SignalStream<'_>,
+    result_signals: &mut zbus::proxy::SignalStream<'_>,
+) -> anyhow::Result<()> {
     let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
     assert_eq!(status, "idle");
-
     let idle_stop: zbus::Result<String> = proxy.call(dbus::method::STOP_RECORDING, &"").await;
-    let idle_stop_error = idle_stop.expect_err("idle stop should fail");
-    assert_legacy_operation_failed(&idle_stop_error, "runtime is not recording: idle");
-    expect_no_string_signal(&mut status_signals).await?;
-
-    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
-    assert_eq!(status, "idle");
+    assert_legacy_operation_failed(
+        &idle_stop.expect_err("idle stop should fail"),
+        "runtime is not recording: idle",
+    );
+    expect_no_string_signal(status_signals).await?;
 
     proxy
         .call::<_, _, ()>(dbus::method::START_RECORDING, &())
         .await?;
-    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
-    assert_eq!(status, "recording");
-    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "mock partial"
-    );
-
+    assert_eq!(next_string_signal(status_signals).await?, "recording");
+    assert_eq!(next_string_signal(partial_signals).await?, "mock partial");
     let duplicate_start: zbus::Result<()> = proxy.call(dbus::method::START_RECORDING, &()).await;
-    let duplicate_start_error = duplicate_start.expect_err("duplicate start should fail");
-    assert_legacy_operation_failed(&duplicate_start_error, "runtime is busy");
-
+    assert_legacy_operation_failed(
+        &duplicate_start.expect_err("duplicate start should fail"),
+        "runtime is busy",
+    );
     let command_while_recording: zbus::Result<()> = proxy
         .call(dbus::method::START_COMMAND_RECORDING, &"ignored selection")
         .await;
-    let command_while_recording_error =
-        command_while_recording.expect_err("command start while recording should fail");
-    assert_legacy_operation_failed(&command_while_recording_error, "runtime is busy: recording");
-
+    assert_legacy_operation_failed(
+        &command_while_recording.expect_err("command start while recording should fail"),
+        "runtime is busy: recording",
+    );
     proxy
         .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
         .await?;
-    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
-    assert_eq!(status, "recording");
-    let state: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        Vec<String>,
-    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    let state: AsrBackendStateTuple = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
     assert!(
         state.5,
         "reload while recording should be reported as pending"
     );
-    expect_no_string_signal(&mut status_signals).await?;
+    expect_no_string_signal(status_signals).await?;
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     assert_eq!(payload_json, fixture_json(RAW_PAYLOAD_JSON));
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.candidates.len(), 1);
-    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
-    expect_no_string_signal(&mut partial_signals).await?;
-    let result_payload_json = next_string_signal(&mut result_signals).await?;
+    assert_eq!(next_string_signal(status_signals).await?, "inferring");
+    assert_eq!(next_string_signal(status_signals).await?, "postprocessing");
+    expect_no_string_signal(partial_signals).await?;
+    let result_payload_json = next_string_signal(result_signals).await?;
     assert_eq!(result_payload_json, fixture_json(RAW_PAYLOAD_JSON));
-    let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
-    assert_eq!(signal_payload, payload);
-    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
-    let state = wait_for_asr_reload(&proxy).await?;
-    assert!(!state.5, "pending reload should finish once idle");
+    assert_eq!(
+        RecognitionPayload::from_json_str(&result_payload_json)?,
+        payload
+    );
+    assert_eq!(next_string_signal(status_signals).await?, "idle");
+    assert!(!wait_for_asr_reload(proxy).await?.5);
+    Ok(())
+}
 
+async fn exercise_legacy_command_recording(
+    proxy: &Proxy<'_>,
+    status_signals: &mut zbus::proxy::SignalStream<'_>,
+    partial_signals: &mut zbus::proxy::SignalStream<'_>,
+    result_signals: &mut zbus::proxy::SignalStream<'_>,
+) -> anyhow::Result<()> {
     proxy
         .call::<_, _, ()>(dbus::method::START_COMMAND_RECORDING, &"selected text")
         .await?;
-    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
-    assert_eq!(status, "recording");
-    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "mock partial"
-    );
-
+    assert_eq!(next_string_signal(status_signals).await?, "recording");
+    assert_eq!(next_string_signal(partial_signals).await?, "mock partial");
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(
         payload.commit_text,
         "mock command result for: selected text"
     );
-    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
-    expect_no_string_signal(&mut partial_signals).await?;
-    let result_payload_json = next_string_signal(&mut result_signals).await?;
-    let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
+    assert_eq!(next_string_signal(status_signals).await?, "inferring");
+    assert_eq!(next_string_signal(status_signals).await?, "postprocessing");
+    expect_no_string_signal(partial_signals).await?;
+    let signal_payload =
+        RecognitionPayload::from_json_str(&next_string_signal(result_signals).await?)?;
     assert_eq!(
         signal_payload.commit_text,
         "mock command result for: selected text"
     );
-    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
-
-    let state = wait_for_asr_reload(&proxy).await?;
+    assert_eq!(next_string_signal(status_signals).await?, "idle");
+    let state = wait_for_asr_reload(proxy).await?;
     assert!(state.6);
     assert_eq!(state.0, "sherpa-onnx");
     assert_eq!(state.2, "mock");
     assert_eq!(state.3, "mock-streaming");
-    assert!(
-        state.4.contains("Failed to reload ASR backend"),
-        "unexpected deferred reload error: {}",
-        state.4
-    );
+    assert!(state.4.contains("Failed to reload ASR backend"));
+    Ok(())
+}
 
+async fn exercise_legacy_diagnostics_and_adapter_errors(proxy: &Proxy<'_>) -> anyhow::Result<()> {
     let text_adapter_state_json: String = proxy
         .call(dbus::method::GET_TEXT_ADAPTER_STATE, &())
         .await?;
@@ -1144,38 +1175,79 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     proxy
         .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
         .await?;
-    let state = wait_for_asr_reload(&proxy).await?;
+    let state = wait_for_asr_reload(proxy).await?;
     assert_eq!(state.2, "mock");
     assert_eq!(state.3, "mock-streaming");
     assert!(state.6);
     assert!(state.4.contains("Failed to reload ASR backend"));
-    let adapter_start: zbus::Result<()> = proxy
-        .call(dbus::method::START_ADAPTER, &"mock-adapter")
-        .await;
-    let adapter_start_error = adapter_start.expect_err("unconfigured adapter start should fail");
-    assert_legacy_operation_failed(
-        &adapter_start_error,
-        "adapter `mock-adapter` is not configured",
-    );
-    let adapter_stop: zbus::Result<()> = proxy
-        .call(dbus::method::STOP_ADAPTER, &"mock-adapter")
-        .await;
-    let adapter_stop_error = adapter_stop.expect_err("unconfigured adapter stop should fail");
-    assert_legacy_operation_failed(
-        &adapter_stop_error,
-        "adapter `mock-adapter` is not configured",
-    );
-    let empty_adapter_start: zbus::Result<()> = proxy.call(dbus::method::START_ADAPTER, &"").await;
-    let empty_adapter_start_error =
-        empty_adapter_start.expect_err("empty adapter start should fail");
-    assert_legacy_operation_failed(&empty_adapter_start_error, "adapter `` is not configured");
-    let empty_adapter_stop: zbus::Result<()> = proxy.call(dbus::method::STOP_ADAPTER, &"").await;
-    let empty_adapter_stop_error = empty_adapter_stop.expect_err("empty adapter stop should fail");
-    assert_legacy_operation_failed(&empty_adapter_stop_error, "adapter `` is not configured");
-
+    for (method, adapter, message) in [
+        (
+            dbus::method::START_ADAPTER,
+            "mock-adapter",
+            "adapter `mock-adapter` is not configured",
+        ),
+        (
+            dbus::method::STOP_ADAPTER,
+            "mock-adapter",
+            "adapter `mock-adapter` is not configured",
+        ),
+        (
+            dbus::method::START_ADAPTER,
+            "",
+            "adapter `` is not configured",
+        ),
+        (
+            dbus::method::STOP_ADAPTER,
+            "",
+            "adapter `` is not configured",
+        ),
+    ] {
+        let result: zbus::Result<()> = proxy.call(method, &adapter).await;
+        assert_legacy_operation_failed(
+            &result.expect_err("unconfigured adapter call should fail"),
+            message,
+        );
+    }
     let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
     assert_eq!(status, "idle");
+    Ok(())
+}
 
+#[tokio::test]
+async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
+    let _well_known_name_guard = WELL_KNOWN_NAME_TEST_LOCK.lock().await;
+    let service_connection = spawn_service().await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        dbus::SERVICE_BUS_NAME,
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    assert_legacy_dbus_introspection(&client_connection).await?;
+    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
+    let mut partial_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_PARTIAL)
+        .await?;
+    let mut result_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_RESULT)
+        .await?;
+    exercise_legacy_normal_recording(
+        &proxy,
+        &mut status_signals,
+        &mut partial_signals,
+        &mut result_signals,
+    )
+    .await?;
+    exercise_legacy_command_recording(
+        &proxy,
+        &mut status_signals,
+        &mut partial_signals,
+        &mut result_signals,
+    )
+    .await?;
+    exercise_legacy_diagnostics_and_adapter_errors(&proxy).await?;
     assert!(
         service_connection
             .release_name(dbus::SERVICE_BUS_NAME)
@@ -1376,6 +1448,115 @@ async fn configured_streaming_command_backend_emits_live_partial_before_stop() -
     assert_eq!(signal_payload.commit_text, "bus streaming final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn duplicate_start_emits_daemon_busy_notification() -> anyhow::Result<()> {
+    let (runtime, _recorder) = live_partial_runtime()?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    let duplicate: zbus::Result<()> = proxy.call(dbus::method::START_RECORDING, &()).await;
+    assert_legacy_operation_failed(&duplicate.unwrap_err(), "runtime is busy: recording");
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "daemon_busy".to_owned(),
+            String::new(),
+            String::new(),
+            "Daemon is busy.".to_owned(),
+        )
+    );
+    expect_no_error_info_signal(&mut notifications).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn streaming_error_emits_live_notification_without_stop_duplicate() -> anyhow::Result<()> {
+    let (runtime, recorder) = configured_streaming_command_error_runtime(false)?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    recorder.emit(&PcmBuffer::at_default_rate(vec![1_000; 800]));
+    recorder.emit(&PcmBuffer::at_default_rate(vec![2_000; 800]));
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "asr_provider_timeout".to_owned(),
+            "cmd".to_owned(),
+            "upstream detail".to_owned(),
+            "ASR provider 'cmd': timed out. upstream detail".to_owned(),
+        )
+    );
+
+    let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
+    let payload = RecognitionPayload::from_json_str(&payload_json)?;
+    assert!(payload.commit_text.is_empty());
+    assert!(payload.candidates.is_empty());
+    expect_no_error_info_signal(&mut notifications).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn stop_time_streaming_error_emits_notification_before_failure() -> anyhow::Result<()> {
+    let (runtime, recorder) = configured_streaming_command_error_runtime(true)?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    recorder.emit(&PcmBuffer::at_default_rate(vec![1_000; 800]));
+    let stop: zbus::Result<String> = proxy.call(dbus::method::STOP_RECORDING, &"").await;
+    let error = stop.expect_err("finish-time ASR error should fail StopRecording");
+    assert_legacy_operation_failed(&error, "upstream detail");
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "asr_provider_timeout".to_owned(),
+            "cmd".to_owned(),
+            "upstream detail".to_owned(),
+            "ASR provider 'cmd': timed out. upstream detail".to_owned(),
+        )
+    );
+    expect_no_error_info_signal(&mut notifications).await?;
     Ok(())
 }
 
