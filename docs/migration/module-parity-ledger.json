@@ -23,6 +23,51 @@
   ],
   "audits": [
     {
+      "id": "ASR-CONTRACT-001",
+      "state": "audited-with-gap",
+      "title": "Recognition session event contract, payload conversion, and minimum recording gate",
+      "upstream_files": [
+        "daemon/asr/runtime/recognition_contract.h"
+      ],
+      "current_files": [
+        "crates/vinpst-asr/src/payload.rs",
+        "crates/vinpst-asr/src/traits.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/runtime/active_session.rs",
+        "crates/vinpst-daemon/src/runtime/recording.rs"
+      ],
+      "notes": [
+        "Fixed recognition event reduction so any Error event fails instead of becoming committed text and the last FinalText wins like upstream event consumption.",
+        "Restored the upstream 8000 raw-sample minimum: shorter recordings cancel the session, return directly to idle, skip ASR/text finishing, and expose an exact empty StopRecording D-Bus reply without RecognitionResult.",
+        "Aligned streaming text projection so non-empty PartialText and early FinalText are emitted through RecognitionPartial during recording while early finals remain retained for stop-time payload construction and are not duplicated at stop.",
+        "Rust keeps a smaller typed BackendCapabilities shape because current upstream runtime decisions read only audio_delivery_mode; upstream supports_streaming, supports_partial_results, and requires_network are descriptor metadata without runtime consumers, while hotword capability is carried by model/provider metadata in both implementations.",
+        "Known remaining gap is intentionally not absorbed into this unit: upstream immediately classifies live RecognitionEvent::Error through common/dbus/error_info.{cpp,h} and emits DaemonNotification, while those two upstream files remain pending for their own non-overlapping audit."
+      ]
+    },
+    {
+      "id": "ASR-RESULT-001",
+      "state": "audited-intentional-divergence",
+      "title": "Recognition result JSON wire format and candidate source interpretation",
+      "upstream_files": [
+        "common/asr/recognition_result.cpp",
+        "common/asr/recognition_result.h"
+      ],
+      "current_files": [
+        "crates/vinpst-protocol/src/recognition.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-fcitx-core/src/frontend.rs",
+        "crates/vinpst-fcitx-core/src/frontend_presentation.rs"
+      ],
+      "notes": [
+        "Daemon-produced raw/llm/asr recognition JSON, invalid-input fallback, commit-text normalization, and raw-candidate synthesis match the frozen upstream wire behavior.",
+        "Rust intentionally uses a typed CandidateSource: missing or unknown foreign source strings normalize to raw instead of preserving an arbitrary string; ordinary daemon-produced sources are unaffected.",
+        "Rust additionally preserves an empty cancel candidate and exposes RecognitionPayload::cancelled for typed frontend policy. The current Rust daemon does not produce that sentinel, and the frozen upstream defines kSourceCancel/menu handling but has no recognition-result producer for an empty cancel candidate."
+      ]
+    },
+    {
       "id": "CFG-CORE-001",
       "state": "audited-fixed",
       "title": "Core configuration schema, defaults, normalization, persistence, and validation",
@@ -57,20 +102,22 @@
       ]
     },
     {
-      "id": "TXT-PROMPT-001",
-      "state": "audited-fixed",
-      "title": "Prompt file loading and interpolation",
+      "id": "TXT-ADAPTER-001",
+      "state": "audited-intentional-divergence",
+      "title": "LLM command adapter process metadata and working-directory resolution",
       "upstream_files": [
-        "daemon/postprocess/prompt_template.cpp",
-        "daemon/postprocess/prompt_template.h"
+        "common/llm/adapter_manager.cpp",
+        "common/llm/adapter_manager.h",
+        "common/llm/defaults.h"
       ],
       "current_files": [
-        "crates/vinpst-text/src/prompt.rs"
+        "crates/vinpst-text/src/adapter_runtime.rs"
       ],
       "supporting_current_files": [],
       "notes": [
-        "Unknown legacy double-brace placeholders remain verbatim.",
-        "Rust single-brace extensions no longer accidentally match double-brace legacy placeholders."
+        "Restored upstream args-first, command-second script-directory working-directory inference including ~/ expansion.",
+        "Explicit Rust working_dir remains a supported extension.",
+        "Fingerprint PID records, process groups, PID-reuse protection, and bounded TERM-to-KILL shutdown remain intentional safety enhancements."
       ]
     },
     {
@@ -106,22 +153,76 @@
       ]
     },
     {
-      "id": "TXT-ADAPTER-001",
-      "state": "audited-intentional-divergence",
-      "title": "LLM command adapter process metadata and working-directory resolution",
+      "id": "TXT-PROMPT-001",
+      "state": "audited-fixed",
+      "title": "Prompt file loading and interpolation",
       "upstream_files": [
-        "common/llm/adapter_manager.cpp",
-        "common/llm/adapter_manager.h",
-        "common/llm/defaults.h"
+        "daemon/postprocess/prompt_template.cpp",
+        "daemon/postprocess/prompt_template.h"
       ],
       "current_files": [
-        "crates/vinpst-text/src/adapter_runtime.rs"
+        "crates/vinpst-text/src/prompt.rs"
       ],
       "supporting_current_files": [],
       "notes": [
-        "Restored upstream args-first, command-second script-directory working-directory inference including ~/ expansion.",
-        "Explicit Rust working_dir remains a supported extension.",
-        "Fingerprint PID records, process groups, PID-reuse protection, and bounded TERM-to-KILL shutdown remain intentional safety enhancements."
+        "Unknown legacy double-brace placeholders remain verbatim.",
+        "Rust single-brace extensions no longer accidentally match double-brace legacy placeholders."
+      ]
+    },
+    {
+      "id": "ASR-FACTORY-001",
+      "state": "audited-fixed",
+      "title": "Configured ASR backend selection and preparation",
+      "upstream_files": [
+        "daemon/asr/runtime/backend_factory.cpp",
+        "daemon/asr/runtime/backend_factory.h"
+      ],
+      "current_files": [
+        "crates/vinpst-asr/src/factory.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/sherpa/mod.rs",
+        "crates/vinpst-asr/src/sherpa_online.rs"
+      ],
+      "notes": [
+        "Fixed local-provider dispatch to depend on type=local rather than the bundled sherpa-onnx provider id, matching upstream support for arbitrary stable local provider ids created by normal config/GUI flows.",
+        "Fixed local model backend selection so vinpst-model.json backend is authoritative exactly like upstream: missing/empty defaults offline, sherpa-offline selects offline, sherpa-streaming selects streaming, and unknown non-empty backend values fail closed; descriptive runtime metadata no longer overrides backend.",
+        "Command providers preserve the upstream id suffix rule: ids ending in .streaming use the streaming command backend and other command ids use batch mode.",
+        "Vinpst native OpenAI-compatible type=remote and the mock provider are intentional extensions beyond the frozen upstream factory; frozen upstream config variants are Local/Command and its browser remote service is a special command-provider path.",
+        "Rust build_active_prepared/prepare_backend consolidates warmup by creating and cancelling one session before swap. The corresponding upstream prepare/swap responsibility lives in recognition_session_manager and remains pending for its own non-overlapping audit.",
+        "Concrete model discovery/layout and native Sherpa implementation files are only supporting evidence here and remain pending for their dedicated model/backend audits.",
+        "Static configured ASR diagnostics now treat empty active_provider as a normal unselected state with empty last_error instead of reporting NoActiveProvider as a load failure."
+      ]
+    },
+    {
+      "id": "ASR-SESSION-001",
+      "state": "audited-fixed",
+      "title": "ASR session preparation, reload, and effective-backend state",
+      "upstream_files": [
+        "daemon/asr/runtime/recognition_session_manager.cpp",
+        "daemon/asr/runtime/recognition_session_manager.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/runtime/reload.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/factory.rs",
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/runtime.rs",
+        "crates/vinpst-daemon/src/runtime/diagnostics.rs",
+        "crates/vinpst-protocol/src/asr.rs"
+      ],
+      "notes": [
+        "Fixed the valid empty active_provider state to match upstream disable semantics: startup and reload clear target/effective runtime ownership without treating the state as a backend-load failure, leave last_error empty, and future recording attempts fail only when a session is requested.",
+        "Reloading to an unselected provider while recording preserves the already-created active RecognitionSession but clears the effective backend for future sessions, matching upstream shared-backend session lifetime semantics.",
+        "Backend preparation still forces one CreateSession/cancel warmup before publication, matching upstream prepare-before-swap behavior.",
+        "Rust intentionally waits for Idle before preparing/applying a configured backend, whereas upstream can prepare/swap while a recording is active. This keeps runtime resource mutation outside busy recording/postprocessing phases.",
+        "Rust intentionally uses reload generations: stale prepared backends and stale failures are discarded, so an older request cannot be transiently published after a newer request arrives. Frozen upstream may briefly apply the earlier prepared backend before processing the later request.",
+        "Rust intentionally does not use the upstream BuildRuntimeSignature no-op optimization. Explicit reload requests therefore re-prepare even for apparently unchanged identity, which also avoids missing changes such as VAD thresholds/durations that the upstream signature does not include.",
+        "Reload success is silent and reload failure emits one notification in both implementations. Rust additionally suppresses stale-generation failure notifications.",
+        "Process-level --no-asr remains sticky across config reloads in both implementations. Rust intentionally exposes its disable reason through typed/D-Bus diagnostics; frozen upstream only reports that reason to stderr and leaves snapshot last_error empty.",
+        "Frozen upstream session snapshots use ResolvePreferredLocalModel even for non-local active providers, while Rust diagnostics report the active Command/Remote provider model. Exact legacy D-Bus state projection is deferred to the separate common/dbus ASR-state audit because the Rust projection file remains pending.",
+        "Upstream explicitly joins its reload thread during Shutdown. Rust owns reload work in Tokio tasks; async workers are cancelled with runtime shutdown while spawn_blocking preparation is waited by Tokio runtime teardown. No detached native preparation is intentionally created."
       ]
     }
   ],
@@ -178,8 +279,6 @@
     "cli/utils/resource_utils.h",
     "common/asr/model_manager.cpp",
     "common/asr/model_manager.h",
-    "common/asr/recognition_result.cpp",
-    "common/asr/recognition_result.h",
     "common/audio/pipewire_device.cpp",
     "common/audio/pipewire_device.h",
     "common/config/config_router.cpp",
@@ -227,11 +326,6 @@
     "daemon/asr/backends/sherpa_offline_backend.h",
     "daemon/asr/backends/sherpa_streaming_backend.cpp",
     "daemon/asr/backends/sherpa_streaming_backend.h",
-    "daemon/asr/runtime/backend_factory.cpp",
-    "daemon/asr/runtime/backend_factory.h",
-    "daemon/asr/runtime/recognition_contract.h",
-    "daemon/asr/runtime/recognition_session_manager.cpp",
-    "daemon/asr/runtime/recognition_session_manager.h",
     "daemon/asr/sherpa_json_helpers.h",
     "daemon/asr/vad_trimmer.cpp",
     "daemon/asr/vad_trimmer.h",
@@ -293,10 +387,8 @@
     "cpp/fcitx5-addon/src/sd_bus_daemon_client.cpp",
     "crates/vinpst-asr/src/command.rs",
     "crates/vinpst-asr/src/error.rs",
-    "crates/vinpst-asr/src/factory.rs",
     "crates/vinpst-asr/src/lib.rs",
     "crates/vinpst-asr/src/mock.rs",
-    "crates/vinpst-asr/src/payload.rs",
     "crates/vinpst-asr/src/remote.rs",
     "crates/vinpst-asr/src/sherpa/backend.rs",
     "crates/vinpst-asr/src/sherpa/mod.rs",
@@ -304,7 +396,6 @@
     "crates/vinpst-asr/src/sherpa_online.rs",
     "crates/vinpst-asr/src/sherpa_vad.rs",
     "crates/vinpst-asr/src/timeout.rs",
-    "crates/vinpst-asr/src/traits.rs",
     "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-audio/src/lib.rs",
     "crates/vinpst-audio/src/pipewire_backend.rs",
@@ -377,7 +468,6 @@
     "crates/vinpst-daemon/src/runtime/errors.rs",
     "crates/vinpst-daemon/src/runtime/output_ducker.rs",
     "crates/vinpst-daemon/src/runtime/recording.rs",
-    "crates/vinpst-daemon/src/runtime/reload.rs",
     "crates/vinpst-daemon/src/runtime/scene.rs",
     "crates/vinpst-fcitx-core/src/daemon_signal.rs",
     "crates/vinpst-fcitx-core/src/frontend.rs",
@@ -454,7 +544,6 @@
     "crates/vinpst-protocol/src/asr.rs",
     "crates/vinpst-protocol/src/dbus.rs",
     "crates/vinpst-protocol/src/lib.rs",
-    "crates/vinpst-protocol/src/recognition.rs",
     "crates/vinpst-protocol/src/status.rs",
     "crates/vinpst-protocol/src/text.rs",
     "crates/vinpst-registry/src/archive.rs",
