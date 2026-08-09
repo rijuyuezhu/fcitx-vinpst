@@ -44,7 +44,7 @@
         "Restored the upstream 8000 raw-sample minimum: shorter recordings cancel the session, return directly to idle, skip ASR/text finishing, and expose an exact empty StopRecording D-Bus reply without RecognitionResult.",
         "Aligned streaming text projection so non-empty PartialText and early FinalText are emitted through RecognitionPartial during recording while early finals remain retained for stop-time payload construction and are not duplicated at stop.",
         "Rust keeps a smaller typed BackendCapabilities shape because current upstream runtime decisions read only audio_delivery_mode; upstream supports_streaming, supports_partial_results, and requires_network are descriptor metadata without runtime consumers, while hotword capability is carried by model/provider metadata in both implementations.",
-        "Known remaining gap is intentionally not absorbed into this unit: upstream immediately classifies live RecognitionEvent::Error through common/dbus/error_info.{cpp,h} and emits DaemonNotification, while those two upstream files remain pending for their own non-overlapping audit."
+        "The separate ERROR-INFO-001 audit now owns and implements frozen live RecognitionEvent::Error -> DaemonNotification classification; this recognition-contract unit remains non-overlapping and only owns event reduction/payload semantics."
       ]
     },
     {
@@ -258,7 +258,7 @@
         "Frozen upstream streaming ignores provider timeout_ms and uses a fixed 10 second final wait with unbounded recording-stage pipe waits. Vinpst uses the same 10 second default when timeout_ms is absent, but an explicitly configured timeout bounds each streaming pipe write and final wait without imposing one whole-session deadline, so long recordings are not killed merely because their duration exceeds the provider timeout.",
         "Existing Vinpst batch/JSON one-shot semantics intentionally keep timeout_ms=None as no configured deadline; managed provider materialization supplies 60000 ms. Frozen upstream leaves an omitted timeout at integer zero, which can immediately expire its batch helper deadline. This pre-existing safer behavior is preserved rather than copying the zero-timeout edge case.",
         "The former one-shot LegacyCommandStreamingRunner is now test-only protocol coverage; production factory wiring uses LegacyCommandStreamingBackend. The .streaming suffix remains the authoritative selector and registry validation already requires stream metadata to agree with that suffix.",
-        "Live RecognitionEvent::Error -> DaemonNotification classification remains owned by the separate pending common/dbus/error_info audit; this unit does not duplicate that responsibility."
+        "Live RecognitionEvent::Error -> DaemonNotification classification is now completed by the separate ERROR-INFO-001 audit; this command unit continues to own helper protocol/process semantics only."
       ]
     },
     {
@@ -358,6 +358,31 @@
         "Intentional Vinpst extensions remain: flat managed-model discovery in addition to the frozen two-level layout, a moonshine_v1 compatibility alias, and stronger active-model/symlink removal guards.",
         "Remaining dependency gap: frozen tokens_buf/hotwords_buf in-memory Sherpa metadata cannot be represented through sherpa-onnx 1.13.3 safe Rust Offline/Online model configs; normal crates remain unsafe-free rather than bypassing the binding with raw FFI."
       ]
+    },
+    {
+      "id": "ERROR-INFO-001",
+      "state": "audited-with-gap",
+      "title": "Daemon error classification and notification payloads",
+      "upstream_files": [
+        "common/dbus/error_info.cpp",
+        "common/dbus/error_info.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/error_info.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/lib.rs",
+        "crates/vinpst-daemon/src/runtime.rs",
+        "crates/vinpst-daemon/src/runtime/active_session.rs",
+        "crates/vinpst-daemon/src/runtime/recording.rs"
+      ],
+      "notes": [
+        "Ported the frozen daemon ClassifyErrorText taxonomy into one crate-private classifier preserving code, subject, detail, raw-message, prefix recursion, nested provider/model adoption, model/audio/D-Bus failures, LLM/HTTP processing failures, prompt-file URI parsing, and unknown fallback.",
+        "D-Bus emission now uses the classifier for recording-start failures, live streaming RecognitionEvent::Error, stop-time ASR failures, text postprocess failures, and current-generation ASR reload failures. Live Error events are drained in event order while the session retains its fatal state, so Stop produces no fabricated text and does not duplicate an already-emitted notification.",
+        "Private-session D-Bus evidence proves exact daemon_busy and asr_provider_timeout ssss payloads, live notification before Stop, stop-time notification before the operation failure, and bounded no-duplicate behavior. The complete daemon lib suite and 19 private-bus integration tests pass under strict dbus-integration Clippy.",
+        "The frozen header also defines daemon_start_failed and daemon_restart_failed, but frozen generation occurs only in cli/runtime/systemd_client.{cpp,h}, not error_info.cpp. The corresponding Rust CLI daemon-control files remain pending and do not yet project those two structured codes; that cross-module gap stays assigned to the later CLI-service audit rather than creating unused daemon constants."
+      ]
     }
   ],
   "upstream_pending": [
@@ -419,8 +444,6 @@
     "common/config/vinput_config.h",
     "common/dbus/asr_backend_state_utils.h",
     "common/dbus/dbus_interface.h",
-    "common/dbus/error_info.cpp",
-    "common/dbus/error_info.h",
     "common/i18n.cpp",
     "common/i18n.h",
     "common/registry/registry_cache.cpp",
