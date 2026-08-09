@@ -41,6 +41,7 @@ private:
 struct DaemonSignalCallbacks {
   std::function<void(bool available)> service_availability_changed;
   std::function<void(std::string_view status)> status_changed;
+  std::function<void(std::string_view result)> recognition_result;
   std::function<void(std::string_view partial_text)> recognition_partial;
   std::function<void(FrontendNotificationKind kind, std::string_view message)>
       notification;
@@ -66,6 +67,7 @@ private:
   std::string service_owner_;
   std::unique_ptr<fcitx::dbus::Slot> owner_change_slot_;
   std::unique_ptr<fcitx::dbus::Slot> status_slot_;
+  std::unique_ptr<fcitx::dbus::Slot> result_slot_;
   std::unique_ptr<fcitx::dbus::Slot> partial_slot_;
   std::unique_ptr<fcitx::dbus::Slot> notification_slot_;
 };

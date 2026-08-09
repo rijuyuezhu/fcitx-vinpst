@@ -84,10 +84,11 @@ int main() {
   const std::string interface(dbus::kServiceInterface);
   std::vector<bool> service_availability;
   std::vector<std::string> statuses;
+  std::vector<std::string> results;
   std::vector<std::string> partials;
   std::vector<std::pair<FrontendNotificationKind, std::string>> notifications;
   auto finish_when_complete = [&] {
-    if (service_availability.size() == 2 && statuses.size() == 1 &&
+    if (service_availability.size() == 2 && statuses.size() == 1 && results.size() == 1 &&
         partials.size() == 1 && notifications.size() == 2) {
       loop.exit();
     }
@@ -102,6 +103,11 @@ int main() {
                      .status_changed =
                          [&](std::string_view status) {
                            statuses.emplace_back(status);
+                           finish_when_complete();
+                         },
+                     .recognition_result =
+                         [&](std::string_view result) {
+                           results.emplace_back(result);
                            finish_when_complete();
                          },
                      .recognition_partial =
@@ -137,6 +143,7 @@ int main() {
     assert(message.send());
   };
   send_string_signal(dbus::kSignalStatusChanged, "recording");
+  send_string_signal(dbus::kSignalRecognitionResult, "result payload");
   send_string_signal(dbus::kSignalRecognitionPartial, "live partial");
 
   const std::string notification_signal(dbus::kSignalDaemonNotification);
@@ -163,6 +170,7 @@ int main() {
   assert(!timed_out);
   assert((service_availability == std::vector<bool>{true, false}));
   assert((statuses == std::vector<std::string>{"recording"}));
+  assert((results == std::vector<std::string>{"result payload"}));
   assert((partials == std::vector<std::string>{"live partial"}));
   assert(notifications.size() == 2);
   assert(notifications[0].first == FrontendNotificationKind::Info);

@@ -13,9 +13,12 @@ use super::{
     VinpstFcitxFrontendPresentation, VinpstFcitxFrontendPresentationTextView,
     VinpstFcitxFrontendPresentationView, VinpstFcitxPresentedCandidateView, boxed_outcome,
     execute_step_with, vinpst_fcitx_frontend_controller_adopt_and_stop_with_daemon,
-    vinpst_fcitx_frontend_controller_command_mode, vinpst_fcitx_frontend_controller_free,
-    vinpst_fcitx_frontend_controller_new, vinpst_fcitx_frontend_controller_plan_trigger,
-    vinpst_fcitx_frontend_controller_recording,
+    vinpst_fcitx_frontend_controller_command_mode, vinpst_fcitx_frontend_controller_complete,
+    vinpst_fcitx_frontend_controller_free, vinpst_fcitx_frontend_controller_new,
+    vinpst_fcitx_frontend_controller_pending_argument,
+    vinpst_fcitx_frontend_controller_plan_trigger,
+    vinpst_fcitx_frontend_controller_prepare_start_normal,
+    vinpst_fcitx_frontend_controller_prepare_stop, vinpst_fcitx_frontend_controller_recording,
     vinpst_fcitx_frontend_controller_start_command_with_daemon,
     vinpst_fcitx_frontend_controller_start_normal_with_daemon,
     vinpst_fcitx_frontend_controller_stop_with_daemon, vinpst_fcitx_frontend_outcome_free,
@@ -133,6 +136,72 @@ fn presentation_text_is_validated_atomically() {
         let text = presentation_text(b"Original", &invalid, b"Cancel");
         assert!(vinpst_fcitx_frontend_presentation_new(outcome, &raw const text).is_null());
         vinpst_fcitx_frontend_outcome_free(outcome);
+    }
+}
+
+#[test]
+fn split_transport_boundary_preserves_prepared_call_identity() {
+    // SAFETY: All handles and byte slices remain live for each call and owned
+    // outcomes are freed exactly once.
+    unsafe {
+        let controller = vinpst_fcitx_frontend_controller_new();
+        assert!(!controller.is_null());
+        let scenes = boxed_scene_controller(Some(SceneSnapshot::new("remote".to_owned())));
+
+        assert_eq!(
+            vinpst_fcitx_frontend_controller_prepare_start_normal(controller, scenes),
+            1
+        );
+        let mut argument = VinpstFcitxStringView {
+            data: ptr::null(),
+            len: 0,
+        };
+        assert_eq!(
+            vinpst_fcitx_frontend_controller_pending_argument(controller, &raw mut argument),
+            1
+        );
+        assert_eq!(bytes(argument), b"");
+
+        let start = vinpst_fcitx_frontend_controller_complete(controller, 1, ptr::null(), 0);
+        assert!(!start.is_null());
+        let (presentation, view) = presentation_view(start);
+        assert_eq!(view.kind, 1);
+        assert_eq!(bytes(view.text), b"... Recording ...");
+        vinpst_fcitx_frontend_presentation_free(presentation);
+        vinpst_fcitx_frontend_outcome_free(start);
+        assert_eq!(vinpst_fcitx_frontend_controller_recording(controller), 1);
+
+        assert_eq!(
+            vinpst_fcitx_frontend_controller_prepare_stop(controller, scenes),
+            1
+        );
+        argument = VinpstFcitxStringView {
+            data: ptr::null(),
+            len: 0,
+        };
+        assert_eq!(
+            vinpst_fcitx_frontend_controller_pending_argument(controller, &raw mut argument),
+            1
+        );
+        assert_eq!(bytes(argument), b"remote");
+
+        let payload = br#"{"commit_text":"done","candidates":[{"text":"done","source":"asr"}]}"#;
+        let stop = vinpst_fcitx_frontend_controller_complete(
+            controller,
+            1,
+            payload.as_ptr(),
+            payload.len(),
+        );
+        assert!(!stop.is_null());
+        let (presentation, view) = presentation_view(stop);
+        assert_eq!(view.kind, 3);
+        assert_eq!(bytes(view.text), b"done");
+        vinpst_fcitx_frontend_presentation_free(presentation);
+        vinpst_fcitx_frontend_outcome_free(stop);
+        assert_eq!(vinpst_fcitx_frontend_controller_recording(controller), 0);
+
+        vinpst_fcitx_scene_menu_controller_free(scenes);
+        vinpst_fcitx_frontend_controller_free(controller);
     }
 }
 

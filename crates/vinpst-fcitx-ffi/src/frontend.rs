@@ -201,6 +201,10 @@ fn execute_step(
     ))
 }
 
+fn call_ready(step: &FrontendStep) -> bool {
+    matches!(step, FrontendStep::CallReady)
+}
+
 /// Creates an idle frontend controller.
 #[unsafe(no_mangle)]
 pub extern "C" fn vinpst_fcitx_frontend_controller_new() -> *mut VinpstFcitxFrontendController {
@@ -287,6 +291,231 @@ pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_plan_trigger(
         unsafe { intent_out.write(trigger_intent(controller.controller.plan_trigger(request))) };
         1
     })
+}
+
+/// Prepares a normal recording call without performing D-Bus I/O.
+///
+/// # Safety
+///
+/// Handles must be live and the scene controller must contain a snapshot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_prepare_start_normal(
+    controller: *mut VinpstFcitxFrontendController,
+    scene_controller: *const VinpstFcitxSceneMenuController,
+) -> u8 {
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(scene_controller) = (unsafe { scene_controller_ref(scene_controller) }) else {
+            return 0;
+        };
+        let Some(scene_snapshot) = scene_controller.snapshot() else {
+            return 0;
+        };
+        u8::from(call_ready(
+            &controller
+                .controller
+                .start_normal(Some(scene_snapshot.active_scene_id())),
+        ))
+    })
+}
+
+/// Prepares a command recording call without performing D-Bus I/O.
+///
+/// # Safety
+///
+/// `controller` must be live and input pointers must reference their lengths.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_prepare_start_command(
+    controller: *mut VinpstFcitxFrontendController,
+    selected_data: *const u8,
+    selected_len: usize,
+    scene_data: *const u8,
+    scene_len: usize,
+) -> u8 {
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(selected) = (unsafe { text_input(selected_data, selected_len) }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(scene) = (unsafe { text_input(scene_data, scene_len) }) else {
+            return 0;
+        };
+        u8::from(call_ready(
+            &controller.controller.start_command(selected, Some(scene)),
+        ))
+    })
+}
+
+/// Prepares a stop call without performing D-Bus I/O.
+///
+/// # Safety
+///
+/// `controller` must be live. A missing scene snapshot supplies an empty fallback.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_prepare_stop(
+    controller: *mut VinpstFcitxFrontendController,
+    scene_controller: *const VinpstFcitxSceneMenuController,
+) -> u8 {
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let fallback = unsafe { scene_controller_ref(scene_controller) }
+            .and_then(|value| value.snapshot())
+            .map_or("", vinpst_fcitx_core::SceneSnapshot::active_scene_id);
+        u8::from(call_ready(&controller.controller.stop(fallback)))
+    })
+}
+
+/// Adopts an external recording and prepares its stop call without D-Bus I/O.
+///
+/// # Safety
+///
+/// Handles must be live and the scene controller must contain a snapshot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_prepare_adopt_and_stop(
+    controller: *mut VinpstFcitxFrontendController,
+    command_mode: u8,
+    scene_controller: *const VinpstFcitxSceneMenuController,
+) -> u8 {
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(scene_controller) = (unsafe { scene_controller_ref(scene_controller) }) else {
+            return 0;
+        };
+        let Some(scene_snapshot) = scene_controller.snapshot() else {
+            return 0;
+        };
+        let scene = scene_snapshot.active_scene_id();
+        controller
+            .controller
+            .adopt_recording(command_mode != 0, scene);
+        u8::from(call_ready(&controller.controller.stop(scene)))
+    })
+}
+
+/// Adopts an unsolicited external daemon session without preparing a method call.
+///
+/// # Safety
+///
+/// Handles must be live and the scene controller must contain a snapshot.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_adopt_external_recording(
+    controller: *mut VinpstFcitxFrontendController,
+    command_mode: u8,
+    scene_controller: *const VinpstFcitxSceneMenuController,
+) -> u8 {
+    crate::ffi_catch(0, || {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let scene = unsafe { scene_controller_ref(scene_controller) }
+            .and_then(|value| value.snapshot())
+            .map_or("", vinpst_fcitx_core::SceneSnapshot::active_scene_id);
+        controller
+            .controller
+            .adopt_recording(command_mode != 0, scene);
+        1
+    })
+}
+
+/// Borrows the argument of the currently prepared daemon call.
+///
+/// The returned view remains valid until the controller is next mutated.
+///
+/// # Safety
+///
+/// `controller` must be live and `argument_out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_pending_argument(
+    controller: *const VinpstFcitxFrontendController,
+    argument_out: *mut VinpstFcitxStringView,
+) -> u8 {
+    crate::ffi_catch(0, || {
+        if argument_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_ref() }) else {
+            return 0;
+        };
+        let Some(call) = controller.controller.pending_call() else {
+            return 0;
+        };
+        // SAFETY: The caller guarantees a writable output pointer.
+        unsafe { argument_out.write(string_view(call.argument())) };
+        1
+    })
+}
+
+/// Completes the currently prepared daemon call from an async transport result.
+///
+/// # Safety
+///
+/// `controller` must be live and `response_data` must reference `response_len`
+/// readable bytes when non-null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_complete(
+    controller: *mut VinpstFcitxFrontendController,
+    success: u8,
+    response_data: *const u8,
+    response_len: usize,
+) -> *mut VinpstFcitxFrontendOutcome {
+    catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(response) = (unsafe { text_input(response_data, response_len) }) else {
+            return ptr::null_mut();
+        };
+        boxed_outcome(controller.controller.complete(success != 0, response))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
+
+/// Completes the active frontend session from a `RecognitionResult` signal.
+///
+/// # Safety
+///
+/// `controller` must be live and `response_data` must reference `response_len`
+/// readable bytes when non-null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_frontend_controller_complete_recognition_result(
+    controller: *mut VinpstFcitxFrontendController,
+    response_data: *const u8,
+    response_len: usize,
+) -> *mut VinpstFcitxFrontendOutcome {
+    catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(controller) = (unsafe { controller.as_mut() }) else {
+            return ptr::null_mut();
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(response) = (unsafe { text_input(response_data, response_len) }) else {
+            return ptr::null_mut();
+        };
+        boxed_outcome(controller.controller.complete_recognition_result(response))
+    }))
+    .unwrap_or(ptr::null_mut())
 }
 
 /// Starts normal recording using the scene snapshot owned by a Rust controller.

@@ -11,6 +11,7 @@
 #include "vinpst_fcitx_bridge/frontend_bridge.h"
 #include "vinpst_fcitx_bridge/sd_bus_daemon_client.h"
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -87,6 +88,7 @@ private:
   void SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus);
   void HandleDaemonAvailability(bool available);
   void HandleDaemonStatus(std::string_view status);
+  void HandleRecognitionResult(std::string_view payload);
   void HandleRecognitionPartial(std::string_view partial_text);
   void HandleDaemonNotification(FrontendNotificationKind kind,
                                 std::string_view message);
@@ -100,8 +102,16 @@ private:
   void ScheduleTriggerStop(fcitx::InputContext *fallback_ic);
   void CancelTriggerStop();
   void StopActiveRecording(fcitx::InputContext *fallback_ic);
+  AppliedOutcome DispatchPreparedDaemonCall(fcitx::InputContext *ic,
+                                            std::string_view method,
+                                            bool has_argument,
+                                            bool result_via_signal);
+  bool DaemonSyncAllowed() const;
+  void NoteDaemonSyncFailure();
+  void ClearDaemonSyncFailure();
 
   fcitx::Instance *instance_ = nullptr;
+  fcitx::dbus::Bus *daemon_bus_ = nullptr;
   FrontendBridge bridge_;
   FrontendSettings frontend_settings_;
   FcitxKeyTriggerPolicy trigger_policy_;
@@ -116,8 +126,12 @@ private:
   fcitx::TrackableObjectReference<fcitx::InputContext> pending_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> active_trigger_ic_;
   fcitx::TrackableObjectReference<fcitx::InputContext> remote_status_ic_;
+  fcitx::TrackableObjectReference<fcitx::InputContext> last_input_ic_;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::unique_ptr<FcitxDaemonSignalMonitor> daemon_signal_monitor_;
+  std::unique_ptr<fcitx::dbus::Slot> pending_start_call_slot_;
+  std::unique_ptr<fcitx::dbus::Slot> pending_stop_call_slot_;
+  std::chrono::steady_clock::time_point daemon_sync_blocked_until_{};
   DaemonLivePresentationState live_daemon_state_;
   std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
       event_handlers_;

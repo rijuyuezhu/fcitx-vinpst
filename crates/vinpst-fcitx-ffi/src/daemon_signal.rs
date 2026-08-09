@@ -129,6 +129,7 @@ const CONTROL_PLAN_UPDATE_LOCAL_PREEDIT: u8 = 4;
 const CONTROL_PLAN_PRESENT_REMOTE_STATUS: u8 = 5;
 const CONTROL_PLAN_ADOPT_AND_STOP_NORMAL: u8 = 6;
 const CONTROL_PLAN_CLEAR_DAEMON_ERROR: u8 = 7;
+const CONTROL_PLAN_ADOPT_EXTERNAL_STATUS: u8 = 8;
 
 fn write_status_preedit(
     preedit: DaemonStatusPreedit<'_>,
@@ -166,6 +167,7 @@ fn control_plan_value(plan: DaemonControlPlan) -> u8 {
         DaemonControlPlan::ResetLocalRecording => CONTROL_PLAN_RESET_LOCAL_RECORDING,
         DaemonControlPlan::UpdateLocalPreedit => CONTROL_PLAN_UPDATE_LOCAL_PREEDIT,
         DaemonControlPlan::PresentRemoteStatus => CONTROL_PLAN_PRESENT_REMOTE_STATUS,
+        DaemonControlPlan::AdoptExternalStatus => CONTROL_PLAN_ADOPT_EXTERNAL_STATUS,
         DaemonControlPlan::AdoptAndStopNormal => CONTROL_PLAN_ADOPT_AND_STOP_NORMAL,
         DaemonControlPlan::ClearDaemonError => CONTROL_PLAN_CLEAR_DAEMON_ERROR,
     }
@@ -455,11 +457,11 @@ mod tests {
     use super::{
         CONTROL_EVENT_AVAILABILITY_CHANGED, CONTROL_EVENT_RECONCILE_BEFORE_START,
         CONTROL_EVENT_STATUS_CHANGED, CONTROL_PLAN_ADOPT_AND_STOP_NORMAL,
-        CONTROL_PLAN_CLEAR_REMOTE_STATUS, CONTROL_PLAN_NONE, CONTROL_PLAN_PRESENT_REMOTE_STATUS,
-        CONTROL_PLAN_RESET_LOCAL_RECORDING, CONTROL_PLAN_RESET_UNAVAILABLE,
-        CONTROL_PLAN_UPDATE_LOCAL_PREEDIT, SIGNAL_PLAN_CLEAR, SIGNAL_PLAN_COMMANDING,
-        SIGNAL_PLAN_NOTIFICATION_ERROR, SIGNAL_PLAN_NOTIFICATION_INFO, SIGNAL_PLAN_PARTIAL,
-        VinpstFcitxDaemonControlView, VinpstFcitxDaemonNotificationView,
+        CONTROL_PLAN_ADOPT_EXTERNAL_STATUS, CONTROL_PLAN_CLEAR_REMOTE_STATUS, CONTROL_PLAN_NONE,
+        CONTROL_PLAN_PRESENT_REMOTE_STATUS, CONTROL_PLAN_RESET_LOCAL_RECORDING,
+        CONTROL_PLAN_RESET_UNAVAILABLE, CONTROL_PLAN_UPDATE_LOCAL_PREEDIT, SIGNAL_PLAN_CLEAR,
+        SIGNAL_PLAN_COMMANDING, SIGNAL_PLAN_NOTIFICATION_ERROR, SIGNAL_PLAN_NOTIFICATION_INFO,
+        SIGNAL_PLAN_PARTIAL, VinpstFcitxDaemonControlView, VinpstFcitxDaemonNotificationView,
         VinpstFcitxDaemonSignalPlanView, VinpstFcitxDaemonStatusView,
         vinpst_fcitx_daemon_control_plan, vinpst_fcitx_daemon_live_state_begin_status,
         vinpst_fcitx_daemon_live_state_command_mode, vinpst_fcitx_daemon_live_state_free,
@@ -699,6 +701,16 @@ mod tests {
                     true,
                 ),
                 CONTROL_PLAN_PRESENT_REMOTE_STATUS,
+            );
+            assert_eq!(
+                control_plan(
+                    CONTROL_EVENT_STATUS_CHANGED,
+                    b"recording",
+                    false,
+                    false,
+                    false,
+                ),
+                CONTROL_PLAN_ADOPT_EXTERNAL_STATUS,
             );
             assert_eq!(
                 control_plan(

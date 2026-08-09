@@ -34,11 +34,23 @@ rm -rf "${config_home}"
 mkdir -p "${config_home}"
 export XDG_CONFIG_HOME="$(pwd)/${config_home}"
 
-target/debug/vinpst-daemon --dbus >"${log_file}" 2>&1 &
-daemon_pid=$!
+daemon_pid=""
+
+start_daemon() {
+  target/debug/vinpst-daemon --dbus >"${log_file}" 2>&1 &
+  daemon_pid=$!
+}
+
+stop_daemon() {
+  if [[ -n "${daemon_pid}" ]]; then
+    kill "${daemon_pid}" >/dev/null 2>&1 || true
+    wait "${daemon_pid}" >/dev/null 2>&1 || true
+    daemon_pid=""
+  fi
+}
+
 cleanup() {
-  kill "${daemon_pid}" >/dev/null 2>&1 || true
-  wait "${daemon_pid}" >/dev/null 2>&1 || true
+  stop_daemon
 }
 trap cleanup EXIT
 
@@ -67,26 +79,16 @@ wait_for_spawned_owner() {
   return 1
 }
 
+start_daemon
 wait_for_spawned_owner
+"${bridge_smoke_bin}"
+stop_daemon
 
-run_smokes() {
-  "${bridge_smoke_bin}" || return 1
-  if [[ -x "${addon_smoke_bin}" ]]; then
-    "${addon_smoke_bin}" || return 1
-  fi
-}
-
-for _ in $(seq 1 50); do
-  if run_smokes; then
-    exit 0
-  fi
-  if ! kill -0 "${daemon_pid}" >/dev/null 2>&1; then
-    cat "${log_file}" >&2
-    exit 1
-  fi
-  sleep 0.1
-done
-
-cat "${log_file}" >&2
-exit 1
+start_daemon
+wait_for_spawned_owner
+if [[ -x "${addon_smoke_bin}" ]]; then
+  "${addon_smoke_bin}"
+fi
+stop_daemon
+trap - EXIT
 INNER

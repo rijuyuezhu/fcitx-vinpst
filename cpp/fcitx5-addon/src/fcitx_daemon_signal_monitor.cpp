@@ -180,6 +180,8 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
   };
   status_slot_ = AddStringSignalMatch(bus, dbus::kSignalStatusChanged, accept,
                                       callbacks_.status_changed);
+  result_slot_ = AddStringSignalMatch(bus, dbus::kSignalRecognitionResult, accept,
+                                      callbacks_.recognition_result);
   partial_slot_ = AddStringSignalMatch(bus, dbus::kSignalRecognitionPartial, accept,
                                        callbacks_.recognition_partial);
   if (!callbacks_.notification) {
@@ -227,7 +229,7 @@ void FcitxDaemonSignalMonitor::UpdateServiceOwner(std::string_view owner) {
 
 bool FcitxDaemonSignalMonitor::active() const {
   return owner_change_slot_ != nullptr && status_slot_ != nullptr &&
-         partial_slot_ != nullptr && notification_slot_ != nullptr;
+         result_slot_ != nullptr && partial_slot_ != nullptr && notification_slot_ != nullptr;
 }
 
 } // namespace vinpst_fcitx_bridge

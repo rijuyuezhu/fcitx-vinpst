@@ -143,6 +143,7 @@ enum {
   VINPST_FCITX_DAEMON_CONTROL_PLAN_PRESENT_REMOTE_STATUS = 5,
   VINPST_FCITX_DAEMON_CONTROL_PLAN_ADOPT_AND_STOP_NORMAL = 6,
   VINPST_FCITX_DAEMON_CONTROL_PLAN_CLEAR_DAEMON_ERROR = 7,
+  VINPST_FCITX_DAEMON_CONTROL_PLAN_ADOPT_EXTERNAL_STATUS = 8,
 };
 
 enum {
@@ -360,6 +361,30 @@ uint8_t vinpst_fcitx_frontend_controller_command_mode(
 uint8_t vinpst_fcitx_frontend_controller_plan_trigger(
     const VinpstFcitxFrontendController *controller, uint8_t request,
     uint8_t *intent_out);
+uint8_t vinpst_fcitx_frontend_controller_prepare_start_normal(
+    VinpstFcitxFrontendController *controller,
+    const VinpstFcitxSceneMenuController *scene_controller);
+uint8_t vinpst_fcitx_frontend_controller_prepare_start_command(
+    VinpstFcitxFrontendController *controller, const uint8_t *selected_data,
+    size_t selected_len, const uint8_t *scene_data, size_t scene_len);
+uint8_t vinpst_fcitx_frontend_controller_prepare_stop(
+    VinpstFcitxFrontendController *controller,
+    const VinpstFcitxSceneMenuController *scene_controller);
+uint8_t vinpst_fcitx_frontend_controller_prepare_adopt_and_stop(
+    VinpstFcitxFrontendController *controller, uint8_t command_mode,
+    const VinpstFcitxSceneMenuController *scene_controller);
+uint8_t vinpst_fcitx_frontend_controller_adopt_external_recording(
+    VinpstFcitxFrontendController *controller, uint8_t command_mode,
+    const VinpstFcitxSceneMenuController *scene_controller);
+uint8_t vinpst_fcitx_frontend_controller_pending_argument(
+    const VinpstFcitxFrontendController *controller,
+    VinpstFcitxStringView *argument_out);
+VinpstFcitxFrontendOutcome *vinpst_fcitx_frontend_controller_complete(
+    VinpstFcitxFrontendController *controller, uint8_t success,
+    const uint8_t *response_data, size_t response_len);
+VinpstFcitxFrontendOutcome *vinpst_fcitx_frontend_controller_complete_recognition_result(
+    VinpstFcitxFrontendController *controller, const uint8_t *response_data,
+    size_t response_len);
 VinpstFcitxFrontendOutcome *
 vinpst_fcitx_frontend_controller_start_normal_with_daemon(
     VinpstFcitxFrontendController *controller,

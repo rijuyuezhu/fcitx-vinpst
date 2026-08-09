@@ -31,7 +31,8 @@ case "${scenario}" in
       --target vinpst_fcitx_native_addon_dbus_smoke --parallel
     frontend=(VINPST_NATIVE_ACTIVATION_FRONTEND_BIN=target/cpp/fcitx5-addon/vinpst_fcitx_native_addon_dbus_smoke)
     if [[ "${scenario}" == command-addon ]]; then
-      selected=(VINPST_NATIVE_ADDON_SELECTED_TEXT='replace this text')
+      selected=(VINPST_NATIVE_ADDON_SELECTED_TEXT='replace this text'
+                VINPST_NATIVE_ADDON_EXPECT_CANDIDATE_MENU=1)
     fi
     ;;
   *)

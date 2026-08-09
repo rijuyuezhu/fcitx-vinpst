@@ -136,6 +136,8 @@ pub enum DaemonControlPlan {
     UpdateLocalPreedit,
     /// Present or refresh remote daemon status.
     PresentRemoteStatus,
+    /// Adopt an unsolicited external daemon session into the remembered input context.
+    AdoptExternalStatus,
     /// Adopt an externally started normal recording and stop it.
     AdoptAndStopNormal,
     /// Clear stale live state after an explicit daemon error status.
@@ -162,7 +164,14 @@ pub fn plan_daemon_control(
             }
             if !context.recording {
                 if !context.remote_status_active {
-                    DaemonControlPlan::None
+                    if status == dbus::status::RECORDING
+                        || status == dbus::status::INFERRING
+                        || status == dbus::status::POSTPROCESSING
+                    {
+                        DaemonControlPlan::AdoptExternalStatus
+                    } else {
+                        DaemonControlPlan::None
+                    }
                 } else if status == dbus::status::IDLE || status == dbus::status::ERROR {
                     DaemonControlPlan::ClearRemoteStatus
                 } else {
@@ -343,6 +352,24 @@ mod tests {
         assert_eq!(
             plan_daemon_control(DaemonControlEvent::StatusChanged { status: "idle" }, remote,),
             DaemonControlPlan::ClearRemoteStatus
+        );
+        assert_eq!(
+            plan_daemon_control(
+                DaemonControlEvent::StatusChanged {
+                    status: "recording"
+                },
+                idle,
+            ),
+            DaemonControlPlan::AdoptExternalStatus
+        );
+        assert_eq!(
+            plan_daemon_control(
+                DaemonControlEvent::StatusChanged {
+                    status: "postprocessing"
+                },
+                idle,
+            ),
+            DaemonControlPlan::AdoptExternalStatus
         );
         assert_eq!(
             plan_daemon_control(

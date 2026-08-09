@@ -406,6 +406,23 @@ impl FrontendController {
         }
     }
 
+    /// Completes the active frontend session from the daemon `RecognitionResult` signal.
+    ///
+    /// Final-result delivery is independent from the `StopRecording` reply: an
+    /// externally started session has no local pending Stop call, while a local
+    /// Stop may emit this signal before its method callback runs.
+    pub fn complete_recognition_result(&mut self, response: &str) -> FrontendOutcome {
+        if !self.state.recording() {
+            return FrontendOutcome::default();
+        }
+        let command_mode = self.state.command_mode();
+        self.state.reset();
+        if matches!(self.pending_call, Some(FrontendCall::Stop { .. })) {
+            self.pending_call = None;
+        }
+        FrontendOutcome::from_payload(response, command_mode)
+    }
+
     /// Adopts a recording session already active in the daemon.
     pub fn adopt_recording(&mut self, command_mode: bool, scene_id: &str) {
         self.pending_call = None;
@@ -649,6 +666,19 @@ mod tests {
         let outcome = controller.complete(true, r#"{"commit_text":"result"}"#);
         assert_eq!(outcome.kind(), FrontendOutcomeKind::Commit);
         assert!(outcome.command_mode());
+    }
+
+    #[test]
+    fn recognition_result_completes_adopted_session_without_pending_stop() {
+        let mut controller = FrontendController::default();
+        controller.adopt_recording(false, "raw");
+        let outcome = controller.complete_recognition_result(
+            r#"{"commit_text":"external","candidates":[{"text":"external","source":"asr"}]}"#,
+        );
+        assert_eq!(outcome.kind(), FrontendOutcomeKind::Commit);
+        assert_eq!(outcome.text(), "external");
+        assert!(!controller.recording());
+        assert!(controller.pending_call().is_none());
     }
 
     #[test]

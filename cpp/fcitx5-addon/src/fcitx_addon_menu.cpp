@@ -326,8 +326,16 @@ void FcitxVinpstAddon::RebuildSceneMenu(int page) {
 
 bool FcitxVinpstAddon::RefreshSceneState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
-  return client != nullptr &&
-         client->RefreshSceneMenuController(&scene_menu_controller_, error);
+  if (client == nullptr) {
+    return false;
+  }
+  if (!client->RefreshSceneMenuController(&scene_menu_controller_, error)) {
+    NoteDaemonSyncFailure();
+    daemon_client_.reset();
+    return false;
+  }
+  ClearDaemonSyncFailure();
+  return true;
 }
 
 void FcitxVinpstAddon::HideSceneMenu() {
@@ -378,8 +386,16 @@ void FcitxVinpstAddon::RebuildAsrMenu(int page) {
 
 bool FcitxVinpstAddon::RefreshAsrMenuState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
-  return client != nullptr &&
-         client->RefreshAsrMenuController(&asr_menu_controller_, error);
+  if (client == nullptr) {
+    return false;
+  }
+  if (!client->RefreshAsrMenuController(&asr_menu_controller_, error)) {
+    NoteDaemonSyncFailure();
+    daemon_client_.reset();
+    return false;
+  }
+  ClearDaemonSyncFailure();
+  return true;
 }
 
 void FcitxVinpstAddon::HideAsrMenu() {
@@ -407,10 +423,15 @@ void FcitxVinpstAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
     if (client == nullptr ||
         !client->SetActiveScene(&scene_menu_controller_, control.first, &persisted,
                                 &error)) {
+      if (client != nullptr) {
+        NoteDaemonSyncFailure();
+        daemon_client_.reset();
+      }
       HideSceneMenu();
       ApplyDaemonUnavailable(ic, std::move(error));
       return;
     }
+    ClearDaemonSyncFailure();
     HideSceneMenu();
     Notify(FrontendNotificationKind::Info,
            FrontendValueText("Switched scene to '%s'.", control.display_label));
@@ -420,10 +441,15 @@ void FcitxVinpstAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
   case ProjectedMenuControlKind::SetActiveAsrTarget:
     if (client == nullptr || !client->SetActiveAsrTarget(control.first, control.second,
                                                          &persisted, &error)) {
+      if (client != nullptr) {
+        NoteDaemonSyncFailure();
+        daemon_client_.reset();
+      }
       HideAsrMenu();
       ApplyDaemonUnavailable(ic, std::move(error));
       return;
     }
+    ClearDaemonSyncFailure();
     HideAsrMenu();
     Notify(FrontendNotificationKind::Info,
            FrontendValueText("ASR switch requested for '%s'.", control.display_label));

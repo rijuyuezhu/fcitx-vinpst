@@ -17,7 +17,7 @@ Keep the workspace split by responsibility:
 - `vinpst-registry`: registry schemas, safe downloads, extraction, and managed publication.
 - `vinpst-daemon`: runtime orchestration and D-Bus service facade.
 - `vinpst-fcitx-core`: safe, Fcitx-independent frontend state machines and presentation policy.
-- `vinpst-fcitx-dbus`: safe blocking zbus transport with typed reply decoding and the legacy 60-second call deadline.
+- `vinpst-fcitx-dbus`: safe blocking zbus transport for bounded status/menu calls with typed reply decoding and the frozen five-second call deadline; latency-sensitive recording Start/Stop stays on the retained Fcitx event-loop `callAsync` seam.
 - `vinpst-fcitx-ffi`: the narrow static C ABI consumed by the retained addon.
 - `vinpst-cli`: user-facing commands and diagnostics over library crates.
 - `vinpst-gui`: the standalone Rust/Iced management application over shared typed APIs.
