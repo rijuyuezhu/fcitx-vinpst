@@ -6,6 +6,7 @@
 #include "vinpst_fcitx_bridge/fcitx_menu_filter.h"
 #include "vinpst_fcitx_bridge/fcitx_menu_projection.h"
 #include "vinpst_fcitx_bridge/fcitx_notifications.h"
+#include "vinpst_fcitx_bridge/fcitx_notifier_dbus_object.h"
 #include "vinpst_fcitx_bridge/fcitx_outcome.h"
 #include "vinpst_fcitx_bridge/fcitx_trigger_mode.h"
 #include "vinpst_fcitx_bridge/frontend_bridge.h"
@@ -129,6 +130,7 @@ private:
   fcitx::TrackableObjectReference<fcitx::InputContext> last_input_ic_;
   std::unique_ptr<SdBusDaemonClient> daemon_client_;
   std::unique_ptr<FcitxDaemonSignalMonitor> daemon_signal_monitor_;
+  std::unique_ptr<FcitxNotifierDbusObject> notifier_dbus_;
   std::unique_ptr<fcitx::dbus::Slot> pending_start_call_slot_;
   std::unique_ptr<fcitx::dbus::Slot> pending_stop_call_slot_;
   std::chrono::steady_clock::time_point daemon_sync_blocked_until_{};

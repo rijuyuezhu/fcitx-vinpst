@@ -242,6 +242,18 @@ void FcitxVinpstAddon::SetupDaemonSignalMonitor() {
 
 void FcitxVinpstAddon::SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus) {
   daemon_bus_ = bus;
+  notifier_dbus_ = std::make_unique<FcitxNotifierDbusObject>(
+      [this](std::string_view code, std::string_view subject, std::string_view detail,
+             std::string_view raw_message) {
+        const auto [kind, message] =
+            PlanStructuredDaemonNotification(code, subject, detail, raw_message);
+        HandleDaemonNotification(kind, message);
+      });
+  if (!bus->addObjectVTable(std::string(dbus::kNotifierObjectPath),
+                            std::string(dbus::kNotifierInterface), *notifier_dbus_)) {
+    FCITX_WARN() << "fcitx-vinpst failed to register frontend notifier DBus object";
+    notifier_dbus_.reset();
+  }
   daemon_signal_monitor_ = std::make_unique<FcitxDaemonSignalMonitor>(
       bus, DaemonSignalCallbacks{
                .service_availability_changed =

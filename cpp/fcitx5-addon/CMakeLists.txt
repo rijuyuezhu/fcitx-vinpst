@@ -324,6 +324,23 @@ if(Fcitx5Core_FOUND)
   )
 
   add_executable(
+    vinpst_fcitx_bridge_notifier_dbus_object_smoke
+    tests/fcitx_notifier_dbus_object_smoke.cpp
+  )
+  target_link_libraries(
+    vinpst_fcitx_bridge_notifier_dbus_object_smoke
+    PRIVATE
+      vinpst_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  vinpst_bridge_apply_warnings(vinpst_fcitx_bridge_notifier_dbus_object_smoke)
+  add_test(
+    NAME vinpst_fcitx_bridge_notifier_dbus_object_smoke
+    COMMAND "${DBUS_RUN_SESSION_EXECUTABLE}" --
+            $<TARGET_FILE:vinpst_fcitx_bridge_notifier_dbus_object_smoke>
+  )
+
+  add_executable(
     vinpst_fcitx_bridge_notifications_smoke
     tests/fcitx_notifications_smoke.cpp
   )

@@ -47,25 +47,6 @@ std::string RenderPlan(const VinpstFcitxDaemonSignalPlanView &plan) {
   return plan.translate != 0 ? FrontendText(text) : text;
 }
 
-std::pair<FrontendNotificationKind, std::string>
-PresentDaemonNotification(std::string_view code, std::string_view subject,
-                          std::string_view detail, std::string_view raw_message) {
-  const VinpstFcitxDaemonNotificationView notification{
-      .code = ToRustStringView(code),
-      .subject = ToRustStringView(subject),
-      .detail = ToRustStringView(detail),
-      .raw = ToRustStringView(raw_message),
-  };
-  VinpstFcitxDaemonSignalPlanView plan{};
-  if (vinpst_fcitx_daemon_notification_plan(&notification, &plan) == 0) {
-    return {FrontendNotificationKind::Error, FrontendText("Unknown error.")};
-  }
-  const auto kind = plan.kind == VINPST_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO
-                        ? FrontendNotificationKind::Info
-                        : FrontendNotificationKind::Error;
-  return {kind, RenderPlan(plan)};
-}
-
 std::unique_ptr<fcitx::dbus::Slot>
 AddStringSignalMatch(fcitx::dbus::Bus *bus, std::string_view signal,
                      const std::function<bool(const fcitx::dbus::Message &)> &accept,
@@ -205,7 +186,7 @@ FcitxDaemonSignalMonitor::FcitxDaemonSignalMonitor(fcitx::dbus::Bus *bus,
         if (!code.empty() || !subject.empty() || !detail.empty() ||
             !raw_message.empty()) {
           auto [kind, rendered] =
-              PresentDaemonNotification(code, subject, detail, raw_message);
+              PlanStructuredDaemonNotification(code, subject, detail, raw_message);
           callbacks_.notification(kind, rendered);
         }
         return true;
