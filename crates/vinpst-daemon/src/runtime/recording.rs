@@ -6,13 +6,13 @@ use vinpst_asr::{
     AudioDeliveryMode, MIN_SAMPLES_FOR_RECOGNITION, RecognitionContext, RecognitionEvent,
     events_to_payload,
 };
-use vinpst_audio::{AudioProcessingOptions, PcmBuffer};
+use vinpst_audio::PcmBuffer;
 use vinpst_protocol::{RecognitionPayload, ServiceStatus};
 use vinpst_text::TextRequest;
 
 use super::{
-    LiveRecognitionEvent, MOCK_SILENCE_THRESHOLD, PendingStopRecording, PreparedStopRecording,
-    ReadyStopRecording, RuntimeError, RuntimeState, StopRecordingReport,
+    LiveRecognitionEvent, PendingStopRecording, PreparedStopRecording, ReadyStopRecording,
+    RuntimeError, RuntimeState, StopRecordingReport,
 };
 
 fn duration_millis(duration: Duration) -> u64 {
@@ -43,13 +43,18 @@ impl RuntimeState {
         if self.status != ServiceStatus::Recording {
             return Ok(Vec::new());
         }
-        let session = self
+        let live = self
             .active_session
             .as_ref()
-            .ok_or(RuntimeError::MissingAsrSession)?;
-        let live = session
-            .take_live_recognition_events()
-            .map_err(RuntimeError::Asr)?;
+            .ok_or(RuntimeError::MissingAsrSession)?
+            .take_live_recognition_events();
+        let live = match live {
+            Ok(live) => live,
+            Err(error) => {
+                self.enter_live_recording_error();
+                return Err(RuntimeError::Asr(error));
+            }
+        };
         let mut projected = Vec::with_capacity(live.len());
         for event in live {
             match event {
@@ -403,14 +408,10 @@ impl RuntimeState {
     }
 
     fn process_captured_pcm(&self, pcm: &PcmBuffer) -> PcmBuffer {
-        self.audio_processing_options().process(pcm)
-    }
-
-    fn audio_processing_options(&self) -> AudioProcessingOptions {
-        AudioProcessingOptions::new(
-            MOCK_SILENCE_THRESHOLD,
-            self.config.asr.normalize_audio.then_some(16_000),
+        super::process_buffered_pcm(
+            pcm,
             self.config.asr.input_gain,
+            self.config.asr.normalize_audio,
         )
     }
 
@@ -431,6 +432,27 @@ impl RuntimeState {
                 timeout_ms: None,
                 context_lines: 0,
             })
+    }
+
+    fn enter_live_recording_error(&mut self) {
+        self.status = ServiceStatus::Error;
+        self.audio_recorder.set_chunk_callback(None);
+        if let Some(session) = self.active_session.take() {
+            let _ = session.cancel();
+        }
+        if self.audio_recorder.is_recording() {
+            let _ = self.audio_recorder.cancel_recording();
+        }
+        self.output_ducker.restore();
+        self.current_scene = None;
+        self.selected_text = None;
+        self.partial_text = None;
+    }
+
+    pub(crate) fn recover_live_recording_error(&mut self) {
+        if self.status == ServiceStatus::Error {
+            self.reset_to_idle();
+        }
     }
 
     fn reset_to_idle(&mut self) {

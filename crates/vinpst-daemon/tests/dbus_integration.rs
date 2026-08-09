@@ -140,6 +140,47 @@ impl RecognitionSession for EmptyRecognitionSession {
     }
 }
 
+#[derive(Debug)]
+struct PushFailureBackend;
+
+impl AsrBackend for PushFailureBackend {
+    fn describe(&self) -> BackendDescriptor {
+        BackendDescriptor::new(
+            "push-failure",
+            "",
+            "Push failure ASR",
+            BackendCapabilities::streaming(),
+        )
+    }
+
+    fn create_session(
+        &self,
+        _context: RecognitionContext,
+    ) -> Result<Box<dyn RecognitionSession>, AsrError> {
+        Ok(Box::new(PushFailureSession))
+    }
+}
+
+struct PushFailureSession;
+
+impl RecognitionSession for PushFailureSession {
+    fn push_audio(&mut self, _samples: &[i16]) -> Result<(), AsrError> {
+        Err(AsrError::Backend("test push failed".to_owned()))
+    }
+
+    fn finish(&mut self) -> Result<(), AsrError> {
+        Ok(())
+    }
+
+    fn cancel(&mut self) -> Result<(), AsrError> {
+        Ok(())
+    }
+
+    fn poll_events(&mut self) -> Result<Vec<RecognitionEvent>, AsrError> {
+        Ok(Vec::new())
+    }
+}
+
 async fn spawn_service() -> anyhow::Result<zbus::Connection> {
     let config = VinpstConfig::bundled_default()?;
     let runtime = RuntimeState::new(config)?;
@@ -1538,6 +1579,51 @@ async fn duplicate_start_emits_daemon_busy_notification() -> anyhow::Result<()> 
         )
     );
     expect_no_error_info_signal(&mut notifications).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn streaming_push_failure_emits_error_status_and_stops_without_stop_call()
+-> anyhow::Result<()> {
+    let config = VinpstConfig::bundled_default()?;
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[96, -96]),
+    )));
+    let runtime =
+        RuntimeState::with_backends(config, Box::new(PushFailureBackend), Box::new(source))?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+
+    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
+    assert_eq!(next_string_signal(&mut status_signals).await?, "error");
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "unknown".to_owned(),
+            String::new(),
+            String::new(),
+            "test push failed".to_owned(),
+        )
+    );
+    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
+    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
+    assert_eq!(status, "idle");
+
     Ok(())
 }
 

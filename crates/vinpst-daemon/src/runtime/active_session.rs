@@ -159,6 +159,9 @@ impl ActiveRecognitionSession {
         // state lock ordering used by live audio delivery.
         let new_events = self.lock_session()?.poll_events()?;
         let mut state = lock_streaming_state(state)?;
+        if let Some(error) = state.error.take() {
+            return Err(error);
+        }
         state.events.extend(new_events);
         let mut retained = Vec::with_capacity(state.events.len());
         let mut live = Vec::new();
@@ -292,7 +295,7 @@ impl StreamingDeliveryState {
         self.ensure_pcm_spec(pcm.spec())?;
 
         let mut processed = pcm.clone();
-        processed.apply_gain(self.input_gain);
+        super::apply_controller_input_gain(&mut processed, self.input_gain);
         self.pending_samples.extend_from_slice(processed.samples());
         self.take_complete_batches()
     }
@@ -413,11 +416,11 @@ mod tests {
                 pushes: Arc::clone(&pushes),
             }),
             AudioDeliveryMode::Chunked,
-            2.0,
+            1.5,
         );
         let mut callback = callback.expect("chunked session should install a callback");
 
-        callback(&PcmBuffer::at_default_rate(vec![100; 900]));
+        callback(&PcmBuffer::at_default_rate(vec![3; 900]));
         assert_eq!(pushes.lock().expect("push log lock poisoned").len(), 1);
         session.finish_streaming_delivery().unwrap();
 
@@ -429,7 +432,7 @@ mod tests {
             pushes
                 .iter()
                 .flat_map(PcmBuffer::samples)
-                .all(|sample| *sample == 200)
+                .all(|sample| *sample == 4)
         );
     }
 

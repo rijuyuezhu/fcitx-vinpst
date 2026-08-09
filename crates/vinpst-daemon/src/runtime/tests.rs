@@ -1877,7 +1877,7 @@ fn configured_command_asr_provider_forwards_runtime_pcm_metadata() {
 
     let bytes = std::fs::read(&capture_path).unwrap();
     std::fs::remove_file(&capture_path).unwrap();
-    let expected_bytes = recognizable_samples(&[4000_i16, -8000, 12000, -16000])
+    let expected_bytes = recognizable_samples(&[8192_i16, -16384, 24576, -32768])
         .into_iter()
         .flat_map(i16::to_le_bytes)
         .collect::<Vec<_>>();
@@ -2117,6 +2117,33 @@ fn configured_asr_reports_default_backend_as_unsupported() {
         panic!("default backend should be unsupported in current prototype");
     };
     assert!(matches!(error, super::RuntimeError::Asr(_)));
+}
+
+#[test]
+fn live_streaming_push_failure_enters_error_before_stop() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let cancelled = Arc::new(Mutex::new(false));
+    let backend = PushFailureBackend::new(Arc::clone(&cancelled));
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[96, -96]),
+    )));
+    let mut runtime =
+        RuntimeState::with_backends(config, Box::new(backend), Box::new(source)).unwrap();
+
+    runtime.start_recording().unwrap();
+    assert_eq!(runtime.status(), ServiceStatus::Recording);
+    let error = runtime.take_live_recognition_events().unwrap_err();
+
+    assert!(matches!(
+        error,
+        super::RuntimeError::Asr(AsrError::Backend(message))
+            if message == "test push failed"
+    ));
+    assert_eq!(runtime.status(), ServiceStatus::Error);
+    assert!(*cancelled.lock().expect("cancel lock poisoned"));
+
+    runtime.recover_live_recording_error();
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
 }
 
 #[test]
@@ -2415,6 +2442,36 @@ fn early_final_event_is_preserved_until_payload_conversion() {
     assert_eq!(report.payload.commit_text, "early final");
     assert_eq!(runtime.status(), ServiceStatus::Idle);
     assert!(runtime.partial_text().is_none());
+}
+
+#[test]
+fn controller_input_gain_matches_frozen_i16_truncation() {
+    let mut pcm = PcmBuffer::at_default_rate(vec![3, -3, 20_000, -20_000]);
+
+    super::apply_controller_input_gain(&mut pcm, 1.5);
+
+    assert_eq!(pcm.samples(), &[4, -4, 30_000, -30_000]);
+}
+
+#[test]
+fn buffered_preprocessing_applies_gain_before_normalization_without_silence_trim() {
+    let pcm = PcmBuffer::at_default_rate(vec![0, 3_000, -1_500, 0]);
+
+    let processed = super::process_buffered_pcm(&pcm, 2.0, true);
+
+    assert_eq!(processed.samples(), &[0, 6_000, -3_000, 0]);
+}
+
+#[test]
+fn buffered_preprocessing_only_normalizes_quiet_audio() {
+    let quiet = PcmBuffer::at_default_rate(vec![0, 1_000, -500, 0]);
+    let loud = PcmBuffer::at_default_rate(vec![0, 10_000, -5_000, 0]);
+
+    let quiet = super::process_buffered_pcm(&quiet, 1.0, true);
+    let loud = super::process_buffered_pcm(&loud, 1.0, true);
+
+    assert_eq!(quiet.samples(), &[0, i16::MAX, -16_384, 0]);
+    assert_eq!(loud.samples(), &[0, 10_000, -5_000, 0]);
 }
 
 #[test]

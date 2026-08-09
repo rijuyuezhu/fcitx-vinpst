@@ -487,14 +487,25 @@ impl VinpstDbusService {
                     break;
                 }
 
-                let events = {
+                let live_result = {
                     let mut runtime = runtime.lock().await;
                     if runtime.status() != ServiceStatus::Recording {
                         break;
                     }
-                    match runtime.take_live_recognition_events() {
-                        Ok(events) => events,
-                        Err(_) => break,
+                    runtime.take_live_recognition_events()
+                };
+                let events = match live_result {
+                    Ok(events) => events,
+                    Err(error) => {
+                        let notification = make_raw_error(runtime_error_detail(&error));
+                        let _ = Self::status_changed(&emitter, "error").await;
+                        let _ = Self::emit_error_info(&emitter, &notification).await;
+                        {
+                            let mut runtime = runtime.lock().await;
+                            runtime.recover_live_recording_error();
+                        }
+                        let _ = Self::status_changed(&emitter, "idle").await;
+                        break;
                     }
                 };
 

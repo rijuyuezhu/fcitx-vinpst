@@ -45,7 +45,6 @@ use vinpst_text::{
 };
 
 const MOCK_PCM: &[i16] = &[256, -128, 64, -32];
-const MOCK_SILENCE_THRESHOLD: i16 = 8;
 const DEFAULT_MOCK_AUDIO_FRAMES: usize = 4;
 const ASR_NOT_READY_REASON: &str = "ASR backend is not ready.";
 
@@ -400,6 +399,49 @@ impl RuntimeState {
             Err(RuntimeError::Busy(self.status))
         }
     }
+}
+
+fn apply_controller_input_gain(pcm: &mut PcmBuffer, gain: f32) {
+    if pcm.is_empty() || !gain.is_finite() {
+        return;
+    }
+    for sample in pcm.samples_mut() {
+        let scaled = (f32::from(*sample) * gain).clamp(f32::from(i16::MIN), f32::from(i16::MAX));
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            *sample = scaled as i16;
+        }
+    }
+}
+
+fn normalize_quiet_buffered_pcm(pcm: &mut PcmBuffer) {
+    let peak = pcm
+        .samples()
+        .iter()
+        .map(|sample| (f32::from(*sample) / 32_768.0).abs())
+        .fold(0.0_f32, f32::max);
+    if !(1.0e-8..0.1).contains(&peak) {
+        return;
+    }
+
+    let scale = 1.0 / peak;
+    for sample in pcm.samples_mut() {
+        let normalized = (f32::from(*sample) / 32_768.0) * scale;
+        let scaled = (normalized * 32_768.0).clamp(f32::from(i16::MIN), f32::from(i16::MAX));
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            *sample = scaled as i16;
+        }
+    }
+}
+
+fn process_buffered_pcm(pcm: &PcmBuffer, input_gain: f32, normalize_audio: bool) -> PcmBuffer {
+    let mut processed = pcm.clone();
+    apply_controller_input_gain(&mut processed, input_gain);
+    if normalize_audio {
+        normalize_quiet_buffered_pcm(&mut processed);
+    }
+    processed
 }
 
 fn configured_text_processor(config: &VinpstConfig) -> Box<dyn TextProcessor> {
