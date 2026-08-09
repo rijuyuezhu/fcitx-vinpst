@@ -431,6 +431,34 @@
         "Frozen worker-thread signal forwarding uses an eventfd-backed queue into the bus thread. Rust uses zbus async signal emission from serialized service/runtime transitions and a generation-cancelled live-partial poller; private-bus integration coverage exercises recognition result/partial, status, notification, adapter, and reload paths without retaining the C++ queue mechanism.",
         "Service lifetime is expressed through the held zbus Connection and Rust ownership rather than explicit Start/Stop bus methods: RuntimeState Drop restores output state, cancels capture/active recognition, and stops managed adapters, while the daemon explicitly shuts down its remote text service before releasing the service."
       ]
+    },
+    {
+      "id": "RECOGNITION-PIPELINE-001",
+      "state": "audited-fixed",
+      "title": "Recognition result post-processing dispatch and status transition",
+      "upstream_files": [
+        "daemon/runtime/recognition_pipeline.cpp",
+        "daemon/runtime/recognition_pipeline.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/runtime/recording.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/runtime.rs",
+        "crates/vinpst-text/src/command.rs",
+        "crates/vinpst-text/src/core.rs",
+        "crates/vinpst-text/src/openai.rs"
+      ],
+      "notes": [
+        "Fixed a user-visible status gap in the Rust-fused stop pipeline: non-empty recognized text no longer implies Postprocessing. Text-processor invocation and the postprocessing status transition are now separate decisions, matching the frozen recognition pipeline.",
+        "Normal scenes enter Postprocessing only when recognized text is non-empty, candidate_count is positive, provider_id is non-empty, and prompt is non-empty. Command scenes use the frozen command rule: recognized text, positive candidate_count, and a non-empty provider are sufficient; the command prompt is not an additional status gate.",
+        "Raw scenes, command paths without a configured processor provider, and adapter/no-provider scenes remain Inferring while the typed text processor still constructs the final payload. Focused runtime coverage and the private session-bus suite pin those negative cases, while a provider+prompt+candidate LLM scene pins the positive recording -> inferring -> postprocessing -> idle sequence.",
+        "Empty recognition already follows the frozen early-return behavior under ASR-CONTRACT-001. Final payload construction and text-provider/adapter semantics remain owned by the existing TXT-* units, while structured notification classification remains owned by ERROR-INFO-001.",
+        "Frozen RecognitionPipeline can report a null PostProcessor as a runtime error. Rust intentionally makes that state unrepresentable: RuntimeState owns a Box<dyn TextProcessor> at construction, so recognition cannot enter the pipeline without a processor object.",
+        "Frozen debug mode logs recognized text, truncated after 2048 bytes. Vinpst intentionally does not copy that diagnostic because its architecture contract forbids structured tracing from including recognized text; timing and target metadata remain sufficient for runtime diagnostics without retaining user dictation content.",
+        "The controller's worker scheduling, capture lifetime, status callbacks, and stop/reload state-machine ownership remain pending in DAEMON-CONTROLLER-001 and are not duplicated here."
+      ]
     }
   ],
   "upstream_pending": [
@@ -530,8 +558,6 @@
     "daemon/remote/remote_text_service.h",
     "daemon/runtime/daemon_runtime_controller.cpp",
     "daemon/runtime/daemon_runtime_controller.h",
-    "daemon/runtime/recognition_pipeline.cpp",
-    "daemon/runtime/recognition_pipeline.h",
     "gui/app/main.cpp",
     "gui/app/mainwindow.cpp",
     "gui/app/mainwindow.h",
@@ -648,7 +674,6 @@
     "crates/vinpst-daemon/src/runtime/diagnostics.rs",
     "crates/vinpst-daemon/src/runtime/errors.rs",
     "crates/vinpst-daemon/src/runtime/output_ducker.rs",
-    "crates/vinpst-daemon/src/runtime/recording.rs",
     "crates/vinpst-daemon/src/runtime/scene.rs",
     "crates/vinpst-fcitx-core/src/daemon_signal.rs",
     "crates/vinpst-fcitx-core/src/frontend.rs",
