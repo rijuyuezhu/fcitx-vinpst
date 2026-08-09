@@ -613,6 +613,33 @@
         "Rust intentionally uses deterministic monotonic event/item ids inside the protocol core instead of frozen wall-clock nanosecond ids. The ids remain opaque at the protocol boundary, every emitted event has the required prefix/uniqueness, and committed/delta/completed events share one item id as frozen clients require. Malformed or wrong-typed JSON is handled more defensively than frozen nlohmann value conversions and does not crash the service.",
         "Namespace differences are deliberate project identity changes: provider.vinpst.remote.streaming and VINPST_ASR_* replace frozen provider.vinput.remote.streaming and VINPUT_ASR_*. RemoteTextLifecycle's async task/watch architecture replaces frozen accept/client/debounce native threads while preserving stop-before-rebind behavior; replacement bind failure leaves no stale listener, clients, or credentials."
       ]
+    },
+    {
+      "id": "DAEMON-MAIN-001",
+      "state": "audited-fixed",
+      "title": "Daemon process startup, signal wait, and shutdown orchestration",
+      "upstream_files": [
+        "daemon/main.cpp"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/main.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/tests/dbus_integration.rs",
+        "scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh"
+      ],
+      "notes": [
+        "Fixed optional remote-service startup to match frozen degraded behavior. Frozen main logs a Synchronize failure and keeps the core D-Bus daemon running; Rust previously propagated start_remote_text_service and exited. Vinpst now reports `remote text service disabled (...)` to stderr, keeps the configured remote ASR target visible, exposes remote_text.running=false, and remains reachable for status/config repair.",
+        "Fixed startup ordering so the well-known D-Bus name is acquired before the optional remote listener starts, matching frozen dbus.Start-before-remote Synchronize ordering. This prevents a losing second daemon from briefly binding a remote port or accepting clients before DoNotQueue ownership fails. The expanded private-bus process smoke proves both occupied-port degraded startup and zero remote-listener side effects from a second owner candidate.",
+        "SIGINT and SIGTERM retain the frozen stop semantics through Tokio signal handling rather than an async-signal global flag. The process lifecycle smoke now uses SIGINT on the normal remote path and SIGTERM on degraded/owner paths, and verifies the remote listener disappears before process exit. Vinpst additionally supports an opt-in installed-executable inode replacement watcher; this is a documented package-upgrade supervision contract, not upstream parity surface, and exits unsuccessfully only when the package/activation profile enables it.",
+        "Configured ASR initialization remains intentionally fail-soft like frozen main: a normal configured D-Bus daemon installs an unavailable backend when preparation fails, remains idle/reloadable, and surfaces the startup error; strict one-shot commands still return the construction error. This behavior is separately proven by run-daemon-unavailable-asr-smoke.sh and owned in detail by the ASR/runtime audit units.",
+        "PipeWire startup is an intentional Rust resiliency divergence. Frozen main eagerly starts AudioCapture and treats capture startup failure as fatal; Vinpst constructs a lightweight PipeWireAudioRecorder and creates/connects its PipeWire stream only at BeginRecording. A temporarily absent PipeWire server therefore does not prevent D-Bus ownership or configuration repair, while the recording request returns the typed capture error. AUDIO-CAPTURE-001 owns the stream lifecycle details.",
+        "Config discovery keeps Vinpst's independent XDG/schema contract: explicit --config wins, otherwise the Vinpst user config is used and only an absent file falls back to the bundled default. Existing malformed/future-schema configs fail closed instead of frozen LoadCoreConfig's partial-default recovery. This is an established user-data protection policy in config-contract.md, not a main-loop parity gap.",
+        "Frozen's manual poll loop over D-Bus notification/runtime fds plus the one-second MaybeDestroyExpiredStream tick is replaced by zbus/Tokio tasks and component-owned wakeups/timers. PipeWire idle expiration is generation-guarded inside AUDIO-CAPTURE-001, while D-Bus/runtime workers own their asynchronous progress; main therefore does not reproduce a polling coordinator solely for structural similarity.",
+        "Top-level cleanup is equivalent through explicit remote shutdown plus Rust ownership. RuntimeState::Drop restores output ducking, removes the audio callback, cancels the active ASR session and capture, and stops supervised adapters; recorder/backend/process destructors then release their remaining resources. This replaces frozen's explicit postprocessor/remote/controller/recognition/adapter Shutdown sequence and releases the zbus connection before runtime teardown so no new service call can race cleanup.",
+        "The audit deliberately does not claim the AdapterSupervisor implementation embedded in frozen main.cpp: adapter process supervision remains owned by pending Rust adapter-process units. Likewise controller, D-Bus service, remote protocol, capture, and ASR internals are referenced only for startup/shutdown evidence and retain their dedicated audit ownership."
+      ]
     }
   ],
   "upstream_pending": [
@@ -699,7 +726,6 @@
     "common/utils/string_utils.h",
     "common/utils/url_utils.h",
     "daemon/asr/asr_config.h",
-    "daemon/main.cpp",
     "gui/app/main.cpp",
     "gui/app/mainwindow.cpp",
     "gui/app/mainwindow.h",
@@ -803,7 +829,6 @@
     "crates/vinpst-config/src/lib.rs",
     "crates/vinpst-daemon-control/src/lib.rs",
     "crates/vinpst-daemon/src/lib.rs",
-    "crates/vinpst-daemon/src/main.rs",
     "crates/vinpst-daemon/src/runtime/adapter_process.rs",
     "crates/vinpst-daemon/src/runtime/asr_menu.rs",
     "crates/vinpst-daemon/src/runtime/capture.rs",
