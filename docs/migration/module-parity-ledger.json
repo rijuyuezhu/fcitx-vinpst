@@ -824,11 +824,57 @@
         "Current Stop preserves the scene captured at recording start instead of reloading the active scene immediately before stop. This intentional typed-session behavior prevents a concurrent scene switch from changing postprocessing for an in-flight utterance; the transport and scene-capture contract is already covered by FCITX-DBUS-001.",
         "Deterministic evidence includes 57 vinpst-fcitx-core tests, 30 vinpst-fcitx-ffi tests, strict Clippy, 75 public C ABI declarations matching archive symbols, focused key-trigger/result-menu/selection/trigger-mode smokes, and the complete Fcitx CTest suite at 12/12. addon/core/vinput.h and addon/menu/vinput_menu.cpp remain pending because they own mixed declarations and the broader Scene/ASR/result-menu presentation implementation; this unit does not claim them early."
       ]
+    },
+    {
+      "id": "FCITX-MENU-001",
+      "state": "audited-intentional-divergence",
+      "title": "Fcitx Scene, ASR, and recognition-result menus",
+      "upstream_files": [
+        "addon/menu/vinput_menu.cpp"
+      ],
+      "current_files": [
+        "cpp/fcitx5-addon/src/fcitx_addon_menu.cpp",
+        "cpp/fcitx5-addon/src/fcitx_candidates.cpp",
+        "cpp/fcitx5-addon/src/fcitx_menu_filter.cpp",
+        "cpp/fcitx5-addon/src/fcitx_menu_projection.cpp",
+        "crates/vinpst-fcitx-core/src/menu.rs",
+        "crates/vinpst-fcitx-core/src/menu_action.rs",
+        "crates/vinpst-fcitx-core/src/menu_controller.rs",
+        "crates/vinpst-fcitx-core/src/menu_projection.rs",
+        "crates/vinpst-fcitx-core/src/menu_snapshot.rs",
+        "crates/vinpst-fcitx-ffi/src/menu.rs",
+        "crates/vinpst-fcitx-ffi/src/menu_controller.rs",
+        "crates/vinpst-fcitx-ffi/src/menu_projection.rs"
+      ],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_addon.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_candidates.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_menu_filter.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_menu_projection.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/sd_bus_daemon_client.h",
+        "cpp/fcitx5-addon/src/fcitx_addon.cpp",
+        "cpp/fcitx5-addon/src/sd_bus_daemon_client.cpp",
+        "cpp/fcitx5-addon/tests/native_fcitx_addon_dbus_smoke.cpp",
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-fcitx-ffi/include/vinpst_fcitx_ffi.h",
+        "docs/architecture/target-architecture.md",
+        "scripts/tests/cpp/run-cpp-dbus-asr-menu-smoke.sh",
+        "scripts/tests/cpp/run-cpp-dbus-menu-responsiveness-smoke.sh",
+        "scripts/tests/cpp/run-cpp-dbus-smoke.sh"
+      ],
+      "notes": [
+        "Scene, ASR, and recognition-result menu semantics are fully split from the toolkit adapter. Rust owns filter/query state, UTF-8 editing, action priority, release handling, page targets, row filtering, current/effective summaries, target controls, result-candidate comments, preferred cursor policy, and selection semantics. Retained C++ owns Fcitx key classification, CommonCandidateList construction, cursor/page calls, gettext fragments, InputPanel publication, and execution of Rust-projected controls.",
+        "Fixed a main-loop responsiveness regression in the rewritten Scene and ASR menus. Menu activation no longer performs the bounded synchronous typed D-Bus refresh on the Fcitx event loop. A cached Rust snapshot is published immediately when available, while a fresh typed controller is loaded on a worker and moved back through Fcitx EventDispatcher. No D-Bus tuple decoding, registry parsing, or provider/config model was duplicated into C++.",
+        "Background refresh is generation- and lifetime-guarded. InputContext watch validity, addon lifetime, and a per-menu sequence are checked before publishing; closing, switching, selecting, or destroying the addon invalidates older work so an in-flight snapshot cannot overwrite a newer user choice. Refresh failure preserves an already-published cached menu and only presents daemon-unavailable feedback when no usable cached projection existed.",
+        "A dedicated private-bus responsiveness gate deliberately activates a service that sleeps without acquiring org.fcitx.Vinpst. Both Scene and ASR menu trigger calls return in under 100 ms while a 50 ms Fcitx event-loop probe still fires, proving blocked D-Bus activation is off the input loop. The ordinary private-bus daemon gate separately proves successful asynchronous publication into a native InputContext: Scene renders Current: Raw with selectable alternatives and ASR renders Current: mock-streaming.",
+        "The configured ASR menu lifecycle remains intact: the deterministic private-bus installed-model smoke passes target selection, persistence, loading/effective projection, and reload behavior. Result-menu construction and selection also match the frozen source through the Rust presentation/history contracts: five-row paging, source comments, preferred commit cursor, cancel behavior, command selection replacement, LLM history, and one-shot generated-commit suppression. Keyboard routing itself is already owned and tested by FCITX-INPUT-001.",
+        "Vinpst intentionally differs in configuration ownership. Frozen vinput_menu.cpp reads and writes scene/provider/model configuration and registry/model metadata directly in the addon; current menus consume daemon-owned typed Scene/ASR snapshots and mutate them through SetActiveScene and SetActiveAsrTarget. A cold menu with no cached projection therefore waits asynchronously for the daemon snapshot instead of reconstructing a second local config/registry view; transient refresh failure can keep an already-published cache. This keeps the Fcitx addon thin and gives CLI, GUI, remote, and Fcitx one canonical runtime/config authority rather than reintroducing a second frontend-side configuration model.",
+        "Deterministic evidence includes 57 vinpst-fcitx-core tests, 30 vinpst-fcitx-ffi tests, strict Clippy, 75 public C ABI declarations matching archive symbols, the complete Fcitx CTest suite at 12/12, the blocked-activation responsiveness smoke, the ordinary private-bus native menu publication probes, and the configured ASR installed-model target-switch smoke. addon/core/vinput.h remains pending for one final mixed-header ownership audit now that core, input, and menu implementation units are closed."
+      ]
     }
   ],
   "upstream_pending": [
     "addon/core/vinput.h",
-    "addon/menu/vinput_menu.cpp",
     "cli/action.h",
     "cli/config/action.h",
     "cli/config/asr_actions.cpp",
@@ -930,12 +976,8 @@
   ],
   "current_pending": [
     "cpp/fcitx5-addon/src/fcitx_addon.cpp",
-    "cpp/fcitx5-addon/src/fcitx_addon_menu.cpp",
-    "cpp/fcitx5-addon/src/fcitx_candidates.cpp",
     "cpp/fcitx5-addon/src/fcitx_config.cpp",
     "cpp/fcitx5-addon/src/fcitx_i18n.cpp",
-    "cpp/fcitx5-addon/src/fcitx_menu_filter.cpp",
-    "cpp/fcitx5-addon/src/fcitx_menu_projection.cpp",
     "cpp/fcitx5-addon/src/fcitx_outcome.cpp",
     "cpp/fcitx5-addon/src/frontend_bridge.cpp",
     "crates/vinpst-asr/src/error.rs",
@@ -1011,17 +1053,9 @@
     "crates/vinpst-fcitx-core/src/frontend.rs",
     "crates/vinpst-fcitx-core/src/frontend_presentation.rs",
     "crates/vinpst-fcitx-core/src/lib.rs",
-    "crates/vinpst-fcitx-core/src/menu.rs",
-    "crates/vinpst-fcitx-core/src/menu_action.rs",
-    "crates/vinpst-fcitx-core/src/menu_controller.rs",
-    "crates/vinpst-fcitx-core/src/menu_projection.rs",
-    "crates/vinpst-fcitx-core/src/menu_snapshot.rs",
     "crates/vinpst-fcitx-ffi/src/ffi_string.rs",
     "crates/vinpst-fcitx-ffi/src/frontend.rs",
     "crates/vinpst-fcitx-ffi/src/lib.rs",
-    "crates/vinpst-fcitx-ffi/src/menu.rs",
-    "crates/vinpst-fcitx-ffi/src/menu_controller.rs",
-    "crates/vinpst-fcitx-ffi/src/menu_projection.rs",
     "crates/vinpst-gui/src/adapter_config_management.rs",
     "crates/vinpst-gui/src/adapter_config_management/view.rs",
     "crates/vinpst-gui/src/adapter_runtime.rs",
