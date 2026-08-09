@@ -778,11 +778,56 @@
         "One frozen sandbox lifecycle behavior remains open. Upstream addon startup automatically materializes and rewrites the user systemd service when running in a sandbox, then reloads the user manager. Current Flatpak packaging carries the unit and the typed CLI can explicitly render/install the host service, but the package smoke does not prove automatic first-use host installation after extension deployment. Reintroducing ad-hoc filesystem writes and system() calls in this thin addon would violate current ownership; this remains a service/sandbox audit gap rather than being hidden as an intentional divergence.",
         "addon/core/vinput.h remains pending because it also owns declarations for the separately pending key-event and menu source units; this audit does not claim those mixed declarations early. D-Bus transport/notifier behavior is already owned by FCITX-DBUS-001 and FCITX-NOTIFIER-001 and is supporting context here rather than duplicate ownership."
       ]
+    },
+    {
+      "id": "FCITX-INPUT-001",
+      "state": "audited-intentional-divergence",
+      "title": "Fcitx key-trigger routing, trigger timing, and selected-text input",
+      "upstream_files": [
+        "addon/input/vinput_keyevent.cpp"
+      ],
+      "current_files": [
+        "cpp/fcitx5-addon/src/fcitx_key_trigger.cpp",
+        "cpp/fcitx5-addon/src/fcitx_selection.cpp",
+        "cpp/fcitx5-addon/src/fcitx_trigger_mode.cpp",
+        "crates/vinpst-fcitx-core/src/trigger_mode.rs",
+        "crates/vinpst-fcitx-ffi/src/trigger.rs"
+      ],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_addon.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_candidates.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_menu_filter.h",
+        "cpp/fcitx5-addon/src/fcitx_addon.cpp",
+        "cpp/fcitx5-addon/src/fcitx_addon_menu.cpp",
+        "cpp/fcitx5-addon/src/fcitx_candidates.cpp",
+        "cpp/fcitx5-addon/src/fcitx_menu_filter.cpp",
+        "cpp/fcitx5-addon/tests/fcitx_candidates_smoke.cpp",
+        "cpp/fcitx5-addon/tests/fcitx_key_trigger_smoke.cpp",
+        "cpp/fcitx5-addon/tests/fcitx_menu_filter_smoke.cpp",
+        "cpp/fcitx5-addon/tests/fcitx_selection_smoke.cpp",
+        "cpp/fcitx5-addon/tests/fcitx_trigger_mode_smoke.cpp",
+        "crates/vinpst-fcitx-core/src/frontend.rs",
+        "crates/vinpst-fcitx-core/src/menu_action.rs",
+        "crates/vinpst-fcitx-ffi/include/vinpst_fcitx_ffi.h",
+        "crates/vinpst-fcitx-ffi/src/menu.rs",
+        "docs/architecture/target-architecture.md",
+        "docs/architecture/text-contract.md",
+        "docs/user/settings.md"
+      ],
+      "notes": [
+        "Trigger timing matches the frozen key-event path: 80 ms press debounce, 300 ms hold activation, and the 500 ms release/stop tail are Rust-owned together with Tap/Hold/Both state, modifier-release matching, pending-start cancellation, and active-recording stop decisions. The retained C++ adapter only schedules Fcitx native timers and reports semantic press/release events.",
+        "Fixed overlapping custom-trigger priority to the frozen order: ASR menu, then Scene menu, then normal dictation, then command dictation. This matters only when users intentionally assign the same key to multiple actions; ordinary disjoint configurations are unchanged. Result, Scene, and ASR visible-menu handling also retains the frozen result -> Scene -> ASR priority before voice triggers.",
+        "Fixed menu-trigger pass-through while a recording session is active. A Scene/ASR menu press rejected by Rust semantic gating is no longer unconditionally filterAndAccept'ed, so the application receives that press as frozen upstream does; the corresponding configured menu-key release remains consumed to avoid stray release delivery.",
+        "Restored keyboard control for the result candidate menu. The five-row result menu now handles configured PageUp/PageDown, digits, Up/Down, Enter/KP Enter, Escape, and matching releases with the frozen close/pass/consume behavior. Semantic action planning lives in Rust through the same menu-action ABI used by other menus; C++ only classifies Fcitx keys, reads toolkit cursor/page state, performs requested paging/cursor calls, and invokes the selected candidate.",
+        "Selected-text acquisition remains surrounding-text first with PRIMARY selection fallback and local rejection of an empty selection. The frozen command-start requirement for candidate_count > 0 plus an LLM provider is intentionally not restored: Vinpst supports command text adapters and a deterministic no-adapter raw/ASR candidate fallback, so command recording remains useful without an LLM provider. This is a product capability extension rather than an omitted gate.",
+        "Vinpst's current default keys intentionally remain Right Control for normal dictation and F10 for command mode, with Right Shift for Scene and F8 for ASR. These defaults have been the documented Vinpst product surface since the independent frontend rewrite; frozen Alt_R/Control_R defaults are not reintroduced here. Detailed Fcitx config-schema/default ownership remains assigned to the pending common/config/vinput_config audit.",
+        "Current Stop preserves the scene captured at recording start instead of reloading the active scene immediately before stop. This intentional typed-session behavior prevents a concurrent scene switch from changing postprocessing for an in-flight utterance; the transport and scene-capture contract is already covered by FCITX-DBUS-001.",
+        "Deterministic evidence includes 57 vinpst-fcitx-core tests, 30 vinpst-fcitx-ffi tests, strict Clippy, 75 public C ABI declarations matching archive symbols, focused key-trigger/result-menu/selection/trigger-mode smokes, and the complete Fcitx CTest suite at 12/12. addon/core/vinput.h and addon/menu/vinput_menu.cpp remain pending because they own mixed declarations and the broader Scene/ASR/result-menu presentation implementation; this unit does not claim them early."
+      ]
     }
   ],
   "upstream_pending": [
     "addon/core/vinput.h",
-    "addon/input/vinput_keyevent.cpp",
     "addon/menu/vinput_menu.cpp",
     "cli/action.h",
     "cli/config/action.h",
@@ -889,12 +934,9 @@
     "cpp/fcitx5-addon/src/fcitx_candidates.cpp",
     "cpp/fcitx5-addon/src/fcitx_config.cpp",
     "cpp/fcitx5-addon/src/fcitx_i18n.cpp",
-    "cpp/fcitx5-addon/src/fcitx_key_trigger.cpp",
     "cpp/fcitx5-addon/src/fcitx_menu_filter.cpp",
     "cpp/fcitx5-addon/src/fcitx_menu_projection.cpp",
     "cpp/fcitx5-addon/src/fcitx_outcome.cpp",
-    "cpp/fcitx5-addon/src/fcitx_selection.cpp",
-    "cpp/fcitx5-addon/src/fcitx_trigger_mode.cpp",
     "cpp/fcitx5-addon/src/frontend_bridge.cpp",
     "crates/vinpst-asr/src/error.rs",
     "crates/vinpst-asr/src/lib.rs",
@@ -974,14 +1016,12 @@
     "crates/vinpst-fcitx-core/src/menu_controller.rs",
     "crates/vinpst-fcitx-core/src/menu_projection.rs",
     "crates/vinpst-fcitx-core/src/menu_snapshot.rs",
-    "crates/vinpst-fcitx-core/src/trigger_mode.rs",
     "crates/vinpst-fcitx-ffi/src/ffi_string.rs",
     "crates/vinpst-fcitx-ffi/src/frontend.rs",
     "crates/vinpst-fcitx-ffi/src/lib.rs",
     "crates/vinpst-fcitx-ffi/src/menu.rs",
     "crates/vinpst-fcitx-ffi/src/menu_controller.rs",
     "crates/vinpst-fcitx-ffi/src/menu_projection.rs",
-    "crates/vinpst-fcitx-ffi/src/trigger.rs",
     "crates/vinpst-gui/src/adapter_config_management.rs",
     "crates/vinpst-gui/src/adapter_config_management/view.rs",
     "crates/vinpst-gui/src/adapter_runtime.rs",
