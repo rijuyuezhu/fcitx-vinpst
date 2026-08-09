@@ -6,6 +6,7 @@ use std::fmt;
 
 use iced::Task;
 use vinpst_config::{LlmProviderConfig, SceneDefinition, VinpstConfig, redact_url_for_diagnostics};
+use vinpst_protocol::CandidateSource;
 use vinpst_text::{
     OpenAiCompatibleChatTransport, OpenAiCompatibleTextAdapter,
     ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextError, TextRequest,
@@ -683,7 +684,11 @@ fn test_llm_provider_with_transport<T: OpenAiCompatibleChatTransport>(
         .map_err(|error| llm_provider_test_error(&provider.id, &error))?;
     Ok(LlmProviderTestOutcome {
         provider_id: provider.id,
-        candidate_count: payload.candidates.len(),
+        candidate_count: payload
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.source == CandidateSource::Llm)
+            .count(),
     })
 }
 

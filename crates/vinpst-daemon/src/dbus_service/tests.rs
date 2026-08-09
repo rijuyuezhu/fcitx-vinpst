@@ -1,9 +1,33 @@
-use super::{AsrBackendStateTuple, LivePartialEmissionState, VinpstDbusService};
+use super::{
+    AsrBackendStateTuple, LivePartialEmissionState, VinpstDbusService, postprocess_notification,
+};
 use crate::RuntimeState;
 use tokio::time::{Duration, sleep, timeout};
 use vinpst_asr::MockAsrBackend;
 use vinpst_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinpstConfig};
 use vinpst_protocol::{RecognitionPayload, TextAdapterState};
+use vinpst_text::TextError;
+
+#[test]
+fn postprocess_notifications_match_upstream_error_codes() {
+    let http = postprocess_notification(&TextError::AdapterFailed(
+        "OpenAI-compatible provider returned HTTP 429: rate limited".to_owned(),
+    ));
+    assert_eq!(http.code, "llm_http_failed");
+    assert!(http.raw_message.starts_with("HTTP 429"));
+
+    let request = postprocess_notification(&TextError::AdapterFailed(
+        "OpenAI-compatible HTTP request timed out".to_owned(),
+    ));
+    assert_eq!(request.code, "llm_request_failed");
+    assert!(request.raw_message.starts_with("LLM request failed:"));
+
+    let prompt = postprocess_notification(&TextError::PromptFileLoad(
+        "file:///tmp/prompt: failed".to_owned(),
+    ));
+    assert_eq!(prompt.code, "prompt_file_load_failed");
+    assert!(prompt.raw_message.starts_with("Prompt file load failed:"));
+}
 
 fn service() -> VinpstDbusService {
     let config = VinpstConfig::bundled_default().unwrap();

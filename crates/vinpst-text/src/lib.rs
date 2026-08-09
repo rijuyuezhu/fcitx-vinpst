@@ -27,8 +27,8 @@ pub use context_cache::{
 };
 pub(crate) use core::scene_needs_postprocessing;
 pub use core::{
-    LlmTextProcessor, MockTextProcessor, TextAdapter, TextFinisher, TextProcessor, TextRequest,
-    UnsupportedTextAdapter,
+    LlmTextProcessor, MockTextProcessor, TextAdapter, TextFinisher, TextProcessReport,
+    TextProcessor, TextRequest, UnsupportedTextAdapter,
 };
 pub use error::TextError;
 pub use openai::{

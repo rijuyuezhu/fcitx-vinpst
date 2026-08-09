@@ -96,6 +96,22 @@ pub fn blocking_client_from_environment() -> Result<reqwest::blocking::Client, H
     blocking_client_with_extra_ca_path(certificate_path.as_deref())
 }
 
+/// Builds the blocking provider client with an explicit TCP connect deadline.
+///
+/// Per-request timeouts still bound the complete exchange; this limit only
+/// prevents a connect attempt from consuming an otherwise long deadline.
+pub fn blocking_client_from_environment_with_connect_timeout(
+    connect_timeout: Duration,
+) -> Result<reqwest::blocking::Client, HttpClientError> {
+    let certificate_path = env::var_os(SSL_CERT_FILE_ENV)
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from);
+    blocking_client_with_extra_ca_path_and_connect_timeout(
+        certificate_path.as_deref(),
+        Some(connect_timeout),
+    )
+}
+
 /// Fetches one bounded JSON text document with redirects disabled.
 ///
 /// Diagnostics intentionally omit the request URL and response body. The shared
@@ -224,8 +240,18 @@ fn error_cause_is_timeout(cause: &(dyn std::error::Error + 'static)) -> bool {
 fn blocking_client_with_extra_ca_path(
     certificate_path: Option<&Path>,
 ) -> Result<reqwest::blocking::Client, HttpClientError> {
+    blocking_client_with_extra_ca_path_and_connect_timeout(certificate_path, None)
+}
+
+fn blocking_client_with_extra_ca_path_and_connect_timeout(
+    certificate_path: Option<&Path>,
+    connect_timeout: Option<Duration>,
+) -> Result<reqwest::blocking::Client, HttpClientError> {
     let mut builder =
         reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none());
+    if let Some(connect_timeout) = connect_timeout {
+        builder = builder.connect_timeout(connect_timeout);
+    }
     if let Some(certificate_path) = certificate_path {
         let certificate_file = fs::File::open(certificate_path)
             .map_err(|_| HttpClientError::CertificateFileInspection)?;

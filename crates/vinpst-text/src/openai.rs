@@ -3,17 +3,20 @@
 use std::{
     fmt,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use vinpst_config::{
     COMMAND_SCENE_ID, LlmProviderConfig, RAW_SCENE_ID, SceneDefinition, redact_url_for_diagnostics,
 };
 use vinpst_http::{
-    MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError, blocking_client_from_environment,
-    read_provider_response_text, reqwest_error_category,
+    MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError,
+    blocking_client_from_environment_with_connect_timeout, read_provider_response_text,
+    reqwest_error_category,
 };
 use vinpst_protocol::{Candidate, CandidateSource, RecognitionPayload};
 
+use crate::payload::{normal_mode_payload, trim_ascii_whitespace};
 use crate::prompt::{
     build_constraints_suffix, render_legacy_prompt_placeholders_with_context, wrap_xml_block,
 };
@@ -21,7 +24,7 @@ use crate::{
     PromptContext, has_legacy_prompt_interpolation, is_prompt_file_uri, load_prompt_file_uri,
 };
 use crate::{
-    TextAdapter, TextError, TextProcessor, TextRequest, command_mode_payload,
+    TextAdapter, TextError, TextProcessReport, TextProcessor, TextRequest, command_mode_payload,
     load_recent_input_context_prefix, scene_needs_postprocessing,
 };
 
@@ -42,12 +45,12 @@ pub fn build_openai_compatible_chat_url(base_url: &str) -> Option<String> {
         return None;
     }
     if let Ok(mut url) = reqwest::Url::parse(base_url) {
-        if !url
-            .path()
-            .trim_end_matches('/')
-            .ends_with(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH)
-        {
-            let path = url.path().trim_end_matches('/');
+        let path = url.path().trim_end_matches('/').to_owned();
+        if path.ends_with(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH) {
+            if url.path() != path {
+                url.set_path(&path);
+            }
+        } else {
             url.set_path(&format!("{path}{OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH}"));
         }
         return Some(url.to_string());
@@ -113,7 +116,9 @@ pub fn extract_openai_compatible_candidates(response_body: &str) -> Vec<String> 
         .into_iter()
         .flatten()
         .filter_map(serde_json::Value::as_str)
-        .map(str::trim)
+        .map(|candidate| {
+            candidate.trim_matches(|character| matches!(character, ' ' | '\t' | '\r' | '\n'))
+        })
         .filter(|candidate| !candidate.is_empty())
         .map(ToOwned::to_owned)
         .collect()
@@ -253,14 +258,10 @@ pub fn build_openai_compatible_chat_request(
         return Ok(None);
     };
     let headers = build_openai_compatible_headers(&provider.api_key);
-    let Some(prompt) = request
-        .scene
-        .prompt
-        .as_deref()
-        .filter(|prompt| !prompt.is_empty())
-    else {
+    let prompt = request.scene.prompt.as_deref().unwrap_or_default();
+    if prompt.is_empty() && request.scene.id != COMMAND_SCENE_ID {
         return Ok(None);
-    };
+    }
     let base_prompt = if is_prompt_file_uri(prompt) {
         load_prompt_file_uri(prompt)?
     } else {
@@ -280,19 +281,28 @@ pub fn build_openai_compatible_chat_request(
         } else if !content.is_empty() {
             content.push('\n');
         }
-        if !context_prefix.is_empty() {
-            content.push_str(&wrap_xml_block("context", context_prefix));
-            content.push('\n');
-        }
-        if !request.raw_text.is_empty() {
-            content.push_str(&wrap_xml_block("asr", request.raw_text));
-            content.push('\n');
-        }
-        if request.scene.id == COMMAND_SCENE_ID
-            && let Some(selected_text) = request.selected_text.filter(|text| !text.is_empty())
-        {
-            content.push_str(&wrap_xml_block("selected", selected_text));
-            content.push('\n');
+        if request.scene.id == COMMAND_SCENE_ID {
+            if !request.raw_text.is_empty() {
+                content.push_str(&wrap_xml_block("vinput-asr", request.raw_text));
+                content.push_str("\n\n");
+            }
+            if let Some(selected_text) = request.selected_text.filter(|text| !text.is_empty()) {
+                content.push_str(&wrap_xml_block("vinput-selected", selected_text));
+                content.push_str("\n\n");
+            }
+            if !context_prefix.is_empty() {
+                content.push_str(&wrap_xml_block("vinput-context", context_prefix));
+                content.push('\n');
+            }
+        } else {
+            if !context_prefix.is_empty() {
+                content.push_str(&wrap_xml_block("vinput-context", context_prefix));
+                content.push('\n');
+            }
+            if !request.raw_text.is_empty() {
+                content.push_str(&wrap_xml_block("vinput-asr", request.raw_text));
+                content.push('\n');
+            }
         }
         content
     };
@@ -338,7 +348,7 @@ pub fn build_openai_compatible_chat_request_from_context_cache(
     context_cache_path: impl AsRef<Path>,
 ) -> Result<Option<OpenAiCompatibleChatRequest>, TextError> {
     let context_prefix =
-        load_recent_input_context_prefix(context_cache_path, request.scene.context_lines)?;
+        load_recent_input_context_prefix(context_cache_path, request.scene.context_lines);
     build_openai_compatible_chat_request(request, provider, &context_prefix)
 }
 
@@ -392,11 +402,12 @@ fn send_openai_compatible_request_blocking(
     request: &OpenAiCompatibleChatRequest,
     timeout_ms: Option<u64>,
 ) -> Result<String, TextError> {
-    let client = blocking_client_from_environment().map_err(|error| {
-        TextError::AdapterFailed(format!(
-            "OpenAI-compatible HTTP client setup failed: {error}"
-        ))
-    })?;
+    let client = blocking_client_from_environment_with_connect_timeout(Duration::from_secs(5))
+        .map_err(|error| {
+            TextError::AdapterFailed(format!(
+                "OpenAI-compatible HTTP client setup failed: {error}"
+            ))
+        })?;
     let mut builder = client.post(&request.url).json(&request.body);
     for (name, value) in &request.headers {
         builder = builder.header(name, value);
@@ -489,6 +500,18 @@ impl<T> OpenAiCompatibleTextAdapter<T> {
 
 impl<T: OpenAiCompatibleChatTransport> TextAdapter for OpenAiCompatibleTextAdapter<T> {
     fn finish(&self, request: &TextRequest<'_>) -> Result<RecognitionPayload, TextError> {
+        if request.scene.id != COMMAND_SCENE_ID
+            && trim_ascii_whitespace(request.raw_text).is_empty()
+        {
+            return Ok(normal_mode_payload(request.raw_text, Vec::<String>::new()));
+        }
+        if request.scene.id == COMMAND_SCENE_ID
+            && (trim_ascii_whitespace(request.raw_text).is_empty()
+                || request.selected_text.unwrap_or_default().is_empty())
+        {
+            return Ok(pre_request_fallback_payload(request));
+        }
+
         let built = if let Some(context_cache_path) = &self.context_cache_path {
             build_openai_compatible_chat_request_from_context_cache(
                 request,
@@ -497,8 +520,10 @@ impl<T: OpenAiCompatibleChatTransport> TextAdapter for OpenAiCompatibleTextAdapt
             )?
         } else {
             build_openai_compatible_chat_request(request, &self.provider, "")?
-        }
-        .ok_or_else(|| TextError::UnsupportedAdapter(request.scene.id.clone()))?;
+        };
+        let Some(built) = built else {
+            return Ok(pre_request_fallback_payload(request));
+        };
 
         let response_body = self
             .transport
@@ -511,12 +536,34 @@ impl<T: OpenAiCompatibleChatTransport> TextAdapter for OpenAiCompatibleTextAdapt
                 candidates,
             ));
         }
-        openai_compatible_candidates_to_payload(candidates).ok_or_else(|| {
-            TextError::AdapterFailed(format!(
-                "OpenAI-compatible provider `{}` response did not contain candidates",
-                self.provider.id
-            ))
-        })
+        Ok(normal_mode_payload(request.raw_text, candidates))
+    }
+}
+
+fn pre_request_fallback_payload(request: &TextRequest<'_>) -> RecognitionPayload {
+    if request.scene.id != COMMAND_SCENE_ID {
+        return normal_mode_payload(request.raw_text, Vec::<String>::new());
+    }
+    let normalized_asr = trim_ascii_whitespace(request.raw_text);
+    let fallback_text = if normalized_asr.is_empty() {
+        request.selected_text.unwrap_or_default()
+    } else {
+        normalized_asr
+    };
+    let mut payload = normal_mode_payload(fallback_text, Vec::<String>::new());
+    fallback_text.clone_into(&mut payload.commit_text);
+    payload
+}
+
+fn post_request_fallback_payload(request: &TextRequest<'_>) -> RecognitionPayload {
+    if request.scene.id == COMMAND_SCENE_ID {
+        command_mode_payload(
+            request.selected_text.unwrap_or_default(),
+            request.raw_text,
+            Vec::<String>::new(),
+        )
+    } else {
+        normal_mode_payload(request.raw_text, Vec::<String>::new())
     }
 }
 
@@ -583,13 +630,30 @@ where
         if request.scene.id == RAW_SCENE_ID || !scene_needs_postprocessing(request.scene) {
             return Ok(RecognitionPayload::raw(request.raw_text));
         }
-        let provider = select_openai_compatible_provider(&self.providers, request.scene)?
-            .ok_or_else(|| TextError::AdapterRequired(request.scene.id.clone()))?;
+        let Some(provider) = select_openai_compatible_provider(&self.providers, request.scene)?
+        else {
+            return Ok(pre_request_fallback_payload(request));
+        };
         let mut adapter =
             OpenAiCompatibleTextAdapter::new(provider.clone(), self.transport.clone());
         if let Some(context_cache_path) = &self.context_cache_path {
             adapter = adapter.with_context_cache_path(context_cache_path.clone());
         }
         adapter.finish(request)
+    }
+
+    fn finish_report(&self, request: &TextRequest<'_>) -> Result<TextProcessReport, TextError> {
+        match self.finish(request) {
+            Ok(payload) => Ok(TextProcessReport::success(payload)),
+            Err(error @ TextError::PromptFileLoad(_)) => Ok(TextProcessReport {
+                payload: pre_request_fallback_payload(request),
+                warning: Some(error),
+            }),
+            Err(error @ TextError::AdapterFailed(_)) => Ok(TextProcessReport {
+                payload: post_request_fallback_payload(request),
+                warning: Some(error),
+            }),
+            Err(error) => Err(error),
+        }
     }
 }

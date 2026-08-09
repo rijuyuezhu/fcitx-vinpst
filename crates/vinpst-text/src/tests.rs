@@ -77,6 +77,32 @@ impl OpenAiCompatibleChatTransport for StaticOpenAiTransport {
     }
 }
 
+#[derive(Debug, Clone)]
+struct FailingOpenAiTransport {
+    message: String,
+    seen_request: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+impl FailingOpenAiTransport {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            seen_request: std::sync::Arc::new(std::sync::Mutex::new(false)),
+        }
+    }
+}
+
+impl OpenAiCompatibleChatTransport for FailingOpenAiTransport {
+    fn send(
+        &self,
+        _request: &OpenAiCompatibleChatRequest,
+        _timeout_ms: Option<u64>,
+    ) -> Result<String, TextError> {
+        *self.seen_request.lock().unwrap() = true;
+        Err(TextError::AdapterFailed(self.message.clone()))
+    }
+}
+
 fn scene(id: &str, candidate_count: u8) -> SceneDefinition {
     SceneDefinition {
         id: id.to_owned(),
@@ -528,7 +554,11 @@ fn openai_text_adapter_sends_request_and_maps_payload() {
         .unwrap();
 
     assert_eq!(payload.commit_text, "polished");
-    assert_eq!(payload.candidates[0].source.to_string(), "llm");
+    assert_eq!(payload.candidates.len(), 2);
+    assert_eq!(payload.candidates[0].text, "raw text");
+    assert_eq!(payload.candidates[0].source, CandidateSource::Raw);
+    assert_eq!(payload.candidates[1].text, "polished");
+    assert_eq!(payload.candidates[1].source, CandidateSource::Llm);
     let built = seen_request.lock().unwrap().clone().unwrap();
     assert_eq!(built.url, "http://localhost:8080/v1/chat/completions");
     assert_eq!(
@@ -572,7 +602,7 @@ fn openai_text_adapter_uses_legacy_timeout_when_scene_omits_one() {
 }
 
 #[test]
-fn openai_text_adapter_reports_response_without_candidates() {
+fn openai_text_adapter_falls_back_to_raw_when_response_has_no_candidates() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
@@ -580,18 +610,111 @@ fn openai_text_adapter_reports_response_without_candidates() {
     };
     let transport = StaticOpenAiTransport::new(serde_json::json!({"choices": []}).to_string());
 
-    let error = OpenAiCompatibleTextAdapter::new(provider(serde_json::json!({})), transport)
+    let payload = OpenAiCompatibleTextAdapter::new(provider(serde_json::json!({})), transport)
         .finish(&TextRequest {
             raw_text: "raw text",
             scene: &prompted,
             selected_text: None,
         })
-        .unwrap_err();
+        .unwrap();
 
+    assert_eq!(payload, RecognitionPayload::raw("raw text"));
+}
+
+#[test]
+fn openai_text_processor_preserves_raw_payload_on_transport_failure() {
+    let prompted = SceneDefinition {
+        prompt: Some("Polish: {{ asr }}".to_owned()),
+        provider_id: Some("openai-compatible".to_owned()),
+        ..scene("polish", 0)
+    };
+    let transport = FailingOpenAiTransport::new("OpenAI-compatible HTTP request timed out");
+    let report =
+        OpenAiCompatibleTextProcessor::new(vec![provider(serde_json::json!({}))], transport)
+            .finish_report(&TextRequest {
+                raw_text: "raw text",
+                scene: &prompted,
+                selected_text: None,
+            })
+            .unwrap();
+
+    assert_eq!(report.payload, RecognitionPayload::raw("raw text"));
     assert!(matches!(
-        error,
-        TextError::AdapterFailed(message) if message.contains("did not contain candidates")
+        report.warning,
+        Some(TextError::AdapterFailed(message))
+            if message == "OpenAI-compatible HTTP request timed out"
     ));
+}
+
+#[test]
+fn openai_text_processor_preserves_command_fallback_on_transport_failure() {
+    let command = SceneDefinition {
+        prompt: Some("Rewrite selected text using command: {{ asr }}".to_owned()),
+        provider_id: Some("openai-compatible".to_owned()),
+        ..scene(COMMAND_SCENE_ID, 0)
+    };
+    let transport = FailingOpenAiTransport::new("offline");
+    let report =
+        OpenAiCompatibleTextProcessor::new(vec![provider(serde_json::json!({}))], transport)
+            .finish_report(&TextRequest {
+                raw_text: "make it shorter",
+                scene: &command,
+                selected_text: Some("This is the selected text."),
+            })
+            .unwrap();
+
+    assert_eq!(report.payload.commit_text, "This is the selected text.");
+    assert_eq!(report.payload.candidates.len(), 2);
+    assert_eq!(report.payload.candidates[0].source, CandidateSource::Raw);
+    assert_eq!(report.payload.candidates[1].source, CandidateSource::Asr);
+    assert!(matches!(
+        report.warning,
+        Some(TextError::AdapterFailed(message)) if message == "offline"
+    ));
+}
+
+#[test]
+fn openai_text_processor_falls_back_without_a_provider_before_request() {
+    let prompted = SceneDefinition {
+        prompt: Some("Polish: {{ asr }}".to_owned()),
+        ..scene("polish", 0)
+    };
+    let transport = FailingOpenAiTransport::new("must not be called");
+    let seen_request = transport.seen_request.clone();
+    let report = OpenAiCompatibleTextProcessor::new(Vec::new(), transport)
+        .finish_report(&TextRequest {
+            raw_text: "raw text",
+            scene: &prompted,
+            selected_text: None,
+        })
+        .unwrap();
+
+    assert_eq!(report.payload, RecognitionPayload::raw("raw text"));
+    assert!(report.warning.is_none());
+    assert!(!*seen_request.lock().unwrap());
+}
+
+#[test]
+fn openai_text_processor_preserves_raw_payload_when_prompt_file_load_fails() {
+    let prompted = SceneDefinition {
+        prompt: Some("file:///definitely/missing/vinpst-prompt.txt".to_owned()),
+        provider_id: Some("openai-compatible".to_owned()),
+        ..scene("polish", 0)
+    };
+    let transport = FailingOpenAiTransport::new("must not be called");
+    let seen_request = transport.seen_request.clone();
+    let report =
+        OpenAiCompatibleTextProcessor::new(vec![provider(serde_json::json!({}))], transport)
+            .finish_report(&TextRequest {
+                raw_text: "raw text",
+                scene: &prompted,
+                selected_text: None,
+            })
+            .unwrap();
+
+    assert_eq!(report.payload, RecognitionPayload::raw("raw text"));
+    assert!(matches!(report.warning, Some(TextError::PromptFileLoad(_))));
+    assert!(!*seen_request.lock().unwrap());
 }
 
 #[test]
@@ -660,13 +783,13 @@ fn openai_text_processor_uses_single_provider_without_scene_provider_id() {
 }
 
 #[test]
-fn openai_text_processor_requires_provider_for_prompted_scene() {
+fn openai_text_processor_falls_back_without_provider_for_prompted_scene() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
         ..scene("polish", 0)
     };
 
-    let error = OpenAiCompatibleTextProcessor::new(
+    let payload = OpenAiCompatibleTextProcessor::new(
         Vec::new(),
         StaticOpenAiTransport::new(serde_json::json!({"choices": []}).to_string()),
     )
@@ -675,9 +798,9 @@ fn openai_text_processor_requires_provider_for_prompted_scene() {
         scene: &prompted,
         selected_text: None,
     })
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(error, TextError::AdapterRequired("polish".to_owned()));
+    assert_eq!(payload, RecognitionPayload::raw("raw text"));
 }
 
 #[test]
@@ -908,7 +1031,7 @@ fn openai_chat_request_wraps_xml_without_interpolation() {
     assert_eq!(built.body["top_p"], 0.8);
     let content = built.body["messages"][0]["content"].as_str().unwrap();
     assert!(content.starts_with(
-        "Polish this.\n\n<context>\nprevious line\n</context>\n<asr>\nraw dictated\n</asr>\n"
+        "Polish this.\n\n<vinput-context>\nprevious line\n</vinput-context>\n<vinput-asr>\nraw dictated\n</vinput-asr>\n"
     ));
     assert!(content.contains("\n\n## Constraints\n"));
     assert!(content.contains("Return EXACTLY 2 candidate(s)"));
@@ -930,7 +1053,7 @@ fn openai_chat_request_wraps_selected_xml_for_command_scene() {
             selected_text: Some("This is the selected text."),
         },
         &provider(serde_json::json!({})),
-        "",
+        "recent command\n",
     )
     .unwrap()
     .unwrap();
@@ -938,7 +1061,7 @@ fn openai_chat_request_wraps_selected_xml_for_command_scene() {
     let content = built.body["messages"][0]["content"].as_str().unwrap();
     assert_eq!(
         content,
-        "Apply the command.\n\n<asr>\nmake it shorter\n</asr>\n<selected>\nThis is the selected text.\n</selected>\n"
+        "Apply the command.\n\n<vinput-asr>\nmake it shorter\n</vinput-asr>\n\n<vinput-selected>\nThis is the selected text.\n</vinput-selected>\n\n<vinput-context>\nrecent command\n</vinput-context>\n"
     );
 }
 
@@ -997,7 +1120,7 @@ fn openai_chat_request_interpolates_context_and_selected_without_xml() {
         content,
         "Context=recent input\n ASR=fix text Selected=source text"
     );
-    assert!(!content.contains("<asr>"));
+    assert!(!content.contains("<vinput-asr>"));
     assert!(!content.contains("## Constraints"));
 }
 
@@ -1263,6 +1386,11 @@ fn openai_chat_url_preserves_complete_endpoint_and_rejects_empty_base() {
         build_openai_compatible_chat_url("https://api.example.test/v1/chat/completions").as_deref(),
         Some("https://api.example.test/v1/chat/completions")
     );
+    assert_eq!(
+        build_openai_compatible_chat_url("https://api.example.test/v1/chat/completions/")
+            .as_deref(),
+        Some("https://api.example.test/v1/chat/completions")
+    );
     assert_eq!(build_openai_compatible_chat_url(""), None);
 }
 
@@ -1288,7 +1416,7 @@ fn recent_input_context_prefix_reads_cache_file() {
     let cache_path = tempdir.path().join("context.jsonl");
     std::fs::write(&cache_path, "one\n\ntwo\nthree\n").unwrap();
 
-    let prefix = load_recent_input_context_prefix(&cache_path, 2).unwrap();
+    let prefix = load_recent_input_context_prefix(&cache_path, 2);
 
     assert_eq!(
         prefix,
@@ -1301,10 +1429,14 @@ fn recent_input_context_prefix_missing_cache_is_empty() {
     let tempdir = tempfile::tempdir().unwrap();
     let cache_path = tempdir.path().join("missing-context.jsonl");
 
-    assert_eq!(
-        load_recent_input_context_prefix(&cache_path, 3).unwrap(),
-        ""
-    );
+    assert_eq!(load_recent_input_context_prefix(&cache_path, 3), "");
+}
+
+#[test]
+fn recent_input_context_prefix_ignores_read_failures_like_upstream() {
+    let tempdir = tempfile::tempdir().unwrap();
+
+    assert_eq!(load_recent_input_context_prefix(tempdir.path(), 3), "");
 }
 
 #[test]
@@ -1370,7 +1502,7 @@ fn recent_input_context_cache_appends_legacy_json_lines() {
         ]
     );
 
-    let prefix = load_recent_input_context_prefix(&cache_path, 1).unwrap();
+    let prefix = load_recent_input_context_prefix(&cache_path, 1);
     assert_eq!(
         prefix,
         format!(
@@ -1494,8 +1626,14 @@ fn prompt_template_keeps_unknown_placeholders() {
         selected_text: None,
     };
 
-    let rendered = PromptTemplate::new("x={x}").render_request(&request);
-    assert_eq!(rendered, "x={x}");
+    let rendered = PromptTemplate::new(
+        "x={x}; scene={scene_id}; legacy_scene={{scene_id}}; legacy_future={{ future }}",
+    )
+    .render_request(&request);
+    assert_eq!(
+        rendered,
+        "x={x}; scene=raw; legacy_scene={{scene_id}}; legacy_future={{ future }}"
+    );
 }
 
 #[test]
@@ -1633,7 +1771,7 @@ fn openai_compatible_candidate_parser_extracts_first_choice_content_json() {
         "choices": [{
             "message": {
                 "content": serde_json::json!({
-                    "candidates": [" polished ", "", 7, "second"]
+                    "candidates": [" polished ", "", 7, "second", "\u{00a0}kept\u{00a0}"]
                 }).to_string()
             }
         }]
@@ -1641,7 +1779,11 @@ fn openai_compatible_candidate_parser_extracts_first_choice_content_json() {
 
     assert_eq!(
         extract_openai_compatible_candidates(&response.to_string()),
-        vec!["polished".to_owned(), "second".to_owned()]
+        vec![
+            "polished".to_owned(),
+            "second".to_owned(),
+            "\u{00a0}kept\u{00a0}".to_owned()
+        ]
     );
 }
 

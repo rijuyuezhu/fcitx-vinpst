@@ -51,6 +51,54 @@ const MAX_ERROR_DESCRIPTION_LEN: usize = 512;
 const LIVE_PARTIAL_POLL_INTERVAL: Duration = Duration::from_millis(40);
 const ASR_RELOAD_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const ASR_RELOAD_FAILED_CODE: &str = "asr_backend_reload_failed";
+const LLM_HTTP_FAILED_CODE: &str = "llm_http_failed";
+const LLM_REQUEST_FAILED_CODE: &str = "llm_request_failed";
+const PROMPT_FILE_LOAD_FAILED_CODE: &str = "prompt_file_load_failed";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PostprocessNotification {
+    code: &'static str,
+    subject: String,
+    detail: String,
+    raw_message: String,
+}
+
+fn postprocess_notification(error: &vinpst_text::TextError) -> PostprocessNotification {
+    match error {
+        vinpst_text::TextError::PromptFileLoad(message) => PostprocessNotification {
+            code: PROMPT_FILE_LOAD_FAILED_CODE,
+            subject: String::new(),
+            detail: message.clone(),
+            raw_message: format!("Prompt file load failed: {message}"),
+        },
+        vinpst_text::TextError::AdapterFailed(message) => {
+            if let Some(http_failure) =
+                message.strip_prefix("OpenAI-compatible provider returned HTTP ")
+            {
+                let raw_message = format!("HTTP {http_failure}");
+                PostprocessNotification {
+                    code: LLM_HTTP_FAILED_CODE,
+                    subject: String::new(),
+                    detail: raw_message.clone(),
+                    raw_message,
+                }
+            } else {
+                PostprocessNotification {
+                    code: LLM_REQUEST_FAILED_CODE,
+                    subject: String::new(),
+                    detail: message.clone(),
+                    raw_message: format!("LLM request failed: {message}"),
+                }
+            }
+        }
+        _ => PostprocessNotification {
+            code: "unknown",
+            subject: String::new(),
+            detail: String::new(),
+            raw_message: error.to_string(),
+        },
+    }
+}
 
 #[derive(Debug, Default)]
 struct LivePartialEmissionState {
@@ -348,7 +396,12 @@ impl VinpstDbusService {
     async fn finish_stop_recording_payload(
         &self,
         pending: PendingStopRecording,
-    ) -> DbusResult<(String, String, Option<String>)> {
+    ) -> DbusResult<(
+        String,
+        String,
+        Option<String>,
+        Option<PostprocessNotification>,
+    )> {
         let mut runtime = self.runtime.lock().await;
         let report = runtime
             .finish_stop_recording(pending)
@@ -357,10 +410,15 @@ impl VinpstDbusService {
             .payload
             .to_json_string()
             .map_err(Self::map_json_error)?;
+        let notification = report
+            .postprocess_warning
+            .as_ref()
+            .map(postprocess_notification);
         Ok((
             payload_json,
             runtime.status().to_string(),
             report.partial_text,
+            notification,
         ))
     }
 
@@ -376,7 +434,8 @@ impl VinpstDbusService {
         scene_id: &str,
     ) -> DbusResult<(String, String, Option<String>)> {
         let pending = self.begin_stop_recording_payload(scene_id).await?;
-        self.finish_stop_recording_payload(pending).await
+        let (payload, status, partial, _) = self.finish_stop_recording_payload(pending).await?;
+        Ok((payload, status, partial))
     }
 
     async fn begin_live_partial_emission(&self, last_emitted: Option<String>) -> u64 {
@@ -507,7 +566,7 @@ impl VinpstDbusService {
             let _ = Self::status_changed(&emitter, &status).await;
             return Err(Self::map_signal_error(&error));
         }
-        let (payload_json, status, partial_text) =
+        let (payload_json, status, partial_text, notification) =
             match self.finish_stop_recording_payload(pending).await {
                 Ok(result) => result,
                 Err(error) => {
@@ -522,6 +581,17 @@ impl VinpstDbusService {
                 Self::recognition_partial(&emitter, &partial_text)
                     .await
                     .map_err(|error| Self::map_signal_error(&error))?;
+            }
+            if let Some(notification) = notification {
+                Self::daemon_notification(
+                    &emitter,
+                    notification.code,
+                    &notification.subject,
+                    &notification.detail,
+                    &notification.raw_message,
+                )
+                .await
+                .map_err(|error| Self::map_signal_error(&error))?;
             }
             Self::recognition_result(&emitter, &payload_json)
                 .await

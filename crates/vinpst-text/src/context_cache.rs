@@ -109,38 +109,34 @@ where
 
 /// Loads the legacy recent-input context prompt prefix from a JSONL cache file.
 ///
-/// Missing cache files are treated as empty context, matching the legacy daemon.
-/// Other I/O failures are surfaced so callers can report diagnostics.
-pub fn load_recent_input_context_prefix(
-    path: impl AsRef<Path>,
-    max_lines: u8,
-) -> Result<String, TextError> {
+/// The upstream daemon treats this cache as optional context: open/read failures
+/// simply stop context collection and never fail recognition.
+pub fn load_recent_input_context_prefix(path: impl AsRef<Path>, max_lines: u8) -> String {
     if max_lines == 0 {
-        return Ok(String::new());
+        return String::new();
     }
 
-    let path = path.as_ref();
-    let file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(String::new()),
-        Err(error) => {
-            return Err(TextError::ContextCacheRead(format!(
-                "failed to open context cache `{}`: {error}",
-                path.display()
-            )));
-        }
+    let Ok(file) = fs::File::open(path.as_ref()) else {
+        return String::new();
     };
-    let lines = std::io::BufReader::new(file)
-        .lines()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| {
-            TextError::ContextCacheRead(format!(
-                "failed to read context cache `{}`: {error}",
-                path.display()
-            ))
-        })?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut lines = Vec::new();
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                if line.ends_with('\n') {
+                    line.pop();
+                }
+                if !line.is_empty() {
+                    lines.push(line);
+                }
+            }
+        }
+    }
 
-    Ok(build_recent_input_context_prefix(lines, max_lines))
+    build_recent_input_context_prefix(lines, max_lines)
 }
 
 /// Legacy recent-input context cache entry written by the frontend.

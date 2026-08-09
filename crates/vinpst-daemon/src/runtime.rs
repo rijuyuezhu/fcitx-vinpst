@@ -89,12 +89,14 @@ impl Drop for RuntimeState {
 }
 
 /// Payload and stop-time metadata produced by a completed recording.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StopRecordingReport {
     /// Final recognition payload after scene text processing.
     pub payload: RecognitionPayload,
     /// Latest partial text emitted while finishing the ASR session, if any.
     pub partial_text: Option<String>,
+    /// Recoverable post-processing failure that should be reported separately.
+    pub postprocess_warning: Option<vinpst_text::TextError>,
 }
 
 /// ASR result waiting for scene text processing after capture has stopped.

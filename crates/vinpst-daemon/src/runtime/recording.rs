@@ -179,14 +179,15 @@ impl RuntimeState {
 
         let result = self
             .text_processor
-            .finish(&TextRequest {
+            .finish_report(&TextRequest {
                 raw_text: &pending.raw_payload.commit_text,
                 scene: &pending.scene,
                 selected_text: pending.selected_text.as_deref(),
             })
-            .map(|payload| StopRecordingReport {
-                payload,
+            .map(|report| StopRecordingReport {
+                payload: report.payload,
                 partial_text: pending.partial_text,
+                postprocess_warning: report.warning,
             })
             .map_err(|error| {
                 let _ = pending.session.cancel();
