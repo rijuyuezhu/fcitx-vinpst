@@ -1115,14 +1115,40 @@
         "Model removal intentionally keeps a stronger Vinpst safety boundary. Frozen removes an active model, clears the preferred-model setting, saves, and reloads. Current removal refuses any model path still referenced by a local ASR provider, requiring the user to select or clear a replacement before destructive deletion; therefore the only removable models are inactive and no runtime reload is needed. This prevents a model delete from silently mutating the active ASR configuration.",
         "Deterministic evidence includes the model/provider/hotword integration suites, strict all-target vinpst-cli Clippy, and a private-session-bus smoke. The live half starts a configured daemon with two command providers and proves provider use --in-place changes the effective backend from cmd-a to cmd-b with reloaded_daemon=true. The stopped-daemon half installs a deliberately observable D-Bus activation service and proves the same canonical config mutation succeeds with reloaded_daemon=false without ever creating the activation marker, pinning the no-activation owner probe contract."
       ]
+    },
+    {
+      "id": "CLI-DEVICE-001",
+      "state": "audited-fixed",
+      "title": "CLI capture-device discovery and selection",
+      "upstream_files": [
+        "cli/config/device_actions.cpp",
+        "cli/config/device_actions.h",
+        "cli/config/register_device.cpp"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/audio_diagnostics.rs",
+        "crates/vinpst-cli/src/cli/device.rs",
+        "crates/vinpst-cli/src/commands/device.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/cli/mod.rs",
+        "crates/vinpst-cli/tests/audio_devices.rs",
+        "docs/architecture/audio-contract.md",
+        "docs/user/troubleshooting.md"
+      ],
+      "notes": [
+        "The frozen device task surface is preserved: device list retains the ls alias and device use accepts default or a concrete PipeWire source name. The frozen help calls the positional value an id, but the implementation actually compares and persists DeviceInfo.name rather than the numeric registry id; current target terminology is therefore more accurate while preserving the same selectable value.",
+        "Current device list intentionally keeps stronger diagnostics than frozen. Frozen collapses an empty PipeWire result and PipeWire-unavailable state into one informational message and omits even the synthetic default row. Vinpst always exposes the default target, keeps discovery order for live sources, and reports live/enumeration_error separately in JSON so a genuine empty source set can be distinguished from discovery failure. This builds on the separately audited PipeWire-device contract rather than changing backend enumeration semantics.",
+        "Restored the frozen best-effort validation behavior for non-default selections. Vinpst now checks live discovery when the PipeWire backend is available: a missing source produces a warning but is still accepted, while a discovery failure reports that the target could not be verified and likewise does not block dry-run or persistence. Builds without the PipeWire discovery feature do not invent a failure warning.",
+        "Restored the missing runtime-application guidance for file-based selection. A successful write to the canonical user config now returns a structured restart_hint and text guidance to run vinpst daemon restart if the daemon is already running. The CLI deliberately does not call the additive SetCaptureDevice D-Bus extension after rewriting the file: file mutation and live runtime mutation remain separate authorities, while the daemon D-Bus method continues to provide same-owner next-recording switching for GUI/live-control surfaces.",
+        "Vinpst intentionally requires --in-place or --output for device use instead of silently mutating the user config as frozen does. This matches the rewrite-wide explicit-mutation policy, preserves backup/atomic-write behavior, allows deterministic dry-run and offline config generation, and does not remove the familiar device use task.",
+        "Deterministic evidence includes the full PipeWire-feature audio_devices integration suite (19 tests), the exact device ls parser compatibility test, canonical in-place restart-hint coverage, unavailable-PipeWire best-effort selection coverage, and strict all-target vinpst-cli Clippy with and without pipewire-backend."
+      ]
     }
   ],
   "upstream_pending": [
-    "cli/config/device_actions.cpp",
-    "cli/config/device_actions.h",
     "cli/config/llm_actions.cpp",
     "cli/config/llm_actions.h",
-    "cli/config/register_device.cpp",
     "cli/config/register_llm.cpp",
     "cli/config/register_scene.cpp",
     "cli/config/scene_actions.cpp",
@@ -1204,10 +1230,8 @@
     "crates/vinpst-asr/src/timeout.rs",
     "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-audio/src/lib.rs",
-    "crates/vinpst-cli/src/audio_diagnostics.rs",
     "crates/vinpst-cli/src/cli/adapter.rs",
     "crates/vinpst-cli/src/cli/daemon.rs",
-    "crates/vinpst-cli/src/cli/device.rs",
     "crates/vinpst-cli/src/cli/llm.rs",
     "crates/vinpst-cli/src/cli/recording.rs",
     "crates/vinpst-cli/src/cli/registry.rs",
@@ -1216,7 +1240,6 @@
     "crates/vinpst-cli/src/commands/adapter/lifecycle.rs",
     "crates/vinpst-cli/src/commands/adapter/mod.rs",
     "crates/vinpst-cli/src/commands/adapter/mutation.rs",
-    "crates/vinpst-cli/src/commands/device.rs",
     "crates/vinpst-cli/src/commands/llm.rs",
     "crates/vinpst-cli/src/commands/mod.rs",
     "crates/vinpst-cli/src/commands/registry.rs",
