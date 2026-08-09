@@ -44,7 +44,9 @@ VinpstFrontendConfig::VinpstFrontendConfig(const FrontendSettings &settings)
       page_next_keys(this, "PageNextKeys", FrontendText("Next Page Keys"),
                      settings.page_next_keys, TriggerConstrain()),
       trigger_mode(this, "TriggerMode", FrontendText("Trigger Mode"),
-                   settings.trigger_mode) {}
+                   settings.trigger_mode),
+      management_gui(this, "ManagementGui", FrontendText("Open Vinpst Settings"),
+                     "vinpst-gui") {}
 
 FrontendSettings VinpstFrontendConfig::settings() const {
   return FrontendSettings{

@@ -78,6 +78,9 @@ msgstr "下一页快捷键"
 msgid "Trigger Mode"
 msgstr "触发模式"
 
+msgid "Open Vinpst Settings"
+msgstr "打开 Vinpst 设置"
+
 msgid "Tap"
 msgstr "单击"
 

@@ -108,6 +108,9 @@ int main() {
   assert(HasValueByPath(description, std::string(prefix) + "EnumI18n/0", "单击"));
   assert(HasValueByPath(description, std::string(prefix) + "EnumI18n/1", "长按"));
   assert(HasValueByPath(description, std::string(prefix) + "EnumI18n/2", "两者"));
+  constexpr auto gui_prefix = "VinpstFrontendConfig/ManagementGui/";
+  assert(HasValueByPath(description, std::string(gui_prefix) + "Type", "External"));
+  assert(HasValueByPath(description, std::string(gui_prefix) + "External", "vinpst-gui"));
 
   std::filesystem::remove_all(root);
   return 0;

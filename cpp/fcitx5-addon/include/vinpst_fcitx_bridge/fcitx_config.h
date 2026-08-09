@@ -61,6 +61,7 @@ public:
   fcitx::Option<fcitx::KeyList, fcitx::ListConstrain<fcitx::KeyConstrain>>
       page_next_keys;
   fcitx::OptionWithAnnotation<TriggerMode, TriggerModeI18NAnnotation> trigger_mode;
+  fcitx::ExternalOption management_gui;
 };
 
 FrontendSettings LoadFrontendSettings();
