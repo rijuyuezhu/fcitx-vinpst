@@ -407,6 +407,30 @@
         "Requested ASR backend classification matches frozen precedence and exact provider/model equality. The eight state fields also match. Runtime projection intentionally differs for command/remote providers: Vinpst reports the model on the actual target/effective provider, while frozen ResolvePreferredLocalModel can report an unrelated active/first local model; the richer Vinpst diagnostic is retained.",
         "Remote endpoints remain part of the frozen AsrBackendState shape. Vinpst fills them from the selected remote provider with diagnostic URL redaction; this is compatible with the field contract and more explicit than an empty-only projection."
       ]
+    },
+    {
+      "id": "DBUS-SERVICE-001",
+      "state": "audited-intentional-divergence",
+      "title": "Daemon D-Bus method dispatch and signal emission",
+      "upstream_files": [
+        "daemon/runtime/dbus_service.cpp",
+        "daemon/runtime/dbus_service.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/dbus_service.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/error_info.rs",
+        "crates/vinpst-daemon/src/runtime.rs"
+      ],
+      "notes": [
+        "Audited all eight frozen method handlers and four daemon signals against the Rust service facade. Legacy methods dispatch to the corresponding runtime or adapter operation and failures retain the Vinpst OperationFailed error class; runtime/controller state-machine semantics remain owned by later non-overlapping units.",
+        "Vinpst intentionally serializes recording transactions and completes inference/postprocessing before StopRecording returns the finalized JSON payload. Frozen upstream accepts StopRecording, returns an empty string immediately, and delivers the eventual result only by signal. The synchronous Rust contract is documented architecture, prevents stop/start overlap, and is consumed by the retained Rust Fcitx/CLI clients.",
+        "Session-bus ownership intentionally differs: frozen upstream requests replace-existing/allow-replacement, while Vinpst uses DoNotQueue so a second daemon cannot replace or queue behind the current owner. Private session-bus coverage pins the single-owner behavior.",
+        "Vinpst intentionally normalizes, credential-redacts, and bounds OperationFailed descriptions before exposing runtime errors on D-Bus instead of forwarding the frozen raw message verbatim. Focused coverage pins Authorization/Bearer redaction, whitespace normalization, and the Unicode-safe 512-character bound.",
+        "Frozen worker-thread signal forwarding uses an eventfd-backed queue into the bus thread. Rust uses zbus async signal emission from serialized service/runtime transitions and a generation-cancelled live-partial poller; private-bus integration coverage exercises recognition result/partial, status, notification, adapter, and reload paths without retaining the C++ queue mechanism.",
+        "Service lifetime is expressed through the held zbus Connection and Rust ownership rather than explicit Start/Stop bus methods: RuntimeState Drop restores output state, cancels capture/active recognition, and stops managed adapters, while the daemon explicitly shuts down its remote text service before releasing the service."
+      ]
     }
   ],
   "upstream_pending": [
@@ -506,8 +530,6 @@
     "daemon/remote/remote_text_service.h",
     "daemon/runtime/daemon_runtime_controller.cpp",
     "daemon/runtime/daemon_runtime_controller.h",
-    "daemon/runtime/dbus_service.cpp",
-    "daemon/runtime/dbus_service.h",
     "daemon/runtime/recognition_pipeline.cpp",
     "daemon/runtime/recognition_pipeline.h",
     "gui/app/main.cpp",
@@ -613,7 +635,6 @@
     "crates/vinpst-config/src/error.rs",
     "crates/vinpst-config/src/lib.rs",
     "crates/vinpst-daemon-control/src/lib.rs",
-    "crates/vinpst-daemon/src/dbus_service.rs",
     "crates/vinpst-daemon/src/lib.rs",
     "crates/vinpst-daemon/src/main.rs",
     "crates/vinpst-daemon/src/remote.rs",
