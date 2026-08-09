@@ -294,6 +294,32 @@
         "Known gap: frozen upstream can supply model tokens and hotwords through in-memory tokens_buf/hotwords_buf JSON byte strings. The Rust sherpa binding can represent these, but current Vinpst model metadata/runtime plans do not yet carry the byte buffers. This stays explicit for the pending model metadata audit rather than being silently ignored.",
         "Model path discovery/layout inference and VAD remain supporting evidence only and stay pending for their own non-overlapping audits."
       ]
+    },
+    {
+      "id": "ASR-VAD-001",
+      "state": "audited-intentional-divergence",
+      "title": "Offline Silero VAD trimming",
+      "upstream_files": [
+        "daemon/asr/vad_trimmer.cpp",
+        "daemon/asr/vad_trimmer.h"
+      ],
+      "current_files": [
+        "crates/vinpst-asr/src/sherpa_vad.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/sherpa/backend.rs",
+        "crates/vinpst-config/src/defaults.rs",
+        "crates/vinpst-config/src/schema.rs"
+      ],
+      "notes": [
+        "Silero detector construction matches frozen upstream: 16 kHz, 512-sample window, threshold/min-speech/min-silence controls, max speech duration 0, one CPU thread, debug disabled, and a 30 second detector buffer.",
+        "VAD config defaults are exactly aligned at enabled=true, threshold=0.45, min_speech_duration=0.15, min_silence_duration=0.5, and speech_pad_ms=300; config-level and resolved-plan tests pin the mapping so the two duration fields cannot be swapped.",
+        "Trim behavior matches upstream for reset, exact 512-sample feeds, zero-padding the final partial window, flush, segment extraction, independent per-segment speech padding, concatenation including overlapping padded regions, and returning original audio when no speech is found.",
+        "VAD model resolution intentionally differs from the frozen compile-time VINPUT_VAD_MODEL_PATH: Vinpst supports an explicit VINPST_SHERPA_VAD_MODEL, user/system XDG data locations, and a development asset. Missing/unloadable VAD still fails open to untrimmed audio like upstream.",
+        "Vinpst intentionally adds a 500 ms cold-start guard for the first detected segment: if its padded start lies within the first 500 ms, trimming preserves audio from sample zero to reduce first-syllable clipping after capture startup. Frozen vad_trimmer.cpp has no equivalent guard.",
+        "Frozen upstream initializes the detector at 16 kHz and ignores the sample_rate argument passed to Trim. Vinpst production capture is likewise 16 kHz, but injected/non-16-kHz PCM explicitly bypasses VAD instead of running a 16-kHz detector against mismatched-rate samples.",
+        "VAD remains offline/buffered only in both implementations; online/streaming Sherpa recognition does not use this trimmer."
+      ]
     }
   ],
   "upstream_pending": [
@@ -388,8 +414,6 @@
     "common/utils/string_utils.h",
     "common/utils/url_utils.h",
     "daemon/asr/asr_config.h",
-    "daemon/asr/vad_trimmer.cpp",
-    "daemon/asr/vad_trimmer.h",
     "daemon/audio/audio_capture.cpp",
     "daemon/audio/audio_capture.h",
     "daemon/audio/audio_utils.cpp",
@@ -452,7 +476,6 @@
     "crates/vinpst-asr/src/remote.rs",
     "crates/vinpst-asr/src/sherpa/mod.rs",
     "crates/vinpst-asr/src/sherpa/offline_layout.rs",
-    "crates/vinpst-asr/src/sherpa_vad.rs",
     "crates/vinpst-asr/src/timeout.rs",
     "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-audio/src/lib.rs",
