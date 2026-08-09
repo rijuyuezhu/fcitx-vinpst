@@ -487,6 +487,28 @@
         "Frozen eventfd notification, deferred capture-stop queue, start_recording_in_progress flag, and native worker thread primarily serialize races created by its callback/thread model. Vinpst intentionally uses the D-Bus recording transaction lock, Rust ownership/RAII, the capture-start gate, and async task cancellation instead of recreating those mechanisms. The frozen timing-only debug markers for recording start, first non-silent chunk, and first partial are not required product behavior and are not copied into user-content-safe tracing.",
         "Recognition postprocessing remains owned by RECOGNITION-PIPELINE-001; audio capture implementation and output-ducker internals remain separate pending units, so this controller audit does not claim those files by supporting reference."
       ]
+    },
+    {
+      "id": "OUTPUT-DUCKER-001",
+      "state": "audited-fixed",
+      "title": "Default output sink ducking and restoration",
+      "upstream_files": [
+        "daemon/audio/output_ducker.cpp",
+        "daemon/audio/output_ducker.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/runtime/output_ducker.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-process/src/lib.rs"
+      ],
+      "notes": [
+        "Audited frozen wpctl behavior end to end: both implementations use @DEFAULT_AUDIO_SINK@, a 2000 ms command deadline, current_volume * clamped_scale, four-decimal set-volume arguments, successful-set-before-saving semantics, idempotent repeated Duck, and one-shot Restore that clears saved state even if restoration fails.",
+        "Fixed a Rust process-supervision gap by replacing the output-ducker's private poll/spawn/read loop with the shared vinpst-process supervisor. The deadline now covers output recovery, stdout/stderr are bounded, and the direct child plus inherited descendants are reaped as one process group. Focused coverage proves both an ordinary timeout and the former parent-exit/descendant-held-output-pipe hang case.",
+        "Vinpst intentionally parses wpctl output more strictly than frozen strtod: non-finite and negative volumes are rejected, and the numeric token must parse completely. set-volume likewise rejects non-finite/negative values. Normal plain and [MUTED] wpctl output remains compatible; the stricter behavior is fail-closed for malformed external output.",
+        "Frozen OutputDucker uses an internal mutex because it may be called across its native controller threads. Rust requires mutable ownership of OutputDucker and serializes controller transitions instead, so reproducing the mutex would add no product behavior. Logging is routed through tracing rather than frozen stderr/debug helpers.",
+        "Controller-level duck/restore call ordering and shutdown restoration are already owned and covered by DAEMON-CONTROLLER-001; this unit only owns the volume-control implementation and process boundary."
+      ]
     }
   ],
   "upstream_pending": [
@@ -579,8 +601,6 @@
     "daemon/audio/audio_capture.h",
     "daemon/audio/audio_utils.cpp",
     "daemon/audio/audio_utils.h",
-    "daemon/audio/output_ducker.cpp",
-    "daemon/audio/output_ducker.h",
     "daemon/main.cpp",
     "daemon/remote/remote_text_service.cpp",
     "daemon/remote/remote_text_service.h",
@@ -697,7 +717,6 @@
     "crates/vinpst-daemon/src/runtime/config_io.rs",
     "crates/vinpst-daemon/src/runtime/diagnostics.rs",
     "crates/vinpst-daemon/src/runtime/errors.rs",
-    "crates/vinpst-daemon/src/runtime/output_ducker.rs",
     "crates/vinpst-daemon/src/runtime/scene.rs",
     "crates/vinpst-fcitx-core/src/daemon_signal.rs",
     "crates/vinpst-fcitx-core/src/frontend.rs",
