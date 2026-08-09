@@ -2,7 +2,10 @@ use super::{
     AsrBackendStateTuple, LivePartialEmissionState, VinpstDbusService, postprocess_notification,
 };
 use crate::RuntimeState;
-use tokio::time::{Duration, sleep, timeout};
+use tokio::{
+    sync::Mutex,
+    time::{Duration, sleep, timeout},
+};
 use vinpst_asr::{MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend};
 use vinpst_audio::{CapturedAudio, MockAudioSource, PcmBuffer};
 use vinpst_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinpstConfig};
@@ -59,6 +62,8 @@ fn unique_adapter_runtime_dir(name: &str) -> std::path::PathBuf {
             .as_nanos()
     ))
 }
+
+static REMOTE_LIFECYCLE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
 fn reserve_remote_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
@@ -179,6 +184,7 @@ async fn dbus_facade_keeps_remote_asr_and_remote_text_endpoints_separate() {
 
 #[tokio::test]
 async fn dbus_facade_reconciles_remote_service_on_config_reload() {
+    let _remote_lifecycle = REMOTE_LIFECYCLE_TEST_LOCK.lock().await;
     let first_port = reserve_remote_port();
     let mut second_port = reserve_remote_port();
     while second_port == first_port {
@@ -246,6 +252,7 @@ async fn dbus_facade_reconciles_remote_service_on_config_reload() {
 
 #[tokio::test]
 async fn dbus_facade_remote_bind_failure_drops_stale_listener() {
+    let _remote_lifecycle = REMOTE_LIFECYCLE_TEST_LOCK.lock().await;
     let first_port = reserve_remote_port();
     let occupied = std::net::TcpListener::bind("127.0.0.1:0").expect("occupy remote reload port");
     let occupied_port = occupied.local_addr().unwrap().port();
@@ -287,6 +294,7 @@ async fn dbus_facade_remote_bind_failure_drops_stale_listener() {
 
 #[tokio::test]
 async fn dbus_facade_provider_selection_starts_and_stops_remote_service() {
+    let _remote_lifecycle = REMOTE_LIFECYCLE_TEST_LOCK.lock().await;
     let port = reserve_remote_port();
     let root = unique_adapter_runtime_dir("remote-provider-selection");
     std::fs::create_dir_all(&root).expect("create remote selection directory");
