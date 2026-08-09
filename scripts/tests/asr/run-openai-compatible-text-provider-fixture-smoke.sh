@@ -56,6 +56,7 @@ jq -n \
   --arg model "${model}" '
   {
     version: 1,
+    asr: {active_provider: ""},
     llm: {providers: [{id: "fixture", base_url: $base_url, api_key: $api_key, model: $model, extra_body: {}}]},
     scenes: {active_scene: "raw", definitions: [{id: "raw", label: "Raw", candidate_count: 0}]}
   }
@@ -69,7 +70,7 @@ server_pid=""
 
 test ! -e "${error_file}"
 jq -e --arg expected "fixture-cli: ${input_text}" \
-  '.ok and .called and .result.commit_text == $expected and .result.candidate_count == 1' \
+  '.ok and .called and .result.commit_text == $expected and .result.candidate_count == 2' \
   "${out_dir}/result.json" >/dev/null
 jq -e --arg input "${input_text}" '
   .event == "request" and
