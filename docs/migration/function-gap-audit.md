@@ -39,7 +39,7 @@ Vinpst is not an in-place replacement for the upstream package. Its package, exe
 | Command ASR | `deterministic`; independent Whisper `live-proven` | No known ordinary workflow gap. |
 | Remote ASR | `deterministic`; loopback `live-proven` | Hosted-provider operational and credential evidence. |
 | Audio/VAD/device/output ducking | `deterministic`; representative `live-proven` | Additional physical-device and audible-output breadth. |
-| Scenes/LLM/adapters | `deterministic`; command replacement `live-proven` | Hosted-provider evidence and broader GUI error categories. |
+| Scenes/LLM/adapters | `deterministic`; command replacement `live-proven` | Hosted-provider evidence, broader GUI error categories, and active cancellation of an in-flight OpenAI-compatible text request during shutdown. |
 | Registry/resource lifecycle | `deterministic` | No known ordinary workflow gap; positional management-GUI collectors are intentionally not retained. |
 | Fcitx localization/notifications | `live-proven` for English and zh_CN | Additional locales are optional expansion. |
 | Remote text HTTP/WebSocket | `deterministic`; same-host browser `live-proven` | A separately confirmed physical-device collector run. |
