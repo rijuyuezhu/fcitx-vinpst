@@ -224,6 +224,41 @@
         "Frozen upstream session snapshots use ResolvePreferredLocalModel even for non-local active providers, while Rust diagnostics report the active Command/Remote provider model. Exact legacy D-Bus state projection is deferred to the separate common/dbus ASR-state audit because the Rust projection file remains pending.",
         "Upstream explicitly joins its reload thread during Shutdown. Rust owns reload work in Tokio tasks; async workers are cancelled with runtime shutdown while spawn_blocking preparation is waited by Tokio runtime teardown. No detached native preparation is intentionally created."
       ]
+    },
+    {
+      "id": "ASR-COMMAND-001",
+      "state": "audited-fixed",
+      "title": "Command ASR batch and streaming process protocols",
+      "upstream_files": [
+        "daemon/asr/backends/command_batch_backend.cpp",
+        "daemon/asr/backends/command_batch_backend.h",
+        "daemon/asr/backends/command_streaming_backend.cpp",
+        "daemon/asr/backends/command_streaming_backend.h"
+      ],
+      "current_files": [
+        "crates/vinpst-asr/src/command.rs",
+        "crates/vinpst-asr/src/command_streaming.rs"
+      ],
+      "supporting_current_files": [
+        "Cargo.toml",
+        "crates/vinpst-asr/Cargo.toml",
+        "crates/vinpst-asr/src/factory.rs",
+        "crates/vinpst-asr/src/lib.rs",
+        "crates/vinpst-daemon/src/runtime/active_session.rs",
+        "crates/vinpst-process/src/lib.rs"
+      ],
+      "notes": [
+        "Fixed the main streaming gap: .streaming command providers now own one long-lived helper process across PushAudio calls instead of buffering all PCM until Finish. Intermediate chunks are sent with commit=false, the final pending chunk uses commit=true, and a finish control line closes input exactly like frozen upstream.",
+        "The daemon live poller now actively polls asynchronous streaming sessions on every tick, so helper stdout produced after PushAudio returns can reach RecognitionPartial before StopRecording. Early FinalText remains retained for the final payload and is not duplicated at stop.",
+        "Streaming JSON event handling matches upstream for session_started/empty/unknown no-ops, trimmed partial/final/final_timestamps text, duplicate-partial suppression, blank error fallback, closed completion, and malformed JSON fail-closed behavior.",
+        "Streaming cancel best-effort starts the helper, sends a cancel control event, emits Completed, and terminates the helper process group; tests prove descendant cleanup. Buffered command cancel now also emits Completed and buffered Finish is idempotent like upstream.",
+        "Batch command providers continue to write raw signed-16 little-endian PCM and use trimmed stdout as final text. On supported little-endian Linux targets this matches upstream native i16 byte transport.",
+        "Vinpst intentionally retains stronger process safety than frozen upstream: command helpers run in their own process group, direct-child exit cleans descendants, and stdout/stderr are independently capped at 1 MiB. Frozen upstream batch/streaming collectors have no comparable output cap and do not isolate a process group.",
+        "Frozen upstream streaming ignores provider timeout_ms and uses a fixed 10 second final wait with unbounded recording-stage pipe waits. Vinpst uses the same 10 second default when timeout_ms is absent, but an explicitly configured timeout bounds each streaming pipe write and final wait without imposing one whole-session deadline, so long recordings are not killed merely because their duration exceeds the provider timeout.",
+        "Existing Vinpst batch/JSON one-shot semantics intentionally keep timeout_ms=None as no configured deadline; managed provider materialization supplies 60000 ms. Frozen upstream leaves an omitted timeout at integer zero, which can immediately expire its batch helper deadline. This pre-existing safer behavior is preserved rather than copying the zero-timeout edge case.",
+        "The former one-shot LegacyCommandStreamingRunner is now test-only protocol coverage; production factory wiring uses LegacyCommandStreamingBackend. The .streaming suffix remains the authoritative selector and registry validation already requires stream metadata to agree with that suffix.",
+        "Live RecognitionEvent::Error -> DaemonNotification classification remains owned by the separate pending common/dbus/error_info audit; this unit does not duplicate that responsibility."
+      ]
     }
   ],
   "upstream_pending": [
@@ -318,10 +353,6 @@
     "common/utils/string_utils.h",
     "common/utils/url_utils.h",
     "daemon/asr/asr_config.h",
-    "daemon/asr/backends/command_batch_backend.cpp",
-    "daemon/asr/backends/command_batch_backend.h",
-    "daemon/asr/backends/command_streaming_backend.cpp",
-    "daemon/asr/backends/command_streaming_backend.h",
     "daemon/asr/backends/sherpa_offline_backend.cpp",
     "daemon/asr/backends/sherpa_offline_backend.h",
     "daemon/asr/backends/sherpa_streaming_backend.cpp",
@@ -385,7 +416,6 @@
     "cpp/fcitx5-addon/src/fcitx_trigger_mode.cpp",
     "cpp/fcitx5-addon/src/frontend_bridge.cpp",
     "cpp/fcitx5-addon/src/sd_bus_daemon_client.cpp",
-    "crates/vinpst-asr/src/command.rs",
     "crates/vinpst-asr/src/error.rs",
     "crates/vinpst-asr/src/lib.rs",
     "crates/vinpst-asr/src/mock.rs",
