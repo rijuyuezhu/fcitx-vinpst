@@ -676,6 +676,7 @@
         "cpp/fcitx5-addon/src/fcitx_daemon_signal_monitor.cpp",
         "cpp/fcitx5-addon/src/fcitx_notifications.cpp",
         "cpp/fcitx5-addon/src/sd_bus_daemon_client.cpp",
+        "crates/vinpst-fcitx-core/src/daemon_signal.rs",
         "crates/vinpst-fcitx-dbus/src/lib.rs",
         "crates/vinpst-fcitx-ffi/src/daemon.rs",
         "crates/vinpst-fcitx-ffi/src/daemon_signal.rs"
@@ -745,8 +746,14 @@
         "addon/core/vinput.cpp"
       ],
       "current_files": [
+        "cpp/fcitx5-addon/src/fcitx_addon.cpp",
         "cpp/fcitx5-addon/src/fcitx_addon_factory.cpp",
-        "crates/vinpst-fcitx-ffi/src/context_history.rs"
+        "cpp/fcitx5-addon/src/fcitx_outcome.cpp",
+        "cpp/fcitx5-addon/src/frontend_bridge.cpp",
+        "crates/vinpst-fcitx-core/src/frontend.rs",
+        "crates/vinpst-fcitx-core/src/frontend_presentation.rs",
+        "crates/vinpst-fcitx-ffi/src/context_history.rs",
+        "crates/vinpst-fcitx-ffi/src/frontend.rs"
       ],
       "supporting_current_files": [
         "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/context_history_bridge.h",
@@ -776,7 +783,7 @@
         "The history tracker reads the canonical user JSON config on construction and frontend reload to compute the maximum scene.context_lines. It preserves the frozen every-100-writes truncation cadence when that maximum is nonzero while continuing to write history when it is zero, so later scene changes can consume existing context. The Fcitx INI remains intentionally limited to frontend trigger/mode settings; scene/provider ownership stays in the canonical daemon JSON config.",
         "Deterministic evidence includes 56 vinpst-fcitx-core tests, 29 vinpst-fcitx-ffi tests, strict Clippy, 74 C ABI declarations matching the Rust archive, and the complete Fcitx CTest suite at 12/12. A private-session native InputContext run against the freshly rebuilt addon commits mock recognition result and leaves exactly one isolated JSONL row with source asr, proving RecognitionResult -> Rust presentation -> addon history -> disk without a duplicate user row.",
         "One frozen sandbox lifecycle behavior remains open. Upstream addon startup automatically materializes and rewrites the user systemd service when running in a sandbox, then reloads the user manager. Current Flatpak packaging carries the unit and the typed CLI can explicitly render/install the host service, but the package smoke does not prove automatic first-use host installation after extension deployment. Reintroducing ad-hoc filesystem writes and system() calls in this thin addon would violate current ownership; this remains a service/sandbox audit gap rather than being hidden as an intentional divergence.",
-        "addon/core/vinput.h remains pending because it also owns declarations for the separately pending key-event and menu source units; this audit does not claim those mixed declarations early. D-Bus transport/notifier behavior is already owned by FCITX-DBUS-001 and FCITX-NOTIFIER-001 and is supporting context here rather than duplicate ownership."
+        "The monolithic addon/core/vinput.h declaration surface is closed separately by FCITX-HEADER-001 after the key-event and menu source units, so this core unit does not duplicate mixed declaration ownership. D-Bus transport/notifier behavior is already owned by FCITX-DBUS-001 and FCITX-NOTIFIER-001 and is supporting context here rather than duplicate ownership."
       ]
     },
     {
@@ -822,7 +829,7 @@
         "Selected-text acquisition remains surrounding-text first with PRIMARY selection fallback and local rejection of an empty selection. The frozen command-start requirement for candidate_count > 0 plus an LLM provider is intentionally not restored: Vinpst supports command text adapters and a deterministic no-adapter raw/ASR candidate fallback, so command recording remains useful without an LLM provider. This is a product capability extension rather than an omitted gate.",
         "Vinpst's current default keys intentionally remain Right Control for normal dictation and F10 for command mode, with Right Shift for Scene and F8 for ASR. These defaults have been the documented Vinpst product surface since the independent frontend rewrite; frozen Alt_R/Control_R defaults are not reintroduced here. Detailed Fcitx config-schema/default ownership remains assigned to the pending common/config/vinput_config audit.",
         "Current Stop preserves the scene captured at recording start instead of reloading the active scene immediately before stop. This intentional typed-session behavior prevents a concurrent scene switch from changing postprocessing for an in-flight utterance; the transport and scene-capture contract is already covered by FCITX-DBUS-001.",
-        "Deterministic evidence includes 57 vinpst-fcitx-core tests, 30 vinpst-fcitx-ffi tests, strict Clippy, 75 public C ABI declarations matching archive symbols, focused key-trigger/result-menu/selection/trigger-mode smokes, and the complete Fcitx CTest suite at 12/12. addon/core/vinput.h and addon/menu/vinput_menu.cpp remain pending because they own mixed declarations and the broader Scene/ASR/result-menu presentation implementation; this unit does not claim them early."
+        "Deterministic evidence includes 57 vinpst-fcitx-core tests, 30 vinpst-fcitx-ffi tests, strict Clippy, 75 public C ABI declarations matching archive symbols, focused key-trigger/result-menu/selection/trigger-mode smokes, and the complete Fcitx CTest suite at 12/12. The mixed addon/core/vinput.h declaration surface and broader menu implementation are owned by the later FCITX-HEADER-001 and FCITX-MENU-001 closeout units rather than being duplicated here."
       ]
     },
     {
@@ -869,12 +876,63 @@
         "A dedicated private-bus responsiveness gate deliberately activates a service that sleeps without acquiring org.fcitx.Vinpst. Both Scene and ASR menu trigger calls return in under 100 ms while a 50 ms Fcitx event-loop probe still fires, proving blocked D-Bus activation is off the input loop. The ordinary private-bus daemon gate separately proves successful asynchronous publication into a native InputContext: Scene renders Current: Raw with selectable alternatives and ASR renders Current: mock-streaming.",
         "The configured ASR menu lifecycle remains intact: the deterministic private-bus installed-model smoke passes target selection, persistence, loading/effective projection, and reload behavior. Result-menu construction and selection also match the frozen source through the Rust presentation/history contracts: five-row paging, source comments, preferred commit cursor, cancel behavior, command selection replacement, LLM history, and one-shot generated-commit suppression. Keyboard routing itself is already owned and tested by FCITX-INPUT-001.",
         "Vinpst intentionally differs in configuration ownership. Frozen vinput_menu.cpp reads and writes scene/provider/model configuration and registry/model metadata directly in the addon; current menus consume daemon-owned typed Scene/ASR snapshots and mutate them through SetActiveScene and SetActiveAsrTarget. A cold menu with no cached projection therefore waits asynchronously for the daemon snapshot instead of reconstructing a second local config/registry view; transient refresh failure can keep an already-published cache. This keeps the Fcitx addon thin and gives CLI, GUI, remote, and Fcitx one canonical runtime/config authority rather than reintroducing a second frontend-side configuration model.",
-        "Deterministic evidence includes 57 vinpst-fcitx-core tests, 30 vinpst-fcitx-ffi tests, strict Clippy, 75 public C ABI declarations matching archive symbols, the complete Fcitx CTest suite at 12/12, the blocked-activation responsiveness smoke, the ordinary private-bus native menu publication probes, and the configured ASR installed-model target-switch smoke. addon/core/vinput.h remains pending for one final mixed-header ownership audit now that core, input, and menu implementation units are closed."
+        "Deterministic evidence includes 57 vinpst-fcitx-core tests, 30 vinpst-fcitx-ffi tests, strict Clippy, 75 public C ABI declarations matching archive symbols, the complete Fcitx CTest suite at 12/12, the blocked-activation responsiveness smoke, the ordinary private-bus native menu publication probes, and the configured ASR installed-model target-switch smoke. The final mixed addon/core/vinput.h declaration ownership is closed by FCITX-HEADER-001 now that core, input, and menu implementation units are complete."
+      ]
+    },
+    {
+      "id": "FCITX-HEADER-001",
+      "state": "audited-intentional-divergence",
+      "title": "Fcitx monolithic addon declaration closeout",
+      "upstream_files": [
+        "addon/core/vinput.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/context_history_bridge.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_addon.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_config.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_daemon_signal_monitor.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_menu_filter.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_menu_projection.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_notifications.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_notifier_dbus_object.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/fcitx_trigger_mode.h",
+        "cpp/fcitx5-addon/include/vinpst_fcitx_bridge/frontend_bridge.h",
+        "docs/architecture/target-architecture.md"
+      ],
+      "notes": [
+        "The frozen VinputEngine header is a monolithic declaration aggregator, not an additional behavior owner. Its constructor/factory, InputContext lifecycle, context-history, DBus/signal/notifier, key-trigger timing, Scene/ASR/result menus, and frontend result/session declarations map to the already-audited FCITX-CORE-001, FCITX-DBUS-001, FCITX-NOTIFIER-001, FCITX-INPUT-001, and FCITX-MENU-001 implementation units. Current headers are excluded from the current source inventory, so this closeout intentionally owns no synthetic current source file.",
+        "Frozen Session, menu visibility/filter vectors, active-scene/provider mirrors, partial text, selected command text, result candidate vectors, suppression text, and cached backend state are not reproduced as one mutable C++ object. Rust frontend, trigger, menu-controller, daemon-signal, presentation, and context-history owners hold those semantic states; retained C++ fields are limited to toolkit references, native timers/slots, typed RAII handles, and short-lived transport/menu-refresh bookkeeping.",
+        "Frozen restartDaemon and queryAsrBackendState declarations are intentionally absent because the frozen tree has no live caller for those interfaces and current backend switching/recovery is daemon-owned. Frozen periodic ensureStatusSync/stopStatusSync declarations are also not restored: service-owner signals plus bounded pre-start reconciliation provide the audited current behavior without a one-second blocking status poll.",
+        "The header-level trigger-key initializers are not treated as authoritative user defaults because frozen applySettings replaces them from VinputSettings. Vinpst frontend defaults and trigger-mode schema remain in fcitx_config and are audited separately against common/config/vinput_config; the documented Vinpst defaults therefore are not silently inferred from this frozen implementation-detail initializer.",
+        "The factory remains a dedicated thin Fcitx AddonFactory, while the large VinputEngine declaration is intentionally decomposed into focused C++ boundary headers and Rust semantic controllers. This is an architectural divergence that reduces duplicated mutable frontend state while preserving the behavior proven by the source-level units."
+      ]
+    },
+    {
+      "id": "FCITX-GLUE-001",
+      "state": "audited-intentional-divergence",
+      "title": "Rust Fcitx crate roots and string FFI glue",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-fcitx-core/src/lib.rs",
+        "crates/vinpst-fcitx-ffi/src/ffi_string.rs",
+        "crates/vinpst-fcitx-ffi/src/lib.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-fcitx-core/Cargo.toml",
+        "crates/vinpst-fcitx-ffi/Cargo.toml",
+        "crates/vinpst-fcitx-ffi/include/vinpst_fcitx_ffi.h",
+        "docs/architecture/target-architecture.md",
+        "scripts/tests/check_fcitx_ffi_abi.py"
+      ],
+      "notes": [
+        "These files are rewrite-only glue with no frozen C++ source counterpart. The crate roots expose the already-audited Rust frontend modules without adding a second semantic implementation, and ffi_string.rs centralizes raw borrowed UTF-8 validation plus owned-string view/free mechanics used by the C ABI.",
+        "Keeping string borrowing and output construction in one Rust FFI module is intentional: retained C++ passes byte views and never reimplements UTF-8 validation or Rust allocation ownership. The public ABI gate currently proves 75 header declarations exactly match archive symbols, while strict Clippy and the FFI unit suite cover invalid/atomic input handling.",
+        "This current-only unit exists so the file-by-file ledger accounts for rewrite-specific source inventory explicitly rather than forcing glue files under unrelated frozen modules."
       ]
     }
   ],
   "upstream_pending": [
-    "addon/core/vinput.h",
     "cli/action.h",
     "cli/config/action.h",
     "cli/config/asr_actions.cpp",
@@ -975,11 +1033,8 @@
     "gui/utils/i18n_cache.h"
   ],
   "current_pending": [
-    "cpp/fcitx5-addon/src/fcitx_addon.cpp",
     "cpp/fcitx5-addon/src/fcitx_config.cpp",
     "cpp/fcitx5-addon/src/fcitx_i18n.cpp",
-    "cpp/fcitx5-addon/src/fcitx_outcome.cpp",
-    "cpp/fcitx5-addon/src/frontend_bridge.cpp",
     "crates/vinpst-asr/src/error.rs",
     "crates/vinpst-asr/src/lib.rs",
     "crates/vinpst-asr/src/mock.rs",
@@ -1049,13 +1104,6 @@
     "crates/vinpst-daemon/src/runtime/diagnostics.rs",
     "crates/vinpst-daemon/src/runtime/errors.rs",
     "crates/vinpst-daemon/src/runtime/scene.rs",
-    "crates/vinpst-fcitx-core/src/daemon_signal.rs",
-    "crates/vinpst-fcitx-core/src/frontend.rs",
-    "crates/vinpst-fcitx-core/src/frontend_presentation.rs",
-    "crates/vinpst-fcitx-core/src/lib.rs",
-    "crates/vinpst-fcitx-ffi/src/ffi_string.rs",
-    "crates/vinpst-fcitx-ffi/src/frontend.rs",
-    "crates/vinpst-fcitx-ffi/src/lib.rs",
     "crates/vinpst-gui/src/adapter_config_management.rs",
     "crates/vinpst-gui/src/adapter_config_management/view.rs",
     "crates/vinpst-gui/src/adapter_runtime.rs",
