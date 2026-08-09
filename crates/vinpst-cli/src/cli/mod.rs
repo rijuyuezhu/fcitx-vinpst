@@ -28,13 +28,22 @@ pub(crate) use scene::SceneCommand;
 
 /// Manage Vinpst voice input, configuration, and diagnostics.
 #[derive(Debug, Parser)]
-#[command(version, about)]
+#[command(name = "vinpst", version, about, disable_version_flag = true)]
 pub(crate) struct Args {
     /// Force machine-readable JSON output for JSON-capable subcommands.
     #[arg(short = 'j', long, global = true)]
     pub(crate) json: bool,
+    /// Print version information and exit.
+    #[arg(
+        short = 'v',
+        long = "version",
+        short_alias = 'V',
+        required = false,
+        action = clap::ArgAction::Version
+    )]
+    _version: Option<bool>,
     #[command(subcommand)]
-    pub(crate) command: Command,
+    pub(crate) command: Option<Command>,
 }
 
 /// Supported bootstrap commands.
@@ -85,6 +94,7 @@ pub(crate) enum Command {
     },
 
     /// Start, stop, toggle, or inspect recording.
+    #[command(visible_alias = "rec")]
     Recording {
         /// Recording operation.
         #[command(subcommand)]
@@ -359,7 +369,10 @@ pub(crate) fn force_json_output(command: &mut Command) {
 mod help_surface_tests {
     use clap::{CommandFactory, Parser};
 
-    use super::{AdapterCommand, Args, Command, ConfigCommand, ProviderCommand, SceneCommand};
+    use super::{
+        AdapterCommand, Args, Command, ConfigCommand, ProviderCommand, RecordingCommand,
+        SceneCommand,
+    };
     use crate::hotword::HotwordCommand;
 
     #[test]
@@ -494,81 +507,110 @@ mod help_surface_tests {
             Args::try_parse_from(["vinpst", "config", "e"]).expect("upstream config edit alias");
         assert!(matches!(
             args.command,
-            Command::Config {
+            Some(Command::Config {
                 command: Some(ConfigCommand::Edit { .. })
-            }
+            })
         ));
 
         let args =
             Args::try_parse_from(["vinpst", "hotword", "e"]).expect("upstream hotword edit alias");
         assert!(matches!(
             args.command,
-            Command::Hotword {
+            Some(Command::Hotword {
                 command: HotwordCommand::Edit { .. }
-            }
+            })
         ));
 
         let args = Args::try_parse_from(["vinpst", "provider", "e", "provider.demo"])
             .expect("upstream provider edit-script alias");
         assert!(matches!(
             args.command,
-            Command::Provider {
+            Some(Command::Provider {
                 command: ProviderCommand::EditScript { .. }
-            }
+            })
         ));
 
         let args = Args::try_parse_from(["vinpst", "provider", "rm", "provider.demo"])
             .expect("upstream provider remove alias");
         assert!(matches!(
             args.command,
-            Command::Provider {
+            Some(Command::Provider {
                 command: ProviderCommand::Remove { .. }
-            }
+            })
         ));
 
         let args = Args::try_parse_from(["vinpst", "provider", "add", "provider.demo"])
             .expect("upstream provider add alias");
         assert!(matches!(
             args.command,
-            Command::Provider {
+            Some(Command::Provider {
                 command: ProviderCommand::Install { .. }
-            }
+            })
         ));
 
         let args = Args::try_parse_from(["vinpst", "provider", "edit", "provider.demo"])
             .expect("upstream provider edit command");
         assert!(matches!(
             args.command,
-            Command::Provider {
+            Some(Command::Provider {
                 command: ProviderCommand::EditScript { .. }
-            }
+            })
         ));
 
         let args = Args::try_parse_from(["vinpst", "adapter", "add", "adapter.demo"])
             .expect("upstream adapter add alias");
         assert!(matches!(
             args.command,
-            Command::Adapter {
+            Some(Command::Adapter {
                 command: AdapterCommand::Install { .. }
-            }
+            })
         ));
 
         let args = Args::try_parse_from(["vinpst", "scene", "e", "scene.demo"])
             .expect("upstream scene edit alias");
         assert!(matches!(
             args.command,
-            Command::Scene {
+            Some(Command::Scene {
                 command: SceneCommand::Edit { .. }
-            }
+            })
         ));
 
         let args = Args::try_parse_from(["vinpst", "scene", "rm", "scene.demo"])
             .expect("upstream scene remove alias");
         assert!(matches!(
             args.command,
-            Command::Scene {
+            Some(Command::Scene {
                 command: SceneCommand::Remove { .. }
-            }
+            })
         ));
+    }
+
+    #[test]
+    fn frozen_root_aliases_and_optional_subcommand_remain_accepted() {
+        let args = Args::try_parse_from(["vinpst"]).expect("root command without subcommand");
+        assert!(args.command.is_none());
+
+        let args =
+            Args::try_parse_from(["vinpst", "rec", "status"]).expect("upstream recording alias");
+        assert!(matches!(
+            args.command,
+            Some(Command::Recording {
+                command: RecordingCommand::Status { .. }
+            })
+        ));
+
+        let command = Args::command();
+        assert_eq!(command.get_name(), "vinpst");
+        let recording = command
+            .find_subcommand("recording")
+            .expect("recording command");
+        assert!(recording.get_visible_aliases().any(|alias| alias == "rec"));
+
+        let version = command
+            .get_arguments()
+            .find(|arg| arg.get_id().as_str() == "_version")
+            .expect("version argument");
+        assert_eq!(version.get_short(), Some('v'));
+        assert_eq!(version.get_long(), Some("version"));
     }
 }

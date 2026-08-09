@@ -24,9 +24,9 @@ use std::{
 
 use anyhow::Context;
 use audio_diagnostics::{audio_devices_json, capture_target_json};
-use clap::ValueEnum;
+use clap::{CommandFactory, ValueEnum};
 use cli::{
-    AdapterCommand, Command, ConfigCommand, ConfigExample, DaemonCommand, DeviceCommand,
+    AdapterCommand, Args, Command, ConfigCommand, ConfigExample, DaemonCommand, DeviceCommand,
     LlmCommand, ModelCommand, ProviderCommand, RecordingCommand, RegistryCommand, SceneCommand,
     force_json_output, parse_args_with_global_json_alias,
 };
@@ -83,11 +83,16 @@ use vinpst_text::{
 #[allow(clippy::too_many_lines)]
 fn main() -> anyhow::Result<()> {
     let mut args = parse_args_with_global_json_alias();
+    let Some(mut command) = args.command.take() else {
+        Args::command().print_help()?;
+        println!();
+        return Ok(());
+    };
     if args.json {
-        force_json_output(&mut args.command);
+        force_json_output(&mut command);
     }
 
-    match args.command {
+    match command {
         Command::Init {
             config,
             model_root,
