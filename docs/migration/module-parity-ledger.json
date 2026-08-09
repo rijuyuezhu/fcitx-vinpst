@@ -1040,19 +1040,44 @@
         "Default config creation is stricter than frozen InitializeCoreConfig: the bundled typed config is parsed and validated before writes, the destination is written atomically with private permissions, and the integration gate validates the produced config. Existing model/cache directories are never replaced by --force; only missing managed directories are created.",
         "Deterministic evidence covers XDG default path planning without writes, creation of config/model/cache roots, 0600 config permissions on Unix, config validation, idempotent rerun without rewriting, preservation of an existing config without force, and replacement through the restored -f short flag. Focused init tests and strict all-target vinpst-cli Clippy pass."
       ]
+    },
+    {
+      "id": "CLI-CONFIG-001",
+      "state": "audited-intentional-divergence",
+      "title": "CLI config get, set, and editor workflows",
+      "upstream_files": [
+        "cli/config/config_actions.cpp",
+        "cli/config/config_actions.h",
+        "cli/config/register_config.cpp"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/cli/config.rs",
+        "crates/vinpst-cli/src/commands/config.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/main.rs",
+        "crates/vinpst-cli/src/paths.rs",
+        "crates/vinpst-cli/tests/config_mutation.rs",
+        "docs/user/cli.md"
+      ],
+      "notes": [
+        "The frozen config get/set/edit command family and g/s/e parser aliases remain available under Vinpst. Both implementations expose JSON-pointer get/set semantics; current get additionally supports existence checks and typed/default fallback output, while current set deliberately requires the pointer to already exist and a dry-run/output/in-place write decision instead of silently mutating the user config.",
+        "Fixed the rewrite loss of frozen config set -i,--stdin. VALUE is optional when --stdin is present, standard input lines are joined with newline separators using the frozen behavior, and the resolved multiline value then follows the same current parse/string override, whole-config validation, backup, and atomic-write pipeline as a positional value. An integration test pipes two lines into an existing scene prompt and verifies both JSON output and the persisted value.",
+        "Restored explicit config edit core|fcitx compatibility without giving up the safer Vinpst editor workflow. The target defaults to core for the existing Vinpst UX; core edits a temporary pretty JSON copy and must parse plus validate before replacement, while fcitx resolves the XDG Fcitx frontend file at fcitx5/conf/vinpst.conf and keeps the INI text opaque to the daemon schema. Both targets run the editor against a private temporary file, preserve an existing adjacent backup, and only then atomically replace the destination.",
+        "Frozen config edit invokes the editor directly on the live file and therefore offers no rollback or schema check. The current temporary-file, backup, and atomic-replace behavior is an intentional safety divergence. Core also supports --editor and VINPST_CONFIG_EDITOR before EDITOR/VISUAL, dry-run planning, and JSON diagnostics; fcitx rejects --config because that option names the core JSON source and should not ambiguously retarget the frontend INI.",
+        "Current validate is an additive user command and example remains hidden maintenance/export plumbing. Set adds --string, --output, --in-place, --dry-run, and JSON diagnostics; get adds --exists/--default. These extensions keep ordinary help task-oriented and do not remove the frozen get/set/edit tasks or aliases.",
+        "Deterministic evidence includes 22 config-mutation integration tests covering JSON-pointer reads, defaults/existence, multiline stdin, string coercion, validated dry-run/output/in-place mutation, invalid-update rejection, backups, core editor validation, invalid editor-output rollback, and XDG Fcitx INI editing with backup. Strict all-target vinpst-cli Clippy passes, and generated help shows config set <POINTER> [VALUE] with -i,--stdin plus config edit [TARGET] with core/fcitx choices."
+      ]
     }
   ],
   "upstream_pending": [
     "cli/config/asr_actions.cpp",
     "cli/config/asr_actions.h",
-    "cli/config/config_actions.cpp",
-    "cli/config/config_actions.h",
     "cli/config/device_actions.cpp",
     "cli/config/device_actions.h",
     "cli/config/llm_actions.cpp",
     "cli/config/llm_actions.h",
     "cli/config/register_asr.cpp",
-    "cli/config/register_config.cpp",
     "cli/config/register_device.cpp",
     "cli/config/register_llm.cpp",
     "cli/config/register_scene.cpp",
@@ -1137,7 +1162,6 @@
     "crates/vinpst-audio/src/lib.rs",
     "crates/vinpst-cli/src/audio_diagnostics.rs",
     "crates/vinpst-cli/src/cli/adapter.rs",
-    "crates/vinpst-cli/src/cli/config.rs",
     "crates/vinpst-cli/src/cli/daemon.rs",
     "crates/vinpst-cli/src/cli/device.rs",
     "crates/vinpst-cli/src/cli/llm.rs",
@@ -1150,7 +1174,6 @@
     "crates/vinpst-cli/src/commands/adapter/lifecycle.rs",
     "crates/vinpst-cli/src/commands/adapter/mod.rs",
     "crates/vinpst-cli/src/commands/adapter/mutation.rs",
-    "crates/vinpst-cli/src/commands/config.rs",
     "crates/vinpst-cli/src/commands/device.rs",
     "crates/vinpst-cli/src/commands/llm.rs",
     "crates/vinpst-cli/src/commands/mod.rs",
