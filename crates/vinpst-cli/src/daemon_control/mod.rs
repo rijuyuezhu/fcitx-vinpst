@@ -46,16 +46,17 @@ pub(crate) fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<(
             json,
         } => print_daemon_install_service(template.as_deref(), output.as_deref(), *dry_run, *json),
         DaemonCommand::Stop { dry_run, json } => {
-            print_daemon_user_service_plan("stop", None, *dry_run, *json)
+            print_daemon_user_service_plan("stop", None, false, *dry_run, *json)
         }
         DaemonCommand::Restart { dry_run, json } => {
-            print_daemon_user_service_plan("restart", None, *dry_run, *json)
+            print_daemon_user_service_plan("restart", None, false, *dry_run, *json)
         }
         DaemonCommand::Log {
+            follow,
             lines,
             dry_run,
             json,
-        } => print_daemon_user_service_plan("log", *lines, *dry_run, *json),
+        } => print_daemon_user_service_plan("log", Some(*lines), *follow, *dry_run, *json),
     }
 }
 

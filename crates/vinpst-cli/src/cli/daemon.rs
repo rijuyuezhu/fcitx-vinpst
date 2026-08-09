@@ -92,9 +92,12 @@ pub(crate) enum DaemonCommand {
     },
     /// Print daemon logs from the user service journal.
     Log {
+        /// Follow new journal entries.
+        #[arg(short = 'f', long)]
+        follow: bool,
         /// Limit journal output to the last N lines.
-        #[arg(short = 'n', long)]
-        lines: Option<u16>,
+        #[arg(short = 'n', long, default_value_t = 100)]
+        lines: u16,
         /// Print the log retrieval plan without invoking external tools.
         #[arg(long, hide = true)]
         dry_run: bool,

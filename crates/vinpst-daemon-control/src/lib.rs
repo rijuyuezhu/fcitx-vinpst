@@ -251,6 +251,34 @@ pub fn run_user_service_command(command: &UserServiceCommand) -> UserServiceComm
     }
 }
 
+/// Executes one service-control command without a shell while inheriting stdio.
+///
+/// This is intended for long-running interactive commands such as
+/// `journalctl --follow`, where buffering child output until exit would make the
+/// command unusable. The returned outcome therefore contains no captured
+/// stdout/stderr.
+#[must_use]
+pub fn run_user_service_command_streaming(
+    command: &UserServiceCommand,
+) -> UserServiceCommandOutcome {
+    match Command::new(&command.program).args(&command.args).status() {
+        Ok(status) => UserServiceCommandOutcome {
+            ok: status.success(),
+            exit_status: status.code(),
+            stdout: String::new(),
+            stderr: String::new(),
+            error: None,
+        },
+        Err(error) => UserServiceCommandOutcome {
+            ok: false,
+            exit_status: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            error: Some(error.to_string()),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -4,7 +4,7 @@ mod common;
 
 use std::fs;
 
-use common::{assert_json_success, assert_stdout_success, vinpst_command};
+use common::{assert_json_failure, assert_json_success, assert_stdout_success, vinpst_command};
 use tempfile::NamedTempFile;
 use vinpst_protocol::{RecognitionPayload, ServiceStatus, dbus};
 
@@ -480,7 +480,7 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
         ),
         (
             "log",
-            "journalctl --user -u vinpst-daemon.service",
+            "journalctl --user -u vinpst-daemon.service -n 100",
             "journalctl",
             "VINPST_DAEMON_JOURNALCTL",
         ),
@@ -829,6 +829,56 @@ fn daemon_log_lines_dry_run_adds_journalctl_limit() {
 }
 
 #[test]
+fn daemon_log_defaults_to_frozen_last_hundred_lines() {
+    let output = vinpst_command()
+        .args(["daemon", "log", "--dry-run", "--json"])
+        .output()
+        .expect("run vinpst daemon log default dry-run json");
+
+    let value = assert_json_success(output, "daemon log default dry-run json");
+    assert_eq!(
+        value["command_argv"],
+        serde_json::json!([
+            "journalctl",
+            "--user",
+            "-u",
+            "vinpst-daemon.service",
+            "-n",
+            "100"
+        ])
+    );
+}
+
+#[test]
+fn daemon_log_follow_streams_child_output() {
+    let output = vinpst_command()
+        .env("VINPST_DAEMON_JOURNALCTL", "/bin/echo")
+        .args(["daemon", "log", "--follow", "--lines", "3"])
+        .output()
+        .expect("run vinpst daemon log --follow");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("follow stdout should be utf8"),
+        "--user -u vinpst-daemon.service -n 3 -f\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn daemon_log_follow_rejects_live_json_output() {
+    let output = vinpst_command()
+        .env("VINPST_DAEMON_JOURNALCTL", "/bin/echo")
+        .args(["daemon", "log", "--follow", "--json"])
+        .output()
+        .expect("run vinpst daemon log --follow --json");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("follow json stderr should be utf8");
+    assert!(stderr.contains("daemon log --follow cannot be combined with JSON output"));
+}
+
+#[test]
 fn daemon_log_lines_real_command_reports_limited_argv() {
     let output = vinpst_command()
         .env("VINPST_DAEMON_JOURNALCTL", "/bin/echo")
@@ -884,7 +934,7 @@ fn daemon_user_service_missing_tool_reports_fallback_steps_json() {
         .output()
         .expect("run vinpst daemon stop with missing systemctl");
 
-    let value = assert_json_success(output, "daemon missing systemctl json");
+    let value = assert_json_failure(output, "daemon missing systemctl json");
     assert_eq!(value["ok"], false);
     assert_eq!(value["tool"]["name"], "systemctl");
     assert_eq!(
@@ -917,7 +967,7 @@ fn daemon_log_missing_tool_reports_fallback_steps_json() {
         .output()
         .expect("run vinpst daemon log with missing journalctl");
 
-    let value = assert_json_success(output, "daemon missing journalctl json");
+    let value = assert_json_failure(output, "daemon missing journalctl json");
     assert_eq!(value["ok"], false);
     assert_eq!(value["action"], "log");
     assert_eq!(value["will_mutate_user_service"], false);
@@ -943,7 +993,8 @@ fn daemon_failure_text_hides_tool_plumbing() {
         .args(["daemon", "stop"])
         .output()
         .expect("run daemon stop with missing systemctl");
-    let stdout = assert_stdout_success(output, "daemon failure human output");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("daemon failure stdout should be UTF-8");
     assert_human_output_hides_transport_details(&stdout);
 }
 
@@ -952,7 +1003,7 @@ fn daemon_user_service_real_commands_report_external_output_json() {
     for (command, expected_stdout, will_mutate) in [
         ("stop", "--user stop vinpst-daemon.service\n", true),
         ("restart", "--user restart vinpst-daemon.service\n", true),
-        ("log", "--user -u vinpst-daemon.service\n", false),
+        ("log", "--user -u vinpst-daemon.service -n 100\n", false),
     ] {
         let output = vinpst_command()
             .env("VINPST_DAEMON_SYSTEMCTL", "/bin/echo")
@@ -988,6 +1039,26 @@ fn daemon_user_service_real_commands_report_external_output_json() {
             step.as_str()
                 .is_some_and(|step| step.contains("vinpst daemon"))
         }));
+    }
+}
+
+#[test]
+fn daemon_user_service_child_failures_propagate_process_failure() {
+    for (command, tool_env) in [
+        ("stop", "VINPST_DAEMON_SYSTEMCTL"),
+        ("restart", "VINPST_DAEMON_SYSTEMCTL"),
+        ("log", "VINPST_DAEMON_JOURNALCTL"),
+    ] {
+        let output = vinpst_command()
+            .env(tool_env, "/bin/false")
+            .args(["daemon", command, "--json"])
+            .output()
+            .expect("run failing daemon user-service command");
+
+        let value = assert_json_failure(output, "daemon user-service child failure json");
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["action"], command);
+        assert_eq!(value["exit_status"], 1);
     }
 }
 

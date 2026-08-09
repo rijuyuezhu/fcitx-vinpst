@@ -3,7 +3,8 @@ use super::{daemon_owner_probe_plan_json, dbus, optional_json_str};
 
 pub(super) use vinpst_daemon_control::UserServiceCommand;
 use vinpst_daemon_control::{
-    DAEMON_SERVICE_NAME, UserServiceAction, run_user_service_command, user_service_command,
+    DAEMON_SERVICE_NAME, UserServiceAction, UserServiceCommandOutcome, run_user_service_command,
+    run_user_service_command_streaming, user_service_command,
 };
 
 use crate::sandbox;
@@ -11,10 +12,11 @@ use crate::sandbox;
 pub(super) fn print_daemon_user_service_plan(
     action: &str,
     log_lines: Option<u16>,
+    follow_logs: bool,
     dry_run: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    let command = daemon_user_service_command(action, log_lines)?;
+    let command = daemon_user_service_command(action, log_lines, follow_logs)?;
     if dry_run {
         let output = daemon_user_service_dry_run_json(action, &command);
         if json_output {
@@ -25,11 +27,22 @@ pub(super) fn print_daemon_user_service_plan(
         return Ok(());
     }
 
-    let output = run_daemon_user_service_command(action, &command);
+    if follow_logs && json_output {
+        anyhow::bail!("daemon log --follow cannot be combined with JSON output");
+    }
+
+    let output = if follow_logs {
+        run_daemon_user_service_command_streaming_json(action, &command)
+    } else {
+        run_daemon_user_service_command(action, &command)
+    };
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         print_daemon_user_service_result_text(&output);
+    }
+    if output["ok"].as_bool() != Some(true) {
+        anyhow::bail!("daemon {action} failed");
     }
     Ok(())
 }
@@ -37,6 +50,7 @@ pub(super) fn print_daemon_user_service_plan(
 pub(super) fn daemon_user_service_command(
     action: &str,
     log_lines: Option<u16>,
+    follow_logs: bool,
 ) -> anyhow::Result<UserServiceCommand> {
     if log_lines == Some(0) {
         anyhow::bail!("daemon log --lines must be greater than 0");
@@ -52,12 +66,18 @@ pub(super) fn daemon_user_service_command(
         _ => anyhow::bail!("unsupported daemon user service action `{action}`"),
     };
     if let Some(action) = service_action {
+        if follow_logs {
+            anyhow::bail!("daemon log --follow is only valid for log retrieval");
+        }
         return Ok(user_service_command(action));
     }
 
     let mut target_args = sandbox::daemon_log_args(DAEMON_SERVICE_NAME);
     if let Some(lines) = log_lines {
         target_args.extend(["-n".to_owned(), lines.to_string()]);
+    }
+    if follow_logs {
+        target_args.push("-f".to_owned());
     }
     let target_program =
         std::env::var("VINPST_DAEMON_JOURNALCTL").unwrap_or_else(|_| "journalctl".to_owned());
@@ -131,6 +151,23 @@ pub(super) fn run_daemon_user_service_command(
 ) -> serde_json::Value {
     let will_mutate_user_service = matches!(action, "stop" | "restart" | "daemon-reload");
     let outcome = run_user_service_command(command);
+    daemon_user_service_command_result_json(action, command, will_mutate_user_service, outcome)
+}
+
+fn run_daemon_user_service_command_streaming_json(
+    action: &str,
+    command: &UserServiceCommand,
+) -> serde_json::Value {
+    let outcome = run_user_service_command_streaming(command);
+    daemon_user_service_command_result_json(action, command, false, outcome)
+}
+
+fn daemon_user_service_command_result_json(
+    action: &str,
+    command: &UserServiceCommand,
+    will_mutate_user_service: bool,
+    outcome: UserServiceCommandOutcome,
+) -> serde_json::Value {
     if let Some(error) = outcome.error {
         return serde_json::json!({
             "ok": false,

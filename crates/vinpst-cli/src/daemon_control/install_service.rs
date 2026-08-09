@@ -50,7 +50,7 @@ pub(super) fn print_daemon_install_service(
             .with_context(|| format!("create daemon service directory {}", parent.display()))?;
         write_file_atomically(&output_path, &rendered)
             .with_context(|| format!("install daemon service {}", output_path.display()))?;
-        let command = daemon_user_service_command("daemon-reload", None)?;
+        let command = daemon_user_service_command("daemon-reload", None, false)?;
         reload = run_daemon_user_service_command("daemon-reload", &command);
         anyhow::ensure!(
             reload["ok"].as_bool() == Some(true),

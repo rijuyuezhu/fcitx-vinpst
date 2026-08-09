@@ -20,7 +20,7 @@ pub(super) fn print_daemon_prepare_remove(
     preflight: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    let disable_command = daemon_user_service_command("disable-now", None)?;
+    let disable_command = daemon_user_service_command("disable-now", None, false)?;
     let output = if dry_run {
         serde_json::json!({
             "ok": true,

@@ -13,6 +13,8 @@ systemctl --user status vinpst-daemon.service
 
 Use `--json` when collecting structured output. Review it before sharing; provider configuration and local paths can still be sensitive even when known credentials are redacted.
 
+`vinpst daemon log` shows the last 100 journal lines by default. Use `-n <count>` for a different bounded tail or `-f/--follow` for a live terminal stream; live follow is intentionally not combined with JSON output.
+
 Recording control commands inspect the existing daemon owner and do not start it through D-Bus activation. If `vinpst recording status` reports that the daemon is not running, start it explicitly with `vinpst daemon start` before using `recording start`, `stop`, or `toggle`.
 
 ## Daemon is unavailable

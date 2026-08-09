@@ -16,7 +16,7 @@ use super::{
 use crate::sandbox;
 
 pub(super) fn print_daemon_handoff(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
-    let command = daemon_user_service_command("restart", None)?;
+    let command = daemon_user_service_command("restart", None, false)?;
     let output = if dry_run {
         daemon_handoff_dry_run_json(&command)
     } else {
@@ -31,9 +31,9 @@ pub(super) fn print_daemon_handoff(dry_run: bool, json_output: bool) -> anyhow::
 }
 
 fn daemon_handoff_dry_run_json(command: &UserServiceCommand) -> serde_json::Value {
-    let main_pid_probe = daemon_user_service_command("main-pid", None)
+    let main_pid_probe = daemon_user_service_command("main-pid", None, false)
         .expect("internal systemd MainPID command must be valid");
-    let service_reload = daemon_user_service_command("daemon-reload", None)
+    let service_reload = daemon_user_service_command("daemon-reload", None, false)
         .expect("internal systemd daemon-reload command must be valid");
     let direct_signal = direct_daemon_signal_command("<owner-pid>");
     serde_json::json!({
@@ -290,7 +290,7 @@ fn execute_systemd_daemon_handoff(
     systemd_probe: serde_json::Value,
     restart_command: &UserServiceCommand,
 ) -> anyhow::Result<HandoffControl> {
-    let reload_command = daemon_user_service_command("daemon-reload", None)?;
+    let reload_command = daemon_user_service_command("daemon-reload", None, false)?;
     let service_reload = run_daemon_user_service_command("daemon-reload", &reload_command);
     if service_reload["ok"].as_bool() != Some(true) {
         return Ok(HandoffControl {
@@ -415,7 +415,7 @@ pub(super) fn daemon_snapshot_owner_pid(snapshot: &serde_json::Value) -> Option<
 pub(super) fn daemon_systemd_owner_probe(
     owner_pid: Option<u32>,
 ) -> anyhow::Result<serde_json::Value> {
-    let command = daemon_user_service_command("main-pid", None)?;
+    let command = daemon_user_service_command("main-pid", None, false)?;
     let command_result = run_daemon_user_service_command("main-pid", &command);
     let main_pid = command_result["stdout"]
         .as_str()
