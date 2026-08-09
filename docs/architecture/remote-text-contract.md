@@ -59,7 +59,7 @@ Real local-socket tests cover HTTP assets, authorization failure, single-input o
 
 ## Daemon-owned lifecycle
 
-`VinpstDbusService` owns one `RemoteTextLifecycle` beside the ASR runtime. The normal `vinpst-daemon --dbus` path reconciles it before requesting the D-Bus name, then keeps it aligned with the target config used by:
+`VinpstDbusService` owns one `RemoteTextLifecycle` beside the ASR runtime. The normal `vinpst-daemon --dbus` path owns the D-Bus name before starting the optional remote listener, matching the legacy startup order and preventing a losing second daemon from creating remote-service side effects. An initial remote settings/bind failure is reported to stderr but does not tear down the core D-Bus daemon, matching the legacy degraded-startup policy. Once running, the lifecycle stays aligned with the target config used by:
 
 - `SetActiveAsrProvider`;
 - `SetActiveAsrTarget`;

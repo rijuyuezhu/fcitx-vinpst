@@ -225,14 +225,13 @@ async fn main() -> anyhow::Result<()> {
     } else if args.serves_dbus() {
         trace_startup("enter dbus branch");
         let service = VinpstDbusService::new(runtime);
-        service
-            .start_remote_text_service()
-            .await
-            .context("start daemon-owned remote text service")?;
         let _connection = service
             .serve_on_session_bus()
             .await
             .context("serve vinpst D-Bus service")?;
+        if let Err(error) = service.start_remote_text_service().await {
+            eprintln!("vinpst-daemon: remote text service disabled ({error})");
+        }
         info!(
             bus = vinpst_protocol::dbus::SERVICE_BUS_NAME,
             object = vinpst_protocol::dbus::SERVICE_OBJECT_PATH,
