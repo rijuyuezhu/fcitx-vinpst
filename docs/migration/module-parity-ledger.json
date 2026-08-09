@@ -586,6 +586,33 @@
         "Frozen ApplyGain(float) has no caller and Rust has no product float-PCM processing surface, so Vinpst intentionally does not reproduce that dead generic helper. Frozen PeakNormalize's custom target_peak/low_threshold parameters are likewise unused; Rust exposes only the default production behavior instead of widening the public API for unexercised knobs.",
         "Vinpst keeps its existing fail-closed handling for non-finite gain values: PcmBuffer leaves audio unchanged, while typed configuration rejects non-finite/out-of-range input_gain before runtime. Frozen product configuration also constrains gain, so this hardening does not change valid user behavior. The separate buffered-input-gain divergence caused by frozen StopAndGetBuffer overwrite remains documented under DAEMON-CONTROLLER-001."
       ]
+    },
+    {
+      "id": "REMOTE-TEXT-SERVICE-001",
+      "state": "audited-fixed",
+      "title": "Remote browser text and Realtime-compatible service lifecycle",
+      "upstream_files": [
+        "daemon/remote/remote_text_service.cpp",
+        "daemon/remote/remote_text_service.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/remote.rs",
+        "crates/vinpst-daemon/src/remote/server.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/tests/remote_server.rs"
+      ],
+      "notes": [
+        "Audited the full frozen service surface: remote-provider activation, 8080/1500 defaults, explicit/URL-derived port resolution, required trimmed API key, all-interface production bind, sorted non-loopback IPv4 endpoint discovery, single browser/input and Realtime/output ownership, debounce/finalize transitions, session.update echo, empty commit, and the committed -> transcription delta -> transcription completed sequence with one shared item id all match the Rust protocol/runtime behavior.",
+        "Fixed a lifecycle/security gap in the Axum rewrite. Frozen Shutdown explicitly shuts down every accepted/input/output fd before joining its threads; Rust previously stopped only the HTTP listener, so already-upgraded authenticated WebSockets survived provider disable, server shutdown, and API-key rotation on stale RemoteServerState. RemoteTextServer now broadcasts shutdown to input/output/debounce tasks before listener shutdown. Real socket tests prove both client classes close promptly and same-port API-key rotation evicts an old authenticated client before accepting only the new key.",
+        "Fixed browser-page functional parity without copying frozen presentation styling: a key entered through the prompt is now persisted to localStorage like the frozen page, reconnect resets both input/output status plus editor/count state, WebSocket errors close into the reconnect path, and the editor receives focus when both clients are ready. The simpler Vinpst visual treatment remains intentional product presentation rather than daemon-protocol behavior.",
+        "Aligned VINPST_ASR_DEBOUNCE_MS validation with frozen ParsePositiveInt's 32-bit signed-int range. 2147483647 ms is accepted and 2147483648 is rejected; the runtime field remains u64 so scheduling code does not need a narrower representation.",
+        "Aligned the frozen 2 MiB WebSocket frame resource boundary on both /ws and /v1/realtime by setting max_frame_size as well as max_message_size. Rust intentionally remains stricter for fragmented traffic because Tungstenite also caps the aggregate reassembled message at 2 MiB, while frozen only checks each raw frame independently. An integration test sends a 2 MiB + 1 frame and proves the connection is closed.",
+        "Authentication semantics match: browser auth uses the first {type:auth,api_key} message, Realtime is loopback-only with an exact Bearer key, and equal-length API-key comparison XOR-folds without an early mismatching-byte exit. Rust additionally redacts the key from Debug/status surfaces and uses standards-compliant Axum/Tungstenite WebSocket handshake, masking, fragmentation, ping/pong, and UTF-8 validation instead of reproducing frozen raw-parser permissiveness.",
+        "HTTP routing intentionally uses an explicit Axum route set: /, /health, /favicon.svg, /ws, and /v1/realtime. Frozen serves the editor for every otherwise-unknown GET; Rust returns normal 404 for unknown paths because the editor is not an SPA and no product flow depends on catch-all routing. Hyper's bounded HTTP/1 parser also has a larger framework buffer budget than frozen's exact 64 KiB aggregate-header limit; reproducing that smaller constant would require replacing the compact Axum serve boundary with custom connection plumbing, so the bounded framework behavior is retained and documented.",
+        "Rust intentionally uses deterministic monotonic event/item ids inside the protocol core instead of frozen wall-clock nanosecond ids. The ids remain opaque at the protocol boundary, every emitted event has the required prefix/uniqueness, and committed/delta/completed events share one item id as frozen clients require. Malformed or wrong-typed JSON is handled more defensively than frozen nlohmann value conversions and does not crash the service.",
+        "Namespace differences are deliberate project identity changes: provider.vinpst.remote.streaming and VINPST_ASR_* replace frozen provider.vinput.remote.streaming and VINPUT_ASR_*. RemoteTextLifecycle's async task/watch architecture replaces frozen accept/client/debounce native threads while preserving stop-before-rebind behavior; replacement bind failure leaves no stale listener, clients, or credentials."
+      ]
     }
   ],
   "upstream_pending": [
@@ -673,8 +700,6 @@
     "common/utils/url_utils.h",
     "daemon/asr/asr_config.h",
     "daemon/main.cpp",
-    "daemon/remote/remote_text_service.cpp",
-    "daemon/remote/remote_text_service.h",
     "gui/app/main.cpp",
     "gui/app/mainwindow.cpp",
     "gui/app/mainwindow.h",
@@ -779,8 +804,6 @@
     "crates/vinpst-daemon-control/src/lib.rs",
     "crates/vinpst-daemon/src/lib.rs",
     "crates/vinpst-daemon/src/main.rs",
-    "crates/vinpst-daemon/src/remote.rs",
-    "crates/vinpst-daemon/src/remote/server.rs",
     "crates/vinpst-daemon/src/runtime/adapter_process.rs",
     "crates/vinpst-daemon/src/runtime/asr_menu.rs",
     "crates/vinpst-daemon/src/runtime/capture.rs",
