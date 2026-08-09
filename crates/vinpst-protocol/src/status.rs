@@ -50,9 +50,22 @@ impl ServiceStatus {
         }
     }
 
-    /// Parses a wire-format status string.
+    /// Parses a wire-format status string and rejects unknown values.
+    ///
+    /// Rust-side consumers use this strict parser so a daemon protocol drift is
+    /// not silently interpreted as an idle service.
     pub fn parse_wire(input: &str) -> Result<Self, strum::ParseError> {
         Self::from_str(input)
+    }
+
+    /// Parses a wire-format status using the frozen C++ fallback semantics.
+    ///
+    /// The legacy `StringToStatus` helper maps every unknown string to `idle`.
+    /// Compatibility callers that intentionally need that behavior should use
+    /// this method instead of weakening [`Self::parse_wire`].
+    #[must_use]
+    pub fn parse_legacy_wire(input: &str) -> Self {
+        Self::parse_wire(input).unwrap_or(Self::Idle)
     }
 }
 
@@ -80,6 +93,20 @@ mod tests {
                 ServiceStatus::parse_wire(status.as_wire_str()).unwrap(),
                 status
             );
+            assert_eq!(
+                ServiceStatus::parse_legacy_wire(status.as_wire_str()),
+                status
+            );
         }
+    }
+
+    #[test]
+    fn legacy_status_parser_falls_back_to_idle_for_unknown_values() {
+        assert!(ServiceStatus::parse_wire("future-status").is_err());
+        assert_eq!(
+            ServiceStatus::parse_legacy_wire("future-status"),
+            ServiceStatus::Idle
+        );
+        assert_eq!(ServiceStatus::parse_legacy_wire(""), ServiceStatus::Idle);
     }
 }
