@@ -30,6 +30,7 @@ config_home="target/tmp/vinpst-cpp-dbus-smoke-config"
 cache_home="target/tmp/vinpst-cpp-dbus-smoke-cache"
 bridge_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_bridge_dbus_smoke"
 addon_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_addon_dbus_smoke"
+native_addon_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_native_addon_dbus_smoke"
 mkdir -p "$(dirname "${log_file}")"
 rm -rf "${config_home}" "${cache_home}"
 mkdir -p "${config_home}" "${cache_home}"
@@ -90,6 +91,10 @@ start_daemon
 wait_for_spawned_owner
 if [[ -x "${addon_smoke_bin}" ]]; then
   "${addon_smoke_bin}"
+fi
+if [[ -x "${native_addon_smoke_bin}" ]]; then
+  VINPST_NATIVE_ADDON_MENU_PROBE=scene-ready "${native_addon_smoke_bin}"
+  VINPST_NATIVE_ADDON_MENU_PROBE=asr-ready "${native_addon_smoke_bin}"
 fi
 stop_daemon
 trap - EXIT

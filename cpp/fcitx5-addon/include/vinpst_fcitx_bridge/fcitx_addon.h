@@ -13,7 +13,9 @@
 #include "vinpst_fcitx_bridge/frontend_bridge.h"
 #include "vinpst_fcitx_bridge/sd_bus_daemon_client.h"
 
+#include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -21,6 +23,7 @@
 #include <vector>
 
 #include <fcitx-utils/event.h>
+#include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/handlertable.h>
 #include <fcitx/addoninstance.h>
 #include <fcitx/event.h>
@@ -39,7 +42,7 @@ class FcitxVinpstAddon final : public fcitx::AddonInstance {
 public:
   explicit FcitxVinpstAddon(fcitx::Instance *instance);
   FcitxVinpstAddon(fcitx::Instance *instance, fcitx::dbus::Bus *signal_bus);
-  ~FcitxVinpstAddon() override = default;
+  ~FcitxVinpstAddon() override;
 
   FcitxVinpstAddon(const FcitxVinpstAddon &) = delete;
   FcitxVinpstAddon &operator=(const FcitxVinpstAddon &) = delete;
@@ -84,11 +87,12 @@ private:
   void RebuildSceneMenu(int page = 0);
   void HideSceneMenu();
   bool RefreshSceneState(std::string *error);
+  void RequestSceneMenuStateRefresh(fcitx::InputContext *ic);
   bool HandleSceneMenuKeyEvent(fcitx::KeyEvent &event);
   void ShowAsrMenu(fcitx::InputContext *ic);
   void RebuildAsrMenu(int page = 0);
   void HideAsrMenu();
-  bool RefreshAsrMenuState(std::string *error);
+  void RequestAsrMenuStateRefresh(fcitx::InputContext *ic);
   bool HandleAsrMenuKeyEvent(fcitx::KeyEvent &event);
   void ExecuteMenuControl(const ProjectedMenuControl &control, fcitx::InputContext *ic);
   void ApplyFrontendSettings();
@@ -144,6 +148,10 @@ private:
   std::unique_ptr<fcitx::dbus::Slot> pending_start_call_slot_;
   std::unique_ptr<fcitx::dbus::Slot> pending_stop_call_slot_;
   std::chrono::steady_clock::time_point daemon_sync_blocked_until_{};
+  std::shared_ptr<fcitx::EventDispatcher> menu_refresh_dispatcher_;
+  std::shared_ptr<bool> menu_refresh_lifetime_ = std::make_shared<bool>(true);
+  std::atomic<std::uint64_t> scene_menu_refresh_seq_{0};
+  std::atomic<std::uint64_t> asr_menu_refresh_seq_{0};
   DaemonLivePresentationState live_daemon_state_;
   std::vector<std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>>>
       event_handlers_;

@@ -11,6 +11,7 @@
 #include <fcitx/inputpanel.h>
 #include <fcitx/text.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -78,8 +79,10 @@ int main() {
   using vinpst_fcitx_bridge::SceneMenuController;
   using vinpst_fcitx_bridge::SdBusDaemonClient;
 
-  const auto expected_text =
-      RequiredEnvironment("VINPST_NATIVE_FRONTEND_EXPECTED_TEXT");
+  const auto menu_probe = OptionalEnvironment("VINPST_NATIVE_ADDON_MENU_PROBE");
+  const auto expected_text = menu_probe.empty()
+                                 ? RequiredEnvironment("VINPST_NATIVE_FRONTEND_EXPECTED_TEXT")
+                                 : std::string{};
   const auto selected_text = OptionalEnvironment("VINPST_NATIVE_ADDON_SELECTED_TEXT");
   const bool command_mode = !selected_text.empty();
   const bool expect_candidate_menu =
@@ -108,6 +111,67 @@ int main() {
   }
 
   FcitxVinpstAddon addon(nullptr, &signal_bus);
+  if (!menu_probe.empty()) {
+    FcitxTriggerAction action = FcitxTriggerAction::None;
+    bool expect_ready = false;
+    if (menu_probe == "scene" || menu_probe == "scene-ready") {
+      action = FcitxTriggerAction::ShowSceneMenu;
+      expect_ready = menu_probe == "scene-ready";
+    } else if (menu_probe == "asr" || menu_probe == "asr-ready") {
+      action = FcitxTriggerAction::ShowAsrMenu;
+      expect_ready = menu_probe == "asr-ready";
+    } else {
+      std::cerr << "unknown native addon menu probe: " << menu_probe << '\n';
+      return 2;
+    }
+
+    const auto started = std::chrono::steady_clock::now();
+    static_cast<void>(addon.ApplyTriggerAction(&input_context, action));
+    const auto dispatch_elapsed = std::chrono::steady_clock::now() - started;
+    if (dispatch_elapsed >= std::chrono::milliseconds(100)) {
+      std::cerr << menu_probe << " menu trigger blocked for "
+                << std::chrono::duration_cast<std::chrono::milliseconds>(dispatch_elapsed).count()
+                << " ms\n";
+      return 1;
+    }
+
+    bool loop_probe_fired = false;
+    auto loop_probe = signal_loop.addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50'000, 0,
+        [&](fcitx::EventSourceTime *, std::uint64_t) {
+          loop_probe_fired = true;
+          return false;
+        });
+    loop_probe->setOneShot();
+    const std::uint64_t exit_delay = expect_ready ? 1'000'000 : 200'000;
+    auto exit_probe = signal_loop.addTimeEvent(
+        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + exit_delay, 0,
+        [&](fcitx::EventSourceTime *, std::uint64_t) {
+          signal_loop.exit();
+          return false;
+        });
+    exit_probe->setOneShot();
+    const bool loop_result = signal_loop.exec();
+    if (!loop_result || !loop_probe_fired) {
+      std::cerr << menu_probe << " menu refresh blocked the Fcitx event loop\n";
+      return 1;
+    }
+    if (expect_ready) {
+      const auto current = input_context.inputPanel().auxDown().toString();
+      const auto candidates = input_context.inputPanel().candidateList();
+      if (current.empty() ||
+          (action == FcitxTriggerAction::ShowSceneMenu &&
+           (candidates == nullptr || candidates->size() == 0))) {
+        std::cerr << menu_probe << " menu did not publish its refreshed snapshot\n";
+        return 1;
+      }
+      std::cout << "native " << menu_probe << " menu published refreshed state: " << current
+                << '\n';
+    } else {
+      std::cout << "native " << menu_probe << " menu trigger remained responsive\n";
+    }
+    return 0;
+  }
   if (external_session) {
     if (command_mode) {
       std::cerr << "external-session smoke currently expects normal recording\n";

@@ -173,7 +173,8 @@ FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
           frontend_settings_.normal_triggers, frontend_settings_.command_triggers,
           frontend_settings_.scene_menu_triggers,
           frontend_settings_.asr_menu_triggers)),
-      trigger_mode_controller_(frontend_settings_.trigger_mode) {
+      trigger_mode_controller_(frontend_settings_.trigger_mode),
+      menu_refresh_dispatcher_(std::make_shared<fcitx::EventDispatcher>()) {
   InitFrontendI18n();
   bridge_.SetPresentationText(FrontendText("Original"), FrontendText("Voice Command"),
                               FrontendText("Cancel"));
@@ -188,6 +189,7 @@ FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
                << ", trigger mode "
                << TriggerModeToString(frontend_settings_.trigger_mode);
   if (instance_ != nullptr) {
+    menu_refresh_dispatcher_->attach(&instance_->eventLoop());
     event_handlers_.emplace_back(
         instance_->watchEvent(fcitx::EventType::InputContextKeyEvent,
                               fcitx::EventWatcherPhase::PreInputMethod,
@@ -207,11 +209,23 @@ FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
     event_handlers_.emplace_back(instance_->watchEvent(
         fcitx::EventType::InputContextCommitString, fcitx::EventWatcherPhase::PostInputMethod,
         [this](fcitx::Event &event) { HandleCommitString(event); }));
+  } else if (signal_bus != nullptr && signal_bus->eventLoop() != nullptr) {
+    menu_refresh_dispatcher_->attach(signal_bus->eventLoop());
   }
   if (signal_bus != nullptr) {
     SetupDaemonSignalMonitor(signal_bus);
   } else if (instance_ != nullptr) {
     SetupDaemonSignalMonitor();
+  }
+}
+
+FcitxVinpstAddon::~FcitxVinpstAddon() {
+  menu_refresh_lifetime_.reset();
+  ++scene_menu_refresh_seq_;
+  ++asr_menu_refresh_seq_;
+  if (menu_refresh_dispatcher_ != nullptr &&
+      menu_refresh_dispatcher_->eventLoop() != nullptr) {
+    menu_refresh_dispatcher_->detach();
   }
 }
 
