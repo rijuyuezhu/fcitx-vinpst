@@ -1,5 +1,7 @@
 use super::status::DaemonAsrBackendStateTuple;
-use super::{Context, Path, daemon_owner_probe_plan_json, daemon_service_proxy, dbus};
+use super::{
+    Context, Path, daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy, dbus,
+};
 use crate::same_path_text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,28 +125,14 @@ pub(crate) fn reload_asr_backend_after_canonical_write(
             ));
         }
     };
-    let bus_proxy = match zbus::blocking::Proxy::new(
-        &connection,
-        "org.freedesktop.DBus",
-        "/org/freedesktop/DBus",
-        "org.freedesktop.DBus",
-    ) {
-        Ok(proxy) => proxy,
+    let daemon_running = match daemon_name_has_owner(&connection) {
+        Ok(running) => running,
         Err(error) => {
             return AsrReloadAfterWrite::Warning(format!(
                 "Config saved, but ASR backend reload was skipped: {error}"
             ));
         }
     };
-    let daemon_running =
-        match bus_proxy.call::<_, _, bool>("NameHasOwner", &(dbus::SERVICE_BUS_NAME)) {
-            Ok(running) => running,
-            Err(error) => {
-                return AsrReloadAfterWrite::Warning(format!(
-                    "Config saved, but ASR backend reload was skipped: {error}"
-                ));
-            }
-        };
     if !daemon_running {
         return AsrReloadAfterWrite::DaemonNotRunning;
     }

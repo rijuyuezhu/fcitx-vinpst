@@ -65,4 +65,6 @@ const HANDOFF_VERIFY_INTERVAL: Duration = Duration::from_millis(50);
 pub(crate) use asr::{
     AsrReloadAfterWrite, reload_asr_backend_after_canonical_write, reload_asr_backend_via_dbus,
 };
-pub(crate) use status::{daemon_owner_probe_plan_json, daemon_service_proxy, optional_json_str};
+pub(crate) use status::{
+    daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy, optional_json_str,
+};

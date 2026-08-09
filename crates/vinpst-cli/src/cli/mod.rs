@@ -798,4 +798,31 @@ mod help_surface_tests {
         assert_eq!(version.get_short(), Some('v'));
         assert_eq!(version.get_long(), Some("version"));
     }
+
+    #[test]
+    fn frozen_recording_scene_short_option_remains_accepted() {
+        let args = Args::try_parse_from(["vinpst", "rec", "stop", "-s", "scene.demo"])
+            .expect("upstream recording stop scene option");
+        assert!(matches!(
+            args.command,
+            Some(Command::Recording {
+                command: RecordingCommand::Stop {
+                    scene: Some(ref scene),
+                    ..
+                }
+            }) if scene == "scene.demo"
+        ));
+
+        let args = Args::try_parse_from(["vinpst", "recording", "toggle", "-s", "scene.demo"])
+            .expect("upstream recording toggle scene option");
+        assert!(matches!(
+            args.command,
+            Some(Command::Recording {
+                command: RecordingCommand::Toggle {
+                    scene: Some(ref scene),
+                    ..
+                }
+            }) if scene == "scene.demo"
+        ));
+    }
 }

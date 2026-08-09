@@ -1,5 +1,6 @@
 use super::{
-    Context, HANDOFF_VERIFY_ATTEMPTS, HANDOFF_VERIFY_INTERVAL, dbus, optional_json_str, thread,
+    Context, HANDOFF_VERIFY_ATTEMPTS, HANDOFF_VERIFY_INTERVAL, daemon_name_has_owner,
+    optional_json_str, thread,
 };
 use super::{
     handoff::{
@@ -471,19 +472,6 @@ fn removal_next_steps(ok: bool, systemd: bool, preflight: bool) -> Vec<&'static 
             "verify that the D-Bus activation service was removed before retrying",
         ],
     }
-}
-
-fn daemon_name_has_owner(connection: &zbus::blocking::Connection) -> anyhow::Result<bool> {
-    let proxy = zbus::blocking::Proxy::new(
-        connection,
-        "org.freedesktop.DBus",
-        "/org/freedesktop/DBus",
-        "org.freedesktop.DBus",
-    )
-    .context("create D-Bus daemon proxy")?;
-    proxy
-        .call("NameHasOwner", &(dbus::SERVICE_BUS_NAME))
-        .context("query daemon D-Bus name ownership")
 }
 
 fn verify_daemon_owner_absent() -> serde_json::Value {

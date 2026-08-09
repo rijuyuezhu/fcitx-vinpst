@@ -3,7 +3,7 @@ use vinpst_protocol::{RecognitionPayload, ServiceStatus, dbus};
 
 use crate::{
     RecordingCommand,
-    daemon_control::{daemon_owner_probe_plan_json, daemon_service_proxy},
+    daemon_control::{daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy},
 };
 
 pub(crate) fn handle_recording_command(command: RecordingCommand) -> anyhow::Result<()> {
@@ -49,7 +49,7 @@ fn print_recording_status(dry_run: bool, json_output: bool) -> anyhow::Result<()
 }
 
 fn recording_status_via_dbus() -> anyhow::Result<serde_json::Value> {
-    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let connection = running_daemon_connection()?;
     let proxy = daemon_service_proxy(&connection)?;
     let status: String = proxy
         .call(dbus::method::GET_STATUS, &())
@@ -143,7 +143,7 @@ fn recording_action_via_dbus(
     selected_text: Option<&str>,
     scene: Option<&str>,
 ) -> anyhow::Result<serde_json::Value> {
-    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let connection = running_daemon_connection()?;
     let proxy = daemon_service_proxy(&connection)?;
     let method = match (action, selected_text) {
         ("start", Some(text)) => {
@@ -182,18 +182,21 @@ fn recording_toggle_via_dbus(
     let status: String = proxy
         .call(dbus::method::GET_STATUS, &())
         .context("call GetStatus on daemon D-Bus service")?;
-    if status == "recording" {
-        let payload: String = proxy
-            .call(dbus::method::STOP_RECORDING, &(scene.unwrap_or("")))
-            .context("call StopRecording on daemon D-Bus service")?;
-        let mut output = recording_result_json(
-            "toggle",
-            dbus::method::STOP_RECORDING,
-            scene,
-            Some(payload.as_str()),
-        );
-        output["status_before"] = serde_json::json!(status);
-        return Ok(output);
+    match recording_toggle_action(&status)? {
+        RecordingToggleAction::Stop => {
+            let payload: String = proxy
+                .call(dbus::method::STOP_RECORDING, &(scene.unwrap_or("")))
+                .context("call StopRecording on daemon D-Bus service")?;
+            let mut output = recording_result_json(
+                "toggle",
+                dbus::method::STOP_RECORDING,
+                scene,
+                Some(payload.as_str()),
+            );
+            output["status_before"] = serde_json::json!(status);
+            return Ok(output);
+        }
+        RecordingToggleAction::Start => {}
     }
     let method = if let Some(text) = selected_text {
         let _: () = proxy
@@ -209,6 +212,31 @@ fn recording_toggle_via_dbus(
     let mut output = recording_result_json("toggle", method, scene, None);
     output["status_before"] = serde_json::json!(status);
     Ok(output)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordingToggleAction {
+    Start,
+    Stop,
+}
+
+fn recording_toggle_action(status: &str) -> anyhow::Result<RecordingToggleAction> {
+    match ServiceStatus::parse_legacy_wire(status) {
+        ServiceStatus::Recording => Ok(RecordingToggleAction::Stop),
+        ServiceStatus::Inferring | ServiceStatus::Postprocessing => {
+            anyhow::bail!("Daemon is busy (status: {status}).")
+        }
+        ServiceStatus::Error => anyhow::bail!("Daemon is in error state."),
+        ServiceStatus::Idle => Ok(RecordingToggleAction::Start),
+    }
+}
+
+fn running_daemon_connection() -> anyhow::Result<zbus::blocking::Connection> {
+    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    if !daemon_name_has_owner(&connection)? {
+        anyhow::bail!("Daemon is not running.");
+    }
+    Ok(connection)
 }
 
 fn recording_result_json(
@@ -327,4 +355,35 @@ fn print_recording_plan_text(action: &str, selected_text: Option<&str>, scene: O
         println!("Scene: {scene}");
     }
     println!("No daemon will be contacted.");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RecordingToggleAction, recording_toggle_action};
+
+    #[test]
+    fn toggle_matches_frozen_busy_and_error_policy() {
+        assert_eq!(
+            recording_toggle_action("idle").unwrap(),
+            RecordingToggleAction::Start
+        );
+        assert_eq!(
+            recording_toggle_action("recording").unwrap(),
+            RecordingToggleAction::Stop
+        );
+        assert_eq!(
+            recording_toggle_action("unknown-status").unwrap(),
+            RecordingToggleAction::Start
+        );
+
+        for busy in ["inferring", "postprocessing"] {
+            let error = recording_toggle_action(busy).unwrap_err().to_string();
+            assert!(error.contains("Daemon is busy"));
+            assert!(error.contains(busy));
+        }
+        assert_eq!(
+            recording_toggle_action("error").unwrap_err().to_string(),
+            "Daemon is in error state."
+        );
+    }
 }

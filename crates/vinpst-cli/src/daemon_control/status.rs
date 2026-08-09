@@ -335,3 +335,18 @@ pub(crate) fn daemon_service_proxy(
     )
     .context("create daemon D-Bus proxy")
 }
+
+pub(crate) fn daemon_name_has_owner(
+    connection: &zbus::blocking::Connection,
+) -> anyhow::Result<bool> {
+    let proxy = zbus::blocking::Proxy::new(
+        connection,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+    )
+    .context("create D-Bus daemon proxy")?;
+    proxy
+        .call("NameHasOwner", &(dbus::SERVICE_BUS_NAME))
+        .context("query daemon D-Bus name ownership")
+}

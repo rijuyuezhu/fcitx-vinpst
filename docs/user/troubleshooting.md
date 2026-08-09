@@ -13,6 +13,8 @@ systemctl --user status vinpst-daemon.service
 
 Use `--json` when collecting structured output. Review it before sharing; provider configuration and local paths can still be sensitive even when known credentials are redacted.
 
+Recording control commands inspect the existing daemon owner and do not start it through D-Bus activation. If `vinpst recording status` reports that the daemon is not running, start it explicitly with `vinpst daemon start` before using `recording start`, `stop`, or `toggle`.
+
 ## Daemon is unavailable
 
 ```sh
