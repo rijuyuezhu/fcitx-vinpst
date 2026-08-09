@@ -383,6 +383,30 @@
         "Private-session D-Bus evidence proves exact daemon_busy and asr_provider_timeout ssss payloads, live notification before Stop, stop-time notification before the operation failure, and bounded no-duplicate behavior. The complete daemon lib suite and 19 private-bus integration tests pass under strict dbus-integration Clippy.",
         "The frozen header also defines daemon_start_failed and daemon_restart_failed, but frozen generation occurs only in cli/runtime/systemd_client.{cpp,h}, not error_info.cpp. The corresponding Rust CLI daemon-control files remain pending and do not yet project those two structured codes; that cross-module gap stays assigned to the later CLI-service audit rather than creating unused daemon constants."
       ]
+    },
+    {
+      "id": "DBUS-PROTOCOL-001",
+      "state": "audited-fixed",
+      "title": "Legacy D-Bus names, status values, and ASR backend state classification",
+      "upstream_files": [
+        "common/dbus/asr_backend_state_utils.h",
+        "common/dbus/dbus_interface.h"
+      ],
+      "current_files": [
+        "crates/vinpst-protocol/src/asr.rs",
+        "crates/vinpst-protocol/src/dbus.rs",
+        "crates/vinpst-protocol/src/status.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/runtime/diagnostics.rs"
+      ],
+      "notes": [
+        "Audited the frozen daemon service/notifier names, five wire status values, OperationFailed class, eight-field AsrBackendState shape, and requested-backend classification. The eight frozen daemon service methods and four signals remain present with the same member names; Notify is correctly kept on the separate frontend-notifier interface rather than the daemon service list.",
+        "Vinpst intentionally applies its independent product namespace to bus/object/interface/error/notifier identities and exposes additional daemon extension methods. No Vinput aliases are added.",
+        "Added ServiceStatus::parse_legacy_wire to reproduce frozen StringToStatus unknown->idle behavior while preserving the existing strict parse_wire API for Rust consumers so protocol drift remains fail-closed internally.",
+        "Requested ASR backend classification matches frozen precedence and exact provider/model equality. The eight state fields also match. Runtime projection intentionally differs for command/remote providers: Vinpst reports the model on the actual target/effective provider, while frozen ResolvePreferredLocalModel can report an unrelated active/first local model; the richer Vinpst diagnostic is retained.",
+        "Remote endpoints remain part of the frozen AsrBackendState shape. Vinpst fills them from the selected remote provider with diagnostic URL redaction; this is compatible with the field contract and more explicit than an empty-only projection."
+      ]
     }
   ],
   "upstream_pending": [
@@ -442,8 +466,6 @@
     "common/config/config_router.h",
     "common/config/vinput_config.cpp",
     "common/config/vinput_config.h",
-    "common/dbus/asr_backend_state_utils.h",
-    "common/dbus/dbus_interface.h",
     "common/i18n.cpp",
     "common/i18n.h",
     "common/registry/registry_cache.cpp",
@@ -679,10 +701,7 @@
     "crates/vinpst-gui/src/startup_notifications.rs",
     "crates/vinpst-http/src/lib.rs",
     "crates/vinpst-process/src/lib.rs",
-    "crates/vinpst-protocol/src/asr.rs",
-    "crates/vinpst-protocol/src/dbus.rs",
     "crates/vinpst-protocol/src/lib.rs",
-    "crates/vinpst-protocol/src/status.rs",
     "crates/vinpst-protocol/src/text.rs",
     "crates/vinpst-registry/src/archive.rs",
     "crates/vinpst-registry/src/asset.rs",

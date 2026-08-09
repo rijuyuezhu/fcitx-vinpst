@@ -21,6 +21,8 @@
 - Frontend notifier object: `/org/fcitx/Fcitx5/Vinpst`
 - Frontend notifier interface: `org.fcitx.Fcitx5.Vinpst1`
 
+The frozen names are the same shapes under the independent `Vinput` identity (`org.fcitx.Vinput`, `/org/fcitx/Vinput`, `org.fcitx.Vinput.Service`, and `org.fcitx.Vinput.Error.OperationFailed`). Vinpst intentionally substitutes only its product namespace and does not export aliases. The frozen shared header also declares `Notify`, but that member belongs to the separate Fcitx frontend-notifier interface rather than the daemon service vtable; current protocol metadata makes the same distinction by excluding `Notify` from `LEGACY_SERVICE_METHODS`.
+
 The upstream daemon requests its well-known name with replacement allowed. Vinpst deliberately does not preserve that ownership policy: the service requests the name with `DoNotQueue` only, so an accidental second daemon cannot replace the current owner or wait to take ownership later. Upgrade/removal replacement must go through the guarded handoff path, which verifies owner identity, UID, process state, active-session state, and the replacement executable before and after termination/restart. A real session-bus integration test pins `NameTaken` for a second service while the first owner remains unchanged.
 
 ## Service methods
@@ -47,6 +49,8 @@ Keep these Vinpst status strings and their lowercase wire format synchronized:
 - `inferring`
 - `postprocessing`
 - `error`
+
+`ServiceStatus::parse_wire` is intentionally strict for Rust-side consumers: an unknown daemon status is treated as protocol drift rather than silently interpreted as idle. `ServiceStatus::parse_legacy_wire` exposes the frozen C++ `StringToStatus` behavior separately and maps every unknown value to `idle`. This preserves the frozen compatibility helper without weakening current internal validation.
 
 ## Signals
 
@@ -97,7 +101,7 @@ The Rust service pins these current Vinpst behaviors with unit and D-Bus integra
 - the eight legacy method signatures and four legacy signal signatures are kept byte-for-byte compatible after applying the independent Vinpst bus/interface identity; live introspection pins `GetAsrBackendState` as the legacy `sssssbbas` tuple rather than a JSON transport;
 - direct `vinpst-daemon` startup uses service defaults, while `--no-asr` keeps D-Bus/config/text behavior active and permanently blocks ASR construction/reload with the legacy-compatible reason `ASR disabled by command line.`;
 - a second daemon cannot replace or queue behind the current owner; guarded handoff is the only supported replacement boundary;
-- `GetAsrBackendState` combines the configured target provider/model with the descriptor of the backend that is actually effective in the runtime; it must not report a merely constructible configured backend as already active;
+- `GetAsrBackendState` keeps the frozen eight-field `sssssbbas` shape and the same requested-backend classification order. Vinpst reports the model configured on the actual target/effective provider. Frozen upstream instead derives both model-id fields through `ResolvePreferredLocalModel`, so an active command provider can expose an unrelated local model id. The Vinpst projection is intentionally more direct for command/remote providers while remaining self-consistent for `Applied`, `ConfigSaved`, and reload-failure classification;
 - `ReloadAsrBackend` re-reads the daemon config file when an explicit startup path exists, updates the ASR/default-language target, and queues the configured backend through the prepare-before-swap path rather than refreshing metadata only;
 - one non-blocking reload worker performs backend construction and warmup outside the runtime mutex, while `reload_in_progress` covers both queued and physical preparation;
 - `ReloadAsrBackend` returns success while recording/inferring, keeps the request pending until idle, coalesces repeated requests by generation, and discards stale prepared generations;
