@@ -35,7 +35,8 @@ pub(crate) fn prepare_registry_script_controlled(
         Ok(root) => root,
         Err(error) => return ScriptPrepareOutcome::Failed(error),
     };
-    let registry_source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let registry_source =
+        ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     prepare_registry_script_from_source(document, kind, selector, control, &registry_source, &root)
 }
 

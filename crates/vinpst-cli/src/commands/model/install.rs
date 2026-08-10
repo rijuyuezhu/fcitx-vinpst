@@ -57,7 +57,7 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
 
     let model_dir = model_root.join(managed_model_dir_name(model));
     let staging_dir = staging_root.join(managed_model_dir_name(model));
-    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(300));
+    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(600));
     let progress = Arc::new(Mutex::new(ModelInstallProgress::new(
         request.id_or_short_id,
         std::io::stdout().is_terminal(),

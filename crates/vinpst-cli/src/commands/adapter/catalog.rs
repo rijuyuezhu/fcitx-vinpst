@@ -188,7 +188,7 @@ pub(super) fn load_live_adapter_registry(
             remote_base_url: None,
         });
     }
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     let fetched = fetch_text_from_mirrors(&source, &registry_urls)
         .context("fetch live adapter registry from configured mirrors")?;
     let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::LlmAdapter)

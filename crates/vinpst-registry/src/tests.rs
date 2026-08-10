@@ -1100,6 +1100,27 @@ fn registry_asset_staging_sanitizes_non_success_http_status() {
 }
 
 #[test]
+fn registry_asset_staging_requires_exact_http_200() {
+    let (url, handle) = serve_registry_http_response("206 Partial Content", "hello");
+    let source = ReqwestRegistryAssetSource::new();
+    let asset = planned_install_asset(vec![url.clone()], Some(HELLO_SHA256));
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output = temp_dir.path().join("asset.bin");
+
+    let error = stage_planned_asset(&source, &asset, &output).unwrap_err();
+
+    let RegistryAssetStagingError::AllAssetUrlsFailed { failures, .. } = error else {
+        panic!("expected all asset urls failed");
+    };
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].url, url);
+    assert!(failures[0].message.contains("HTTP 206 Partial Content"));
+    assert!(!output.exists());
+    assert!(temp_asset_files(temp_dir.path()).is_empty());
+    handle.join().unwrap();
+}
+
+#[test]
 fn registry_asset_staging_sanitizes_connection_failure() {
     let url = closed_local_http_url();
     let source = ReqwestRegistryAssetSource::with_timeout(std::time::Duration::from_millis(250));
@@ -2096,6 +2117,26 @@ fn serve_registry_http_response(
     (url, handle)
 }
 
+fn serve_registry_http_response_without_length(
+    status: &str,
+    response_body: &str,
+) -> (String, std::thread::JoinHandle<CapturedRegistryHttpRequest>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let status = status.to_owned();
+    let response_body = response_body.to_owned();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let head = read_registry_http_request_head(&mut stream);
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{response_body}"
+        );
+        std::io::Write::write_all(&mut stream, response.as_bytes()).unwrap();
+        CapturedRegistryHttpRequest { head }
+    });
+    (url, handle)
+}
+
 fn read_registry_http_request_head(stream: &mut std::net::TcpStream) -> String {
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 1024];
@@ -2139,6 +2180,39 @@ fn reqwest_registry_text_source_sanitizes_http_error_body() {
     assert!(message.contains("HTTP 500 Internal Server Error"));
     assert!(!message.contains("secret-token"));
     assert!(!message.contains(&url));
+    handle.join().unwrap();
+}
+
+#[test]
+fn reqwest_registry_text_source_requires_exact_http_200() {
+    let (url, handle) = serve_registry_http_response("206 Partial Content", SAMPLE);
+    let source = ReqwestRegistryTextSource::new();
+
+    let message = source.fetch_registry_text(&url).unwrap_err();
+
+    assert!(message.contains("HTTP 206 Partial Content"));
+    handle.join().unwrap();
+}
+
+#[test]
+fn reqwest_registry_text_source_rejects_content_length_over_limit() {
+    let (url, handle) = serve_registry_http_response("200 OK", "123456789");
+    let source = ReqwestRegistryTextSource::with_limits(std::time::Duration::from_secs(1), 8);
+
+    let message = source.fetch_registry_text(&url).unwrap_err();
+
+    assert_eq!(message, "registry HTTP response exceeds maximum size");
+    handle.join().unwrap();
+}
+
+#[test]
+fn reqwest_registry_text_source_rejects_streamed_body_over_limit() {
+    let (url, handle) = serve_registry_http_response_without_length("200 OK", "123456789");
+    let source = ReqwestRegistryTextSource::with_limits(std::time::Duration::from_secs(1), 8);
+
+    let message = source.fetch_registry_text(&url).unwrap_err();
+
+    assert_eq!(message, "registry HTTP response exceeds maximum size");
     handle.join().unwrap();
 }
 

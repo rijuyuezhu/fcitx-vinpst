@@ -42,7 +42,7 @@ pub(crate) fn load_registry_script_catalog(
     locale: GuiLocale,
     kind: LiveScriptKind,
 ) -> Result<Vec<RegistryScriptSummary>, String> {
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     fetch_registry_script_catalog_from(config, locale, kind, &source)
 }
 

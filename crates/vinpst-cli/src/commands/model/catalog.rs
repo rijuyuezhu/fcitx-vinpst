@@ -186,7 +186,7 @@ fn load_live_model_registry(
         });
     }
 
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     let fetched = fetch_text_from_mirrors(&source, &registry_urls)
         .context("fetch live model registry from configured mirrors")?;
     let registry = LiveModelRegistry::from_json_str(&fetched.text).with_context(|| {

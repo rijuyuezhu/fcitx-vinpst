@@ -135,16 +135,18 @@ pub trait RegistryAssetSource {
 ///
 /// The reqwest blocking client is created and dropped inside a dedicated thread
 /// so synchronous asset staging remains safe when called from an async runtime.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct ReqwestRegistryAssetSource {
     timeout: Option<Duration>,
 }
 
 impl ReqwestRegistryAssetSource {
-    /// Creates a source with reqwest's default timeout behavior.
+    /// Creates a source with the frozen downloader's 30-second default timeout.
     #[must_use]
     pub const fn new() -> Self {
-        Self { timeout: None }
+        Self {
+            timeout: Some(Duration::from_secs(30)),
+        }
     }
 
     /// Creates a source that applies a per-request timeout.
@@ -153,6 +155,12 @@ impl ReqwestRegistryAssetSource {
         Self {
             timeout: Some(timeout),
         }
+    }
+}
+
+impl Default for ReqwestRegistryAssetSource {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -342,7 +350,7 @@ fn fetch_asset_blocking(
         .send()
         .map_err(|error| sanitize_registry_asset_http_error(&error))?;
     let status = response.status();
-    if !status.is_success() {
+    if status != reqwest::StatusCode::OK {
         return Err(format!("registry asset HTTP mirror returned HTTP {status}"));
     }
 

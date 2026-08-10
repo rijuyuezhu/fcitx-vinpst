@@ -88,7 +88,7 @@ pub(crate) fn load_registry_model_catalog(
     config: &VinpstConfig,
     locale: GuiLocale,
 ) -> Result<Vec<RegistryModelSummary>, String> {
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     fetch_registry_model_catalog_from(config, locale, &source)
 }
 
@@ -222,7 +222,7 @@ pub(crate) fn install_registry_model_controlled(
         Ok(root) => root.join(&model_name),
         Err(error) => return ModelInstallOutcome::Failed(error),
     };
-    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(300));
+    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(600));
     let installed = install_live_model_controlled(
         &source,
         &LiveModelInstallRequest {
@@ -256,7 +256,7 @@ fn remove_staging_dir(path: &Path) {
 }
 
 fn fetch_live_model_registry(config: &VinpstConfig) -> Result<LiveModelRegistry, String> {
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
+    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     fetch_live_model_registry_from(config, &source)
 }
 
