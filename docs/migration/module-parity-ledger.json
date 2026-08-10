@@ -1860,13 +1860,39 @@
         "Frozen FormatSize divides by powers of 1024 but labels values KB/MB/GB in CLI model tables and GUI resource/progress surfaces. Current model/resource presentation intentionally labels binary quantities KiB/MiB/GiB (or bytes), which is more accurate and already stable in user-facing tests; the misleading frozen suffixes are not restored.",
         "No production change is required. Existing text context-cache tests pin the spacing/punctuation rules, model CLI tests exercise size presentation in the user surface, and GUI model/resource units have dedicated formatter tests."
       ]
+    },
+    {
+      "id": "URL-UTILS-001",
+      "state": "audited-intentional-divergence",
+      "title": "OpenAI-compatible URL joining and scene model discovery",
+      "upstream_files": [
+        "common/utils/url_utils.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/scene_management.rs",
+        "crates/vinpst-gui/src/scene_management/view.rs",
+        "crates/vinpst-text/src/lib.rs",
+        "crates/vinpst-text/src/openai.rs"
+      ],
+      "notes": [
+        "Frozen url_utils is a single header-only JoinPath helper that trims trailing slashes from a base URL and appends a caller-supplied absolute path. Its production call graph has only two uses: `/chat/completions` in post-processing and `/models` in the GUI provider/model scene controls.",
+        "The existing Rust chat URL builder already covers the first caller and is intentionally stronger: parsed URLs preserve query/fragment components, a complete chat-completions endpoint is not appended twice, empty bases are rejected, and malformed/non-URL test inputs retain the simple frozen trailing-slash join fallback. Existing text tests pin those semantics.",
+        "The second caller exposed a real GUI gap. Frozen SetupProviderModelCombos keeps the model combo editable while asynchronously loading `GET <provider base>/models`, sends an optional Bearer API key, uses a 10-second deadline, normalizes `data[].id` by trimming/deduplicating/sorting, and discards stale replies when the selected provider changes. Current Scene editing previously exposed only a provider picker plus free-form model text with no discovery path.",
+        "Added a vinpst-text OpenAI-compatible model-discovery boundary: `/models` URL construction, the shared provider trust environment, redirects disabled by the existing HTTP client policy, 10-second request timeout, bounded UTF-8 response body, optional Bearer authentication, stable secret-free typed errors, and sorted/deduplicated non-empty model ids. Errors never include request URLs, API keys, or response bodies.",
+        "Scene editing now starts model discovery when an existing provider-backed scene opens or when the provider selection changes. A monotonically wrapping generation plus provider id rejects stale asynchronous responses. Network work runs through the existing plain blocking-task boundary, so reqwest::blocking never nests inside the GUI Tokio runtime.",
+        "The Rust UI intentionally keeps the existing model text input enabled while discovery is in progress or unavailable and presents discovered ids as a supplemental pick list. This is simpler and less blocking than frozen temporarily disabling the editable combo; choosing a suggestion only copies its id into the same text field. Failure is one short localized hint and never exposes transport plumbing.",
+        "Frozen stores a process-global cache keyed by `base_url + api_key`. Current intentionally does not copy that static secret-bearing cache: discovery is scoped to the active Scene editor and refetched on a later editor/provider transition. This avoids global credential-derived state while retaining the user-facing convenience and stale-response protection.",
+        "The frozen GUI helper files that own SetupProviderModelCombos are not claimed by this unit because they contain additional GUI responsibilities still pending separate file-level audit. Scene management, its view, i18n, the text crate root, and the already-owned OpenAI module are supporting files only, so their broader ownership remains accurate.",
+        "Deterministic evidence includes a real local HTTP GET `/models` test proving Bearer transmission plus model trimming/deduplication/sorting, URL query/fragment joining tests, GUI generation/provider stale-response tests, discovered-model selection state tests, strict text/GUI Clippy, and the full text and GUI suites."
+      ]
     }
   ],
   "upstream_pending": [
     "common/utils/debug_log.h",
     "common/utils/sandbox.cpp",
     "common/utils/sandbox.h",
-    "common/utils/url_utils.h",
     "gui/app/main.cpp",
     "gui/app/mainwindow.cpp",
     "gui/app/mainwindow.h",
