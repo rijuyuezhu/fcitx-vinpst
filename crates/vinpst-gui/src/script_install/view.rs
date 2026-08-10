@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{
     App, GuiLocale, GuiText, Message, SecretInput,
-    script_catalog::ScriptCatalogState,
+    script_catalog::{RegistryScriptSummary, ScriptCatalogState},
     script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
 
@@ -129,9 +129,9 @@ impl App {
             self.config.as_ref().ok().map(|document| &document.config),
             LiveScriptKind::AsrProvider,
             self.locale,
+            &self.model_filter,
             busy,
-            Message::RefreshProviderCatalog,
-            Message::InstallProvider,
+            (Message::RefreshProviderCatalog, Message::InstallProvider),
         )
     }
 
@@ -141,9 +141,9 @@ impl App {
             self.config.as_ref().ok().map(|document| &document.config),
             LiveScriptKind::LlmAdapter,
             self.locale,
+            &self.model_filter,
             busy,
-            Message::RefreshAdapterCatalog,
-            Message::InstallAdapter,
+            (Message::RefreshAdapterCatalog, Message::InstallAdapter),
         )
     }
 }
@@ -153,10 +153,11 @@ fn script_catalog_view<'a>(
     config: Option<&'a VinpstConfig>,
     kind: LiveScriptKind,
     locale: GuiLocale,
+    filter: &str,
     busy: bool,
-    refresh: Message,
-    install: fn(String) -> Message,
+    actions: (Message, fn(String) -> Message),
 ) -> Element<'a, Message> {
+    let (refresh, install) = actions;
     match state {
         ScriptCatalogState::Loading => text(locale.text(GuiText::LoadingCatalog)).into(),
         ScriptCatalogState::Failed(_) => column![
@@ -175,7 +176,12 @@ fn script_catalog_view<'a>(
         .into(),
         ScriptCatalogState::Ready(entries) => {
             let mut body = column![].spacing(8);
+            let mut visible = 0_usize;
             for entry in entries {
+                if !registry_script_matches_filter(entry, filter) {
+                    continue;
+                }
+                visible += 1;
                 let selector = entry.selector().to_owned();
                 let action = script_catalog_action(config, kind, &entry.id);
                 let mut label = column![text(&entry.title)];
@@ -192,6 +198,13 @@ fn script_catalog_view<'a>(
                     .spacing(10),
                 );
             }
+            if visible == 0 {
+                body = body.push(text(locale.text(if filter.trim().is_empty() {
+                    GuiText::NoCatalogItems
+                } else {
+                    GuiText::NoResourcesMatch
+                })));
+            }
             body.push(
                 keyboard_button(locale.text(GuiText::RefreshCatalog))
                     .on_press_maybe((!busy).then_some(refresh)),
@@ -199,6 +212,22 @@ fn script_catalog_view<'a>(
             .into()
         }
     }
+}
+
+fn registry_script_matches_filter(entry: &RegistryScriptSummary, filter: &str) -> bool {
+    let filter = filter.trim().to_ascii_lowercase();
+    if filter.is_empty() {
+        return true;
+    }
+    [
+        Some(entry.id.as_str()),
+        entry.short_id.as_deref(),
+        Some(entry.title.as_str()),
+        entry.description.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value.to_ascii_lowercase().contains(&filter))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -411,5 +440,21 @@ mod tests {
             script_catalog_action(Some(&config), LiveScriptKind::AsrProvider, id),
             ScriptCatalogAction::Update
         );
+    }
+
+    #[test]
+    fn catalog_filter_searches_ids_titles_and_descriptions() {
+        let entry = RegistryScriptSummary {
+            id: "provider.fixture.whisper".to_owned(),
+            short_id: Some("whisper".to_owned()),
+            title: "Whisper Provider".to_owned(),
+            description: Some("Local multilingual speech recognition".to_owned()),
+        };
+
+        assert!(registry_script_matches_filter(&entry, ""));
+        assert!(registry_script_matches_filter(&entry, "WHISPER"));
+        assert!(registry_script_matches_filter(&entry, "multilingual"));
+        assert!(registry_script_matches_filter(&entry, "fixture.whisper"));
+        assert!(!registry_script_matches_filter(&entry, "moonshine"));
     }
 }

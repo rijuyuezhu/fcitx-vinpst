@@ -107,6 +107,7 @@ pub(crate) enum GuiText {
     LoadingCatalog,
     CatalogUnavailable,
     NoCatalogItems,
+    NoResourcesMatch,
     NoRegistryModelsAvailable,
     Install,
     Update,
@@ -289,7 +290,7 @@ pub(crate) enum GuiText {
 }
 #[cfg(test)]
 impl GuiText {
-    pub(super) const ALL: [Self; 284] = [
+    pub(super) const ALL: [Self; 285] = [
         Self::ApplicationTitle,
         Self::Control,
         Self::Resources,
@@ -395,6 +396,7 @@ impl GuiText {
         Self::LoadingCatalog,
         Self::CatalogUnavailable,
         Self::NoCatalogItems,
+        Self::NoResourcesMatch,
         Self::NoRegistryModelsAvailable,
         Self::Install,
         Self::Update,

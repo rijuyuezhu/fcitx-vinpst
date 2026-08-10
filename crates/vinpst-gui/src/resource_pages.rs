@@ -63,6 +63,8 @@ impl App {
             || self.ensure_no_unsaved_config_draft().is_err();
         let mut body = column![
             text(self.locale.text(GuiText::Resources)).size(30),
+            text_input(self.locale.text(GuiText::FilterModels), &self.model_filter,)
+                .on_input(Message::ModelFilterChanged),
             text(self.locale.text(GuiText::ManagedAsrModels)).size(22),
             text(self.locale.text(GuiText::InstalledModels)).size(18),
             self.installed_models_view(resource_controls_busy),
@@ -77,8 +79,6 @@ impl App {
                 ),
             ]
             .spacing(10),
-            text_input(self.locale.text(GuiText::FilterModels), &self.model_filter,)
-                .on_input(Message::ModelFilterChanged),
             self.available_models_view(resource_controls_busy),
             text(self.locale.text(GuiText::ManagedCommandAsrProviders)).size(22),
             self.provider_install_controls(resource_controls_busy),
@@ -109,7 +109,12 @@ impl App {
                             .text(GuiText::SelectLocalProviderForManagedModel),
                     ));
                 }
+                let mut visible = 0_usize;
                 for model in models {
+                    if !installed_model_matches_filter(model, self.locale, &self.model_filter) {
+                        continue;
+                    }
+                    visible += 1;
                     let (selected, referenced) =
                         self.config.as_ref().map_or((false, false), |document| {
                             (
@@ -127,6 +132,9 @@ impl App {
                         !busy && can_select_model && !selected && !model.is_broken(),
                         !busy && !referenced,
                     ));
+                }
+                if visible == 0 {
+                    body = body.push(text(self.locale.text(GuiText::NoRegistryModelsAvailable)));
                 }
             }
             Err(_) => {
@@ -310,6 +318,33 @@ impl App {
         }
         scrollable(body).into()
     }
+}
+
+fn installed_model_matches_filter(
+    model: &InstalledModelInfo,
+    locale: GuiLocale,
+    filter: &str,
+) -> bool {
+    let filter = filter.trim().to_ascii_lowercase();
+    if filter.is_empty() {
+        return true;
+    }
+    let locale_code = locale.code().to_owned();
+    let title = model.display_title(&[locale_code]);
+    let directory = model.model_dir.file_name().and_then(|name| name.to_str());
+    [
+        Some(model.stable_model_id()),
+        Some(model.model_id.as_str()),
+        title,
+        directory,
+        model.metadata.backend.as_deref(),
+        model.metadata.language.as_deref(),
+        model.metadata.runtime.as_deref(),
+        model.metadata.model_family(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value.to_ascii_lowercase().contains(&filter))
 }
 
 fn registry_model_matches_filter(model: &RegistryModelSummary, filter: &str) -> bool {
@@ -522,6 +557,12 @@ fn adapter_row(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, path::PathBuf};
+
+    use vinpst_registry::{
+        InstalledModelDisplayMetadata, InstalledModelState, LiveVinpstModelMetadata,
+    };
+
     use super::*;
 
     fn fixture_model() -> RegistryModelSummary {
@@ -539,6 +580,35 @@ mod tests {
         }
     }
 
+    fn fixture_installed_model() -> InstalledModelInfo {
+        InstalledModelInfo {
+            model_id: "model.test.zh.streaming".to_owned(),
+            model_dir: PathBuf::from("/managed/models/zh-stream"),
+            metadata_path: PathBuf::from("/managed/models/zh-stream/vinpst-model.json"),
+            metadata: LiveVinpstModelMetadata {
+                backend: Some("sherpa-online".to_owned()),
+                language: Some("zh".to_owned()),
+                size_bytes: Some(21_264_113),
+                supports_hotwords: true,
+                runtime: Some("online".to_owned()),
+                family: Some("zipformer2_ctc".to_owned()),
+                model_type: None,
+                recognizer: None,
+                model: None,
+                display: Some(InstalledModelDisplayMetadata {
+                    registry_id: Some("model.test.zh.streaming".to_owned()),
+                    fallback_title: Some("Chinese Streaming Model".to_owned()),
+                    localized_titles: BTreeMap::new(),
+                }),
+                extra: BTreeMap::new(),
+            },
+            state: InstalledModelState::Installed,
+            metadata_error: None,
+            files: vec!["encoder.onnx".to_owned()],
+            file_count: 1,
+        }
+    }
+
     #[test]
     fn registry_model_filter_searches_user_visible_metadata_and_ids() {
         let model = fixture_model();
@@ -547,6 +617,37 @@ mod tests {
         assert!(registry_model_matches_filter(&model, "ZIPFORMER"));
         assert!(registry_model_matches_filter(&model, "zh-stream"));
         assert!(!registry_model_matches_filter(&model, "english-only"));
+    }
+
+    #[test]
+    fn installed_model_filter_searches_display_and_runtime_metadata() {
+        let model = fixture_installed_model();
+        assert!(installed_model_matches_filter(&model, GuiLocale::EnUs, ""));
+        assert!(installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "Chinese Streaming"
+        ));
+        assert!(installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "sherpa-online"
+        ));
+        assert!(installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "ZIPFORMER"
+        ));
+        assert!(installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "zh-stream"
+        ));
+        assert!(!installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "english-only"
+        ));
     }
 
     #[test]

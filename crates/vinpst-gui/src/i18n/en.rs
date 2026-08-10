@@ -168,7 +168,7 @@ const fn english_desktop(key: GuiText) -> &'static str {
 const fn english_resources(key: GuiText) -> &'static str {
     match key {
         GuiText::FilterProvidersAndScenes => "Filter scenes",
-        GuiText::FilterModels => "Filter models",
+        GuiText::FilterModels => "Filter resources",
         GuiText::ManagedAsrModels => "Models",
         GuiText::InstalledModels => "Installed models",
         GuiText::AvailableModels => "Available models",
@@ -177,6 +177,7 @@ const fn english_resources(key: GuiText) -> &'static str {
         GuiText::LoadingCatalog => "Loading…",
         GuiText::CatalogUnavailable => "Could not load this list.",
         GuiText::NoCatalogItems => "Nothing available.",
+        GuiText::NoResourcesMatch => "No resources match the current filter.",
         GuiText::NoRegistryModelsAvailable => "No models match the current filter.",
         GuiText::Install => "Install",
         GuiText::Update => "Update",

@@ -140,7 +140,7 @@ const fn simplified_chinese_desktop(key: GuiText) -> &'static str {
 const fn simplified_chinese_resources(key: GuiText) -> &'static str {
     match key {
         GuiText::FilterProvidersAndScenes => "筛选场景",
-        GuiText::FilterModels => "筛选模型",
+        GuiText::FilterModels => "筛选资源",
         GuiText::ManagedAsrModels | GuiText::Model => "模型",
         GuiText::InstalledModels => "已安装模型",
         GuiText::AvailableModels => "可用模型",
@@ -149,6 +149,7 @@ const fn simplified_chinese_resources(key: GuiText) -> &'static str {
         GuiText::LoadingCatalog => "正在加载…",
         GuiText::CatalogUnavailable => "无法加载此列表。",
         GuiText::NoCatalogItems => "暂无可用项目。",
+        GuiText::NoResourcesMatch => "没有资源匹配当前筛选条件。",
         GuiText::NoRegistryModelsAvailable => "没有符合筛选条件的模型。",
         GuiText::Install => "安装",
         GuiText::Update => "更新",
