@@ -37,16 +37,14 @@ pub struct ProviderEditorCommand {
 }
 
 impl ProviderEditorCommand {
-    /// Parses one whitespace-separated editor command.
+    /// Parses one shell-like editor command into direct argv without a shell.
     pub fn parse(command: &str) -> Result<Self, ProviderScriptEditError> {
-        let argv = command
-            .split_whitespace()
-            .filter(|part| !part.is_empty())
-            .map(ToOwned::to_owned)
-            .collect::<Vec<_>>();
-        if argv.is_empty() {
-            return Err(ProviderScriptEditError::EmptyEditor);
-        }
+        let argv = vinpst_process::parse_command_argv(command).map_err(|error| match error {
+            vinpst_process::CommandArgvParseError::Empty => ProviderScriptEditError::EmptyEditor,
+            vinpst_process::CommandArgvParseError::Unterminated => {
+                ProviderScriptEditError::InvalidEditor(error.to_string())
+            }
+        })?;
         Ok(Self { argv })
     }
 
@@ -158,6 +156,9 @@ pub enum ProviderScriptEditError {
     /// The selected editor command had no argv.
     #[error("provider editor command is empty")]
     EmptyEditor,
+    /// The selected editor command had invalid quote/escape syntax.
+    #[error("invalid provider editor command: {0}")]
+    InvalidEditor(String),
     /// Starting the editor process failed.
     #[error("run provider editor `{editor}`: {message}")]
     LaunchEditor {
@@ -474,5 +475,15 @@ mod tests {
             "editor"
         );
         assert_eq!(select_editor_command(None, None, None, None), "vi");
+    }
+
+    #[test]
+    fn provider_editor_parser_preserves_quoted_arguments() {
+        let editor = ProviderEditorCommand::parse(r#"code --wait "two words" escaped\ space"#)
+            .expect("parse quoted provider editor");
+        assert_eq!(
+            editor.argv(),
+            ["code", "--wait", "two words", "escaped space"]
+        );
     }
 }

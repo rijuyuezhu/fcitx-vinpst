@@ -553,6 +553,33 @@ fn config_edit_dry_run_json_plans_default_user_config_without_writes() {
 }
 
 #[test]
+fn config_edit_uses_visual_before_editor_and_preserves_quoted_args() {
+    let root = unique_temp_dir("vinpst-cli-config-edit-editor-priority");
+    let config_home = root.join("config-home");
+    let output = vinpst_command()
+        .args(["config", "edit", "core", "--dry-run", "--json"])
+        .env_remove("VINPST_CONFIG_EDITOR")
+        .env("VISUAL", r#"visual-editor --wait "two words""#)
+        .env("EDITOR", "wrong-editor")
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_DATA_HOME", root.join("data-home"))
+        .env("XDG_CACHE_HOME", root.join("cache-home"))
+        .env("HOME", root.join("home"))
+        .output()
+        .expect("run vinpst config edit with VISUAL");
+
+    let value = assert_json_success(output, "config edit VISUAL priority json");
+    assert_eq!(
+        value["editor_argv"],
+        serde_json::json!(["visual-editor", "--wait", "two words"])
+    );
+    assert!(
+        !config_home.exists(),
+        "dry-run should not create config home"
+    );
+}
+
+#[test]
 fn config_edit_fcitx_uses_xdg_target_and_safe_backup() {
     let root = unique_temp_dir("vinpst-cli-config-edit-fcitx");
     let config_home = root.join("config-home");

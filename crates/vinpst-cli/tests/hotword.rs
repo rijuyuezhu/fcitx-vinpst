@@ -343,6 +343,29 @@ fn hotword_edit_dry_run_json_reports_editor_plan_without_launching() {
 }
 
 #[test]
+fn hotword_edit_uses_visual_before_editor_and_preserves_quoted_args() {
+    let path = write_hotword_fixture("vinpst-hotword-edit-editor-priority");
+
+    let output = vinpst_command()
+        .args(["hotword", "edit", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
+        .env_remove("VINPST_HOTWORD_EDITOR")
+        .env_remove("VINPST_CONFIG_EDITOR")
+        .env("VISUAL", r#"visual-editor --wait "two words""#)
+        .env("EDITOR", "wrong-editor")
+        .output()
+        .expect("run vinpst hotword edit with VISUAL");
+    fs::remove_file(&path).expect("remove temporary hotword config");
+
+    let value = assert_json_success(output, "hotword edit VISUAL priority json");
+    assert_eq!(
+        value["editor_argv"],
+        serde_json::json!(["visual-editor", "--wait", "two words"])
+    );
+}
+
+#[test]
 fn hotword_edit_text_dry_run_outputs_expected_fields() {
     let path = write_hotword_fixture("vinpst-hotword-edit-text-dry-run");
 

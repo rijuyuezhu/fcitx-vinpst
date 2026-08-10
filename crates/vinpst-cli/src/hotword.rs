@@ -11,8 +11,8 @@ use vinpst_config::{AsrProviderConfig, VinpstConfig};
 
 use crate::{
     AsrReloadAfterWrite, asr_provider_kind_label, config_set_write_target, default_config_path,
-    hotword_supported, load_config_json, normalize_provider_id,
-    reload_asr_backend_after_canonical_write, split_editor_argv, validate_config_json_value,
+    hotword_supported, load_config_json, normalize_provider_id, parse_editor_argv,
+    reload_asr_backend_after_canonical_write, validate_config_json_value,
     write_config_set_document,
 };
 
@@ -84,7 +84,7 @@ pub(crate) enum HotwordCommand {
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
-        /// Editor executable to run. Defaults to `$VINPST_HOTWORD_EDITOR`, `$VINPST_CONFIG_EDITOR`, `$EDITOR`, then `$VISUAL`.
+        /// Editor command to run. Defaults to `$VINPST_HOTWORD_EDITOR`, `$VINPST_CONFIG_EDITOR`, `$VISUAL`, `$EDITOR`, then `vi`.
         #[arg(long)]
         editor: Option<String>,
         /// Print the edit plan without launching the editor.
@@ -390,16 +390,10 @@ fn resolve_hotword_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
         .map(str::to_owned)
         .or_else(|| std::env::var("VINPST_HOTWORD_EDITOR").ok())
         .or_else(|| std::env::var("VINPST_CONFIG_EDITOR").ok())
-        .or_else(|| std::env::var("EDITOR").ok())
         .or_else(|| std::env::var("VISUAL").ok())
-        .with_context(
-            || "hotword edit requires --editor or $VINPST_HOTWORD_EDITOR/$VINPST_CONFIG_EDITOR/$EDITOR/$VISUAL",
-        )?;
-    let argv = split_editor_argv(&editor);
-    if argv.is_empty() {
-        anyhow::bail!("hotword editor command is empty");
-    }
-    Ok(argv)
+        .or_else(|| std::env::var("EDITOR").ok())
+        .unwrap_or_else(|| "vi".to_owned());
+    parse_editor_argv(&editor).context("parse hotword editor")
 }
 
 fn run_hotword_editor(

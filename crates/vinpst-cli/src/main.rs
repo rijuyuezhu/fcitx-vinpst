@@ -43,7 +43,7 @@ use commands::{
 use config_examples::{config_example_contents, config_example_description};
 use config_io::{
     LoadedConfigJson, config_backup_path, config_set_write_target, config_summary_json,
-    load_config_file, load_config_json, same_path_text, split_editor_argv,
+    load_config_file, load_config_json, parse_editor_argv, same_path_text,
     validate_config_json_value, write_config_in_place, write_config_output,
     write_config_set_document, write_file_atomically, write_private_file_atomically,
 };

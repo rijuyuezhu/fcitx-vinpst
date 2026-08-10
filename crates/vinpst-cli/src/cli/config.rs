@@ -73,7 +73,7 @@ pub(crate) enum ConfigCommand {
         /// Optional core config JSON file. Omitted to edit the user config, or create it from the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
-        /// Editor executable to run. Defaults to `$VINPST_CONFIG_EDITOR`, `$EDITOR`, then `$VISUAL`.
+        /// Editor command to run. Defaults to `$VINPST_CONFIG_EDITOR`, `$VISUAL`, `$EDITOR`, then `vi`.
         #[arg(long)]
         editor: Option<String>,
         /// Print the editor plan without invoking the editor or writing files.

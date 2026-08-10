@@ -19,6 +19,7 @@ sha2.workspace = true
 tar.workspace = true
 thiserror.workspace = true
 vinpst-config = { path = "../vinpst-config" }
+vinpst-process = { path = "../vinpst-process" }
 zstd.workspace = true
 
 [dev-dependencies]

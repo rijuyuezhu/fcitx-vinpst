@@ -4264,6 +4264,7 @@ dependencies = [
  "vinpst-audio",
  "vinpst-config",
  "vinpst-daemon-control",
+ "vinpst-process",
  "vinpst-protocol",
  "vinpst-registry",
  "vinpst-text",
@@ -4414,6 +4415,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "vinpst-config",
+ "vinpst-process",
  "zstd",
 ]
 

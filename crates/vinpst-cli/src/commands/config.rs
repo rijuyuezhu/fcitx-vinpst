@@ -4,7 +4,7 @@ use crate::{
     ConfigExample, Context, LoadedConfigJson, Path, PathBuf, ProcessCommand, ValueEnum,
     VinpstConfig, config_backup_path, config_example_contents, config_example_description,
     config_set_write_target, config_summary_json, default_config_path, default_fcitx_config_path,
-    fs, load_config_json, split_editor_argv, validate_config_json_value, write_config_set_document,
+    fs, load_config_json, parse_editor_argv, validate_config_json_value, write_config_set_document,
     write_private_file_atomically,
 };
 
@@ -513,16 +513,10 @@ fn resolve_config_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
     let editor = editor
         .map(str::to_owned)
         .or_else(|| std::env::var("VINPST_CONFIG_EDITOR").ok())
-        .or_else(|| std::env::var("EDITOR").ok())
         .or_else(|| std::env::var("VISUAL").ok())
-        .with_context(
-            || "config edit requires --editor or $VINPST_CONFIG_EDITOR/$EDITOR/$VISUAL",
-        )?;
-    let argv = split_editor_argv(&editor);
-    if argv.is_empty() {
-        anyhow::bail!("config editor command is empty");
-    }
-    Ok(argv)
+        .or_else(|| std::env::var("EDITOR").ok())
+        .unwrap_or_else(|| "vi".to_owned());
+    parse_editor_argv(&editor).context("parse config editor")
 }
 
 fn run_config_editor(

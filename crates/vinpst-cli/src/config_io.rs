@@ -255,12 +255,8 @@ pub(crate) fn validate_config_json_value(
     config.validate().with_context(|| context.to_owned())
 }
 
-pub(crate) fn split_editor_argv(editor: &str) -> Vec<String> {
-    editor
-        .split_whitespace()
-        .filter(|part| !part.is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
+pub(crate) fn parse_editor_argv(editor: &str) -> anyhow::Result<Vec<String>> {
+    vinpst_process::parse_command_argv(editor).context("parse editor command")
 }
 
 pub(crate) fn config_summary_json(config: &VinpstConfig) -> serde_json::Value {
