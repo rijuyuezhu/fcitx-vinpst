@@ -2299,6 +2299,31 @@
         "lib.rs intentionally exposes the typed schema, ConfigError, redaction helper, atomic persistence receipts/errors, and user-path module while keeping normalization/validation implementation modules private behind VinpstConfig methods. Its crate-level documentation was updated from migration-era 'first implementation' wording to the current shared configuration contract so v0.1.0 Rustdoc no longer describes completed migration work as future work.",
         "Evidence includes complete source review of diagnostics.rs, error.rs, and lib.rs; call-chain inspection proving validation errors reach GUI, CLI, and daemon user-visible error surfaces; the new credential-bearing duplicate-mirror Display/Debug regression, existing redaction and legacy compatibility tests, the full vinpst-config all-target suite, strict all-target Clippy, and the module-parity ledger checker."
       ]
+    },
+    {
+      "id": "PROTOCOL-TEXT-DIAGNOSTICS-001",
+      "state": "audited-fixed",
+      "title": "Current-only protocol facade and sanitized text-adapter diagnostics",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-protocol/src/lib.rs",
+        "crates/vinpst-protocol/src/text.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/runtime/diagnostics.rs",
+        "crates/vinpst-daemon/src/runtime/tests.rs",
+        "crates/vinpst-daemon/tests/cli.rs",
+        "crates/vinpst-daemon/tests/dbus_integration.rs"
+      ],
+      "notes": [
+        "This is a current-only protocol unit. recognition.rs is already owned by ASR-RESULT-001, while asr.rs, dbus.rs, and status.rs are owned by DBUS-PROTOCOL-001; lib.rs is therefore audited here only as the crate-level re-export boundary, and text.rs owns Vinpst's additional text-adapter diagnostic JSON that has no frozen one-to-one source file.",
+        "TextAdapterSummary deliberately carries only stable adapter id, implementation kind, argument/environment entry counts, running state, supervised pid, and a has-working-directory flag. The daemon producer computes these values from LlmAdapterConfig without copying command text, argument values, environment keys or values, or the working-directory path. Serialization and generated JSON schema tests both prove those detail fields are absent from the public summary shape.",
+        "TextAdapterState redundantly carries adapter_count, adapter_ids, single_adapter_id, and the summary list for existing CLI/D-Bus diagnostics. Outbound daemon state is built through from_adapters, which derives the count and ids from the same sanitized vector and only sets single_adapter_id when exactly one entry exists. The redundant fields are intentionally retained instead of normalizing the wire format away because daemon integration and CLI consumers already rely on them.",
+        "Legacy read tolerance is intentionally asymmetric with sanitized writes. serde(default) accepts older payloads with missing current fields, and unknown historical command/args/env/working_dir details are ignored rather than reintroduced into TextAdapterSummary. The strengthened regression feeds secret-looking values through all four historical detail fields and verifies the deserialized object's Debug representation retains none of them, demonstrating they are discarded at the protocol boundary rather than merely omitted during reserialization.",
+        "The public Debug surface of current text-adapter diagnostics is therefore limited to the same sanitized fields as serialization. Adapter ids and kind strings are machine identifiers intended to be user-visible, pid is explicitly part of local runtime diagnostics, and no selected text, ASR transcript, LLM response, command argument, environment value, or filesystem working-directory path is represented by these types.",
+        "lib.rs documentation was updated from migration-era wording that described the Rust daemon as future work. It now states the current shared daemon/CLI/GUI/Fcitx boundary, distinguishes required legacy wire compatibility from Vinpst-only extensions, and documents that diagnostic extensions use sanitized summary types. The other re-exported protocol modules remain unchanged and continue under their existing ownership units.",
+        "Evidence includes complete source review of lib.rs and text.rs; producer and CLI/D-Bus consumer inspection; sanitized JSON/schema tests, tolerant legacy/missing-field tests, the strengthened legacy secret-retention Debug regression, all 34 vinpst-protocol tests, strict all-target Clippy, and the module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [],
@@ -2346,8 +2371,6 @@
     "crates/vinpst-gui/src/script_removal.rs",
     "crates/vinpst-gui/src/script_transaction.rs",
     "crates/vinpst-http/src/lib.rs",
-    "crates/vinpst-protocol/src/lib.rs",
-    "crates/vinpst-protocol/src/text.rs",
     "crates/vinpst-registry/src/error.rs",
     "crates/vinpst-registry/src/lib.rs",
     "crates/vinpst-registry/src/plan.rs",
