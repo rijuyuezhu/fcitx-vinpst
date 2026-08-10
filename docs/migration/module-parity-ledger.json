@@ -1662,13 +1662,46 @@
         "Model directory layout, installed-model discovery, broken metadata handling, active-model deletion guards, and human short-id display were audited earlier under ASR-MODEL-001/CLI-RESOURCE-001 and are not re-owned here. This unit therefore closes the remaining model-registry installation implementation without duplicating those decisions.",
         "Deterministic evidence includes tar/tar.zst/tar.bz2 safety and extraction tests, checksum helper and mismatch tests, URL-fallback staging tests, single-root live model install, repeated replacement, missing-checksum install, metadata persistence, materialization rollback/cross-filesystem tests, and strict all-target vinpst-registry Clippy."
       ]
+    },
+    {
+      "id": "REGISTRY-SCRIPTS-001",
+      "state": "audited-fixed",
+      "title": "Provider and adapter registry scripts and managed publication",
+      "upstream_files": [
+        "common/registry/registry_scripts.cpp",
+        "common/registry/registry_scripts.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/provider/catalog.rs",
+        "crates/vinpst-cli/src/registry_support.rs",
+        "crates/vinpst-cli/tests/provider_list.rs",
+        "crates/vinpst-gui/src/script_management.rs",
+        "crates/vinpst-gui/src/script_transaction.rs",
+        "crates/vinpst-registry/src/asset.rs",
+        "crates/vinpst-registry/src/script.rs",
+        "crates/vinpst-registry/tests/script_registry.rs"
+      ],
+      "notes": [
+        "Frozen registry_scripts owns provider/adapter registry parsing, dotted resource-id to managed-path mapping, 120-second ordered script download, executable permission publication, managed-entry detection, and config materialization that preserves existing timeout/environment/extra values while adding newly declared registry environment keys.",
+        "Current ownership is intentionally split across the already-owned vinpst-registry script schema/materializer, the downloader/asset boundary, CLI registry/config orchestration, and GUI transactional script management. No still-pending current source file maps cleanly one-to-one to this frozen unit, so current_files is empty and those mixed owners remain supporting rather than being double-counted.",
+        "Fixed managed-entry detection to match frozen lexical path semantics. Existing command-provider and adapter args are now compared after filesystem-independent lexical normalization, so harmless `.`/`..` path spelling differences no longer make an otherwise managed script look user-defined. Integration tests now update both provider and adapter entries whose stored args contain a `./` segment.",
+        "Strengthened script publication around the frozen executable-permission boundary. A downloaded script is now staged into a unique same-directory prepared sibling, marked executable there, and only then renamed to the managed final path. If chmod fails, the prior managed script remains untouched and the prepared file is removed. A deterministic injected-permission failure test proves the old script survives with no prepared-file residue.",
+        "Fixed a CLI-only cross-resource consistency gap found while tracing frozen DownloadScript plus config materialization. Provider/adapter install now use a shared short transaction: preserve an existing managed script in a same-directory rollback sibling (or record that no script existed), install the new script, commit the validated config, then discard the rollback. Any install/post-check/config-write failure restores the previous script or removes a newly created script.",
+        "A process-level provider update test performs a real local HTTP script download, deliberately makes the config output path a directory so the config write fails after script publication, and proves the command fails while the prior managed script and input config are restored and no `.cli-rollback` file remains. Adapter installation uses the same shared transaction helper and its normal install suite remains green.",
+        "The CLI rollback helper rejects non-regular existing managed targets before update, copies and fsyncs an existing script before publication, restores with a same-directory rename, and treats rollback failure as additional error context. Cleanup of a rollback artifact after a fully successful script+config commit is best-effort so a valid committed state is not falsely reported as failed solely because an obsolete backup could not be deleted.",
+        "Current registry parsing remains deliberately stricter than frozen permissive item skipping: it validates positive version, duplicate ids/short ids, non-empty short ids/commands/URLs/env names, unique env keys, expected resource kind, and provider stream flag agreement with the `.streaming` id suffix. The current upstream public provider/adapter registries were inspected during this audit and conform to these constraints (11 providers and one adapter, all command `python3` entries with three script mirrors).",
+        "Frozen RelativePathForId behavior is preserved for multi-segment leaf ids. Frozen IdFromRelativePath has no production caller in the source tree and is not reproduced as an otherwise unused public Rust API. Managed roots preserve Vinpst identity rather than frozen Vinput paths.",
+        "Frozen readme_url, stream, script_urls, and env metadata all have current consumers: CLI available-resource output exposes readme/protocol/env requirements, GUI install preparation consumes environment declarations, and script installation uses ordered script_urls. No additional metadata field was found stranded by the rewrite.",
+        "Current GUI keeps its stronger persistent adapter rollback/revision and recovery state above the common script installer; the new atomic prepared-script publication composes with that layer rather than replacing it. GUI-only removal/revision policies remain owned by their later GUI audit units.",
+        "Deterministic evidence includes registry parser/materialization integration tests, ordered mirror download plus executable permission, lexical-equivalent managed provider/adapter update tests, injected chmod-failure preservation, the CLI config-write rollback process test, existing GUI script recovery/rollback tests, and strict all-target Clippy for registry/CLI/GUI."
+      ]
     }
   ],
   "upstream_pending": [
     "common/config/config_router.cpp",
     "common/config/config_router.h",
-    "common/registry/registry_scripts.cpp",
-    "common/registry/registry_scripts.h",
     "common/utils/debug_log.h",
     "common/utils/file_utils.cpp",
     "common/utils/file_utils.h",
