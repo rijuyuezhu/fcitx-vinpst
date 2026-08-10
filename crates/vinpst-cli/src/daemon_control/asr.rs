@@ -1,6 +1,7 @@
 use super::status::DaemonAsrBackendStateTuple;
 use super::{
-    Context, Path, daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy, dbus,
+    Context, Path, daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy,
+    daemon_session_connection, dbus,
 };
 use crate::same_path_text;
 
@@ -102,7 +103,7 @@ pub(crate) fn reload_asr_backend_via_dbus() -> anyhow::Result<()> {
 }
 
 fn request_asr_reload_via_dbus() -> anyhow::Result<DaemonAsrBackendStateTuple> {
-    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let connection = daemon_session_connection()?;
     request_asr_reload_on_connection(&connection)
 }
 
@@ -117,7 +118,7 @@ pub(crate) fn reload_asr_backend_after_canonical_write(
         return AsrReloadAfterWrite::NotCanonical;
     }
 
-    let connection = match zbus::blocking::Connection::session() {
+    let connection = match daemon_session_connection() {
         Ok(connection) => connection,
         Err(error) => {
             return AsrReloadAfterWrite::Warning(format!(

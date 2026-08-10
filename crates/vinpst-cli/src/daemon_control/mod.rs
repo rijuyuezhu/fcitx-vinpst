@@ -62,6 +62,15 @@ pub(crate) fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<(
 
 const HANDOFF_VERIFY_ATTEMPTS: u32 = 100;
 const HANDOFF_VERIFY_INTERVAL: Duration = Duration::from_millis(50);
+const CLI_DBUS_METHOD_TIMEOUT: Duration = Duration::from_secs(5);
+
+pub(crate) fn daemon_session_connection() -> anyhow::Result<zbus::blocking::Connection> {
+    zbus::blocking::connection::Builder::session()
+        .context("create session D-Bus connection builder")?
+        .method_timeout(CLI_DBUS_METHOD_TIMEOUT)
+        .build()
+        .context("connect to session bus")
+}
 
 pub(crate) use asr::{
     AsrReloadAfterWrite, reload_asr_backend_after_canonical_write, reload_asr_backend_via_dbus,

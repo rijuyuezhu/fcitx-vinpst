@@ -6,6 +6,7 @@ use super::{
     catalog::{load_adapter_list_context, load_live_adapter_registry},
     mutation::normalize_adapter_id,
 };
+use crate::daemon_control::daemon_session_connection;
 
 fn resolve_installed_adapter_selector(
     selector: &str,
@@ -122,7 +123,7 @@ fn adapter_lifecycle_output(
 }
 
 fn call_adapter_lifecycle_via_dbus(method: &str, adapter_id: &str) -> anyhow::Result<()> {
-    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let connection = daemon_session_connection()?;
     let proxy = daemon_service_proxy(&connection)?;
     let _: () = proxy
         .call(method, &(adapter_id))
@@ -155,7 +156,7 @@ pub(super) fn print_adapter_status(
 }
 
 fn call_text_adapter_state_via_dbus() -> anyhow::Result<TextAdapterState> {
-    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let connection = daemon_session_connection()?;
     let proxy = daemon_service_proxy(&connection)?;
     let raw: String = proxy
         .call(dbus::method::GET_TEXT_ADAPTER_STATE, &())

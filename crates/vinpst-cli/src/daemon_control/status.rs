@@ -1,4 +1,4 @@
-use super::{Context, MetadataExt, Path, PathBuf, dbus, fs};
+use super::{Context, MetadataExt, Path, PathBuf, daemon_session_connection, dbus, fs};
 
 pub(super) type DaemonAsrBackendStateTuple = (
     String,
@@ -99,7 +99,7 @@ pub(crate) fn daemon_owner_probe_plan_json() -> serde_json::Value {
 }
 
 pub(super) fn daemon_status_via_dbus() -> anyhow::Result<serde_json::Value> {
-    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let connection = daemon_session_connection()?;
     let proxy = daemon_service_proxy(&connection)?;
     let status: String = proxy
         .call(dbus::method::GET_STATUS, &())

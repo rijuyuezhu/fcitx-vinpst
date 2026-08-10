@@ -3,7 +3,10 @@ use vinpst_protocol::{RecognitionPayload, ServiceStatus, dbus};
 
 use crate::{
     RecordingCommand,
-    daemon_control::{daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy},
+    daemon_control::{
+        daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy,
+        daemon_session_connection,
+    },
 };
 
 pub(crate) fn handle_recording_command(command: RecordingCommand) -> anyhow::Result<()> {
@@ -159,9 +162,7 @@ fn recording_action_via_dbus(
             dbus::method::START_RECORDING
         }
         ("stop", _) => {
-            let payload: String = proxy
-                .call(dbus::method::STOP_RECORDING, &(scene.unwrap_or("")))
-                .context("call StopRecording on daemon D-Bus service")?;
+            let payload = call_synchronous_stop_recording(scene)?;
             return Ok(recording_result_json(
                 action,
                 dbus::method::STOP_RECORDING,
@@ -184,9 +185,7 @@ fn recording_toggle_via_dbus(
         .context("call GetStatus on daemon D-Bus service")?;
     match recording_toggle_action(&status)? {
         RecordingToggleAction::Stop => {
-            let payload: String = proxy
-                .call(dbus::method::STOP_RECORDING, &(scene.unwrap_or("")))
-                .context("call StopRecording on daemon D-Bus service")?;
+            let payload = call_synchronous_stop_recording(scene)?;
             let mut output = recording_result_json(
                 "toggle",
                 dbus::method::STOP_RECORDING,
@@ -214,6 +213,17 @@ fn recording_toggle_via_dbus(
     Ok(output)
 }
 
+fn call_synchronous_stop_recording(scene: Option<&str>) -> anyhow::Result<String> {
+    // Unlike frozen upstream, Vinpst's StopRecording method returns the final recognition
+    // payload synchronously. Do not apply the frozen five-second control-call timeout here:
+    // ASR/text processing may legitimately take longer before the method can reply.
+    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let proxy = daemon_service_proxy(&connection)?;
+    proxy
+        .call(dbus::method::STOP_RECORDING, &(scene.unwrap_or("")))
+        .context("call StopRecording on daemon D-Bus service")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RecordingToggleAction {
     Start,
@@ -232,7 +242,7 @@ fn recording_toggle_action(status: &str) -> anyhow::Result<RecordingToggleAction
 }
 
 fn running_daemon_connection() -> anyhow::Result<zbus::blocking::Connection> {
-    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
+    let connection = daemon_session_connection()?;
     if !daemon_name_has_owner(&connection)? {
         anyhow::bail!("Daemon is not running.");
     }

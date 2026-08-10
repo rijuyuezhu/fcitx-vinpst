@@ -1,12 +1,22 @@
-use std::{fs, os::unix::fs::MetadataExt};
+use std::{fs, os::unix::fs::MetadataExt, time::Duration};
 
 use super::{
+    daemon_session_connection,
     handoff::{direct_owner_handoff_guard, revalidate_direct_owner_identity},
     removal::removal_session_guard,
     status::{
         DELETED_EXECUTABLE_SUFFIX, daemon_handoff_diagnostics_for_paths, daemon_owner_process_json,
     },
 };
+
+#[test]
+fn daemon_cli_connection_uses_frozen_method_timeout_when_bus_is_available() {
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+        return;
+    }
+    let connection = daemon_session_connection().expect("connect to private session bus");
+    assert_eq!(connection.method_timeout(), Some(Duration::from_secs(5)));
+}
 
 #[test]
 fn handoff_diagnostics_accept_matching_executable() {
