@@ -146,7 +146,7 @@ private:
   std::unique_ptr<FcitxNotifierDbusObject> notifier_dbus_;
   std::unique_ptr<fcitx::dbus::Slot> pending_start_call_slot_;
   std::unique_ptr<fcitx::dbus::Slot> pending_stop_call_slot_;
-  std::chrono::steady_clock::time_point daemon_sync_blocked_until_{};
+  std::chrono::steady_clock::time_point daemon_sync_blocked_until_;
   std::shared_ptr<fcitx::EventDispatcher> menu_refresh_dispatcher_;
   std::shared_ptr<bool> menu_refresh_lifetime_ = std::make_shared<bool>(true);
   std::atomic<std::uint64_t> scene_menu_refresh_seq_{0};

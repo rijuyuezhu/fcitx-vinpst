@@ -28,7 +28,7 @@ public:
   }
 
 private:
-  FCITX_OBJECT_VTABLE_METHOD(Notify, dbus::kMethodNotify.data(), "ssss", "");
+  FCITX_OBJECT_VTABLE_METHOD(Notify, dbus::kMethodNotify, "ssss", "");
 
   Callback callback_;
 };

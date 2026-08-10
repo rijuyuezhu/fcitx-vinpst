@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using vinpst_fcitx_bridge::AppliedOutcome;
@@ -89,9 +90,11 @@ bool ExpectIgnoredTrigger(FcitxVinpstAddon *addon, FcitxTriggerAction action,
 
 namespace vinpst_fcitx_bridge {
 
-AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
-                                                fcitx::InputContext *,
-                                                ResultCandidateSelectCallback) {
+AppliedOutcome
+ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome, fcitx::InputContext *,
+                                 ResultCandidateSelectCallback on_candidate_select) {
+  auto ignored_callback = std::move(on_candidate_select);
+  static_cast<void>(ignored_callback);
   g_last_outcome = outcome;
   g_outcomes.push_back(outcome);
   switch (outcome.kind) {

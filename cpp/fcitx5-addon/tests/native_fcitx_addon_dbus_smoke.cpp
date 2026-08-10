@@ -162,7 +162,7 @@ int main() {
       const auto current = input_context.inputPanel().auxDown().toString();
       const auto candidates = input_context.inputPanel().candidateList();
       if (current.empty() || (action == FcitxTriggerAction::ShowSceneMenu &&
-                              (candidates == nullptr || candidates->size() == 0))) {
+                              (candidates == nullptr || candidates->empty()))) {
         std::cerr << menu_probe << " menu did not publish its refreshed snapshot\n";
         return 1;
       }
