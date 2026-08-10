@@ -2652,17 +2652,46 @@
         "error_dialog.rs remains a simple modal projection rather than an error parser: it shows one recoverable message as plain Iced text, offers Retry only for retryable model/script install failures, and otherwise offers Dismiss. No markup/shell interpretation or hidden retry side effect was found. The existing OperationState and install state machines remain the owners of retry eligibility.",
         "Evidence includes complete source/call-site review of the five owned files; exact reload classification regression; provider-script exact-path and real editor execution tests; new editor-argument redaction regression in both locales; localized dynamic-form and open-editor guard tests; strict all-target vinpst-gui Clippy; the full GUI suite; the updated GUI contract documenting that environment-derived editor argv is not presentation data; docs build, secret scan, diff check, and module-parity ledger checker."
       ]
+    },
+    {
+      "id": "GUI-INTERACTION-OWNER-001",
+      "state": "audited-aligned",
+      "title": "Current-only daemon owner reconciliation and keyboard interaction baseline",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-gui/src/daemon_owner_monitor.rs",
+        "crates/vinpst-gui/src/interaction.rs",
+        "crates/vinpst-gui/src/keyboard_action.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/daemon_client.rs",
+        "crates/vinpst-gui/src/daemon_control.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/message.rs",
+        "crates/vinpst-gui/src/tests.rs",
+        "docs/architecture/gui-contract.md",
+        "docs/user/accessibility.md",
+        "docs/user/limitations.md"
+      ],
+      "notes": [
+        "This current-only unit owns the GUI daemon-owner signal monitor, global keyboard interaction mapping, and the bounded custom focus/activation widget wrapper. These responsibilities have no one-to-one frozen Qt files because they arise from the Rust/Iced event model and the explicit 0.1.0 keyboard-accessibility policy; page actions and daemon query/control implementations remain under their existing units.",
+        "Daemon owner reconciliation subscribes to the filtered NameOwnerChanged stream before sampling NameHasOwner, avoiding the registration-versus-snapshot race. Connected/Changed events invalidate any earlier refresh generation; owner loss immediately marks the daemon Stopped and stale worker completions are rejected by operation id. Owner return starts one fresh snapshot query without showing a transient loading shell.",
+        "If the owner signal stream fails, the GUI records an internal Failed monitor state and switches to serialized 30-second fallback polling. The poll calls query_daemon_snapshot_if_owned, which checks NameHasOwner before constructing the service snapshot and therefore does not activate a stopped daemon. Only one refresh id may be active at a time; a later owner signal or explicit restart invalidates the earlier worker result. The stored monitor failure string is not presented as daemon state or a user-facing notification.",
+        "A real private dbus-daemon test proves filtered name acquisition and loss signals rather than mocking the event sequence. Application-state regressions prove stale snapshots cannot resurrect a lost owner, owner return recovers automatically, monitor failure retains the last good snapshot until the non-activating poll resolves, and repeated fallback ticks are serialized.",
+        "The interaction layer intentionally handles only non-repeating shortcuts not consumed by active widgets, except F6 which may be honored even when a widget captures the key so the registry workflow focus command remains dependable. Escape clears focus or dismisses the active modal/detail, Tab and Shift+Tab perform traversal, Command+1..4 switch the four stable pages, and ordinary text-editing combinations such as Command+C are not intercepted. Busy-state guards continue to block page switching while allowing focus traversal.",
+        "KeyboardAction wraps enabled pointer controls rather than replacing their pointer/overlay behavior. It participates in Iced focus operations with a visible focus ring, forwards every event to the underlying widget first, and only handles an uncaptured key when the wrapper itself is focused. Enter/Space activate buttons/checkboxes, arrows publish bounded previous/next selection messages, modifiers and key repeat are ignored, and disabled controls with no keyboard messages are returned unwrapped so they do not enter the custom focus order.",
+        "adjacent_values handles missing/current/end selections without indexing outside the option slice. Tests pin activation keys, arrow directions, modifiers/repeat rejection, missing selection fallback, and empty options; interaction tests pin shortcut mapping, modal/busy behavior, dynamic localized window titles, and the declared capability snapshot.",
+        "The capability snapshot matches the documented 0.1.0 accessibility contract: keyboard management, clipboard editing, and Wayland/X11 input-method handling are supported, while a platform assistive-technology semantic tree and screen-reader navigation are explicitly unsupported. CLI, fcitx5-configtool, guarded config-file editing, and fcitx reload commands remain documented fallbacks; this audit does not falsely upgrade toolkit capability.",
+        "Evidence includes complete source/call-site review of the three owned files; private-session D-Bus owner acquire/loss tests; daemon generation/fallback state tests; keyboard shortcut, focus, activation, adjacent-value, busy/modal, title, and capability-snapshot tests; the full 219-test vinpst-gui suite plus main test; strict all-target Clippy; docs build; and module-parity ledger validation."
+      ]
     }
   ],
   "upstream_pending": [],
   "current_pending": [
     "crates/vinpst-gui/src/asr_provider_management.rs",
-    "crates/vinpst-gui/src/daemon_owner_monitor.rs",
     "crates/vinpst-gui/src/hotword_activation_retry.rs",
     "crates/vinpst-gui/src/hotword_path.rs",
     "crates/vinpst-gui/src/hotword_persistence.rs",
-    "crates/vinpst-gui/src/interaction.rs",
-    "crates/vinpst-gui/src/keyboard_action.rs",
     "crates/vinpst-gui/src/lib.rs",
     "crates/vinpst-gui/src/message.rs",
     "crates/vinpst-gui/src/resource_details.rs",
