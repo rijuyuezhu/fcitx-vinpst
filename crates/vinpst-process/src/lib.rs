@@ -6,6 +6,7 @@
 use std::fs;
 use std::{
     io::{self, Read},
+    os::fd::AsFd,
     os::unix::process::CommandExt,
     process::{Child, ChildStdin, Command, Output, Stdio},
     sync::{
@@ -23,6 +24,7 @@ use nix::{
     sys::wait::{Id, WaitPidFlag, WaitStatus, waitid},
 };
 use nix::{
+    fcntl::{FcntlArg, OFlag, fcntl},
     sys::signal::{Signal, kill, killpg},
     unistd::Pid,
 };
@@ -173,6 +175,15 @@ pub enum PipedCommandError {
 /// Configures a command so its child becomes leader of a new process group.
 pub fn configure_process_group(command: &mut Command) {
     command.process_group(0);
+}
+
+/// Marks a Unix file descriptor nonblocking while preserving its other flags.
+pub fn set_nonblocking(fd: &impl AsFd) -> io::Result<()> {
+    let raw_flags = fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
+    let flags = OFlag::from_bits_truncate(raw_flags);
+    fcntl(fd, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK))
+        .map(|_| ())
+        .map_err(io::Error::from)
 }
 
 /// Returns whether a process group currently exists.

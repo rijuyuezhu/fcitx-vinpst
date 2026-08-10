@@ -12,6 +12,8 @@ use vinpst_text::{
 
 use super::{RuntimeError, RuntimeState};
 
+const MAX_PENDING_ADAPTER_NOTIFICATIONS: usize = 256;
+
 #[derive(Debug)]
 struct AdapterRestartPlan {
     old_spec: AdapterProcessSpec,
@@ -124,21 +126,63 @@ impl RuntimeState {
 
     /// Reaps supervised text adapters that have already exited.
     pub fn refresh_text_adapters(&mut self) -> Vec<String> {
-        let exited_adapter_ids: Vec<_> = self
-            .adapter_processes
-            .iter_mut()
-            .filter_map(
-                |(adapter_id, process)| match process.try_wait_and_cleanup() {
-                    Ok(Some(_status)) => Some(adapter_id.clone()),
-                    Ok(None) | Err(_) => None,
-                },
-            )
-            .collect();
+        let mut exited_adapter_ids = Vec::new();
+        let mut notifications = Vec::new();
+        for (adapter_id, process) in &mut self.adapter_processes {
+            match process.drain_stderr_lines(false) {
+                Ok(lines) => notifications.extend(
+                    lines
+                        .into_iter()
+                        .map(|message| (adapter_id.clone(), message)),
+                ),
+                Err(error) => tracing::warn!(
+                    adapter_id,
+                    %error,
+                    "failed to read text adapter stderr"
+                ),
+            }
+            match process.try_wait_and_cleanup() {
+                Ok(Some(status)) => {
+                    match process.drain_stderr_lines(true) {
+                        Ok(lines) => notifications.extend(
+                            lines
+                                .into_iter()
+                                .map(|message| (adapter_id.clone(), message)),
+                        ),
+                        Err(error) => tracing::warn!(
+                            adapter_id,
+                            %error,
+                            "failed to flush text adapter stderr after exit"
+                        ),
+                    }
+                    tracing::debug!(adapter_id, ?status, "text adapter exited");
+                    exited_adapter_ids.push(adapter_id.clone());
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(
+                    adapter_id,
+                    %error,
+                    "failed to inspect text adapter process"
+                ),
+            }
+        }
+        for notification in notifications {
+            if self.adapter_notifications.len() == MAX_PENDING_ADAPTER_NOTIFICATIONS {
+                self.adapter_notifications.pop_front();
+            }
+            self.adapter_notifications.push_back(notification);
+        }
         for adapter_id in &exited_adapter_ids {
             self.adapter_processes.remove(adapter_id);
             let _ = self.adapter_runtime_paths.remove_pid(adapter_id);
         }
         exited_adapter_ids
+    }
+
+    /// Drains adapter stderr lines queued for daemon notifications.
+    pub(crate) fn take_text_adapter_notifications(&mut self) -> Vec<(String, String)> {
+        self.refresh_text_adapters();
+        self.adapter_notifications.drain(..).collect()
     }
 
     /// Starts a configured command text adapter process.

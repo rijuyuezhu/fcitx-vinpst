@@ -1239,7 +1239,7 @@ fn refresh_text_adapters_reaps_exited_processes_and_descendants() {
         command: "/bin/sh".to_owned(),
         args: vec![
             "-c".to_owned(),
-            r#"sleep 30 & echo $! > "$CHILD_PID""#.to_owned(),
+            r#"sleep 30 & echo $! > "$CHILD_PID"; sleep 0.35"#.to_owned(),
         ],
         env: std::collections::HashMap::from([(
             "CHILD_PID".to_owned(),
@@ -1280,6 +1280,46 @@ fn refresh_text_adapters_reaps_exited_processes_and_descendants() {
     assert_eq!(runtime.text_adapter_pid("cmd-adapter"), None);
     assert!(!pid_path.exists());
     wait_until_process_stops_running(child_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn text_adapter_notifications_preserve_lines_and_flush_partial_on_exit() {
+    let runtime_dir = unique_adapter_runtime_dir("stderr-notifications");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    config.llm.adapters.push(vinpst_config::LlmAdapterConfig {
+        id: "cmd-adapter".to_owned(),
+        command: "/bin/sh".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            "printf ' first \\nsecond\\npartial' >&2; sleep 0.5; exit 0".to_owned(),
+        ],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    });
+    let mut runtime = RuntimeState::new(config)
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    runtime.start_text_adapter("cmd-adapter").unwrap();
+    assert_eq!(
+        runtime.take_text_adapter_notifications(),
+        [
+            ("cmd-adapter".to_owned(), "first".to_owned()),
+            ("cmd-adapter".to_owned(), "second".to_owned()),
+        ]
+    );
+    assert!(pid_path.exists());
+
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    assert_eq!(
+        runtime.take_text_adapter_notifications(),
+        [("cmd-adapter".to_owned(), "partial".to_owned())]
+    );
+    assert!(!runtime.is_text_adapter_running("cmd-adapter"));
+    assert!(!pid_path.exists());
     let _ = std::fs::remove_dir_all(runtime_dir);
 }
 

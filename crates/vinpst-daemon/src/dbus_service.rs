@@ -55,6 +55,7 @@ type DbusResult<T> = Result<T, VinpstDbusError>;
 const MAX_ERROR_DESCRIPTION_LEN: usize = 512;
 const LIVE_PARTIAL_POLL_INTERVAL: Duration = Duration::from_millis(40);
 const ASR_RELOAD_POLL_INTERVAL: Duration = Duration::from_millis(20);
+const ADAPTER_STDERR_POLL_INTERVAL: Duration = Duration::from_millis(100);
 fn postprocess_notification(error: &vinpst_text::TextError) -> ErrorInfo {
     match error {
         vinpst_text::TextError::PromptFileLoad(message) => {
@@ -216,8 +217,31 @@ impl VinpstDbusService {
     /// Binds background signal emission to the connection hosting this service.
     pub async fn bind_signal_connection(&self, connection: &Connection) -> zbus::Result<()> {
         let emitter = SignalEmitter::new(connection, dbus::SERVICE_OBJECT_PATH)?.to_owned();
-        *self.signal_emitter.lock().await = Some(emitter);
+        *self.signal_emitter.lock().await = Some(emitter.clone());
+        self.spawn_adapter_stderr_emitter(emitter);
         Ok(())
+    }
+
+    fn spawn_adapter_stderr_emitter(&self, emitter: SignalEmitter<'static>) {
+        let runtime = Arc::clone(&self.runtime);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(ADAPTER_STDERR_POLL_INTERVAL);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let notifications = runtime.lock().await.take_text_adapter_notifications();
+                for (adapter_id, message) in notifications {
+                    tracing::warn!(adapter_id, stderr = %message, "text adapter stderr");
+                    let notification = make_raw_error(message);
+                    if Self::emit_error_info(&emitter, &notification)
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            }
+        });
     }
 
     fn operation_failed(message: impl AsRef<str>) -> VinpstDbusError {

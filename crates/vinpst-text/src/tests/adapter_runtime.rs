@@ -334,6 +334,50 @@ fn start_adapter_process_reports_spawn_failure_without_pid_file() {
 }
 
 #[test]
+fn start_adapter_process_reports_immediate_exit_stderr_without_pid_file() {
+    let runtime_dir = unique_runtime_dir("immediate-stderr");
+    let paths = AdapterRuntimePaths::new(&runtime_dir);
+    let spec = sleep_adapter_spec(vec![
+        "-c".to_owned(),
+        "printf 'adapter startup failed\\n' >&2; exit 7".to_owned(),
+    ]);
+
+    let error = start_adapter_process(&spec, &paths).unwrap_err();
+
+    assert_eq!(
+        error,
+        TextError::AdapterFailed("adapter startup failed".to_owned())
+    );
+    assert_eq!(paths.read_pid("cmd-adapter").unwrap(), None);
+    std::fs::remove_dir_all(runtime_dir).unwrap();
+}
+
+#[test]
+fn started_adapter_process_drains_lines_and_flushes_partial_stderr_on_exit() {
+    let runtime_dir = unique_runtime_dir("stderr-lines");
+    let paths = AdapterRuntimePaths::new(&runtime_dir);
+    let spec = sleep_adapter_spec(vec![
+        "-c".to_owned(),
+        "printf ' first \\nsecond\\npartial' >&2; sleep 0.5; exit 0".to_owned(),
+    ]);
+    let mut started = start_adapter_process(&spec, &paths).unwrap();
+
+    assert_eq!(
+        started.drain_stderr_lines(false).unwrap(),
+        ["first".to_owned(), "second".to_owned()]
+    );
+    assert!(started.try_wait_and_cleanup().unwrap().is_none());
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(started.try_wait_and_cleanup().unwrap().is_some());
+    assert_eq!(
+        started.drain_stderr_lines(true).unwrap(),
+        ["partial".to_owned()]
+    );
+    paths.remove_pid("cmd-adapter").unwrap();
+    std::fs::remove_dir_all(runtime_dir).unwrap();
+}
+
+#[test]
 fn stop_started_adapter_process_terminates_group_and_descendant() {
     let runtime_dir = unique_runtime_dir("tracked-stop");
     let child_pid_path = runtime_dir.join("child.pid");

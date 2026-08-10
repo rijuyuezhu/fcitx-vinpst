@@ -24,7 +24,7 @@ pub(crate) use reload::AsrReloadWorkerStep;
 use reload::PendingAsrReload;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     time::{Duration, Instant},
 };
@@ -73,6 +73,7 @@ pub struct RuntimeState {
     model_root: Option<PathBuf>,
     adapter_runtime_paths: AdapterRuntimePaths,
     adapter_processes: HashMap<String, StartedAdapterProcess>,
+    adapter_notifications: VecDeque<(String, String)>,
 }
 
 impl Drop for RuntimeState {
@@ -361,6 +362,7 @@ impl RuntimeState {
             model_root: None,
             adapter_runtime_paths: AdapterRuntimePaths::for_current_user(),
             adapter_processes: HashMap::new(),
+            adapter_notifications: VecDeque::new(),
         })
     }
 

@@ -1770,6 +1770,122 @@ async fn configured_adapter_supervision_roundtrips_through_session_bus() -> anyh
 }
 
 #[tokio::test]
+async fn immediate_adapter_exit_returns_stderr_without_publishing_pid() -> anyhow::Result<()> {
+    let runtime_dir = unique_adapter_runtime_dir("adapter-startup-stderr");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let config: VinpstConfig = serde_json::from_str(
+        r#"
+        {
+          "version": 1,
+          "asr": {"active_provider":""},
+          "llm": {
+            "adapters": [{
+              "id":"cmd-adapter",
+              "command":"/bin/sh",
+              "args":["-c", "printf 'adapter startup failed\\n' >&2; exit 7"]
+            }]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    )?;
+    config.validate()?;
+    let runtime = RuntimeState::new(config)?
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+
+    let error = proxy
+        .call::<_, _, ()>(dbus::method::START_ADAPTER, &"cmd-adapter")
+        .await
+        .expect_err("immediately exited adapter should fail StartAdapter");
+    assert_legacy_operation_failed(&error, "adapter startup failed");
+    assert!(
+        !pid_path.exists(),
+        "failed startup must not publish pid file"
+    );
+    let _ = std::fs::remove_dir_all(runtime_dir);
+    Ok(())
+}
+
+#[tokio::test]
+async fn adapter_stderr_is_emitted_as_raw_daemon_notification() -> anyhow::Result<()> {
+    let runtime_dir = unique_adapter_runtime_dir("adapter-stderr-signal");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let config: VinpstConfig = serde_json::from_str(
+        r#"
+        {
+          "version": 1,
+          "asr": {"active_provider":""},
+          "llm": {
+            "adapters": [{
+              "id":"cmd-adapter",
+              "command":"/bin/sh",
+              "args":["-c", "sleep 0.35; printf 'adapter live warning\\n' >&2; sleep 0.3"]
+            }]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    )?;
+    config.validate()?;
+    let runtime = RuntimeState::new(config)?
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_ADAPTER, &"cmd-adapter")
+        .await?;
+    assert!(pid_path.exists());
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "unknown".to_owned(),
+            String::new(),
+            String::new(),
+            "adapter live warning".to_owned(),
+        )
+    );
+
+    for _ in 0..20 {
+        if !pid_path.exists() {
+            break;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        !pid_path.exists(),
+        "stderr pump should also reap exited adapter"
+    );
+    let _ = std::fs::remove_dir_all(runtime_dir);
+    Ok(())
+}
+
+#[tokio::test]
 async fn exited_adapter_is_reaped_from_dbus_diagnostics() -> anyhow::Result<()> {
     let runtime_dir = unique_adapter_runtime_dir("adapter-reap");
     let pid_path = runtime_dir.join("cmd-adapter.pid");
@@ -1779,7 +1895,11 @@ async fn exited_adapter_is_reaped_from_dbus_diagnostics() -> anyhow::Result<()> 
           "version": 1,
           "asr": {"active_provider":""},
           "llm": {
-            "adapters": [{"id":"cmd-adapter","command":"true"}]
+            "adapters": [{
+              "id":"cmd-adapter",
+              "command":"/bin/sh",
+              "args":["-c", "sleep 0.35"]
+            }]
           },
           "scenes": {
             "active_scene": "raw",
