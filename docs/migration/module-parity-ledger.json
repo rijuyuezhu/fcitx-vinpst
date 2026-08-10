@@ -2078,11 +2078,49 @@
         "Path semantics are also stricter by design. Current trims configured values, rejects URL-like hotword paths, refuses ambiguous cross-process relative paths where daemon and GUI resolution could differ, validates the complete resulting config before persistence, and distinguishes configured path from the resolved content path. Those resolution and durability primitives remain supporting pending modules for their own file-level audits; this unit owns the page state machine, chooser, and presentation rather than claiming every filesystem primitive underneath them.",
         "Evidence includes complete source and MainWindow call-site review of frozen hotword_page.cpp/.h, complete review of current hotword_management.rs plus its view/file-picker modules and page tests, the full 212/212 GUI library suite plus 1/1 main test, and the module-parity checker. No production-code change was required for this unit."
       ]
+    },
+    {
+      "id": "GUI-LLM-PAGE-001",
+      "state": "audited-fixed",
+      "title": "LLM providers, adapters, scenes, and runtime controls",
+      "upstream_files": [
+        "gui/pages/llm/llm_page.cpp",
+        "gui/pages/llm/llm_page.h"
+      ],
+      "current_files": [
+        "crates/vinpst-gui/src/adapter_config_management.rs",
+        "crates/vinpst-gui/src/adapter_runtime.rs",
+        "crates/vinpst-gui/src/llm_provider_management.rs",
+        "crates/vinpst-gui/src/llm_provider_management/view.rs",
+        "crates/vinpst-gui/src/scene_management.rs",
+        "crates/vinpst-gui/src/scene_management/view.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-config/src/validation.rs",
+        "crates/vinpst-gui/src/adapter_config_management/view.rs",
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/i18n/en.rs",
+        "crates/vinpst-gui/src/i18n/keys.rs",
+        "crates/vinpst-gui/src/i18n/zh_cn.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/message.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-gui/src/script_catalog.rs",
+        "crates/vinpst-gui/src/script_install/view.rs"
+      ],
+      "notes": [
+        "Frozen LlmPage combines four user flows: OpenAI-compatible provider CRUD/Test, configured adapter runtime management, Scene CRUD/activation, and a pointer to registry-managed adapter installation on Resources. Current preserves all four flows while separating durable configuration, daemon-authoritative runtime state, registry installation, and page presentation instead of treating the page widget as the persistence boundary.",
+        "Provider CRUD parity is preserved and hardened. Current keeps provider ids immutable during edit, validates and atomically persists the complete config, clears removed provider references from Scenes like frozen, preserves forward-compatible extra fields, masks sensitive URL components, and keeps API keys/extra_body out of Debug. Frozen Test probes GET /models; current intentionally tests the production /chat/completions path with a provider default model or an unambiguous Scene model. The frozen-compatible /models discovery capability is still available in the Scene editor and was audited by URL-UTILS-001, so the production-path Test remains an intentional product divergence rather than a missing capability.",
+        "Adapter configuration and runtime are complete. Custom command adapters support id/command/args/environment/working-directory editing with stable identities and full-config validation, while managed adapters follow the registry removal path. Runtime Start/Stop uses daemon-authoritative TextAdapterState with precondition refresh, postcondition confirmation, stale-generation guards, and explicit contradictory/unavailable outcomes instead of assuming a D-Bus call means the process reached the requested state. Current deliberately rejects frozen's adapter tooltip behavior that exposes full argv and environment values; ordinary args remain visible in the editor but environment input and Debug are redacted.",
+        "The audit found two real Scene-editor compatibility regressions. Frozen LlmPage deliberately overrides the frozen core/CLI candidate default of 1 and starts newly added GUI Scenes at 3; current GUI had inherited 1. SceneEditorState::add now restores the page-specific default of 3 without changing the CLI/core default. Frozen also permits an empty Label and displays the Scene id as fallback, while current strict schema requires a non-empty label; the GUI now mirrors the already-audited CLI compatibility rule by normalizing a blank label to the stable Scene id before validation.",
+        "Current intentionally does not copy frozen's QSpinBox-only 1..10 candidate restriction. The current typed configuration contract accepts candidate_count through 0..32 and validates the complete Scene against that schema; narrowing only the GUI would make valid current configs uneditable and would also copy a frozen inconsistency, because its postprocess core separately normalizes 0..9. The GUI keeps the current 0..32 contract while restoring only the frozen page-specific default. Blank timeout remains serialized as None but the runtime effective default is the frozen 4000 ms, an intentional representation difference already covered by prior config/CLI audits.",
+        "Scene provider/model selection remains stronger than frozen without losing its affordances. Current lists configured providers, retains free-form model entry, asynchronously discovers /models suggestions with Bearer auth, timeout/size bounds and stale-generation rejection, protects built-in Scenes from destructive removal, rejects stale edits, and reconciles daemon state after mutation. Activate/remove operations are explicit and cannot overwrite an unrelated unsaved config draft.",
+        "The audit also restored the frozen navigation hint for adapters. The LLM page now tells users in English and Simplified Chinese to install managed adapters from Resources and return to LLM for Start/Stop, while retaining Add Custom Adapter for local manual configuration. This points at the existing registry catalog rather than duplicating installation controls on two pages.",
+        "Evidence includes complete source review of frozen llm_page.cpp/.h; complete review of current provider, adapter-config, adapter-runtime, Scene management and their dedicated views; supporting review of Resources registry installation and current config validation; 17 provider tests, 9 adapter-config tests, 6 adapter-runtime tests, 11 Scene tests, localization completeness tests, strict all-target vinpst-gui Clippy, the full GUI suite, and the module-parity ledger checker. Shared resource_pages/i18n/script catalog/install orchestration stays pending for later ownership-specific audits."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/pages/llm/llm_page.cpp",
-    "gui/pages/llm/llm_page.h",
     "gui/pages/resources/resource_page.cpp",
     "gui/pages/resources/resource_page.h",
     "gui/utils/config_manager.cpp",
@@ -2121,8 +2159,6 @@
     "crates/vinpst-daemon/src/runtime/diagnostics.rs",
     "crates/vinpst-daemon/src/runtime/errors.rs",
     "crates/vinpst-daemon/src/runtime/scene.rs",
-    "crates/vinpst-gui/src/adapter_config_management.rs",
-    "crates/vinpst-gui/src/adapter_runtime.rs",
     "crates/vinpst-gui/src/asr_provider_management.rs",
     "crates/vinpst-gui/src/asr_reload_confirmation.rs",
     "crates/vinpst-gui/src/blocking_task.rs",
@@ -2140,8 +2176,6 @@
     "crates/vinpst-gui/src/interaction.rs",
     "crates/vinpst-gui/src/keyboard_action.rs",
     "crates/vinpst-gui/src/lib.rs",
-    "crates/vinpst-gui/src/llm_provider_management.rs",
-    "crates/vinpst-gui/src/llm_provider_management/view.rs",
     "crates/vinpst-gui/src/message.rs",
     "crates/vinpst-gui/src/model_install.rs",
     "crates/vinpst-gui/src/model_management.rs",
@@ -2150,8 +2184,6 @@
     "crates/vinpst-gui/src/removal_confirmation.rs",
     "crates/vinpst-gui/src/resource_details.rs",
     "crates/vinpst-gui/src/resource_pages.rs",
-    "crates/vinpst-gui/src/scene_management.rs",
-    "crates/vinpst-gui/src/scene_management/view.rs",
     "crates/vinpst-gui/src/script_catalog.rs",
     "crates/vinpst-gui/src/script_install.rs",
     "crates/vinpst-gui/src/script_install/view.rs",
