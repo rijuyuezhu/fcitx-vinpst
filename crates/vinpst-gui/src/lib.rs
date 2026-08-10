@@ -1,6 +1,7 @@
 //! Rust management GUI state, data loading, and D-Bus integration.
 
 use std::{
+    fmt,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -253,7 +254,6 @@ enum DaemonLoadState {
 }
 
 /// GUI state.
-#[derive(Debug)]
 pub struct App {
     locale: GuiLocale,
     page: Page,
@@ -289,6 +289,84 @@ pub struct App {
     hotword_editor: HotwordEditorState,
     active_hotword_operation_id: Option<u64>,
     next_hotword_operation_id: u64,
+}
+
+impl fmt::Debug for App {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let config_state = match &self.config {
+            Ok(document) if document.from_disk => "disk",
+            Ok(_) => "bundled",
+            Err(_) => "invalid",
+        };
+        let draft_dirty = matches!(
+            (&self.config, &self.draft),
+            (Ok(document), Some(draft)) if draft.is_dirty(&document.config)
+        );
+        let daemon_state = match self.daemon {
+            DaemonLoadState::Loading => "loading",
+            DaemonLoadState::Stopped => "stopped",
+            DaemonLoadState::Ready(_) => "ready",
+            DaemonLoadState::Failed(_) => "failed",
+        };
+        let operation_state = match self.operation {
+            OperationState::Idle => "idle",
+            OperationState::Running(_) => "running",
+            OperationState::Succeeded(_) => "succeeded",
+            OperationState::Failed(_) => "failed",
+        };
+        let selected_resource = self
+            .selected_resource
+            .as_ref()
+            .map(|selection| match selection {
+                ResourceSelection::InstalledModel(_) => "installed-model",
+                ResourceSelection::AsrProvider(_) => "asr-provider",
+                ResourceSelection::LlmProvider(_) => "llm-provider",
+                ResourceSelection::LlmAdapter(_) => "llm-adapter",
+            });
+
+        formatter
+            .debug_struct("App")
+            .field("locale", &self.locale)
+            .field("page", &self.page)
+            .field("filter_len", &self.filter.len())
+            .field("model_filter_len", &self.model_filter.len())
+            .field("config_state", &config_state)
+            .field("draft_dirty", &draft_dirty)
+            .field("daemon_state", &daemon_state)
+            .field("operation_state", &operation_state)
+            .field("model_install_active", &self.model_install.is_active())
+            .field(
+                "script_install_blocks_operations",
+                &self.script_install.blocks_operations(),
+            )
+            .field(
+                "installed_model_count",
+                &self.installed_models.as_ref().map(Vec::len).ok(),
+            )
+            .field("selected_resource", &selected_resource)
+            .field(
+                "removal_confirmation_open",
+                &self.removal_confirmation.is_some(),
+            )
+            .field("scene_editor_open", &self.scene_editor.is_some())
+            .field(
+                "asr_provider_editor_open",
+                &self.asr_provider_editor.is_some(),
+            )
+            .field(
+                "llm_provider_editor_open",
+                &self.llm_provider_editor.is_some(),
+            )
+            .field(
+                "adapter_config_editor_open",
+                &self.adapter_config_editor.is_some(),
+            )
+            .field(
+                "hotword_operation_active",
+                &self.active_hotword_operation_id.is_some(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl App {
@@ -542,15 +620,12 @@ impl App {
     }
 
     pub(crate) fn ensure_no_unsaved_config_draft(&self) -> Result<(), String> {
-        ensure_resource_mutation_draft_clean(&self.config, self.draft.as_ref())
+        ensure_resource_mutation_draft_clean(self.locale, &self.config, self.draft.as_ref())
     }
 
     pub(crate) fn ensure_no_open_scene_editor(&self) -> Result<(), String> {
         if self.scene_editor.is_some() {
-            return Err(
-                "Save or cancel the open Scene form before modifying providers or adapters."
-                    .to_owned(),
-            );
+            return Err(self.locale.open_scene_form_guard());
         }
         Ok(())
     }
@@ -959,6 +1034,7 @@ fn ensure_config_save_allowed(snapshot: &DaemonSnapshot) -> Result<(), String> {
 }
 
 fn ensure_resource_mutation_draft_clean(
+    locale: GuiLocale,
     config: &Result<ConfigDocument, String>,
     draft: Option<&ConfigDraft>,
 ) -> Result<(), String> {
@@ -966,9 +1042,7 @@ fn ensure_resource_mutation_draft_clean(
         return Ok(());
     };
     if draft.is_dirty(&document.config) {
-        return Err(
-            "Save or reset the Control page changes before modifying resources.".to_owned(),
-        );
+        return Err(locale.dirty_control_draft_guard());
     }
     Ok(())
 }

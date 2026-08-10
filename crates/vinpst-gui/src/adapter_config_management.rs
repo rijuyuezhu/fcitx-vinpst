@@ -295,9 +295,7 @@ impl App {
                 | Message::RemoveAdapter(_)
         ) || matches!(message, Message::SelectPage(page) if *page != crate::Page::Llm && editor.is_dirty());
         if blocks_open_editor {
-            self.operation = OperationState::Failed(
-                "Save or cancel the open text-adapter form before continuing.".to_owned(),
-            );
+            self.operation = OperationState::Failed(self.locale.open_adapter_form_continue_guard());
             return Some(Task::none());
         }
         None

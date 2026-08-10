@@ -503,11 +503,14 @@ fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
         config: config.clone(),
     };
     let clean = ConfigDraft::from_config(&config);
-    assert!(ensure_resource_mutation_draft_clean(&Ok(document.clone()), Some(&clean)).is_ok());
+    assert!(
+        ensure_resource_mutation_draft_clean(GuiLocale::EnUs, &Ok(document.clone()), Some(&clean))
+            .is_ok()
+    );
 
     let mut dirty = clean;
     dirty.default_language = "zh-CN".to_owned();
-    let error = ensure_resource_mutation_draft_clean(&Ok(document), Some(&dirty))
+    let error = ensure_resource_mutation_draft_clean(GuiLocale::EnUs, &Ok(document), Some(&dirty))
         .expect_err("dirty Control draft must block resource mutation");
     assert!(error.contains("Save or reset"));
     assert_eq!(dirty.default_language, "zh-CN");
@@ -765,6 +768,43 @@ fn daemon_snapshot_debug_redacts_backend_error_and_endpoints() {
     assert!(debug.contains("remote_endpoint_count=1"));
     assert!(!debug.contains("super-secret"));
     assert!(!debug.contains("secret-token"));
+}
+
+#[test]
+fn app_debug_reports_structure_without_user_or_error_text() {
+    let mut app = crate::test_support::GuiHarness::new();
+    app.filter = "app-filter-secret".to_owned();
+    app.model_filter = "app-model-filter-secret".to_owned();
+    app.operation = OperationState::Failed("app-operation-secret".to_owned());
+    let document = app.config.as_mut().expect("valid config");
+    document
+        .config
+        .llm
+        .providers
+        .push(vinpst_config::LlmProviderConfig {
+            id: "debug-provider".to_owned(),
+            base_url: "https://user:password@example.test/v1?token=app-url-secret".to_owned(),
+            api_key: String::new(),
+            model: Some("debug-model".to_owned()),
+            extra_body: json!({"token": "app-body-secret"}),
+            extra: std::collections::HashMap::new(),
+        });
+
+    let app_ref: &App = &app;
+    let debug = format!("{app_ref:?}");
+
+    assert!(debug.contains("operation_state: \"failed\""));
+    assert!(debug.contains("filter_len"));
+    for secret in [
+        "app-filter-secret",
+        "app-model-filter-secret",
+        "app-operation-secret",
+        "password",
+        "app-url-secret",
+        "app-body-secret",
+    ] {
+        assert!(!debug.contains(secret));
+    }
 }
 
 #[test]

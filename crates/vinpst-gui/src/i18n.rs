@@ -698,6 +698,39 @@ impl GuiLocale {
         }
     }
 
+    pub(crate) fn open_asr_provider_form_continue_guard(self) -> String {
+        match self {
+            Self::EnUs => "Save or cancel the open ASR provider form before continuing.".to_owned(),
+            Self::ZhCn => "继续操作前，请先保存或取消当前打开的 ASR 提供商表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn open_adapter_form_continue_guard(self) -> String {
+        match self {
+            Self::EnUs => "Save or cancel the open text-adapter form before continuing.".to_owned(),
+            Self::ZhCn => "继续操作前，请先保存或取消当前打开的文本适配器表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn open_scene_form_guard(self) -> String {
+        match self {
+            Self::EnUs => {
+                "Save or cancel the open Scene form before modifying providers or adapters."
+                    .to_owned()
+            }
+            Self::ZhCn => "修改提供商或适配器前，请先保存或取消当前打开的场景表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn dirty_control_draft_guard(self) -> String {
+        match self {
+            Self::EnUs => {
+                "Save or reset the Control page changes before modifying resources.".to_owned()
+            }
+            Self::ZhCn => "修改资源前，请先保存或重置控制页面中的更改。".to_owned(),
+        }
+    }
+
     pub(crate) fn config_save_receipt(
         self,
         path: &str,
@@ -972,7 +1005,27 @@ mod tests {
             assert!(!edit.contains("editor-command"));
             assert!(!locale.open_llm_provider_form_guard().is_empty());
             assert!(!locale.open_asr_provider_form_guard().is_empty());
+            assert!(!locale.open_asr_provider_form_continue_guard().is_empty());
+            assert!(!locale.open_adapter_form_continue_guard().is_empty());
+            assert!(!locale.open_scene_form_guard().is_empty());
+            assert!(!locale.dirty_control_draft_guard().is_empty());
         }
+        assert_ne!(
+            GuiLocale::EnUs.open_asr_provider_form_continue_guard(),
+            GuiLocale::ZhCn.open_asr_provider_form_continue_guard()
+        );
+        assert_ne!(
+            GuiLocale::EnUs.open_adapter_form_continue_guard(),
+            GuiLocale::ZhCn.open_adapter_form_continue_guard()
+        );
+        assert_ne!(
+            GuiLocale::EnUs.open_scene_form_guard(),
+            GuiLocale::ZhCn.open_scene_form_guard()
+        );
+        assert_ne!(
+            GuiLocale::EnUs.dirty_control_draft_guard(),
+            GuiLocale::ZhCn.dirty_control_draft_guard()
+        );
     }
 
     #[test]

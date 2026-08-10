@@ -392,9 +392,8 @@ impl App {
                 | Message::RemoveAdapter(_)
         ) || matches!(message, Message::SelectPage(page) if *page != crate::Page::Resources && editor.is_dirty());
         if blocks_open_editor {
-            self.operation = OperationState::Failed(
-                "Save or cancel the open ASR provider form before continuing.".to_owned(),
-            );
+            self.operation =
+                OperationState::Failed(self.locale.open_asr_provider_form_continue_guard());
             return Some(Task::none());
         }
         None
