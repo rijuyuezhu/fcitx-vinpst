@@ -39,31 +39,35 @@ pub(crate) fn write_file_atomically(path: &Path, contents: &str) -> anyhow::Resu
     let resolved_path = resolve_symlink_write_target(path)
         .with_context(|| format!("resolve write target `{}`", path.display()))?;
     ensure_write_parent(&resolved_path)?;
-    let temp_path = atomic_temp_path(&resolved_path);
-    fs::write(&temp_path, contents)
-        .with_context(|| format!("write temporary config `{}`", temp_path.display()))?;
-    fs::rename(&temp_path, &resolved_path).with_context(|| {
-        format!(
-            "rename temporary config `{}` to `{}`",
-            temp_path.display(),
-            resolved_path.display()
-        )
-    })
+    let (temp_path, mut temporary) = create_atomic_temp_file(&resolved_path, false)?;
+    let result = (|| {
+        temporary
+            .write_all(contents.as_bytes())
+            .with_context(|| format!("write temporary config `{}`", temp_path.display()))?;
+        temporary
+            .sync_all()
+            .with_context(|| format!("synchronize temporary config `{}`", temp_path.display()))?;
+        drop(temporary);
+        fs::rename(&temp_path, &resolved_path).with_context(|| {
+            format!(
+                "rename temporary config `{}` to `{}`",
+                temp_path.display(),
+                resolved_path.display()
+            )
+        })
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
 }
 
 pub(crate) fn write_private_file_atomically(path: &Path, contents: &str) -> anyhow::Result<()> {
     let resolved_path = resolve_symlink_write_target(path)
         .with_context(|| format!("resolve write target `{}`", path.display()))?;
     ensure_write_parent(&resolved_path)?;
-    let temp_path = atomic_temp_path(&resolved_path);
+    let (temp_path, mut temporary) = create_atomic_temp_file(&resolved_path, true)?;
     let result = (|| {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        options.mode(0o600);
-        let mut temporary = options.open(&temp_path).with_context(|| {
-            format!("create private temporary config `{}`", temp_path.display())
-        })?;
         temporary
             .write_all(contents.as_bytes())
             .with_context(|| format!("write private temporary config `{}`", temp_path.display()))?;
@@ -99,10 +103,27 @@ fn ensure_write_parent(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) fn atomic_temp_path(path: &Path) -> PathBuf {
-    let mut temp = path.as_os_str().to_os_string();
-    temp.push(format!(".tmp-{}", std::process::id()));
-    PathBuf::from(temp)
+fn create_atomic_temp_file(path: &Path, private: bool) -> anyhow::Result<(PathBuf, fs::File)> {
+    for sequence in 0..1024_u32 {
+        let mut temp = path.as_os_str().to_os_string();
+        temp.push(format!(".tmp-{}-{sequence}", std::process::id()));
+        let temp_path = PathBuf::from(temp);
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        if private {
+            options.mode(0o600);
+        }
+        match options.open(&temp_path) {
+            Ok(file) => return Ok((temp_path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("create temporary file beside `{}`", path.display()));
+            }
+        }
+    }
+    anyhow::bail!("exhausted temporary file names beside `{}`", path.display())
 }
 
 pub(crate) fn same_path_text(left: &Path, right: &Path) -> bool {
@@ -288,4 +309,51 @@ pub(crate) fn config_summary_json(config: &VinpstConfig) -> serde_json::Value {
         "provider_count": summary.provider_count,
         "registry_mirror_count": summary.registry_mirror_count,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Barrier};
+
+    use super::*;
+
+    #[test]
+    fn concurrent_atomic_writers_use_distinct_temporary_files() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("service.conf");
+        let barrier = Arc::new(Barrier::new(3));
+        let mut workers = Vec::new();
+        for payload in ["first payload\n", "second payload\n"] {
+            let barrier = Arc::clone(&barrier);
+            let path = path.clone();
+            workers.push(std::thread::spawn(move || {
+                barrier.wait();
+                write_file_atomically(&path, payload)
+            }));
+        }
+        barrier.wait();
+
+        for worker in workers {
+            worker
+                .join()
+                .expect("atomic writer thread")
+                .expect("atomic write");
+        }
+
+        let final_text = fs::read_to_string(&path).expect("final atomic file");
+        assert!(matches!(
+            final_text.as_str(),
+            "first payload\n" | "second payload\n"
+        ));
+        let leftovers = fs::read_dir(directory.path())
+            .expect("read temporary directory")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".tmp-"))
+            .collect::<Vec<_>>();
+        assert!(
+            leftovers.is_empty(),
+            "temporary files left behind: {leftovers:?}"
+        );
+    }
 }

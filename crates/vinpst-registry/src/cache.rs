@@ -5,7 +5,8 @@
 //! configuration.
 
 use std::{
-    fs, io,
+    fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -125,14 +126,19 @@ impl RegistryTextCache {
             })?;
         }
 
-        let temp_path = self.temp_path();
-        fs::write(&temp_path, text).map_err(|error| {
+        let (temp_path, mut temp_file) = self.create_temp_file()?;
+        if let Err(error) = temp_file
+            .write_all(text.as_bytes())
+            .and_then(|()| temp_file.sync_all())
+        {
+            drop(temp_file);
             let _ = fs::remove_file(&temp_path);
-            RegistryCacheError::Write {
+            return Err(RegistryCacheError::Write {
                 path: display_path(&self.path),
                 message: sanitize_io_error(&error),
-            }
-        })?;
+            });
+        }
+        drop(temp_file);
         fs::rename(&temp_path, &self.path).map_err(|error| {
             let _ = fs::remove_file(&temp_path);
             RegistryCacheError::Write {
@@ -142,17 +148,36 @@ impl RegistryTextCache {
         })
     }
 
-    fn temp_path(&self) -> PathBuf {
+    fn create_temp_file(&self) -> Result<(PathBuf, fs::File), RegistryCacheError> {
         let file_name = self
             .path
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("registry-index.json");
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos());
-        self.path
-            .with_file_name(format!(".{file_name}.tmp.{}.{unique}", std::process::id()))
+        for sequence in 0..1024_u32 {
+            let temp_path = self.path.with_file_name(format!(
+                ".{file_name}.tmp.{}.{sequence}",
+                std::process::id()
+            ));
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp_path)
+            {
+                Ok(file) => return Ok((temp_path, file)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => {
+                    return Err(RegistryCacheError::Write {
+                        path: display_path(&self.path),
+                        message: sanitize_io_error(&error),
+                    });
+                }
+            }
+        }
+        Err(RegistryCacheError::Write {
+            path: display_path(&self.path),
+            message: "exhausted temporary cache file names".to_owned(),
+        })
     }
 }
 

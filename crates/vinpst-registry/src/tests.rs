@@ -975,6 +975,46 @@ fn raw_registry_text_cache_reports_fresh_and_stale_sources() {
 }
 
 #[test]
+fn registry_text_cache_supports_concurrent_atomic_writers() {
+    use std::sync::{Arc, Barrier};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let cache = RegistryTextCache::new(temp_dir.path().join("registry/models.json"));
+    let barrier = Arc::new(Barrier::new(3));
+    let mut workers = Vec::new();
+    for payload in ["first cache body", "second cache body"] {
+        let cache = cache.clone();
+        let barrier = Arc::clone(&barrier);
+        workers.push(std::thread::spawn(move || {
+            barrier.wait();
+            cache.write_text_atomic(payload)
+        }));
+    }
+    barrier.wait();
+
+    for worker in workers {
+        worker.join().unwrap().unwrap();
+    }
+
+    let final_text = cache.read_text().unwrap();
+    assert!(matches!(
+        final_text.as_str(),
+        "first cache body" | "second cache body"
+    ));
+    let cache_dir = cache.path().parent().unwrap();
+    let leftovers = std::fs::read_dir(cache_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".tmp."))
+        .collect::<Vec<_>>();
+    assert!(
+        leftovers.is_empty(),
+        "temporary cache files left behind: {leftovers:?}"
+    );
+}
+
+#[test]
 fn live_registry_cache_paths_match_vinpst_layout() {
     let root = std::path::Path::new("/cache/fcitx-vinpst");
     assert_eq!(

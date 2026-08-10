@@ -1481,6 +1481,19 @@ fn recent_input_context_cache_appends_legacy_json_lines() {
     assert!(append_recent_input_context_entry(&cache_path, "hello", "", 123).unwrap());
     assert!(append_recent_input_context_entry(&cache_path, "world", "asr", 124).unwrap());
 
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&cache_path)
+                .expect("context cache metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
     let lines = std::fs::read_to_string(&cache_path).unwrap();
     let entries = lines
         .lines()
@@ -1524,6 +1537,18 @@ fn recent_input_context_cache_truncates_to_last_non_empty_lines() {
         std::fs::read_to_string(&cache_path).unwrap(),
         "three\nfour\n"
     );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&cache_path)
+                .expect("truncated context cache metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
     truncate_recent_input_context_cache(tempdir.path().join("missing.jsonl"), 2).unwrap();
 }
 

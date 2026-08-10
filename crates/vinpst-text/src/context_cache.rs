@@ -7,6 +7,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 use crate::TextError;
 
 /// Returns the legacy default recent-input context cache path.
@@ -183,16 +186,16 @@ pub fn append_recent_input_context_entry(
         },
         timestamp,
     };
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|error| {
-            TextError::ContextCacheWrite(format!(
-                "failed to open context cache `{}` for append: {error}",
-                path.display()
-            ))
-        })?;
+    let mut options = fs::OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(path).map_err(|error| {
+        TextError::ContextCacheWrite(format!(
+            "failed to open context cache `{}` for append: {error}",
+            path.display()
+        ))
+    })?;
     serde_json::to_writer(&mut file, &entry).map_err(|error| {
         TextError::ContextCacheWrite(format!(
             "failed to encode context cache entry for `{}`: {error}",
@@ -253,16 +256,8 @@ pub fn truncate_recent_input_context_cache(
         return Ok(());
     }
 
-    let mut tmp_path = path.as_os_str().to_owned();
-    tmp_path.push(".tmp");
-    let tmp_path = PathBuf::from(tmp_path);
-    {
-        let mut file = fs::File::create(&tmp_path).map_err(|error| {
-            TextError::ContextCacheWrite(format!(
-                "failed to create context cache temp `{}`: {error}",
-                tmp_path.display()
-            ))
-        })?;
+    let (tmp_path, mut file) = create_context_cache_temp(path)?;
+    let result = (|| {
         for line in &lines[lines.len() - keep_lines..] {
             file.write_all(line.as_bytes()).map_err(|error| {
                 TextError::ContextCacheWrite(format!(
@@ -281,13 +276,49 @@ pub fn truncate_recent_input_context_cache(
                 ))
             })?;
         }
+        file.sync_all().map_err(|error| {
+            TextError::ContextCacheWrite(format!(
+                "failed to synchronize context cache temp `{}`: {error}",
+                tmp_path.display()
+            ))
+        })?;
+        drop(file);
+        fs::rename(&tmp_path, path).map_err(|error| {
+            TextError::ContextCacheWrite(format!(
+                "failed to replace context cache `{}` with `{}`: {error}",
+                path.display(),
+                tmp_path.display()
+            ))
+        })
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
     }
-    fs::rename(&tmp_path, path).map_err(|error| {
-        TextError::ContextCacheWrite(format!(
-            "failed to replace context cache `{}` with `{}`: {error}",
-            path.display(),
-            tmp_path.display()
-        ))
-    })?;
-    Ok(())
+    result
+}
+
+fn create_context_cache_temp(path: &Path) -> Result<(PathBuf, fs::File), TextError> {
+    for sequence in 0..1024_u32 {
+        let mut tmp_path = path.as_os_str().to_owned();
+        tmp_path.push(format!(".tmp-{}-{sequence}", std::process::id()));
+        let tmp_path = PathBuf::from(tmp_path);
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&tmp_path) {
+            Ok(file) => return Ok((tmp_path, file)),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                return Err(TextError::ContextCacheWrite(format!(
+                    "failed to create context cache temp beside `{}`: {error}",
+                    path.display()
+                )));
+            }
+        }
+    }
+    Err(TextError::ContextCacheWrite(format!(
+        "exhausted context cache temp names beside `{}`",
+        path.display()
+    )))
 }
