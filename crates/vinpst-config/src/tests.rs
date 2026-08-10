@@ -552,6 +552,92 @@ fn duplicate_registry_base_url_error_redacts_credentials() {
 }
 
 #[test]
+fn config_debug_redacts_sensitive_provider_adapter_scene_and_registry_values() {
+    let registry = crate::RegistryConfig {
+        base_urls: vec![
+            "https://registry-user:registry-pass@example.test/v1?token=registry-secret#frag"
+                .to_owned(),
+        ],
+    };
+    let asr = crate::AsrProviderConfig {
+        id: "remote".to_owned(),
+        kind: crate::AsrProviderKind::Remote,
+        timeout_ms: Some(4_000),
+        model: Some("private-model-path".to_owned()),
+        hotwords_file: Some("private-hotwords-path".to_owned()),
+        command: Some("private-asr-command".to_owned()),
+        args: vec!["private-asr-arg".to_owned()],
+        env: std::collections::HashMap::from([("TOKEN".to_owned(), "private-asr-env".to_owned())]),
+        endpoint: Some(
+            "https://asr-user:asr-pass@example.test/asr?token=private-asr-query#frag".to_owned(),
+        ),
+    };
+    let llm = crate::LlmProviderConfig {
+        id: "llm".to_owned(),
+        base_url: "https://llm-user:llm-pass@example.test/v1?token=private-llm-query#frag"
+            .to_owned(),
+        api_key: "private-llm-api-key".to_owned(),
+        model: Some("model-id".to_owned()),
+        extra_body: serde_json::json!({"secret":"private-extra-body"}),
+        extra: std::collections::HashMap::from([(
+            "x-secret".to_owned(),
+            serde_json::json!("private-provider-extra"),
+        )]),
+    };
+    let adapter = crate::LlmAdapterConfig {
+        id: "adapter".to_owned(),
+        command: "private-adapter-command".to_owned(),
+        args: vec!["private-adapter-arg".to_owned()],
+        env: std::collections::HashMap::from([(
+            "TOKEN".to_owned(),
+            "private-adapter-env".to_owned(),
+        )]),
+        working_dir: Some("private-working-dir".to_owned()),
+        extra: std::collections::HashMap::from([(
+            "x-secret".to_owned(),
+            serde_json::json!("private-adapter-extra"),
+        )]),
+    };
+    let scene = crate::SceneDefinition {
+        id: "scene".to_owned(),
+        label: "Scene".to_owned(),
+        prompt: Some("private-scene-prompt".to_owned()),
+        provider_id: Some("llm".to_owned()),
+        model: None,
+        candidate_count: 1,
+        timeout_ms: Some(4_000),
+        context_lines: 0,
+    };
+
+    let debug = format!("{registry:?} {asr:?} {llm:?} {adapter:?} {scene:?}");
+    assert!(debug.contains("https://example.test/v1?token=REDACTED"));
+    assert!(debug.contains("https://example.test/asr?token=REDACTED"));
+    for secret in [
+        "registry-user",
+        "registry-pass",
+        "registry-secret",
+        "private-model-path",
+        "private-hotwords-path",
+        "private-asr-command",
+        "private-asr-arg",
+        "private-asr-env",
+        "private-asr-query",
+        "private-llm-api-key",
+        "private-llm-query",
+        "private-extra-body",
+        "private-provider-extra",
+        "private-adapter-command",
+        "private-adapter-arg",
+        "private-adapter-env",
+        "private-working-dir",
+        "private-adapter-extra",
+        "private-scene-prompt",
+    ] {
+        assert!(!debug.contains(secret));
+    }
+}
+
+#[test]
 fn validation_rejects_empty_registry_base_urls() {
     let mut config = VinpstConfig::bundled_default().unwrap();
     config.registry.base_urls.push("  ".to_owned());

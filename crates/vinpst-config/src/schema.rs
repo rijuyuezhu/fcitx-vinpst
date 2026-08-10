@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -71,11 +71,27 @@ pub struct VinpstConfigSummary {
 }
 
 /// Registry mirror settings.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct RegistryConfig {
     /// Ordered registry base URLs.
     #[serde(default)]
     pub base_urls: Vec<String>,
+}
+
+impl fmt::Debug for RegistryConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RegistryConfig")
+            .field(
+                "base_urls",
+                &self
+                    .base_urls
+                    .iter()
+                    .map(|url| crate::redact_url_for_diagnostics(url))
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 /// Global daemon/UI defaults.
@@ -183,7 +199,7 @@ pub enum AsrProviderKind {
 }
 
 /// ASR provider config entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AsrProviderConfig {
     /// Stable provider id.
     pub id: String,
@@ -213,6 +229,29 @@ pub struct AsrProviderConfig {
     pub endpoint: Option<String>,
 }
 
+impl fmt::Debug for AsrProviderConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AsrProviderConfig")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("has_model", &self.model.is_some())
+            .field("has_hotwords_file", &self.hotwords_file.is_some())
+            .field("has_command", &self.command.is_some())
+            .field("args_count", &self.args.len())
+            .field("env_count", &self.env.len())
+            .field(
+                "endpoint",
+                &self
+                    .endpoint
+                    .as_deref()
+                    .map(crate::redact_url_for_diagnostics),
+            )
+            .finish()
+    }
+}
+
 /// LLM provider/adapter config.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
 pub struct LlmConfig {
@@ -225,7 +264,7 @@ pub struct LlmConfig {
 }
 
 /// OpenAI-compatible or adapter-backed LLM provider config.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LlmProviderConfig {
     /// Stable provider id.
     pub id: String,
@@ -246,8 +285,28 @@ pub struct LlmProviderConfig {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+impl fmt::Debug for LlmProviderConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LlmProviderConfig")
+            .field("id", &self.id)
+            .field(
+                "base_url",
+                &crate::redact_url_for_diagnostics(&self.base_url),
+            )
+            .field("has_api_key", &(!self.api_key.is_empty()))
+            .field("model", &self.model)
+            .field(
+                "extra_body_keys",
+                &self.extra_body.as_object().map(serde_json::Map::len),
+            )
+            .field("extra_keys", &self.extra.len())
+            .finish()
+    }
+}
+
 /// External text adapter process config.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LlmAdapterConfig {
     /// Stable adapter id.
     pub id: String,
@@ -265,6 +324,20 @@ pub struct LlmAdapterConfig {
     /// Forward-compatible unknown adapter fields.
     #[serde(default, flatten)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+
+impl fmt::Debug for LlmAdapterConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LlmAdapterConfig")
+            .field("id", &self.id)
+            .field("has_command", &(!self.command.is_empty()))
+            .field("args_count", &self.args.len())
+            .field("env_count", &self.env.len())
+            .field("has_working_dir", &self.working_dir.is_some())
+            .field("extra_keys", &self.extra.len())
+            .finish()
+    }
 }
 
 /// Scene collection.
@@ -288,7 +361,7 @@ impl Default for ScenesConfig {
 }
 
 /// A post-processing scene definition.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct SceneDefinition {
     /// Stable scene id.
     pub id: String,
@@ -312,6 +385,22 @@ pub struct SceneDefinition {
     /// Number of recent input context lines to include.
     #[serde(default)]
     pub context_lines: u8,
+}
+
+impl fmt::Debug for SceneDefinition {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SceneDefinition")
+            .field("id", &self.id)
+            .field("label", &self.label)
+            .field("has_prompt", &self.prompt.is_some())
+            .field("provider_id", &self.provider_id)
+            .field("model", &self.model)
+            .field("candidate_count", &self.candidate_count)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("context_lines", &self.context_lines)
+            .finish()
+    }
 }
 
 impl SceneDefinition {
