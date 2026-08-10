@@ -2160,11 +2160,36 @@
         "Registry refresh semantics intentionally differ in presentation. Frozen Refresh updates all three resource registries together and reloads i18n; current primes all catalogs during GUI boot and provides separate refresh controls for model, provider, and adapter catalogs, each with localized cache-aware mirror fallback. A single failed catalog therefore no longer prevents the other resource classes from remaining usable. This is an additive availability improvement, not a missing Refresh capability.",
         "Evidence includes complete source review of frozen resource_page.cpp/.h and current model_install.rs, model_management.rs, model_selection.rs, removal_confirmation.rs, resource_pages.rs, script_catalog.rs, script_install.rs, and script_install/view.rs; transaction-contract review of script_management publication/save/rollback paths; focused Resources, model-management, script-install, removal, selection and i18n tests; strict all-target vinpst-gui Clippy; the full GUI suite; and the module-parity ledger checker. Shared low-level script transaction/recovery/removal primitives and current-only resource detail panels remain pending for their own ownership-specific audits."
       ]
+    },
+    {
+      "id": "CONFIG-MANAGER-001",
+      "state": "audited-intentional-divergence",
+      "title": "GUI configuration load, save, serialization, and change propagation",
+      "upstream_files": [
+        "gui/utils/config_manager.cpp",
+        "gui/utils/config_manager.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-config/src/config.rs",
+        "crates/vinpst-config/src/persistence.rs",
+        "crates/vinpst-config/src/user_paths.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/message.rs",
+        "crates/vinpst-gui/src/tests.rs"
+      ],
+      "notes": [
+        "Frozen ConfigManager is only a process-global Qt singleton around LoadCoreConfig/SaveCoreConfig: both calls are serialized with one QMutex, and a successful Save emits configChanged so pages reload the shared document. Current intentionally has no one-to-one singleton source file. The equivalent responsibilities are split between the typed vinpst-config persistence layer and the Rust GUI application's owned ConfigDocument state, so this upstream pair has no unique current file to claim.",
+        "Loading intentionally follows the already-established current config contract rather than frozen's permissive recovery semantics. The GUI resolves the canonical XDG user config path, loads and validates an existing typed document, and falls back to the bundled upstream-compatible default only when the user file is absent. A malformed, semantically invalid, or unsupported future config fails closed instead of being partially defaulted and later overwritten; this policy was already audited at the config-contract boundary and is preserved here.",
+        "Saving is materially stronger than the frozen mutex wrapper. Before a GUI mutation is persisted, current compares the on-disk document with the ConfigDocument snapshot and rejects external changes instead of silently winning a last-writer race. The candidate config is fully validated, serialized to a private temporary file beside the destination, synchronized, optionally backs up the existing target to the legacy-compatible `.bak` path, and is atomically renamed over the destination. Relative symlink targets are resolved deliberately and existing recovery backups are not destroyed merely because staging failed.",
+        "The frozen QMutex is therefore not copied as the primary concurrency primitive. Iced owns application-state mutation on its update loop, in-flight configuration mutations make conflicting GUI edit/navigation messages non-actionable, and filesystem conflict detection protects against other processes or independent writers. Worker completion paths reload the saved document before exposing success. This covers both intra-GUI serialization and cross-process races more precisely than one mutex that only protected callers sharing the same frozen singleton.",
+        "The frozen configChanged signal is replaced by explicit state reconciliation. A successful Control save calls replace_config(load_config_document(...)), which rebuilds the editable draft, reconciles hotword state, closes stale resource editors, and then refreshes daemon state. Scene/provider/adapter/hotword/script/model mutation completion paths likewise reload or replace the ConfigDocument after successful persistence, so all page views consume the new authoritative App state without a separate observer singleton. Failure leaves the prior in-memory document intact or presents the reload failure explicitly rather than emitting a misleading change notification.",
+        "Current additionally couples persistence to daemon reconciliation. Normal validated mutations request the daemon to reload the complete config; if the reload fails after disk commit, the previous disk document is restored and a second daemon reload attempts to restore runtime state as well. If runtime rollback also fails, the GUI reports that partial recovery explicitly. This daemon/disk two-phase recovery was audited under GUI-APP-SHELL-001 and is supporting evidence here, not newly owned functionality.",
+        "Evidence includes complete source review of frozen config_manager.cpp/.h; review of current default-path, typed-load, atomic persistence, external-change detection, replace_config propagation, save completion, and daemon rollback paths; 29 focused GUI `config_` tests, all 5 vinpst-config persistence tests, committed-default/bundled-default equivalence and validation tests, and the module-parity ledger checker. No production-code change is required for this unit."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/utils/config_manager.cpp",
-    "gui/utils/config_manager.h",
     "gui/utils/download_worker.cpp",
     "gui/utils/download_worker.h",
     "gui/utils/gui_helpers.cpp",
