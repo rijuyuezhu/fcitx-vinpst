@@ -2539,14 +2539,48 @@
         "No credentials are synthesized or loaded by this facade. Descriptions contain only stable fixture purpose text, the command facade carries no runtime data, and the embedded examples are repository fixtures rather than environment-derived user configuration. Existing config validation/diagnostic redaction remains outside this unit and is not bypassed by example export.",
         "Evidence includes full review of commands/mod.rs and config_examples.rs, their parser/handler/init/config-IO call chains, the hidden-maintenance help regression, all three config-example process tests, strict all-target CLI Clippy, JSON parsing of every embedded fixture, diff check, and module-parity ledger validation."
       ]
+    },
+    {
+      "id": "CLI-SYSTEM-LIFECYCLE-001",
+      "state": "audited-fixed",
+      "title": "Current-only CLI diagnostics, activation service, and guarded daemon lifecycle",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-cli/src/commands/system.rs",
+        "crates/vinpst-cli/src/daemon_control/handoff.rs",
+        "crates/vinpst-cli/src/daemon_control/install_service.rs",
+        "crates/vinpst-cli/src/daemon_control/removal.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/config_io.rs",
+        "crates/vinpst-cli/src/daemon_control/service.rs",
+        "crates/vinpst-cli/src/daemon_control/status.rs",
+        "crates/vinpst-cli/src/sandbox.rs",
+        "crates/vinpst-cli/tests/protocol.rs",
+        "docs/architecture/packaging-contract.md",
+        "scripts/release/package-remove-handoff.sh",
+        "scripts/release/package-upgrade-handoff.sh",
+        "scripts/tests/daemon/run-daemon-handoff-smoke.sh",
+        "scripts/tests/daemon/run-daemon-removal-handoff-smoke.sh",
+        "scripts/tests/daemon/run-package-remove-handoff-smoke.sh",
+        "scripts/tests/daemon/run-package-upgrade-handoff-smoke.sh"
+      ],
+      "notes": [
+        "This current-only unit owns the remaining CLI system diagnostics/activation-service implementation plus user-systemd service installation, guarded package-upgrade handoff, and guarded package-removal handoff. Generic systemctl command construction, daemon status/procfs inspection, sandbox host wrapping, atomic file primitives, and package session discovery remain supporting responsibilities under their earlier audit units.",
+        "The activation-service review found a persistence inconsistency. Per-user D-Bus activation metadata used fs::write directly even though other persistent control files use same-directory atomic replacement; a failed write could therefore leave a truncated service. It now uses the shared write_file_atomically path, which synchronizes and renames a new file while resolving final symlink targets. A Unix process regression proves a relative dotfiles-style service symlink remains a symlink while the target receives the complete service atomically.",
+        "Activation-service status/removal also used Path::exists, which follows symlinks and reports a dangling service symlink as absent. That made a broken canonical link invisible to --user-status and impossible to repair with --remove-user. Presence now uses symlink_metadata: status reports the directory entry as present plus the target read error, and removal deletes the dangling symlink itself. A process regression covers both diagnosis and repair.",
+        "The upgrade-handoff audit found that the stale-systemd branch bypassed the idle/no-active-session guard already enforced for direct-owner handoff and for package removal. This contradicted the packaging contract and could restart a stale systemd-owned daemon during an active recording. A matching MainPID is now only eligible for daemon-reload/restart when the live D-Bus snapshot is idle with active_session=false; guard refusal performs no systemd mutation and records an explicit systemd_guard result.",
+        "The same path had a release-transaction propagation bug: daemon handoff printed an `ok:false` JSON object for guard/control/verification failures but still returned process success. package-upgrade-handoff.sh intentionally relies on the CLI exit status, so a daemon-reload/restart/guard failure could be counted as a successful package handoff. Non-dry-run handoff now preserves the diagnostic JSON/text and returns a failing exit status whenever its result is not ok; dry-run remains successful and non-mutating.",
+        "The isolated-bus handoff smoke now proves the complete sequence on one stale systemd owner: an active mock recording is rejected with nonzero exit, systemd_guard shows the busy state, and neither daemon-reload nor restart runs; after StopRecording returns the owner to idle, the same handoff reloads/restarts and verifies the replacement owner. The existing daemon-reload failure case was strengthened to require nonzero exit while preserving the old owner. Current-owner no-op and guarded direct-owner replacement remain covered in the same smoke.",
+        "Removal was reviewed separately rather than assumed equivalent. It reloads D-Bus activation metadata before every preflight/execution, performs zero-mutation two-phase preflight, rejects busy systemd owners with removal_session_guard, reuses the strict UID/PID/start-time/executable/cgroup guard plus identity revalidation for direct owners, verifies owner absence after mutation, and propagates nonzero on unsafe completion. Existing private-bus removal and cross-user package rollback smokes continue to pass unchanged.",
+        "install-service already used the atomic writer, renders the Flatpak host unit through the separately audited sandbox policy, reloads the user manager only after successful installation, and reports a reload failure as an error while leaving the complete installed unit available for retry. Its dry-run remains the package/Flatpak proof surface and does not write or reload.",
+        "commands/system.rs diagnostic outputs were reviewed for data boundaries. protocol/ASR/audio/doctor paths expose explicit machine/config/model/service/addon diagnostics but use the previously audited config summary and ASR error boundaries rather than API-key/environment values; next-step interpolation uses provider ids only. User activation Exec/path and Fcitx addon paths are intentionally returned only by explicit maintenance/doctor diagnostics, not ordinary root help.",
+        "Evidence includes complete source review of all four owned files; 39 protocol process tests including atomic symlink write/dangling repair and dry-run guard policy; strict all-target CLI Clippy; isolated D-Bus upgrade handoff with busy-systemd zero-mutation, idle systemd restart, direct-owner replacement, and daemon-reload failure propagation; guarded removal smoke; cross-user package upgrade and removal/rollback smokes; ShellCheck for the changed handoff script; packaging-contract update; full CLI gate, docs, secret scan, diff check, and module-parity ledger validation. These private-session smokes are deterministic process proof, not a substitute for the separately tracked real desktop/systemd live gate."
+      ]
     }
   ],
   "upstream_pending": [],
   "current_pending": [
-    "crates/vinpst-cli/src/commands/system.rs",
-    "crates/vinpst-cli/src/daemon_control/handoff.rs",
-    "crates/vinpst-cli/src/daemon_control/install_service.rs",
-    "crates/vinpst-cli/src/daemon_control/removal.rs",
     "crates/vinpst-daemon/src/lib.rs",
     "crates/vinpst-daemon/src/runtime/asr_menu.rs",
     "crates/vinpst-daemon/src/runtime/capture.rs",
