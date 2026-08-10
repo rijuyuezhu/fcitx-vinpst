@@ -73,7 +73,7 @@ path = Path(sys.argv[1])
 sample_rate = 16_000
 samples = [
     int(8_000 * math.sin(2 * math.pi * 440 * index / sample_rate))
-    for index in range(sample_rate // 4)
+    for index in range(sample_rate)
 ]
 with wave.open(str(path), "wb") as wav:
     wav.setnchannels(1)
@@ -462,7 +462,7 @@ stop_fixture "${bypass_proxy_pid}"
 jq -e '.event == "request" and .request_count == 1 and .response_status == 200' \
   "${out_dir}/no-proxy-origin.trace.json" >/dev/null
 
-# Rate-limit and service-outage responses retain status and body diagnostics.
+# Rate-limit and service-outage responses retain status without exposing provider bodies.
 for case_name in rate-limit service-unavailable; do
   if [[ "${case_name}" == rate-limit ]]; then
     status=429
@@ -478,7 +478,10 @@ for case_name in rate-limit service-unavailable; do
   run_daemon_failure "${case_name}" "${clear_proxy_env[@]}"
   wait_fixture "${origin_pid}"
   grep -Fq "HTTP ${status}" "${out_dir}/${case_name}.stderr"
-  grep -Fq "${marker}" "${out_dir}/${case_name}.stderr"
+  if grep -Fq "${marker}" "${out_dir}/${case_name}.stderr"; then
+    echo "remote ASR provider error body leaked into diagnostics" >&2
+    exit 1
+  fi
 done
 
 # Provider redirects fail closed and never contact the advertised target.
@@ -494,7 +497,10 @@ write_config "${redirect_origin_url}" 2000
 run_daemon_failure redirect "${clear_proxy_env[@]}"
 wait_fixture "${redirect_origin_pid}"
 grep -Fq 'HTTP 307' "${out_dir}/redirect.stderr"
-grep -Fq "${redirect_marker}" "${out_dir}/redirect.stderr"
+if grep -Fq "${redirect_marker}" "${out_dir}/redirect.stderr"; then
+  echo "remote ASR redirect response body leaked into diagnostics" >&2
+  exit 1
+fi
 jq -e '
   .event == "request" and
   .request_count == 1 and
@@ -529,9 +535,10 @@ oversized_error_url="${started_url}"
 write_config "${oversized_error_url}" 2000
 run_daemon_failure oversized-error "${clear_proxy_env[@]}"
 wait_fixture "${oversized_error_pid}"
-grep -Fq 'remote ASR HTTP response body exceeds 1048576-byte limit'   "${out_dir}/oversized-error.stderr"
-if grep -Fq "${oversized_error_marker}" "${out_dir}/oversized-error.stderr"; then
-  echo "oversized ASR error body leaked into diagnostics" >&2
+grep -Fq 'HTTP 503' "${out_dir}/oversized-error.stderr"
+if grep -Fq 'remote ASR HTTP response body exceeds 1048576-byte limit' "${out_dir}/oversized-error.stderr" || \
+   grep -Fq "${oversized_error_marker}" "${out_dir}/oversized-error.stderr"; then
+  echo "oversized ASR error body affected diagnostics" >&2
   exit 1
 fi
 jq -e --argjson padding "${oversized_padding_bytes}" '

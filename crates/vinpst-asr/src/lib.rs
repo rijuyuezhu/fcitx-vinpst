@@ -1,8 +1,8 @@
-//! ASR backend contract, deterministic mock, and backend skeletons.
+//! ASR backend contracts and implementations shared by Vinpst runtimes.
 //!
-//! This crate mirrors the original C++ daemon's recognition contract at a Rust
-//! trait boundary. Real backends such as sherpa-onnx and command execution
-//! should implement these traits after their contracts are covered by tests.
+//! The crate provides local sherpa-onnx, supervised command, OpenAI-compatible
+//! remote, deterministic mock, and unavailable-placeholder backends behind one
+//! recognition-session contract, plus non-mutating capability diagnostics.
 
 mod command;
 mod command_streaming;
