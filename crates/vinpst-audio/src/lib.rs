@@ -1,8 +1,8 @@
-//! Pure PCM audio utilities used before the real `PipeWire` capture layer lands.
+//! Typed PCM, capture, and audio-processing boundaries for Vinpst.
 //!
-//! This crate deliberately starts without `PipeWire`.  It owns typed PCM buffers
-//! and deterministic transforms so audio behavior can be tested independently
-//! from desktop/audio-server integration.
+//! The crate owns validated PCM buffers, raw/WAVE decoding, deterministic
+//! transforms, capture traits and test doubles. The optional `PipeWire` backend
+//! implements those same contracts without changing daemon-side audio semantics.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -56,10 +56,36 @@ impl Default for PcmSpec {
 }
 
 /// Mono signed 16-bit PCM buffer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct PcmBuffer {
     spec: PcmSpec,
     samples: Vec<i16>,
+}
+
+#[derive(Deserialize)]
+struct PcmBufferWire {
+    spec: PcmSpec,
+    samples: Vec<i16>,
+}
+
+impl<'de> Deserialize<'de> for PcmBuffer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = PcmBufferWire::deserialize(deserializer)?;
+        Self::with_spec(wire.spec, wire.samples).map_err(serde::de::Error::custom)
+    }
+}
+
+impl std::fmt::Debug for PcmBuffer {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PcmBuffer")
+            .field("spec", &self.spec)
+            .field("samples_len", &self.samples.len())
+            .finish()
+    }
 }
 
 const fn default_channels() -> u16 {

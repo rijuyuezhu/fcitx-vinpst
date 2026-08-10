@@ -264,6 +264,53 @@ fn pcm_buffer_preserves_explicit_spec() {
 }
 
 #[test]
+fn pcm_buffer_deserialization_preserves_validated_wire_shape() {
+    let pcm = PcmBuffer::with_spec(
+        PcmSpec {
+            sample_rate_hz: 48_000,
+            channels: 2,
+        },
+        vec![1, -1, 2, -2],
+    )
+    .unwrap();
+
+    let json = serde_json::to_string(&pcm).unwrap();
+    let decoded: PcmBuffer = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded, pcm);
+}
+
+#[test]
+fn pcm_buffer_deserialization_rejects_invalid_invariants() {
+    for (json, expected) in [
+        (
+            r#"{"spec":{"sample_rate_hz":0,"channels":1},"samples":[1]}"#,
+            "invalid sample rate: 0",
+        ),
+        (
+            r#"{"spec":{"sample_rate_hz":16000,"channels":0},"samples":[1]}"#,
+            "invalid channel count: 0",
+        ),
+        (
+            r#"{"spec":{"sample_rate_hz":16000,"channels":2},"samples":[1,2,3]}"#,
+            "sample count 3 is not aligned to channel count 2",
+        ),
+    ] {
+        let error = serde_json::from_str::<PcmBuffer>(json).unwrap_err();
+        assert!(error.to_string().contains(expected));
+    }
+}
+
+#[test]
+fn pcm_buffer_debug_reports_shape_without_samples() {
+    let pcm = PcmBuffer::new(16_000, vec![-23_456, 23_457]).unwrap();
+    let debug = format!("{pcm:?}");
+    assert!(debug.contains("PcmBuffer"));
+    assert!(debug.contains("samples_len: 2"));
+    assert!(!debug.contains("-23456"));
+    assert!(!debug.contains("23457"));
+}
+
+#[test]
 fn wav_pcm16le_parser_preserves_metadata_and_samples() {
     let bytes = wav_pcm16le_bytes(48_000, 2, &[1_000, -1_000, 2_000, -2_000]);
     let pcm = PcmBuffer::from_wav_pcm16le_bytes(&bytes).unwrap();
