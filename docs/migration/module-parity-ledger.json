@@ -2371,16 +2371,45 @@
         "Call-site review found no second provider-client construction path in those consumers that bypasses this shared redirect/trust/body policy. OpenAI-compatible text deliberately uses the connect-timeout variant so a TCP connection attempt cannot consume its longer overall deadline; remote ASR uses the default shared client plus its own request timeout. Registry transport remains separately owned by vinpst-registry because it has distinct cache/mirror semantics rather than being forced through this provider-response helper.",
         "Evidence includes complete vinpst-http source/test review; workspace reqwest feature verification; repository-wide call-site inspection for every exported helper/limit; redirect, certificate-path/content redaction, CA-size, exact body-limit, invalid UTF-8, and nested-timeout tests; the complete vinpst-http all-target suite, strict all-target Clippy, downstream ASR/text/GUI compile checks, secret scan, and the module-parity ledger checker. No production-code change was required."
       ]
+    },
+    {
+      "id": "ASR-RUNTIME-FACADE-001",
+      "state": "audited-fixed",
+      "title": "Current-only ASR facade, remote diagnostics, timeout capability, mocks, and fallbacks",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-asr/src/error.rs",
+        "crates/vinpst-asr/src/lib.rs",
+        "crates/vinpst-asr/src/mock.rs",
+        "crates/vinpst-asr/src/remote.rs",
+        "crates/vinpst-asr/src/timeout.rs",
+        "crates/vinpst-asr/src/unavailable.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/factory.rs",
+        "crates/vinpst-asr/src/traits.rs",
+        "crates/vinpst-cli/src/commands/system.rs",
+        "crates/vinpst-daemon/src/runtime.rs",
+        "crates/vinpst-daemon/src/runtime/recording.rs",
+        "docs/architecture/asr-contract.md",
+        "scripts/tests/asr/run-openai-compatible-asr-network-smoke.sh"
+      ],
+      "notes": [
+        "This current-only unit owns the remaining vinpst-asr facade/runtime files after command, sherpa/offline/online/VAD, result, factory-state, and HTTP transport responsibilities were audited elsewhere. It covers the common AsrError surface, public crate re-exports, deterministic mock backend, OpenAI-compatible remote backend/session wrapper, timeout-capability diagnostics, and unavailable-backend placeholder without re-owning the already-audited command/sherpa implementations or the shared vinpst-http client primitive.",
+        "The audit found a real diagnostic-disclosure gap in remote non-success handling. ReqwestRemoteAsrTransport previously read every non-2xx provider body and appended it to AsrError::Backend after replacing only exact occurrences of the configured API key and prompt. Arbitrary provider-returned request ids, internal paths, echoed third-party credentials, or other body data could therefore propagate through RuntimeError into daemon last_error, CLI errors, and D-Bus failure details even though those values were unknown to the local redactor.",
+        "Remote non-success handling is now status-only. Once response headers reveal a non-success status, the transport returns `remote ASR provider returned HTTP <status>` without reading the body. This also means a slow or oversized 3xx/4xx/5xx body cannot convert the already-known HTTP failure into a later response-body timeout/size diagnostic. Redirects remain disabled by the shared HTTP client, so a 307 is reported by status and its Location target is still never contacted. Successful responses continue through the shared UTF-8 1 MiB bounded reader and retain distinct request-versus-success-body timeout diagnostics.",
+        "The deterministic remote-network smoke was updated to enforce that contract for 307, 429, 503, and oversized 503 bodies: status must remain visible while fixture body markers and the old error-body size diagnostic must remain absent. Its WAV fixture was also repaired from 0.25 seconds/4000 samples to one second/16000 samples because the already-established upstream-compatible MIN_SAMPLES_FOR_RECOGNITION gate is 8000; the old fixture silently skipped inference and therefore stopped exercising any network path. This is a test-fixture correction, not a change to the runtime minimum-audio policy.",
+        "RemoteAsrSpec and RemoteAsrRequest already use custom Debug representations that redact URL userinfo/query values, API keys, prompts, and raw WAV bytes while retaining model/language/timeout/size diagnostics. A live RemoteRecognitionSession additionally owns accumulated raw PCM and RecognitionContext selected text, so its unnecessary derived Debug implementation was removed entirely. This prevents a future diagnostic formatter from bypassing the request/spec redaction boundary by expanding the private live session object.",
+        "UnavailableAsrBackend intentionally preserves a backend-construction failure reason so create_session can report why an unavailable provider cannot be used; that user-visible behavior remains unchanged. Its derived Debug previously duplicated the preserved reason verbatim, however, so Debug now exposes only `error: <redacted>`. A regression proves the distinctive preserved reason remains available through create_session while it is absent from Debug.",
+        "timeout.rs is not a detached timeout runner and is intentionally retained. AsrTimeoutProbe classifies configured provider timeout behavior for `vinpst system doctor`: command providers report supervised process-deadline enforcement, remote providers report HTTP request enforcement, local/native providers report diagnostic-only unsupported enforcement, and absent timeout remains NotConfigured. Call-site review confirms the CLI doctor consumes this probe; it does not claim to impose a second timeout around recognition sessions.",
+        "The common AsrError variants were reviewed for disclosure and control-flow semantics. Structured variants contain only status/layout values or static state descriptions; Io retains ordinary std::io::Error detail; Backend(String) is intentionally flexible for implementation diagnostics, so producer boundaries must sanitize any remote or secret-bearing source before constructing it. The remote provider body fix closes the identified external-body path, while command-process and factory producer sanitization remain under their existing audit units.",
+        "MockAsrBackend remains deterministic test/development infrastructure. Its audio log stores push kind, sample count, and PCM spec rather than sample values, while configured mock transcripts/events are explicit caller-provided fixtures. unavailable.rs and mock.rs therefore require no wire or behavioral compatibility changes beyond the unavailable Debug hardening. The crate-level documentation was updated from migration-era future-backend wording to the actual local/command/remote/mock/unavailable backend set and capability-diagnostic role.",
+        "Evidence includes complete review of the six owned files plus factory/trait/runtime/CLI-doctor call chains; the new status-only unknown-provider-secret regression, unavailable Debug regression, all 153 vinpst-asr tests, deterministic proxy/NO_PROXY/auth/TLS/redirect/error/timeout/body-limit network smoke, ShellCheck with sourced helpers, strict all-target Clippy, daemon/CLI downstream compile checks, docs build, secret scan, and the module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [],
   "current_pending": [
-    "crates/vinpst-asr/src/error.rs",
-    "crates/vinpst-asr/src/lib.rs",
-    "crates/vinpst-asr/src/mock.rs",
-    "crates/vinpst-asr/src/remote.rs",
-    "crates/vinpst-asr/src/timeout.rs",
-    "crates/vinpst-asr/src/unavailable.rs",
     "crates/vinpst-cli/src/cli/registry.rs",
     "crates/vinpst-cli/src/commands/mod.rs",
     "crates/vinpst-cli/src/commands/registry.rs",
