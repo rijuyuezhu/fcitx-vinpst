@@ -19,22 +19,25 @@ public:
   }
 
   bool UserCommit(std::size_t context, std::string_view text) {
-    return vinpst_fcitx_context_history_user_commit(
-               history_.mutable_raw_handle(), context, RustBytes(text), text.size()) != 0;
+    return vinpst_fcitx_context_history_user_commit(history_.mutable_raw_handle(),
+                                                    context, RustBytes(text),
+                                                    text.size()) != 0;
   }
 
   void AppendEntry(std::string_view text, std::string_view source) {
-    vinpst_fcitx_context_history_append_entry(history_.mutable_raw_handle(), RustBytes(text),
-                                              text.size(), RustBytes(source), source.size());
+    vinpst_fcitx_context_history_append_entry(history_.mutable_raw_handle(),
+                                              RustBytes(text), text.size(),
+                                              RustBytes(source), source.size());
   }
 
   void SuppressNext(std::string_view text) {
-    vinpst_fcitx_context_history_suppress_next(history_.mutable_raw_handle(), RustBytes(text),
-                                               text.size());
+    vinpst_fcitx_context_history_suppress_next(history_.mutable_raw_handle(),
+                                               RustBytes(text), text.size());
   }
 
   void ContextDestroyed(std::size_t context) {
-    vinpst_fcitx_context_history_context_destroyed(history_.mutable_raw_handle(), context);
+    vinpst_fcitx_context_history_context_destroyed(history_.mutable_raw_handle(),
+                                                   context);
   }
 
   void Flush() {

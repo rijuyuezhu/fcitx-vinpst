@@ -10,11 +10,11 @@ namespace vinpst_fcitx_bridge {
 
 struct PresentedCandidate {
   PresentedCandidate() = default;
-  PresentedCandidate(std::string text_value, std::string comment_value, bool commit_value,
-                     std::string context_source_value = {},
+  PresentedCandidate(std::string text_value, std::string comment_value,
+                     bool commit_value, std::string context_source_value = {},
                      bool suppress_commit_context_value = false)
-      : text(std::move(text_value)), comment(std::move(comment_value)), commit(commit_value),
-        context_source(std::move(context_source_value)),
+      : text(std::move(text_value)), comment(std::move(comment_value)),
+        commit(commit_value), context_source(std::move(context_source_value)),
         suppress_commit_context(suppress_commit_context_value) {}
 
   std::string text;

@@ -132,6 +132,5 @@ int main() {
   assert(paged_candidates->globalCursorIndex() == 5);
   assert(paged_candidates->candidateFromAll(5).text().toString() == "choice 6");
 
-
   return 0;
 }

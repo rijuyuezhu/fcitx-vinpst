@@ -13,7 +13,6 @@ namespace vinpst_fcitx_bridge {
 using ResultCandidateSelectCallback =
     std::function<void(fcitx::InputContext *, const PresentedCandidate &)>;
 
-
 std::string ResultCandidateMenuTitle(std::size_t count);
 
 void ClearResultCandidateMenu(fcitx::InputContext *input_context);

@@ -204,10 +204,12 @@ FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
           }
         }));
     event_handlers_.emplace_back(instance_->watchEvent(
-        fcitx::EventType::InputContextDestroyed, fcitx::EventWatcherPhase::PreInputMethod,
+        fcitx::EventType::InputContextDestroyed,
+        fcitx::EventWatcherPhase::PreInputMethod,
         [this](fcitx::Event &event) { HandleInputContextDestroyed(event); }));
     event_handlers_.emplace_back(instance_->watchEvent(
-        fcitx::EventType::InputContextCommitString, fcitx::EventWatcherPhase::PostInputMethod,
+        fcitx::EventType::InputContextCommitString,
+        fcitx::EventWatcherPhase::PostInputMethod,
         [this](fcitx::Event &event) { HandleCommitString(event); }));
   } else if (signal_bus != nullptr && signal_bus->eventLoop() != nullptr) {
     menu_refresh_dispatcher_->attach(signal_bus->eventLoop());
@@ -282,22 +284,23 @@ void FcitxVinpstAddon::SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus) {
     notifier_dbus_.reset();
   }
   daemon_signal_monitor_ = std::make_unique<FcitxDaemonSignalMonitor>(
-      bus, DaemonSignalCallbacks{
-               .service_availability_changed =
-                   [this](bool available) { HandleDaemonAvailability(available); },
-               .status_changed =
-                   [this](std::string_view status) { HandleDaemonStatus(status); },
-               .recognition_result =
-                   [this](std::string_view payload) { HandleRecognitionResult(payload); },
-               .recognition_partial =
-                   [this](std::string_view partial_text) {
-                     HandleRecognitionPartial(partial_text);
-                   },
-               .notification =
-                   [this](FrontendNotificationKind kind, std::string_view message) {
-                     HandleDaemonNotification(kind, message);
-                   },
-           });
+      bus,
+      DaemonSignalCallbacks{
+          .service_availability_changed =
+              [this](bool available) { HandleDaemonAvailability(available); },
+          .status_changed =
+              [this](std::string_view status) { HandleDaemonStatus(status); },
+          .recognition_result =
+              [this](std::string_view payload) { HandleRecognitionResult(payload); },
+          .recognition_partial =
+              [this](std::string_view partial_text) {
+                HandleRecognitionPartial(partial_text);
+              },
+          .notification =
+              [this](FrontendNotificationKind kind, std::string_view message) {
+                HandleDaemonNotification(kind, message);
+              },
+      });
   if (!daemon_signal_monitor_->active()) {
     FCITX_WARN() << "fcitx-vinpst failed to subscribe to daemon notifications";
     daemon_signal_monitor_.reset();
@@ -432,7 +435,8 @@ bool FcitxVinpstAddon::DaemonSyncAllowed() const {
 }
 
 void FcitxVinpstAddon::NoteDaemonSyncFailure() {
-  daemon_sync_blocked_until_ = std::chrono::steady_clock::now() + kDaemonFailureCooldown;
+  daemon_sync_blocked_until_ =
+      std::chrono::steady_clock::now() + kDaemonFailureCooldown;
 }
 
 void FcitxVinpstAddon::ClearDaemonSyncFailure() {
@@ -444,12 +448,14 @@ AppliedOutcome FcitxVinpstAddon::DispatchPreparedDaemonCall(fcitx::InputContext 
                                                             bool has_argument,
                                                             bool result_via_signal) {
   if (daemon_bus_ == nullptr || !DaemonSyncAllowed()) {
-    FCITX_WARN() << "fcitx-vinpst async daemon call unavailable before dispatch: method="
-                 << method << " bus=" << (daemon_bus_ != nullptr)
-                 << " cooldown=" << !DaemonSyncAllowed();
+    FCITX_WARN()
+        << "fcitx-vinpst async daemon call unavailable before dispatch: method="
+        << method << " bus=" << (daemon_bus_ != nullptr)
+        << " cooldown=" << !DaemonSyncAllowed();
     NoteDaemonSyncFailure();
     return ApplyBridgeOutcome(
-        ic, bridge_.Complete(false, FrontendText("Voice input daemon is unavailable.")));
+        ic,
+        bridge_.Complete(false, FrontendText("Voice input daemon is unavailable.")));
   }
 
   std::string argument;
@@ -458,7 +464,8 @@ AppliedOutcome FcitxVinpstAddon::DispatchPreparedDaemonCall(fcitx::InputContext 
                  << method;
     NoteDaemonSyncFailure();
     return ApplyBridgeOutcome(
-        ic, bridge_.Complete(false, FrontendText("Voice input daemon is unavailable.")));
+        ic,
+        bridge_.Complete(false, FrontendText("Voice input daemon is unavailable.")));
   }
 
   const std::string service(dbus::kServiceBusName);
@@ -466,7 +473,7 @@ AppliedOutcome FcitxVinpstAddon::DispatchPreparedDaemonCall(fcitx::InputContext 
   const std::string interface(dbus::kServiceInterface);
   const std::string method_name(method);
   auto message = daemon_bus_->createMethodCall(service.c_str(), path.c_str(),
-                                                interface.c_str(), method_name.c_str());
+                                               interface.c_str(), method_name.c_str());
   if (has_argument) {
     message << argument;
   }
@@ -482,7 +489,8 @@ AppliedOutcome FcitxVinpstAddon::DispatchPreparedDaemonCall(fcitx::InputContext 
       }
       auto *active_ic = active_trigger_ic_.get();
       if (result_via_signal) {
-        static_cast<void>(ApplyBridgeOutcome(active_ic, bridge_.Complete(false, error)));
+        static_cast<void>(
+            ApplyBridgeOutcome(active_ic, bridge_.Complete(false, error)));
       } else {
         bridge_.Reset();
         static_cast<void>(ApplyDaemonUnavailable(active_ic, std::move(error)));
@@ -499,7 +507,8 @@ AppliedOutcome FcitxVinpstAddon::DispatchPreparedDaemonCall(fcitx::InputContext 
     FCITX_WARN() << "fcitx-vinpst failed to queue async daemon call: method=" << method;
     NoteDaemonSyncFailure();
     return ApplyBridgeOutcome(
-        ic, bridge_.Complete(false, FrontendText("Voice input daemon is unavailable.")));
+        ic,
+        bridge_.Complete(false, FrontendText("Voice input daemon is unavailable.")));
   }
   if (result_via_signal) {
     pending_stop_call_slot_ = std::move(pending);
@@ -655,7 +664,8 @@ FcitxVinpstAddon::ExecuteDaemonControl(std::uint8_t event, fcitx::InputContext *
   case DaemonControlPlan::PresentRemoteStatus:
     return PresentRemoteDaemonStatus(ic, status, command_mode);
   case DaemonControlPlan::AdoptExternalStatus:
-    if (ic == nullptr || !bridge_.AdoptExternalRecording(false, scene_menu_controller_)) {
+    if (ic == nullptr ||
+        !bridge_.AdoptExternalRecording(false, scene_menu_controller_)) {
       return AppliedOutcome::None;
     }
     ClearRemoteDaemonStatus();

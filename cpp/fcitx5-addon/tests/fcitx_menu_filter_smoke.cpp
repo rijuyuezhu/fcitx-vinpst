@@ -90,14 +90,14 @@ int main() {
          release_consume->action == MenuKeyAction::Consume);
   const auto result_digit = PlanResultMenuKey(
       false,
-      ClassifyMenuKey(fcitx::Key(FcitxKey_1), false, false, page_prev, page_next),
-      true, 5, 1, 6);
+      ClassifyMenuKey(fcitx::Key(FcitxKey_1), false, false, page_prev, page_next), true,
+      5, 1, 6);
   assert(result_digit.has_value());
   assert(result_digit->action == MenuKeyAction::Select && result_digit->value == 5);
   const auto result_invalid_digit = PlanResultMenuKey(
       false,
-      ClassifyMenuKey(fcitx::Key(FcitxKey_2), false, false, page_prev, page_next),
-      true, 5, 1, 6);
+      ClassifyMenuKey(fcitx::Key(FcitxKey_2), false, false, page_prev, page_next), true,
+      5, 1, 6);
   assert(result_invalid_digit.has_value() &&
          result_invalid_digit->action == MenuKeyAction::CloseAndPass);
   const auto result_enter = PlanResultMenuKey(

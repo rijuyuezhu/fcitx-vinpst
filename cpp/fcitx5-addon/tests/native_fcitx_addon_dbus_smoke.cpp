@@ -73,16 +73,16 @@ int main() {
   using fcitx::dbus::Bus;
   using fcitx::dbus::BusType;
   using vinpst_fcitx_bridge::AppliedOutcome;
-  using vinpst_fcitx_bridge::FrontendBridge;
   using vinpst_fcitx_bridge::FcitxTriggerAction;
   using vinpst_fcitx_bridge::FcitxVinpstAddon;
+  using vinpst_fcitx_bridge::FrontendBridge;
   using vinpst_fcitx_bridge::SceneMenuController;
   using vinpst_fcitx_bridge::SdBusDaemonClient;
 
   const auto menu_probe = OptionalEnvironment("VINPST_NATIVE_ADDON_MENU_PROBE");
-  const auto expected_text = menu_probe.empty()
-                                 ? RequiredEnvironment("VINPST_NATIVE_FRONTEND_EXPECTED_TEXT")
-                                 : std::string{};
+  const auto expected_text =
+      menu_probe.empty() ? RequiredEnvironment("VINPST_NATIVE_FRONTEND_EXPECTED_TEXT")
+                         : std::string{};
   const auto selected_text = OptionalEnvironment("VINPST_NATIVE_ADDON_SELECTED_TEXT");
   const bool command_mode = !selected_text.empty();
   const bool expect_candidate_menu =
@@ -130,18 +130,20 @@ int main() {
     const auto dispatch_elapsed = std::chrono::steady_clock::now() - started;
     if (dispatch_elapsed >= std::chrono::milliseconds(100)) {
       std::cerr << menu_probe << " menu trigger blocked for "
-                << std::chrono::duration_cast<std::chrono::milliseconds>(dispatch_elapsed).count()
+                << std::chrono::duration_cast<std::chrono::milliseconds>(
+                       dispatch_elapsed)
+                       .count()
                 << " ms\n";
       return 1;
     }
 
     bool loop_probe_fired = false;
-    auto loop_probe = signal_loop.addTimeEvent(
-        CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50'000, 0,
-        [&](fcitx::EventSourceTime *, std::uint64_t) {
-          loop_probe_fired = true;
-          return false;
-        });
+    auto loop_probe =
+        signal_loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50'000,
+                                 0, [&](fcitx::EventSourceTime *, std::uint64_t) {
+                                   loop_probe_fired = true;
+                                   return false;
+                                 });
     loop_probe->setOneShot();
     const std::uint64_t exit_delay = expect_ready ? 1'000'000 : 200'000;
     auto exit_probe = signal_loop.addTimeEvent(
@@ -159,14 +161,13 @@ int main() {
     if (expect_ready) {
       const auto current = input_context.inputPanel().auxDown().toString();
       const auto candidates = input_context.inputPanel().candidateList();
-      if (current.empty() ||
-          (action == FcitxTriggerAction::ShowSceneMenu &&
-           (candidates == nullptr || candidates->size() == 0))) {
+      if (current.empty() || (action == FcitxTriggerAction::ShowSceneMenu &&
+                              (candidates == nullptr || candidates->size() == 0))) {
         std::cerr << menu_probe << " menu did not publish its refreshed snapshot\n";
         return 1;
       }
-      std::cout << "native " << menu_probe << " menu published refreshed state: " << current
-                << '\n';
+      std::cout << "native " << menu_probe
+                << " menu published refreshed state: " << current << '\n';
     } else {
       std::cout << "native " << menu_probe << " menu trigger remained responsive\n";
     }
@@ -177,7 +178,8 @@ int main() {
       std::cerr << "external-session smoke currently expects normal recording\n";
       return 1;
     }
-    static_cast<void>(addon.ApplyTriggerAction(&input_context, FcitxTriggerAction::None));
+    static_cast<void>(
+        addon.ApplyTriggerAction(&input_context, FcitxTriggerAction::None));
 
     std::string client_error;
     auto client = SdBusDaemonClient::ConnectSession(&client_error);
@@ -206,7 +208,8 @@ int main() {
     auto delayed_start = signal_loop.addTimeEvent(
         CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50'000, 0,
         [&](fcitx::EventSourceTime *, std::uint64_t) {
-          const auto outcome = external_bridge.StartNormal(client->raw_handle(), external_scenes);
+          const auto outcome =
+              external_bridge.StartNormal(client->raw_handle(), external_scenes);
           if (outcome.kind != vinpst_fcitx_bridge::BridgeOutcome::Kind::Preedit) {
             fail("external client failed to start normal recording");
             return false;
@@ -220,10 +223,12 @@ int main() {
                                current != "... Postprocessing ...";
                 partial_text = current;
                 if (!partial_seen) {
-                  fail("addon did not automatically follow external recording partials");
+                  fail(
+                      "addon did not automatically follow external recording partials");
                   return false;
                 }
-                const auto stop = external_bridge.Stop(client->raw_handle(), external_scenes);
+                const auto stop =
+                    external_bridge.Stop(client->raw_handle(), external_scenes);
                 stop_attempted = true;
                 if (stop.kind != vinpst_fcitx_bridge::BridgeOutcome::Kind::Commit) {
                   fail("external client failed to stop normal recording");
@@ -232,8 +237,10 @@ int main() {
                 final_check = signal_loop.addTimeEvent(
                     CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 500'000, 0,
                     [&](fcitx::EventSourceTime *, std::uint64_t) {
-                      if (input_context.committed != std::vector<std::string>{expected_text}) {
-                        fail("addon did not automatically commit external recording result");
+                      if (input_context.committed !=
+                          std::vector<std::string>{expected_text}) {
+                        fail("addon did not automatically commit external recording "
+                             "result");
                         return false;
                       }
                       signal_loop.exit();
@@ -304,9 +311,8 @@ int main() {
                 return false;
               }
               stop = addon.ApplyTriggerAction(
-                  &input_context,
-                  command_mode ? FcitxTriggerAction::StopCommand
-                               : FcitxTriggerAction::StopNormal);
+                  &input_context, command_mode ? FcitxTriggerAction::StopCommand
+                                               : FcitxTriggerAction::StopNormal);
               stop_attempted = true;
               post_stop_probe = signal_loop.addTimeEvent(
                   CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 10'000, 0,
@@ -318,22 +324,27 @@ int main() {
               final_check = signal_loop.addTimeEvent(
                   CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 1'500'000, 0,
                   [&](fcitx::EventSourceTime *, std::uint64_t) {
-                    const bool final_ready = command_mode
-                                                 ? (input_context.inputPanel().candidateList() !=
-                                                        nullptr ||
-                                                    (!expect_candidate_menu &&
-                                                     input_context.committed ==
-                                                         std::vector<std::string>{expected_text} &&
-                                                     !input_context.deleted.empty()))
-                                                 : input_context.committed ==
-                                                       std::vector<std::string>{expected_text};
+                    const bool final_ready =
+                        command_mode
+                            ? (input_context.inputPanel().candidateList() != nullptr ||
+                               (!expect_candidate_menu &&
+                                input_context.committed ==
+                                    std::vector<std::string>{expected_text} &&
+                                !input_context.deleted.empty()))
+                            : input_context.committed ==
+                                  std::vector<std::string>{expected_text};
                     if (!final_ready) {
-                      const auto candidate_list = input_context.inputPanel().candidateList();
-                      fail("native addon final result did not arrive asynchronously: committed=" +
-                           std::to_string(input_context.committed.size()) + " deleted=" +
-                           std::to_string(input_context.deleted.size()) + " candidates=" +
-                           std::to_string(candidate_list == nullptr ? 0 : candidate_list->size()) +
-                           " preedit=" + input_context.inputPanel().preedit().toString());
+                      const auto candidate_list =
+                          input_context.inputPanel().candidateList();
+                      fail("native addon final result did not arrive asynchronously: "
+                           "committed=" +
+                           std::to_string(input_context.committed.size()) +
+                           " deleted=" + std::to_string(input_context.deleted.size()) +
+                           " candidates=" +
+                           std::to_string(
+                               candidate_list == nullptr ? 0 : candidate_list->size()) +
+                           " preedit=" +
+                           input_context.inputPanel().preedit().toString());
                       return false;
                     }
                     signal_loop.exit();
@@ -348,11 +359,12 @@ int main() {
   delayed_start->setOneShot();
   const bool loop_result = signal_loop.exec();
   if (!loop_result || !failure.empty() || !start_attempted || !stop_attempted ||
-      start != AppliedOutcome::Preedit || stop != AppliedOutcome::None || !partial_seen ||
-      !post_stop_timer_fired) {
+      start != AppliedOutcome::Preedit || stop != AppliedOutcome::None ||
+      !partial_seen || !post_stop_timer_fired) {
     std::cerr << "native addon async flow failed: loop=" << loop_result
               << " failure=" << failure << " start-attempted=" << start_attempted
-              << " start=" << static_cast<int>(start) << " stop-attempted=" << stop_attempted
+              << " start=" << static_cast<int>(start)
+              << " stop-attempted=" << stop_attempted
               << " stop=" << static_cast<int>(stop) << " partial=" << partial_seen
               << " post-stop-timer=" << post_stop_timer_fired
               << " preedit=" << partial_text << '\n';
@@ -373,7 +385,8 @@ int main() {
           candidate_list->candidate(0).text().toString() != selected_text ||
           candidate_list->candidate(1).text().toString() != expected_text ||
           !input_context.committed.empty() || !input_context.deleted.empty()) {
-        std::cerr << "native command menu did not expose selected and ASR candidates cleanly\n";
+        std::cerr << "native command menu did not expose selected and ASR candidates "
+                     "cleanly\n";
         return 1;
       }
       candidate_list->candidate(1).select(&input_context);
@@ -383,7 +396,8 @@ int main() {
         return 1;
       }
     } else if (expect_candidate_menu) {
-      std::cerr << "native command fixture required a candidate menu but none was shown\n";
+      std::cerr
+          << "native command fixture required a candidate menu but none was shown\n";
       return 1;
     } else if (input_context.deleted != expected_deletion ||
                input_context.committed != std::vector<std::string>{expected_text}) {

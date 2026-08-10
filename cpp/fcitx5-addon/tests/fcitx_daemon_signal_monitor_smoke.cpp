@@ -88,8 +88,8 @@ int main() {
   std::vector<std::string> partials;
   std::vector<std::pair<FrontendNotificationKind, std::string>> notifications;
   auto finish_when_complete = [&] {
-    if (service_availability.size() == 2 && statuses.size() == 1 && results.size() == 1 &&
-        partials.size() == 1 && notifications.size() == 2) {
+    if (service_availability.size() == 2 && statuses.size() == 1 &&
+        results.size() == 1 && partials.size() == 1 && notifications.size() == 2) {
       loop.exit();
     }
   };

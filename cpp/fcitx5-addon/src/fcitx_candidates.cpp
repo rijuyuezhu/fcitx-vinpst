@@ -16,7 +16,6 @@ namespace {
 
 constexpr int kResultMenuPageSize = 5;
 
-
 void DeleteSelectedTextIfAny(fcitx::InputContext *input_context) {
   if (input_context == nullptr) {
     return;
@@ -55,7 +54,6 @@ private:
 };
 
 } // namespace
-
 
 std::string ResultCandidateMenuTitle(std::size_t count) {
   return FrontendCountText("Choose Result (%zu)", count);

@@ -210,7 +210,8 @@ void FcitxDaemonSignalMonitor::UpdateServiceOwner(std::string_view owner) {
 
 bool FcitxDaemonSignalMonitor::active() const {
   return owner_change_slot_ != nullptr && status_slot_ != nullptr &&
-         result_slot_ != nullptr && partial_slot_ != nullptr && notification_slot_ != nullptr;
+         result_slot_ != nullptr && partial_slot_ != nullptr &&
+         notification_slot_ != nullptr;
 }
 
 } // namespace vinpst_fcitx_bridge

@@ -28,12 +28,12 @@ int main() {
   sender.attachEventLoop(&loop);
 
   std::array<std::string, 4> received;
-  FcitxNotifierDbusObject object(
-      [&](std::string_view code, std::string_view subject, std::string_view detail,
-          std::string_view raw_message) {
-        received = {std::string(code), std::string(subject), std::string(detail),
-                    std::string(raw_message)};
-      });
+  FcitxNotifierDbusObject object([&](std::string_view code, std::string_view subject,
+                                     std::string_view detail,
+                                     std::string_view raw_message) {
+    received = {std::string(code), std::string(subject), std::string(detail),
+                std::string(raw_message)};
+  });
   assert(receiver.addObjectVTable(std::string(dbus::kNotifierObjectPath),
                                   std::string(dbus::kNotifierInterface), object));
   assert(receiver.requestName(
@@ -44,10 +44,11 @@ int main() {
   const std::string path(dbus::kNotifierObjectPath);
   const std::string interface(dbus::kNotifierInterface);
   const std::string method(dbus::kMethodNotify);
-  auto message = sender.createMethodCall(service.c_str(), path.c_str(), interface.c_str(),
-                                         method.c_str());
-  message << std::string("daemon_restart_failed") << std::string("vinpst-daemon.service")
-          << std::string("restart failed") << std::string("systemctl restart failed");
+  auto message = sender.createMethodCall(service.c_str(), path.c_str(),
+                                         interface.c_str(), method.c_str());
+  message << std::string("daemon_restart_failed")
+          << std::string("vinpst-daemon.service") << std::string("restart failed")
+          << std::string("systemctl restart failed");
 
   bool replied = false;
   auto pending = message.callAsync(5'000'000, [&](Message &reply) {
@@ -72,10 +73,9 @@ int main() {
   assert(loop.exec());
   assert(!timed_out);
   assert(replied);
-  assert((received == std::array<std::string, 4>{"daemon_restart_failed",
-                                                 "vinpst-daemon.service",
-                                                 "restart failed",
-                                                 "systemctl restart failed"}));
+  assert((received ==
+          std::array<std::string, 4>{"daemon_restart_failed", "vinpst-daemon.service",
+                                     "restart failed", "systemctl restart failed"}));
 
   const auto [kind, text] = vinpst_fcitx_bridge::PlanStructuredDaemonNotification(
       received[0], received[1], received[2], received[3]);

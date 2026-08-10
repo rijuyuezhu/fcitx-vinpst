@@ -63,26 +63,28 @@ BridgeOutcome TakeOutcome(VinpstFcitxFrontendOutcome *raw_outcome,
                                                          index, &candidate) == 0) {
           return std::nullopt;
         }
-        return PresentedCandidate{CopyRustString(candidate.text),
-                                  CopyRustString(candidate.comment), candidate.commit != 0,
-                                  CopyRustString(candidate.context_source),
-                                  candidate.suppress_commit_context != 0};
+        return PresentedCandidate{
+            CopyRustString(candidate.text), CopyRustString(candidate.comment),
+            candidate.commit != 0, CopyRustString(candidate.context_source),
+            candidate.suppress_commit_context != 0};
       },
   };
   std::vector<ContextEntryPresentation> context_entries;
   context_entries.reserve(view.context_entry_count);
   for (std::size_t index = 0; index < view.context_entry_count; ++index) {
     VinpstFcitxContextEntryView entry{};
-    if (vinpst_fcitx_frontend_presentation_context_entry(presentation->raw_handle(), index,
-                                                         &entry) == 0) {
+    if (vinpst_fcitx_frontend_presentation_context_entry(presentation->raw_handle(),
+                                                         index, &entry) == 0) {
       return FfiFailure();
     }
-    context_entries.push_back(
-        ContextEntryPresentation{CopyRustString(entry.text), CopyRustString(entry.source)});
+    context_entries.push_back(ContextEntryPresentation{CopyRustString(entry.text),
+                                                       CopyRustString(entry.source)});
   }
   return BridgeOutcome{static_cast<BridgeOutcome::Kind>(view.kind),
-                       CopyRustString(view.text), std::move(candidate_menu),
-                       view.replace_selection != 0, std::move(context_entries),
+                       CopyRustString(view.text),
+                       std::move(candidate_menu),
+                       view.replace_selection != 0,
+                       std::move(context_entries),
                        view.suppress_commit_context != 0};
 }
 
@@ -169,8 +171,8 @@ bool FrontendBridge::PrepareAdoptAndStop(bool command_mode,
              scene_controller.raw_handle()) != 0;
 }
 
-bool FrontendBridge::AdoptExternalRecording(bool command_mode,
-                                            const SceneMenuController &scene_controller) {
+bool FrontendBridge::AdoptExternalRecording(
+    bool command_mode, const SceneMenuController &scene_controller) {
   return vinpst_fcitx_frontend_controller_adopt_external_recording(
              controller_.mutable_raw_handle(), command_mode ? 1U : 0U,
              scene_controller.raw_handle()) != 0;
@@ -181,7 +183,8 @@ bool FrontendBridge::PendingArgument(std::string *argument) const {
     return false;
   }
   VinpstFcitxStringView view{};
-  if (vinpst_fcitx_frontend_controller_pending_argument(controller_.raw_handle(), &view) == 0) {
+  if (vinpst_fcitx_frontend_controller_pending_argument(controller_.raw_handle(),
+                                                        &view) == 0) {
     return false;
   }
   *argument = CopyRustString(view);
@@ -196,9 +199,10 @@ BridgeOutcome FrontendBridge::Complete(bool success, std::string_view response) 
 }
 
 BridgeOutcome FrontendBridge::CompleteRecognitionResult(std::string_view response) {
-  return TakeOutcome(vinpst_fcitx_frontend_controller_complete_recognition_result(
-                         controller_.mutable_raw_handle(), RustBytes(response), response.size()),
-                     original_text_, voice_command_text_, cancel_text_);
+  return TakeOutcome(
+      vinpst_fcitx_frontend_controller_complete_recognition_result(
+          controller_.mutable_raw_handle(), RustBytes(response), response.size()),
+      original_text_, voice_command_text_, cancel_text_);
 }
 
 void FrontendBridge::SetPresentationText(std::string original,

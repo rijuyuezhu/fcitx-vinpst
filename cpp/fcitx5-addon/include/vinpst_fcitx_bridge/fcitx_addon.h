@@ -115,8 +115,7 @@ private:
   void CancelTriggerStop();
   void StopActiveRecording(fcitx::InputContext *fallback_ic);
   AppliedOutcome DispatchPreparedDaemonCall(fcitx::InputContext *ic,
-                                            std::string_view method,
-                                            bool has_argument,
+                                            std::string_view method, bool has_argument,
                                             bool result_via_signal);
   bool DaemonSyncAllowed() const;
   void NoteDaemonSyncFailure();

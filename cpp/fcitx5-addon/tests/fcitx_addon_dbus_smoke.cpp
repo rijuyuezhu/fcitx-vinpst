@@ -31,8 +31,7 @@ void ResetOutcomes() {
   g_outcomes.clear();
 }
 
-bool OutcomeSeen(BridgeOutcome::Kind kind, std::string_view text,
-                 bool command_mode) {
+bool OutcomeSeen(BridgeOutcome::Kind kind, std::string_view text, bool command_mode) {
   return std::any_of(g_outcomes.begin(), g_outcomes.end(),
                      [&](const BridgeOutcome &outcome) {
                        return outcome.kind == kind && outcome.text == text &&
@@ -44,7 +43,6 @@ void Reschedule(fcitx::EventSourceTime *event, std::uint64_t delay_usec) {
   event->setTime(fcitx::now(CLOCK_MONOTONIC) + delay_usec);
   event->setEnabled(true);
 }
-
 
 std::unique_ptr<SdBusDaemonClient> ConnectWithRetry(std::string *error) {
   for (int attempt = 0; attempt < 50; ++attempt) {
@@ -91,9 +89,9 @@ bool ExpectIgnoredTrigger(FcitxVinpstAddon *addon, FcitxTriggerAction action,
 
 namespace vinpst_fcitx_bridge {
 
-AppliedOutcome ApplyBridgeOutcomeToInputContext(
-    const BridgeOutcome &outcome, fcitx::InputContext *,
-    ResultCandidateSelectCallback) {
+AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
+                                                fcitx::InputContext *,
+                                                ResultCandidateSelectCallback) {
   g_last_outcome = outcome;
   g_outcomes.push_back(outcome);
   switch (outcome.kind) {
@@ -112,8 +110,9 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(
   return AppliedOutcome::None;
 }
 
-
-std::string ResultCandidateMenuTitle(std::size_t) { return "Choose Result"; }
+std::string ResultCandidateMenuTitle(std::size_t) {
+  return "Choose Result";
+}
 
 void ClearResultCandidateMenu(fcitx::InputContext *) {}
 
@@ -186,14 +185,15 @@ int main() {
   ResetOutcomes();
   std::unique_ptr<fcitx::EventSourceTime> command_stop_dispatch;
   std::unique_ptr<fcitx::EventSourceTime> final_check;
-  auto takeover_dispatch = event_loop.addTimeEvent(
-      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 10'000, 0,
-      [&](fcitx::EventSourceTime *, std::uint64_t) {
-        takeover_attempted = true;
-        recovered_stop = addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StartNormal);
-        stage = "waiting for takeover result";
-        return false;
-      });
+  auto takeover_dispatch =
+      event_loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 10'000, 0,
+                              [&](fcitx::EventSourceTime *, std::uint64_t) {
+                                takeover_attempted = true;
+                                recovered_stop = addon.ApplyTriggerAction(
+                                    nullptr, FcitxTriggerAction::StartNormal);
+                                stage = "waiting for takeover result";
+                                return false;
+                              });
   takeover_dispatch->setOneShot();
 
   auto command_dispatch = event_loop.addTimeEvent(
@@ -228,15 +228,16 @@ int main() {
           return false;
         }
         ResetOutcomes();
-        command_start = addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StartCommand,
-                                                 "selected text");
+        command_start = addon.ApplyTriggerAction(
+            nullptr, FcitxTriggerAction::StartCommand, "selected text");
         stage = "waiting for command recording";
         command_stop_dispatch = event_loop.addTimeEvent(
             CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 20'000, 0,
             [&](fcitx::EventSourceTime *event, std::uint64_t) {
               if (!ExpectApplied(command_start, AppliedOutcome::Preedit,
                                  "command start dispatch") ||
-                  !OutcomeSeen(BridgeOutcome::Kind::Preedit, "... Commanding ...", false)) {
+                  !OutcomeSeen(BridgeOutcome::Kind::Preedit, "... Commanding ...",
+                               false)) {
                 fail("addon command trigger did not enter command recording mode");
                 return false;
               }
@@ -258,7 +259,8 @@ int main() {
                 return true;
               }
               ResetOutcomes();
-              command_stop = addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopCommand);
+              command_stop =
+                  addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopCommand);
               stage = "waiting for command result";
               final_check = event_loop.addTimeEvent(
                   CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 20'000, 0,
@@ -268,7 +270,8 @@ int main() {
                       fail("addon command stop did not dispatch asynchronously");
                       return false;
                     }
-                    if (!OutcomeSeen(BridgeOutcome::Kind::Commit, expected_command_text, true)) {
+                    if (!OutcomeSeen(BridgeOutcome::Kind::Commit, expected_command_text,
+                                     true)) {
                       Reschedule(event, 20'000);
                       return true;
                     }
@@ -300,13 +303,13 @@ int main() {
         std::string observed_status;
         std::string observed_error;
         static_cast<void>(client->GetStatus(&observed_status, &observed_error));
-        fail("addon async D-Bus smoke timed out: stage=" + stage + " status=" +
-             observed_status + " status-error=" + observed_error + " outcomes=" +
-             std::to_string(g_outcomes.size()) + " last-kind=" +
-             std::to_string(static_cast<int>(g_last_outcome.kind)) + " last-text=" +
-             g_last_outcome.text + " last-replace=" +
-             std::to_string(g_last_outcome.replace_selection) + " expected-takeover=" +
-             expected_takeover_text);
+        fail("addon async D-Bus smoke timed out: stage=" + stage +
+             " status=" + observed_status + " status-error=" + observed_error +
+             " outcomes=" + std::to_string(g_outcomes.size()) +
+             " last-kind=" + std::to_string(static_cast<int>(g_last_outcome.kind)) +
+             " last-text=" + g_last_outcome.text +
+             " last-replace=" + std::to_string(g_last_outcome.replace_selection) +
+             " expected-takeover=" + expected_takeover_text);
         return false;
       });
   timeout->setOneShot();

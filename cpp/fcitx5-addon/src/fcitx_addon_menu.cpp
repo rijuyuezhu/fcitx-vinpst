@@ -304,9 +304,8 @@ bool FcitxVinpstAddon::HandleResultMenuKeyEvent(fcitx::KeyEvent &event) {
   auto *cursor = candidate_list->toCursorMovable();
   auto *pageable = candidate_list->toPageable();
   const int item_count = bulk != nullptr ? bulk->totalSize() : candidate_list->size();
-  const int current_page = pageable != nullptr && pageable->currentPage() >= 0
-                               ? pageable->currentPage()
-                               : 0;
+  const int current_page =
+      pageable != nullptr && pageable->currentPage() >= 0 ? pageable->currentPage() : 0;
   const int current_selection =
       bulk_cursor != nullptr ? bulk_cursor->globalCursorIndex() : -1;
   const auto semantic_key =
@@ -523,8 +522,8 @@ void FcitxVinpstAddon::RequestAsrMenuStateRefresh(fcitx::InputContext *ic) {
     auto refreshed = std::make_shared<AsrMenuController>();
     std::string error;
     auto client = SdBusDaemonClient::ConnectSession(&error);
-    const bool ok = client != nullptr &&
-                    client->RefreshAsrMenuController(refreshed.get(), &error);
+    const bool ok =
+        client != nullptr && client->RefreshAsrMenuController(refreshed.get(), &error);
     if (lifetime.expired()) {
       return;
     }

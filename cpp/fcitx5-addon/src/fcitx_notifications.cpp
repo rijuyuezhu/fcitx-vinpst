@@ -38,7 +38,8 @@ FrontendNotification BuildFrontendNotification(FrontendNotificationKind kind,
 
 std::pair<FrontendNotificationKind, std::string>
 PlanStructuredDaemonNotification(std::string_view code, std::string_view subject,
-                                 std::string_view detail, std::string_view raw_message) {
+                                 std::string_view detail,
+                                 std::string_view raw_message) {
   const VinpstFcitxDaemonNotificationView notification{
       .code = ToRustStringView(code),
       .subject = ToRustStringView(subject),

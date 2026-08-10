@@ -67,8 +67,10 @@ public:
   bool PrepareStartNormal(const SceneMenuController &scene_controller);
   bool PrepareStartCommand(std::string_view selected_text, std::string_view scene_id);
   bool PrepareStop(const SceneMenuController &scene_controller);
-  bool PrepareAdoptAndStop(bool command_mode, const SceneMenuController &scene_controller);
-  bool AdoptExternalRecording(bool command_mode, const SceneMenuController &scene_controller);
+  bool PrepareAdoptAndStop(bool command_mode,
+                           const SceneMenuController &scene_controller);
+  bool AdoptExternalRecording(bool command_mode,
+                              const SceneMenuController &scene_controller);
   bool PendingArgument(std::string *argument) const;
   BridgeOutcome Complete(bool success, std::string_view response);
   BridgeOutcome CompleteRecognitionResult(std::string_view response);

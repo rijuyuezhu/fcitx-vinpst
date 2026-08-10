@@ -52,7 +52,7 @@ bool ShowCandidateMenu(fcitx::InputContext *input_context,
                        ResultCandidateSelectCallback on_candidate_select) {
   if (!on_candidate_select) {
     on_candidate_select = [replace_selection](fcitx::InputContext *selected_context,
-                                               const PresentedCandidate &candidate) {
+                                              const PresentedCandidate &candidate) {
       ApplyResultCandidateSelection(selected_context, candidate, replace_selection);
     };
   }
@@ -71,9 +71,10 @@ bool ShowCandidateMenu(fcitx::InputContext *input_context,
 
 } // namespace
 
-AppliedOutcome ApplyBridgeOutcomeToInputContext(
-    const BridgeOutcome &outcome, fcitx::InputContext *input_context,
-    ResultCandidateSelectCallback on_candidate_select) {
+AppliedOutcome
+ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
+                                 fcitx::InputContext *input_context,
+                                 ResultCandidateSelectCallback on_candidate_select) {
   if (input_context == nullptr) {
     return AppliedOutcome::None;
   }
