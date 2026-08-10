@@ -2684,14 +2684,42 @@
         "The capability snapshot matches the documented 0.1.0 accessibility contract: keyboard management, clipboard editing, and Wayland/X11 input-method handling are supported, while a platform assistive-technology semantic tree and screen-reader navigation are explicitly unsupported. CLI, fcitx5-configtool, guarded config-file editing, and fcitx reload commands remain documented fallbacks; this audit does not falsely upgrade toolkit capability.",
         "Evidence includes complete source/call-site review of the three owned files; private-session D-Bus owner acquire/loss tests; daemon generation/fallback state tests; keyboard shortcut, focus, activation, adjacent-value, busy/modal, title, and capability-snapshot tests; the full 219-test vinpst-gui suite plus main test; strict all-target Clippy; docs build; and module-parity ledger validation."
       ]
+    },
+    {
+      "id": "GUI-HOTWORD-PERSISTENCE-001",
+      "state": "audited-aligned",
+      "title": "Current-only hotword path resolution, atomic publication, and activation retry",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-gui/src/hotword_activation_retry.rs",
+        "crates/vinpst-gui/src/hotword_path.rs",
+        "crates/vinpst-gui/src/hotword_persistence.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/asr_reload_confirmation.rs",
+        "crates/vinpst-gui/src/hotword_management.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/message.rs",
+        "crates/vinpst-gui/src/tests.rs",
+        "docs/architecture/gui-contract.md"
+      ],
+      "notes": [
+        "This current-only unit owns the filesystem and retry primitives deliberately left supporting in the earlier Hotword-page audit: deterministic content-path resolution, conflict-aware snapshot/versioning and atomic publication, missing-file preparation, and the pending activation retry token. The page/editor state machine and typed HotwordMessage routing remain under their existing unit.",
+        "Path resolution is intentionally stricter than blindly applying the daemon working directory. Absolute configured hotword paths are directly editable; local providers may resolve a relative hotword only against an absolute existing model directory; relative model plus relative hotword is rejected because GUI and daemon process environments may differ. Command-provider relative paths are left to the external command and require an absolute path for GUI content editing, remote providers are rejected, and URL-like configured values are never treated as filesystem paths.",
+        "HotwordContentSnapshot bounds reads to 1 MiB, refuses symlinks/non-regular files, verifies the opened inode metadata against the path before reading and rechecks the path afterward, requires UTF-8, and rejects extended attributes/ACL metadata the GUI cannot preserve safely. Debug exposes only existence and a redacted content marker. The version tracks device/inode/size/uid/gid/mode/mtime/ctime; after claiming a file by hard link, comparison deliberately omits ctime because creating the recovery link itself changes ctime while preserving the actual loaded content/inode contract.",
+        "Publication uses a same-directory create_new temporary file, verifies ownership compatibility, writes and syncs the complete content, restores exact special permission bits for existing files, and validates the prepared snapshot. A missing target publishes with rename NOREPLACE. An existing target is first preserved as an adjacent hard-link recovery file and directory-synced, then current and preserved snapshots must still match the loaded baseline before Linux rename exchange is attempted.",
+        "After exchange both sides are verified: the configured path must match the prepared new snapshot and the displaced temporary path must still match the loaded old snapshot. If an external race invalidates the exchange, rollback is attempted only while the configured path still matches the GUI-published snapshot; otherwise configured path, displaced file, and recovery link are preserved rather than overwriting an external update. Cleanup/directory-sync failures are reported as post-publication durability errors instead of falsely claiming rollback.",
+        "Publishing content intentionally establishes a no-automatic-rollback boundary before daemon activation. The code snapshots the just-published file, attempts reload, re-reads it, and only creates retryable pending activation when reload failed and the file is still exactly the published baseline. A concurrent post-publication file change disables retry and is surfaced explicitly; the GUI never replaces that external version merely to restore the pre-edit file.",
+        "Missing-file preparation for a hotword-path config mutation likewise uses NOREPLACE and occurs only after config mutation preflight. If the later config save/reload fails, the newly prepared file is preserved rather than deleted because a safe rollback cannot prove it was not concurrently adopted or changed by another process. This conservative behavior is explicitly reflected in the returned error.",
+        "PendingHotwordActivation stores either the exact configured-path value or a path plus redacted content/version snapshot and has a custom Debug containing only provider id and target kind. Retry first verifies the loaded ConfigDocument is still current, the same provider is active, and the configured target/file baseline is unchanged; it reloads and waits for typed ASR confirmation; then it repeats the same validation before claiming success. Config-only retries intentionally do not claim file-content ownership.",
+        "The application call chain blocks RetryActivation while another operation is busy, assigns a hotword operation id to reject stale worker completion, clears pending state only on confirmed success or when a newly loaded/saved baseline supersedes it, and refreshes daemon state afterward. No additional race, rollback, or disclosure gap was found.",
+        "Evidence includes complete review of the three owned files and hotword-management call sites; path ambiguity tests; file-picker/path/content redaction tests; external config/file conflict tests; symlink/xattr/ownership/mode/size checks; NOREPLACE, hard-link recovery, exchange-race rollback, directory-sync, repeated recovery allocation, post-publication verification, and retry-version tests; the full 219-test GUI suite and strict Clippy; plus module-parity ledger validation."
+      ]
     }
   ],
   "upstream_pending": [],
   "current_pending": [
     "crates/vinpst-gui/src/asr_provider_management.rs",
-    "crates/vinpst-gui/src/hotword_activation_retry.rs",
-    "crates/vinpst-gui/src/hotword_path.rs",
-    "crates/vinpst-gui/src/hotword_persistence.rs",
     "crates/vinpst-gui/src/lib.rs",
     "crates/vinpst-gui/src/message.rs",
     "crates/vinpst-gui/src/resource_details.rs",
