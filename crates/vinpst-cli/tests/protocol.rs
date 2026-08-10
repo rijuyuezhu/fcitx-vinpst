@@ -4,6 +4,9 @@ mod common;
 
 use std::fs;
 
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+
 use common::{assert_json_failure, assert_json_success, assert_stdout_success, vinpst_command};
 use tempfile::NamedTempFile;
 use vinpst_protocol::{RecognitionPayload, ServiceStatus, dbus};
@@ -200,6 +203,88 @@ fn activation_service_user_writes_xdg_data_home_service() {
         "[D-BUS Service]\nName=org.fcitx.Vinpst\nExec=/usr/bin/vinpst-daemon --dbus --exit-when-executable-replaced\n"
     );
     std::fs::remove_dir_all(data_home).expect("remove generated user service fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn activation_service_user_preserves_relative_symlink_and_writes_target_atomically() {
+    let data_home = tempfile::Builder::new()
+        .prefix("vinpst-cli-user-service-symlink-")
+        .tempdir()
+        .expect("create user service symlink fixture");
+    let service_dir = data_home.path().join("dbus-1/services");
+    let target_path = data_home.path().join("dotfiles/vinpst.service");
+    let service_path = service_dir.join("org.fcitx.Vinpst.service");
+    fs::create_dir_all(&service_dir).expect("create service directory");
+    symlink("../../dotfiles/vinpst.service", &service_path)
+        .expect("create relative service symlink");
+
+    let output = vinpst_command()
+        .env("XDG_DATA_HOME", data_home.path())
+        .args([
+            "activation-service",
+            "--daemon",
+            "/usr/bin/vinpst-daemon",
+            "--user",
+        ])
+        .output()
+        .expect("run activation-service through relative symlink");
+
+    let stdout = assert_stdout_success(output, "activation service symlink write");
+    assert!(stdout.is_empty());
+    assert!(
+        fs::symlink_metadata(&service_path)
+            .expect("inspect service symlink")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read_link(&service_path).expect("read service symlink"),
+        std::path::PathBuf::from("../../dotfiles/vinpst.service")
+    );
+    assert_eq!(
+        fs::read_to_string(&target_path).expect("read atomic service target"),
+        "[D-BUS Service]\nName=org.fcitx.Vinpst\nExec=/usr/bin/vinpst-daemon --dbus --exit-when-executable-replaced\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn activation_service_user_status_and_remove_handle_dangling_symlink() {
+    let data_home = tempfile::Builder::new()
+        .prefix("vinpst-cli-user-service-dangling-")
+        .tempdir()
+        .expect("create dangling user service fixture");
+    let service_dir = data_home.path().join("dbus-1/services");
+    let service_path = service_dir.join("org.fcitx.Vinpst.service");
+    fs::create_dir_all(&service_dir).expect("create service directory");
+    symlink("../../dotfiles/missing.service", &service_path)
+        .expect("create dangling service symlink");
+
+    let status_output = vinpst_command()
+        .env("XDG_DATA_HOME", data_home.path())
+        .args(["activation-service", "--user-status"])
+        .output()
+        .expect("inspect dangling user activation service");
+    let status = assert_json_success(status_output, "dangling activation service status");
+    assert_eq!(status["user_service_exists"], true);
+    assert!(
+        status["read_error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty())
+    );
+
+    let remove_output = vinpst_command()
+        .env("XDG_DATA_HOME", data_home.path())
+        .args(["activation-service", "--remove-user"])
+        .output()
+        .expect("remove dangling user activation service");
+    let removed = assert_json_success(remove_output, "dangling activation service removal");
+    assert_eq!(removed["removed"], true);
+    assert!(matches!(
+        fs::symlink_metadata(&service_path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    ));
 }
 
 #[test]
@@ -745,6 +830,14 @@ fn daemon_handoff_dry_run_pins_conditional_restart_and_verification() {
     assert_eq!(
         value["systemd_control"]["reload"]["command"],
         "systemctl --user daemon-reload"
+    );
+    assert_eq!(
+        value["systemd_control"]["guards"],
+        serde_json::json!([
+            "owner-matches-unit-main-pid",
+            "owner-is-idle",
+            "no-active-recording-session"
+        ])
     );
     assert_eq!(value["direct_control"]["signal"], "TERM");
     assert_eq!(

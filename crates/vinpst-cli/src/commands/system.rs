@@ -2,7 +2,7 @@ use crate::{
     AsrBackendFactory, AsrTimeoutProbe, Context, Path, PathBuf, ServiceStatus, SherpaOnnxVadProbe,
     VinpstConfig, audio_devices_json, config_summary_json, daemon_owner_probe_plan_json, dbus, fs,
     load_config_json, quote_exec_arg, sandbox, user_activation_service_path, user_data_home,
-    user_home,
+    user_home, write_file_atomically,
 };
 
 pub(crate) fn print_protocol() -> anyhow::Result<()> {
@@ -260,17 +260,30 @@ fn fcitx_addon_status_json(module_path: &Path, metadata_path: &Path) -> serde_js
 }
 
 fn user_activation_service_json(path: &Path) -> serde_json::Value {
-    let exists = path.exists();
-    if !exists {
-        return serde_json::json!({
-            "user_service_path": path,
-            "user_service_exists": false,
-            "user_service_name": null,
-            "user_service_name_matches": false,
-            "user_service_exec": null,
-            "read_error": null,
-            "next_steps": activation_service_status_next_steps(),
-        });
+    match fs::symlink_metadata(path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return serde_json::json!({
+                "user_service_path": path,
+                "user_service_exists": false,
+                "user_service_name": null,
+                "user_service_name_matches": false,
+                "user_service_exec": null,
+                "read_error": null,
+                "next_steps": activation_service_status_next_steps(),
+            });
+        }
+        Err(error) => {
+            return serde_json::json!({
+                "user_service_path": path,
+                "user_service_exists": false,
+                "user_service_name": null,
+                "user_service_name_matches": false,
+                "user_service_exec": null,
+                "read_error": error.to_string(),
+                "next_steps": activation_service_status_next_steps(),
+            });
+        }
     }
 
     match fs::read_to_string(path) {
@@ -356,15 +369,7 @@ pub(crate) fn write_activation_service(
     };
 
     if let Some(output) = output {
-        if let Some(parent) = output
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("create activation service directory `{}`", parent.display())
-            })?;
-        }
-        fs::write(output, service)
+        write_file_atomically(output, &service)
             .with_context(|| format!("write activation service `{}`", output.display()))?;
     } else {
         print!("{service}");
@@ -383,7 +388,14 @@ pub(crate) fn print_user_activation_service_status() -> anyhow::Result<()> {
 
 pub(crate) fn remove_user_activation_service() -> anyhow::Result<()> {
     let path = user_activation_service_path()?;
-    let existed = path.exists();
+    let existed = match fs::symlink_metadata(&path) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect activation service `{}`", path.display()));
+        }
+    };
     if existed {
         fs::remove_file(&path)
             .with_context(|| format!("remove activation service `{}`", path.display()))?;
