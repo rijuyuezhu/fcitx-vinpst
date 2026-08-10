@@ -221,6 +221,20 @@ fn resolves_live_model_i18n_title_and_description() {
 }
 
 #[test]
+fn live_registry_i18n_ignores_non_string_entries() {
+    let i18n = LiveRegistryI18n::from_json_str(
+        r#"{"title":"Text","number":1,"flag":true,"nested":{"value":"ignored"}}"#,
+    )
+    .expect("parse mixed i18n object");
+
+    assert_eq!(i18n.get("title"), Some("Text"));
+    assert_eq!(i18n.entries.len(), 1);
+    assert!(!i18n.entries.contains_key("number"));
+    assert!(!i18n.entries.contains_key("flag"));
+    assert!(!i18n.entries.contains_key("nested"));
+}
+
+#[test]
 fn registry_locale_normalization_and_selection_match_legacy() {
     assert_eq!(
         super::normalize_registry_locale("zh_CN.UTF-8@variant:en_US"),

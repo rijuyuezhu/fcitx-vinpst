@@ -19,7 +19,12 @@ pub(super) fn print_available_provider_list(
 ) -> anyhow::Result<()> {
     let context = load_provider_list_context(config_path)?;
     let loaded = load_live_provider_registry(registry_path, &context.config.registry)?;
-    let loaded_i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
+    let remote_base_urls = if registry_path.is_some() {
+        &[][..]
+    } else {
+        context.config.registry.base_urls.as_slice()
+    };
+    let loaded_i18n = load_live_i18n(i18n_path, remote_base_urls, locale)?;
     let configured_ids = context
         .config
         .asr
@@ -318,7 +323,6 @@ pub(super) fn load_live_provider_registry(
                 "mirror_count": registry_config.base_urls.len(),
                 "registry_urls": registry_urls,
             }),
-            remote_base_url: None,
         });
     }
     let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
@@ -331,10 +335,6 @@ pub(super) fn load_live_provider_registry(
                 fetched.url
             )
         })?;
-    let remote_base_url = fetched
-        .url
-        .strip_suffix("/registry/providers.json")
-        .map(str::to_owned);
     Ok(LoadedLiveScriptRegistry {
         registry,
         source_json: serde_json::json!({
@@ -343,7 +343,6 @@ pub(super) fn load_live_provider_registry(
             "mirror_count": registry_config.base_urls.len(),
             "registry_urls": registry_urls,
         }),
-        remote_base_url,
     })
 }
 

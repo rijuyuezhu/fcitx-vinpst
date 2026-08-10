@@ -30,15 +30,15 @@ struct LoadedI18nLayer {
 /// Loads registry localization using legacy-compatible layer priority.
 pub(crate) fn load_live_i18n(
     i18n_path: Option<&Path>,
-    remote_base_url: Option<&str>,
+    remote_base_urls: &[String],
     locale: &str,
 ) -> anyhow::Result<LoadedLiveI18n> {
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(10));
+    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
     let local_override_path = default_local_i18n_override_path();
     load_live_i18n_with_source(
         &source,
         i18n_path,
-        remote_base_url,
+        remote_base_urls,
         locale,
         local_override_path.as_deref(),
     )
@@ -47,7 +47,7 @@ pub(crate) fn load_live_i18n(
 fn load_live_i18n_with_source(
     source: &impl RegistryTextSource,
     i18n_path: Option<&Path>,
-    remote_base_url: Option<&str>,
+    remote_base_urls: &[String],
     locale: &str,
     local_override_path: Option<&Path>,
 ) -> anyhow::Result<LoadedLiveI18n> {
@@ -58,17 +58,16 @@ fn load_live_i18n_with_source(
             skipped_layer("fallback", "explicit i18n file supplied"),
             load_required_file_layer(path)?,
         )
-    } else if let Some(remote_base_url) = remote_base_url {
+    } else if !remote_base_urls.is_empty() {
         if preferred_locale == FALLBACK_LOCALE {
             (
                 skipped_layer("fallback", "preferred locale is en_US"),
-                fetch_remote_layer(source, remote_base_url, &preferred_locale),
+                fetch_remote_layer(source, remote_base_urls, &preferred_locale),
             )
         } else {
-            (
-                fetch_remote_layer(source, remote_base_url, FALLBACK_LOCALE),
-                fetch_remote_layer(source, remote_base_url, &preferred_locale),
-            )
+            let preferred = fetch_remote_layer(source, remote_base_urls, &preferred_locale);
+            let fallback = fetch_remote_layer(source, remote_base_urls, FALLBACK_LOCALE);
+            (fallback, preferred)
         }
     } else {
         (
@@ -210,47 +209,65 @@ fn load_optional_file_layer(path: Option<&Path>) -> LoadedI18nLayer {
 
 fn fetch_remote_layer(
     source: &impl RegistryTextSource,
-    remote_base_url: &str,
+    remote_base_urls: &[String],
     locale: &str,
 ) -> LoadedI18nLayer {
-    let url = join_url(remote_base_url, &format!("i18n/{locale}.json"));
-    let label = format!("url:{url}");
-    match source.fetch_registry_text(&url) {
-        Ok(input) => match LiveRegistryI18n::from_json_str(&input) {
-            Ok(i18n) => LoadedI18nLayer {
-                i18n: Some(i18n),
-                diagnostic: json!({
-                    "kind": "http",
-                    "url": url,
-                    "locale": locale,
-                    "loaded": true,
-                    "error": null,
-                }),
-                label,
-            },
-            Err(error) => LoadedI18nLayer {
-                i18n: None,
-                diagnostic: json!({
-                    "kind": "http",
-                    "url": url,
-                    "locale": locale,
-                    "loaded": false,
-                    "error": error.to_string(),
-                }),
-                label: format!("{label} (parse failed)"),
-            },
-        },
-        Err(error) => LoadedI18nLayer {
-            i18n: None,
-            diagnostic: json!({
-                "kind": "http",
-                "url": url,
-                "locale": locale,
-                "loaded": false,
-                "error": error,
-            }),
-            label: format!("{label} (unavailable)"),
-        },
+    let urls = remote_base_urls
+        .iter()
+        .map(|base| join_url(base, &format!("i18n/{locale}.json")))
+        .collect::<Vec<_>>();
+    let mut last_error = None;
+    for url in &urls {
+        let label = format!("url:{url}");
+        match source.fetch_registry_text(url) {
+            Ok(input) => {
+                return match LiveRegistryI18n::from_json_str(&input) {
+                    Ok(i18n) => LoadedI18nLayer {
+                        i18n: Some(i18n),
+                        diagnostic: json!({
+                            "kind": "http",
+                            "url": url,
+                            "locale": locale,
+                            "mirror_count": urls.len(),
+                            "loaded": true,
+                            "error": null,
+                        }),
+                        label,
+                    },
+                    Err(error) => LoadedI18nLayer {
+                        i18n: None,
+                        diagnostic: json!({
+                            "kind": "http",
+                            "url": url,
+                            "locale": locale,
+                            "mirror_count": urls.len(),
+                            "loaded": false,
+                            "error": error.to_string(),
+                        }),
+                        label: format!("{label} (parse failed)"),
+                    },
+                };
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+    let url = urls.last().cloned().unwrap_or_default();
+    let label = if url.is_empty() {
+        "none".to_owned()
+    } else {
+        format!("url:{url} (unavailable)")
+    };
+    LoadedI18nLayer {
+        i18n: None,
+        diagnostic: json!({
+            "kind": "http",
+            "url": url,
+            "locale": locale,
+            "mirror_count": urls.len(),
+            "loaded": false,
+            "error": last_error,
+        }),
+        label,
     }
 }
 
@@ -311,6 +328,7 @@ mod tests {
     #[test]
     fn merges_fallback_preferred_and_local_layers_in_legacy_priority() {
         let base = "https://registry.example/root";
+        let bases = vec![base.to_owned()];
         let fallback_url = format!("{base}/i18n/en_US.json");
         let preferred_url = format!("{base}/i18n/zh_CN.json");
         let directory = tempfile::tempdir().expect("create local i18n directory");
@@ -334,9 +352,8 @@ mod tests {
             requests: Mutex::new(Vec::new()),
         };
 
-        let loaded =
-            load_live_i18n_with_source(&source, None, Some(base), "zh_CN", Some(&local_path))
-                .expect("load layered i18n");
+        let loaded = load_live_i18n_with_source(&source, None, &bases, "zh_CN", Some(&local_path))
+            .expect("load layered i18n");
         let i18n = loaded.i18n.expect("merged i18n should be available");
 
         assert_eq!(i18n.get("shared"), Some("local"));
@@ -345,7 +362,7 @@ mod tests {
         assert_eq!(i18n.get("local-only"), Some("local value"));
         assert_eq!(
             *source.requests.lock().expect("request log lock poisoned"),
-            vec![fallback_url, preferred_url]
+            vec![preferred_url, fallback_url]
         );
         assert_eq!(loaded.source_json["priority"][0], "local");
         assert_eq!(loaded.source_json["layers"]["local"]["loaded"], true);
@@ -355,6 +372,7 @@ mod tests {
     #[test]
     fn falls_back_to_en_us_when_the_preferred_locale_is_unavailable() {
         let base = "https://registry.example/root";
+        let bases = vec![base.to_owned()];
         let fallback_url = format!("{base}/i18n/en_US.json");
         let preferred_url = format!("{base}/i18n/fr_FR.json");
         let source = FakeTextSource {
@@ -368,7 +386,7 @@ mod tests {
             requests: Mutex::new(Vec::new()),
         };
 
-        let loaded = load_live_i18n_with_source(&source, None, Some(base), "fr_FR", None)
+        let loaded = load_live_i18n_with_source(&source, None, &bases, "fr_FR", None)
             .expect("load fallback i18n");
 
         assert_eq!(
@@ -384,6 +402,45 @@ mod tests {
     }
 
     #[test]
+    fn remote_i18n_tries_all_mirrors_independently_of_registry_selection() {
+        let first = "https://first.example/root".to_owned();
+        let second = "https://second.example/root".to_owned();
+        let bases = vec![first.clone(), second.clone()];
+        let preferred_first = format!("{first}/i18n/zh_CN.json");
+        let preferred_second = format!("{second}/i18n/zh_CN.json");
+        let fallback_first = format!("{first}/i18n/en_US.json");
+        let source = FakeTextSource {
+            responses: BTreeMap::from([
+                (
+                    preferred_first.clone(),
+                    Err("preferred unavailable".to_owned()),
+                ),
+                (
+                    preferred_second.clone(),
+                    Ok(r#"{"shared":"preferred","preferred-only":"zh"}"#.to_owned()),
+                ),
+                (
+                    fallback_first.clone(),
+                    Ok(r#"{"shared":"fallback","fallback-only":"en"}"#.to_owned()),
+                ),
+            ]),
+            requests: Mutex::new(Vec::new()),
+        };
+
+        let loaded = load_live_i18n_with_source(&source, None, &bases, "zh_CN", None)
+            .expect("load i18n through independent mirrors");
+        let i18n = loaded.i18n.expect("merged i18n");
+
+        assert_eq!(i18n.get("shared"), Some("preferred"));
+        assert_eq!(i18n.get("preferred-only"), Some("zh"));
+        assert_eq!(i18n.get("fallback-only"), Some("en"));
+        assert_eq!(
+            *source.requests.lock().expect("request log lock poisoned"),
+            vec![preferred_first, preferred_second, fallback_first]
+        );
+    }
+
+    #[test]
     fn malformed_local_override_is_nonfatal() {
         let directory = tempfile::tempdir().expect("create local i18n directory");
         let local_path = directory.path().join("i18n.local.json");
@@ -394,7 +451,7 @@ mod tests {
         let loaded = load_live_i18n_with_source(
             &FakeTextSource::default(),
             Some(&explicit_path),
-            None,
+            &[],
             "zh_CN",
             Some(&local_path),
         )

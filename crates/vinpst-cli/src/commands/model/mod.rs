@@ -153,7 +153,6 @@ struct LoadedLiveModelRegistry {
     registry: LiveModelRegistry,
     source_json: serde_json::Value,
     source_label: String,
-    remote_base_url: Option<String>,
 }
 
 #[derive(Clone, Copy)]

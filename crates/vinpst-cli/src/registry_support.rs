@@ -4,7 +4,6 @@ use vinpst_registry::{LiveScriptRegistry, RegistryTextSource};
 pub(crate) struct LoadedLiveScriptRegistry {
     pub(crate) registry: LiveScriptRegistry,
     pub(crate) source_json: serde_json::Value,
-    pub(crate) remote_base_url: Option<String>,
 }
 
 pub(crate) fn live_registry_urls(registry: &RegistryConfig, path: &str) -> Vec<String> {

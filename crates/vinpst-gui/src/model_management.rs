@@ -88,14 +88,17 @@ pub(crate) fn load_registry_model_catalog(
     config: &VinpstConfig,
     locale: GuiLocale,
 ) -> Result<Vec<RegistryModelSummary>, String> {
-    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    fetch_registry_model_catalog_from(config, locale, &source)
+    let registry_source =
+        ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
+    let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
+    fetch_registry_model_catalog_from(config, locale, &registry_source, &i18n_source)
 }
 
 fn fetch_registry_model_catalog_from(
     config: &VinpstConfig,
     locale: GuiLocale,
-    source: &impl RegistryTextSource,
+    registry_source: &impl RegistryTextSource,
+    i18n_source: &impl RegistryTextSource,
 ) -> Result<Vec<RegistryModelSummary>, String> {
     if config.registry.base_urls.is_empty() {
         return Err("No registry mirrors are configured.".to_owned());
@@ -103,7 +106,7 @@ fn fetch_registry_model_catalog_from(
     let mut failure_count = 0;
     for base in &config.registry.base_urls {
         let url = format!("{}/registry/models.json", base.trim_end_matches('/'));
-        let Ok(text) = source.fetch_registry_text(&url) else {
+        let Ok(text) = registry_source.fetch_registry_text(&url) else {
             failure_count += 1;
             continue;
         };
@@ -111,7 +114,7 @@ fn fetch_registry_model_catalog_from(
             failure_count += 1;
             continue;
         };
-        let i18n = fetch_registry_i18n(source, base, locale);
+        let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale);
         return Ok(registry
             .items
             .iter()
@@ -142,24 +145,30 @@ fn fetch_registry_model_catalog_from(
 
 pub(crate) fn fetch_registry_i18n(
     source: &impl RegistryTextSource,
-    base: &str,
+    bases: &[String],
     locale: GuiLocale,
 ) -> Option<LiveRegistryI18n> {
-    let base = base.trim_end_matches('/');
     let preferred = locale.code();
-    let fallback = (preferred != "en_US")
-        .then(|| fetch_i18n_layer(source, &format!("{base}/i18n/en_US.json")))
+    let preferred = fetch_i18n_layer(source, bases, preferred);
+    let fallback = (locale.code() != "en_US")
+        .then(|| fetch_i18n_layer(source, bases, "en_US"))
         .flatten();
-    let preferred = fetch_i18n_layer(source, &format!("{base}/i18n/{preferred}.json"));
     let merged = LiveRegistryI18n::merge_layers([fallback, preferred].into_iter().flatten());
     (!merged.entries.is_empty()).then_some(merged)
 }
 
-fn fetch_i18n_layer(source: &impl RegistryTextSource, url: &str) -> Option<LiveRegistryI18n> {
-    source
-        .fetch_registry_text(url)
-        .ok()
-        .and_then(|text| LiveRegistryI18n::from_json_str(&text).ok())
+fn fetch_i18n_layer(
+    source: &impl RegistryTextSource,
+    bases: &[String],
+    locale: &str,
+) -> Option<LiveRegistryI18n> {
+    for base in bases {
+        let url = format!("{}/i18n/{locale}.json", base.trim_end_matches('/'));
+        if let Ok(text) = source.fetch_registry_text(&url) {
+            return LiveRegistryI18n::from_json_str(&text).ok();
+        }
+    }
+    None
 }
 
 fn model_is_supported(model: &vinpst_registry::LiveModelEntry) -> bool {
@@ -463,8 +472,8 @@ mod tests {
             ]),
         };
 
-        let catalog =
-            fetch_registry_model_catalog_from(&config, GuiLocale::ZhCn, &source).expect("catalog");
+        let catalog = fetch_registry_model_catalog_from(&config, GuiLocale::ZhCn, &source, &source)
+            .expect("catalog");
         assert_eq!(catalog.len(), 1);
         let model = &catalog[0];
         assert_eq!(model.selector(), "test-stream");
@@ -498,7 +507,7 @@ mod tests {
             }]
         })
         .to_string();
-        let source = StubRegistryTextSource {
+        let registry_source = StubRegistryTextSource {
             responses: HashMap::from([
                 (
                     format!("{first}/registry/models.json"),
@@ -507,11 +516,23 @@ mod tests {
                 (format!("{second}/registry/models.json"), Ok(valid_registry)),
             ]),
         };
+        let i18n_source = StubRegistryTextSource {
+            responses: HashMap::from([(
+                format!("{first}/i18n/en_US.json"),
+                Ok(r#"{"model.test.fallback.title":"Fallback translation"}"#.to_owned()),
+            )]),
+        };
 
-        let catalog = fetch_registry_model_catalog_from(&config, GuiLocale::EnUs, &source)
-            .expect("malformed mirror must fall through");
+        let catalog = fetch_registry_model_catalog_from(
+            &config,
+            GuiLocale::EnUs,
+            &registry_source,
+            &i18n_source,
+        )
+        .expect("malformed mirror must fall through");
         assert_eq!(catalog.len(), 1);
         assert_eq!(catalog[0].selector(), "fallback");
+        assert_eq!(catalog[0].title, "Fallback translation");
         assert!(catalog[0].supported);
     }
 

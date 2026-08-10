@@ -42,20 +42,23 @@ pub(crate) fn load_registry_script_catalog(
     locale: GuiLocale,
     kind: LiveScriptKind,
 ) -> Result<Vec<RegistryScriptSummary>, String> {
-    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    fetch_registry_script_catalog_from(config, locale, kind, &source)
+    let registry_source =
+        ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
+    let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
+    fetch_registry_script_catalog_from(config, locale, kind, &registry_source, &i18n_source)
 }
 
 fn fetch_registry_script_catalog_from(
     config: &VinpstConfig,
     locale: GuiLocale,
     kind: LiveScriptKind,
-    source: &impl RegistryTextSource,
+    registry_source: &impl RegistryTextSource,
+    i18n_source: &impl RegistryTextSource,
 ) -> Result<Vec<RegistryScriptSummary>, String> {
     let control = RegistryOperationControl::default();
-    let (registry, base) =
-        fetch_live_script_registry_with_base_from(config, kind, &control, source)?;
-    let i18n = fetch_registry_i18n(source, &base, locale);
+    let (registry, _) =
+        fetch_live_script_registry_with_base_from(config, kind, &control, registry_source)?;
+    let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale);
     Ok(registry
         .items
         .iter()
@@ -175,6 +178,7 @@ mod tests {
             GuiLocale::EnUs,
             LiveScriptKind::AsrProvider,
             &source,
+            &source,
         )
         .expect("catalog");
 
@@ -208,6 +212,7 @@ mod tests {
             &config,
             GuiLocale::EnUs,
             LiveScriptKind::LlmAdapter,
+            &source,
             &source,
         )
         .expect("catalog");

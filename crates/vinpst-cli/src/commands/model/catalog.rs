@@ -158,8 +158,13 @@ pub(super) fn load_live_model_catalog(
         Some(config_path) => load_config_file(config_path)?,
         None => VinpstConfig::bundled_default().context("parse bundled config")?,
     };
+    let remote_base_urls = if registry_path.is_some() {
+        &[][..]
+    } else {
+        config.registry.base_urls.as_slice()
+    };
     let loaded = load_live_model_registry(registry_path, &config.registry)?;
-    let i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
+    let i18n = load_live_i18n(i18n_path, remote_base_urls, locale)?;
     Ok((loaded, i18n))
 }
 
@@ -182,7 +187,6 @@ fn load_live_model_registry(
                 "registry_urls": registry_urls,
             }),
             source_label: format!("file:{}", path.display()),
-            remote_base_url: None,
         });
     }
 
@@ -195,10 +199,6 @@ fn load_live_model_registry(
             fetched.url
         )
     })?;
-    let remote_base_url = fetched
-        .url
-        .strip_suffix("/registry/models.json")
-        .map(str::to_owned);
     let source_label = format!("url:{}", fetched.url);
     Ok(LoadedLiveModelRegistry {
         registry,
@@ -209,7 +209,6 @@ fn load_live_model_registry(
             "registry_urls": registry_urls,
         }),
         source_label,
-        remote_base_url,
     })
 }
 

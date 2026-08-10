@@ -382,7 +382,14 @@ pub struct LiveRegistryI18n {
 impl LiveRegistryI18n {
     /// Parses a live registry i18n JSON object.
     pub fn from_json_str(input: &str) -> Result<Self, RegistryError> {
-        let entries = serde_json::from_str(input)?;
+        let value = serde_json::from_str::<Value>(input)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| RegistryError::Json("i18n JSON is not an object".to_owned()))?;
+        let entries = object
+            .iter()
+            .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.to_owned())))
+            .collect();
         Ok(Self { entries })
     }
 
