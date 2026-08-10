@@ -2042,11 +2042,45 @@
         "Daemon lifecycle parity is preserved and hardened. Start activates through the D-Bus service, while Stop/Restart use the typed systemd user-service command path; after service actions current performs a non-activating owner/runtime observation and reports confirmed, contradictory, or unavailable final state instead of assuming systemctl success means the requested runtime state was reached. Stale asynchronous completions cannot overwrite a newer daemon-control operation.",
         "Evidence includes complete source review of frozen control_page.cpp/.h and current audio_devices.rs, config_editor.rs, and daemon_control.rs; supporting review of ASR provider/config schema and D-Bus snapshot paths; focused live-state and Debug-redaction regressions; strict all-target vinpst-gui Clippy; full GUI tests; and the module-parity ledger checker. Shared daemon_client/resource_pages/lib/i18n/message orchestration and broader ASR-provider persistence remain pending for later ownership-specific audits."
       ]
+    },
+    {
+      "id": "GUI-HOTWORD-PAGE-001",
+      "state": "audited-intentional-divergence",
+      "title": "Hotword page path, content, and provider-aware editing flow",
+      "upstream_files": [
+        "gui/pages/hotwords/hotword_page.cpp",
+        "gui/pages/hotwords/hotword_page.h"
+      ],
+      "current_files": [
+        "crates/vinpst-gui/src/hotword_management.rs",
+        "crates/vinpst-gui/src/hotword_management/file_picker.rs",
+        "crates/vinpst-gui/src/hotword_management/view.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-config/src/schema.rs",
+        "crates/vinpst-gui/src/asr_reload_confirmation.rs",
+        "crates/vinpst-gui/src/hotword_activation_retry.rs",
+        "crates/vinpst-gui/src/hotword_path.rs",
+        "crates/vinpst-gui/src/hotword_persistence.rs",
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/i18n/en.rs",
+        "crates/vinpst-gui/src/i18n/keys.rs",
+        "crates/vinpst-gui/src/i18n/zh_cn.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/message.rs"
+      ],
+      "notes": [
+        "Frozen HotwordPage is a thin single-file editor: it finds the first local ASR provider, shows its hotwordsFile path, loads that file into a text editor on page reload or after Browse/path editing, documents the optional `word 2.0` score syntax, and exposes path/content accessors to MainWindow. Current retains all user-facing capabilities and the score syntax in both English and Simplified Chinese, while making the page provider-aware for every hotword-capable Local or Command provider instead of implicitly binding the UI to the first Local entry.",
+        "The apparent auto-load difference is intentional rather than a missing compatibility feature. Frozen MainWindow's global Save reads HotwordPage::hotwordsContent and directly truncates/writes the selected file before saving config; automatic page/file loading is therefore necessary to avoid a normal settings save erasing an untouched hotword file. Current removes that unsafe coupling: Browse changes only the path draft, Set/Clear Path are explicit config transactions, Load Content creates a file snapshot, Save Content is a separate conflict-aware publication, and ordinary settings saves do not rewrite hotword files. Reintroducing implicit load/write coupling would weaken current's transactional boundary rather than improve parity.",
+        "Frozen applies one HotwordPage path to every Local provider during MainWindow save even though page reload reads only the first Local provider. Current instead selects a concrete hotword-capable provider, preserves that selection across config refresh when still valid, prefers the active provider when possible, and mutates only the selected provider. Remote providers are excluded; Command providers are supported because current schema/runtime explicitly permit hotwords_file there.",
+        "Current Browse uses the native/portal-backed file chooser with the same text/all-files intent, starts from the current file or parent directory when valid, treats cancel as a no-op, and keeps selected paths and chooser errors out of Debug output. A picked path invalidates stale loaded content but is not silently persisted, so the user cannot accidentally retarget a provider merely by inspecting another file.",
+        "Current content editing deliberately requires an explicit loaded baseline. Provider/path changes are blocked while content is dirty; stale asynchronous loads are rejected if provider or resolved path changed; Reset restores the last loaded snapshot; and saved-but-not-applied hotword changes retain a retryable activation state. These are additive safety semantics over frozen's unguarded QFile read/write flow and preserve the same editable raw one-entry-per-line file format.",
+        "Path semantics are also stricter by design. Current trims configured values, rejects URL-like hotword paths, refuses ambiguous cross-process relative paths where daemon and GUI resolution could differ, validates the complete resulting config before persistence, and distinguishes configured path from the resolved content path. Those resolution and durability primitives remain supporting pending modules for their own file-level audits; this unit owns the page state machine, chooser, and presentation rather than claiming every filesystem primitive underneath them.",
+        "Evidence includes complete source and MainWindow call-site review of frozen hotword_page.cpp/.h, complete review of current hotword_management.rs plus its view/file-picker modules and page tests, the full 212/212 GUI library suite plus 1/1 main test, and the module-parity checker. No production-code change was required for this unit."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/pages/hotwords/hotword_page.cpp",
-    "gui/pages/hotwords/hotword_page.h",
     "gui/pages/llm/llm_page.cpp",
     "gui/pages/llm/llm_page.h",
     "gui/pages/resources/resource_page.cpp",
@@ -2097,9 +2131,6 @@
     "crates/vinpst-gui/src/error_dialog.rs",
     "crates/vinpst-gui/src/form_guards.rs",
     "crates/vinpst-gui/src/hotword_activation_retry.rs",
-    "crates/vinpst-gui/src/hotword_management.rs",
-    "crates/vinpst-gui/src/hotword_management/file_picker.rs",
-    "crates/vinpst-gui/src/hotword_management/view.rs",
     "crates/vinpst-gui/src/hotword_path.rs",
     "crates/vinpst-gui/src/hotword_persistence.rs",
     "crates/vinpst-gui/src/i18n.rs",
