@@ -1622,13 +1622,51 @@
         "Frozen resolved_registry_url may contain the downloader final redirect URL or a cache path, but source search found no CLI/GUI consumer using it to resolve assets or other behavior. Current diagnostics retain the attempted fresh mirror URL (or cache path) rather than expanding the RegistryTextSource trait solely for final-redirect precision; this is an intentional diagnostic-only simplification.",
         "The module deliberately exports only the high-level fetch functions and result type; internal locale-refresh helpers remain private to avoid growing a second public registry API surface. Evidence includes four shared orchestration tests, GUI fresh-i18n-prefetch proof, existing stale-cache process/GUI proofs, and strict all-target Clippy for registry, CLI, and GUI."
       ]
+    },
+    {
+      "id": "REGISTRY-MODELS-001",
+      "state": "audited-intentional-divergence",
+      "title": "Live model registry parsing and managed model installation",
+      "upstream_files": [
+        "common/registry/registry_models.cpp",
+        "common/registry/registry_models.h"
+      ],
+      "current_files": [
+        "crates/vinpst-registry/src/archive.rs",
+        "crates/vinpst-registry/src/checksum.rs",
+        "crates/vinpst-registry/src/install.rs",
+        "crates/vinpst-registry/src/materialize.rs",
+        "crates/vinpst-registry/src/staging.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/model/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/install.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-registry/src/asset.rs",
+        "crates/vinpst-registry/src/installed.rs",
+        "crates/vinpst-registry/src/live.rs",
+        "crates/vinpst-registry/src/managed.rs",
+        "crates/vinpst-registry/src/tests.rs"
+      ],
+      "notes": [
+        "Frozen registry_models owns live model parsing, ordered registry fetch, model selection by stable id, 600-second archive download with URL fallback, optional SHA-256 verification, libarchive extraction with secure-path flags, single-top-directory flattening, runtime metadata publication, replacement backup/rollback, and the model repository destination mapping.",
+        "The Rust rewrite splits those responsibilities across typed live schema, the already-audited downloader/cache/fetch boundaries, archive/checksum staging, install orchestration, materialization, and managed/installed model owners. This audit claims only the still-unowned archive/checksum/install/materialize/staging modules; live.rs, asset.rs, installed.rs, and managed.rs retain their earlier owners and are supporting evidence rather than double-counted here.",
+        "Core install behavior is preserved. Candidate archive URLs are attempted in order, model downloads use the frozen 600-second production timeout from DOWNLOADER-001, declared SHA-256 is verified before extraction, missing SHA-256 remains accepted at runtime with an explicit Missing checksum state, a single archive root is flattened, typed runtime metadata is written in the staged tree, and only then is the completed model published.",
+        "Added end-to-end evidence that a repeated model install replaces an existing managed model only after staging completes, updates model files and metadata together, removes old-only files, and leaves no replacement backup behind. Lower-level materialization tests already cover publish rollback and cross-filesystem copy-then-rename publication.",
+        "Added end-to-end evidence for the frozen optional-checksum runtime behavior: a model entry without sha256 still installs successfully and reports AssetChecksumStatus::Missing. The separate upstream registry contribution contract nevertheless lists sha256 as required, and the current public registry snapshot has seven version-2 model entries, all with 64-character SHA-256 values and complete runtime metadata.",
+        "The current live parser is deliberately fail-closed where frozen parsing is permissive: malformed/empty items, duplicate ids/short ids, invalid checksums, and invalid version fail the document instead of silently dropping entries. This matches the published registry contract and prevents a partially malformed signed/trusted catalog from changing what resources the user sees.",
+        "Archive support is intentionally narrower and safer than frozen libarchive format-all extraction. Current extraction accepts plain tar, tar.zst, tar.bz2, and tbz2 only; it rejects links, traversal, absolute/backslash paths, and unknown entry kinds inside a private staging tree. The current upstream public model registry was checked during this audit and all seven downloadable archives are tar.bz2, so this whitelist covers the actual published resource set. Gzip/xz/zip wrappers remain an explicit future extension in registry-contract.md rather than silently expanding the attack surface.",
+        "The frozen fallback archive filename `<model-id>.tar.gz` is not reproduced for URL paths without a filename. Current installation requires the first URL to expose a supported archive filename because wrapper selection is explicit and suffix-based. Published model URLs all expose tar.bz2 filenames, so this is an intentional contract tightening rather than a present resource gap.",
+        "Runtime metadata uses the Vinpst-owned `vinpst-model.json` identity instead of frozen `vinput-model.json`. Missing runtime metadata is rejected by install orchestration instead of producing an unusable metadata-less managed model; the upstream contribution guide lists vinput_model as required for every local ASR model.",
+        "Current publication is stronger than frozen in several ways retained intentionally: cooperative cancellation spans download/extract/publish, extraction happens in a validated temporary tree, existing targets are backed up and rolled back on publish failure, cross-filesystem targets use copy into a hidden target-filesystem sibling followed by rename, and non-file/non-directory staged entries are rejected during cross-filesystem copy.",
+        "Model directory layout, installed-model discovery, broken metadata handling, active-model deletion guards, and human short-id display were audited earlier under ASR-MODEL-001/CLI-RESOURCE-001 and are not re-owned here. This unit therefore closes the remaining model-registry installation implementation without duplicating those decisions.",
+        "Deterministic evidence includes tar/tar.zst/tar.bz2 safety and extraction tests, checksum helper and mismatch tests, URL-fallback staging tests, single-root live model install, repeated replacement, missing-checksum install, metadata persistence, materialization rollback/cross-filesystem tests, and strict all-target vinpst-registry Clippy."
+      ]
     }
   ],
   "upstream_pending": [
     "common/config/config_router.cpp",
     "common/config/config_router.h",
-    "common/registry/registry_models.cpp",
-    "common/registry/registry_models.h",
     "common/registry/registry_scripts.cpp",
     "common/registry/registry_scripts.h",
     "common/utils/debug_log.h",
@@ -1750,17 +1788,12 @@
     "crates/vinpst-process/src/lib.rs",
     "crates/vinpst-protocol/src/lib.rs",
     "crates/vinpst-protocol/src/text.rs",
-    "crates/vinpst-registry/src/archive.rs",
-    "crates/vinpst-registry/src/checksum.rs",
     "crates/vinpst-registry/src/error.rs",
-    "crates/vinpst-registry/src/install.rs",
     "crates/vinpst-registry/src/lib.rs",
-    "crates/vinpst-registry/src/materialize.rs",
     "crates/vinpst-registry/src/operation.rs",
     "crates/vinpst-registry/src/plan.rs",
     "crates/vinpst-registry/src/provider_script.rs",
     "crates/vinpst-registry/src/schema.rs",
-    "crates/vinpst-registry/src/staging.rs",
     "crates/vinpst-text/src/command.rs",
     "crates/vinpst-text/src/error.rs",
     "crates/vinpst-text/src/lib.rs"
