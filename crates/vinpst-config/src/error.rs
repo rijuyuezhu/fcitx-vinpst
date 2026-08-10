@@ -28,7 +28,7 @@ pub enum ConfigError {
     /// Registry base URL is empty.
     #[error("invalid empty registry base URL")]
     InvalidRegistryBaseUrl(String),
-    /// Registry base URL is duplicated.
+    /// Registry base URL is duplicated; the stored diagnostic URL is redacted.
     #[error("duplicate registry base URL `{0}`")]
     DuplicateRegistryBaseUrl(String),
     /// Default language is empty.

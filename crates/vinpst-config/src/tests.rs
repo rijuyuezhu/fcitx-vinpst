@@ -529,6 +529,29 @@ fn validation_rejects_duplicate_registry_base_urls() {
 }
 
 #[test]
+fn duplicate_registry_base_url_error_redacts_credentials() {
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    let duplicate =
+        "https://registry-user:registry-password@example.test/v1?token=registry-secret#private";
+    config.registry.base_urls = vec![duplicate.to_owned(), duplicate.to_owned()];
+
+    let error = config.validate().unwrap_err();
+    let display = error.to_string();
+    let debug = format!("{error:?}");
+    for rendered in [&display, &debug] {
+        assert!(rendered.contains("https://example.test/v1?token=REDACTED"));
+        for secret in [
+            "registry-user",
+            "registry-password",
+            "registry-secret",
+            "private",
+        ] {
+            assert!(!rendered.contains(secret));
+        }
+    }
+}
+
+#[test]
 fn validation_rejects_empty_registry_base_urls() {
     let mut config = VinpstConfig::bundled_default().unwrap();
     config.registry.base_urls.push("  ".to_owned());

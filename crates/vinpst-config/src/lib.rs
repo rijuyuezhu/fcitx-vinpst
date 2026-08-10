@@ -1,8 +1,8 @@
-//! Configuration model and validation for vinpst.
+//! Typed configuration contract for Vinpst.
 //!
-//! The first implementation preserves the original `default-config.json` shape
-//! and focuses on typed deserialization plus lightweight validation. Later
-//! migrations can add versioned upgrades here without touching daemon code.
+//! This crate owns schema parsing, compatibility normalization, validation,
+//! secret-safe diagnostics, user-path resolution, and atomic persistence so
+//! CLI, daemon, and GUI callers share one configuration boundary.
 
 mod config;
 mod defaults;

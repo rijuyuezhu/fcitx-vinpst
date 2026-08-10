@@ -22,7 +22,9 @@ fn validate_registry(registry: &RegistryConfig) -> Result<(), ConfigError> {
             return Err(ConfigError::InvalidRegistryBaseUrl(base_url.clone()));
         }
         if !registry_base_urls.insert(base_url.as_str()) {
-            return Err(ConfigError::DuplicateRegistryBaseUrl(base_url.clone()));
+            return Err(ConfigError::DuplicateRegistryBaseUrl(
+                crate::redact_url_for_diagnostics(base_url),
+            ));
         }
     }
     Ok(())
