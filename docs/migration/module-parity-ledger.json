@@ -2273,6 +2273,32 @@
         "Registry-i18n parsing, arbitrary-locale normalization, mirror independence, local override precedence, stale disk cache behavior, and fetch orchestration were already fixed and owned by REGISTRY-I18N-001/REGISTRY-CACHE-001/REGISTRY-LIVE-FETCH-001. This unit therefore audits the GUI consumption/cache boundary and static catalog ownership without double-owning those registry primitives.",
         "Evidence includes complete frozen i18n_cache.cpp/.h review; current GuiLocale architecture, exhaustive key/catalog mappings and localization tests; dynamic model/script catalog and installed-model lookup paths; the new arbitrary-locale merge regression, 2 script-catalog tests, 10 model-management tests, 6 i18n-focused tests, strict all-target vinpst-gui Clippy, and the module-parity ledger checker."
       ]
+    },
+    {
+      "id": "CONFIG-FACADE-001",
+      "state": "audited-fixed",
+      "title": "Current-only configuration facade, typed errors, and diagnostic redaction",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-config/src/diagnostics.rs",
+        "crates/vinpst-config/src/error.rs",
+        "crates/vinpst-config/src/lib.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-config/src/tests.rs",
+        "crates/vinpst-config/src/validation.rs",
+        "crates/vinpst-config/tests/legacy_compat.rs",
+        "docs/architecture/config-contract.md"
+      ],
+      "notes": [
+        "This is a current-only ownership unit. The frozen project did not have a Rust crate facade or one typed ConfigError surface: those responsibilities arise from Vinpst splitting configuration into a reusable crate shared by CLI, daemon, and GUI. The already-audited schema/default/normalization/persistence behavior is not re-owned here; this unit covers only the public re-export boundary, structured error payloads, and shared diagnostic URL redaction helper left pending after the functional config audits.",
+        "diagnostics.rs defines the shared URL disclosure boundary used by ASR/text diagnostics. It parses without mutating the configured request URL, removes userinfo and fragments, preserves scheme/host/port/path and explicit-path shape, preserves query-key order and duplicates while replacing every query value with REDACTED, and maps malformed input to the fixed <invalid-url> marker. Its focused tests cover credentials, query values, duplicate query keys, path-shape preservation, and malformed input; config-contract.md documents the same contract.",
+        "The audit found one real secret-retention bug in ConfigError. DuplicateRegistryBaseUrl previously stored and displayed the literal duplicate mirror string. Because registry mirrors are not restricted to credential-free URLs and validation errors flow directly into GUI strings, CLI anyhow chains, and daemon RuntimeError, a mirror containing userinfo or query credentials could survive in both Display and derived Debug. Validation now stores redact_url_for_diagnostics(base_url) in this error variant instead. The error remains actionable by showing the sanitized mirror shape, while neither the typed error object nor downstream formatting retains the submitted credentials.",
+        "A deterministic regression duplicates a mirror containing username, password, query token, and fragment, then verifies both Display and Debug contain only https://example.test/v1?token=REDACTED and none of the four secret values. The existing duplicate-mirror test and legacy compatibility test remain green, demonstrating that ordinary credential-free mirrors keep the same typed error behavior while only sensitive components are removed.",
+        "The rest of ConfigError was reviewed variant by variant. JSON/read failures carry parser metadata or a filesystem path; validation variants carry ids, environment variable names, numeric limits, or empty-field markers rather than API keys, environment values, command arguments, extra bodies, or provider endpoints. InvalidRegistryBaseUrl retains the raw rejected string internally, but that branch is reachable only for trim-empty input and its Display is fixed, so it cannot retain a non-whitespace URL secret. No second secret-bearing error payload was found.",
+        "lib.rs intentionally exposes the typed schema, ConfigError, redaction helper, atomic persistence receipts/errors, and user-path module while keeping normalization/validation implementation modules private behind VinpstConfig methods. Its crate-level documentation was updated from migration-era 'first implementation' wording to the current shared configuration contract so v0.1.0 Rustdoc no longer describes completed migration work as future work.",
+        "Evidence includes complete source review of diagnostics.rs, error.rs, and lib.rs; call-chain inspection proving validation errors reach GUI, CLI, and daemon user-visible error surfaces; the new credential-bearing duplicate-mirror Display/Debug regression, existing redaction and legacy compatibility tests, the full vinpst-config all-target suite, strict all-target Clippy, and the module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [],
@@ -2293,9 +2319,6 @@
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
     "crates/vinpst-cli/src/registry_support.rs",
-    "crates/vinpst-config/src/diagnostics.rs",
-    "crates/vinpst-config/src/error.rs",
-    "crates/vinpst-config/src/lib.rs",
     "crates/vinpst-daemon/src/lib.rs",
     "crates/vinpst-daemon/src/runtime/asr_menu.rs",
     "crates/vinpst-daemon/src/runtime/capture.rs",
