@@ -73,25 +73,37 @@ pub(crate) fn load_installed_models() -> Result<Vec<InstalledModelInfo>, String>
 
 pub(crate) fn load_registry_model_catalog(
     config: &VinpstConfig,
-    locale: GuiLocale,
+    _locale: GuiLocale,
 ) -> Result<Vec<RegistryModelSummary>, String> {
     let registry_source =
         ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
     let cache_root = default_registry_cache_root()?;
-    fetch_registry_model_catalog_from(config, locale, &registry_source, &i18n_source, &cache_root)
+    let registry_locale = detect_preferred_registry_locale();
+    fetch_registry_model_catalog_from(
+        config,
+        &registry_locale,
+        &registry_source,
+        &i18n_source,
+        &cache_root,
+    )
 }
 
 fn fetch_registry_model_catalog_from(
     config: &VinpstConfig,
-    locale: GuiLocale,
+    registry_locale: &str,
     registry_source: &impl RegistryTextSource,
     i18n_source: &impl RegistryTextSource,
     cache_root: &Path,
 ) -> Result<Vec<RegistryModelSummary>, String> {
     let registry =
         fetch_live_model_registry_from(config, registry_source, i18n_source, cache_root)?;
-    let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale, cache_root);
+    let i18n = fetch_registry_i18n(
+        i18n_source,
+        &config.registry.base_urls,
+        registry_locale,
+        cache_root,
+    );
     Ok(registry
         .items
         .iter()
@@ -119,12 +131,11 @@ fn fetch_registry_model_catalog_from(
 pub(crate) fn fetch_registry_i18n(
     source: &impl RegistryTextSource,
     bases: &[String],
-    locale: GuiLocale,
+    registry_locale: &str,
     cache_root: &Path,
 ) -> Option<LiveRegistryI18n> {
-    let preferred = locale.code();
-    let preferred = fetch_i18n_layer(source, bases, preferred, cache_root);
-    let fallback = (locale.code() != "en_US")
+    let preferred = fetch_i18n_layer(source, bases, registry_locale, cache_root);
+    let fallback = (registry_locale != "en_US")
         .then(|| fetch_i18n_layer(source, bases, "en_US", cache_root))
         .flatten();
     let merged = LiveRegistryI18n::merge_layers([fallback, preferred].into_iter().flatten());
@@ -467,6 +478,29 @@ mod tests {
     }
 
     #[test]
+    fn registry_i18n_accepts_locale_outside_static_gui_catalog() {
+        let cache = tempfile::tempdir().expect("cache directory");
+        let base = "https://registry.example".to_owned();
+        let source = StubRegistryTextSource {
+            responses: HashMap::from([
+                (
+                    format!("{base}/i18n/fr_FR.json"),
+                    Ok(r#"{"model.test.title":"Modèle français"}"#.to_owned()),
+                ),
+                (
+                    format!("{base}/i18n/en_US.json"),
+                    Ok(r#"{"model.test.description":"English fallback"}"#.to_owned()),
+                ),
+            ]),
+        };
+
+        let i18n = fetch_registry_i18n(&source, &[base], "fr_FR", cache.path())
+            .expect("merged registry i18n");
+        assert_eq!(i18n.get("model.test.title"), Some("Modèle français"));
+        assert_eq!(i18n.get("model.test.description"), Some("English fallback"));
+    }
+
+    #[test]
     fn registry_model_catalog_exposes_localized_browsable_metadata() {
         let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
@@ -501,14 +535,9 @@ mod tests {
             ]),
         };
 
-        let catalog = fetch_registry_model_catalog_from(
-            &config,
-            GuiLocale::ZhCn,
-            &source,
-            &source,
-            cache.path(),
-        )
-        .expect("catalog");
+        let catalog =
+            fetch_registry_model_catalog_from(&config, "zh_CN", &source, &source, cache.path())
+                .expect("catalog");
         assert_eq!(catalog.len(), 1);
         let model = &catalog[0];
         assert_eq!(model.selector(), "test-stream");
@@ -561,7 +590,7 @@ mod tests {
 
         let error = fetch_registry_model_catalog_from(
             &config,
-            GuiLocale::EnUs,
+            "en_US",
             &registry_source,
             &i18n_source,
             cache.path(),

@@ -8,7 +8,7 @@ use iced::{
 };
 use vinpst_config::AsrProviderKind;
 use vinpst_protocol::AsrBackendState;
-use vinpst_registry::InstalledModelInfo;
+use vinpst_registry::{InstalledModelInfo, detect_preferred_registry_locale};
 
 use crate::{
     App, GuiLocale, GuiText, Message, model_is_active, model_is_selected_by_active_provider,
@@ -329,8 +329,8 @@ fn installed_model_matches_filter(
     if filter.is_empty() {
         return true;
     }
-    let locale_code = locale.code().to_owned();
-    let title = model.display_title(&[locale_code]);
+    let locale_candidates = installed_model_locale_candidates(locale);
+    let title = model.display_title(&locale_candidates);
     let directory = model.model_dir.file_name().and_then(|name| name.to_str());
     [
         Some(model.stable_model_id()),
@@ -452,6 +452,15 @@ fn format_model_size(bytes: u64) -> String {
     format!("{whole}.{tenth} {unit}")
 }
 
+fn installed_model_locale_candidates(locale: GuiLocale) -> Vec<String> {
+    let preferred = detect_preferred_registry_locale();
+    if preferred == locale.code() {
+        vec![preferred]
+    } else {
+        vec![preferred, locale.code().to_owned()]
+    }
+}
+
 fn installed_model_row(
     locale: GuiLocale,
     model: &InstalledModelInfo,
@@ -459,9 +468,9 @@ fn installed_model_row(
     use_enabled: bool,
     remove_enabled: bool,
 ) -> Element<'static, Message> {
-    let locale_code = locale.code().to_owned();
+    let locale_candidates = installed_model_locale_candidates(locale);
     let title = model
-        .display_title(&[locale_code])
+        .display_title(&locale_candidates)
         .unwrap_or_else(|| model.stable_model_id());
     let directory = model
         .model_dir

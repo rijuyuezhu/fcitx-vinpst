@@ -6,6 +6,7 @@ use iced::Task;
 use vinpst_config::VinpstConfig;
 use vinpst_registry::{
     LiveScriptKind, RegistryOperationControl, RegistryTextSource, ReqwestRegistryTextSource,
+    detect_preferred_registry_locale,
 };
 
 use crate::{
@@ -40,16 +41,17 @@ pub(crate) enum ScriptCatalogState {
 
 pub(crate) fn load_registry_script_catalog(
     config: &VinpstConfig,
-    locale: GuiLocale,
+    _locale: GuiLocale,
     kind: LiveScriptKind,
 ) -> Result<Vec<RegistryScriptSummary>, String> {
     let registry_source =
         ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
     let cache_root = default_registry_cache_root()?;
+    let registry_locale = detect_preferred_registry_locale();
     fetch_registry_script_catalog_from(
         config,
-        locale,
+        &registry_locale,
         kind,
         &registry_source,
         &i18n_source,
@@ -59,7 +61,7 @@ pub(crate) fn load_registry_script_catalog(
 
 fn fetch_registry_script_catalog_from(
     config: &VinpstConfig,
-    locale: GuiLocale,
+    registry_locale: &str,
     kind: LiveScriptKind,
     registry_source: &impl RegistryTextSource,
     i18n_source: &impl RegistryTextSource,
@@ -74,7 +76,12 @@ fn fetch_registry_script_catalog_from(
         i18n_source,
         cache_root,
     )?;
-    let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale, cache_root);
+    let i18n = fetch_registry_i18n(
+        i18n_source,
+        &config.registry.base_urls,
+        registry_locale,
+        cache_root,
+    );
     Ok(registry
         .items
         .iter()
@@ -192,7 +199,7 @@ mod tests {
 
         let catalog = fetch_registry_script_catalog_from(
             &config,
-            GuiLocale::EnUs,
+            "en_US",
             LiveScriptKind::AsrProvider,
             &source,
             &source,
@@ -213,7 +220,7 @@ mod tests {
         };
         let cached = fetch_registry_script_catalog_from(
             &config,
-            GuiLocale::EnUs,
+            "en_US",
             LiveScriptKind::AsrProvider,
             &offline,
             &offline,
@@ -249,7 +256,7 @@ mod tests {
 
         let catalog = fetch_registry_script_catalog_from(
             &config,
-            GuiLocale::EnUs,
+            "en_US",
             LiveScriptKind::LlmAdapter,
             &source,
             &source,
