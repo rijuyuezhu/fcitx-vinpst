@@ -1697,11 +1697,41 @@
         "Current GUI keeps its stronger persistent adapter rollback/revision and recovery state above the common script installer; the new atomic prepared-script publication composes with that layer rather than replacing it. GUI-only removal/revision policies remain owned by their later GUI audit units.",
         "Deterministic evidence includes registry parser/materialization integration tests, ordered mirror download plus executable permission, lexical-equivalent managed provider/adapter update tests, injected chmod-failure preservation, the CLI config-write rollback process test, existing GUI script recovery/rollback tests, and strict all-target Clippy for registry/CLI/GUI."
       ]
+    },
+    {
+      "id": "CONFIG-ROUTER-001",
+      "state": "audited-fixed",
+      "title": "Configuration pointer routing and symlink-safe edit targets",
+      "upstream_files": [
+        "common/config/config_router.cpp",
+        "common/config/config_router.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/config.rs",
+        "crates/vinpst-cli/src/config_io.rs",
+        "crates/vinpst-cli/src/paths.rs",
+        "crates/vinpst-cli/tests/config_mutation.rs",
+        "crates/vinpst-config/src/lib.rs",
+        "crates/vinpst-config/src/persistence.rs"
+      ],
+      "notes": [
+        "Frozen ConfigRouter maps core/Fcitx edit targets, implements JSON-pointer get/set over the core config, parses set values as JSON with string fallback, requires the destination pointer to already exist, and resolves symlink edit targets before modification.",
+        "Current JSON-pointer ownership already lives in CLI-CONFIG-001. It preserves the frozen parse rule (valid JSON becomes typed JSON; parse failure becomes a string) and existing-pointer requirement, while adding explicit --string, --stdin, --exists/default, dry-run, output, and in-place workflows. These extensions remain user-facing Vinpst improvements rather than aliases for test plumbing.",
+        "Current config set patches the loaded raw JSON document, validates the patched document through the typed schema, then persists the raw patched document. This retains unrelated forward-compatible JSON fields instead of forcing every pointer mutation through a complete typed reserialization; typed provider/adapter extra fields are also covered by CFG-CORE-001 preservation tests.",
+        "Fixed a real symlink regression shared by CLI and GUI writes. The Rust atomic writers previously staged a replacement beside the user-supplied path and renamed over that path, which replaced a final config symlink with a regular file. Frozen ResolveSymlinkPath/AtomicWriteTextFile instead writes through the symlink to its resolved target.",
+        "vinpst-config now exports one bounded resolve_symlink_write_target helper shared by typed persistence and CLI raw/private writers. It follows final symlink chains up to 32 levels, interprets relative targets relative to the link parent, and resolves a missing leaf through a symlinked parent without requiring the final file to exist. All temporary files are created beside the resolved target before rename.",
+        "Typed VinpstConfig persistence now resolves the actual destination before creating directories, staging the temporary config, copying backup contents, and renaming. The write receipt and requested backup path remain expressed in terms of the user-facing entry path, so a dotfiles symlink remains visible while its adjacent `.bak` still provides the familiar recovery location.",
+        "CLI write_file_atomically/write_private_file_atomically use the same resolver. This covers raw Fcitx config editing and every CLI JSON/config mutation that uses the shared writer, not just `config edit`. Resolved target parents are created before staging so a symlink can point at a not-yet-created target hierarchy.",
+        "Deterministic typed persistence proof creates a relative `config.json -> dotfiles/config.json` symlink, writes a validated update with backup, and proves the symlink identity/target text survive while the real file changes and the entry-path backup preserves the old contents.",
+        "Process-level CLI proofs cover both persistence families: `config set --in-place` through a relative core-config symlink preserves the link, updates the real JSON target, and writes the old target contents to `config.json.bak`; `config edit fcitx` through a relative Fcitx symlink preserves the link while an actual editor changes the real target and an adjacent backup records the prior text.",
+        "Frozen GetEditTarget treats every non-core string as Fcitx; current CLI accepts only the explicit public `core`/`fcitx` target enum, a deliberate input-validation improvement. Default paths retain Vinpst identity under `$XDG_CONFIG_HOME/fcitx-vinpst` and Fcitx `vinpst.conf` rather than upstream Vinput names.",
+        "No current source file is newly claimed here: commands/config.rs, config_io.rs, and config persistence already have dedicated CLI-CONFIG/CLI-EDITOR/CFG-CORE owners, while paths.rs remains pending for the later path-utils audit. They are supporting files only, preserving non-overlapping ledger ownership.",
+        "Evidence includes existing JSON-pointer/string/stdin/missing-pointer/forward-field tests, new typed and process-level symlink preservation tests, strict all-target Clippy for vinpst-config and vinpst-cli, and the broader config/CLI suites run at closeout."
+      ]
     }
   ],
   "upstream_pending": [
-    "common/config/config_router.cpp",
-    "common/config/config_router.h",
     "common/utils/debug_log.h",
     "common/utils/file_utils.cpp",
     "common/utils/file_utils.h",
