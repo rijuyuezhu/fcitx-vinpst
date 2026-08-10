@@ -1976,13 +1976,41 @@
         "Startup notification behavior is equivalent at the application-shell level while intentionally hardened. Current checks the Vinpst repository feed with a five-second request boundary, locale fallback, monotonic read marker, acknowledge/details actions, and silent network failure; unlike frozen's unrestricted QNetworkReply parsing it also has the shared HTTP response cap, title/text caps, HTTPS-only details links, secret-free Debug output, symlink-safe bounded read state, and atomic 0600 persistence. The presentation is an in-app state/banner rather than a blocking QMessageBox, but acknowledgement and details still mark the notification read.",
         "Evidence includes source-level call-graph review of all three frozen app-shell files, the complete current GUI suite, strict all-target vinpst-gui Clippy, GUI help/version checks, focused config rollback-reconciliation tests, local inspection of Iced 0.14 system-theme behavior, and the module-parity checker. Page-specific Control/Resources/LLM/Hotwords implementations, i18n internals, and broader lib.rs orchestration remain separately pending and are not claimed by this unit."
       ]
+    },
+    {
+      "id": "GUI-PROVIDER-DIALOGS-001",
+      "state": "audited-fixed",
+      "title": "Text-adapter and ASR-provider editor presentation contracts",
+      "upstream_files": [
+        "gui/dialogs/adapter_dialog.cpp",
+        "gui/dialogs/adapter_dialog.h",
+        "gui/dialogs/asr_provider_dialog.cpp",
+        "gui/dialogs/asr_provider_dialog.h"
+      ],
+      "current_files": [
+        "crates/vinpst-gui/src/adapter_config_management/view.rs",
+        "crates/vinpst-gui/src/asr_provider_management/view.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/adapter_config_management.rs",
+        "crates/vinpst-gui/src/asr_provider_management.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-registry/src/installed.rs"
+      ],
+      "notes": [
+        "Frozen adapter_dialog is a thin command-adapter editor: immutable id, command, one-argument-per-line args, and KEY=VALUE environment lines. Current preserves the same edit identity and process fields, adds an optional working directory, and routes them through a typed editor that trims command/path boundaries, preserves forward-compatible adapter metadata, rejects stale concurrent edits, validates the complete resulting config, and keeps process configuration out of Debug output.",
+        "Current intentionally keeps args as a JSON string array instead of frozen's trimmed non-empty line syntax. This is less visually terse but losslessly represents whitespace and arbitrary argument strings without inventing shell parsing. The audit did find that the entire args field had been rendered as a password field even though arguments are ordinary user-visible process configuration in frozen and usually need inspection while editing. Adapter and command-ASR args are now visible in the form; environment values and credential-bearing endpoints remain masked/redacted.",
+        "Frozen asr_provider_dialog can represent local or command providers, locks id/type while editing, exposes timeout/model/command/args/env, and gives local providers an editable combo populated from installed model directories. Current retains immutable edit identity/type, supports the same local and command fields plus an additive remote-provider type and structured environment rows, and preserves model semantics for command/remote providers because current runtimes actually consume the optional model id there.",
+        "A real local-provider usability regression was fixed. Current had reduced the frozen editable installed-model combo to a bare model text field even though the standalone GUI already maintains a typed scan of installed models. Local ASR forms now keep manual model entry while also listing usable installed model ids with a Use action; selection writes InstalledModelInfo::config_model_value(), the same concrete model directory consumed by the existing Resources model-selection path. Broken model installations are excluded rather than suggested as runnable backends.",
+        "Frozen's nominal 15000 ms constructor default is not copied into current new-provider state. Source call-graph review shows the frozen dialog is invoked from ControlPage's edit path, while local providers are not editable there; configured provider timeout values are therefore the meaningful compatibility contract. Current blank timeout deliberately means backend default and validates any explicit value as a positive integer, avoiding a new hard-coded timeout policy for the additive custom-provider flow.",
+        "The frozen dialogs defer parsing helpers and persistence/reload to their page call sites. Current likewise keeps view ownership narrow: broader add/edit/remove persistence, daemon reconciliation, managed-script policy, model registry scanning, and page orchestration remain supporting pending files for their later dedicated audits rather than being claimed here. Current additionally prevents dirty editor state from being silently discarded by conflicting page/resource operations.",
+        "Evidence includes full source and call-site review of all four frozen dialog files, source review of frozen NonEmptyLines/ParseCommandEnv behavior, current typed editor/persistence paths, installed-model config value semantics, focused 8-test ASR-provider and 10-test adapter-editor suites, strict all-target vinpst-gui Clippy, and the module-parity checker."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/dialogs/adapter_dialog.cpp",
-    "gui/dialogs/adapter_dialog.h",
-    "gui/dialogs/asr_provider_dialog.cpp",
-    "gui/dialogs/asr_provider_dialog.h",
     "gui/pages/control/control_page.cpp",
     "gui/pages/control/control_page.h",
     "gui/pages/hotwords/hotword_page.cpp",
@@ -2028,10 +2056,8 @@
     "crates/vinpst-daemon/src/runtime/errors.rs",
     "crates/vinpst-daemon/src/runtime/scene.rs",
     "crates/vinpst-gui/src/adapter_config_management.rs",
-    "crates/vinpst-gui/src/adapter_config_management/view.rs",
     "crates/vinpst-gui/src/adapter_runtime.rs",
     "crates/vinpst-gui/src/asr_provider_management.rs",
-    "crates/vinpst-gui/src/asr_provider_management/view.rs",
     "crates/vinpst-gui/src/asr_reload_confirmation.rs",
     "crates/vinpst-gui/src/audio_devices.rs",
     "crates/vinpst-gui/src/blocking_task.rs",
