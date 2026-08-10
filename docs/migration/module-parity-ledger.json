@@ -1397,13 +1397,67 @@
         "Process launch remains shell-free across all three editor surfaces, so quotes affect argv grouping only and cannot introduce shell evaluation. Vinpst reports typed spawn/parse/exit failures with more context than frozen integer -1 while preserving nonzero editor status as command failure.",
         "Deterministic evidence includes shared parser quote/escape and malformed-command tests, provider editor priority/default and quoted-argv tests, process-level config/hotword VISUAL-over-EDITOR dry-runs with quoted arguments, existing real editor success/failure tests, and strict all-target Clippy for vinpst-process, vinpst-registry, and vinpst-cli."
       ]
+    },
+    {
+      "id": "CLI-HELPERS-001",
+      "state": "audited-intentional-divergence",
+      "title": "CLI config and scene glue helpers",
+      "upstream_files": [
+        "cli/utils/cli_helpers.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/config.rs",
+        "crates/vinpst-cli/src/commands/scene.rs",
+        "crates/vinpst-cli/src/config_io.rs",
+        "crates/vinpst-cli/src/recording_control.rs",
+        "crates/vinpst-config/src/lib.rs"
+      ],
+      "notes": [
+        "Frozen cli_helpers.h is glue rather than a standalone runtime module: SaveConfigOrFail writes the canonical CoreConfig and prints one generic error; ToSceneConfig/FromSceneConfig copy the scene fields into the scene helper type; ResolveSceneId reloads CoreConfig and resolves an empty explicit id to the configured active scene.",
+        "Vinpst deliberately has no one-to-one helper file. Typed VinpstConfig owns the scene representation directly, so no lossy CoreConfig-to-scene projection/copy-back pair is needed. Scene list/add/use/remove/edit operate on the same typed document validated by vinpst-config.",
+        "Config persistence is intentionally safer and more explicit than frozen SaveConfigOrFail. User-facing mutations select --in-place or --output, validate the complete derived document, preserve backups for in-place writes, and use atomic publication helpers; canonical ASR mutations additionally reload an already-running daemon without activating an absent one. Those behaviors are owned by the previously audited config/ASR/scene/device/LLM units rather than duplicated in a generic bool helper.",
+        "Recording scene resolution intentionally moved to the daemon authority. The CLI preserves an explicit scene id, but an omitted/empty scene reaches Start/StopRecording as empty and the daemon resolves it against its effective active configuration. This avoids the frozen race where the CLI independently reloads disk config immediately before calling a daemon that may hold a different runtime generation. CLI-RECORDING-001 and the private-bus recording gates cover that task behavior.",
+        "No production change is required for this glue-only unit; reproducing the header would reintroduce duplicate config ownership and scene translation state without adding a user capability."
+      ]
+    },
+    {
+      "id": "CLI-RESOURCE-001",
+      "state": "audited-fixed",
+      "title": "CLI resource display, selector, and TTY progress context",
+      "upstream_files": [
+        "cli/utils/cli_context.h",
+        "cli/utils/resource_utils.cpp",
+        "cli/utils/resource_utils.h"
+      ],
+      "current_files": [
+        "crates/vinpst-registry/src/live.rs",
+        "crates/vinpst-registry/src/script.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/install.rs",
+        "crates/vinpst-cli/src/commands/model/mod.rs",
+        "crates/vinpst-cli/src/commands/provider/catalog.rs",
+        "crates/vinpst-cli/src/main.rs",
+        "crates/vinpst-cli/tests/llm_adapter.rs",
+        "crates/vinpst-cli/tests/model_list.rs",
+        "crates/vinpst-cli/tests/provider_list.rs",
+        "crates/vinpst-registry/src/operation.rs"
+      ],
+      "notes": [
+        "Frozen resource_utils centralizes user-facing short-id selection, localized title/description metadata, optional README terminal links, registry-backed selector resolution, and model/script display-map fetching. CliContext supplies the json_output and stdout-is-a-TTY bits used by that display layer and model download progress. Vinpst moves typed display and selector behavior onto live registry entries while command modules own their task-specific text/JSON documents.",
+        "Fixed live resource display-id parity. Live models and scripts now expose display_id(), preferring a non-empty registry short id and falling back to the stable machine id. Live model JSON now publishes the human selector as id while retaining machine_id and short_id explicitly; model/provider/adapter live text lists likewise show short ids. Provider/adapter JSON already used the short selector and now shares the same typed helper.",
+        "Selector semantics remain at least as strict as frozen behavior. Live model lookup accepts exact full id or short id and registry validation rejects duplicate short ids; script registry validation likewise rejects duplicate selectors and resolves full id or short id within the requested kind. Vinpst therefore does not need a second CLI-only ResolveSelector template to recreate the same lookup state.",
+        "Vinpst intentionally does not fetch remote registries merely to decorate already-configured local provider/adapter lists or registry-independent installed-model scans. Those offline surfaces keep their known local identifiers and persisted metadata; commands that need registry short-id resolution take an explicit/live registry path. This avoids turning local inspection into a hidden network dependency while preserving short-id UX on live registry tasks.",
+        "Frozen FormatTerminalLink emits OSC 8 links only on a TTY. Vinpst intentionally keeps human output escape-free and omits README link columns from compact text tables; readme_url remains available in structured live provider/adapter JSON. This matches the formatter audit decision to keep the terminal UI simple without losing machine-readable resource metadata.",
+        "Fixed the missing model-install progress path. Frozen model add reports download progress to stderr using stdout TTY state, with live TTY refreshes and ten-percent non-TTY buckets. Vinpst already emitted typed RegistryOperationProgress events but the CLI used the no-op install wrapper. Model install now attaches a RegistryOperationControl reporter: TTY sessions receive a simple live percentage, non-TTY sessions receive increasing ten-percent lines, successful installs finish at 100%, and JSON stdout remains a single document. The simpler percentage display deliberately omits the frozen decorative bar/speed calculation while restoring essential long-running feedback.",
+        "Deterministic evidence includes live model/provider/adapter short-id text/JSON tests, registry title fallback tests, a local-HTTP model install proving non-TTY stderr reaches 100% while stdout JSON remains parseable, and strict all-target Clippy for vinpst-cli and vinpst-registry."
+      ]
     }
   ],
   "upstream_pending": [
-    "cli/utils/cli_context.h",
-    "cli/utils/cli_helpers.h",
-    "cli/utils/resource_utils.cpp",
-    "cli/utils/resource_utils.h",
     "common/config/config_router.cpp",
     "common/config/config_router.h",
     "common/registry/registry_cache.cpp",
@@ -1548,13 +1602,11 @@
     "crates/vinpst-registry/src/fetch.rs",
     "crates/vinpst-registry/src/install.rs",
     "crates/vinpst-registry/src/lib.rs",
-    "crates/vinpst-registry/src/live.rs",
     "crates/vinpst-registry/src/materialize.rs",
     "crates/vinpst-registry/src/operation.rs",
     "crates/vinpst-registry/src/plan.rs",
     "crates/vinpst-registry/src/provider_script.rs",
     "crates/vinpst-registry/src/schema.rs",
-    "crates/vinpst-registry/src/script.rs",
     "crates/vinpst-registry/src/staging.rs",
     "crates/vinpst-text/src/command.rs",
     "crates/vinpst-text/src/error.rs",
