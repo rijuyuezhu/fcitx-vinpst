@@ -175,7 +175,7 @@ pub(crate) fn build_constraints_suffix(candidate_count: u8) -> String {
     )
 }
 
-/// Tiny deterministic template renderer for command placeholders and future adapters.
+/// Tiny deterministic template renderer for command and provider adapters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptTemplate {
     template: String,
@@ -187,8 +187,9 @@ impl PromptTemplate {
     /// Supported placeholders are `{raw_text}`, `{selected_text}`, `{scene_id}`,
     /// `{scene_prompt}`, `{provider_id}`, `{model}`, `{candidate_count}`,
     /// `{context_lines}`, and `{timeout_ms}`. Legacy prompt placeholders
-    /// `{{asr}}`, `{{selected}}`, and `{{context}}` are also accepted; context
-    /// expands to an empty string until recent-input cache wiring lands.
+    /// `{{asr}}`, `{{selected}}`, and `{{context}}` are also accepted. This
+    /// standalone renderer leaves context empty; provider request builders can
+    /// supply recent-input context through the context-aware rendering helper.
     /// Unknown placeholders are kept as literal text for forward compatibility.
     #[must_use]
     pub fn new(template: impl Into<String>) -> Self {

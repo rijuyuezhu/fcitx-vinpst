@@ -421,10 +421,11 @@ fn reqwest_openai_transport_posts_json_and_returns_body() {
 }
 
 #[test]
-fn reqwest_openai_transport_reports_http_errors_with_body() {
+fn reqwest_openai_transport_reports_status_without_provider_error_body() {
+    let provider_secret = "provider-private-error-detail";
     let (base_url, handle) = serve_single_http_response(
         "500 Internal Server Error",
-        "Bearer secret-token secret-token".to_owned(),
+        format!("Bearer secret-token secret-token {provider_secret}"),
     );
     let request = OpenAiCompatibleChatRequest {
         url: format!("{base_url}/chat/completions"),
@@ -438,13 +439,12 @@ fn reqwest_openai_transport_reports_http_errors_with_body() {
         .unwrap_err();
 
     handle.join().unwrap();
-    assert!(matches!(
-        error,
-        TextError::AdapterFailed(message)
-            if message.contains("HTTP 500")
-                && message.contains("<redacted>")
-                && !message.contains("secret-token")
-    ));
+    let TextError::AdapterFailed(message) = error else {
+        panic!("expected adapter failure");
+    };
+    assert!(message.contains("HTTP 500"));
+    assert!(!message.contains("secret-token"));
+    assert!(!message.contains(provider_secret));
 }
 
 #[test]
@@ -1818,6 +1818,13 @@ fn command_text_request_serializes_scene_context() {
     assert_eq!(value["scene"]["candidate_count"], 2);
     assert_eq!(value["scene"]["timeout_ms"], 2_500);
     assert_eq!(value["scene"]["context_lines"], 4);
+
+    let debug = format!("{request:?}");
+    assert!(debug.contains("raw_text_len: 8"));
+    assert!(debug.contains("selected_text_len: Some(9)"));
+    for secret in ["raw text", "selection", "polish"] {
+        assert!(!debug.contains(secret));
+    }
 }
 
 #[test]
@@ -1981,13 +1988,16 @@ fn openai_compatible_extra_body_merge_ignores_non_objects() {
 
 #[test]
 fn command_text_response_maps_final_text_to_payload() {
-    let payload = CommandTextResponse {
+    let response = CommandTextResponse {
         payload: None,
         text: Some("polished".to_owned()),
         error: None,
-    }
-    .into_payload()
-    .unwrap();
+    };
+    let debug = format!("{response:?}");
+    assert!(debug.contains("text_len: Some(8)"));
+    assert!(!debug.contains("polished"));
+
+    let payload = response.into_payload().unwrap();
 
     assert_eq!(payload.commit_text, "polished");
     assert_eq!(payload.candidates[0].text, "polished");
@@ -2258,6 +2268,13 @@ fn command_text_adapter_copies_typed_config() {
     assert_eq!(adapter.args(), ["--json"]);
     assert_eq!(adapter.env().get("MODE").map(String::as_str), Some("test"));
     assert_eq!(adapter.working_dir(), Some("/tmp/vinpst-text"));
+
+    let debug = format!("{adapter:?}");
+    assert!(debug.contains("args_count: 1"));
+    assert!(debug.contains("env_count: 1"));
+    for secret in ["vinpst-postprocess", "--json", "test", "/tmp/vinpst-text"] {
+        assert!(!debug.contains(secret));
+    }
 }
 
 #[test]
@@ -2292,7 +2309,7 @@ fn command_text_adapter_delegates_to_injected_runner() {
 }
 
 #[test]
-fn command_text_adapter_returns_unsupported_until_runner_lands() {
+fn unsupported_command_text_runner_reports_adapter_unavailable() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
         ..scene("polish", 0)

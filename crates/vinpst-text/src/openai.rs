@@ -447,9 +447,9 @@ pub trait OpenAiCompatibleChatTransport: Send + Sync {
 /// Blocking HTTP transport for OpenAI-compatible chat-completions providers.
 ///
 /// The transport sends the already-built request body and headers as-is, applies
-/// the optional per-scene timeout to the request, and returns the raw response
-/// body for the existing candidate parser. HTTP errors are mapped to
-/// `TextError::AdapterFailed` with the status code and response body included.
+/// the optional per-scene timeout to the request, and returns successful response
+/// bodies for the existing candidate parser. Non-success responses are reported
+/// by status only; provider error bodies are never surfaced in diagnostics.
 ///
 /// The reqwest blocking client is created and dropped inside a dedicated thread
 /// so daemon code can call this synchronous seam from a Tokio runtime without
@@ -510,6 +510,11 @@ fn send_openai_compatible_request_blocking(
         }
     })?;
     let status = response.status();
+    if !status.is_success() {
+        return Err(TextError::AdapterFailed(format!(
+            "OpenAI-compatible provider returned HTTP {status}"
+        )));
+    }
     let body = read_provider_response_text(response).map_err(|error| match error {
         ResponseBodyError::TimedOut => {
             TextError::AdapterFailed("OpenAI-compatible HTTP response body timed out".to_owned())
@@ -524,33 +529,7 @@ fn send_openai_compatible_request_blocking(
             "OpenAI-compatible HTTP response body read failed for `{diagnostic_url}`: {error}"
         )),
     })?;
-    if !status.is_success() {
-        let body = redact_openai_error_body(&body, &request.headers);
-        return Err(TextError::AdapterFailed(format!(
-            "OpenAI-compatible provider returned HTTP {status}: {body}"
-        )));
-    }
     Ok(body)
-}
-
-fn redact_openai_error_body(body: &str, headers: &[(String, String)]) -> String {
-    headers
-        .iter()
-        .filter(|(name, value)| {
-            name.eq_ignore_ascii_case(OPENAI_COMPATIBLE_AUTHORIZATION_HEADER) && !value.is_empty()
-        })
-        .flat_map(|(_, value)| {
-            [
-                value.as_str(),
-                value
-                    .strip_prefix(OPENAI_COMPATIBLE_BEARER_PREFIX)
-                    .unwrap_or_default(),
-            ]
-        })
-        .filter(|value| !value.is_empty())
-        .fold(body.to_owned(), |redacted, value| {
-            redacted.replace(value, "<redacted>")
-        })
 }
 
 /// Text adapter backed by an OpenAI-compatible chat transport.

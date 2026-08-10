@@ -81,12 +81,12 @@ impl<A: TextAdapter> TextProcessor for LlmTextProcessor<A> {
     }
 }
 
-/// Adapter placeholder used until concrete local adapters are ported.
+/// Explicit fallback used when no usable text adapter is selected.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnsupportedTextAdapter;
 
 impl UnsupportedTextAdapter {
-    /// Creates an unsupported adapter placeholder.
+    /// Creates the explicit unavailable-adapter fallback.
     #[must_use]
     pub const fn new() -> Self {
         Self

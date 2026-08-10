@@ -1,4 +1,4 @@
-//! Deterministic text finishing helpers and adapter seams.
+//! Text post-processing, command/OpenAI-compatible adapters, prompts, and context cache for Vinpst.
 
 mod adapter_runtime;
 mod command;

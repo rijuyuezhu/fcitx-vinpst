@@ -11,9 +11,15 @@ trace_file="${out_dir}/trace.json"
 error_file="${out_dir}/error.txt"
 config_file="${out_dir}/config.json"
 server_log="${out_dir}/server.log"
+failure_ready_file="${out_dir}/failure-ready.json"
+failure_trace_file="${out_dir}/failure-trace.json"
+failure_error_file="${out_dir}/failure-fixture-error.txt"
+failure_config_file="${out_dir}/failure-config.json"
+failure_server_log="${out_dir}/failure-server.log"
 api_key='fixture-secret'
 model='fixture-model'
 input_text='fixture connectivity input'
+provider_error_marker='provider-private-error-detail'
 server_pid=""
 
 cleanup() {
@@ -80,6 +86,63 @@ jq -e --arg input "${input_text}" '
   .model == "fixture-model" and
   .raw_asr_text == $input
 ' "${trace_file}" >/dev/null
-! grep -R -F -- "${api_key}" "${out_dir}/result.json" "${trace_file}" "${ready_file}" >/dev/null
+if grep -R -F -- "${api_key}" \
+  "${out_dir}/result.json" "${trace_file}" "${ready_file}" >/dev/null; then
+  echo "OpenAI-compatible text provider API key leaked into success evidence" >&2
+  exit 1
+fi
+
+python3 "${fixture}" \
+  --ready-file "${failure_ready_file}" \
+  --trace-file "${failure_trace_file}" \
+  --error-file "${failure_error_file}" \
+  --api-key "${api_key}" \
+  --model "${model}" \
+  --response-status 503 \
+  --response-error "${provider_error_marker}" \
+  --allow-empty-selected \
+  >"${failure_server_log}" 2>&1 &
+server_pid=$!
+
+for _ in $(seq 1 100); do
+  [[ -f "${failure_ready_file}" ]] && break
+  kill -0 "${server_pid}" 2>/dev/null || { cat "${failure_server_log}" >&2; exit 1; }
+  sleep 0.05
+done
+test -f "${failure_ready_file}"
+failure_base_url="$(jq -r '.base_url' "${failure_ready_file}")"
+
+jq -n \
+  --arg base_url "${failure_base_url}" \
+  --arg api_key "${api_key}" \
+  --arg model "${model}" '
+  {
+    version: 1,
+    asr: {active_provider: ""},
+    llm: {providers: [{id: "fixture", base_url: $base_url, api_key: $api_key, model: $model, extra_body: {}}]},
+    scenes: {active_scene: "raw", definitions: [{id: "raw", label: "Raw", candidate_count: 0}]}
+  }
+' >"${failure_config_file}"
+
+if target/debug/vinpst llm test fixture \
+  --config "${failure_config_file}" --text "${input_text}" --json \
+  >"${out_dir}/failure.stdout" 2>"${out_dir}/failure.stderr"; then
+  echo "OpenAI-compatible text provider failure fixture unexpectedly succeeded" >&2
+  exit 1
+fi
+wait "${server_pid}"
+server_pid=""
+
+grep -Fq 'HTTP 503' "${out_dir}/failure.stderr"
+if grep -R -F -- "${provider_error_marker}" \
+  "${out_dir}/failure.stdout" "${out_dir}/failure.stderr" >/dev/null; then
+  echo "OpenAI-compatible text provider error body leaked into diagnostics" >&2
+  exit 1
+fi
+if grep -R -F -- "${api_key}" \
+  "${out_dir}/failure.stdout" "${out_dir}/failure.stderr" >/dev/null; then
+  echo "OpenAI-compatible text provider API key leaked into diagnostics" >&2
+  exit 1
+fi
 
 printf 'OpenAI-compatible text provider CLI smoke passed\n'
