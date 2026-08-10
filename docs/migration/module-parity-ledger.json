@@ -2158,7 +2158,8 @@
         "Removal is conservative. Current requires an explicit confirmation dialog and passes every Local provider model path to managed-model removal, so a model referenced by any configured local provider cannot be deleted even if that provider is inactive; frozen only had to reason about its single preferred local model. Managed ASR providers cannot be removed while active, managed adapter/provider cleanup validates and saves config before deleting the published script, and custom entries are routed through their validated configuration removal paths.",
         "Provider/adapter Install and Update avoid frozen's half-installed blind spot. Preparation first refetches/resolves the selected registry entry, materializes and validates the prospective config, and collects registry-declared environment values with required-value enforcement and redacted Debug. Installation is cancellable, prepares rollback state before publication, verifies the installed path, applies managed-script revision metadata, then commits configuration through daemon reconciliation. Publication/config failure becomes a distinct RecoveryRequired state that can retry only configuration recovery without downloading or publishing the script again; stale preparation/install/recovery completions are rejected by operation id.",
         "Registry refresh semantics intentionally differ in presentation. Frozen Refresh updates all three resource registries together and reloads i18n; current primes all catalogs during GUI boot and provides separate refresh controls for model, provider, and adapter catalogs, each with localized cache-aware mirror fallback. A single failed catalog therefore no longer prevents the other resource classes from remaining usable. This is an additive availability improvement, not a missing Refresh capability.",
-        "Evidence includes complete source review of frozen resource_page.cpp/.h and current model_install.rs, model_management.rs, model_selection.rs, removal_confirmation.rs, resource_pages.rs, script_catalog.rs, script_install.rs, and script_install/view.rs; transaction-contract review of script_management publication/save/rollback paths; focused Resources, model-management, script-install, removal, selection and i18n tests; strict all-target vinpst-gui Clippy; the full GUI suite; and the module-parity ledger checker. Shared low-level script transaction/recovery/removal primitives and current-only resource detail panels remain pending for their own ownership-specific audits."
+        "Evidence includes complete source review of frozen resource_page.cpp/.h and current model_install.rs, model_management.rs, model_selection.rs, removal_confirmation.rs, resource_pages.rs, script_catalog.rs, script_install.rs, and script_install/view.rs; transaction-contract review of script_management publication/save/rollback paths; focused Resources, model-management, script-install, removal, selection and i18n tests; strict all-target vinpst-gui Clippy; the full GUI suite; and the module-parity ledger checker. Shared low-level script transaction/recovery/removal primitives and current-only resource detail panels remain pending for their own ownership-specific audits.",
+        "Follow-up current-only script-transaction review found one remaining registry URL construction bypass in the GUI model catalog: it still appended `/registry/models.json` by string concatenation, so a valid mirror URL carrying query/fragment data could place the catalog path inside the query instead of the URL path. model_management now reuses vinpst_registry::resolve_registry_url, with a regression covering parsed query/fragment mirrors and opaque mirror strings. This is the same path-before-query/fragment contract already fixed at the shared registry planning boundary."
       ]
     },
     {
@@ -2471,7 +2472,8 @@
         "RegistryIndex, ModelEntry, AdapterEntry, and AssetEntry contain manifest ids/labels/provider-kind metadata, relative validated asset paths, checksums, and sizes but no configured mirror URL or credential values, so their ordinary derived Debug/Serialize remain appropriate. RegistryError was reviewed variant by variant and carries parse detail, ids, relative asset paths, or checksum text; no API key, environment value, candidate URL, or response-body producer was found in this owned error surface.",
         "Provider-script editing intentionally keeps explicit user-facing editor/path output: `provider edit-script --json` reports the exact editor argv and script path requested for that operation, and editor launch failures name the selected editor command. Internal Debug no longer duplicates filesystem paths, HOME/current-directory values, or editor arguments from VINPST_PROVIDER_EDITOR/VISUAL/EDITOR; context/editor/plan/outcome Debug exposes only provider id, counts, booleans, and exit status. Direct argv execution and shell-free parsing remain unchanged.",
         "The crate facade re-exports the already-audited registry primitives without introducing an alternate side-effect path. Its documentation accurately describes registry manifest, URL resolution, staged asset, archive/materialization, and provider-script boundaries; configuration mutation and user-facing CLI routing remain outside this crate.",
-        "Evidence includes complete review of error.rs/lib.rs/plan.rs/provider_script.rs/schema.rs and CLI/staging consumers; credentialed plan JSON/Debug regressions, query/fragment path-join regression, provider-script Debug regression, full vinpst-registry tests, strict all-target Clippy, focused CLI provider/registry/model/adapter tests, downstream CLI/GUI compile checks, docs build, secret scan, diff check, and the module-parity ledger checker."
+        "Evidence includes complete review of error.rs/lib.rs/plan.rs/provider_script.rs/schema.rs and CLI/staging consumers; credentialed plan JSON/Debug regressions, query/fragment path-join regression, provider-script Debug regression, full vinpst-registry tests, strict all-target Clippy, focused CLI provider/registry/model/adapter tests, downstream CLI/GUI compile checks, docs build, secret scan, diff check, and the module-parity ledger checker.",
+        "Follow-up managed-script review tightened the provider-script facade from `metadata` to `symlink_metadata` when resolving editable command/argument candidates. Edit Script now accepts only an existing regular file and does not follow a symlink placed at the configured managed path; a Unix regression pins the fail-closed behavior. Direct editor argv execution and the existing redacted Debug/error boundary remain unchanged."
       ]
     },
     {
@@ -2715,6 +2717,47 @@
         "The application call chain blocks RetryActivation while another operation is busy, assigns a hotword operation id to reject stale worker completion, clears pending state only on confirmed success or when a newly loaded/saved baseline supersedes it, and refreshes daemon state afterward. No additional race, rollback, or disclosure gap was found.",
         "Evidence includes complete review of the three owned files and hotword-management call sites; path ambiguity tests; file-picker/path/content redaction tests; external config/file conflict tests; symlink/xattr/ownership/mode/size checks; NOREPLACE, hard-link recovery, exchange-race rollback, directory-sync, repeated recovery allocation, post-publication verification, and retry-version tests; the full 219-test GUI suite and strict Clippy; plus module-parity ledger validation."
       ]
+    },
+    {
+      "id": "GUI-SCRIPT-TRANSACTION-001",
+      "state": "audited-fixed",
+      "title": "Current-only managed script catalog, publication, rollback, recovery, and removal transactions",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-gui/src/script_management.rs",
+        "crates/vinpst-gui/src/script_recovery.rs",
+        "crates/vinpst-gui/src/script_removal.rs",
+        "crates/vinpst-gui/src/script_transaction.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-config/src/persistence.rs",
+        "crates/vinpst-gui/src/adapter_config_management.rs",
+        "crates/vinpst-gui/src/asr_provider_management.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/provider_script_edit.rs",
+        "crates/vinpst-gui/src/resource_details.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-gui/src/script_catalog.rs",
+        "crates/vinpst-gui/src/script_install.rs",
+        "crates/vinpst-gui/src/script_install/view.rs",
+        "crates/vinpst-registry/src/provider_script.rs",
+        "crates/vinpst-registry/src/schema.rs",
+        "crates/vinpst-registry/src/script.rs",
+        "docs/architecture/gui-contract.md"
+      ],
+      "notes": [
+        "This current-only unit owns the remaining managed provider/text-adapter transaction layer beneath the already-audited Resources UI: registry catalog resolution, plan materialization, environment carry-forward, executable publication, adapter revision/rollback artifacts, config-only recovery after publication, guarded removal, and the App removal worker wrapper. The generic registry downloader/installer and page state machines remain under their earlier units.",
+        "The audit found the same query-bearing mirror bug previously fixed in the shared registry asset planner: script_management constructed providers.json/adapters.json with string concatenation, and the already-owned GUI model catalog did the same for models.json. Both now use vinpst_registry::resolve_registry_url so the registry path is inserted into the parsed URL path while userinfo/query/fragment remain request components; opaque mirror strings retain legacy slash concatenation. Dedicated GUI regressions cover provider, adapter, and model catalog URLs with query/fragment mirrors.",
+        "Preparation checks cancellation before and after registry work, verifies the loaded ConfigDocument is still mutation-safe, resolves an exact registry id/short id and deterministic managed relative path, materializes a prospective typed config before download, and pre-fills only registry-declared environment entries from an existing managed resource. Required environment values are validated before asset download; unrelated existing environment keys are preserved by materialization and only declared entries are updated.",
+        "Installation revalidates the document and environment contract, materializes and validates the complete candidate config, prepares adapter rollback state before publication, delegates download/publication to the already-audited registry installer, verifies the returned installed path equals the planned managed path, records the published adapter revision, and only then commits configuration through the shared validated atomic save plus daemon reconciliation boundary. Cancellation before publication is clean; publication followed by config failure has an explicit recovery/rollback outcome rather than a false Installed result.",
+        "The audit found the adapter rollback copy still used a PID-only temporary filename plus path-based fs::copy. A stale or planted temporary symlink could therefore redirect rollback preservation, and restore trusted the adjacent rollback artifact without proving it was still the revision captured before publication. The copy boundary now opens only an existing regular source file, verifies path/opened/final inode metadata across the read, allocates a bounded unique create_new sibling temporary file, writes through the held file descriptor, preserves source permissions, fsyncs file and parent directory, and atomically renames it into place.",
+        "ManagedScriptRollback now hashes the exact regular-file bytes it preserves. Restore reopens the rollback artifact through the same regular-file/version guard, verifies its SHA-256 still matches the captured rollback revision, and refuses to overwrite the published canonical script if the rollback file was replaced or modified. Published adapter revision calculation also uses the regular-file reader, so a post-install symlink swap cannot be accepted as the managed revision. Regressions cover a planted legacy PID-temp symlink, tampered rollback revision, and a symlinked canonical adapter path.",
+        "A related follow-up in the shared provider-script facade changed editable candidate inspection to symlink_metadata. Exact managed provider-script editing therefore remains direct-argv and path-exact but is now regular-file-only; a managed-path symlink is not followed into an arbitrary external target. This supporting fix is recorded on REGISTRY-FACADE-001 rather than double-owned here.",
+        "Config recovery is intentionally available only after a script has already been published and no adapter rollback transaction owns the prior version. It repeats config mutation and environment validation, requires the published path to still be a regular file, rematerializes the config, reapplies environment and managed adapter revision metadata, validates the complete config, and commits without re-downloading. Missing, directory, or symlink publication paths remain recovery failures; environment values stay redacted from outcome Debug.",
+        "Managed removal recognizes a resource only when its configured args are exactly the deterministic managed-root script path. Active ASR providers are refused; user-defined providers/adapters are not reclassified as managed; the complete config is validated and atomically committed before any script deletion. A config-save failure leaves both canonical and rollback artifacts intact. After a successful config commit, canonical/adapter rollback cleanup errors are reported in the success summary without pretending the now-unreferenced file was removed. Removing a symlink at the managed path uses remove_file and therefore unlinks only that managed entry rather than following its target.",
+        "The App removal wrapper preserves dirty Control, scene, LLM-provider, ASR-provider, and Hotword edits through explicit guards, blocks concurrent busy operations, runs filesystem/config work on the named blocking worker, reloads the ConfigDocument only after a successful removal transaction, and refreshes daemon state afterward. Worker-start failure is converted to a localized fixed category rather than raw environment/process detail.",
+        "Evidence includes complete source/call-site review of the four owned files; provider-script regular-file tests; query/fragment registry URL regressions for model/provider/adapter catalogs; rollback temp-symlink, revision-tamper, canonical-symlink and rejected-update restore tests; published-script recovery regular-file tests; managed provider/adapter removal and failed-config preservation tests; required environment and revision metadata tests; strict vinpst-registry/vinpst-gui all-target Clippy; full GUI suite; docs build; secret scan; diff check; and module-parity ledger validation."
+      ]
     }
   ],
   "upstream_pending": [],
@@ -2722,10 +2765,6 @@
     "crates/vinpst-gui/src/asr_provider_management.rs",
     "crates/vinpst-gui/src/lib.rs",
     "crates/vinpst-gui/src/message.rs",
-    "crates/vinpst-gui/src/resource_details.rs",
-    "crates/vinpst-gui/src/script_management.rs",
-    "crates/vinpst-gui/src/script_recovery.rs",
-    "crates/vinpst-gui/src/script_removal.rs",
-    "crates/vinpst-gui/src/script_transaction.rs"
+    "crates/vinpst-gui/src/resource_details.rs"
   ]
 }
