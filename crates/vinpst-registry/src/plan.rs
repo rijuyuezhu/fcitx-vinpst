@@ -1,8 +1,10 @@
 //! Dry-run registry asset and install planning.
 
+use std::fmt;
+
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use vinpst_config::RegistryConfig;
+use serde::{Deserialize, Serialize, Serializer};
+use vinpst_config::{RegistryConfig, redact_url_for_diagnostics};
 
 use crate::{RegistryError, RegistryIndex};
 
@@ -147,7 +149,7 @@ pub enum RegistryEntryKind {
 }
 
 /// Planning information for one registry asset.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PlannedAsset {
     /// Owning entry kind.
     pub entry_kind: RegistryEntryKind,
@@ -156,6 +158,7 @@ pub struct PlannedAsset {
     /// Registry-relative asset path.
     pub path: String,
     /// Candidate URLs resolved against configured mirrors.
+    #[serde(serialize_with = "serialize_redacted_urls")]
     pub urls: Vec<String>,
     /// Optional sha256 checksum.
     #[serde(default)]
@@ -163,6 +166,20 @@ pub struct PlannedAsset {
     /// Optional size in bytes.
     #[serde(default)]
     pub size_bytes: Option<u64>,
+}
+
+impl fmt::Debug for PlannedAsset {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PlannedAsset")
+            .field("entry_kind", &self.entry_kind)
+            .field("entry_id", &self.entry_id)
+            .field("path", &self.path)
+            .field("urls", &redacted_urls(&self.urls))
+            .field("sha256", &self.sha256)
+            .field("size_bytes", &self.size_bytes)
+            .finish()
+    }
 }
 
 /// A dry-run install plan derived from registry assets.
@@ -219,7 +236,7 @@ impl InstallPlanSummary {
 }
 
 /// Per-asset action in a dry-run install plan.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct PlannedInstallAsset {
     /// Owning entry kind.
     pub entry_kind: RegistryEntryKind,
@@ -230,6 +247,7 @@ pub struct PlannedInstallAsset {
     /// Target path under the install root.
     pub target_path: String,
     /// Candidate URLs resolved against configured mirrors.
+    #[serde(serialize_with = "serialize_redacted_urls")]
     pub urls: Vec<String>,
     /// Optional sha256 checksum.
     #[serde(default)]
@@ -239,6 +257,22 @@ pub struct PlannedInstallAsset {
     pub size_bytes: Option<u64>,
     /// Checksum handling policy for a future downloader.
     pub checksum_policy: ChecksumPolicy,
+}
+
+impl fmt::Debug for PlannedInstallAsset {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PlannedInstallAsset")
+            .field("entry_kind", &self.entry_kind)
+            .field("entry_id", &self.entry_id)
+            .field("source_path", &self.source_path)
+            .field("target_path", &self.target_path)
+            .field("urls", &redacted_urls(&self.urls))
+            .field("sha256", &self.sha256)
+            .field("size_bytes", &self.size_bytes)
+            .field("checksum_policy", &self.checksum_policy)
+            .finish()
+    }
 }
 
 impl PlannedInstallAsset {
@@ -260,6 +294,31 @@ impl PlannedInstallAsset {
             },
         }
     }
+}
+
+fn redacted_urls(urls: &[String]) -> Vec<String> {
+    urls.iter()
+        .map(|url| redact_registry_plan_url(url))
+        .collect()
+}
+
+fn redact_registry_plan_url(url: &str) -> String {
+    if reqwest::Url::parse(url).is_ok() {
+        return redact_url_for_diagnostics(url);
+    }
+    if url.bytes().all(|byte| {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b'~')
+    }) {
+        return url.to_owned();
+    }
+    "<invalid-url>".to_owned()
+}
+
+fn serialize_redacted_urls<S>(urls: &[String], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    redacted_urls(urls).serialize(serializer)
 }
 
 /// Checksum policy requested by an install plan.

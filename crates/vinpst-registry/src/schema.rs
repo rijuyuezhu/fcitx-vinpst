@@ -224,9 +224,17 @@ fn validate_sha256(input: &str) -> Result<(), RegistryError> {
 }
 
 fn join_url(base: &str, path: &str) -> String {
-    format!(
-        "{}/{}",
-        base.trim_end_matches('/'),
-        path.trim_start_matches('/')
-    )
+    let path = path.trim_start_matches('/');
+    if let Ok(mut url) = reqwest::Url::parse(base) {
+        let base_path = url.path().trim_end_matches('/');
+        let joined_path = if base_path.is_empty() {
+            format!("/{path}")
+        } else {
+            format!("{base_path}/{path}")
+        };
+        url.set_path(&joined_path);
+        return url.to_string();
+    }
+
+    format!("{}/{}", base.trim_end_matches('/'), path)
 }

@@ -1,7 +1,7 @@
 //! Shared provider-script resolution and editor-launch boundary.
 
 use std::{
-    env, fs,
+    env, fmt, fs,
     path::PathBuf,
     process::{Command, ExitStatus},
 };
@@ -10,12 +10,21 @@ use thiserror::Error;
 use vinpst_config::{AsrProviderConfig, AsrProviderKind};
 
 /// Deterministic filesystem context used to resolve provider script candidates.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderScriptResolutionContext {
     /// Directory used to resolve relative command and argument paths.
     pub current_dir: PathBuf,
     /// Home directory used to expand `~` and `~/...` candidates.
     pub home_dir: Option<PathBuf>,
+}
+
+impl fmt::Debug for ProviderScriptResolutionContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderScriptResolutionContext")
+            .field("has_home_dir", &self.home_dir.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderScriptResolutionContext {
@@ -31,9 +40,18 @@ impl ProviderScriptResolutionContext {
 }
 
 /// Parsed editor command with direct argv execution and no shell evaluation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderEditorCommand {
     argv: Vec<String>,
+}
+
+impl fmt::Debug for ProviderEditorCommand {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderEditorCommand")
+            .field("argv_count", &self.argv.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderEditorCommand {
@@ -76,7 +94,7 @@ impl ProviderEditorCommand {
 }
 
 /// Prepared provider-script edit that can be inspected without launching an editor.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderScriptEditPlan {
     /// Stable configured provider id.
     pub provider_id: String,
@@ -84,6 +102,16 @@ pub struct ProviderScriptEditPlan {
     pub script_path: PathBuf,
     /// Direct editor argv.
     pub editor: ProviderEditorCommand,
+}
+
+impl fmt::Debug for ProviderScriptEditPlan {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderScriptEditPlan")
+            .field("provider_id", &self.provider_id)
+            .field("editor", &self.editor)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderScriptEditPlan {
@@ -118,7 +146,7 @@ impl ProviderScriptEditPlan {
 }
 
 /// Successful provider-script editor execution.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderScriptEditOutcome {
     /// Stable configured provider id.
     pub provider_id: String,
@@ -128,6 +156,17 @@ pub struct ProviderScriptEditOutcome {
     pub editor_argv: Vec<String>,
     /// Process exit code when the platform reported one.
     pub exit_status: Option<i32>,
+}
+
+impl fmt::Debug for ProviderScriptEditOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderScriptEditOutcome")
+            .field("provider_id", &self.provider_id)
+            .field("editor_arg_count", &self.editor_argv.len())
+            .field("exit_status", &self.exit_status)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Typed provider-script resolution or editor failure.
@@ -475,6 +514,40 @@ mod tests {
             "editor"
         );
         assert_eq!(select_editor_command(None, None, None, None), "vi");
+    }
+
+    #[test]
+    fn provider_script_debug_omits_paths_and_editor_arguments() {
+        let secret_path = PathBuf::from("/home/private-user/provider-secret.py");
+        let editor = ProviderEditorCommand::parse("editor --token editor-secret").expect("editor");
+        let context = ProviderScriptResolutionContext {
+            current_dir: PathBuf::from("/home/private-user/work"),
+            home_dir: Some(PathBuf::from("/home/private-user")),
+        };
+        let plan = ProviderScriptEditPlan {
+            provider_id: "provider.fixture".to_owned(),
+            script_path: secret_path.clone(),
+            editor: editor.clone(),
+        };
+        let outcome = ProviderScriptEditOutcome {
+            provider_id: "provider.fixture".to_owned(),
+            script_path: secret_path,
+            editor_argv: editor.argv().to_vec(),
+            exit_status: Some(0),
+        };
+
+        for rendered in [
+            format!("{context:?}"),
+            format!("{editor:?}"),
+            format!("{plan:?}"),
+            format!("{outcome:?}"),
+        ] {
+            assert!(!rendered.contains("private-user"));
+            assert!(!rendered.contains("provider-secret.py"));
+            assert!(!rendered.contains("editor-secret"));
+        }
+        assert!(format!("{plan:?}").contains("provider.fixture"));
+        assert!(format!("{outcome:?}").contains("exit_status: Some(0)"));
     }
 
     #[test]

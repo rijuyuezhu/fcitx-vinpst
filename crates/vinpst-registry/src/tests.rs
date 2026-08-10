@@ -581,6 +581,91 @@ fn install_plan_tracks_missing_checksums() {
 }
 
 #[test]
+fn planned_asset_output_redacts_registry_url_credentials_without_changing_internal_urls() {
+    let index = RegistryIndex::from_json_str(
+        r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
+    )
+    .unwrap();
+    let config = RegistryConfig {
+        base_urls: vec![
+            "https://registry-user:registry-pass@example.test/root?token=registry-secret#private"
+                .to_owned(),
+        ],
+    };
+    let assets = index.planned_assets(&config);
+    let plan = InstallPlan::from_assets(&assets, "cache");
+
+    assert_eq!(
+        assets[0].urls[0],
+        "https://registry-user:registry-pass@example.test/root/models/m.tar?token=registry-secret#private"
+    );
+    assert_eq!(plan.assets[0].urls[0], assets[0].urls[0]);
+
+    for rendered in [
+        format!("{:?}", assets[0]),
+        serde_json::to_string(&assets[0]).unwrap(),
+        format!("{:?}", plan.assets[0]),
+        serde_json::to_string(&plan).unwrap(),
+    ] {
+        assert!(rendered.contains("https://example.test/root/models/m.tar?token=REDACTED"));
+        for secret in [
+            "registry-user",
+            "registry-pass",
+            "registry-secret",
+            "private",
+        ] {
+            assert!(!rendered.contains(secret));
+        }
+    }
+}
+
+#[test]
+fn planned_asset_output_preserves_safe_opaque_mirrors_and_hides_suspicious_ones() {
+    let index = RegistryIndex::from_json_str(
+        r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
+    )
+    .unwrap();
+    let assets = index.planned_assets(&RegistryConfig {
+        base_urls: vec![
+            "mirror".to_owned(),
+            "not a url?token=opaque-secret".to_owned(),
+        ],
+    });
+
+    assert_eq!(assets[0].urls[0], "mirror/models/m.tar");
+    assert!(assets[0].urls[1].contains("opaque-secret"));
+
+    let json = serde_json::to_value(&assets[0]).unwrap();
+    assert_eq!(json["urls"][0], "mirror/models/m.tar");
+    assert_eq!(json["urls"][1], "<invalid-url>");
+    let debug = format!("{:?}", assets[0]);
+    assert!(debug.contains("mirror/models/m.tar"));
+    assert!(!debug.contains("opaque-secret"));
+}
+
+#[test]
+fn resolved_urls_append_asset_paths_before_query_and_fragment() {
+    let index = RegistryIndex::from_json_str(
+        r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
+    )
+    .unwrap();
+    let assets = index.planned_assets(&RegistryConfig {
+        base_urls: vec![
+            "https://user:password@example.test/root?token=secret#fragment".to_owned(),
+            "opaque-mirror/root?token=literal".to_owned(),
+        ],
+    });
+
+    assert_eq!(
+        assets[0].urls,
+        [
+            "https://user:password@example.test/root/models/m.tar?token=secret#fragment",
+            "opaque-mirror/root?token=literal/models/m.tar",
+        ]
+    );
+}
+
+#[test]
 fn install_plan_uses_relative_targets_for_empty_root() {
     let index = RegistryIndex::from_json_str(SAMPLE).unwrap();
     let config = RegistryConfig {
