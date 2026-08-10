@@ -2614,16 +2614,50 @@
         "The RuntimeError surface was reviewed by producer. ASR/text errors inherit their already-hardened status-only/secret-safe boundaries, installed-model errors contain managed filesystem metadata rather than credential values, BackgroundTask is constructed from Tokio join state, and config errors now inherit ConfigWriteError/ConfigError redaction. The frozen-compatible AsrBackendState.last_error field remains unchanged; this unit only removes raw transcript content from the additive runtime-status snapshot.",
         "Evidence includes complete source and call-site review of the seven owned files; focused partial-status and config-symlink regressions; existing ASR menu/scene/capture tests; full vinpst-daemon unit/CLI/D-Bus/remote suites; strict all-target Clippy; downstream vinpst-cli daemon-status tests; synchronization of two stale daemon expectations with the already-audited typed text-adapter error contract; docs build, secret scan, diff check, and module-parity ledger checker."
       ]
+    },
+    {
+      "id": "GUI-OPERATION-GLUE-001",
+      "state": "audited-fixed",
+      "title": "Current-only GUI daemon queries, reload confirmation, errors, guards, and provider-script editing",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-gui/src/asr_reload_confirmation.rs",
+        "crates/vinpst-gui/src/daemon_client.rs",
+        "crates/vinpst-gui/src/error_dialog.rs",
+        "crates/vinpst-gui/src/form_guards.rs",
+        "crates/vinpst-gui/src/provider_script_edit.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/hotword_activation_retry.rs",
+        "crates/vinpst-gui/src/hotword_management.rs",
+        "crates/vinpst-gui/src/hotword_persistence.rs",
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/model_selection.rs",
+        "crates/vinpst-gui/src/script_install.rs",
+        "crates/vinpst-gui/src/script_install_guard_tests.rs",
+        "crates/vinpst-gui/src/script_management.rs",
+        "crates/vinpst-gui/src/script_removal.rs",
+        "crates/vinpst-registry/src/provider_script.rs",
+        "docs/architecture/gui-contract.md"
+      ],
+      "notes": [
+        "This current-only unit owns five small GUI operation boundaries left pending after the page-level audits: required/optional daemon snapshot queries, ASR reload confirmation polling, top-level recoverable-error presentation, cross-form mutation guards, and managed provider-script editor integration. Larger hotword/script/model state machines remain supporting files for later ownership rather than being absorbed here.",
+        "The audit removed a protocol-drift hazard in ASR reload confirmation. asr_reload_confirmation.rs carried a second hand-written decoder for the exact eight-field GetAsrBackendState tuple even though daemon_client.rs already owns the same typed conversion. Reload confirmation now reuses daemon_client::query_asr_backend_state, so Control-page live state and hotword reload confirmation cannot silently diverge if the additive Rust D-Bus decoder changes.",
+        "Reload confirmation remains intentionally blocking only inside blocking_task workers. It first requests ReloadAsrBackend, polls the typed backend state for at most 60 seconds, waits while reload_in_progress is true, rejects target supersession, treats non-empty last_error as failure even when effective ids look unchanged, and uses RequestedAsrBackendStatus to distinguish applied from previous-backend/no-backend/config-saved/unknown outcomes. Raw backend error detail is not copied into the GUI confirmation message.",
+        "daemon_client.rs keeps required guards and optional diagnostics separate. GetStatus and GetRuntimeStatus must succeed and parse for a usable DaemonSnapshot; unsupported/invalid text-adapter state defaults to an empty diagnostic state and optional ASR backend state is omitted rather than failing the whole snapshot. query_daemon_snapshot_if_owned checks NameHasOwner before creating the service proxy path, preserving the non-activating polling behavior used by owner monitoring and daemon controls.",
+        "The audit found two user-facing GUI disclosure/localization gaps. Managed provider-script success text previously echoed the entire editor argv selected from VINPST_PROVIDER_EDITOR/VISUAL/EDITOR, and launch/exit errors could echo the same command through ProviderScriptEditError. GUI success now reports only the provider id and explicit managed script path; launch/exit errors are localized generic messages that retain only safe exit status. The CLI explicit edit-script plan/error contract is intentionally unchanged.",
+        "The exact-managed-script guard remains strict: GUI editing is offered only for the managed command-provider path derived from current config, provider-script resolution must return that exact path, and the editor is executed directly without a shell. The script path remains visible because the user explicitly chose Edit Script and needs to know which managed file changed; editor argv is unnecessary presentation metadata and is now omitted.",
+        "form_guards.rs previously emitted hard-coded English text inside an otherwise localized GUI when an LLM or ASR provider editor blocked a resource mutation. Those guard messages now route through GuiLocale with English and zh_CN forms. The broader application still permits typed lower-level errors to retain technical English diagnostics; this fix targets GUI-authored guard copy rather than inventing a second translation taxonomy for every dependency error.",
+        "error_dialog.rs remains a simple modal projection rather than an error parser: it shows one recoverable message as plain Iced text, offers Retry only for retryable model/script install failures, and otherwise offers Dismiss. No markup/shell interpretation or hidden retry side effect was found. The existing OperationState and install state machines remain the owners of retry eligibility.",
+        "Evidence includes complete source/call-site review of the five owned files; exact reload classification regression; provider-script exact-path and real editor execution tests; new editor-argument redaction regression in both locales; localized dynamic-form and open-editor guard tests; strict all-target vinpst-gui Clippy; the full GUI suite; the updated GUI contract documenting that environment-derived editor argv is not presentation data; docs build, secret scan, diff check, and module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [],
   "current_pending": [
     "crates/vinpst-gui/src/asr_provider_management.rs",
-    "crates/vinpst-gui/src/asr_reload_confirmation.rs",
-    "crates/vinpst-gui/src/daemon_client.rs",
     "crates/vinpst-gui/src/daemon_owner_monitor.rs",
-    "crates/vinpst-gui/src/error_dialog.rs",
-    "crates/vinpst-gui/src/form_guards.rs",
     "crates/vinpst-gui/src/hotword_activation_retry.rs",
     "crates/vinpst-gui/src/hotword_path.rs",
     "crates/vinpst-gui/src/hotword_persistence.rs",
@@ -2631,7 +2665,6 @@
     "crates/vinpst-gui/src/keyboard_action.rs",
     "crates/vinpst-gui/src/lib.rs",
     "crates/vinpst-gui/src/message.rs",
-    "crates/vinpst-gui/src/provider_script_edit.rs",
     "crates/vinpst-gui/src/resource_details.rs",
     "crates/vinpst-gui/src/script_management.rs",
     "crates/vinpst-gui/src/script_recovery.rs",
