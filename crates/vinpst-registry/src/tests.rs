@@ -2430,6 +2430,112 @@ fn install_live_model_downloads_verifies_extracts_and_materializes_single_root()
 }
 
 #[test]
+fn install_live_model_replaces_existing_model_after_staging_completes() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("replacement-model.tar.bz2");
+    write_test_tar_bz2_archive(
+        &archive,
+        &[
+            TestTarEntry::Directory("release-root"),
+            TestTarEntry::File("release-root/model.int8.onnx", b"new-model"),
+            TestTarEntry::File("release-root/tokens.txt", b"new-tokens"),
+        ],
+    );
+    let archive_bytes = std::fs::read(&archive).unwrap();
+    let archive_sha256 = sha256_hex(&archive_bytes);
+    let url = "https://registry.invalid/replacement-model.tar.bz2";
+    let registry = test_live_model_for_archive(url, &archive_sha256);
+    let model = registry.model_by_id_or_short_id("test-sense").unwrap();
+    let source = StaticRegistryAssetSource::default().with_response(url, Ok(archive_bytes));
+    let model_dir = temp_dir.path().join("models/test-sense");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    std::fs::write(model_dir.join("model.int8.onnx"), b"old-model").unwrap();
+    std::fs::write(model_dir.join("old-only.txt"), b"old-only").unwrap();
+
+    let installed = install_live_model(
+        &source,
+        &LiveModelInstallRequest {
+            model,
+            model_dir: model_dir.clone(),
+            staging_dir: temp_dir.path().join("stage/test-sense"),
+            display: None,
+        },
+    )
+    .unwrap();
+
+    assert!(installed.materialized.replaced_existing);
+    assert_eq!(
+        std::fs::read(model_dir.join("model.int8.onnx")).unwrap(),
+        b"new-model"
+    );
+    assert_eq!(
+        std::fs::read(model_dir.join("tokens.txt")).unwrap(),
+        b"new-tokens"
+    );
+    assert!(!model_dir.join("old-only.txt").exists());
+    assert!(model_dir.join("vinpst-model.json").is_file());
+    assert!(materialize_backup_dirs(model_dir.parent().unwrap()).is_empty());
+}
+
+#[test]
+fn install_live_model_preserves_legacy_missing_checksum_behavior() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("unchecked-model.tar.bz2");
+    write_test_tar_bz2_archive(
+        &archive,
+        &[
+            TestTarEntry::File("model.int8.onnx", b"unchecked-model"),
+            TestTarEntry::File("tokens.txt", b"tokens"),
+        ],
+    );
+    let url = "https://registry.invalid/unchecked-model.tar.bz2";
+    let input = serde_json::json!({
+        "version": 2,
+        "items": [{
+            "id": "model.test.unchecked",
+            "short_id": "unchecked",
+            "urls": [url],
+            "vinpst_model": {
+                "backend": "sherpa-offline",
+                "family": "sense_voice",
+                "runtime": "offline",
+                "supports_hotwords": false,
+                "model": {
+                    "tokens": "tokens.txt",
+                    "sense_voice": {"model": "model.int8.onnx"}
+                }
+            }
+        }]
+    });
+    let registry = LiveModelRegistry::from_json_str(&input.to_string()).unwrap();
+    let model = registry.model_by_id_or_short_id("unchecked").unwrap();
+    let source = StaticRegistryAssetSource::default()
+        .with_response(url, Ok(std::fs::read(&archive).unwrap()));
+    let model_dir = temp_dir.path().join("models/unchecked");
+
+    let installed = install_live_model(
+        &source,
+        &LiveModelInstallRequest {
+            model,
+            model_dir: model_dir.clone(),
+            staging_dir: temp_dir.path().join("stage/unchecked"),
+            display: None,
+        },
+    )
+    .unwrap();
+
+    assert!(!installed.checksum_verified());
+    assert_eq!(
+        installed.staged_asset.checksum,
+        AssetChecksumStatus::Missing
+    );
+    assert_eq!(
+        std::fs::read(model_dir.join("model.int8.onnx")).unwrap(),
+        b"unchecked-model"
+    );
+}
+
+#[test]
 fn install_live_model_rejects_checksum_mismatch_without_materializing() {
     let temp_dir = tempfile::tempdir().unwrap();
     let archive = temp_dir.path().join("bad-model.tar.bz2");
