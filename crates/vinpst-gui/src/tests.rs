@@ -613,6 +613,62 @@ fn config_reload_failure_restore_reinstates_existing_document() {
 }
 
 #[test]
+fn config_reload_failure_reloads_restored_document_into_daemon() {
+    let directory = tempfile::tempdir().expect("create temp dir");
+    let path = directory.path().join("config.json");
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    write_config_file(&config, &path, None).expect("write original config");
+    let document = load_config_document(Some(&path)).expect("load original config");
+    let mut updated = config.clone();
+    updated.global.capture_device = "new-source".to_owned();
+    persist_updated_config(&document, &updated).expect("persist candidate config");
+
+    let mut reload_count = 0;
+    let error = reload_daemon_after_config_save(&document, || {
+        reload_count += 1;
+        if reload_count == 1 {
+            Err("candidate reload rejected".to_owned())
+        } else {
+            Ok(())
+        }
+    })
+    .expect_err("candidate reload failure should fail the save");
+
+    assert_eq!(reload_count, 2);
+    assert!(error.contains("previous config restored and daemon reconciled"));
+    assert_eq!(
+        VinpstConfig::from_json_file(&path).expect("restored config"),
+        config
+    );
+}
+
+#[test]
+fn config_reload_failure_reports_daemon_rollback_failure() {
+    let directory = tempfile::tempdir().expect("create temp dir");
+    let path = directory.path().join("config.json");
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    write_config_file(&config, &path, None).expect("write original config");
+    let document = load_config_document(Some(&path)).expect("load original config");
+    let mut updated = config.clone();
+    updated.global.capture_device = "new-source".to_owned();
+    persist_updated_config(&document, &updated).expect("persist candidate config");
+
+    let mut reload_count = 0;
+    let error = reload_daemon_after_config_save(&document, || {
+        reload_count += 1;
+        Err(format!("reload attempt {reload_count} failed"))
+    })
+    .expect_err("both daemon reloads should fail");
+
+    assert_eq!(reload_count, 2);
+    assert!(error.contains("restoring daemon state also failed: reload attempt 2 failed"));
+    assert_eq!(
+        VinpstConfig::from_json_file(&path).expect("restored config"),
+        config
+    );
+}
+
+#[test]
 fn config_reload_failure_restore_removes_new_document() {
     let directory = tempfile::tempdir().expect("create temp dir");
     let path = directory.path().join("config.json");

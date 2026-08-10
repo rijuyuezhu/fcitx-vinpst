@@ -6,7 +6,7 @@ use std::{
 };
 
 use iced::{
-    Element, Length, Subscription, Task, Theme,
+    Element, Length, Subscription, Task,
     widget::{column, container, row, scrollable, stack, text},
 };
 use serde_json::{Value, json};
@@ -1008,23 +1008,33 @@ pub(crate) fn save_updated_config_with_daemon(
     }
     let mut outcome = persist_updated_config(document, updated)?;
     outcome.daemon_reload = match daemon {
-        Ok(_) => match reload_asr_backend() {
-            Ok(()) => DAEMON_RELOAD_REQUESTED.to_owned(),
-            Err(error) => {
-                let rollback = restore_config_document(document);
-                return Err(match rollback {
-                    Ok(()) => {
-                        format!("Daemon config reload failed: {error}; previous config restored.")
-                    }
-                    Err(rollback_error) => format!(
-                        "Daemon config reload failed: {error}; restoring previous config also failed: {rollback_error}"
-                    ),
-                });
-            }
-        },
+        Ok(_) => reload_daemon_after_config_save(document, reload_asr_backend)?,
         Err(error) => format!("config saved; daemon reload skipped: {error}"),
     };
     Ok(outcome)
+}
+
+fn reload_daemon_after_config_save(
+    document: &ConfigDocument,
+    mut reload: impl FnMut() -> Result<(), String>,
+) -> Result<String, String> {
+    let Err(error) = reload() else {
+        return Ok(DAEMON_RELOAD_REQUESTED.to_owned());
+    };
+
+    let Err(rollback_error) = restore_config_document(document) else {
+        return match reload() {
+            Ok(()) => Err(format!(
+                "Daemon config reload failed: {error}; previous config restored and daemon reconciled."
+            )),
+            Err(rollback_reload_error) => Err(format!(
+                "Daemon config reload failed: {error}; previous config restored, but restoring daemon state also failed: {rollback_reload_error}"
+            )),
+        };
+    };
+    Err(format!(
+        "Daemon config reload failed: {error}; restoring previous config also failed: {rollback_error}"
+    ))
 }
 
 fn restore_config_document(document: &ConfigDocument) -> Result<(), String> {
@@ -1172,7 +1182,6 @@ pub fn run_on_page(initial_page: Page) -> iced::Result {
     )
     .title(App::window_title)
     .subscription(App::subscription)
-    .theme(Theme::TokyoNight)
     .window_size((960.0, 640.0))
     .run()
 }
