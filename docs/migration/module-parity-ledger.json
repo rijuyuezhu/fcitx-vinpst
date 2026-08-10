@@ -1339,6 +1339,32 @@
         "Wire method names and ASR backend tuple compatibility are owned by the protocol/service audits. Vinpst adds richer daemon runtime/text-adapter status queries and a standalone daemon reload-asr command without changing the frozen method shapes needed by existing config, recording, or adapter tasks. Typed zbus/anyhow errors replace the frozen bool plus optional error-string API.",
         "Deterministic evidence includes the private-bus five-second connection assertion, recording no-activation smoke, canonical ASR write/reload smoke, focused recording/adapter/reload tests, and strict all-target vinpst-cli Clippy."
       ]
+    },
+    {
+      "id": "CLI-FORMATTER-001",
+      "state": "audited-fixed",
+      "title": "CLI human and JSON output formatting boundary",
+      "upstream_files": [
+        "cli/utils/formatter.cpp",
+        "cli/utils/formatter.h"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/human_output.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/cli/mod.rs",
+        "crates/vinpst-cli/src/main.rs",
+        "crates/vinpst-cli/tests/root_cli.rs",
+        "docs/user/cli.md"
+      ],
+      "notes": [
+        "Frozen formatter is a shared polymorphic TextFormatter/JsonFormatter for tables, key/value pairs, success, error, warning, info, and arbitrary JSON. Vinpst intentionally keeps formatting close to typed command outcomes instead of routing every domain through one formatter object; this lets each user task expose a stable structured document rather than reducing all output to generic table/status records.",
+        "Fixed the cross-command runtime-error gap. Frozen JsonFormatter::PrintError writes a compact {status:error,message} object to stderr when -j/--json is active, while Vinpst previously let anyhow termination print plain Error: text even for JSON-mode runtime failures. The CLI now detects either root or command-local -j/--json before the -- argument delimiter and emits the same generic JSON error shape on stderr while preserving a nonzero process status.",
+        "Text-mode runtime errors retain the existing anyhow diagnostic chain and Error: prefix. Parser-library errors still occur before action dispatch and remain Clap-owned as recorded in CLI-ROOT-001, matching the frozen separation where CLI11 parse failures also bypass Formatter action output.",
+        "Frozen action code sometimes bypasses JsonFormatter::PrintError and explicitly prints command-specific JSON such as recording {ok:false,error}; those schemas are action contracts rather than formatter behavior. Vinpst likewise keeps richer per-command success/failure documents, including daemon service diagnostics, under their already-audited domain units instead of forcing them into the generic status/message envelope.",
+        "Vinpst intentionally omits frozen ANSI color/bold decoration and generic display-width table padding. Human command tables use simple domain-specific text/tabular layouts, while --json is the machine-readable surface. This keeps the user interface plain and avoids terminal escape handling without dropping data. Domain warnings also remain owned by their command outcomes rather than introducing a second global formatter abstraction.",
+        "Deterministic evidence includes pure argv JSON-mode detection before/after subcommands and the -- delimiter, process-level tests for local and root JSON runtime failures, a text-mode failure regression, the existing root global-JSON propagation tests, and strict all-target vinpst-cli Clippy."
+      ]
     }
   ],
   "upstream_pending": [
@@ -1346,8 +1372,6 @@
     "cli/utils/cli_helpers.h",
     "cli/utils/editor_utils.cpp",
     "cli/utils/editor_utils.h",
-    "cli/utils/formatter.cpp",
-    "cli/utils/formatter.h",
     "cli/utils/resource_utils.cpp",
     "cli/utils/resource_utils.h",
     "common/config/config_router.cpp",
@@ -1418,7 +1442,6 @@
     "crates/vinpst-cli/src/daemon_control/handoff.rs",
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
-    "crates/vinpst-cli/src/human_output.rs",
     "crates/vinpst-cli/src/live_i18n.rs",
     "crates/vinpst-cli/src/paths.rs",
     "crates/vinpst-cli/src/registry_support.rs",
