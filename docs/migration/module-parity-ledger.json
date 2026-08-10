@@ -2242,12 +2242,40 @@
         "Frozen PopulateProviderModelCombosAsync performs editable /models discovery with Bearer authorization and generation rejection. That capability was already audited and fixed by URL-UTILS-001: current Scene editing retains free-form model input plus provider-specific suggestions, stale-generation protection, a 10-second request boundary, 1 MiB response cap, Bearer support, and secret-free errors without frozen's global API-key cache. It is therefore referenced here rather than double-owned.",
         "Evidence includes complete source and call-site review of frozen gui_helpers.cpp/.h; review of current LLM/ASR/adapter typed editor parsing, declarative resource views, localization boundary, and previously audited /models discovery; the exact provider URL regression, all 18 LLM-provider tests, all 9 adapter-config tests, strict all-target vinpst-gui Clippy, and the module-parity ledger checker."
       ]
+    },
+    {
+      "id": "I18N-CACHE-001",
+      "state": "audited-fixed",
+      "title": "GUI static localization and dynamic registry i18n refresh",
+      "upstream_files": [
+        "gui/utils/i18n_cache.cpp",
+        "gui/utils/i18n_cache.h"
+      ],
+      "current_files": [
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/i18n/en.rs",
+        "crates/vinpst-gui/src/i18n/keys.rs",
+        "crates/vinpst-gui/src/i18n/zh_cn.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-gui/src/script_catalog.rs",
+        "crates/vinpst-registry/src/live.rs",
+        "crates/vinpst-registry/src/live_fetch.rs"
+      ],
+      "notes": [
+        "Frozen I18nCache is specifically a process-global cache for registry-provided dynamic title/description strings. ReloadSync reads the merged registry i18n map under a mutex; ReloadAsync computes a fresh map off-thread and uses a generation counter so an older completion cannot overwrite a newer reload. GetMap returns a copy for page rendering. Current intentionally has no global mutable registry-i18n singleton: each model/provider/adapter catalog refresh resolves the current registry source plus locale-specific cached i18n into immutable display summaries, so stale page state is controlled by the existing catalog task/state boundary rather than a second shared cache generation.",
+        "The audit found a real locale-coupling regression. Current GUI static presentation intentionally supports only English and Simplified Chinese, but model/script registry localization incorrectly reused that GuiLocale to choose dynamic registry i18n. On a system such as fr_FR, GuiLocale correctly fell back to English for untranslated application chrome, but registry entries that did provide fr_FR translations were also forced to en_US. Frozen I18nCache independently calls DetectPreferredLocale and therefore still uses the French registry layer. Current model and script catalog loaders now independently call detect_preferred_registry_locale and pass that normalized locale through the registry-i18n fetch path, while GuiLocale remains responsible only for static application text.",
+        "The registry locale fix preserves frozen fallback precedence without expanding the static GUI language set. Dynamic catalog lookup fetches preferred locale plus en_US fallback through the already-audited 20-second/1-MiB cache-aware registry source and merges fallback before preferred. A deterministic fr_FR regression proves a French title and an English-only description coexist in the merged map. Existing zh_CN catalog tests remain unchanged.",
+        "Installed managed-model titles now follow the same separation. Installation metadata is already populated using the detected registry locale; Resources display and filtering now try that preferred registry locale first and the static GuiLocale code second, so a model installed under fr_FR does not regress to its English fallback merely because the application chrome has no French catalog.",
+        "Current static GUI localization is intentionally typed rather than QObject-context based. GuiText enumerates the complete user-facing key set, en.rs and zh_cn.rs provide exhaustive non-empty mappings, and GuiLocale detects LANGUAGE/LC_ALL/LC_MESSAGES/LANG with legacy normalization before choosing zh_CN or the English fallback. Dynamic formatted/error strings stay in typed helper methods so machine ids, paths, and secret-redaction boundaries remain explicit. The localization completeness test iterates every GuiText key for both locales and prevents an added UI key from silently missing one language.",
+        "Registry-i18n parsing, arbitrary-locale normalization, mirror independence, local override precedence, stale disk cache behavior, and fetch orchestration were already fixed and owned by REGISTRY-I18N-001/REGISTRY-CACHE-001/REGISTRY-LIVE-FETCH-001. This unit therefore audits the GUI consumption/cache boundary and static catalog ownership without double-owning those registry primitives.",
+        "Evidence includes complete frozen i18n_cache.cpp/.h review; current GuiLocale architecture, exhaustive key/catalog mappings and localization tests; dynamic model/script catalog and installed-model lookup paths; the new arbitrary-locale merge regression, 2 script-catalog tests, 10 model-management tests, 6 i18n-focused tests, strict all-target vinpst-gui Clippy, and the module-parity ledger checker."
+      ]
     }
   ],
-  "upstream_pending": [
-    "gui/utils/i18n_cache.cpp",
-    "gui/utils/i18n_cache.h"
-  ],
+  "upstream_pending": [],
   "current_pending": [
     "crates/vinpst-asr/src/error.rs",
     "crates/vinpst-asr/src/lib.rs",
@@ -2284,10 +2312,6 @@
     "crates/vinpst-gui/src/hotword_activation_retry.rs",
     "crates/vinpst-gui/src/hotword_path.rs",
     "crates/vinpst-gui/src/hotword_persistence.rs",
-    "crates/vinpst-gui/src/i18n.rs",
-    "crates/vinpst-gui/src/i18n/en.rs",
-    "crates/vinpst-gui/src/i18n/keys.rs",
-    "crates/vinpst-gui/src/i18n/zh_cn.rs",
     "crates/vinpst-gui/src/interaction.rs",
     "crates/vinpst-gui/src/keyboard_action.rs",
     "crates/vinpst-gui/src/lib.rs",
