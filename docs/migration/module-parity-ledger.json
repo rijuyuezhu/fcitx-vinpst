@@ -1545,13 +1545,48 @@
         "Frozen cached preferred/fallback i18n loading and stale-cache policy are not claimed by this unit. common/registry/registry_cache.* remains pending and is the next audit target so cache freshness, stale fallback, and atomic cache publication can be compared without duplicating ownership here.",
         "Deterministic evidence includes mixed-value i18n parsing, preferred-before-fallback layer ordering, independent multi-mirror translation fallback, malformed local override recovery, GUI registry-index/i18n mirror independence, existing locale normalization tests, and strict all-target Clippy for vinpst-registry, vinpst-cli, and vinpst-gui."
       ]
+    },
+    {
+      "id": "REGISTRY-CACHE-001",
+      "state": "audited-fixed",
+      "title": "Live registry text cache and stale fallback",
+      "upstream_files": [
+        "common/registry/registry_cache.cpp",
+        "common/registry/registry_cache.h"
+      ],
+      "current_files": [
+        "crates/vinpst-registry/src/cache.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/catalog.rs",
+        "crates/vinpst-cli/src/commands/provider/catalog.rs",
+        "crates/vinpst-cli/src/live_i18n.rs",
+        "crates/vinpst-cli/src/registry_support.rs",
+        "crates/vinpst-cli/tests/model_list.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/script_catalog.rs",
+        "crates/vinpst-gui/src/script_management.rs",
+        "crates/vinpst-registry/src/lib.rs",
+        "crates/vinpst-registry/src/tests.rs"
+      ],
+      "notes": [
+        "Frozen RegistryCache fetches ordered registry URLs, atomically publishes each successful text download to a fixed cache file, and only when all fresh transport attempts fail falls back to the stale cached text. Cache hits retain the fresh-download failure for a caller warning. There is no TTL gate: any readable stale cache may recover an offline fetch.",
+        "Fixed a production wiring gap. The Rust RegistryTextCache previously existed only around the older RegistryIndex helper/tests and was not used by live models, providers, adapters, or registry i18n. A schema-neutral fetch_registry_text_with_cache primitive now owns fresh mirror fallback, atomic text publication, stale text recovery, used_cache state, and sanitized fallback classification while each live parser continues to own its own schema.",
+        "Restored the frozen cache layout under Vinpst identity: $XDG_CACHE_HOME/fcitx-vinpst/registry/models.json, providers.json, adapters.json, and i18n/<locale>.json, with HOME/.cache fallback through the existing CLI/GUI cache-root helpers. Locale cache filenames are additionally sanitized against path separators and unusual characters.",
+        "CLI live model/provider/adapter catalogs and installs now use these cache paths whenever the user did not supply an explicit local --registry file. Registry JSON source diagnostics distinguish fresh http from cache, preserve used_cache and a sanitized fallback_error, and human output emits a concise cached-registry warning without leaking configured mirror URLs or credentials.",
+        "CLI preferred/fallback i18n layers now independently cache each normalized locale with the frozen 20-second/1-MiB request policy from REGISTRY-I18N-001. A process-level test seeds isolated models.json and zh_CN.json cache files, points the configured mirror at a refused localhost endpoint, and proves vinpst model list still returns localized JSON with both source kinds reported as cache.",
+        "GUI model browsing, model install/selection resolution, provider/adapter browsing, and managed script preparation now use the same stale-cache primitive. Deterministic GUI tests prove a model registry remains available after the source goes offline and that a provider catalog plus its en_US translation remains usable after both registry and i18n network sources disappear.",
+        "Aligned successful-body semantics while connecting the cache. Transport errors advance to later mirrors, but once a mirror returns a body that body is parsed; malformed successful JSON is an error rather than silently trying a later mirror. This matches frozen DownloadText followed by parser behavior and removes the previous GUI-only malformed-mirror fallback.",
+        "Fresh successful transport text is cached before the live schema parser runs, matching frozen RegistryCache ordering. Therefore a malformed HTTP-200 body may replace the previous cache before parse failure; parse-before-publication would be a separate hardening change rather than claimed parity here.",
+        "Atomic cache publication creates parent directories, writes a same-directory temporary file, renames over the target, and now removes partial temporary files on both write and rename failure. Existing tests also prove an orphaned temporary file is never mistaken for a valid cache entry.",
+        "Test-only injected-source helpers may deliberately bypass cache so unit fixtures remain deterministic; all production Reqwest live registry and i18n entry points route through cached helpers. Deterministic evidence includes raw fresh/stale cache tests, cache-path tests, existing atomic/stale/partial-temp tests, CLI offline process proof, GUI offline model/provider+i18n proofs, malformed-success rejection, and strict all-target Clippy for registry/CLI/GUI."
+      ]
     }
   ],
   "upstream_pending": [
     "common/config/config_router.cpp",
     "common/config/config_router.h",
-    "common/registry/registry_cache.cpp",
-    "common/registry/registry_cache.h",
     "common/registry/registry_fetch.cpp",
     "common/registry/registry_fetch.h",
     "common/registry/registry_models.cpp",
@@ -1678,7 +1713,6 @@
     "crates/vinpst-protocol/src/lib.rs",
     "crates/vinpst-protocol/src/text.rs",
     "crates/vinpst-registry/src/archive.rs",
-    "crates/vinpst-registry/src/cache.rs",
     "crates/vinpst-registry/src/checksum.rs",
     "crates/vinpst-registry/src/error.rs",
     "crates/vinpst-registry/src/install.rs",
