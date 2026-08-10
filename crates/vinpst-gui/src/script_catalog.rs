@@ -71,6 +71,7 @@ fn fetch_registry_script_catalog_from(
         kind,
         &control,
         registry_source,
+        i18n_source,
         cache_root,
     )?;
     let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale, cache_root);

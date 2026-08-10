@@ -14,6 +14,7 @@ mod fetch;
 mod install;
 mod installed;
 mod live;
+mod live_fetch;
 mod managed;
 mod materialize;
 mod operation;
@@ -58,6 +59,9 @@ pub use live::{
     InstalledModelDisplayMetadata, LiveModelEntry, LiveModelFamily, LiveModelRegistry,
     LiveRegistryI18n, LiveVinpstModelMetadata, detect_preferred_registry_locale,
     normalize_registry_locale, select_preferred_registry_locale,
+};
+pub use live_fetch::{
+    LiveRegistryTextFetch, fetch_live_registry_text, fetch_live_registry_text_with_sources,
 };
 pub use managed::{
     ManagedModelRemoveError, ManagedModelRemoveRequest, ManagedModelRemoveResult,

@@ -11,9 +11,10 @@ use vinpst_registry::{
     InstalledModelInfo, LiveModelFamily, LiveModelInstallError, LiveModelInstallRequest,
     LiveModelRegistry, LiveRegistryI18n, ManagedModelRemoveRequest, RegistryOperationControl,
     RegistryOperationProgress, RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, fetch_registry_text_with_cache, install_live_model_controlled,
-    managed_model_dir_name, model_registry_cache_path, registry_i18n_cache_path,
-    remove_managed_model, scan_installed_models,
+    ReqwestRegistryTextSource, detect_preferred_registry_locale,
+    fetch_live_registry_text_with_sources, fetch_registry_text_with_cache,
+    install_live_model_controlled, managed_model_dir_name, model_registry_cache_path,
+    registry_i18n_cache_path, remove_managed_model, scan_installed_models,
 };
 
 use crate::{GuiLocale, model_install::ModelInstallOutcome};
@@ -107,7 +108,8 @@ fn fetch_registry_model_catalog_from(
     i18n_source: &impl RegistryTextSource,
     cache_root: &Path,
 ) -> Result<Vec<RegistryModelSummary>, String> {
-    let registry = fetch_live_model_registry_from(config, registry_source, cache_root)?;
+    let registry =
+        fetch_live_model_registry_from(config, registry_source, i18n_source, cache_root)?;
     let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale, cache_root);
     Ok(registry
         .items
@@ -257,14 +259,17 @@ fn remove_staging_dir(path: &Path) {
 }
 
 fn fetch_live_model_registry(config: &VinpstConfig) -> Result<LiveModelRegistry, String> {
-    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
+    let registry_source =
+        ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
+    let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
     let cache_root = default_registry_cache_root()?;
-    fetch_live_model_registry_from(config, &source, &cache_root)
+    fetch_live_model_registry_from(config, &registry_source, &i18n_source, &cache_root)
 }
 
 fn fetch_live_model_registry_from(
     config: &VinpstConfig,
-    source: &impl RegistryTextSource,
+    registry_source: &impl RegistryTextSource,
+    i18n_source: &impl RegistryTextSource,
     cache_root: &Path,
 ) -> Result<LiveModelRegistry, String> {
     let urls = config
@@ -276,10 +281,19 @@ fn fetch_live_model_registry_from(
     if urls.is_empty() {
         return Err("No registry mirrors are configured.".to_owned());
     }
-    let cache = RegistryTextCache::new(model_registry_cache_path(cache_root));
-    let fetched = fetch_registry_text_with_cache(source, &urls, &cache)
-        .map_err(|_| "Registry model catalog is unavailable.".to_owned())?;
-    LiveModelRegistry::from_json_str(&fetched.text)
+    let cache_path = model_registry_cache_path(cache_root);
+    let preferred_locale = detect_preferred_registry_locale();
+    let fetched = fetch_live_registry_text_with_sources(
+        registry_source,
+        i18n_source,
+        &urls,
+        &cache_path,
+        &config.registry.base_urls,
+        cache_root,
+        &preferred_locale,
+    )
+    .map_err(|_| "Registry model catalog is unavailable.".to_owned())?;
+    LiveModelRegistry::from_json_str(&fetched.registry.text)
         .map_err(|error| format!("Registry model catalog is invalid: {error}"))
 }
 
@@ -414,22 +428,61 @@ mod tests {
             ]),
         };
 
-        let registry = fetch_live_model_registry_from(&config, &source, cache.path())
+        let registry = fetch_live_model_registry_from(&config, &source, &source, cache.path())
             .expect("mirror fallback");
         assert!(registry.model_by_id_or_short_id("fixture").is_some());
 
         let offline = StubRegistryTextSource::default();
-        let cached = fetch_live_model_registry_from(&config, &offline, cache.path())
+        let cached = fetch_live_model_registry_from(&config, &offline, &offline, cache.path())
             .expect("stale cache fallback");
         assert!(cached.model_by_id_or_short_id("fixture").is_some());
 
         let empty_cache = tempfile::tempdir().expect("empty cache directory");
         let failed = StubRegistryTextSource::default();
-        let error = fetch_live_model_registry_from(&config, &failed, empty_cache.path())
+        let error = fetch_live_model_registry_from(&config, &failed, &failed, empty_cache.path())
             .expect_err("all mirrors and cache should fail");
         assert_eq!(error, "Registry model catalog is unavailable.");
         assert!(!error.contains("super-secret"));
         assert!(!error.contains("first.invalid"));
+    }
+
+    #[test]
+    fn fresh_model_registry_fetch_primes_fallback_i18n_cache() {
+        let cache = tempfile::tempdir().expect("cache directory");
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        let base = "https://registry.example".to_owned();
+        config.registry.base_urls = vec![base.clone()];
+        let registry_source = StubRegistryTextSource {
+            responses: HashMap::from([(
+                format!("{base}/registry/models.json"),
+                Ok(json!({
+                    "version": 1,
+                    "items": [{
+                        "id": "model.test.prefetch",
+                        "short_id": "prefetch",
+                        "urls": ["https://assets.invalid/prefetch.tar.zst"]
+                    }]
+                })
+                .to_string()),
+            )]),
+        };
+        let i18n_source = StubRegistryTextSource {
+            responses: HashMap::from([(
+                format!("{base}/i18n/en_US.json"),
+                Ok(r#"{"model.test.prefetch.title":"Prefetched title"}"#.to_owned()),
+            )]),
+        };
+
+        let registry =
+            fetch_live_model_registry_from(&config, &registry_source, &i18n_source, cache.path())
+                .expect("fresh registry fetch");
+
+        assert!(registry.model_by_id_or_short_id("prefetch").is_some());
+        assert_eq!(
+            std::fs::read_to_string(registry_i18n_cache_path(cache.path(), "en_US"))
+                .expect("prefetched en_US cache"),
+            r#"{"model.test.prefetch.title":"Prefetched title"}"#
+        );
     }
 
     #[test]

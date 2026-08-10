@@ -12,8 +12,9 @@ use std::{
 use vinpst_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinpstConfig};
 use vinpst_registry::{
     LiveScriptKind, LiveScriptRegistry, RegistryOperationControl, RegistryOperationProgress,
-    RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
-    adapter_registry_cache_path, fetch_registry_text_with_cache, install_live_script_controlled,
+    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
+    adapter_registry_cache_path, detect_preferred_registry_locale,
+    fetch_live_registry_text_with_sources, install_live_script_controlled,
     managed_script_relative_path, managed_script_rollback_path, materialize_asr_provider,
     materialize_llm_adapter, provider_registry_cache_path,
 };
@@ -43,6 +44,7 @@ pub(crate) fn prepare_registry_script_controlled(
     };
     let registry_source =
         ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
+    let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
     let cache_root = match default_registry_cache_root() {
         Ok(cache_root) => cache_root,
         Err(error) => return ScriptPrepareOutcome::Failed(error),
@@ -52,7 +54,7 @@ pub(crate) fn prepare_registry_script_controlled(
         kind,
         selector,
         control,
-        &registry_source,
+        (&registry_source, &i18n_source),
         &root,
         Some(&cache_root),
     )
@@ -72,7 +74,7 @@ fn prepare_registry_script_from_source(
         kind,
         selector,
         control,
-        registry_source,
+        (registry_source, registry_source),
         root,
         None,
     )
@@ -83,10 +85,11 @@ fn prepare_registry_script_from_source_with_cache(
     kind: LiveScriptKind,
     selector: &str,
     control: &RegistryOperationControl,
-    registry_source: &impl RegistryTextSource,
+    sources: (&impl RegistryTextSource, &impl RegistryTextSource),
     root: &std::path::Path,
     cache_root: Option<&Path>,
 ) -> ScriptPrepareOutcome {
+    let (registry_source, i18n_source) = sources;
     control.report(RegistryOperationProgress::ResolvingRegistry);
     if control.is_cancelled() {
         return ScriptPrepareOutcome::Cancelled;
@@ -100,6 +103,7 @@ fn prepare_registry_script_from_source_with_cache(
             kind,
             control,
             registry_source,
+            i18n_source,
             cache_root,
         ),
         None => fetch_live_script_registry_from(&document.config, kind, control, registry_source),
@@ -382,7 +386,8 @@ pub(crate) fn fetch_live_script_registry_cached_from(
     config: &VinpstConfig,
     kind: LiveScriptKind,
     control: &RegistryOperationControl,
-    source: &impl RegistryTextSource,
+    registry_source: &impl RegistryTextSource,
+    i18n_source: &impl RegistryTextSource,
     cache_root: &Path,
 ) -> Result<LiveScriptRegistry, String> {
     let filename = match kind {
@@ -406,13 +411,21 @@ pub(crate) fn fetch_live_script_registry_cached_from(
         LiveScriptKind::AsrProvider => provider_registry_cache_path(cache_root),
         LiveScriptKind::LlmAdapter => adapter_registry_cache_path(cache_root),
     };
-    let cache = RegistryTextCache::new(cache_path);
-    let fetched = fetch_registry_text_with_cache(source, &urls, &cache)
-        .map_err(|_| format!("{} registry catalog is unavailable.", resource_title(kind)))?;
+    let preferred_locale = detect_preferred_registry_locale();
+    let fetched = fetch_live_registry_text_with_sources(
+        registry_source,
+        i18n_source,
+        &urls,
+        &cache_path,
+        &config.registry.base_urls,
+        cache_root,
+        &preferred_locale,
+    )
+    .map_err(|_| format!("{} registry catalog is unavailable.", resource_title(kind)))?;
     if control.is_cancelled() {
         return Err("Registry request cancelled.".to_owned());
     }
-    LiveScriptRegistry::from_json_str(&fetched.text, kind).map_err(|error| {
+    LiveScriptRegistry::from_json_str(&fetched.registry.text, kind).map_err(|error| {
         format!(
             "{} registry catalog is invalid: {error}",
             resource_title(kind)

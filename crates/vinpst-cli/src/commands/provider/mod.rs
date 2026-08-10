@@ -9,12 +9,12 @@ use mutation::{print_provider_add, print_provider_remove, print_provider_use};
 use crate::{
     AsrProviderConfig, AsrProviderKind, AsrReloadAfterWrite, BTreeMap, Context, Duration,
     LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, LoadedLiveI18n, LoadedLiveScriptRegistry,
-    Path, PathBuf, ProviderCommand, RegistryConfig, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, VinpstConfig, config_set_write_target, default_config_path,
-    default_provider_root, fetch_text_from_mirrors, fs, install_live_script, live_registry_urls,
-    load_config_json, load_live_i18n, managed_script_relative_path, materialize_asr_provider,
-    prepare_provider_script_edit, reload_asr_backend_after_canonical_write,
-    validate_config_json_value, write_config_set_document,
+    Path, PathBuf, ProviderCommand, RegistryConfig, ReqwestRegistryAssetSource, VinpstConfig,
+    config_set_write_target, default_config_path, default_provider_root, fetch_text_from_mirrors,
+    fs, install_live_script, live_registry_urls, load_config_json, load_live_i18n,
+    managed_script_relative_path, materialize_asr_provider, prepare_provider_script_edit,
+    reload_asr_backend_after_canonical_write, validate_config_json_value,
+    write_config_set_document,
 };
 
 #[allow(clippy::too_many_lines)]

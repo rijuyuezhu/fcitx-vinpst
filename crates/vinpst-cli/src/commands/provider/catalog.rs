@@ -3,11 +3,11 @@ use super::{
     AsrProviderConfig, AsrReloadAfterWrite, Context, Duration, LiveRegistryI18n, LiveScriptKind,
     LiveScriptRegistry, LoadedLiveI18n, LoadedLiveScriptRegistry, Path, PathBuf,
     ProviderInstallOutcome, ProviderInstallRequest, ProviderListContext, RegistryConfig,
-    ReqwestRegistryAssetSource, ReqwestRegistryTextSource, VinpstConfig, asr_provider_kind_label,
-    config_set_write_target, default_config_path, default_provider_root, fetch_text_from_mirrors,
-    fs, install_live_script, live_registry_urls, load_config_json, load_live_i18n,
-    managed_script_relative_path, materialize_asr_provider, normalize_provider_id,
-    validate_config_json_value, write_config_set_document,
+    ReqwestRegistryAssetSource, VinpstConfig, asr_provider_kind_label, config_set_write_target,
+    default_config_path, default_provider_root, fetch_text_from_mirrors, fs, install_live_script,
+    live_registry_urls, load_config_json, load_live_i18n, managed_script_relative_path,
+    materialize_asr_provider, normalize_provider_id, validate_config_json_value,
+    write_config_set_document,
 };
 use crate::{
     paths::default_cache_root,
@@ -331,10 +331,15 @@ pub(super) fn load_live_provider_registry(
             }),
         });
     }
-    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    let cache_path = provider_registry_cache_path(&default_cache_root()?);
-    let fetched = fetch_text_from_mirrors(&source, &registry_urls, &cache_path)
-        .context("fetch live provider registry from configured mirrors")?;
+    let cache_root = default_cache_root()?;
+    let cache_path = provider_registry_cache_path(&cache_root);
+    let fetched = fetch_text_from_mirrors(
+        &registry_urls,
+        &cache_path,
+        &registry_config.base_urls,
+        &cache_root,
+    )
+    .context("fetch live provider registry from configured mirrors")?;
     let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::AsrProvider)
         .with_context(|| {
             format!(

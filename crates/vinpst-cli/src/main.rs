@@ -70,7 +70,7 @@ use vinpst_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, InstalledModelInfo, LiveModelEntry,
     LiveModelFamily, LiveModelInstallRequest, LiveModelInstallResult, LiveModelRegistry,
     LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, PlannedAsset, RegistryIndex,
-    ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_script,
+    ReqwestRegistryAssetSource, install_live_script,
     load_installed_model_info as load_registry_installed_model_info, managed_script_relative_path,
     materialize_asr_provider, materialize_llm_adapter, prepare_provider_script_edit,
     scan_installed_models,

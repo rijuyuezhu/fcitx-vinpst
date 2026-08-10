@@ -2,11 +2,11 @@ use super::mutation::{explicit_adapter_index, llm_adapters_array_mut, normalize_
 use super::{
     AdapterInstallOutcome, AdapterInstallRequest, AdapterListContext, Context, Duration,
     LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, LoadedLiveI18n, LoadedLiveScriptRegistry,
-    Path, PathBuf, RegistryConfig, RegistryIndex, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, VinpstConfig, config_set_write_target, default_adapter_root,
-    default_config_path, fetch_text_from_mirrors, fs, install_live_script, live_registry_urls,
-    load_config_file, load_config_json, load_live_i18n, managed_script_relative_path,
-    materialize_llm_adapter, validate_config_json_value, write_config_set_document,
+    Path, PathBuf, RegistryConfig, RegistryIndex, ReqwestRegistryAssetSource, VinpstConfig,
+    config_set_write_target, default_adapter_root, default_config_path, fetch_text_from_mirrors,
+    fs, install_live_script, live_registry_urls, load_config_file, load_config_json,
+    load_live_i18n, managed_script_relative_path, materialize_llm_adapter,
+    validate_config_json_value, write_config_set_document,
 };
 use crate::{
     paths::default_cache_root,
@@ -192,10 +192,15 @@ pub(super) fn load_live_adapter_registry(
             }),
         });
     }
-    let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    let cache_path = adapter_registry_cache_path(&default_cache_root()?);
-    let fetched = fetch_text_from_mirrors(&source, &registry_urls, &cache_path)
-        .context("fetch live adapter registry from configured mirrors")?;
+    let cache_root = default_cache_root()?;
+    let cache_path = adapter_registry_cache_path(&cache_root);
+    let fetched = fetch_text_from_mirrors(
+        &registry_urls,
+        &cache_path,
+        &registry_config.base_urls,
+        &cache_root,
+    )
+    .context("fetch live adapter registry from configured mirrors")?;
     let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::LlmAdapter)
         .with_context(|| {
             format!(
