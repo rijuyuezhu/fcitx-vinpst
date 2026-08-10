@@ -1800,12 +1800,44 @@
         "Frozen Flatpak paths under `/app/addons/Vinput`, executable names `vinput`/`vinput-daemon`, and service unit `vinput-daemon.service` are not reproduced. Current packaging uses Vinpst identities, direct typed daemon control, and its already-audited Flatpak/systemd layout. The shared path module therefore covers user-state roots only rather than reintroducing upstream package names.",
         "Deterministic evidence includes pure XDG precedence/empty-value tests, CLI init/activation/systemd process tests, daemon discovered-XDG-config proof, Fcitx context-history tests, ASR VAD tests, and strict all-target Clippy across config/ASR/CLI/GUI/daemon/Fcitx-FFI. Closeout also searches the Rust tree to ensure remaining direct XDG_CONFIG/DATA/CACHE computations are only the shared helper, the intentional context-cache domain path, and a GUI test fixture."
       ]
+    },
+    {
+      "id": "PROCESS-UTILS-001",
+      "state": "audited-intentional-divergence",
+      "title": "Process execution, monitored adapter supervision, and descendant cleanup",
+      "upstream_files": [
+        "common/utils/process_utils.cpp",
+        "common/utils/process_utils.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon/src/runtime/adapter_process.rs",
+        "crates/vinpst-process/src/lib.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/command.rs",
+        "crates/vinpst-asr/src/command_streaming.rs",
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/runtime.rs",
+        "crates/vinpst-daemon/src/runtime/output_ducker.rs",
+        "crates/vinpst-text/src/adapter_runtime.rs",
+        "crates/vinpst-text/src/command.rs"
+      ],
+      "notes": [
+        "Frozen process_utils exposes RunCommandWithInput, SpawnDetached, and SpawnForMonitoring. Its real call graph is narrow: RunCommandWithInput is used only by command-batch ASR and output ducking, SpawnForMonitoring only by the daemon text-adapter manager, and SpawnDetached has no production caller.",
+        "The shared vinpst-process crate already supersedes frozen RunCommandWithInput with an isolated Unix process group, one deadline covering stdin write/execution/output recovery, concurrent stdout/stderr draining, independent 1 MiB output caps, and bounded TERM-to-KILL cleanup of descendants. Command ASR, command text processing, and output-ducker helpers already use this boundary. These stronger fail-closed semantics are intentionally retained instead of reproducing direct-child-only SIGKILL and unbounded output.",
+        "Added a shared set_nonblocking(fd) helper to vinpst-process so long-lived supervisors can preserve descriptor flags while enabling O_NONBLOCK without duplicating fcntl policy. Specialized streaming ASR remains a domain supervisor because it has bidirectional frame/event semantics rather than one-shot command execution.",
+        "A real parity gap existed in long-lived text-adapter startup: current previously redirected adapter stderr to /dev/null, wrote the fingerprinted PID immediately, and only reaped adapters from status/runtime refresh calls. Frozen SpawnForMonitoring pipes nonblocking stderr, waits 250 ms before accepting startup, returns immediate-exit stderr as the start failure, and continuously emits each stderr line as a raw DaemonNotification.",
+        "Restored that behavior while preserving Rust safety improvements. Text adapters now start in the existing process group with stderr piped/nonblocking; a 250 ms startup probe runs before /proc fingerprint sampling and PID publication, so an immediate exit reports trimmed stderr (or a generic immediate-exit error) and leaves no PID file. If startup survives, the existing fingerprinted PID record is published exactly as before.",
+        "StartedAdapterProcess now drains available stderr without blocking, preserves partial lines across reads, trims ASCII whitespace, flushes a final partial line at EOF, and caps one pending line at the shared 1 MiB process-output bound with a truncation marker. Explicit StopAdapter intentionally does not flush stderr because frozen HandleStopRequest closes the monitored stderr fd before termination as well.",
+        "Daemon RuntimeState now retains adapter stderr notifications in a bounded 256-entry queue so status methods may reap/process stderr without consuming notifications before the signal path sees them. A 100 ms D-Bus pump drains that queue, logs the adapter id for diagnostics, and emits frozen-compatible raw ErrorInfo (code unknown, empty subject/detail, original stderr line as raw_message). The pump also reaps exited adapters and removes their PID files without requiring a status query.",
+        "The daemon adapter-process module is dedicated to this lifecycle and is owned here: it covers start/stop/reap plus config-reload reconciliation that stops changed adapters, prestarts replacements, and rolls back the prior running set on failure, including managed-script rollback revisions. Existing process-group and PID-identity protections remain stronger than frozen PID-only supervision.",
+        "Working-directory failures remain fail-closed through std::process::Command rather than reproducing frozen child-side chdir failure being ignored. SpawnDetached is not reintroduced because frozen has no caller and current callers that launch editors/openers/system tools have dedicated, separately audited lifecycle contracts.",
+        "Deterministic evidence covers existing process descendant/timeout/output-limit tests, all adapter-runtime lifecycle tests, immediate-exit stderr without PID publication, line/partial stderr draining, daemon notification queue preservation, feature-gated session-bus StartAdapter immediate-failure proof, live raw DaemonNotification proof, and delayed-exit reap behavior. Strict all-target/all-feature Clippy and full process/text/daemon gates close the unit."
+      ]
     }
   ],
   "upstream_pending": [
     "common/utils/debug_log.h",
-    "common/utils/process_utils.cpp",
-    "common/utils/process_utils.h",
     "common/utils/sandbox.cpp",
     "common/utils/sandbox.h",
     "common/utils/string_utils.h",
@@ -1856,7 +1888,6 @@
     "crates/vinpst-config/src/error.rs",
     "crates/vinpst-config/src/lib.rs",
     "crates/vinpst-daemon/src/lib.rs",
-    "crates/vinpst-daemon/src/runtime/adapter_process.rs",
     "crates/vinpst-daemon/src/runtime/asr_menu.rs",
     "crates/vinpst-daemon/src/runtime/capture.rs",
     "crates/vinpst-daemon/src/runtime/config_io.rs",
@@ -1914,7 +1945,6 @@
     "crates/vinpst-gui/src/script_transaction.rs",
     "crates/vinpst-gui/src/startup_notifications.rs",
     "crates/vinpst-http/src/lib.rs",
-    "crates/vinpst-process/src/lib.rs",
     "crates/vinpst-protocol/src/lib.rs",
     "crates/vinpst-protocol/src/text.rs",
     "crates/vinpst-registry/src/error.rs",
