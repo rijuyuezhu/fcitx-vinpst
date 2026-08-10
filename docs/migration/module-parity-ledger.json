@@ -2118,11 +2118,51 @@
         "The audit also restored the frozen navigation hint for adapters. The LLM page now tells users in English and Simplified Chinese to install managed adapters from Resources and return to LLM for Start/Stop, while retaining Add Custom Adapter for local manual configuration. This points at the existing registry catalog rather than duplicating installation controls on two pages.",
         "Evidence includes complete source review of frozen llm_page.cpp/.h; complete review of current provider, adapter-config, adapter-runtime, Scene management and their dedicated views; supporting review of Resources registry installation and current config validation; 17 provider tests, 9 adapter-config tests, 6 adapter-runtime tests, 11 Scene tests, localization completeness tests, strict all-target vinpst-gui Clippy, the full GUI suite, and the module-parity ledger checker. Shared resource_pages/i18n/script catalog/install orchestration stays pending for later ownership-specific audits."
       ]
+    },
+    {
+      "id": "GUI-RESOURCE-PAGE-001",
+      "state": "audited-fixed",
+      "title": "Resource catalogs, managed installs, selection, and removal",
+      "upstream_files": [
+        "gui/pages/resources/resource_page.cpp",
+        "gui/pages/resources/resource_page.h"
+      ],
+      "current_files": [
+        "crates/vinpst-gui/src/model_install.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/model_selection.rs",
+        "crates/vinpst-gui/src/removal_confirmation.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-gui/src/script_catalog.rs",
+        "crates/vinpst-gui/src/script_install.rs",
+        "crates/vinpst-gui/src/script_install/view.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/i18n/en.rs",
+        "crates/vinpst-gui/src/i18n/keys.rs",
+        "crates/vinpst-gui/src/i18n/zh_cn.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/message.rs",
+        "crates/vinpst-gui/src/resource_details.rs",
+        "crates/vinpst-gui/src/script_management.rs",
+        "crates/vinpst-gui/src/script_recovery.rs",
+        "crates/vinpst-gui/src/script_removal.rs",
+        "crates/vinpst-gui/src/script_transaction.rs"
+      ],
+      "notes": [
+        "Frozen ResourcePage combines installed-model management with live model/provider/adapter registries, four independent search boxes, asynchronous downloads, progress/log presentation, model activation/removal, and provider/adapter script installation. Current preserves those resource lifecycles while using typed operation state, shared registry/cache helpers, detail panels, cancellation, generation guards, and explicit recovery instead of widget-owned workers and a free-form log box.",
+        "The audit found a real discoverability regression in filtering. Current previously applied its only Resources filter solely to available registry models, so installed models and provider/adapter catalogs could not be searched at all. Resources now exposes one intentionally simpler global filter at the top of the page rather than copying four separate frozen boxes. The same query filters installed managed models, available model entries, ASR-provider registry entries, and LLM-adapter registry entries using stable ids, short ids, localized/fallback titles, descriptions, model directory names, backend/language/runtime/family metadata as applicable. Empty filtered results are distinguished from genuinely empty catalogs with explicit localized match text.",
+        "Managed-model installation is stronger than frozen's page-owned DownloadWorker. Current resolves localized live registry metadata, uses cancellable controlled downloads with progress snapshots and operation generations, verifies and publishes through the registry installer, rescans installed metadata after completion, and exposes retry/cancel state. Stale worker completions cannot replace a newer install state. Frozen's detailed transfer-speed/log text is intentionally represented by typed phase/progress UI rather than retained as a compatibility requirement.",
+        "Using an installed model targets only the configured active Local ASR provider, rejects Remote/Command targets, validates the complete cloned config, atomically persists through the audited save/reload boundary, reloads the GUI document after success, and refreshes daemon state. This preserves frozen's Use semantics while avoiding its special preferred-local side channel. Unsaved Control drafts and open Scene/ASR-provider editors block the mutation rather than being overwritten.",
+        "Removal is conservative. Current requires an explicit confirmation dialog and passes every Local provider model path to managed-model removal, so a model referenced by any configured local provider cannot be deleted even if that provider is inactive; frozen only had to reason about its single preferred local model. Managed ASR providers cannot be removed while active, managed adapter/provider cleanup validates and saves config before deleting the published script, and custom entries are routed through their validated configuration removal paths.",
+        "Provider/adapter Install and Update avoid frozen's half-installed blind spot. Preparation first refetches/resolves the selected registry entry, materializes and validates the prospective config, and collects registry-declared environment values with required-value enforcement and redacted Debug. Installation is cancellable, prepares rollback state before publication, verifies the installed path, applies managed-script revision metadata, then commits configuration through daemon reconciliation. Publication/config failure becomes a distinct RecoveryRequired state that can retry only configuration recovery without downloading or publishing the script again; stale preparation/install/recovery completions are rejected by operation id.",
+        "Registry refresh semantics intentionally differ in presentation. Frozen Refresh updates all three resource registries together and reloads i18n; current primes all catalogs during GUI boot and provides separate refresh controls for model, provider, and adapter catalogs, each with localized cache-aware mirror fallback. A single failed catalog therefore no longer prevents the other resource classes from remaining usable. This is an additive availability improvement, not a missing Refresh capability.",
+        "Evidence includes complete source review of frozen resource_page.cpp/.h and current model_install.rs, model_management.rs, model_selection.rs, removal_confirmation.rs, resource_pages.rs, script_catalog.rs, script_install.rs, and script_install/view.rs; transaction-contract review of script_management publication/save/rollback paths; focused Resources, model-management, script-install, removal, selection and i18n tests; strict all-target vinpst-gui Clippy; the full GUI suite; and the module-parity ledger checker. Shared low-level script transaction/recovery/removal primitives and current-only resource detail panels remain pending for their own ownership-specific audits."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/pages/resources/resource_page.cpp",
-    "gui/pages/resources/resource_page.h",
     "gui/utils/config_manager.cpp",
     "gui/utils/config_manager.h",
     "gui/utils/download_worker.cpp",
@@ -2177,16 +2217,8 @@
     "crates/vinpst-gui/src/keyboard_action.rs",
     "crates/vinpst-gui/src/lib.rs",
     "crates/vinpst-gui/src/message.rs",
-    "crates/vinpst-gui/src/model_install.rs",
-    "crates/vinpst-gui/src/model_management.rs",
-    "crates/vinpst-gui/src/model_selection.rs",
     "crates/vinpst-gui/src/provider_script_edit.rs",
-    "crates/vinpst-gui/src/removal_confirmation.rs",
     "crates/vinpst-gui/src/resource_details.rs",
-    "crates/vinpst-gui/src/resource_pages.rs",
-    "crates/vinpst-gui/src/script_catalog.rs",
-    "crates/vinpst-gui/src/script_install.rs",
-    "crates/vinpst-gui/src/script_install/view.rs",
     "crates/vinpst-gui/src/script_management.rs",
     "crates/vinpst-gui/src/script_recovery.rs",
     "crates/vinpst-gui/src/script_removal.rs",
