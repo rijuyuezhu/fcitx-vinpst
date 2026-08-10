@@ -855,15 +855,18 @@ mod tests {
 
     #[test]
     fn reqwest_transport_reports_status_without_error_body_and_success_timeouts() {
+        const UNIT_TIMEOUT_MS: u64 = 500;
+        const STALLED_RESPONSE: Duration = Duration::from_secs(1);
+
         let provider_secret = "provider-private-secret";
         let (url, handle) = serve_single_response(
             "503 Service Unavailable",
             &format!(r#"{{"error":"fixture-token fixture prompt {provider_secret}"}}"#),
             Duration::ZERO,
-            Duration::from_millis(200),
+            STALLED_RESPONSE,
         );
         let error = ReqwestRemoteAsrTransport
-            .transcribe(&request(url, Some(20)))
+            .transcribe(&request(url, Some(UNIT_TIMEOUT_MS)))
             .unwrap_err()
             .to_string();
         handle.join().unwrap();
@@ -876,11 +879,11 @@ mod tests {
         let (url, handle) = serve_single_response(
             "200 OK",
             r#"{"text":"late"}"#,
-            Duration::from_millis(200),
+            STALLED_RESPONSE,
             Duration::ZERO,
         );
         let error = ReqwestRemoteAsrTransport
-            .transcribe(&request(url, Some(20)))
+            .transcribe(&request(url, Some(UNIT_TIMEOUT_MS)))
             .unwrap_err();
         assert!(error.to_string().contains("timed out"));
         handle.join().unwrap();
@@ -889,10 +892,10 @@ mod tests {
             "200 OK",
             r#"{"text":"late body"}"#,
             Duration::ZERO,
-            Duration::from_millis(200),
+            STALLED_RESPONSE,
         );
         let error = ReqwestRemoteAsrTransport
-            .transcribe(&request(url, Some(20)))
+            .transcribe(&request(url, Some(UNIT_TIMEOUT_MS)))
             .unwrap_err();
         assert_eq!(
             error.to_string(),
