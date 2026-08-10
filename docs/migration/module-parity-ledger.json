@@ -1887,10 +1887,31 @@
         "The frozen GUI helper files that own SetupProviderModelCombos are not claimed by this unit because they contain additional GUI responsibilities still pending separate file-level audit. Scene management, its view, i18n, the text crate root, and the already-owned OpenAI module are supporting files only, so their broader ownership remains accurate.",
         "Deterministic evidence includes a real local HTTP GET `/models` test proving Bearer transmission plus model trimming/deduplication/sorting, URL query/fragment joining tests, GUI generation/provider stale-response tests, discovered-model selection state tests, strict text/GUI Clippy, and the full text and GUI suites."
       ]
+    },
+    {
+      "id": "DEBUG-LOG-001",
+      "state": "audited-intentional-divergence",
+      "title": "Debug logging controls and sensitive diagnostic boundaries",
+      "upstream_files": [
+        "common/utils/debug_log.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/main.rs"
+      ],
+      "notes": [
+        "Frozen debug_log is a header-only `VINPUT_DEBUG` gate. Any value beginning with 1/t/T/y/Y enables printf-style stderr logging under a fixed prefix. Production callers include recognized ASR text, LLM provider URLs and request bodies, adapter stderr, audio timing/state, ASR metadata, and Fcitx trigger/D-Bus diagnostics.",
+        "Current intentionally does not recreate a Vinpst boolean plaintext-dump switch. The daemon initializes tracing_subscriber with EnvFilter::from_default_env(), using the standard RUST_LOG control and tracing-subscriber’s ERROR default when the variable is absent or invalid. This permits targeted module/level filters instead of enabling every debug site at once.",
+        "The existing VINPST_DAEMON_TRACE_STARTUP switch is not equivalent to frozen VINPUT_DEBUG: it prints only fixed startup lifecycle markers and does not include argv, config values, filesystem paths, user text, URLs, credentials, or provider payloads. It is retained as a narrow bootstrap diagnostic for failures that happen around logger/service setup.",
+        "A log-privacy issue discovered while auditing this boundary was fixed: the adapter stderr monitor must emit each line as a frozen-compatible raw DaemonNotification, but current also duplicated the complete stderr line into tracing::warn and therefore potentially into the user journal when RUST_LOG enabled warnings. The journal event now records only adapter_id plus the fact that stderr was emitted; the protocol notification remains unchanged.",
+        "Other current tracing sites were reviewed for raw text/URL/body/API-key fields. Runtime/audio/output-ducker events are state, identifiers, timing, volume, status, or already-redacted typed errors. No current analogue of frozen post_processor debug dumping of ASR text, LLM request body, or full provider URL is introduced.",
+        "The safer divergence is deliberate: protocol/user-facing diagnostics remain separately redacted or explicitly raw where the frozen wire contract requires it, while persistent diagnostic logs do not become an opt-in plaintext transcript of recognition and LLM traffic.",
+        "Deterministic evidence includes the private-session-bus adapter stderr notification test (raw notification still arrives), the complete default daemon suite, strict daemon Clippy with D-Bus integration enabled, source/call-graph review of every frozen debug-log caller, and current tracing-field review."
+      ]
     }
   ],
   "upstream_pending": [
-    "common/utils/debug_log.h",
     "common/utils/sandbox.cpp",
     "common/utils/sandbox.h",
     "gui/app/main.cpp",
