@@ -2473,19 +2473,52 @@
         "The crate facade re-exports the already-audited registry primitives without introducing an alternate side-effect path. Its documentation accurately describes registry manifest, URL resolution, staged asset, archive/materialization, and provider-script boundaries; configuration mutation and user-facing CLI routing remain outside this crate.",
         "Evidence includes complete review of error.rs/lib.rs/plan.rs/provider_script.rs/schema.rs and CLI/staging consumers; credentialed plan JSON/Debug regressions, query/fragment path-join regression, provider-script Debug regression, full vinpst-registry tests, strict all-target Clippy, focused CLI provider/registry/model/adapter tests, downstream CLI/GUI compile checks, docs build, secret scan, diff check, and the module-parity ledger checker."
       ]
+    },
+    {
+      "id": "CLI-REGISTRY-001",
+      "state": "audited-fixed",
+      "title": "Current-only registry CLI routing, source diagnostics, and live fetch glue",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-cli/src/cli/registry.rs",
+        "crates/vinpst-cli/src/commands/registry.rs",
+        "crates/vinpst-cli/src/registry_support.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/mod.rs",
+        "crates/vinpst-cli/src/commands/model/catalog.rs",
+        "crates/vinpst-cli/src/commands/provider/catalog.rs",
+        "crates/vinpst-cli/src/live_i18n.rs",
+        "crates/vinpst-cli/tests/model_list.rs",
+        "crates/vinpst-cli/tests/provider_list.rs",
+        "crates/vinpst-cli/tests/registry_validate.rs",
+        "crates/vinpst-registry/src/lib.rs",
+        "crates/vinpst-registry/src/live_fetch.rs",
+        "crates/vinpst-registry/src/plan.rs",
+        "crates/vinpst-registry/src/schema.rs"
+      ],
+      "notes": [
+        "This current-only unit owns the standalone `vinpst registry` Clap surface, its local-index validate/plan/install-plan command implementation, and the CLI glue shared by live model/provider/adapter registry loading. Generic command aggregation, domain-specific model/provider/adapter presentation, registry transport/cache implementations, and live i18n remain supporting responsibilities rather than being re-owned here.",
+        "The audit found a second registry-URL correctness gap after REGISTRY-FACADE-001. CLI live registry and CLI/registry i18n paths still had independent string-concatenation helpers, so a valid configured mirror containing query or fragment components placed `registry/*.json` or `i18n/*.json` after `?`/`#` instead of in the URL path. The registry crate now exports one resolve_registry_url policy used by asset planning, live registry catalogs, CLI i18n, and best-effort registry i18n refresh; parsed URLs preserve userinfo/query/fragment for requests while opaque mirrors keep the existing string fallback.",
+        "The same call-chain review found a user-visible credential disclosure. Raw configured `registry_urls` and the successful cache layer `fresh_url` flowed into model/provider/adapter source JSON, model human source labels, validation context strings, and cached/uncached i18n source diagnostics. A mirror such as `https://user:pass@host/root?token=...` could therefore be fetched correctly but then printed back to the terminal or JSON output with its credentials.",
+        "Request and diagnostic representations are now separated. Network fetches still receive the exact configured URL, while registry_url_for_diagnostics removes URL userinfo/fragments, replaces query values with REDACTED, preserves safe opaque mirrors, and fails closed for suspicious unparseable values. FetchedText stores only a sanitized resolved source because every consumer uses that field for presentation/parse context rather than a subsequent request; source JSON also projects the complete mirror list through the same diagnostic helper.",
+        "Explicit local `--registry` files are covered too. Although no network request occurs in that mode, model/provider/adapter source JSON previously copied mirrors from the selected config verbatim as metadata. Those rows now use registry_urls_for_diagnostics, so choosing a local registry cannot become an accidental credential-dump command. Bare `vinpst registry` similarly projects its bundled index URLs through the diagnostic boundary even though bundled mirrors are expected to be public.",
+        "Remote registry i18n had both cached and uncached raw-URL presentation paths. Both now keep the raw URL only for RegistryTextSource::fetch_registry_text and use the diagnostic projection for layer JSON and source labels. A deterministic fake-source regression proves the requests still carry the original credentialed/query URL while the resulting diagnostics contain only the redacted URL shape.",
+        "registry_support.rs also owns the managed-script transaction helper used by provider/adapter installs. Its pre-update symlink/non-regular-file rejection, same-directory backup, rollback after install or config-write failure, and cleanup behavior were reviewed against existing process tests; this URL hardening does not alter those side-effect semantics. LoadedLiveScriptRegistry/FetchedText deliberately do not derive Debug over registry bodies or raw request state.",
+        "The typed RegistryCommand surface remains intentionally compact: model/adapter selectors are mutually exclusive at Clap parse time, summary-only removes per-asset rows, validate reads only the explicit local index, and install-plan is side-effect free. Runtime errors retain the previously audited generic JSON/text error formatting rather than introducing a second registry-specific error envelope.",
+        "Evidence includes full-file review of cli/registry.rs, commands/registry.rs, and registry_support.rs plus model/provider/adapter/i18n consumers; shared URL join and diagnostic helper regressions, an uncached remote-i18n raw-request-versus-redacted-diagnostic test, a process-level credentialed-config plus local-registry model-list JSON test, registry/provider/model/adapter CLI suites, strict CLI/registry Clippy, downstream compile checks, docs build, secret scan, diff check, and the module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [],
   "current_pending": [
-    "crates/vinpst-cli/src/cli/registry.rs",
     "crates/vinpst-cli/src/commands/mod.rs",
-    "crates/vinpst-cli/src/commands/registry.rs",
     "crates/vinpst-cli/src/commands/system.rs",
     "crates/vinpst-cli/src/config_examples.rs",
     "crates/vinpst-cli/src/daemon_control/handoff.rs",
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
-    "crates/vinpst-cli/src/registry_support.rs",
     "crates/vinpst-daemon/src/lib.rs",
     "crates/vinpst-daemon/src/runtime/asr_menu.rs",
     "crates/vinpst-daemon/src/runtime/capture.rs",
