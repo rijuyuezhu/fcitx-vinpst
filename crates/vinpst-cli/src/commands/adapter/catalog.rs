@@ -8,6 +8,11 @@ use super::{
     load_config_file, load_config_json, load_live_i18n, managed_script_relative_path,
     materialize_llm_adapter, validate_config_json_value, write_config_set_document,
 };
+use crate::{
+    paths::default_cache_root,
+    registry_support::{fetched_text_source_json, print_cache_fallback_warning},
+};
+use vinpst_registry::adapter_registry_cache_path;
 
 pub(super) fn print_adapter_install(request: AdapterInstallRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
@@ -188,23 +193,19 @@ pub(super) fn load_live_adapter_registry(
         });
     }
     let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
+    let cache_path = adapter_registry_cache_path(&default_cache_root()?);
+    let fetched = fetch_text_from_mirrors(&source, &registry_urls, &cache_path)
         .context("fetch live adapter registry from configured mirrors")?;
     let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::LlmAdapter)
         .with_context(|| {
             format!(
                 "validate live adapter registry fetched from `{}`",
-                fetched.url
+                fetched.resolved_source
             )
         })?;
     Ok(LoadedLiveScriptRegistry {
         registry,
-        source_json: serde_json::json!({
-            "kind": "http",
-            "url": fetched.url,
-            "mirror_count": registry_config.base_urls.len(),
-            "registry_urls": registry_urls,
-        }),
+        source_json: fetched_text_source_json(&fetched, &cache_path, &registry_urls),
     })
 }
 
@@ -366,6 +367,7 @@ fn print_available_adapter_list(
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        print_cache_fallback_warning(&loaded.source_json, "adapter registry");
         print_available_adapter_list_text(&loaded, &loaded_i18n, &context, &configured_ids);
     }
     Ok(())

@@ -6,11 +6,13 @@ use super::{
     RegistryAssetStagingError, RegistryCacheError, RegistryCachedFetchError, RegistryEntryKind,
     RegistryError, RegistryFetchError, RegistryIndex, RegistryMaterializeError,
     RegistrySha256Error, RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, checked_archive_entry_target, fetch_registry_index_from_mirrors,
-    fetch_registry_index_with_cache, install_live_model, materialize_staged_tree,
-    plan_archive_staging_paths, plan_archive_staging_paths_for_plan, sha256_hex,
-    stage_archive_by_format, stage_planned_asset, stage_tar_archive, stage_tar_bz2_archive,
-    stage_tar_zst_archive, verify_sha256_bytes, verify_sha256_file, verify_sha256_reader,
+    ReqwestRegistryTextSource, adapter_registry_cache_path, checked_archive_entry_target,
+    fetch_registry_index_from_mirrors, fetch_registry_index_with_cache,
+    fetch_registry_text_with_cache, install_live_model, materialize_staged_tree,
+    model_registry_cache_path, plan_archive_staging_paths, plan_archive_staging_paths_for_plan,
+    provider_registry_cache_path, registry_i18n_cache_path, sha256_hex, stage_archive_by_format,
+    stage_planned_asset, stage_tar_archive, stage_tar_bz2_archive, stage_tar_zst_archive,
+    verify_sha256_bytes, verify_sha256_file, verify_sha256_reader,
 };
 use vinpst_config::RegistryConfig;
 
@@ -942,6 +944,58 @@ fn registry_text_cache_uses_stale_cache_after_fetch_failure() {
     assert_eq!(
         source.attempts(),
         ["https://mirror.invalid/index.json".to_owned()]
+    );
+}
+
+#[test]
+fn raw_registry_text_cache_reports_fresh_and_stale_sources() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let cache = RegistryTextCache::new(temp_dir.path().join("registry/models.json"));
+    let url = "https://mirror.invalid/registry/models.json".to_owned();
+    let fresh_source = StaticRegistryTextSource::default().with_response(&url, Ok("fresh"));
+
+    let fresh = fetch_registry_text_with_cache(&fresh_source, std::slice::from_ref(&url), &cache)
+        .expect("fresh registry text");
+    assert_eq!(fresh.text, "fresh");
+    assert_eq!(fresh.fresh_url.as_deref(), Some(url.as_str()));
+    assert!(!fresh.used_cache);
+    assert_eq!(fresh.fallback_error, None);
+    assert_eq!(std::fs::read_to_string(cache.path()).unwrap(), "fresh");
+
+    let offline_source = StaticRegistryTextSource::default().with_response(&url, Err("offline"));
+    let stale = fetch_registry_text_with_cache(&offline_source, std::slice::from_ref(&url), &cache)
+        .expect("stale registry text");
+    assert_eq!(stale.text, "fresh");
+    assert_eq!(stale.fresh_url, None);
+    assert!(stale.used_cache);
+    assert_eq!(
+        stale.fallback_error.as_deref(),
+        Some("all registry mirrors failed")
+    );
+}
+
+#[test]
+fn live_registry_cache_paths_match_vinpst_layout() {
+    let root = std::path::Path::new("/cache/fcitx-vinpst");
+    assert_eq!(
+        model_registry_cache_path(root),
+        root.join("registry/models.json")
+    );
+    assert_eq!(
+        provider_registry_cache_path(root),
+        root.join("registry/providers.json")
+    );
+    assert_eq!(
+        adapter_registry_cache_path(root),
+        root.join("registry/adapters.json")
+    );
+    assert_eq!(
+        registry_i18n_cache_path(root, "zh_CN"),
+        root.join("registry/i18n/zh_CN.json")
+    );
+    assert_eq!(
+        registry_i18n_cache_path(root, "../../bad"),
+        root.join("registry/i18n/______bad.json")
     );
 }
 

@@ -1,6 +1,6 @@
 //! Browsable provider and adapter registry catalogs for the Resources page.
 
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use iced::Task;
 use vinpst_config::VinpstConfig;
@@ -9,8 +9,9 @@ use vinpst_registry::{
 };
 
 use crate::{
-    App, GuiLocale, GuiText, Message, blocking_task, model_management::fetch_registry_i18n,
-    script_management::fetch_live_script_registry_with_base_from,
+    App, GuiLocale, GuiText, Message, blocking_task,
+    model_management::{default_registry_cache_root, fetch_registry_i18n},
+    script_management::fetch_live_script_registry_cached_from,
 };
 
 /// Display-safe metadata for one installable provider or adapter.
@@ -45,7 +46,15 @@ pub(crate) fn load_registry_script_catalog(
     let registry_source =
         ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
-    fetch_registry_script_catalog_from(config, locale, kind, &registry_source, &i18n_source)
+    let cache_root = default_registry_cache_root()?;
+    fetch_registry_script_catalog_from(
+        config,
+        locale,
+        kind,
+        &registry_source,
+        &i18n_source,
+        &cache_root,
+    )
 }
 
 fn fetch_registry_script_catalog_from(
@@ -54,11 +63,17 @@ fn fetch_registry_script_catalog_from(
     kind: LiveScriptKind,
     registry_source: &impl RegistryTextSource,
     i18n_source: &impl RegistryTextSource,
+    cache_root: &Path,
 ) -> Result<Vec<RegistryScriptSummary>, String> {
     let control = RegistryOperationControl::default();
-    let (registry, _) =
-        fetch_live_script_registry_with_base_from(config, kind, &control, registry_source)?;
-    let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale);
+    let registry = fetch_live_script_registry_cached_from(
+        config,
+        kind,
+        &control,
+        registry_source,
+        cache_root,
+    )?;
+    let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale, cache_root);
     Ok(registry
         .items
         .iter()
@@ -158,6 +173,7 @@ mod tests {
 
     #[test]
     fn provider_catalog_uses_localized_titles_and_stable_selectors() {
+        let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         config.registry.base_urls = vec!["https://registry.example".to_owned()];
         let source = FixtureSource {
@@ -179,6 +195,7 @@ mod tests {
             LiveScriptKind::AsrProvider,
             &source,
             &source,
+            cache.path(),
         )
         .expect("catalog");
 
@@ -189,10 +206,31 @@ mod tests {
             catalog[0].description.as_deref(),
             Some("Simple demo recognizer")
         );
+
+        let offline = FixtureSource {
+            files: HashMap::new(),
+        };
+        let cached = fetch_registry_script_catalog_from(
+            &config,
+            GuiLocale::EnUs,
+            LiveScriptKind::AsrProvider,
+            &offline,
+            &offline,
+            cache.path(),
+        )
+        .expect("stale provider and i18n cache");
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].selector(), "demo");
+        assert_eq!(cached[0].title, "Demo provider");
+        assert_eq!(
+            cached[0].description.as_deref(),
+            Some("Simple demo recognizer")
+        );
     }
 
     #[test]
     fn adapter_catalog_uses_the_adapter_registry_endpoint() {
+        let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         config.registry.base_urls = vec!["https://registry.example".to_owned()];
         let source = FixtureSource {
@@ -214,6 +252,7 @@ mod tests {
             LiveScriptKind::LlmAdapter,
             &source,
             &source,
+            cache.path(),
         )
         .expect("catalog");
 

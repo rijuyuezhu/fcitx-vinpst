@@ -10,8 +10,9 @@ use vinpst_config::{AsrProviderKind, VinpstConfig};
 use vinpst_registry::{
     InstalledModelInfo, LiveModelFamily, LiveModelInstallError, LiveModelInstallRequest,
     LiveModelRegistry, LiveRegistryI18n, ManagedModelRemoveRequest, RegistryOperationControl,
-    RegistryOperationProgress, RegistryTextSource, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, install_live_model_controlled, managed_model_dir_name,
+    RegistryOperationProgress, RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource,
+    ReqwestRegistryTextSource, fetch_registry_text_with_cache, install_live_model_controlled,
+    managed_model_dir_name, model_registry_cache_path, registry_i18n_cache_path,
     remove_managed_model, scan_installed_models,
 };
 
@@ -58,6 +59,10 @@ fn default_model_staging_root() -> Result<PathBuf, String> {
         .join("model-install"))
 }
 
+pub(crate) fn default_registry_cache_root() -> Result<PathBuf, String> {
+    Ok(user_cache_home()?.join("fcitx-vinpst"))
+}
+
 fn user_data_home() -> Result<PathBuf, String> {
     match env::var_os("XDG_DATA_HOME") {
         Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
@@ -91,7 +96,8 @@ pub(crate) fn load_registry_model_catalog(
     let registry_source =
         ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
     let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
-    fetch_registry_model_catalog_from(config, locale, &registry_source, &i18n_source)
+    let cache_root = default_registry_cache_root()?;
+    fetch_registry_model_catalog_from(config, locale, &registry_source, &i18n_source, &cache_root)
 }
 
 fn fetch_registry_model_catalog_from(
@@ -99,59 +105,44 @@ fn fetch_registry_model_catalog_from(
     locale: GuiLocale,
     registry_source: &impl RegistryTextSource,
     i18n_source: &impl RegistryTextSource,
+    cache_root: &Path,
 ) -> Result<Vec<RegistryModelSummary>, String> {
-    if config.registry.base_urls.is_empty() {
-        return Err("No registry mirrors are configured.".to_owned());
-    }
-    let mut failure_count = 0;
-    for base in &config.registry.base_urls {
-        let url = format!("{}/registry/models.json", base.trim_end_matches('/'));
-        let Ok(text) = registry_source.fetch_registry_text(&url) else {
-            failure_count += 1;
-            continue;
-        };
-        let Ok(registry) = LiveModelRegistry::from_json_str(&text) else {
-            failure_count += 1;
-            continue;
-        };
-        let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale);
-        return Ok(registry
-            .items
-            .iter()
-            .map(|model| RegistryModelSummary {
-                id: model.id.clone(),
-                short_id: model.short_id.clone(),
-                title: model.resolved_title(i18n.as_ref()),
-                description: model.resolved_description(i18n.as_ref()),
-                model_type: model
-                    .vinpst_model
-                    .as_ref()
-                    .and_then(|metadata| metadata.model_family().map(str::to_owned)),
-                language: model.language.clone(),
-                size_bytes: model.size_bytes,
-                runtime: model
-                    .vinpst_model
-                    .as_ref()
-                    .and_then(|metadata| metadata.runtime.clone()),
-                supports_hotwords: model.supports_hotwords(),
-                supported: model_is_supported(model),
-            })
-            .collect());
-    }
-    Err(format!(
-        "All {failure_count} configured registry mirrors failed."
-    ))
+    let registry = fetch_live_model_registry_from(config, registry_source, cache_root)?;
+    let i18n = fetch_registry_i18n(i18n_source, &config.registry.base_urls, locale, cache_root);
+    Ok(registry
+        .items
+        .iter()
+        .map(|model| RegistryModelSummary {
+            id: model.id.clone(),
+            short_id: model.short_id.clone(),
+            title: model.resolved_title(i18n.as_ref()),
+            description: model.resolved_description(i18n.as_ref()),
+            model_type: model
+                .vinpst_model
+                .as_ref()
+                .and_then(|metadata| metadata.model_family().map(str::to_owned)),
+            language: model.language.clone(),
+            size_bytes: model.size_bytes,
+            runtime: model
+                .vinpst_model
+                .as_ref()
+                .and_then(|metadata| metadata.runtime.clone()),
+            supports_hotwords: model.supports_hotwords(),
+            supported: model_is_supported(model),
+        })
+        .collect())
 }
 
 pub(crate) fn fetch_registry_i18n(
     source: &impl RegistryTextSource,
     bases: &[String],
     locale: GuiLocale,
+    cache_root: &Path,
 ) -> Option<LiveRegistryI18n> {
     let preferred = locale.code();
-    let preferred = fetch_i18n_layer(source, bases, preferred);
+    let preferred = fetch_i18n_layer(source, bases, preferred, cache_root);
     let fallback = (locale.code() != "en_US")
-        .then(|| fetch_i18n_layer(source, bases, "en_US"))
+        .then(|| fetch_i18n_layer(source, bases, "en_US", cache_root))
         .flatten();
     let merged = LiveRegistryI18n::merge_layers([fallback, preferred].into_iter().flatten());
     (!merged.entries.is_empty()).then_some(merged)
@@ -161,14 +152,15 @@ fn fetch_i18n_layer(
     source: &impl RegistryTextSource,
     bases: &[String],
     locale: &str,
+    cache_root: &Path,
 ) -> Option<LiveRegistryI18n> {
-    for base in bases {
-        let url = format!("{}/i18n/{locale}.json", base.trim_end_matches('/'));
-        if let Ok(text) = source.fetch_registry_text(&url) {
-            return LiveRegistryI18n::from_json_str(&text).ok();
-        }
-    }
-    None
+    let urls = bases
+        .iter()
+        .map(|base| format!("{}/i18n/{locale}.json", base.trim_end_matches('/')))
+        .collect::<Vec<_>>();
+    let cache = RegistryTextCache::new(registry_i18n_cache_path(cache_root, locale));
+    let fetched = fetch_registry_text_with_cache(source, &urls, &cache).ok()?;
+    LiveRegistryI18n::from_json_str(&fetched.text).ok()
 }
 
 fn model_is_supported(model: &vinpst_registry::LiveModelEntry) -> bool {
@@ -266,12 +258,14 @@ fn remove_staging_dir(path: &Path) {
 
 fn fetch_live_model_registry(config: &VinpstConfig) -> Result<LiveModelRegistry, String> {
     let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    fetch_live_model_registry_from(config, &source)
+    let cache_root = default_registry_cache_root()?;
+    fetch_live_model_registry_from(config, &source, &cache_root)
 }
 
 fn fetch_live_model_registry_from(
     config: &VinpstConfig,
     source: &impl RegistryTextSource,
+    cache_root: &Path,
 ) -> Result<LiveModelRegistry, String> {
     let urls = config
         .registry
@@ -282,19 +276,11 @@ fn fetch_live_model_registry_from(
     if urls.is_empty() {
         return Err("No registry mirrors are configured.".to_owned());
     }
-    let mut failure_count = 0;
-    for url in &urls {
-        match source.fetch_registry_text(url) {
-            Ok(text) => {
-                return LiveModelRegistry::from_json_str(&text)
-                    .map_err(|error| format!("Registry model catalog is invalid: {error}"));
-            }
-            Err(_) => failure_count += 1,
-        }
-    }
-    Err(format!(
-        "All {failure_count} configured registry mirrors failed."
-    ))
+    let cache = RegistryTextCache::new(model_registry_cache_path(cache_root));
+    let fetched = fetch_registry_text_with_cache(source, &urls, &cache)
+        .map_err(|_| "Registry model catalog is unavailable.".to_owned())?;
+    LiveModelRegistry::from_json_str(&fetched.text)
+        .map_err(|error| format!("Registry model catalog is invalid: {error}"))
 }
 
 pub(crate) fn remove_installed_model(
@@ -404,6 +390,7 @@ mod tests {
 
     #[test]
     fn registry_model_fetch_uses_mirror_fallback_without_leaking_urls() {
+        let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         let first = "https://user:super-secret@first.invalid".to_owned();
         let second = "https://second.invalid".to_owned();
@@ -427,19 +414,27 @@ mod tests {
             ]),
         };
 
-        let registry = fetch_live_model_registry_from(&config, &source).expect("mirror fallback");
+        let registry = fetch_live_model_registry_from(&config, &source, cache.path())
+            .expect("mirror fallback");
         assert!(registry.model_by_id_or_short_id("fixture").is_some());
 
+        let offline = StubRegistryTextSource::default();
+        let cached = fetch_live_model_registry_from(&config, &offline, cache.path())
+            .expect("stale cache fallback");
+        assert!(cached.model_by_id_or_short_id("fixture").is_some());
+
+        let empty_cache = tempfile::tempdir().expect("empty cache directory");
         let failed = StubRegistryTextSource::default();
-        let error =
-            fetch_live_model_registry_from(&config, &failed).expect_err("all mirrors should fail");
-        assert_eq!(error, "All 2 configured registry mirrors failed.");
+        let error = fetch_live_model_registry_from(&config, &failed, empty_cache.path())
+            .expect_err("all mirrors and cache should fail");
+        assert_eq!(error, "Registry model catalog is unavailable.");
         assert!(!error.contains("super-secret"));
         assert!(!error.contains("first.invalid"));
     }
 
     #[test]
     fn registry_model_catalog_exposes_localized_browsable_metadata() {
+        let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         let base = "https://registry.invalid".to_owned();
         config.registry.base_urls = vec![base.clone()];
@@ -472,8 +467,14 @@ mod tests {
             ]),
         };
 
-        let catalog = fetch_registry_model_catalog_from(&config, GuiLocale::ZhCn, &source, &source)
-            .expect("catalog");
+        let catalog = fetch_registry_model_catalog_from(
+            &config,
+            GuiLocale::ZhCn,
+            &source,
+            &source,
+            cache.path(),
+        )
+        .expect("catalog");
         assert_eq!(catalog.len(), 1);
         let model = &catalog[0];
         assert_eq!(model.selector(), "test-stream");
@@ -488,7 +489,8 @@ mod tests {
     }
 
     #[test]
-    fn registry_model_catalog_skips_a_malformed_mirror() {
+    fn registry_model_catalog_rejects_malformed_first_successful_mirror() {
+        let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         let first = "https://first.invalid".to_owned();
         let second = "https://second.invalid".to_owned();
@@ -523,17 +525,15 @@ mod tests {
             )]),
         };
 
-        let catalog = fetch_registry_model_catalog_from(
+        let error = fetch_registry_model_catalog_from(
             &config,
             GuiLocale::EnUs,
             &registry_source,
             &i18n_source,
+            cache.path(),
         )
-        .expect("malformed mirror must fall through");
-        assert_eq!(catalog.len(), 1);
-        assert_eq!(catalog[0].selector(), "fallback");
-        assert_eq!(catalog[0].title, "Fallback translation");
-        assert!(catalog[0].supported);
+        .expect_err("malformed successful response must not fall through");
+        assert!(error.starts_with("Registry model catalog is invalid:"));
     }
 
     #[test]

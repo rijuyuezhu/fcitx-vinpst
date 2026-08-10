@@ -7,6 +7,13 @@ use super::{
     live_registry_urls, load_config_file, load_live_i18n, load_registry_installed_model_info,
     scan_installed_models,
 };
+use crate::{
+    paths::default_cache_root,
+    registry_support::{
+        fetched_text_source_json, fetched_text_source_label, print_cache_fallback_warning,
+    },
+};
+use vinpst_registry::model_registry_cache_path;
 
 pub(super) fn handle_model_list_command(request: &ModelListOwnedRequest) -> anyhow::Result<()> {
     print_model_list(ModelListRequest {
@@ -52,6 +59,7 @@ fn print_model_list(request: ModelListRequest<'_>) -> anyhow::Result<()> {
     if request.json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        print_cache_fallback_warning(&loaded.source_json, "model registry");
         print_model_list_text(&loaded, &i18n);
     }
     Ok(())
@@ -113,6 +121,7 @@ pub(super) fn print_model_info(request: ModelInfoRequest<'_>) -> anyhow::Result<
     if request.json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        print_cache_fallback_warning(&loaded.source_json, "model registry");
         print_model_info_text(model, i18n.i18n.as_ref(), &loaded, &i18n);
     }
     Ok(())
@@ -191,23 +200,19 @@ fn load_live_model_registry(
     }
 
     let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
+    let cache_path = model_registry_cache_path(&default_cache_root()?);
+    let fetched = fetch_text_from_mirrors(&source, &registry_urls, &cache_path)
         .context("fetch live model registry from configured mirrors")?;
     let registry = LiveModelRegistry::from_json_str(&fetched.text).with_context(|| {
         format!(
             "validate live model registry fetched from `{}`",
-            fetched.url
+            fetched.resolved_source
         )
     })?;
-    let source_label = format!("url:{}", fetched.url);
+    let source_label = fetched_text_source_label(&fetched);
     Ok(LoadedLiveModelRegistry {
         registry,
-        source_json: serde_json::json!({
-            "kind": "http",
-            "url": fetched.url,
-            "mirror_count": registry_config.base_urls.len(),
-            "registry_urls": registry_urls,
-        }),
+        source_json: fetched_text_source_json(&fetched, &cache_path, &registry_urls),
         source_label,
     })
 }

@@ -3,7 +3,8 @@
 mod common;
 
 use common::{
-    assert_json_success, assert_stdout_success, vinpst_command, workspace_file, write_temp_json,
+    assert_json_success, assert_stdout_success, isolated_vinpst_command, vinpst_command,
+    workspace_file, write_temp_json,
 };
 
 fn live_models_fixture() -> std::path::PathBuf {
@@ -60,6 +61,44 @@ fn model_list_json_accepts_live_sensevoice_fixture() {
         model["sha256"],
         "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63"
     );
+}
+
+#[test]
+fn model_list_json_uses_stale_registry_and_i18n_cache_when_mirror_is_offline() {
+    let (root, mut command) = isolated_vinpst_command("vinpst-model-stale-cache");
+    let config_path = root.path().join("config.json");
+    let mut config: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace_file("data/default-config.json"))
+            .expect("read default config"),
+    )
+    .expect("parse default config");
+    config["registry"]["base_urls"] = serde_json::json!(["http://127.0.0.1:9"]);
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize test config"),
+    )
+    .expect("write test config");
+
+    let cache_root = root.path().join("cache/fcitx-vinpst/registry");
+    std::fs::create_dir_all(cache_root.join("i18n")).expect("create registry cache");
+    std::fs::copy(live_models_fixture(), cache_root.join("models.json"))
+        .expect("seed model registry cache");
+    std::fs::copy(live_i18n_fixture(), cache_root.join("i18n/zh_CN.json"))
+        .expect("seed registry i18n cache");
+
+    let output = command
+        .args(["model", "list", "--config"])
+        .arg(&config_path)
+        .args(["--locale", "zh_CN", "--json"])
+        .output()
+        .expect("run model list with offline registry mirror");
+
+    let value = assert_json_success(output, "model list stale cache json");
+    assert_eq!(value["source"]["kind"], "cache");
+    assert_eq!(value["source"]["used_cache"], true);
+    assert_eq!(value["i18n"]["kind"], "cache");
+    assert_eq!(value["i18n"]["used_cache"], true);
+    assert_eq!(value["models"][0]["title"], "SenseVoice 五语");
 }
 
 #[test]

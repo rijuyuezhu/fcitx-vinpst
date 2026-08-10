@@ -13,6 +13,19 @@ use thiserror::Error;
 
 use crate::{RegistryError, RegistryFetchError, RegistryIndex, RegistryTextSource};
 
+/// Raw registry text returned from a fresh mirror or stale cache fallback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedRegistryText {
+    /// Registry document text.
+    pub text: String,
+    /// Fresh mirror URL when the network fetch succeeded.
+    pub fresh_url: Option<String>,
+    /// Whether the returned text came from stale cache.
+    pub used_cache: bool,
+    /// Sanitized fresh-fetch failure when stale cache was used.
+    pub fallback_error: Option<String>,
+}
+
 /// Registry text cache errors.
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum RegistryCacheError {
@@ -84,13 +97,18 @@ impl RegistryTextCache {
 
     /// Reads cached registry text and parses it as a registry index.
     pub fn read_index(&self) -> Result<RegistryIndex, RegistryCacheError> {
-        let text = fs::read_to_string(&self.path).map_err(|error| RegistryCacheError::Read {
-            path: display_path(&self.path),
-            message: sanitize_io_error(&error),
-        })?;
+        let text = self.read_text()?;
         RegistryIndex::from_json_str(&text).map_err(|error| RegistryCacheError::InvalidIndex {
             path: display_path(&self.path),
             error,
+        })
+    }
+
+    /// Reads cached registry text without interpreting its schema.
+    pub fn read_text(&self) -> Result<String, RegistryCacheError> {
+        fs::read_to_string(&self.path).map_err(|error| RegistryCacheError::Read {
+            path: display_path(&self.path),
+            message: sanitize_io_error(&error),
         })
     }
 
@@ -108,9 +126,12 @@ impl RegistryTextCache {
         }
 
         let temp_path = self.temp_path();
-        fs::write(&temp_path, text).map_err(|error| RegistryCacheError::Write {
-            path: display_path(&self.path),
-            message: sanitize_io_error(&error),
+        fs::write(&temp_path, text).map_err(|error| {
+            let _ = fs::remove_file(&temp_path);
+            RegistryCacheError::Write {
+                path: display_path(&self.path),
+                message: sanitize_io_error(&error),
+            }
         })?;
         fs::rename(&temp_path, &self.path).map_err(|error| {
             let _ = fs::remove_file(&temp_path);
@@ -132,6 +153,74 @@ impl RegistryTextCache {
             .map_or(0, |duration| duration.as_nanos());
         self.path
             .with_file_name(format!(".{file_name}.tmp.{}.{unique}", std::process::id()))
+    }
+}
+
+/// Cache path for the live model registry under one Vinpst cache root.
+#[must_use]
+pub fn model_registry_cache_path(cache_root: &Path) -> PathBuf {
+    cache_root.join("registry").join("models.json")
+}
+
+/// Cache path for the live ASR-provider registry under one Vinpst cache root.
+#[must_use]
+pub fn provider_registry_cache_path(cache_root: &Path) -> PathBuf {
+    cache_root.join("registry").join("providers.json")
+}
+
+/// Cache path for the live LLM-adapter registry under one Vinpst cache root.
+#[must_use]
+pub fn adapter_registry_cache_path(cache_root: &Path) -> PathBuf {
+    cache_root.join("registry").join("adapters.json")
+}
+
+/// Cache path for one normalized registry locale under one Vinpst cache root.
+#[must_use]
+pub fn registry_i18n_cache_path(cache_root: &Path, locale: &str) -> PathBuf {
+    let safe_locale = locale
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    cache_root
+        .join("registry")
+        .join("i18n")
+        .join(format!("{safe_locale}.json"))
+}
+
+/// Fetches raw registry text, updates cache after fresh success, and falls back
+/// to stale cached text only when all fresh mirror attempts fail.
+pub fn fetch_registry_text_with_cache(
+    source: &impl RegistryTextSource,
+    mirrors: &[String],
+    cache: &RegistryTextCache,
+) -> Result<CachedRegistryText, RegistryCachedFetchError> {
+    match crate::fetch::fetch_registry_text_from_mirrors(source, mirrors) {
+        Ok(fetched) => {
+            cache
+                .write_text_atomic(&fetched.text)
+                .map_err(RegistryCachedFetchError::CacheWrite)?;
+            Ok(CachedRegistryText {
+                text: fetched.text,
+                fresh_url: Some(fetched.url),
+                used_cache: false,
+                fallback_error: None,
+            })
+        }
+        Err(fetch) => match cache.read_text() {
+            Ok(text) => Ok(CachedRegistryText {
+                text,
+                fresh_url: None,
+                used_cache: true,
+                fallback_error: Some(fetch.to_string()),
+            }),
+            Err(cache) => Err(RegistryCachedFetchError::StaleCacheUnavailable { fetch, cache }),
+        },
     }
 }
 

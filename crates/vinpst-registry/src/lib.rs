@@ -34,8 +34,9 @@ pub use asset::{
     stage_planned_asset_controlled,
 };
 pub use cache::{
-    RegistryCacheError, RegistryCachedFetchError, RegistryTextCache,
-    fetch_registry_index_with_cache,
+    CachedRegistryText, RegistryCacheError, RegistryCachedFetchError, RegistryTextCache,
+    adapter_registry_cache_path, fetch_registry_index_with_cache, fetch_registry_text_with_cache,
+    model_registry_cache_path, provider_registry_cache_path, registry_i18n_cache_path,
 };
 pub use checksum::{
     RegistrySha256Error, sha256_hex, verify_sha256_bytes, verify_sha256_file, verify_sha256_reader,

@@ -3,18 +3,24 @@
 #[cfg(test)]
 mod removal_tests;
 
-use std::{env, path::PathBuf, time::Duration};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use vinpst_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinpstConfig};
 use vinpst_registry::{
     LiveScriptKind, LiveScriptRegistry, RegistryOperationControl, RegistryOperationProgress,
-    RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
-    install_live_script_controlled, managed_script_relative_path, managed_script_rollback_path,
-    materialize_asr_provider, materialize_llm_adapter,
+    RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
+    adapter_registry_cache_path, fetch_registry_text_with_cache, install_live_script_controlled,
+    managed_script_relative_path, managed_script_rollback_path, materialize_asr_provider,
+    materialize_llm_adapter, provider_registry_cache_path,
 };
 
 use crate::{
     ConfigDocument, ConfigSaveOutcome, GuiLocale, GuiText, ensure_config_mutation_allowed,
+    model_management::default_registry_cache_root,
     save_updated_config_with_daemon,
     script_install::{
         ScriptEnvironmentValue, ScriptInstallOutcome, ScriptInstallPlan, ScriptPrepareOutcome,
@@ -37,9 +43,22 @@ pub(crate) fn prepare_registry_script_controlled(
     };
     let registry_source =
         ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    prepare_registry_script_from_source(document, kind, selector, control, &registry_source, &root)
+    let cache_root = match default_registry_cache_root() {
+        Ok(cache_root) => cache_root,
+        Err(error) => return ScriptPrepareOutcome::Failed(error),
+    };
+    prepare_registry_script_from_source_with_cache(
+        document,
+        kind,
+        selector,
+        control,
+        &registry_source,
+        &root,
+        Some(&cache_root),
+    )
 }
 
+#[cfg(test)]
 fn prepare_registry_script_from_source(
     document: &ConfigDocument,
     kind: LiveScriptKind,
@@ -48,6 +67,26 @@ fn prepare_registry_script_from_source(
     registry_source: &impl RegistryTextSource,
     root: &std::path::Path,
 ) -> ScriptPrepareOutcome {
+    prepare_registry_script_from_source_with_cache(
+        document,
+        kind,
+        selector,
+        control,
+        registry_source,
+        root,
+        None,
+    )
+}
+
+fn prepare_registry_script_from_source_with_cache(
+    document: &ConfigDocument,
+    kind: LiveScriptKind,
+    selector: &str,
+    control: &RegistryOperationControl,
+    registry_source: &impl RegistryTextSource,
+    root: &std::path::Path,
+    cache_root: Option<&Path>,
+) -> ScriptPrepareOutcome {
     control.report(RegistryOperationProgress::ResolvingRegistry);
     if control.is_cancelled() {
         return ScriptPrepareOutcome::Cancelled;
@@ -55,12 +94,21 @@ fn prepare_registry_script_from_source(
     if let Err(error) = ensure_config_mutation_allowed(document) {
         return ScriptPrepareOutcome::Failed(error);
     }
-    let registry =
-        match fetch_live_script_registry_from(&document.config, kind, control, registry_source) {
-            Ok(registry) => registry,
-            Err(_) if control.is_cancelled() => return ScriptPrepareOutcome::Cancelled,
-            Err(error) => return ScriptPrepareOutcome::Failed(error),
-        };
+    let registry_result = match cache_root {
+        Some(cache_root) => fetch_live_script_registry_cached_from(
+            &document.config,
+            kind,
+            control,
+            registry_source,
+            cache_root,
+        ),
+        None => fetch_live_script_registry_from(&document.config, kind, control, registry_source),
+    };
+    let registry = match registry_result {
+        Ok(registry) => registry,
+        Err(_) if control.is_cancelled() => return ScriptPrepareOutcome::Cancelled,
+        Err(error) => return ScriptPrepareOutcome::Failed(error),
+    };
     let Some(entry) = registry.entry_by_id_or_short_id(selector, kind).cloned() else {
         return ScriptPrepareOutcome::Failed(format!(
             "Unknown {} registry id or short id `{selector}`.",
@@ -294,16 +342,6 @@ fn fetch_live_script_registry_from(
     control: &RegistryOperationControl,
     source: &impl RegistryTextSource,
 ) -> Result<LiveScriptRegistry, String> {
-    fetch_live_script_registry_with_base_from(config, kind, control, source)
-        .map(|(registry, _)| registry)
-}
-
-pub(crate) fn fetch_live_script_registry_with_base_from(
-    config: &VinpstConfig,
-    kind: LiveScriptKind,
-    control: &RegistryOperationControl,
-    source: &impl RegistryTextSource,
-) -> Result<(LiveScriptRegistry, String), String> {
     let filename = match kind {
         LiveScriptKind::AsrProvider => "providers.json",
         LiveScriptKind::LlmAdapter => "adapters.json",
@@ -324,17 +362,12 @@ pub(crate) fn fetch_live_script_registry_with_base_from(
         }
         match source.fetch_registry_text(url) {
             Ok(text) => {
-                let registry = LiveScriptRegistry::from_json_str(&text, kind).map_err(|error| {
+                return LiveScriptRegistry::from_json_str(&text, kind).map_err(|error| {
                     format!(
                         "{} registry catalog is invalid: {error}",
                         resource_title(kind)
                     )
-                })?;
-                let base = url
-                    .strip_suffix(&format!("/registry/{filename}"))
-                    .unwrap_or(url)
-                    .to_owned();
-                return Ok((registry, base));
+                });
             }
             Err(_) => failure_count += 1,
         }
@@ -343,6 +376,48 @@ pub(crate) fn fetch_live_script_registry_with_base_from(
         "All {failure_count} configured {} registry mirrors failed.",
         resource_label(kind)
     ))
+}
+
+pub(crate) fn fetch_live_script_registry_cached_from(
+    config: &VinpstConfig,
+    kind: LiveScriptKind,
+    control: &RegistryOperationControl,
+    source: &impl RegistryTextSource,
+    cache_root: &Path,
+) -> Result<LiveScriptRegistry, String> {
+    let filename = match kind {
+        LiveScriptKind::AsrProvider => "providers.json",
+        LiveScriptKind::LlmAdapter => "adapters.json",
+    };
+    let urls = config
+        .registry
+        .base_urls
+        .iter()
+        .map(|base| format!("{}/registry/{filename}", base.trim_end_matches('/')))
+        .collect::<Vec<_>>();
+    if urls.is_empty() {
+        return Err("No registry mirrors are configured.".to_owned());
+    }
+    if control.is_cancelled() {
+        return Err("Registry request cancelled.".to_owned());
+    }
+
+    let cache_path = match kind {
+        LiveScriptKind::AsrProvider => provider_registry_cache_path(cache_root),
+        LiveScriptKind::LlmAdapter => adapter_registry_cache_path(cache_root),
+    };
+    let cache = RegistryTextCache::new(cache_path);
+    let fetched = fetch_registry_text_with_cache(source, &urls, &cache)
+        .map_err(|_| format!("{} registry catalog is unavailable.", resource_title(kind)))?;
+    if control.is_cancelled() {
+        return Err("Registry request cancelled.".to_owned());
+    }
+    LiveScriptRegistry::from_json_str(&fetched.text, kind).map_err(|error| {
+        format!(
+            "{} registry catalog is invalid: {error}",
+            resource_title(kind)
+        )
+    })
 }
 
 pub(crate) fn materialize_config(

@@ -9,6 +9,11 @@ use super::{
     managed_script_relative_path, materialize_asr_provider, normalize_provider_id,
     validate_config_json_value, write_config_set_document,
 };
+use crate::{
+    paths::default_cache_root,
+    registry_support::{fetched_text_source_json, print_cache_fallback_warning},
+};
+use vinpst_registry::provider_registry_cache_path;
 
 pub(super) fn print_available_provider_list(
     registry_path: Option<&Path>,
@@ -57,6 +62,7 @@ pub(super) fn print_available_provider_list(
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        print_cache_fallback_warning(&loaded.source_json, "provider registry");
         print_available_provider_list_text(&loaded, &loaded_i18n, &context, &configured_ids);
     }
     Ok(())
@@ -326,23 +332,19 @@ pub(super) fn load_live_provider_registry(
         });
     }
     let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
-    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
+    let cache_path = provider_registry_cache_path(&default_cache_root()?);
+    let fetched = fetch_text_from_mirrors(&source, &registry_urls, &cache_path)
         .context("fetch live provider registry from configured mirrors")?;
     let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::AsrProvider)
         .with_context(|| {
             format!(
                 "validate live provider registry fetched from `{}`",
-                fetched.url
+                fetched.resolved_source
             )
         })?;
     Ok(LoadedLiveScriptRegistry {
         registry,
-        source_json: serde_json::json!({
-            "kind": "http",
-            "url": fetched.url,
-            "mirror_count": registry_config.base_urls.len(),
-            "registry_urls": registry_urls,
-        }),
+        source_json: fetched_text_source_json(&fetched, &cache_path, &registry_urls),
     })
 }
 

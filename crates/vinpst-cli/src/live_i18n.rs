@@ -9,8 +9,11 @@ use std::{
 use anyhow::Context;
 use serde_json::{Value, json};
 use vinpst_registry::{
-    LiveRegistryI18n, RegistryTextSource, ReqwestRegistryTextSource, normalize_registry_locale,
+    LiveRegistryI18n, RegistryTextCache, RegistryTextSource, ReqwestRegistryTextSource,
+    fetch_registry_text_with_cache, normalize_registry_locale, registry_i18n_cache_path,
 };
+
+use crate::paths::default_cache_root;
 
 const FALLBACK_LOCALE: &str = "en_US";
 
@@ -35,21 +38,42 @@ pub(crate) fn load_live_i18n(
 ) -> anyhow::Result<LoadedLiveI18n> {
     let source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
     let local_override_path = default_local_i18n_override_path();
-    load_live_i18n_with_source(
+    let cache_root = default_cache_root()?;
+    load_live_i18n_with_source_and_cache(
         &source,
         i18n_path,
         remote_base_urls,
         locale,
         local_override_path.as_deref(),
+        Some(&cache_root),
     )
 }
 
+#[cfg(test)]
 fn load_live_i18n_with_source(
     source: &impl RegistryTextSource,
     i18n_path: Option<&Path>,
     remote_base_urls: &[String],
     locale: &str,
     local_override_path: Option<&Path>,
+) -> anyhow::Result<LoadedLiveI18n> {
+    load_live_i18n_with_source_and_cache(
+        source,
+        i18n_path,
+        remote_base_urls,
+        locale,
+        local_override_path,
+        None,
+    )
+}
+
+fn load_live_i18n_with_source_and_cache(
+    source: &impl RegistryTextSource,
+    i18n_path: Option<&Path>,
+    remote_base_urls: &[String],
+    locale: &str,
+    local_override_path: Option<&Path>,
+    cache_root: Option<&Path>,
 ) -> anyhow::Result<LoadedLiveI18n> {
     let preferred_locale =
         normalize_registry_locale(locale).unwrap_or_else(|| FALLBACK_LOCALE.to_owned());
@@ -62,11 +86,13 @@ fn load_live_i18n_with_source(
         if preferred_locale == FALLBACK_LOCALE {
             (
                 skipped_layer("fallback", "preferred locale is en_US"),
-                fetch_remote_layer(source, remote_base_urls, &preferred_locale),
+                fetch_remote_layer(source, remote_base_urls, &preferred_locale, cache_root),
             )
         } else {
-            let preferred = fetch_remote_layer(source, remote_base_urls, &preferred_locale);
-            let fallback = fetch_remote_layer(source, remote_base_urls, FALLBACK_LOCALE);
+            let preferred =
+                fetch_remote_layer(source, remote_base_urls, &preferred_locale, cache_root);
+            let fallback =
+                fetch_remote_layer(source, remote_base_urls, FALLBACK_LOCALE, cache_root);
             (fallback, preferred)
         }
     } else {
@@ -211,13 +237,94 @@ fn fetch_remote_layer(
     source: &impl RegistryTextSource,
     remote_base_urls: &[String],
     locale: &str,
+    cache_root: Option<&Path>,
 ) -> LoadedI18nLayer {
     let urls = remote_base_urls
         .iter()
         .map(|base| join_url(base, &format!("i18n/{locale}.json")))
         .collect::<Vec<_>>();
+
+    if let Some(cache_root) = cache_root {
+        return fetch_cached_remote_layer(source, &urls, locale, cache_root);
+    }
+
+    fetch_uncached_remote_layer(source, &urls, locale)
+}
+
+fn fetch_cached_remote_layer(
+    source: &impl RegistryTextSource,
+    urls: &[String],
+    locale: &str,
+    cache_root: &Path,
+) -> LoadedI18nLayer {
+    let cache_path = registry_i18n_cache_path(cache_root, locale);
+    let cache = RegistryTextCache::new(&cache_path);
+    match fetch_registry_text_with_cache(source, urls, &cache) {
+        Ok(fetched) => {
+            let resolved_source = fetched
+                .fresh_url
+                .clone()
+                .unwrap_or_else(|| cache_path.display().to_string());
+            let label = if fetched.used_cache {
+                format!("cache:{resolved_source}")
+            } else {
+                format!("url:{resolved_source}")
+            };
+            match LiveRegistryI18n::from_json_str(&fetched.text) {
+                Ok(i18n) => LoadedI18nLayer {
+                    i18n: Some(i18n),
+                    diagnostic: json!({
+                        "kind": if fetched.used_cache { "cache" } else { "http" },
+                        "source": resolved_source,
+                        "locale": locale,
+                        "mirror_count": urls.len(),
+                        "loaded": true,
+                        "used_cache": fetched.used_cache,
+                        "fallback_error": fetched.fallback_error,
+                        "error": null,
+                    }),
+                    label,
+                },
+                Err(error) => LoadedI18nLayer {
+                    i18n: None,
+                    diagnostic: json!({
+                        "kind": if fetched.used_cache { "cache" } else { "http" },
+                        "source": resolved_source,
+                        "locale": locale,
+                        "mirror_count": urls.len(),
+                        "loaded": false,
+                        "used_cache": fetched.used_cache,
+                        "fallback_error": fetched.fallback_error,
+                        "error": error.to_string(),
+                    }),
+                    label: format!("{label} (parse failed)"),
+                },
+            }
+        }
+        Err(error) => LoadedI18nLayer {
+            i18n: None,
+            diagnostic: json!({
+                "kind": "cache",
+                "path": cache_path,
+                "locale": locale,
+                "mirror_count": urls.len(),
+                "loaded": false,
+                "used_cache": false,
+                "fallback_error": null,
+                "error": error.to_string(),
+            }),
+            label: format!("cache:{} (unavailable)", cache_path.display()),
+        },
+    }
+}
+
+fn fetch_uncached_remote_layer(
+    source: &impl RegistryTextSource,
+    urls: &[String],
+    locale: &str,
+) -> LoadedI18nLayer {
     let mut last_error = None;
-    for url in &urls {
+    for url in urls {
         let label = format!("url:{url}");
         match source.fetch_registry_text(url) {
             Ok(input) => {
