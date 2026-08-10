@@ -1313,12 +1313,8 @@ fn provider_list_available_text_prints_live_registry_table() {
 
     let stdout = assert_stdout_success(output, "provider list available text");
     assert!(stdout.contains("ID\tTITLE\tMODE\tSTATUS"));
-    assert!(
-        stdout.contains(
-            "provider.openai-compatible.streaming\tOpenAI 兼容流式\tstreaming\tinstalled"
-        )
-    );
-    assert!(stdout.contains("provider.doubao.batch\tdoubao-batch\tbatch\tavailable"));
+    assert!(stdout.contains("oai-stream\tOpenAI 兼容流式\tstreaming\tinstalled"));
+    assert!(stdout.contains("doubao-batch\tdoubao-batch\tbatch\tavailable"));
     for internal in [
         "registry_source:",
         "config_source:",

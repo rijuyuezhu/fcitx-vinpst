@@ -388,7 +388,7 @@ fn available_live_adapter_json(
         })
         .collect::<Vec<_>>();
     serde_json::json!({
-        "id": adapter.short_id.as_deref().unwrap_or(&adapter.id),
+        "id": adapter.display_id(),
         "machine_id": adapter.id,
         "title": adapter.resolved_title(i18n),
         "description": adapter.resolved_description(i18n),
@@ -414,7 +414,7 @@ fn print_available_adapter_list_text(
     for adapter in &loaded.registry.items {
         println!(
             "{}\t{}\t{}",
-            adapter.id,
+            adapter.display_id(),
             adapter.resolved_title(loaded_i18n.i18n.as_ref()),
             if configured_ids.contains(adapter.id.as_str()) {
                 "installed"

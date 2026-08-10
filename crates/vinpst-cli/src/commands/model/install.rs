@@ -1,8 +1,17 @@
+use std::{
+    io::{IsTerminal, Write},
+    sync::{Arc, Mutex},
+};
+
+use vinpst_registry::{
+    RegistryOperationControl, RegistryOperationProgress, install_live_model_controlled,
+};
+
 use super::{
     ArchiveFormat, Context, Duration, LiveModelEntry, LiveModelInstallRequest,
     LiveModelInstallResult, LiveRegistryI18n, LoadedLiveI18n, LoadedLiveModelRegistry,
     ModelInstallPlanRequest, Path, ReqwestRegistryAssetSource, default_model_install_staging_root,
-    default_model_root, install_live_model,
+    default_model_root,
 };
 use super::{
     catalog::{live_model_list_json, load_live_model_catalog},
@@ -49,7 +58,18 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
     let model_dir = model_root.join(managed_model_dir_name(model));
     let staging_dir = staging_root.join(managed_model_dir_name(model));
     let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(300));
-    let installed = install_live_model(
+    let progress = Arc::new(Mutex::new(ModelInstallProgress::new(
+        request.id_or_short_id,
+        std::io::stdout().is_terminal(),
+    )));
+    let reporter = Arc::clone(&progress);
+    let control = RegistryOperationControl::new(move |event| {
+        reporter
+            .lock()
+            .expect("model install progress lock poisoned")
+            .report(&event);
+    });
+    let install_result = install_live_model_controlled(
         &source,
         &LiveModelInstallRequest {
             model,
@@ -57,8 +77,13 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
             staging_dir: staging_dir.clone(),
             display: Some(model.installed_display_metadata(request.locale, i18n.i18n.as_ref())),
         },
-    )
-    .with_context(|| format!("install live model `{}`", model.id))?;
+        &control,
+    );
+    progress
+        .lock()
+        .expect("model install progress lock poisoned")
+        .finish(install_result.is_ok());
+    let installed = install_result.with_context(|| format!("install live model `{}`", model.id))?;
 
     if request.json_output {
         let output =
@@ -68,6 +93,63 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
         print_model_install_result_text(model, i18n.i18n.as_ref(), &installed);
     }
     Ok(())
+}
+
+struct ModelInstallProgress {
+    label: String,
+    is_tty: bool,
+    last_bucket: Option<u64>,
+    tty_line_open: bool,
+}
+
+impl ModelInstallProgress {
+    fn new(label: &str, is_tty: bool) -> Self {
+        Self {
+            label: label.to_owned(),
+            is_tty,
+            last_bucket: None,
+            tty_line_open: false,
+        }
+    }
+
+    fn report(&mut self, event: &RegistryOperationProgress) {
+        let RegistryOperationProgress::Downloading {
+            downloaded_bytes,
+            total_bytes: Some(total_bytes),
+        } = event
+        else {
+            return;
+        };
+        if *total_bytes == 0 {
+            return;
+        }
+        let percent = (downloaded_bytes.saturating_mul(100) / total_bytes).min(100);
+        if self.is_tty {
+            eprint!("\rDownloading {}... {percent}%   ", self.label);
+            let _ = std::io::stderr().flush();
+            self.tty_line_open = true;
+            self.last_bucket = Some(percent);
+            return;
+        }
+        let bucket = (percent / 10) * 10;
+        if self.last_bucket.is_none_or(|last| bucket > last) {
+            eprintln!("Downloading {}...: {bucket}%", self.label);
+            self.last_bucket = Some(bucket);
+        }
+    }
+
+    fn finish(&mut self, success: bool) {
+        if self.is_tty {
+            if self.tty_line_open {
+                eprintln!();
+            }
+            return;
+        }
+        if success && self.last_bucket.unwrap_or_default() < 100 {
+            eprintln!("Downloading {}...: 100%", self.label);
+            self.last_bucket = Some(100);
+        }
+    }
 }
 
 fn live_model_install_result_json(

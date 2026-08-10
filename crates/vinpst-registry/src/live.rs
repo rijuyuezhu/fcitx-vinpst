@@ -222,17 +222,20 @@ impl LiveModelEntry {
             .is_some_and(|metadata| metadata.supports_hotwords)
     }
 
+    /// User-facing selector, preferring the registry short id when present.
+    #[must_use]
+    pub fn display_id(&self) -> &str {
+        self.short_id
+            .as_deref()
+            .and_then(|short_id| non_empty_string(Some(short_id)))
+            .unwrap_or(self.id.as_str())
+    }
+
     /// Resolves a display title using inline text, i18n, short id, and id fallback.
     #[must_use]
     pub fn resolved_title(&self, i18n: Option<&LiveRegistryI18n>) -> String {
         self.resolved_i18n_text("title", self.title.as_deref(), i18n)
-            .unwrap_or_else(|| {
-                self.short_id
-                    .as_deref()
-                    .and_then(|short_id| non_empty_string(Some(short_id)))
-                    .unwrap_or(self.id.as_str())
-                    .to_owned()
-            })
+            .unwrap_or_else(|| self.display_id().to_owned())
     }
 
     /// Resolves a display description using inline text and i18n fallback.

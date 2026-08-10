@@ -78,13 +78,17 @@ pub struct LiveScriptEntry {
 }
 
 impl LiveScriptEntry {
+    /// User-facing selector, preferring the registry short id when present.
+    #[must_use]
+    pub fn display_id(&self) -> &str {
+        non_empty(self.short_id.as_deref()).unwrap_or(self.id.as_str())
+    }
+
     /// Resolves the localized display title, then falls back to `short_id` or full id.
     #[must_use]
     pub fn resolved_title(&self, i18n: Option<&LiveRegistryI18n>) -> String {
         i18n.and_then(|map| map.get(&format!("{}.title", self.id)))
-            .map(str::to_owned)
-            .or_else(|| non_empty(self.short_id.as_deref()).map(str::to_owned))
-            .unwrap_or_else(|| self.id.clone())
+            .map_or_else(|| self.display_id().to_owned(), str::to_owned)
     }
 
     /// Resolves the localized display description.

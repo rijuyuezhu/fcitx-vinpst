@@ -1830,8 +1830,8 @@ fn adapter_list_available_text_prints_live_registry_table() {
 
     let stdout = assert_stdout_success(output, "adapter list available text");
     assert!(stdout.contains("ID\tTITLE\tSTATUS"));
-    assert!(stdout.contains("adapter.mtranserver.proxy\tMTranServer 代理\tinstalled"));
-    assert!(stdout.contains("adapter.other.proxy\tother\tavailable"));
+    assert!(stdout.contains("mtran-proxy\tMTranServer 代理\tinstalled"));
+    assert!(stdout.contains("other\tother\tavailable"));
     for internal in [
         "registry_source:",
         "config_source:",

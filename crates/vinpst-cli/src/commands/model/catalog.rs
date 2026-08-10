@@ -219,7 +219,8 @@ pub(super) fn live_model_list_json(
 ) -> serde_json::Value {
     let support = live_model_support(model);
     serde_json::json!({
-        "id": model.id,
+        "id": model.display_id(),
+        "machine_id": model.id,
         "short_id": model.short_id,
         "title": model.resolved_title(i18n),
         "description": model.resolved_description(i18n),
@@ -332,7 +333,7 @@ fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n
         let support = live_model_support(model);
         println!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            model.id,
+            model.display_id(),
             model.resolved_title(i18n.i18n.as_ref()),
             optional_str(model.language.as_deref()),
             format_size_bytes(model.size_bytes),

@@ -73,7 +73,7 @@ fn available_live_provider_json(
         })
         .collect::<Vec<_>>();
     serde_json::json!({
-        "id": provider.short_id.as_deref().unwrap_or(&provider.id),
+        "id": provider.display_id(),
         "machine_id": provider.id,
         "title": provider.resolved_title(i18n),
         "description": provider.resolved_description(i18n),
@@ -99,7 +99,7 @@ fn print_available_provider_list_text(
     for provider in &loaded.registry.items {
         println!(
             "{}\t{}\t{}\t{}",
-            provider.id,
+            provider.display_id(),
             provider.resolved_title(loaded_i18n.i18n.as_ref()),
             if provider.stream {
                 "streaming"

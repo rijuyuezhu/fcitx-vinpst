@@ -37,8 +37,9 @@ fn model_list_json_accepts_live_sensevoice_fixture() {
     assert_eq!(value["model_count"], 1);
 
     let model = &value["models"][0];
+    assert_eq!(model["id"], "onnx-sv-zh-int8-off");
     assert_eq!(
-        model["id"],
+        model["machine_id"],
         "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8"
     );
     assert_eq!(model["short_id"], "onnx-sv-zh-int8-off");
@@ -348,7 +349,7 @@ fn model_list_text_prints_source_columns_and_support_marker() {
 
     let stdout = assert_stdout_success(output, "model list text");
     assert!(stdout.contains("ID\tTITLE\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS"));
-    assert!(stdout.contains("model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8\tSenseVoice 五语"));
+    assert!(stdout.contains("onnx-sv-zh-int8-off\tSenseVoice 五语"));
     assert!(stdout.contains("sense_voice"));
     assert!(stdout.contains("available"));
     for internal in [
@@ -414,8 +415,9 @@ fn model_info_json_accepts_short_id_and_includes_raw_metadata() {
     assert_eq!(value["i18n"]["kind"], "file");
 
     let model = &value["model"];
+    assert_eq!(model["id"], "onnx-sv-zh-int8-off");
     assert_eq!(
-        model["id"],
+        model["machine_id"],
         "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8"
     );
     assert_eq!(model["short_id"], "onnx-sv-zh-int8-off");
@@ -621,6 +623,9 @@ fn model_install_without_dry_run_downloads_local_archive_without_config_mutation
         .output()
         .expect("run vinpst model install");
 
+    let stderr =
+        String::from_utf8(output.stderr.clone()).expect("model install stderr should be UTF-8");
+    assert!(stderr.contains("Downloading test-install...: 100%"));
     let value = assert_json_success(output, "model install json");
     assert_eq!(value["ok"], true);
     assert_eq!(value["dry_run"], false);
