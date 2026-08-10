@@ -2008,11 +2008,43 @@
         "The frozen dialogs defer parsing helpers and persistence/reload to their page call sites. Current likewise keeps view ownership narrow: broader add/edit/remove persistence, daemon reconciliation, managed-script policy, model registry scanning, and page orchestration remain supporting pending files for their later dedicated audits rather than being claimed here. Current additionally prevents dirty editor state from being silently discarded by conflicting page/resource operations.",
         "Evidence includes full source and call-site review of all four frozen dialog files, source review of frozen NonEmptyLines/ParseCommandEnv behavior, current typed editor/persistence paths, installed-model config value semantics, focused 8-test ASR-provider and 10-test adapter-editor suites, strict all-target vinpst-gui Clippy, and the module-parity checker."
       ]
+    },
+    {
+      "id": "GUI-CONTROL-PAGE-001",
+      "state": "audited-fixed",
+      "title": "Control page audio, daemon lifecycle, and live ASR state",
+      "upstream_files": [
+        "gui/pages/control/control_page.cpp",
+        "gui/pages/control/control_page.h"
+      ],
+      "current_files": [
+        "crates/vinpst-gui/src/audio_devices.rs",
+        "crates/vinpst-gui/src/config_editor.rs",
+        "crates/vinpst-gui/src/daemon_control.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-config/src/schema.rs",
+        "crates/vinpst-gui/src/asr_provider_management.rs",
+        "crates/vinpst-gui/src/daemon_client.rs",
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/message.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-gui/src/tests.rs"
+      ],
+      "notes": [
+        "Frozen ControlPage owns capture-device selection, normalize/input-gain/output-duck/VAD settings, configured ASR provider actions, daemon Start/Stop/Restart, two-second daemon refresh, live ASR target/effective markers, and a Flatpak permission warning. Current Control preserves the audio fields through a typed config draft, asynchronous PipeWire discovery, atomic config-save boundary, typed daemon controls, and provider/resource management. The Flatpak permission warning and remediation path were already audited and fixed by SANDBOX-001 and are intentionally not double-owned here.",
+        "The audit found a real live-state regression. Current previously labeled the configured active_provider as Active without consulting the daemon's frozen-compatible eight-field GetAsrBackendState, so a newly saved provider could appear active while it was still loading or after reload failure left the previous backend effective. DaemonSnapshot now carries optional boxed AsrBackendState, Control provider rows distinguish configured/effective/loading/reload-failed state, and the Control page refreshes that state every two seconds through the existing non-activating owner poll rather than accidentally D-Bus-activating a stopped service.",
+        "Current endpoint semantics differ subtly from frozen. Frozen reports remote_text_service ListEndpoints, while current daemon diagnostics attach the configured target remote endpoints. To avoid showing a failed target endpoint beside a still-effective previous backend, the GUI only renders remote endpoints after target provider/model and effective provider/model converge. Focused projection tests cover same-provider model loading, successful convergence, failed replacement with previous-backend fallback, and endpoint suppression.",
+        "Frozen also appends loading backend or backend error to the daemon status label. Current now restores those generic indicators from AsrBackendState while deliberately never surfacing raw last_error there. DaemonSnapshot has a custom redacted Debug implementation: target/effective ids and state booleans remain diagnosable, but raw backend errors and endpoint strings are replaced by presence/count metadata. A Message::DaemonLoaded regression test verifies credential-like error text and endpoint tokens cannot leak through Debug.",
+        "Audio controls are equivalent at the frozen boundary: current enumerates PipeWire sources, always offers default, exposes normalize audio, 0.1-10.0 input gain, output ducking with 0-100 percent volume, and VAD enablement. Current additionally exposes VAD threshold and preserves a configured capture-device id that temporarily disappears from enumeration instead of silently replacing it with default; both are intentional standalone-GUI improvements. Discovery failure is explicit and retryable rather than collapsing the selector silently.",
+        "Frozen treats its built-in local provider as a special non-editable/non-removable Control row. Current intentionally does not copy that special case: Local, Remote, and Command are first-class AsrProviderConfig entries with stable ids, local model/hotword fields, and the previously audited local installed-model editing flow. Active providers remain protected from removal, registry-managed providers use managed removal, and all mutations go through complete config validation and daemon reconciliation.",
+        "Daemon lifecycle parity is preserved and hardened. Start activates through the D-Bus service, while Stop/Restart use the typed systemd user-service command path; after service actions current performs a non-activating owner/runtime observation and reports confirmed, contradictory, or unavailable final state instead of assuming systemctl success means the requested runtime state was reached. Stale asynchronous completions cannot overwrite a newer daemon-control operation.",
+        "Evidence includes complete source review of frozen control_page.cpp/.h and current audio_devices.rs, config_editor.rs, and daemon_control.rs; supporting review of ASR provider/config schema and D-Bus snapshot paths; focused live-state and Debug-redaction regressions; strict all-target vinpst-gui Clippy; full GUI tests; and the module-parity ledger checker. Shared daemon_client/resource_pages/lib/i18n/message orchestration and broader ASR-provider persistence remain pending for later ownership-specific audits."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/pages/control/control_page.cpp",
-    "gui/pages/control/control_page.h",
     "gui/pages/hotwords/hotword_page.cpp",
     "gui/pages/hotwords/hotword_page.h",
     "gui/pages/llm/llm_page.cpp",
@@ -2059,11 +2091,8 @@
     "crates/vinpst-gui/src/adapter_runtime.rs",
     "crates/vinpst-gui/src/asr_provider_management.rs",
     "crates/vinpst-gui/src/asr_reload_confirmation.rs",
-    "crates/vinpst-gui/src/audio_devices.rs",
     "crates/vinpst-gui/src/blocking_task.rs",
-    "crates/vinpst-gui/src/config_editor.rs",
     "crates/vinpst-gui/src/daemon_client.rs",
-    "crates/vinpst-gui/src/daemon_control.rs",
     "crates/vinpst-gui/src/daemon_owner_monitor.rs",
     "crates/vinpst-gui/src/error_dialog.rs",
     "crates/vinpst-gui/src/form_guards.rs",
