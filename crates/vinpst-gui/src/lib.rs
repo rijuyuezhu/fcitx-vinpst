@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 #[cfg(test)]
 use vinpst_config::AsrProviderKind;
 use vinpst_config::{VinpstConfig, config_backup_path, user_paths, write_config_file};
-use vinpst_protocol::{TextAdapterState, dbus};
+use vinpst_protocol::{AsrBackendState, TextAdapterState, dbus};
 use vinpst_registry::InstalledModelInfo;
 
 mod adapter_config_management;
@@ -92,6 +92,7 @@ use llm_provider_management::LlmProviderEditorState;
 pub use llm_provider_management::{
     LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome, LlmProviderTestOutcome,
 };
+use message::Message::{DaemonFallbackPollTick, DaemonFallbackPolled, DaemonLoaded};
 pub use message::{ConfigDraftMessage, Message};
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
@@ -130,7 +131,7 @@ pub struct ConfigDocument {
 }
 
 /// Redacted daemon state shown in the GUI.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct DaemonSnapshot {
     /// Legacy daemon status wire value.
     pub status: String,
@@ -138,6 +139,36 @@ pub struct DaemonSnapshot {
     pub runtime: Value,
     /// Typed text-adapter runtime state returned by the daemon.
     pub text_adapters: TextAdapterState,
+    /// Live ASR target/effective state when supported by the daemon.
+    pub asr_backend: Option<Box<AsrBackendState>>,
+}
+
+impl std::fmt::Debug for DaemonSnapshot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = formatter.debug_struct("DaemonSnapshot");
+        debug
+            .field("status", &self.status)
+            .field("runtime", &self.runtime)
+            .field("text_adapters", &self.text_adapters);
+        match &self.asr_backend {
+            Some(state) => debug.field(
+                "asr_backend",
+                &format_args!(
+                    "target={:?}/{:?}, effective={:?}/{:?}, reload_in_progress={}, has_effective_backend={}, last_error_present={}, remote_endpoint_count={}",
+                    state.target_provider_id,
+                    state.target_model_id,
+                    state.effective_provider_id,
+                    state.effective_model_id,
+                    state.reload_in_progress,
+                    state.has_effective_backend,
+                    !state.last_error.is_empty(),
+                    state.remote_endpoints.len()
+                ),
+            ),
+            None => debug.field("asr_backend", &Option::<()>::None),
+        };
+        debug.finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -393,12 +424,12 @@ impl App {
             }
             Message::Interaction(message) => return self.handle_interaction_message(message),
             Message::RefreshDaemon => return self.begin_daemon_refresh(true),
-            Message::DaemonLoaded {
+            DaemonLoaded {
                 operation_id,
                 result,
             } => self.finish_daemon_refresh(operation_id, result),
-            Message::DaemonFallbackPollTick => return self.begin_daemon_fallback_poll(),
-            Message::DaemonFallbackPolled {
+            DaemonFallbackPollTick => return self.begin_daemon_fallback_poll(),
+            DaemonFallbackPolled {
                 operation_id,
                 result,
             } => self.finish_daemon_fallback_poll(operation_id, result),
@@ -486,10 +517,15 @@ impl App {
         Task::none()
     }
 
-    /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
+    /// Subscribes to daemon lifecycle plus page-specific live state updates.
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = self.daemon_reconciliation_subscriptions();
         subscriptions.push(interaction::subscription());
+        if self.page == Page::Control {
+            subscriptions.push(
+                iced::time::every(Duration::from_secs(2)).map(|_| Message::DaemonFallbackPollTick),
+            );
+        }
         if self.model_install.is_active() {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
@@ -812,7 +848,18 @@ impl App {
                 self.locale
                     .daemon_status(self.locale.text(GuiText::Stopped)),
             ),
-            DaemonLoadState::Ready(snapshot) => text(self.locale.daemon_status(&snapshot.status)),
+            DaemonLoadState::Ready(snapshot) => {
+                let (loading, failed) = snapshot
+                    .asr_backend
+                    .as_deref()
+                    .map_or((false, false), |state| {
+                        (state.reload_in_progress, !state.last_error.is_empty())
+                    });
+                text(
+                    self.locale
+                        .daemon_status_with_backend(&snapshot.status, loading, failed),
+                )
+            }
             DaemonLoadState::Failed(_) => text(self.locale.text(GuiText::DaemonStatusUnavailable)),
         }
         .into()

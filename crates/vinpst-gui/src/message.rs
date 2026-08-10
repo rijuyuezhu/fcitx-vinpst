@@ -60,9 +60,9 @@ pub enum Message {
         /// Typed daemon snapshot outcome.
         result: Result<DaemonSnapshot, String>,
     },
-    /// Low-frequency non-activating poll used only while owner signals are unavailable.
+    /// Non-activating daemon poll used for Control live state and owner-monitor fallback.
     DaemonFallbackPollTick,
-    /// Result of a low-frequency non-activating owner fallback poll.
+    /// Result of a non-activating daemon poll.
     DaemonFallbackPolled {
         /// Refresh generation used to reject stale poll results.
         operation_id: u64,

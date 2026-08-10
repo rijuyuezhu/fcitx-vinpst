@@ -721,6 +721,7 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     assert!(ensure_config_save_allowed(&idle).is_ok());
 
@@ -728,6 +729,7 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
         status: "recording".to_owned(),
         runtime: json!({"active_session": true}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     assert!(ensure_config_save_allowed(&recording).is_err());
 
@@ -735,8 +737,34 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
         status: "idle".to_owned(),
         runtime: json!({"active_session": true}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     assert!(ensure_config_save_allowed(&inconsistent).is_err());
+}
+
+#[test]
+fn daemon_snapshot_debug_redacts_backend_error_and_endpoints() {
+    let mut backend =
+        AsrBackendState::unavailable("remote", "model", "credential=super-secret backend failure");
+    backend.remote_endpoints = vec!["https://secret-token@example.test/v1".to_owned()];
+    let snapshot = DaemonSnapshot {
+        status: "idle".to_owned(),
+        runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
+        asr_backend: Some(Box::new(backend)),
+    };
+
+    let debug = format!(
+        "{:?}",
+        Message::DaemonLoaded {
+            operation_id: 7,
+            result: Ok(snapshot),
+        }
+    );
+    assert!(debug.contains("last_error_present=true"));
+    assert!(debug.contains("remote_endpoint_count=1"));
+    assert!(!debug.contains("super-secret"));
+    assert!(!debug.contains("secret-token"));
 }
 
 #[test]
@@ -745,6 +773,7 @@ fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     assert_eq!(
         daemon_state_from_poll(Ok(Some(snapshot.clone()))),
@@ -766,6 +795,7 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Connected {
         owned: true,
@@ -810,6 +840,7 @@ fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     let _ = app.update(Message::DaemonLoaded {
         operation_id: 1,

@@ -109,9 +109,22 @@ impl GuiLocale {
     }
 
     pub(crate) fn daemon_status(self, status: &str) -> String {
-        match self {
-            Self::EnUs => format!("Daemon: {status}"),
-            Self::ZhCn => format!("守护进程：{status}"),
+        self.daemon_status_with_backend(status, false, false)
+    }
+
+    pub(crate) fn daemon_status_with_backend(
+        self,
+        status: &str,
+        loading: bool,
+        failed: bool,
+    ) -> String {
+        match (self, loading, failed) {
+            (Self::EnUs, true, _) => format!("Daemon: {status} (loading backend)"),
+            (Self::EnUs, false, true) => format!("Daemon: {status} (backend error)"),
+            (Self::EnUs, false, false) => format!("Daemon: {status}"),
+            (Self::ZhCn, true, _) => format!("守护进程：{status}（正在加载后端）"),
+            (Self::ZhCn, false, true) => format!("守护进程：{status}（后端错误）"),
+            (Self::ZhCn, false, false) => format!("守护进程：{status}"),
         }
     }
 
@@ -285,6 +298,42 @@ impl GuiLocale {
             Self::EnUs => format!("{label} (selected)"),
             Self::ZhCn => format!("{label}（已选择）"),
         }
+    }
+
+    pub(crate) fn asr_provider_markers(self, state: (bool, bool, bool, bool)) -> Vec<&'static str> {
+        let (configured, effective, loading, reload_failed) = state;
+        let mut markers = Vec::new();
+        match self {
+            Self::EnUs => {
+                if configured {
+                    markers.push("configured");
+                }
+                if effective {
+                    markers.push("effective");
+                }
+                if loading {
+                    markers.push("loading");
+                }
+                if reload_failed {
+                    markers.push("reload failed");
+                }
+            }
+            Self::ZhCn => {
+                if configured {
+                    markers.push("已配置");
+                }
+                if effective {
+                    markers.push("正在使用");
+                }
+                if loading {
+                    markers.push("加载中");
+                }
+                if reload_failed {
+                    markers.push("重载失败");
+                }
+            }
+        }
+        markers
     }
 
     pub(crate) fn scene_added(self, scene_id: &str) -> String {
@@ -897,6 +946,26 @@ mod tests {
             assert!(edit.contains(path));
             assert!(edit.contains("editor-command"));
         }
+    }
+
+    #[test]
+    fn daemon_backend_status_is_localized_without_embedding_error_details() {
+        assert_eq!(
+            GuiLocale::EnUs.daemon_status_with_backend("idle", true, false),
+            "Daemon: idle (loading backend)"
+        );
+        assert_eq!(
+            GuiLocale::EnUs.daemon_status_with_backend("idle", false, true),
+            "Daemon: idle (backend error)"
+        );
+        assert_eq!(
+            GuiLocale::ZhCn.daemon_status_with_backend("idle", true, false),
+            "守护进程：idle（正在加载后端）"
+        );
+        assert_eq!(
+            GuiLocale::ZhCn.daemon_status_with_backend("idle", false, true),
+            "守护进程：idle（后端错误）"
+        );
     }
 
     #[test]

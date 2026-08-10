@@ -475,6 +475,7 @@ mod tests {
                 pid,
                 ..TextAdapterSummary::default()
             }]),
+            asr_backend: None,
         }
     }
 

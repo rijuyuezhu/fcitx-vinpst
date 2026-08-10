@@ -7,6 +7,7 @@ use iced::{
     widget::{column, container, row, scrollable, text, text_input},
 };
 use vinpst_config::AsrProviderKind;
+use vinpst_protocol::AsrBackendState;
 use vinpst_registry::InstalledModelInfo;
 
 use crate::{
@@ -16,6 +17,42 @@ use crate::{
     },
     script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AsrProviderRuntimeProjection<'a> {
+    effective: bool,
+    loading: bool,
+    reload_failed: bool,
+    remote_endpoints: &'a [String],
+}
+
+fn project_asr_provider_runtime<'a>(
+    state: Option<&'a AsrBackendState>,
+    provider_id: &str,
+    requested_model: &str,
+) -> AsrProviderRuntimeProjection<'a> {
+    let Some(state) = state else {
+        return AsrProviderRuntimeProjection {
+            effective: false,
+            loading: false,
+            reload_failed: false,
+            remote_endpoints: &[],
+        };
+    };
+    let target = state.target_provider_id == provider_id;
+    let effective = state.has_effective_backend && state.effective_provider_id == provider_id;
+    let requested_is_effective = effective && target && state.effective_model_id == requested_model;
+    AsrProviderRuntimeProjection {
+        effective,
+        loading: state.reload_in_progress && target && !requested_is_effective,
+        reload_failed: !state.last_error.is_empty() && target,
+        remote_endpoints: if requested_is_effective {
+            state.remote_endpoints.as_slice()
+        } else {
+            &[]
+        },
+    }
+}
 
 impl App {
     pub(super) fn resources_page(&self) -> Element<'_, Message> {
@@ -162,6 +199,10 @@ impl App {
                     ]
                     .spacing(10),
                 );
+                let asr_backend = match &self.daemon {
+                    crate::DaemonLoadState::Ready(snapshot) => snapshot.asr_backend.as_deref(),
+                    _ => None,
+                };
                 for provider in &document.config.asr.providers {
                     let kind = self.locale.text(match provider.kind {
                         AsrProviderKind::Local => GuiText::Local,
@@ -172,16 +213,27 @@ impl App {
                         .model
                         .as_deref()
                         .unwrap_or_else(|| self.locale.text(GuiText::UnselectedModel));
-                    let active = provider.id == document.config.asr.active_provider;
-                    let label = if active {
-                        format!(
-                            "{} · {kind} · {model} · {}",
-                            provider.id,
-                            self.locale.text(GuiText::Active)
-                        )
-                    } else {
-                        format!("{} · {kind} · {model}", provider.id)
-                    };
+                    let configured = provider.id == document.config.asr.active_provider;
+                    let runtime = project_asr_provider_runtime(
+                        asr_backend,
+                        &provider.id,
+                        provider.model.as_deref().unwrap_or(""),
+                    );
+                    let markers = self.locale.asr_provider_markers((
+                        configured,
+                        runtime.effective,
+                        runtime.loading,
+                        runtime.reload_failed,
+                    ));
+                    let mut label = format!("{} · {kind} · {model}", provider.id);
+                    if !markers.is_empty() {
+                        label.push_str(" · ");
+                        label.push_str(&markers.join(", "));
+                    }
+                    if !runtime.remote_endpoints.is_empty() {
+                        label.push_str(" · ");
+                        label.push_str(&runtime.remote_endpoints.join(" / "));
+                    }
                     let managed = managed_provider_script_path(provider).is_some();
                     body = body.push(provider_row(
                         self.locale,
@@ -189,7 +241,7 @@ impl App {
                         &provider.id,
                         provider_controls_busy,
                         managed,
-                        active,
+                        configured,
                     ));
                 }
                 if let Some(editor) = self.asr_provider_editor_view(busy) {
@@ -502,5 +554,47 @@ mod tests {
         assert_eq!(format_model_size(1536), "1.5 KiB");
         assert_eq!(format_model_size(21_264_113), "20.2 MiB");
         assert_eq!(format_model_size(5 * 1024 * 1024 * 1024), "5.0 GiB");
+    }
+
+    #[test]
+    fn asr_runtime_projection_distinguishes_loading_applied_and_failed_fallback() {
+        let mut state = AsrBackendState::ready("remote", "old-model");
+        state.target_provider_id = "remote".to_owned();
+        state.target_model_id = "new-model".to_owned();
+        state.reload_in_progress = true;
+        state.remote_endpoints = vec!["https://asr.example.test/v1".to_owned()];
+
+        let loading = project_asr_provider_runtime(Some(&state), "remote", "new-model");
+        assert!(loading.effective);
+        assert!(loading.loading);
+        assert!(!loading.reload_failed);
+        assert!(loading.remote_endpoints.is_empty());
+
+        state.reload_in_progress = false;
+        state.effective_model_id = "new-model".to_owned();
+        let applied = project_asr_provider_runtime(Some(&state), "remote", "new-model");
+        assert!(applied.effective);
+        assert!(!applied.loading);
+        assert!(!applied.reload_failed);
+        assert_eq!(applied.remote_endpoints, ["https://asr.example.test/v1"]);
+
+        state.target_provider_id = "replacement".to_owned();
+        state.target_model_id = "replacement-model".to_owned();
+        state.effective_provider_id = "previous".to_owned();
+        state.effective_model_id = "old-model".to_owned();
+        state.last_error = "fixture reload failure".to_owned();
+        state.remote_endpoints = vec!["https://replacement.example.test/v1".to_owned()];
+
+        let failed = project_asr_provider_runtime(Some(&state), "replacement", "replacement-model");
+        assert!(!failed.effective);
+        assert!(!failed.loading);
+        assert!(failed.reload_failed);
+        assert!(failed.remote_endpoints.is_empty());
+
+        let previous = project_asr_provider_runtime(Some(&state), "previous", "old-model");
+        assert!(previous.effective);
+        assert!(!previous.loading);
+        assert!(!previous.reload_failed);
+        assert!(previous.remote_endpoints.is_empty());
     }
 }

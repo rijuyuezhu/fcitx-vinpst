@@ -310,6 +310,7 @@ mod tests {
             status: "idle".to_owned(),
             runtime: json!({"active_session": false}),
             text_adapters: vinpst_protocol::TextAdapterState::default(),
+            asr_backend: None,
         }
     }
 
