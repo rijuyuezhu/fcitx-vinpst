@@ -231,7 +231,7 @@ impl VinpstDbusService {
                 interval.tick().await;
                 let notifications = runtime.lock().await.take_text_adapter_notifications();
                 for (adapter_id, message) in notifications {
-                    tracing::warn!(adapter_id, stderr = %message, "text adapter stderr");
+                    tracing::warn!(adapter_id, "text adapter emitted stderr");
                     let notification = make_raw_error(message);
                     if Self::emit_error_info(&emitter, &notification)
                         .await
