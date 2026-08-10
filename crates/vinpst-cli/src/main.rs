@@ -80,8 +80,19 @@ use vinpst_text::{
     build_openai_compatible_chat_request,
 };
 
+fn main() -> std::process::ExitCode {
+    let json_output = human_output::argv_requests_json(std::env::args_os());
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            human_output::print_runtime_error(&error, json_output);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines)]
-fn main() -> anyhow::Result<()> {
+fn run() -> anyhow::Result<()> {
     let mut args = parse_args_with_global_json_alias();
     let Some(mut command) = args.command.take() else {
         Args::command().print_help()?;
