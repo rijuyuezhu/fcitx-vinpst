@@ -1834,13 +1834,38 @@
         "Working-directory failures remain fail-closed through std::process::Command rather than reproducing frozen child-side chdir failure being ignored. SpawnDetached is not reintroduced because frozen has no caller and current callers that launch editors/openers/system tools have dedicated, separately audited lifecycle contracts.",
         "Deterministic evidence covers existing process descendant/timeout/output-limit tests, all adapter-runtime lifecycle tests, immediate-exit stderr without PID publication, line/partial stderr draining, daemon notification queue preservation, feature-gated session-bus StartAdapter immediate-failure proof, live raw DaemonNotification proof, and delayed-exit reap behavior. Strict all-target/all-feature Clippy and full process/text/daemon gates close the unit."
       ]
+    },
+    {
+      "id": "STRING-UTILS-001",
+      "state": "audited-intentional-divergence",
+      "title": "String formatting, ASCII trimming, UTF-8 context boundaries, and binary sizes",
+      "upstream_files": [
+        "common/utils/string_utils.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/model/support.rs",
+        "crates/vinpst-daemon/src/error_info.rs",
+        "crates/vinpst-gui/src/model_install.rs",
+        "crates/vinpst-gui/src/resource_details.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-text/src/context_cache.rs",
+        "crates/vinpst-text/src/payload.rs"
+      ],
+      "notes": [
+        "Frozen string_utils is header-only and provides printf-style FmtStr, binary-threshold FormatSize, ASCII whitespace trimming, simple UTF-8 first/last codepoint decoding, the legacy cp>=0x2E80 CJK boundary predicate, and sentence-ending punctuation classification.",
+        "There is no dedicated Rust string-utility module to own: typed format!/Display replaces FmtStr at each domain boundary, ASCII trimming is local to payload/error parsing, and the context-history owner already contains the CJK/UTF-8/punctuation helpers because those rules only serve recent-input buffering. These existing owners remain supporting rather than being double-owned.",
+        "Recent-input buffering matches the frozen valid-UTF-8 behavior: non-CJK fragments gain one separating space, either-side cp>=0x2E80 suppresses that space, and ., !, ?, CJK 。！？, ellipsis, or newline flushes the buffer. Rust strings are valid UTF-8 by construction, so frozen FirstUtf8Codepoint/LastUtf8Codepoint behavior on malformed byte sequences is intentionally not reproduced.",
+        "ASCII trimming uses Rust ASCII-whitespace predicates or explicit space/tab/CR/LF sets at the relevant parser boundary. Frozen std::isspace on ASCII bytes additionally recognizes vertical-tab/form-feed; current error-info trimming uses is_ascii_whitespace and therefore covers the complete ASCII set, while payload trimming intentionally preserves its already-audited protocol subset.",
+        "Frozen FormatSize divides by powers of 1024 but labels values KB/MB/GB in CLI model tables and GUI resource/progress surfaces. Current model/resource presentation intentionally labels binary quantities KiB/MiB/GiB (or bytes), which is more accurate and already stable in user-facing tests; the misleading frozen suffixes are not restored.",
+        "No production change is required. Existing text context-cache tests pin the spacing/punctuation rules, model CLI tests exercise size presentation in the user surface, and GUI model/resource units have dedicated formatter tests."
+      ]
     }
   ],
   "upstream_pending": [
     "common/utils/debug_log.h",
     "common/utils/sandbox.cpp",
     "common/utils/sandbox.h",
-    "common/utils/string_utils.h",
     "common/utils/url_utils.h",
     "gui/app/main.cpp",
     "gui/app/mainwindow.cpp",
