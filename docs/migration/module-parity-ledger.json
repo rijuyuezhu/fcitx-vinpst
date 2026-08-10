@@ -1582,13 +1582,51 @@
         "Atomic cache publication creates parent directories, writes a same-directory temporary file, renames over the target, and now removes partial temporary files on both write and rename failure. Existing tests also prove an orphaned temporary file is never mistaken for a valid cache entry.",
         "Test-only injected-source helpers may deliberately bypass cache so unit fixtures remain deterministic; all production Reqwest live registry and i18n entry points route through cached helpers. Deterministic evidence includes raw fresh/stale cache tests, cache-path tests, existing atomic/stale/partial-temp tests, CLI offline process proof, GUI offline model/provider+i18n proofs, malformed-success rejection, and strict all-target Clippy for registry/CLI/GUI."
       ]
+    },
+    {
+      "id": "REGISTRY-FETCH-001",
+      "state": "audited-fixed",
+      "title": "Live registry fetch orchestration and i18n cache refresh",
+      "upstream_files": [
+        "common/registry/registry_fetch.cpp",
+        "common/registry/registry_fetch.h"
+      ],
+      "current_files": [
+        "crates/vinpst-registry/src/live_fetch.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/adapter/mod.rs",
+        "crates/vinpst-cli/src/commands/model/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/mod.rs",
+        "crates/vinpst-cli/src/commands/provider/catalog.rs",
+        "crates/vinpst-cli/src/commands/provider/mod.rs",
+        "crates/vinpst-cli/src/main.rs",
+        "crates/vinpst-cli/src/registry_support.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/script_catalog.rs",
+        "crates/vinpst-gui/src/script_management.rs",
+        "crates/vinpst-registry/src/cache.rs",
+        "crates/vinpst-registry/src/fetch.rs",
+        "crates/vinpst-registry/src/lib.rs"
+      ],
+      "notes": [
+        "Frozen FetchRegistryText composes downloader/cache behavior with two policies above RegistryCache: a stale registry hit emits a cached-registry warning and deliberately skips i18n refresh, while a fresh registry download best-effort refreshes the detected preferred locale cache and then en_US when distinct.",
+        "Restored that missing orchestration in a dedicated vinpst-registry live_fetch module. The production helper owns the frozen 30-second/4-MiB registry source and 20-second/1-MiB i18n source, reuses the cache primitive from REGISTRY-CACHE-001, and returns raw registry text plus sanitized warning classifications without taking ownership of model/script schemas.",
+        "A fresh registry fetch now primes preferred/en_US i18n caches for every config-aware remote registry operation, not only catalog pages. This closes prior gaps in CLI provider/adapter install and remote resolution paths plus GUI model selection/install and managed provider/adapter preparation, so a later offline UI can retain translations even when the triggering action did not itself render localized metadata.",
+        "A stale registry fallback does not perform new i18n requests, matching frozen behavior. The shared deterministic test seeds a stale models.json cache, forces registry transport failure, proves the i18n source receives zero requests, and preserves a warning shaped as using cached <registry> because download failed.",
+        "I18n refresh failures remain nonfatal. Fresh preferred/en_US responses atomically update their locale caches; unavailable locales without cache are silently ignored; stale locale fallback remains usable and produces a sanitized warning. The high-level helper does not parse i18n JSON during refresh, matching the frozen common fetch boundary.",
+        "CLI remote model/provider/adapter loaders now route through the shared high-level helper instead of constructing their own registry HTTP source. Their structured registry_source keeps http/cache source metadata and now carries the shared warning list; human catalog output prints these warnings while retaining the simpler Vinpst text presentation.",
+        "GUI model registry resolution and script preparation route through the injectable high-level helper with separate registry and i18n sources, preserving deterministic tests while matching production request limits. A focused GUI test proves a model-registry-only fetch primes en_US i18n cache before any catalog presentation explicitly loads translations.",
+        "Explicit local registry files continue to bypass network/cache refresh, and the legacy no-CoreConfig frozen model overload likewise has no direct Vinpst equivalent requiring refresh because current user-facing remote operations always have typed RegistryConfig context.",
+        "Frozen resolved_registry_url may contain the downloader final redirect URL or a cache path, but source search found no CLI/GUI consumer using it to resolve assets or other behavior. Current diagnostics retain the attempted fresh mirror URL (or cache path) rather than expanding the RegistryTextSource trait solely for final-redirect precision; this is an intentional diagnostic-only simplification.",
+        "The module deliberately exports only the high-level fetch functions and result type; internal locale-refresh helpers remain private to avoid growing a second public registry API surface. Evidence includes four shared orchestration tests, GUI fresh-i18n-prefetch proof, existing stale-cache process/GUI proofs, and strict all-target Clippy for registry, CLI, and GUI."
+      ]
     }
   ],
   "upstream_pending": [
     "common/config/config_router.cpp",
     "common/config/config_router.h",
-    "common/registry/registry_fetch.cpp",
-    "common/registry/registry_fetch.h",
     "common/registry/registry_models.cpp",
     "common/registry/registry_models.h",
     "common/registry/registry_scripts.cpp",
