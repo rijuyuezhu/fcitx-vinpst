@@ -2577,17 +2577,47 @@
         "commands/system.rs diagnostic outputs were reviewed for data boundaries. protocol/ASR/audio/doctor paths expose explicit machine/config/model/service/addon diagnostics but use the previously audited config summary and ASR error boundaries rather than API-key/environment values; next-step interpolation uses provider ids only. User activation Exec/path and Fcitx addon paths are intentionally returned only by explicit maintenance/doctor diagnostics, not ordinary root help.",
         "Evidence includes complete source review of all four owned files; 39 protocol process tests including atomic symlink write/dangling repair and dry-run guard policy; strict all-target CLI Clippy; isolated D-Bus upgrade handoff with busy-systemd zero-mutation, idle systemd restart, direct-owner replacement, and daemon-reload failure propagation; guarded removal smoke; cross-user package upgrade and removal/rollback smokes; ShellCheck for the changed handoff script; packaging-contract update; full CLI gate, docs, secret scan, diff check, and module-parity ledger validation. These private-session smokes are deterministic process proof, not a substitute for the separately tracked real desktop/systemd live gate."
       ]
+    },
+    {
+      "id": "DAEMON-RUNTIME-GLUE-001",
+      "state": "audited-fixed",
+      "title": "Current-only daemon runtime menus, diagnostics, persistence, and facade",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-daemon/src/lib.rs",
+        "crates/vinpst-daemon/src/runtime/asr_menu.rs",
+        "crates/vinpst-daemon/src/runtime/capture.rs",
+        "crates/vinpst-daemon/src/runtime/config_io.rs",
+        "crates/vinpst-daemon/src/runtime/diagnostics.rs",
+        "crates/vinpst-daemon/src/runtime/errors.rs",
+        "crates/vinpst-daemon/src/runtime/scene.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-config/src/persistence.rs",
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/runtime.rs",
+        "crates/vinpst-daemon/src/runtime/reload.rs",
+        "crates/vinpst-daemon/src/runtime/tests.rs",
+        "crates/vinpst-daemon/tests/cli.rs",
+        "crates/vinpst-daemon/tests/dbus_integration.rs",
+        "crates/vinpst-registry/src/installed.rs",
+        "crates/vinpst-text/src/core.rs"
+      ],
+      "notes": [
+        "This current-only unit owns the remaining small daemon runtime glue files after recording/reload/adapter/remote/D-Bus protocol behavior was audited in earlier units. It covers the public daemon facade, ASR provider/model menu projection, capture and scene mutation helpers, daemon-local config persistence wrapper, runtime diagnostic JSON projection, and common RuntimeError surface without re-owning the larger runtime state machine or D-Bus service.",
+        "The audit found a raw-user-text disclosure in the Vinpst-only GetRuntimeStatus diagnostic extension. runtime_status_json() was documented as sanitized but serialized partial_text verbatim while selected text was already represented only by selected_text_present. Because daemon status and GetRuntimeStatus are diagnostic/status surfaces rather than recognition-result delivery, the snapshot now exposes partial_text_present only. RecognitionPartial and stop-result paths retain the actual partial text where it is the requested functional payload.",
+        "A regression injects a distinctive partial transcript directly into RuntimeState and proves the status JSON reports presence without containing either a partial_text field or the transcript marker. Existing D-Bus integration already proves selected command text is absent from GetRuntimeStatus, so both transient user-text sources now follow the same diagnostic disclosure policy.",
+        "The audit also found a second atomic-config implementation in runtime/config_io.rs. It validated callers before use and wrote a synchronized temporary file, but unlike the shared vinpst-config persistence boundary it renamed over a symlink entry, used a PID-only temporary filename, and inherited existing permissions instead of enforcing the current private-config policy. Scene, capture-device, and ASR target D-Bus mutations all passed through this weaker helper.",
+        "Daemon mutations now delegate to vinpst_config::write_config_file, retaining no-backup semantics for these targeted D-Bus changes while gaining the already-audited typed validation, bounded unique temporary creation, 0600 file mode on Unix, complete-file sync, cleanup, and safe resolution of symlink write targets. RuntimeError now wraps ConfigWriteError instead of maintaining separate serialization/I/O variants. A daemon-local regression proves a relative config symlink remains a symlink while its target receives the updated config.",
+        "ASR menu helpers were reviewed end to end with SetActiveAsrTarget. They expose only configured provider ids/kinds, stable or basename-derived model ids/titles, concrete model values required to make a selection, and the already-audited reload state. Broken installed model metadata is filtered, local installed-model values must match scanned managed models unless they are already the configured value, unknown provider/model pairs fail before persistence, and display-title locale candidates are de-duplicated in environment priority order.",
+        "Scene and capture mutations remain Idle-only, clone and validate the complete candidate config, persist before mutating runtime state when a config path exists, and update only in-memory state when running from an ephemeral config. Scene labels preserve Raw/Command compatibility fallbacks; CaptureTarget owns capture-device normalization and validation. No additional state-transition gap was found.",
+        "The RuntimeError surface was reviewed by producer. ASR/text errors inherit their already-hardened status-only/secret-safe boundaries, installed-model errors contain managed filesystem metadata rather than credential values, BackgroundTask is constructed from Tokio join state, and config errors now inherit ConfigWriteError/ConfigError redaction. The frozen-compatible AsrBackendState.last_error field remains unchanged; this unit only removes raw transcript content from the additive runtime-status snapshot.",
+        "Evidence includes complete source and call-site review of the seven owned files; focused partial-status and config-symlink regressions; existing ASR menu/scene/capture tests; full vinpst-daemon unit/CLI/D-Bus/remote suites; strict all-target Clippy; downstream vinpst-cli daemon-status tests; synchronization of two stale daemon expectations with the already-audited typed text-adapter error contract; docs build, secret scan, diff check, and module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [],
   "current_pending": [
-    "crates/vinpst-daemon/src/lib.rs",
-    "crates/vinpst-daemon/src/runtime/asr_menu.rs",
-    "crates/vinpst-daemon/src/runtime/capture.rs",
-    "crates/vinpst-daemon/src/runtime/config_io.rs",
-    "crates/vinpst-daemon/src/runtime/diagnostics.rs",
-    "crates/vinpst-daemon/src/runtime/errors.rs",
-    "crates/vinpst-daemon/src/runtime/scene.rs",
     "crates/vinpst-gui/src/asr_provider_management.rs",
     "crates/vinpst-gui/src/asr_reload_confirmation.rs",
     "crates/vinpst-gui/src/daemon_client.rs",
