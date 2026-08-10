@@ -1,5 +1,9 @@
-use std::path::Path;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
+use anyhow::Context;
 use vinpst_config::RegistryConfig;
 use vinpst_registry::{LiveScriptRegistry, fetch_live_registry_text};
 
@@ -99,4 +103,139 @@ pub(crate) fn print_cache_fallback_warning(source: &serde_json::Value, name: &st
     } else if source["used_cache"] == true {
         eprintln!("Warning: using cached {name} because the live registry is unavailable.");
     }
+}
+
+pub(crate) fn with_managed_script_transaction<T>(
+    script_path: &Path,
+    install: impl FnOnce() -> anyhow::Result<T>,
+    commit_config: impl FnOnce(&T) -> anyhow::Result<()>,
+) -> anyhow::Result<T> {
+    let rollback = ManagedScriptRollback::prepare(script_path)?;
+    let installed = match install() {
+        Ok(installed) => installed,
+        Err(error) => {
+            return match rollback.restore() {
+                Ok(()) => Err(error),
+                Err(restore_error) => Err(error.context(format!(
+                    "restore managed script after install failure: {restore_error}"
+                ))),
+            };
+        }
+    };
+    if let Err(error) = commit_config(&installed) {
+        return match rollback.restore() {
+            Ok(()) => Err(error),
+            Err(restore_error) => Err(error.context(format!(
+                "restore managed script after config write failure: {restore_error}"
+            ))),
+        };
+    }
+    rollback.discard();
+    Ok(installed)
+}
+
+struct ManagedScriptRollback {
+    script_path: PathBuf,
+    backup_path: Option<PathBuf>,
+    existed: bool,
+}
+
+impl ManagedScriptRollback {
+    fn prepare(script_path: &Path) -> anyhow::Result<Self> {
+        let metadata = match fs::symlink_metadata(script_path) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "inspect managed script `{}` before update",
+                        script_path.display()
+                    )
+                });
+            }
+        };
+        let Some(metadata) = metadata else {
+            return Ok(Self {
+                script_path: script_path.to_path_buf(),
+                backup_path: None,
+                existed: false,
+            });
+        };
+        if !metadata.file_type().is_file() {
+            anyhow::bail!(
+                "refusing to update managed script `{}` because it is not a regular file",
+                script_path.display()
+            );
+        }
+        let backup_path = transaction_backup_path(script_path);
+        fs::copy(script_path, &backup_path).with_context(|| {
+            format!(
+                "preserve managed script `{}` before update",
+                script_path.display()
+            )
+        })?;
+        if let Err(error) = fs::File::open(&backup_path).and_then(|file| file.sync_all()) {
+            let _ = fs::remove_file(&backup_path);
+            return Err(error).with_context(|| {
+                format!(
+                    "sync managed script backup `{}` before update",
+                    backup_path.display()
+                )
+            });
+        }
+        Ok(Self {
+            script_path: script_path.to_path_buf(),
+            backup_path: Some(backup_path),
+            existed: true,
+        })
+    }
+
+    fn restore(self) -> anyhow::Result<()> {
+        if self.existed {
+            let backup_path = self
+                .backup_path
+                .as_ref()
+                .context("managed script rollback backup is missing")?;
+            fs::rename(backup_path, &self.script_path).with_context(|| {
+                format!(
+                    "restore previous managed script `{}`",
+                    self.script_path.display()
+                )
+            })?;
+        } else {
+            match fs::remove_file(&self.script_path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "remove newly published managed script `{}`",
+                            self.script_path.display()
+                        )
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn discard(self) {
+        if let Some(backup_path) = self.backup_path {
+            let _ = fs::remove_file(backup_path);
+        }
+    }
+}
+
+fn transaction_backup_path(script_path: &Path) -> PathBuf {
+    let file_name = script_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("managed-script");
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    script_path.with_file_name(format!(
+        ".{file_name}.cli-rollback.{}.{unique}",
+        std::process::id()
+    ))
 }

@@ -201,7 +201,7 @@ fn updates_managed_adapter_without_losing_env_or_extra_fields() {
     let existing = LlmAdapterConfig {
         id: "adapter.mtranserver.proxy".to_owned(),
         command: "old-python".to_owned(),
-        args: vec![script_path.to_string_lossy().into_owned()],
+        args: vec!["/tmp/vinpst/adapters/mtranserver/./proxy".to_owned()],
         env: HashMap::from([
             ("MTRAN_TOKEN".to_owned(), "preserve-me".to_owned()),
             ("CUSTOM".to_owned(), "also-preserve".to_owned()),
@@ -309,7 +309,7 @@ fn updates_managed_provider_without_losing_env_or_timeout() {
         model: Some("preserve-model".to_owned()),
         hotwords_file: None,
         command: Some("old-python".to_owned()),
-        args: vec![script_path.to_string_lossy().into_owned()],
+        args: vec!["/tmp/vinpst/providers/openai-compatible/./streaming".to_owned()],
         env: HashMap::from([
             ("VINPST_ASR_API_KEY".to_owned(), "preserve-me".to_owned()),
             ("CUSTOM".to_owned(), "also-preserve".to_owned()),

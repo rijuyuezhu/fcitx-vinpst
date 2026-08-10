@@ -9,8 +9,11 @@ use super::{
     validate_config_json_value, write_config_set_document,
 };
 use crate::{
+    config_io::ConfigSetWriteTarget,
     paths::default_cache_root,
-    registry_support::{fetched_text_source_json, print_cache_fallback_warning},
+    registry_support::{
+        fetched_text_source_json, print_cache_fallback_warning, with_managed_script_transaction,
+    },
 };
 use vinpst_registry::adapter_registry_cache_path;
 
@@ -81,18 +84,14 @@ fn run_adapter_install(
     let mut wrote_script = false;
     let mut wrote_config = false;
     if !request.dry_run {
-        let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
-        let installed =
-            install_live_script(&source, LiveScriptKind::LlmAdapter, &entry, &adapter_root)?;
-        if installed.script_path != script_path {
-            anyhow::bail!(
-                "installed adapter script path `{}` did not match planned path `{}`",
-                installed.script_path.display(),
-                script_path.display()
-            );
-        }
+        install_adapter_and_config(
+            &entry,
+            &adapter_root,
+            &script_path,
+            &loaded.document,
+            &write_target,
+        )?;
         wrote_script = true;
-        write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
     }
     let required_env = entry
@@ -124,6 +123,33 @@ fn run_adapter_install(
         wrote_script,
         wrote_config,
     })
+}
+
+fn install_adapter_and_config(
+    entry: &vinpst_registry::LiveScriptEntry,
+    adapter_root: &Path,
+    script_path: &Path,
+    document: &serde_json::Value,
+    write_target: &ConfigSetWriteTarget,
+) -> anyhow::Result<()> {
+    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
+    with_managed_script_transaction(
+        script_path,
+        || {
+            let installed =
+                install_live_script(&source, LiveScriptKind::LlmAdapter, entry, adapter_root)?;
+            if installed.script_path != script_path {
+                anyhow::bail!(
+                    "installed adapter script path `{}` did not match planned path `{}`",
+                    installed.script_path.display(),
+                    script_path.display()
+                );
+            }
+            Ok(installed)
+        },
+        |_| write_config_set_document(document, write_target),
+    )?;
+    Ok(())
 }
 
 fn adapter_install_outcome_json(outcome: &AdapterInstallOutcome) -> serde_json::Value {

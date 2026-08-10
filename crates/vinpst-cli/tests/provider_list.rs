@@ -1460,6 +1460,90 @@ fn provider_install_downloads_script_and_updates_config_in_place() {
 }
 
 #[test]
+fn provider_install_restores_managed_script_when_config_write_fails() {
+    let root = unique_temp_dir("vinpst-provider-install-rollback");
+    let config_path = root.join("config.json");
+    fs::write(&config_path, empty_live_provider_config_fixture_json()).expect("write config");
+    let provider_root = root.join("managed-providers");
+    let registry_path = root.join("providers.json");
+
+    let old_script = b"#!/usr/bin/env python3\nprint('old provider')\n".to_vec();
+    let (old_url, old_server) = serve_single_binary_response(old_script.clone());
+    fs::write(
+        &registry_path,
+        live_provider_registry_fixture_json(&old_url),
+    )
+    .expect("write initial provider registry");
+    let first = vinpst_command()
+        .args(["provider", "install", "oai-stream", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--provider-root")
+        .arg(&provider_root)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("install initial provider");
+    assert_json_success(first, "initial provider install");
+    assert_eq!(
+        old_server.join().expect("join initial provider server"),
+        "/entry.py"
+    );
+
+    let script_path = provider_root.join("openai-compatible/streaming");
+    assert_eq!(fs::read(&script_path).expect("old script"), old_script);
+    let config_before_update = fs::read(&config_path).expect("config before failed update");
+
+    let new_script = b"#!/usr/bin/env python3\nprint('new provider')\n".to_vec();
+    let (new_url, new_server) = serve_single_binary_response(new_script);
+    fs::write(
+        &registry_path,
+        live_provider_registry_fixture_json(&new_url),
+    )
+    .expect("write updated provider registry");
+    let invalid_output = root.join("config-output-is-directory");
+    fs::create_dir_all(&invalid_output).expect("create invalid config output directory");
+
+    let failed = vinpst_command()
+        .args(["provider", "install", "oai-stream", "--registry"])
+        .arg(&registry_path)
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--provider-root")
+        .arg(&provider_root)
+        .arg("--output")
+        .arg(&invalid_output)
+        .arg("--json")
+        .output()
+        .expect("run provider update with failing config write");
+    assert_eq!(
+        new_server.join().expect("join updated provider server"),
+        "/entry.py"
+    );
+
+    assert!(!failed.status.success());
+    assert_eq!(
+        fs::read(&script_path).expect("restored managed script"),
+        old_script
+    );
+    assert_eq!(
+        fs::read(&config_path).expect("unchanged input config"),
+        config_before_update
+    );
+    let rollback_files = fs::read_dir(script_path.parent().expect("script parent"))
+        .expect("read managed script directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".cli-rollback."))
+        .collect::<Vec<_>>();
+    assert!(
+        rollback_files.is_empty(),
+        "CLI rollback files left behind: {rollback_files:?}"
+    );
+    fs::remove_dir_all(root).expect("remove provider rollback root");
+}
+
+#[test]
 fn provider_install_refuses_user_defined_provider_before_download() {
     let root = unique_temp_dir("vinpst-provider-install-refuse-custom");
     let config_path = root.join("config.json");

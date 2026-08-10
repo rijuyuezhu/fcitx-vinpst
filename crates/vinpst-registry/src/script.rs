@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use schemars::JsonSchema;
@@ -241,6 +241,14 @@ pub enum LiveScriptInstallError {
         /// Sanitized filesystem failure.
         message: String,
     },
+    /// A fully prepared script could not be published to its managed path.
+    #[error("failed to publish managed script `{path}`: {message}")]
+    Publish {
+        /// Final managed script path.
+        path: String,
+        /// Sanitized filesystem failure.
+        message: String,
+    },
 }
 
 /// Adapter materialization errors.
@@ -316,9 +324,28 @@ pub fn install_live_script_controlled(
     script_root: impl AsRef<Path>,
     control: &RegistryOperationControl,
 ) -> Result<LiveScriptInstallResult, LiveScriptInstallError> {
+    install_live_script_controlled_with_permissions(
+        source,
+        kind,
+        entry,
+        script_root.as_ref(),
+        control,
+        mark_executable,
+    )
+}
+
+fn install_live_script_controlled_with_permissions(
+    source: &impl RegistryAssetSource,
+    kind: LiveScriptKind,
+    entry: &LiveScriptEntry,
+    script_root: &Path,
+    control: &RegistryOperationControl,
+    apply_permissions: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> Result<LiveScriptInstallResult, LiveScriptInstallError> {
     validate_script_entry(entry, kind)?;
     let relative_path = managed_script_relative_path(kind, &entry.id)?;
-    let output_path = script_root.as_ref().join(&relative_path);
+    let output_path = script_root.join(&relative_path);
+    let prepared_path = prepared_script_path(&output_path);
     let asset = PlannedInstallAsset {
         entry_kind: kind.registry_entry_kind(),
         entry_id: entry.id.clone(),
@@ -329,14 +356,22 @@ pub fn install_live_script_controlled(
         size_bytes: None,
         checksum_policy: ChecksumPolicy::Missing,
     };
-    let staged = stage_planned_asset_controlled(source, &asset, &output_path, control)?;
-    if let Err(error) = mark_executable(&staged.path) {
-        let _ = fs::remove_file(&staged.path);
+    let mut staged = stage_planned_asset_controlled(source, &asset, &prepared_path, control)?;
+    if let Err(error) = apply_permissions(&staged.path) {
+        let _ = fs::remove_file(&prepared_path);
         return Err(LiveScriptInstallError::Permissions {
-            path: staged.path.display().to_string(),
+            path: output_path.display().to_string(),
             message: error.to_string(),
         });
     }
+    if let Err(error) = fs::rename(&prepared_path, &output_path) {
+        let _ = fs::remove_file(&prepared_path);
+        return Err(LiveScriptInstallError::Publish {
+            path: output_path.display().to_string(),
+            message: error.kind().to_string(),
+        });
+    }
+    staged.path = output_path;
     Ok(install_result(entry, staged))
 }
 
@@ -352,7 +387,7 @@ pub fn materialize_llm_adapter(
     let script_path = script_path.as_ref().to_string_lossy().into_owned();
     let mut adapter = match existing {
         Some(existing) => {
-            if existing.args.as_slice() != [script_path.as_str()] {
+            if !is_managed_script_path(Path::new(&script_path), &existing.args) {
                 return Err(LlmAdapterMaterializationError::UserDefinedAdapter(
                     entry.id.clone(),
                 ));
@@ -392,7 +427,7 @@ pub fn materialize_asr_provider(
     let mut provider = match existing {
         Some(existing) => {
             if existing.kind != AsrProviderKind::Command
-                || existing.args.as_slice() != [script_path.as_str()]
+                || !is_managed_script_path(Path::new(&script_path), &existing.args)
             {
                 return Err(AsrProviderMaterializationError::UserDefinedProvider(
                     entry.id.clone(),
@@ -493,6 +528,51 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.trim().is_empty())
 }
 
+fn is_managed_script_path(expected: &Path, args: &[String]) -> bool {
+    args.len() == 1 && lexically_normalized(Path::new(&args[0])) == lexically_normalized(expected)
+}
+
+fn lexically_normalized(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+
+fn prepared_script_path(output_path: &Path) -> PathBuf {
+    let file_name = output_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("managed-script");
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    output_path.with_file_name(format!(
+        ".{file_name}.prepare.{}.{unique}",
+        std::process::id()
+    ))
+}
+
 fn install_result(entry: &LiveScriptEntry, staged: StagedRegistryAsset) -> LiveScriptInstallResult {
     LiveScriptInstallResult {
         id: entry.id.clone(),
@@ -514,4 +594,65 @@ fn mark_executable(path: &Path) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn mark_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use super::*;
+
+    struct MemoryAssetSource;
+
+    impl RegistryAssetSource for MemoryAssetSource {
+        fn fetch_asset(&self, _url: &str, destination: &Path) -> Result<(), String> {
+            fs::write(destination, b"new-script").map_err(|error| error.to_string())
+        }
+    }
+
+    fn adapter_entry() -> LiveScriptEntry {
+        LiveScriptEntry {
+            id: "adapter.demo.proxy".to_owned(),
+            short_id: Some("demo".to_owned()),
+            stream: false,
+            command: "python3".to_owned(),
+            script_urls: vec!["memory://entry.py".to_owned()],
+            readme_url: None,
+            envs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn permission_failure_preserves_existing_managed_script() {
+        let root = tempfile::tempdir().expect("script root");
+        let final_path = root.path().join("demo/proxy");
+        fs::create_dir_all(final_path.parent().expect("script parent")).expect("create parent");
+        fs::write(&final_path, b"old-script").expect("seed existing script");
+
+        let error = install_live_script_controlled_with_permissions(
+            &MemoryAssetSource,
+            LiveScriptKind::LlmAdapter,
+            &adapter_entry(),
+            root.path(),
+            &RegistryOperationControl::default(),
+            |_| Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+        )
+        .expect_err("permission failure");
+
+        assert!(matches!(error, LiveScriptInstallError::Permissions { .. }));
+        assert_eq!(
+            fs::read(&final_path).expect("existing script"),
+            b"old-script"
+        );
+        let leftovers = fs::read_dir(final_path.parent().expect("script parent"))
+            .expect("read script parent")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".prepare."))
+            .collect::<Vec<_>>();
+        assert!(
+            leftovers.is_empty(),
+            "prepared script files left behind: {leftovers:?}"
+        );
+    }
 }

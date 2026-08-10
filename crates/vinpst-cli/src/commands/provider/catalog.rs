@@ -11,7 +11,9 @@ use super::{
 };
 use crate::{
     paths::default_cache_root,
-    registry_support::{fetched_text_source_json, print_cache_fallback_warning},
+    registry_support::{
+        fetched_text_source_json, print_cache_fallback_warning, with_managed_script_transaction,
+    },
 };
 use vinpst_registry::provider_registry_cache_path;
 
@@ -205,17 +207,27 @@ fn run_provider_install(
     let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
-        let installed =
-            install_live_script(&source, LiveScriptKind::AsrProvider, &entry, &provider_root)?;
-        if installed.script_path != script_path {
-            anyhow::bail!(
-                "installed provider script path `{}` did not match planned path `{}`",
-                installed.script_path.display(),
-                script_path.display()
-            );
-        }
+        with_managed_script_transaction(
+            &script_path,
+            || {
+                let installed = install_live_script(
+                    &source,
+                    LiveScriptKind::AsrProvider,
+                    &entry,
+                    &provider_root,
+                )?;
+                if installed.script_path != script_path {
+                    anyhow::bail!(
+                        "installed provider script path `{}` did not match planned path `{}`",
+                        installed.script_path.display(),
+                        script_path.display()
+                    );
+                }
+                Ok(installed)
+            },
+            |_| write_config_set_document(&loaded.document, &write_target),
+        )?;
         wrote_script = true;
-        write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
         runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
