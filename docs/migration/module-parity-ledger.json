@@ -1510,6 +1510,41 @@
         "Rust downloader diagnostics intentionally redact request URLs, headers, response bodies, and transport internals more aggressively than frozen curl error strings. Typed RegistryOperationProgress supplies byte counts/cancellation for asset downloads; presentation differences such as speed calculation are recorded separately in DOWNLOAD-PROGRESS-001.",
         "Deterministic evidence includes exact-200 text/asset local-HTTP tests, Content-Length and lengthless streamed-body limit tests, existing mirror-fallback/timeout/checksum/temp-cleanup/cancellation tests, full vinpst-registry/vinpst-cli/vinpst-gui suites, and strict all-target Clippy for all three crates."
       ]
+    },
+    {
+      "id": "REGISTRY-I18N-001",
+      "state": "audited-fixed",
+      "title": "Registry locale detection and layered i18n loading",
+      "upstream_files": [
+        "common/registry/registry_i18n.cpp",
+        "common/registry/registry_i18n.h"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/live_i18n.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/mod.rs",
+        "crates/vinpst-cli/src/commands/provider/catalog.rs",
+        "crates/vinpst-cli/src/registry_support.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/script_catalog.rs",
+        "crates/vinpst-registry/src/fetch.rs",
+        "crates/vinpst-registry/src/live.rs",
+        "crates/vinpst-registry/src/tests.rs"
+      ],
+      "notes": [
+        "Frozen registry i18n normalizes locale names, detects the preferred locale from LANGUAGE/LC_ALL/LC_MESSAGES/LANG, fetches preferred then en_US fallback translation maps from all configured registry mirrors with a 20-second/1-MiB downloader boundary, merges fallback then preferred, and finally lets i18n.local.json override both. Remote failure is nonfatal to catalog loading.",
+        "Fixed translation parsing parity. LiveRegistryI18n previously deserialized directly into BTreeMap<String,String>, so any non-string JSON value rejected the whole layer. It now requires an object but inserts only string-valued members and ignores numbers, booleans, arrays, and nested objects like the frozen ParseI18nJson helper. Malformed JSON and non-object roots still fail closed.",
+        "Fixed the remote i18n transport policy. CLI and GUI now use a dedicated 20-second/1-MiB ReqwestRegistryTextSource for production remote translations rather than the CLI 10-second unlimited source or the GUI 30-second/4-MiB registry-index source. DOWNLOADER-001 provides exact-HTTP-200 and bounded-body enforcement underneath this call site.",
+        "Fixed mirror independence. Translation lookup now walks every configured registry base for each locale instead of deriving one i18n base from whichever mirror happened to serve the registry index. This restores the frozen ResolveRegistryI18nUrls behavior and allows a registry index from one mirror to use translations from another. An explicit local --registry fixture intentionally disables implicit remote i18n unless an explicit i18n file is supplied, preserving deterministic offline test/user behavior.",
+        "Fixed fetch order to preferred locale first and en_US fallback second while preserving merge precedence fallback < preferred < local. If one mirror transport request fails the next mirror is tried; once a mirror returns a body, parse success/failure decides that locale layer exactly as in frozen FetchText followed by ParseI18nJson rather than silently skipping a malformed successful response to another mirror.",
+        "Current locale normalization remains slightly more defensive by trimming surrounding whitespace before applying the frozen colon/encoding/modifier/hyphen/C/POSIX/zh/en rules. LiveRegistryI18n::get also treats whitespace-only translations as absent, while frozen only treats an empty string as absent. Both are intentional fail-soft cleanup that do not remove a valid translation value.",
+        "The CLI keeps richer per-layer diagnostics and a deterministic explicit i18n file override; malformed local overrides are nonfatal and cannot erase usable remote layers. GUI uses the same preferred/fallback map semantics but keeps presentation ownership in its catalog modules.",
+        "Frozen cached preferred/fallback i18n loading and stale-cache policy are not claimed by this unit. common/registry/registry_cache.* remains pending and is the next audit target so cache freshness, stale fallback, and atomic cache publication can be compared without duplicating ownership here.",
+        "Deterministic evidence includes mixed-value i18n parsing, preferred-before-fallback layer ordering, independent multi-mirror translation fallback, malformed local override recovery, GUI registry-index/i18n mirror independence, existing locale normalization tests, and strict all-target Clippy for vinpst-registry, vinpst-cli, and vinpst-gui."
+      ]
     }
   ],
   "upstream_pending": [
@@ -1519,8 +1554,6 @@
     "common/registry/registry_cache.h",
     "common/registry/registry_fetch.cpp",
     "common/registry/registry_fetch.h",
-    "common/registry/registry_i18n.cpp",
-    "common/registry/registry_i18n.h",
     "common/registry/registry_models.cpp",
     "common/registry/registry_models.h",
     "common/registry/registry_scripts.cpp",
@@ -1576,7 +1609,6 @@
     "crates/vinpst-cli/src/daemon_control/handoff.rs",
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
-    "crates/vinpst-cli/src/live_i18n.rs",
     "crates/vinpst-cli/src/paths.rs",
     "crates/vinpst-cli/src/registry_support.rs",
     "crates/vinpst-cli/src/sandbox.rs",
