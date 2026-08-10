@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use vinpst_config::VinpstConfig;
+use vinpst_config::{VinpstConfig, user_paths};
 use vinpst_text::{
     append_recent_input_context_buffer, append_recent_input_context_entry,
     default_context_cache_path_for_current_user, truncate_recent_input_context_cache,
@@ -125,18 +125,9 @@ impl ContextHistory {
 }
 
 fn load_max_context_lines() -> u8 {
-    let config_home = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .filter(|value| !value.is_empty())
-                .map(|home| PathBuf::from(home).join(".config"))
-        });
-    let Some(config_home) = config_home else {
+    let Some(path) = user_paths::default_config_path() else {
         return 0;
     };
-    let path = config_home.join("fcitx-vinpst").join("config.json");
     let config = if path.is_file() {
         VinpstConfig::from_json_file(path).ok()
     } else {

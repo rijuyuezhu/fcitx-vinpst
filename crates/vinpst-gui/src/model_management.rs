@@ -1,12 +1,11 @@
 //! Managed ASR model storage and registry operations for the GUI.
 
 use std::{
-    env,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use vinpst_config::{AsrProviderKind, VinpstConfig};
+use vinpst_config::{AsrProviderKind, VinpstConfig, user_paths};
 use vinpst_registry::{
     InstalledModelInfo, LiveModelFamily, LiveModelInstallError, LiveModelInstallRequest,
     LiveModelRegistry, LiveRegistryI18n, ManagedModelRemoveRequest, RegistryOperationControl,
@@ -51,38 +50,20 @@ pub(crate) enum ModelCatalogState {
 
 /// Returns the managed ASR model root used by CLI and GUI workflows.
 pub fn default_model_root() -> Result<PathBuf, String> {
-    Ok(user_data_home()?.join("fcitx-vinpst").join("models"))
+    user_paths::default_model_root().ok_or_else(|| {
+        "HOME or XDG_DATA_HOME is required to locate managed model storage".to_owned()
+    })
 }
 
 fn default_model_staging_root() -> Result<PathBuf, String> {
-    Ok(user_cache_home()?
-        .join("fcitx-vinpst")
-        .join("model-install"))
+    user_paths::default_model_install_staging_root().ok_or_else(|| {
+        "HOME or XDG_CACHE_HOME is required to locate model install staging".to_owned()
+    })
 }
 
 pub(crate) fn default_registry_cache_root() -> Result<PathBuf, String> {
-    Ok(user_cache_home()?.join("fcitx-vinpst"))
-}
-
-fn user_data_home() -> Result<PathBuf, String> {
-    match env::var_os("XDG_DATA_HOME") {
-        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
-        _ => Ok(user_home()?.join(".local/share")),
-    }
-}
-
-fn user_cache_home() -> Result<PathBuf, String> {
-    match env::var_os("XDG_CACHE_HOME") {
-        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
-        _ => Ok(user_home()?.join(".cache")),
-    }
-}
-
-fn user_home() -> Result<PathBuf, String> {
-    env::var_os("HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| "HOME is required to locate managed model storage".to_owned())
+    user_paths::default_cache_root()
+        .ok_or_else(|| "HOME or XDG_CACHE_HOME is required to locate registry cache".to_owned())
 }
 
 pub(crate) fn load_installed_models() -> Result<Vec<InstalledModelInfo>, String> {

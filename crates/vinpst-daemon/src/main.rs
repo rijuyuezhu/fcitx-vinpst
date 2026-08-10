@@ -12,7 +12,7 @@ use vinpst_asr::{AsrBackendFactory, MockAsrBackend, UnavailableAsrBackend};
 use vinpst_audio::{
     AudioRecorder, CaptureTarget, CapturedAudio, MockAudioSource, PcmBuffer, PcmSpec,
 };
-use vinpst_config::VinpstConfig;
+use vinpst_config::{VinpstConfig, user_paths};
 use vinpst_daemon::{
     RuntimeState, VinpstDbusService,
     remote::{RemoteTextServer, remote_text_settings},
@@ -726,15 +726,8 @@ fn resolve_model_root(explicit: Option<&PathBuf>) -> anyhow::Result<PathBuf> {
     if let Some(path) = explicit {
         return Ok(path.clone());
     }
-    if let Some(path) = std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
-        return Ok(PathBuf::from(path).join("fcitx-vinpst").join("models"));
-    }
-    let home = std::env::var_os("HOME")
-        .context("resolve installed model root: HOME is unset and XDG_DATA_HOME is unset")?;
-    Ok(PathBuf::from(home)
-        .join(".local/share")
-        .join("fcitx-vinpst")
-        .join("models"))
+    user_paths::default_model_root()
+        .context("resolve installed model root: HOME and XDG_DATA_HOME are both unavailable")
 }
 
 struct LoadedConfig {
@@ -768,16 +761,9 @@ fn load_config(path: Option<&PathBuf>) -> anyhow::Result<LoadedConfig> {
 }
 
 fn default_user_config_path() -> anyhow::Result<PathBuf> {
-    let config_home = match std::env::var_os("XDG_CONFIG_HOME") {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => {
-            let home = std::env::var_os("HOME")
-                .filter(|value| !value.is_empty())
-                .context("resolve default daemon config path: HOME is unset")?;
-            PathBuf::from(home).join(".config")
-        }
-    };
-    Ok(config_home.join("fcitx-vinpst").join("config.json"))
+    user_paths::default_config_path().context(
+        "resolve default daemon config path: HOME and XDG_CONFIG_HOME are both unavailable",
+    )
 }
 
 #[cfg(all(test, unix))]

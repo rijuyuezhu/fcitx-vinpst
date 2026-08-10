@@ -1,7 +1,6 @@
 //! Rust management GUI state, data loading, and D-Bus integration.
 
 use std::{
-    env,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -13,7 +12,7 @@ use iced::{
 use serde_json::{Value, json};
 #[cfg(test)]
 use vinpst_config::AsrProviderKind;
-use vinpst_config::{VinpstConfig, config_backup_path, write_config_file};
+use vinpst_config::{VinpstConfig, config_backup_path, user_paths, write_config_file};
 use vinpst_protocol::{TextAdapterState, dbus};
 use vinpst_registry::InstalledModelInfo;
 
@@ -862,16 +861,8 @@ impl App {
 
 /// Returns the default user config path.
 pub fn default_config_path() -> Result<PathBuf, String> {
-    let config_home = match env::var_os("XDG_CONFIG_HOME") {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => {
-            let home = env::var_os("HOME").ok_or_else(|| {
-                "HOME or XDG_CONFIG_HOME is required to locate the user config".to_owned()
-            })?;
-            PathBuf::from(home).join(".config")
-        }
-    };
-    Ok(config_home.join("fcitx-vinpst").join("config.json"))
+    user_paths::default_config_path()
+        .ok_or_else(|| "HOME or XDG_CONFIG_HOME is required to locate the user config".to_owned())
 }
 
 /// Loads and validates a config document, falling back to the bundled default if absent.

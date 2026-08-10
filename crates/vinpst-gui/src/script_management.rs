@@ -4,12 +4,13 @@
 mod removal_tests;
 
 use std::{
-    env,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use vinpst_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinpstConfig};
+use vinpst_config::{
+    AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinpstConfig, user_paths,
+};
 use vinpst_registry::{
     LiveScriptKind, LiveScriptRegistry, RegistryOperationControl, RegistryOperationProgress,
     RegistryTextSource, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
@@ -487,18 +488,13 @@ pub(crate) fn materialize_config(
 }
 
 fn default_script_root(kind: LiveScriptKind) -> Result<PathBuf, String> {
-    let data_home = match env::var_os("XDG_DATA_HOME") {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => env::var_os("HOME")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .ok_or_else(|| "HOME is required to locate managed script storage".to_owned())?
-            .join(".local/share"),
+    let path = match kind {
+        LiveScriptKind::AsrProvider => user_paths::default_provider_root(),
+        LiveScriptKind::LlmAdapter => user_paths::default_adapter_root(),
     };
-    Ok(data_home.join("fcitx-vinpst").join(match kind {
-        LiveScriptKind::AsrProvider => "providers",
-        LiveScriptKind::LlmAdapter => "adapters",
-    }))
+    path.ok_or_else(|| {
+        "HOME or XDG_DATA_HOME is required to locate managed script storage".to_owned()
+    })
 }
 
 pub(crate) const fn resource_label(kind: LiveScriptKind) -> &'static str {

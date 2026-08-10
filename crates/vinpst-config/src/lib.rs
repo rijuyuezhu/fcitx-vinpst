@@ -12,6 +12,7 @@ mod persistence;
 mod schema;
 #[cfg(test)]
 mod tests;
+pub mod user_paths;
 mod validation;
 
 pub use diagnostics::redact_url_for_diagnostics;

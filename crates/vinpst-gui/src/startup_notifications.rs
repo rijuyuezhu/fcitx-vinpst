@@ -28,7 +28,6 @@ const NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_NOTIFICATION_TITLE_BYTES: usize = 4 * 1024;
 const MAX_NOTIFICATION_TEXT_BYTES: usize = 16 * 1024;
 const MAX_READ_STATE_BYTES: u64 = 64 * 1024;
-const READ_STATE_FILE: &str = "read_notifications";
 static NEXT_READ_STATE_FILE_ID: AtomicU64 = AtomicU64::new(1);
 
 /// One startup-notification interaction.
@@ -365,15 +364,7 @@ fn normalize_locale(locale: &str) -> String {
 }
 
 fn default_read_state_path() -> Option<PathBuf> {
-    let cache_home = std::env::var_os("XDG_CACHE_HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .filter(|value| !value.is_empty())
-                .map(|home| PathBuf::from(home).join(".cache"))
-        })?;
-    Some(cache_home.join("fcitx-vinpst").join(READ_STATE_FILE))
+    vinpst_config::user_paths::default_read_notifications_path()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

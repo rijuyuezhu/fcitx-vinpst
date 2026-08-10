@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::Context;
 use serde_json::{Value, json};
+use vinpst_config::user_paths;
 use vinpst_registry::{
     LiveRegistryI18n, RegistryTextCache, RegistryTextSource, ReqwestRegistryTextSource,
     fetch_registry_text_with_cache, normalize_registry_locale, registry_i18n_cache_path,
@@ -392,11 +393,11 @@ fn skipped_layer(role: &str, reason: &str) -> LoadedI18nLayer {
 }
 
 fn default_local_i18n_override_path() -> Option<PathBuf> {
-    let config_home = match std::env::var_os("XDG_CONFIG_HOME") {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => PathBuf::from(std::env::var_os("HOME")?).join(".config"),
-    };
-    Some(config_home.join("vinpst").join("i18n.local.json"))
+    Some(
+        user_paths::user_config_home()?
+            .join("vinpst")
+            .join("i18n.local.json"),
+    )
 }
 
 fn join_url(base_url: &str, path: &str) -> String {
