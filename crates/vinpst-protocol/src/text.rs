@@ -154,10 +154,10 @@ mod tests {
               "adapters": [{
                 "id": "cmd",
                 "kind": "command",
-                "command": "legacy-helper",
-                "args": ["--legacy"],
-                "env": {"KEY":"VALUE"},
-                "working_dir": "/tmp/legacy",
+                "command": "legacy-command-secret",
+                "args": ["--token", "legacy-arg-secret"],
+                "env": {"TOKEN":"legacy-env-secret"},
+                "working_dir": "/tmp/legacy-working-dir-secret",
                 "env_count": 2,
                 "has_working_dir": true
               }]
@@ -174,6 +174,16 @@ mod tests {
         assert_eq!(state.adapters[0].args_count, 0);
         assert_eq!(state.adapters[0].env_count, 2);
         assert!(state.adapters[0].has_working_dir);
+
+        let debug = format!("{state:?}");
+        for secret in [
+            "legacy-command-secret",
+            "legacy-arg-secret",
+            "legacy-env-secret",
+            "legacy-working-dir-secret",
+        ] {
+            assert!(!debug.contains(secret));
+        }
     }
 
     #[test]
