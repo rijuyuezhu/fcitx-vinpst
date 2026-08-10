@@ -10,7 +10,7 @@ use vinpst_config::{
     COMMAND_SCENE_ID, LlmProviderConfig, RAW_SCENE_ID, SceneDefinition, redact_url_for_diagnostics,
 };
 use vinpst_http::{
-    MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError,
+    HttpClientError, MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError,
     blocking_client_from_environment_with_connect_timeout, read_provider_response_text,
     reqwest_error_category,
 };
@@ -29,6 +29,8 @@ use crate::{
 };
 
 const OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH: &str = "/chat/completions";
+const OPENAI_COMPATIBLE_MODELS_PATH: &str = "/models";
+const OPENAI_COMPATIBLE_MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
 const OPENAI_COMPATIBLE_JSON_CONTENT_TYPE_HEADER: (&str, &str) =
     ("Content-Type", "application/json");
 const OPENAI_COMPATIBLE_AUTHORIZATION_HEADER: &str = "Authorization";
@@ -41,29 +43,109 @@ const OPENAI_COMPATIBLE_BEARER_PREFIX: &str = "Bearer ";
 /// removed before appending exactly one path separator.
 #[must_use]
 pub fn build_openai_compatible_chat_url(base_url: &str) -> Option<String> {
+    build_openai_compatible_endpoint_url(base_url, OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH)
+}
+
+/// Builds the OpenAI-compatible model-list endpoint URL used by the management UI.
+#[must_use]
+pub fn build_openai_compatible_models_url(base_url: &str) -> Option<String> {
+    build_openai_compatible_endpoint_url(base_url, OPENAI_COMPATIBLE_MODELS_PATH)
+}
+
+fn build_openai_compatible_endpoint_url(base_url: &str, suffix: &str) -> Option<String> {
     if base_url.is_empty() {
         return None;
     }
     if let Ok(mut url) = reqwest::Url::parse(base_url) {
         let path = url.path().trim_end_matches('/').to_owned();
-        if path.ends_with(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH) {
+        if path.ends_with(suffix) {
             if url.path() != path {
                 url.set_path(&path);
             }
         } else {
-            url.set_path(&format!("{path}{OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH}"));
+            url.set_path(&format!("{path}{suffix}"));
         }
         return Some(url.to_string());
     }
-    if base_url.ends_with(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH) {
+    if base_url.ends_with(suffix) {
         return Some(base_url.to_owned());
     }
     let mut url = base_url.to_owned();
     while url.ends_with('/') {
         url.pop();
     }
-    url.push_str(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH);
+    url.push_str(suffix);
     Some(url)
+}
+
+/// Stable, secret-free failures from OpenAI-compatible model discovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum OpenAiModelDiscoveryError {
+    /// No requestable base URL was configured.
+    #[error("provider base URL is empty")]
+    MissingBaseUrl,
+    /// The shared provider client could not be constructed.
+    #[error("HTTP client setup failed")]
+    Client(#[from] HttpClientError),
+    /// The GET request failed before a response was available.
+    #[error("HTTP request {0}")]
+    Request(&'static str),
+    /// The endpoint returned a non-success status.
+    #[error("HTTP endpoint returned status {0}")]
+    Status(u16),
+    /// The bounded response body could not be read.
+    #[error("HTTP response body failed: {0}")]
+    Body(#[from] ResponseBodyError),
+    /// The response was not valid JSON.
+    #[error("HTTP response is not valid JSON")]
+    InvalidJson,
+}
+
+/// Discovers OpenAI-compatible model ids from one provider.
+pub fn discover_openai_compatible_model_ids(
+    base_url: &str,
+    api_key: &str,
+) -> Result<Vec<String>, OpenAiModelDiscoveryError> {
+    let url = build_openai_compatible_models_url(base_url)
+        .ok_or(OpenAiModelDiscoveryError::MissingBaseUrl)?;
+    let client = blocking_client_from_environment_with_connect_timeout(
+        OPENAI_COMPATIBLE_MODEL_DISCOVERY_TIMEOUT,
+    )?;
+    let mut request = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .timeout(OPENAI_COMPATIBLE_MODEL_DISCOVERY_TIMEOUT);
+    if !api_key.is_empty() {
+        request = request.bearer_auth(api_key);
+    }
+    let response = request
+        .send()
+        .map_err(|error| OpenAiModelDiscoveryError::Request(reqwest_error_category(&error)))?;
+    if !response.status().is_success() {
+        return Err(OpenAiModelDiscoveryError::Status(
+            response.status().as_u16(),
+        ));
+    }
+    let body = read_provider_response_text(response)?;
+    parse_openai_compatible_model_ids(&body)
+}
+
+fn parse_openai_compatible_model_ids(body: &str) -> Result<Vec<String>, OpenAiModelDiscoveryError> {
+    let document = serde_json::from_str::<serde_json::Value>(body)
+        .map_err(|_| OpenAiModelDiscoveryError::InvalidJson)?;
+    let mut models = document
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    models.sort_unstable();
+    models.dedup();
+    Ok(models)
 }
 
 /// Builds the legacy OpenAI-compatible request headers.

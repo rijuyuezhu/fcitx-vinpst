@@ -176,6 +176,7 @@ fn scene_editor_view(
             next.map(|choice| Message::Scene(SceneMessage::ProviderSelected(choice.selection))),
         )
     };
+    let model_controls = scene_model_controls(locale, editor, busy);
     column![
         text(locale.text(action)).size(22),
         id_field,
@@ -198,13 +199,7 @@ fn scene_editor_view(
             provider_control
         ]
         .spacing(10),
-        labeled_input(
-            locale.text(GuiText::ModelOverride),
-            locale.text(GuiText::OptionalModelId),
-            &editor.model,
-            SceneEditorField::Model,
-            busy,
-        ),
+        model_controls,
         labeled_input(
             locale.text(GuiText::CandidateCount),
             locale.text(GuiText::ZeroTo32),
@@ -236,6 +231,42 @@ fn scene_editor_view(
     ]
     .spacing(10)
     .into()
+}
+
+fn scene_model_controls<'a>(
+    locale: GuiLocale,
+    editor: &'a SceneEditorState,
+    busy: bool,
+) -> Element<'a, Message> {
+    let mut controls = column![labeled_input(
+        locale.text(GuiText::ModelOverride),
+        locale.text(GuiText::OptionalModelId),
+        &editor.model,
+        SceneEditorField::Model,
+        busy,
+    )]
+    .spacing(6);
+    if editor.model_discovery_loading {
+        controls = controls.push(text(locale.scene_models_loading()).size(13));
+    } else if editor.model_discovery_failed {
+        controls = controls.push(text(locale.scene_models_unavailable()).size(13));
+    } else if !editor.model_suggestions.is_empty() {
+        let discovered: Element<'a, Message> = if busy {
+            text(locale.scene_model_suggestion())
+                .width(Length::Fill)
+                .into()
+        } else {
+            pick_list(editor.model_suggestions.clone(), None::<String>, |model| {
+                Message::Scene(SceneMessage::ModelSuggestionSelected(model))
+            })
+            .placeholder(locale.scene_model_suggestion_placeholder())
+            .width(Length::Fill)
+            .into()
+        };
+        controls = controls
+            .push(row![text(locale.scene_model_suggestion()).width(160), discovered].spacing(10));
+    }
+    controls.into()
 }
 
 fn scene_provider_options(locale: GuiLocale, config: &VinpstConfig) -> Vec<SceneProviderChoice> {

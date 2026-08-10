@@ -18,6 +18,34 @@ pub enum GuiLocale {
 }
 
 impl GuiLocale {
+    pub(crate) const fn scene_models_loading(self) -> &'static str {
+        match self {
+            Self::EnUs => "Loading provider models…",
+            Self::ZhCn => "正在加载提供商模型…",
+        }
+    }
+
+    pub(crate) const fn scene_models_unavailable(self) -> &'static str {
+        match self {
+            Self::EnUs => "Couldn’t load models; enter one manually.",
+            Self::ZhCn => "无法加载模型；仍可手动输入。",
+        }
+    }
+
+    pub(crate) const fn scene_model_suggestion(self) -> &'static str {
+        match self {
+            Self::EnUs => "Available models",
+            Self::ZhCn => "可用模型",
+        }
+    }
+
+    pub(crate) const fn scene_model_suggestion_placeholder(self) -> &'static str {
+        match self {
+            Self::EnUs => "Choose a discovered model",
+            Self::ZhCn => "选择已发现的模型",
+        }
+    }
+
     pub(crate) const fn default_capture_device(self) -> &'static str {
         match self {
             Self::EnUs => "Default",

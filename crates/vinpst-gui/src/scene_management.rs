@@ -4,10 +4,11 @@ mod view;
 
 use iced::Task;
 use vinpst_config::{COMMAND_SCENE_ID, RAW_SCENE_ID, SceneDefinition, VinpstConfig};
+use vinpst_text::discover_openai_compatible_model_ids;
 
 use crate::{
-    App, ConfigDocument, ConfigSaveOutcome, GuiText, Message, OperationState, load_config_document,
-    save_updated_config_with_daemon,
+    App, ConfigDocument, ConfigSaveOutcome, GuiText, Message, OperationState, blocking_task,
+    load_config_document, save_updated_config_with_daemon,
 };
 
 /// One editable field in the scene form.
@@ -73,6 +74,17 @@ pub enum SceneMessage {
     },
     /// Select one configured LLM provider or clear the scene binding.
     ProviderSelected(SceneProviderSelection),
+    /// Apply one discovered model id while keeping the text field editable.
+    ModelSuggestionSelected(String),
+    /// Result of one asynchronous provider-model discovery request.
+    ModelDiscoveryFinished {
+        /// Request generation used to discard stale responses.
+        generation: u64,
+        /// Provider id associated with this response.
+        provider_id: String,
+        /// Discovered model ids or a secret-free failure description.
+        result: Result<Vec<String>, String>,
+    },
     /// Close the scene form without saving.
     CancelEdit,
     /// Validate and persist the active scene form.
@@ -105,6 +117,10 @@ pub(super) struct SceneEditorState {
     candidate_count: String,
     timeout_ms: String,
     context_lines: String,
+    model_suggestions: Vec<String>,
+    model_discovery_generation: u64,
+    model_discovery_loading: bool,
+    model_discovery_failed: bool,
 }
 
 impl SceneEditorState {
@@ -119,6 +135,10 @@ impl SceneEditorState {
             candidate_count: "1".to_owned(),
             timeout_ms: String::new(),
             context_lines: "0".to_owned(),
+            model_suggestions: Vec::new(),
+            model_discovery_generation: 0,
+            model_discovery_loading: false,
+            model_discovery_failed: false,
         }
     }
 
@@ -135,6 +155,10 @@ impl SceneEditorState {
                 .timeout_ms
                 .map_or_else(String::new, |value| value.to_string()),
             context_lines: scene.context_lines.to_string(),
+            model_suggestions: Vec::new(),
+            model_discovery_generation: 0,
+            model_discovery_loading: false,
+            model_discovery_failed: false,
         }
     }
 
@@ -179,13 +203,19 @@ impl App {
     pub(super) fn handle_scene_message(&mut self, message: SceneMessage) -> Task<Message> {
         match message {
             SceneMessage::BeginAdd => self.begin_add_scene(),
-            SceneMessage::BeginEdit(id) => self.begin_edit_scene(&id),
+            SceneMessage::BeginEdit(id) => return self.begin_edit_scene(&id),
             SceneMessage::EditorChanged { field, value } => {
                 self.update_scene_editor(field, value);
             }
             SceneMessage::ProviderSelected(selection) => {
-                self.select_scene_provider(selection);
+                return self.select_scene_provider(selection);
             }
+            SceneMessage::ModelSuggestionSelected(model) => self.select_scene_model(model),
+            SceneMessage::ModelDiscoveryFinished {
+                generation,
+                provider_id,
+                result,
+            } => self.finish_scene_model_discovery(generation, &provider_id, result),
             SceneMessage::CancelEdit => self.cancel_scene_editor(),
             SceneMessage::Save => return self.begin_scene_save(),
             SceneMessage::Use(id) => return self.begin_scene_use(&id),
@@ -207,13 +237,13 @@ impl App {
         self.operation = OperationState::Idle;
     }
 
-    pub(super) fn begin_edit_scene(&mut self, scene_id: &str) {
+    pub(super) fn begin_edit_scene(&mut self, scene_id: &str) -> Task<Message> {
         if self.is_busy() || self.scene_editor.is_some() {
-            return;
+            return Task::none();
         }
         if let Err(error) = self.ensure_no_unsaved_config_draft() {
             self.operation = OperationState::Failed(error);
-            return;
+            return Task::none();
         }
         let Some(scene) = self
             .config
@@ -231,10 +261,11 @@ impl App {
         else {
             self.operation =
                 OperationState::Failed(format!("Scene `{scene_id}` is no longer configured."));
-            return;
+            return Task::none();
         };
         self.scene_editor = Some(SceneEditorState::edit(&scene));
         self.operation = OperationState::Idle;
+        self.begin_scene_model_discovery()
     }
 
     pub(super) fn update_scene_editor(&mut self, field: SceneEditorField, value: String) {
@@ -243,9 +274,86 @@ impl App {
         }
     }
 
-    fn select_scene_provider(&mut self, selection: SceneProviderSelection) {
+    fn select_scene_provider(&mut self, selection: SceneProviderSelection) -> Task<Message> {
         if let Some(editor) = &mut self.scene_editor {
             editor.provider_id = selection.into_provider_id();
+            editor.model_suggestions.clear();
+            editor.model_discovery_failed = false;
+        }
+        self.begin_scene_model_discovery()
+    }
+
+    fn select_scene_model(&mut self, model: String) {
+        if let Some(editor) = &mut self.scene_editor {
+            editor.model = model;
+        }
+    }
+
+    fn begin_scene_model_discovery(&mut self) -> Task<Message> {
+        let Some(editor) = &mut self.scene_editor else {
+            return Task::none();
+        };
+        editor.model_discovery_generation = editor.model_discovery_generation.wrapping_add(1);
+        let generation = editor.model_discovery_generation;
+        editor.model_discovery_loading = false;
+        editor.model_discovery_failed = false;
+        editor.model_suggestions.clear();
+        let provider_id = editor.provider_id.clone();
+        if provider_id.is_empty() {
+            return Task::none();
+        }
+        let Some(provider) = self.config.as_ref().ok().and_then(|document| {
+            document
+                .config
+                .llm
+                .providers
+                .iter()
+                .find(|provider| provider.id == provider_id)
+        }) else {
+            return Task::none();
+        };
+        let base_url = provider.base_url.clone();
+        let api_key = provider.api_key.clone();
+        editor.model_discovery_loading = true;
+        blocking_task::perform(
+            "vinpst-scene-model-discovery",
+            move || {
+                discover_openai_compatible_model_ids(&base_url, &api_key)
+                    .map_err(|error| error.to_string())
+            },
+            move |worker_result| {
+                let result = match worker_result {
+                    Ok(result) => result,
+                    Err(error) => Err(error.to_string()),
+                };
+                Message::Scene(SceneMessage::ModelDiscoveryFinished {
+                    generation,
+                    provider_id,
+                    result,
+                })
+            },
+        )
+    }
+
+    fn finish_scene_model_discovery(
+        &mut self,
+        generation: u64,
+        provider_id: &str,
+        result: Result<Vec<String>, String>,
+    ) {
+        let Some(editor) = &mut self.scene_editor else {
+            return;
+        };
+        if editor.model_discovery_generation != generation || editor.provider_id != provider_id {
+            return;
+        }
+        editor.model_discovery_loading = false;
+        if let Ok(models) = result {
+            editor.model_suggestions = models;
+            editor.model_discovery_failed = false;
+        } else {
+            editor.model_suggestions.clear();
+            editor.model_discovery_failed = true;
         }
     }
 
@@ -668,5 +776,55 @@ mod tests {
             editor.definition().expect("cleared provider").provider_id,
             None
         );
+    }
+
+    #[test]
+    fn model_discovery_applies_only_to_current_provider_generation() {
+        let mut app = crate::test_support::GuiHarness::new();
+        let mut editor = new_scene_editor();
+        editor.provider_id = "cloud".to_owned();
+        editor.model_discovery_generation = 7;
+        editor.model_discovery_loading = true;
+        app.scene_editor = Some(editor);
+
+        app.finish_scene_model_discovery(6, "cloud", Ok(vec!["stale-generation".to_owned()]));
+        app.finish_scene_model_discovery(
+            7,
+            "other-provider",
+            Ok(vec!["stale-provider".to_owned()]),
+        );
+        let editor = app.scene_editor.as_ref().expect("open editor");
+        assert!(editor.model_suggestions.is_empty());
+        assert!(editor.model_discovery_loading);
+
+        app.finish_scene_model_discovery(
+            7,
+            "cloud",
+            Ok(vec!["model-a".to_owned(), "model-b".to_owned()]),
+        );
+        let editor = app.scene_editor.as_ref().expect("open editor");
+        assert_eq!(editor.model_suggestions, ["model-a", "model-b"]);
+        assert!(!editor.model_discovery_loading);
+        assert!(!editor.model_discovery_failed);
+    }
+
+    #[test]
+    fn discovered_model_selection_only_updates_model_text() {
+        let mut app = crate::test_support::GuiHarness::new();
+        let mut editor = new_scene_editor();
+        editor.provider_id = "cloud".to_owned();
+        let original_label = editor.label.clone();
+        app.scene_editor = Some(editor);
+
+        drop(
+            app.handle_scene_message(SceneMessage::ModelSuggestionSelected(
+                "discovered-model".to_owned(),
+            )),
+        );
+
+        let editor = app.scene_editor.as_ref().expect("open editor");
+        assert_eq!(editor.model, "discovered-model");
+        assert_eq!(editor.provider_id, "cloud");
+        assert_eq!(editor.label, original_label);
     }
 }

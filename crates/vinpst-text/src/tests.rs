@@ -8,10 +8,11 @@ use super::{
     TextRequest, UnsupportedTextAdapter, append_recent_input_context_buffer,
     append_recent_input_context_entry, build_openai_compatible_chat_request,
     build_openai_compatible_chat_request_from_context_cache, build_openai_compatible_chat_url,
-    build_openai_compatible_headers, build_recent_input_context_prefix, command_mode_payload,
-    default_adapter_runtime_dir, default_context_cache_path, extract_openai_compatible_candidates,
-    has_legacy_prompt_interpolation, is_prompt_file_uri, load_prompt_file_uri,
-    load_recent_input_context_prefix, merge_openai_compatible_extra_body,
+    build_openai_compatible_headers, build_openai_compatible_models_url,
+    build_recent_input_context_prefix, command_mode_payload, default_adapter_runtime_dir,
+    default_context_cache_path, discover_openai_compatible_model_ids,
+    extract_openai_compatible_candidates, has_legacy_prompt_interpolation, is_prompt_file_uri,
+    load_prompt_file_uri, load_recent_input_context_prefix, merge_openai_compatible_extra_body,
     openai_compatible_candidates_to_payload, openai_compatible_response_to_payload,
     start_adapter_process, stop_adapter_process, truncate_recent_input_context_cache,
 };
@@ -1392,6 +1393,56 @@ fn openai_chat_url_preserves_complete_endpoint_and_rejects_empty_base() {
         Some("https://api.example.test/v1/chat/completions")
     );
     assert_eq!(build_openai_compatible_chat_url(""), None);
+}
+
+#[test]
+fn openai_models_url_joins_provider_base_and_preserves_query() {
+    assert_eq!(
+        build_openai_compatible_models_url("https://api.example.test/v1///").as_deref(),
+        Some("https://api.example.test/v1/models")
+    );
+    assert_eq!(
+        build_openai_compatible_models_url(
+            "https://api.example.test/v1?api-version=2026-01-01#fragment"
+        )
+        .as_deref(),
+        Some("https://api.example.test/v1/models?api-version=2026-01-01#fragment")
+    );
+    assert_eq!(
+        build_openai_compatible_models_url("https://api.example.test/v1/models/").as_deref(),
+        Some("https://api.example.test/v1/models")
+    );
+    assert_eq!(build_openai_compatible_models_url(""), None);
+}
+
+#[test]
+fn openai_model_discovery_sends_bearer_and_normalizes_ids() {
+    let (base_url, request) = serve_single_http_response(
+        "200 OK",
+        serde_json::json!({
+            "data": [
+                {"id": " z-model "},
+                {"id": "a-model"},
+                {"id": "a-model"},
+                {"id": ""},
+                {"other": true}
+            ]
+        })
+        .to_string(),
+    );
+
+    let models = discover_openai_compatible_model_ids(&base_url, "model-secret").unwrap();
+    let request = request.join().unwrap();
+
+    assert_eq!(models, ["a-model".to_owned(), "z-model".to_owned()]);
+    assert!(request.head.starts_with("GET /models HTTP/1.1\r\n"));
+    assert!(
+        request
+            .head
+            .to_ascii_lowercase()
+            .contains("authorization: bearer model-secret")
+    );
+    assert!(request.body.is_empty());
 }
 
 #[test]
