@@ -28,7 +28,7 @@ fn flatpak_info_fixture() -> NamedTempFile {
     let file = NamedTempFile::new().expect("create flatpak info fixture");
     fs::write(
         file.path(),
-        "[Context]\nshared=network;ipc;\nsockets=wayland;pipewire;\nfilesystems=xdg-config/systemd;xdg-cache;\n",
+        "[Context]\nshared=network;ipc;\nsockets=wayland;\nfilesystems=xdg-run/pipewire-0;xdg-config/systemd:create;xdg-cache;\n",
     )
     .expect("write flatpak info fixture");
     file
@@ -537,7 +537,18 @@ fn doctor_reports_missing_flatpak_permissions() {
     assert_eq!(value["sandbox"]["detected"], true);
     assert_eq!(
         value["sandbox"]["missing_permissions"],
-        serde_json::json!(["socket:pipewire", "filesystem:xdg-config/systemd"])
+        serde_json::json!([
+            "filesystem:xdg-run/pipewire-0",
+            "filesystem:xdg-config/systemd"
+        ])
+    );
+    assert_eq!(
+        value["sandbox"]["remediation_commands"],
+        serde_json::json!([
+            "flatpak override --user --filesystem=xdg-run/pipewire-0 org.fcitx.Fcitx5",
+            "flatpak override --user --filesystem=xdg-config/systemd:create org.fcitx.Fcitx5",
+            "flatpak kill org.fcitx.Fcitx5"
+        ])
     );
 }
 

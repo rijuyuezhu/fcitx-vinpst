@@ -5,11 +5,8 @@ use anyhow::Context;
 const DEFAULT_FLATPAK_INFO_PATH: &str = "/.flatpak-info";
 const DEFAULT_FLATPAK_APP_ID: &str = "org.fcitx.Fcitx5";
 const DEFAULT_FLATPAK_ADDON_ROOT: &str = "/app/addons/Vinpst";
-const REQUIRED_PERMISSIONS: [(&str, &str); 3] = [
-    ("socket", "pipewire"),
-    ("filesystem", "xdg-config/systemd"),
-    ("filesystem", "xdg-cache"),
-];
+const REQUIRED_FILESYSTEM_PERMISSIONS: [&str; 3] =
+    ["xdg-run/pipewire-0", "xdg-config/systemd", "xdg-cache"];
 pub(crate) const FLATPAK_INFO_PATH_ENV: &str = "VINPST_FLATPAK_INFO_PATH";
 pub(crate) const FLATPAK_SPAWN_ENV: &str = "VINPST_FLATPAK_SPAWN";
 pub(crate) const FLATPAK_APP_ID_ENV: &str = "VINPST_FLATPAK_APP_ID";
@@ -62,24 +59,35 @@ pub(crate) fn permission_report_json() -> serde_json::Value {
             "info_path": info_path,
             "info_path_overridden": overridden,
             "missing_permissions": [],
+            "remediation_commands": [],
             "read_error": null,
         });
     }
     match fs::read_to_string(&info_path) {
-        Ok(contents) => serde_json::json!({
-            "detected": true,
-            "info_path": info_path,
-            "info_path_overridden": overridden,
-            "missing_permissions": missing_permissions_from_info(&contents),
-            "read_error": null,
-        }),
-        Err(error) => serde_json::json!({
-            "detected": true,
-            "info_path": info_path,
-            "info_path_overridden": overridden,
-            "missing_permissions": REQUIRED_PERMISSIONS.map(|(kind, value)| format!("{kind}:{value}")),
-            "read_error": error.to_string(),
-        }),
+        Ok(contents) => {
+            let missing = missing_permissions_from_info(&contents);
+            let remediation = permission_remediation_commands(&missing, &flatpak_app_id());
+            serde_json::json!({
+                "detected": true,
+                "info_path": info_path,
+                "info_path_overridden": overridden,
+                "missing_permissions": missing,
+                "remediation_commands": remediation,
+                "read_error": null,
+            })
+        }
+        Err(error) => {
+            let missing = required_permission_labels();
+            let remediation = permission_remediation_commands(&missing, &flatpak_app_id());
+            serde_json::json!({
+                "detected": true,
+                "info_path": info_path,
+                "info_path_overridden": overridden,
+                "missing_permissions": missing,
+                "remediation_commands": remediation,
+                "read_error": error.to_string(),
+            })
+        }
     }
 }
 
@@ -104,19 +112,55 @@ fn flatpak_addon_root() -> PathBuf {
 }
 
 fn missing_permissions_from_info(contents: &str) -> Vec<String> {
-    let sockets = context_values(contents, "sockets");
     let filesystems = context_values(contents, "filesystems");
-    REQUIRED_PERMISSIONS
+    REQUIRED_FILESYSTEM_PERMISSIONS
         .into_iter()
-        .filter_map(|(kind, value)| {
-            let present = match kind {
-                "socket" => sockets.iter().any(|entry| entry == value),
-                "filesystem" => filesystems.iter().any(|entry| entry == value),
-                _ => false,
-            };
-            (!present).then(|| format!("{kind}:{value}"))
+        .filter(|required| {
+            !filesystems
+                .iter()
+                .any(|entry| filesystem_permission_satisfies(entry, required))
         })
+        .map(|value| format!("filesystem:{value}"))
         .collect()
+}
+
+fn filesystem_permission_satisfies(entry: &str, required: &str) -> bool {
+    if entry == required {
+        return true;
+    }
+    let Some((path, mode)) = entry.rsplit_once(':') else {
+        return false;
+    };
+    path == required && matches!(mode, "rw" | "create")
+}
+
+fn required_permission_labels() -> Vec<String> {
+    REQUIRED_FILESYSTEM_PERMISSIONS
+        .into_iter()
+        .map(|value| format!("filesystem:{value}"))
+        .collect()
+}
+
+fn permission_remediation_commands(missing: &[String], app_id: &str) -> Vec<String> {
+    let mut commands = missing
+        .iter()
+        .filter_map(|permission| match permission.as_str() {
+            "filesystem:xdg-run/pipewire-0" => Some(format!(
+                "flatpak override --user --filesystem=xdg-run/pipewire-0 {app_id}"
+            )),
+            "filesystem:xdg-config/systemd" => Some(format!(
+                "flatpak override --user --filesystem=xdg-config/systemd:create {app_id}"
+            )),
+            "filesystem:xdg-cache" => Some(format!(
+                "flatpak override --user --filesystem=xdg-cache {app_id}"
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !commands.is_empty() {
+        commands.push(format!("flatpak kill {app_id}"));
+    }
+    commands
 }
 
 fn context_values(contents: &str, key: &str) -> Vec<String> {
@@ -220,8 +264,8 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        daemon_log_args_for, missing_permissions_from_info, render_flatpak_service_for,
-        wrap_host_command_for,
+        daemon_log_args_for, missing_permissions_from_info, permission_remediation_commands,
+        render_flatpak_service_for, wrap_host_command_for,
     };
 
     #[test]
@@ -261,15 +305,39 @@ mod tests {
     }
 
     #[test]
-    fn permission_parser_matches_legacy_flatpak_requirements() {
-        let complete =
-            "[Context]\nsockets=wayland;pipewire;\nfilesystems=xdg-cache;xdg-config/systemd;\n";
+    fn permission_parser_matches_flatpak_override_metadata() {
+        let complete = "[Context]\nsockets=wayland;\nfilesystems=xdg-cache;xdg-run/pipewire-0;xdg-config/systemd:create;\n";
         assert!(missing_permissions_from_info(complete).is_empty());
 
-        let partial = "[Context]\nsockets=wayland;\nfilesystems=xdg-cache;\n";
+        let partial =
+            "[Context]\nsockets=wayland;pipewire;\nfilesystems=xdg-cache;xdg-config/systemd:ro;\n";
         assert_eq!(
             missing_permissions_from_info(partial),
-            ["socket:pipewire", "filesystem:xdg-config/systemd"]
+            [
+                "filesystem:xdg-run/pipewire-0",
+                "filesystem:xdg-config/systemd"
+            ]
+        );
+    }
+
+    #[test]
+    fn permission_remediation_matches_documented_flatpak_overrides() {
+        let commands = permission_remediation_commands(
+            &[
+                "filesystem:xdg-run/pipewire-0".to_owned(),
+                "filesystem:xdg-config/systemd".to_owned(),
+                "filesystem:xdg-cache".to_owned(),
+            ],
+            "org.fcitx.Fcitx5",
+        );
+        assert_eq!(
+            commands,
+            [
+                "flatpak override --user --filesystem=xdg-run/pipewire-0 org.fcitx.Fcitx5",
+                "flatpak override --user --filesystem=xdg-config/systemd:create org.fcitx.Fcitx5",
+                "flatpak override --user --filesystem=xdg-cache org.fcitx.Fcitx5",
+                "flatpak kill org.fcitx.Fcitx5",
+            ]
         );
     }
 

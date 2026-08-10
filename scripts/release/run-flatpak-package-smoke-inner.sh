@@ -141,6 +141,8 @@ verify_revision() {
 }
 
 verify_product() {
+  # The quoted script is intentionally expanded by the inner Fcitx Flatpak shell.
+  # shellcheck disable=SC2016
   run_in_host_app '
     set -eu
     test -x /app/addons/Vinpst/bin/vinpst
@@ -157,6 +159,10 @@ verify_product() {
     test -f /app/addons/Vinpst/share/licenses/fcitx-vinpst/LICENSE
     grep -Fq /app/addons/Vinpst/bin/vinpst-daemon \
       /app/addons/Vinpst/share/systemd/user/vinpst-daemon.service
+    service_plan="$(/app/addons/Vinpst/bin/vinpst daemon install-service --dry-run --json)"
+    printf "%s\n" "${service_plan}" | grep -Fq "\"rewritten_for_flatpak\": true"
+    printf "%s\n" "${service_plan}" | grep -Fq \
+      "ExecStart=flatpak run --command=/app/addons/Vinpst/bin/vinpst-daemon org.fcitx.Fcitx5"
     /app/addons/Vinpst/bin/vinpst --version
     /app/addons/Vinpst/bin/vinpst-daemon --version
     /app/addons/Vinpst/bin/vinpst-gui --version
