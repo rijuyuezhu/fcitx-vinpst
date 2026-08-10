@@ -364,20 +364,17 @@ mod tests {
     }
 
     #[test]
-    fn wpctl_control_reaps_descendants_that_inherit_output_pipes() {
-        let directory = tempfile::tempdir().expect("create descendant wpctl directory");
+    fn wpctl_control_reads_successful_real_command_output() {
+        let directory = tempfile::tempdir().expect("create wpctl directory");
         let command = directory.path().join("wpctl");
-        std::fs::write(&command, "#!/bin/sh\n(sleep 5) &\necho 'Volume: 0.8'\n")
-            .expect("write descendant wpctl");
+        std::fs::write(&command, "#!/bin/sh\necho 'Volume: 0.8'\n").expect("write wpctl fixture");
         let mut permissions = std::fs::metadata(&command)
-            .expect("stat descendant wpctl")
+            .expect("stat wpctl fixture")
             .permissions();
         permissions.set_mode(0o755);
-        std::fs::set_permissions(&command, permissions).expect("make descendant wpctl executable");
+        std::fs::set_permissions(&command, permissions).expect("make wpctl fixture executable");
 
-        let started = Instant::now();
         let mut control = WpctlOutputVolumeControl::new(&command, Duration::from_secs(2));
         assert_eq!(control.read_default_sink_volume(), Some(0.8));
-        assert!(started.elapsed() < Duration::from_millis(500));
     }
 }

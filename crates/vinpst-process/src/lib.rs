@@ -706,6 +706,23 @@ mod tests {
         ));
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_piped_command_reaps_descendants_that_inherit_output_pipes() {
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            r#"printf 'ready\n'; sleep 30 & child=$!; kill -0 "$child" || exit 7; exit 0"#,
+        ]);
+        let started = Instant::now();
+        let result = run_piped_command(&mut command, Some(2_000), |_| Ok(())).unwrap();
+
+        assert!(result.output.status.success());
+        assert_eq!(result.output.stdout, b"ready\n");
+        assert!(result.output.stderr.is_empty());
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
     #[test]
     fn rejects_oversized_stdout_without_waiting_for_exit() {
         let mut command = Command::new("sh");
