@@ -2438,6 +2438,41 @@
         "Migration-era wording was corrected without changing behavior: the explicit unavailable text/command runners are fallbacks rather than promises that adapters have not landed, recent-input context wiring is already available to provider request builders, and crate documentation now describes the actual command/OpenAI-compatible/prompt/context functionality present before v0.1.0.",
         "Evidence includes complete review of command.rs/error.rs/lib.rs plus their producer/consumer call chains; strengthened request/response/adapter Debug regressions; status-only unknown-provider-secret unit and production-CLI 503 fixture; all 138 vinpst-text tests; strict all-target Clippy, downstream daemon/CLI/GUI compile checks, ShellCheck, docs build, secret scan, and the module-parity ledger checker."
       ]
+    },
+    {
+      "id": "REGISTRY-FACADE-001",
+      "state": "audited-fixed",
+      "title": "Current-only registry schema, planning, and provider-script facade",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-registry/src/error.rs",
+        "crates/vinpst-registry/src/lib.rs",
+        "crates/vinpst-registry/src/plan.rs",
+        "crates/vinpst-registry/src/provider_script.rs",
+        "crates/vinpst-registry/src/schema.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/install.rs",
+        "crates/vinpst-cli/src/commands/provider/edit.rs",
+        "crates/vinpst-cli/src/commands/registry.rs",
+        "crates/vinpst-cli/tests/provider_list.rs",
+        "crates/vinpst-config/src/diagnostics.rs",
+        "crates/vinpst-config/src/schema.rs",
+        "crates/vinpst-registry/src/staging.rs",
+        "crates/vinpst-registry/src/tests.rs",
+        "crates/vinpst-registry/tests/staging_paths.rs"
+      ],
+      "notes": [
+        "This current-only unit owns the remaining generic vinpst-registry facade, validation schema/error surface, dry-run asset/install planning, and provider-script editor boundary. Download/cache/live-model/live-script/archive/checksum/materialization/operation behavior remains under its earlier audit units and is supporting call-chain context rather than being re-owned here.",
+        "The audit found a credential disclosure in dry-run planning. PlannedAsset and PlannedInstallAsset stored fully resolved candidate URLs and derived both Serialize and Debug; registry plan JSON and hidden model/adapter install-plan JSON serialize these structures directly. A registry mirror carrying userinfo or query credentials could therefore be printed verbatim even though the downloader itself needs the unredacted URL only in memory.",
+        "Planning now keeps the original candidate URLs unchanged in memory for download/staging consumers while custom Serialize and Debug use the shared URL redactor for parsed URLs. Userinfo, fragments, and query values are therefore absent from dry-run JSON and Debug, while scheme/host/port/path/query-key shape remains actionable. Legacy opaque mirrors made only from safe path characters remain visible rather than degrading to <invalid-url>; suspicious unparseable values are fail-closed. A regression proves the in-memory plan still contains the credential-bearing request URL while serialized/debug forms do not.",
+        "The same review exposed a functional URL-joining bug for an otherwise valid configured mirror with query or fragment components. The previous string concatenation placed the asset path after `?` or `#`, so it became query/fragment text instead of a request path. Parsed http(s) URLs now append the registry-relative asset to the URL path while preserving userinfo, query, and fragment for the actual request; opaque/non-URL mirror strings retain the legacy trailing-slash string fallback.",
+        "RegistryIndex, ModelEntry, AdapterEntry, and AssetEntry contain manifest ids/labels/provider-kind metadata, relative validated asset paths, checksums, and sizes but no configured mirror URL or credential values, so their ordinary derived Debug/Serialize remain appropriate. RegistryError was reviewed variant by variant and carries parse detail, ids, relative asset paths, or checksum text; no API key, environment value, candidate URL, or response-body producer was found in this owned error surface.",
+        "Provider-script editing intentionally keeps explicit user-facing editor/path output: `provider edit-script --json` reports the exact editor argv and script path requested for that operation, and editor launch failures name the selected editor command. Internal Debug no longer duplicates filesystem paths, HOME/current-directory values, or editor arguments from VINPST_PROVIDER_EDITOR/VISUAL/EDITOR; context/editor/plan/outcome Debug exposes only provider id, counts, booleans, and exit status. Direct argv execution and shell-free parsing remain unchanged.",
+        "The crate facade re-exports the already-audited registry primitives without introducing an alternate side-effect path. Its documentation accurately describes registry manifest, URL resolution, staged asset, archive/materialization, and provider-script boundaries; configuration mutation and user-facing CLI routing remain outside this crate.",
+        "Evidence includes complete review of error.rs/lib.rs/plan.rs/provider_script.rs/schema.rs and CLI/staging consumers; credentialed plan JSON/Debug regressions, query/fragment path-join regression, provider-script Debug regression, full vinpst-registry tests, strict all-target Clippy, focused CLI provider/registry/model/adapter tests, downstream CLI/GUI compile checks, docs build, secret scan, diff check, and the module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [],
@@ -2476,11 +2511,6 @@
     "crates/vinpst-gui/src/script_management.rs",
     "crates/vinpst-gui/src/script_recovery.rs",
     "crates/vinpst-gui/src/script_removal.rs",
-    "crates/vinpst-gui/src/script_transaction.rs",
-    "crates/vinpst-registry/src/error.rs",
-    "crates/vinpst-registry/src/lib.rs",
-    "crates/vinpst-registry/src/plan.rs",
-    "crates/vinpst-registry/src/provider_script.rs",
-    "crates/vinpst-registry/src/schema.rs"
+    "crates/vinpst-gui/src/script_transaction.rs"
   ]
 }
