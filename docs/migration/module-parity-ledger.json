@@ -1455,6 +1455,61 @@
         "Fixed the missing model-install progress path. Frozen model add reports download progress to stderr using stdout TTY state, with live TTY refreshes and ten-percent non-TTY buckets. Vinpst already emitted typed RegistryOperationProgress events but the CLI used the no-op install wrapper. Model install now attaches a RegistryOperationControl reporter: TTY sessions receive a simple live percentage, non-TTY sessions receive increasing ten-percent lines, successful installs finish at 100%, and JSON stdout remains a single document. The simpler percentage display deliberately omits the frozen decorative bar/speed calculation while restoring essential long-running feedback.",
         "Deterministic evidence includes live model/provider/adapter short-id text/JSON tests, registry title fallback tests, a local-HTTP model install proving non-TTY stderr reaches 100% while stdout JSON remains parseable, and strict all-target Clippy for vinpst-cli and vinpst-registry."
       ]
+    },
+    {
+      "id": "DOWNLOAD-PROGRESS-001",
+      "state": "audited-intentional-divergence",
+      "title": "Terminal model download progress presentation",
+      "upstream_files": [
+        "common/utils/download_progress.cpp",
+        "common/utils/download_progress.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/model/install.rs",
+        "crates/vinpst-cli/tests/model_list.rs",
+        "crates/vinpst-registry/src/operation.rs"
+      ],
+      "notes": [
+        "Frozen ProgressBar is used only by CLI model installation. It writes progress to stderr, uses stdout TTY state to select an in-place display versus line-oriented output, clamps percentages to 100, emits non-TTY progress only when a new ten-percent bucket is crossed, and finishes with a newline or explicit 100 percent line.",
+        "The current CLI now consumes RegistryOperationProgress::Downloading through RegistryOperationControl for the same model-install task. Non-TTY output uses increasing ten-percent stderr lines and successful completion reaches 100 percent; TTY output refreshes one stderr line in place. The local-HTTP install regression proves progress remains separate from the single JSON stdout document.",
+        "Vinpst intentionally keeps the TTY presentation simpler: it reports the percentage without reproducing the frozen twenty-character ASCII bar or speed suffix. The typed registry progress event does not currently carry a transfer-rate estimate, and adding presentation-only rate bookkeeping would not improve correctness. Essential long-running feedback and stream separation are preserved.",
+        "The current typed progress/cancellation model is intentionally kept in vinpst-registry rather than introducing a second generic terminal progress class. The registry operation module remains unclaimed here because its broader cancellation and staging semantics belong to downloader/registry audits."
+      ]
+    },
+    {
+      "id": "DOWNLOADER-001",
+      "state": "audited-fixed",
+      "title": "Registry HTTP text and asset downloader boundary",
+      "upstream_files": [
+        "common/utils/downloader.cpp",
+        "common/utils/downloader.h"
+      ],
+      "current_files": [
+        "crates/vinpst-registry/src/asset.rs",
+        "crates/vinpst-registry/src/fetch.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/catalog.rs",
+        "crates/vinpst-cli/src/commands/model/install.rs",
+        "crates/vinpst-cli/src/commands/provider/catalog.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/script_catalog.rs",
+        "crates/vinpst-gui/src/script_management.rs",
+        "crates/vinpst-registry/src/operation.rs",
+        "crates/vinpst-registry/src/tests.rs"
+      ],
+      "notes": [
+        "Frozen Downloader tries candidate URLs in order, defaults to a 30-second request timeout, follows redirects, accepts only final HTTP 200 for http/https, supports optional text-size limits and file progress, removes a failed file destination before trying the next URL, and reports the final effective URL plus sanitized failure state. Registry model/script text callers use 30 seconds and 4 MiB; model assets use 600 seconds and script assets 120 seconds.",
+        "Fixed the Rust HTTP status boundary. Reqwest text and asset sources previously accepted every 2xx response through StatusCode::is_success(), so a 206 partial response could be treated as a complete asset and even pass checksum if the partial bytes matched the expected small fixture. Both sources now require StatusCode::OK exactly, matching frozen DownloadText/DownloadFile. Local HTTP regressions prove 206 is rejected for both text and asset paths and failed asset staging leaves no published or temporary file.",
+        "Fixed the missing bounded-text contract. ReqwestRegistryTextSource now accepts an explicit maximum response size; it rejects an oversized Content-Length before buffering and also reads at most max+1 when the server omits a trustworthy length, so the limit cannot be bypassed with connection-close framing. Production model/provider/adapter registry fetches in CLI and GUI now use the frozen 30-second/4-MiB boundary. Registry JSON also fails closed on invalid UTF-8 instead of lossy decoding.",
+        "Fixed timeout parity for generic and model downloads. ReqwestRegistryTextSource::new and ReqwestRegistryAssetSource::new now carry the frozen 30-second default rather than leaving timeout behavior to reqwest. CLI and GUI model asset installs now use 600 seconds; script assets remain at their already-correct 120 seconds. The exact frozen i18n 20-second/1-MiB policy is intentionally deferred to the dedicated registry-i18n audit because current i18n layering has its own source construction.",
+        "Mirror fallback is split between typed layers rather than one Downloader class: fetch_registry_text_from_mirrors preserves ordered text fallback, while stage_planned_asset_controlled preserves ordered asset fallback. The Rust asset staging boundary is stronger than frozen direct destination writes: every attempt uses a caller-owned temporary path, cancellation and transport/checksum failures remove partial files, checksum verification happens before publication, and the final tree/file move is handled by the registry staging/materialization contract.",
+        "Redirect following remains enabled through reqwest default policy, with reqwest additionally bounding redirect count. Frozen exposes follow_redirects as a generic option but no audited production caller disables it, so a separate disable switch is not reproduced. The Rust source API also does not expose the final effective URL; audited resource/i18n resolution is based on configured registry bases rather than a downloader redirect result, so no user-visible dependency on that field was found.",
+        "Rust downloader diagnostics intentionally redact request URLs, headers, response bodies, and transport internals more aggressively than frozen curl error strings. Typed RegistryOperationProgress supplies byte counts/cancellation for asset downloads; presentation differences such as speed calculation are recorded separately in DOWNLOAD-PROGRESS-001.",
+        "Deterministic evidence includes exact-200 text/asset local-HTTP tests, Content-Length and lengthless streamed-body limit tests, existing mirror-fallback/timeout/checksum/temp-cleanup/cancellation tests, full vinpst-registry/vinpst-cli/vinpst-gui suites, and strict all-target Clippy for all three crates."
+      ]
     }
   ],
   "upstream_pending": [
@@ -1471,10 +1526,6 @@
     "common/registry/registry_scripts.cpp",
     "common/registry/registry_scripts.h",
     "common/utils/debug_log.h",
-    "common/utils/download_progress.cpp",
-    "common/utils/download_progress.h",
-    "common/utils/downloader.cpp",
-    "common/utils/downloader.h",
     "common/utils/file_utils.cpp",
     "common/utils/file_utils.h",
     "common/utils/path_utils.cpp",
@@ -1595,11 +1646,9 @@
     "crates/vinpst-protocol/src/lib.rs",
     "crates/vinpst-protocol/src/text.rs",
     "crates/vinpst-registry/src/archive.rs",
-    "crates/vinpst-registry/src/asset.rs",
     "crates/vinpst-registry/src/cache.rs",
     "crates/vinpst-registry/src/checksum.rs",
     "crates/vinpst-registry/src/error.rs",
-    "crates/vinpst-registry/src/fetch.rs",
     "crates/vinpst-registry/src/install.rs",
     "crates/vinpst-registry/src/lib.rs",
     "crates/vinpst-registry/src/materialize.rs",
