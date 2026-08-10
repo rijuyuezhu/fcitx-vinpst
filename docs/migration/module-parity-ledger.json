@@ -1280,13 +1280,39 @@
         "daemon stop/restart preserve the frozen user-systemd tasks through the shared vinpst-daemon-control command builder. Flatpak execution intentionally wraps host systemctl/journalctl with flatpak-spawn and uses the host journal filter, with exact argv tests; non-sandboxed operation still targets vinpst-daemon.service. The shared systemd runner itself remains supporting here and stays pending for the dedicated frozen cli/runtime/systemd_client audit.",
         "Current daemon log rejects --lines 0 instead of passing an ambiguous zero tail to journalctl, a small fail-closed validation improvement. Human output also suppresses low-level tool plumbing while JSON keeps command/tool/sandbox/fallback diagnostics for troubleshooting. Deterministic evidence includes daemon start/status dry-run plans, the installed activation-owner smoke, exact Flatpak wrappers, default/follow journal tests, child-failure exit propagation, vinpst-daemon-control tests, and strict all-target Clippy for both crates."
       ]
+    },
+    {
+      "id": "CLI-SYSTEMD-RUNTIME-001",
+      "state": "audited-intentional-divergence",
+      "title": "Shared user-systemd command construction and execution",
+      "upstream_files": [
+        "cli/runtime/systemd_client.cpp",
+        "cli/runtime/systemd_client.h"
+      ],
+      "current_files": [
+        "crates/vinpst-daemon-control/src/lib.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/daemon_control/service.rs",
+        "crates/vinpst-cli/src/sandbox.rs",
+        "crates/vinpst-cli/tests/protocol.rs",
+        "crates/vinpst-daemon/src/error_info.rs",
+        "docs/architecture/asr-contract.md"
+      ],
+      "notes": [
+        "Frozen systemd_client combines systemctl lifecycle execution, journalctl command construction/capture, Flatpak host wrapping, restart/start failure diagnosis, and notification dispatch. Vinpst intentionally splits those responsibilities: vinpst-daemon-control owns shell-free user-systemd argv construction plus captured/streaming execution, CLI sandbox/service code owns journal filters and user-facing service diagnostics, daemon error_info owns runtime error classification, and daemon start moved to D-Bus activation.",
+        "The shared Rust command contract matches the frozen native and sandboxed stop/restart tasks: systemctl --user stop/restart vinpst-daemon.service is emitted without a shell, and Flatpak wraps the target with flatpak-spawn --host while preserving executable overrides. Vinpst additionally centralizes disable --now, daemon-reload, and MainPID probes for installation/handoff/removal workflows; these are additive service-management primitives rather than frozen parity requirements.",
+        "Execution semantics preserve child status and spawn failures without exposing command arguments through Debug. The captured runner uses Command::output for finite systemctl/journalctl-style operations; the streaming runner added during daemon-log parity uses inherited stdio and Command::status, preserving success/failure status without buffering output. Unit tests now pin both success and exit-1 streaming outcomes, while CLI integration tests pin that service failures propagate a nonzero process status.",
+        "SystemctlStart/SystemctlStartWithDiagnostics are intentionally absent from the shared action enum because Vinpst startup authority is D-Bus activation rather than direct systemctl start. The separately audited daemon CLI dry-run and installed activation-owner smoke prove this product contract. Stop and restart remain systemd user-service operations because they intentionally control the existing service owner/lifecycle rather than request activation.",
+        "Frozen JournalctlLogs/JournalctlLogsText moved upward rather than disappearing: CLI sandbox/service code builds the native unit or Flatpak-host journal filter, applies the frozen -n tail and -f follow semantics, and uses captured or streaming execution as appropriate. The sandbox source remains supporting here because it also owns broader Flatpak packaging/permission policy and is reserved for its own frozen common/utils/sandbox audit.",
+        "Frozen restart/start diagnostics automatically append the last 20 journal lines, classify actionable text, and emit an ErrorInfo notification. Vinpst deliberately does not auto-dump journal content from the shared systemd layer: systemctl stdout/stderr and structured fallback steps remain available, users opt into bounded daemon log output, and daemon-originated error classification stays with the daemon notification authority. This avoids coupling the low-level runner to D-Bus/error taxonomy and reduces accidental disclosure of provider/path details in control-command failures.",
+        "Deterministic evidence includes exact native stop/restart argv, Flatpak host-wrapped argv with tool overrides, captured-output privacy behavior, streaming success/failure status tests, daemon CLI journal/failure integration tests, and strict all-target vinpst-daemon-control Clippy."
+      ]
     }
   ],
   "upstream_pending": [
     "cli/runtime/dbus_client.cpp",
     "cli/runtime/dbus_client.h",
-    "cli/runtime/systemd_client.cpp",
-    "cli/runtime/systemd_client.h",
     "cli/utils/cli_context.h",
     "cli/utils/cli_helpers.h",
     "cli/utils/editor_utils.cpp",
@@ -1372,7 +1398,6 @@
     "crates/vinpst-config/src/diagnostics.rs",
     "crates/vinpst-config/src/error.rs",
     "crates/vinpst-config/src/lib.rs",
-    "crates/vinpst-daemon-control/src/lib.rs",
     "crates/vinpst-daemon/src/lib.rs",
     "crates/vinpst-daemon/src/runtime/adapter_process.rs",
     "crates/vinpst-daemon/src/runtime/asr_menu.rs",
