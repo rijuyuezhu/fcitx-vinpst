@@ -2406,6 +2406,38 @@
         "MockAsrBackend remains deterministic test/development infrastructure. Its audio log stores push kind, sample count, and PCM spec rather than sample values, while configured mock transcripts/events are explicit caller-provided fixtures. unavailable.rs and mock.rs therefore require no wire or behavioral compatibility changes beyond the unavailable Debug hardening. The crate-level documentation was updated from migration-era future-backend wording to the actual local/command/remote/mock/unavailable backend set and capability-diagnostic role.",
         "Evidence includes complete review of the six owned files plus factory/trait/runtime/CLI-doctor call chains; the new status-only unknown-provider-secret regression, unavailable Debug regression, all 153 vinpst-asr tests, deterministic proxy/NO_PROXY/auth/TLS/redirect/error/timeout/body-limit network smoke, ShellCheck with sourced helpers, strict all-target Clippy, daemon/CLI downstream compile checks, docs build, secret scan, and the module-parity ledger checker."
       ]
+    },
+    {
+      "id": "TEXT-COMMAND-FACADE-001",
+      "state": "audited-fixed",
+      "title": "Current-only text facade, command adapter wire, and diagnostic redaction",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-text/src/command.rs",
+        "crates/vinpst-text/src/error.rs",
+        "crates/vinpst-text/src/lib.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-config/src/schema.rs",
+        "crates/vinpst-text/src/core.rs",
+        "crates/vinpst-text/src/openai.rs",
+        "crates/vinpst-text/src/prompt.rs",
+        "crates/vinpst-text/src/tests.rs",
+        "docs/architecture/text-contract.md",
+        "docs/migration/e2e-capability-matrix.md",
+        "docs/migration/live-desktop-validation.md",
+        "scripts/tests/asr/run-openai-compatible-text-provider-fixture-smoke.sh"
+      ],
+      "notes": [
+        "This current-only unit owns the remaining vinpst-text facade, common TextError surface, and command-adapter request/response/registry/processor file. Core scene dispatch, OpenAI-compatible transport, payload fallback, prompt interpolation, context cache, and long-lived adapter runtime remain under their earlier ownership units and are supporting evidence here rather than being claimed again.",
+        "The audit found the same external-body disclosure class previously fixed for remote ASR. OpenAI-compatible text transport read every non-success provider body and inserted it into TextError::AdapterFailed after replacing only known Authorization values, so arbitrary provider-returned request ids, internal paths, or unknown credentials could reach daemon warnings and CLI diagnostics. Non-success responses are now status-only and their bodies are left unread; successful responses retain the shared 1 MiB UTF-8 limit and request/response-body timeout classification.",
+        "The production `vinpst llm test` loopback smoke now proves both sides of that boundary: a normal authenticated /v1/chat/completions request still returns the expected payload, while a deterministic 503 exposes HTTP status but neither the configured API key nor an unknown provider-body marker. Shared proxy/TLS/redirect/body-limit evidence remains correctly classified as local deterministic evidence, not hosted-service proof.",
+        "CommandTextRequest, CommandTextScene, CommandTextResponse, CommandTextAdapter, AdapterRegistry, and CommandTextProcessor previously derived Debug across data that can include raw ASR text, selected text, scene prompts, generated response text, command arguments, environment values, and working-directory paths. Their Debug implementations now expose only stable ids plus lengths/counts/booleans and safe scene metadata. JSON serialization is unchanged, so configured local helpers still receive the complete request body they require and responses still deserialize into the same payload contract.",
+        "A supporting config-schema hardening was discovered because text adapter/provider wrappers also derive or compose Debug over typed config. Registry URLs, ASR provider command/env/path fields, LLM API keys/extra bodies, adapter command/env/working directories, and scene prompts now have secret-safe typed Debug representations; parent config Debug automatically inherits those representations. That fix was committed independently because schema ownership belongs to the earlier config audit rather than this text unit.",
+        "Local command helper stderr intentionally keeps different semantics from remote provider bodies. The helper is a user-configured local executable, its stdout/stderr are concurrently drained under the shared process supervisor with 1 MiB caps and deadlines, and a bounded nonzero-exit stderr remains useful local diagnostics. This unit does not claim generic secret detection for arbitrary user programs; it only prevents Vinpst's own Debug surfaces from duplicating command configuration or text contents.",
+        "Migration-era wording was corrected without changing behavior: the explicit unavailable text/command runners are fallbacks rather than promises that adapters have not landed, recent-input context wiring is already available to provider request builders, and crate documentation now describes the actual command/OpenAI-compatible/prompt/context functionality present before v0.1.0.",
+        "Evidence includes complete review of command.rs/error.rs/lib.rs plus their producer/consumer call chains; strengthened request/response/adapter Debug regressions; status-only unknown-provider-secret unit and production-CLI 503 fixture; all 138 vinpst-text tests; strict all-target Clippy, downstream daemon/CLI/GUI compile checks, ShellCheck, docs build, secret scan, and the module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [],
@@ -2449,9 +2481,6 @@
     "crates/vinpst-registry/src/lib.rs",
     "crates/vinpst-registry/src/plan.rs",
     "crates/vinpst-registry/src/provider_script.rs",
-    "crates/vinpst-registry/src/schema.rs",
-    "crates/vinpst-text/src/command.rs",
-    "crates/vinpst-text/src/error.rs",
-    "crates/vinpst-text/src/lib.rs"
+    "crates/vinpst-registry/src/schema.rs"
   ]
 }
