@@ -657,19 +657,44 @@ impl GuiLocale {
         }
     }
 
-    pub(crate) fn provider_script_edited(
-        self,
-        provider_id: &str,
-        path: &str,
-        editor: &str,
-    ) -> String {
+    pub(crate) fn provider_script_edited(self, provider_id: &str, path: &str) -> String {
         match self {
-            Self::EnUs => format!(
-                "Edited managed ASR provider `{provider_id}` script at {path} with {editor}."
-            ),
-            Self::ZhCn => {
-                format!("已使用 {editor} 编辑托管 ASR 提供商“{provider_id}”位于 {path} 的脚本。")
+            Self::EnUs => {
+                format!("Edited managed ASR provider `{provider_id}` script at {path}.")
             }
+            Self::ZhCn => format!("已编辑托管 ASR 提供商“{provider_id}”位于 {path} 的脚本。"),
+        }
+    }
+
+    pub(crate) fn provider_script_editor_launch_failed(self) -> String {
+        match self {
+            Self::EnUs => "Failed to start the configured provider script editor.".to_owned(),
+            Self::ZhCn => "无法启动已配置的提供商脚本编辑器。".to_owned(),
+        }
+    }
+
+    pub(crate) fn provider_script_editor_exit_failed(self, status: &str) -> String {
+        match self {
+            Self::EnUs => {
+                format!("The configured provider script editor exited with status {status}.")
+            }
+            Self::ZhCn => format!("已配置的提供商脚本编辑器退出，状态为 {status}。"),
+        }
+    }
+
+    pub(crate) fn open_llm_provider_form_guard(self) -> String {
+        match self {
+            Self::EnUs => "Save or cancel the open LLM provider form before modifying provider or adapter scripts.".to_owned(),
+            Self::ZhCn => "修改提供商或适配器脚本前，请先保存或取消当前打开的 LLM 提供商表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn open_asr_provider_form_guard(self) -> String {
+        match self {
+            Self::EnUs => {
+                "Save or cancel the open ASR provider form before modifying resources.".to_owned()
+            }
+            Self::ZhCn => "修改资源前，请先保存或取消当前打开的 ASR 提供商表单。".to_owned(),
         }
     }
 
@@ -931,7 +956,7 @@ mod tests {
                 false,
                 reload,
             );
-            let edit = locale.provider_script_edited(provider_id, path, "editor-command");
+            let edit = locale.provider_script_edited(provider_id, path);
             assert!(model_progress.contains("2 MiB"));
             assert!(model_progress.contains("8 MiB"));
             assert!(script_progress.contains("2048"));
@@ -944,7 +969,9 @@ mod tests {
             assert!(removal.contains(reload));
             assert!(edit.contains(provider_id));
             assert!(edit.contains(path));
-            assert!(edit.contains("editor-command"));
+            assert!(!edit.contains("editor-command"));
+            assert!(!locale.open_llm_provider_form_guard().is_empty());
+            assert!(!locale.open_asr_provider_form_guard().is_empty());
         }
     }
 

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use vinpst_protocol::{AsrBackendState, RequestedAsrBackendStatus, dbus};
 
-use crate::daemon_proxy;
+use crate::{daemon_client::query_asr_backend_state, daemon_proxy};
 
 const ASR_RELOAD_CONFIRM_TIMEOUT: Duration = Duration::from_secs(60);
 const ASR_RELOAD_POLL_INTERVAL: Duration = Duration::from_millis(25);
@@ -39,31 +39,6 @@ pub(crate) fn wait_for_requested_asr_backend(expected_provider_id: &str) -> Resu
         }
         std::thread::sleep(ASR_RELOAD_POLL_INTERVAL);
     }
-}
-
-fn query_asr_backend_state(proxy: &zbus::blocking::Proxy<'_>) -> Result<AsrBackendState, String> {
-    let state: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        Vec<String>,
-    ) = proxy
-        .call(dbus::method::GET_ASR_BACKEND_STATE, &())
-        .map_err(|error| error.to_string())?;
-    Ok(AsrBackendState {
-        target_provider_id: state.0,
-        target_model_id: state.1,
-        effective_provider_id: state.2,
-        effective_model_id: state.3,
-        last_error: state.4,
-        reload_in_progress: state.5,
-        has_effective_backend: state.6,
-        remote_endpoints: state.7,
-    })
 }
 
 fn classify_completed_asr_reload(
