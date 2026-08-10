@@ -2187,11 +2187,35 @@
         "Current additionally couples persistence to daemon reconciliation. Normal validated mutations request the daemon to reload the complete config; if the reload fails after disk commit, the previous disk document is restored and a second daemon reload attempts to restore runtime state as well. If runtime rollback also fails, the GUI reports that partial recovery explicitly. This daemon/disk two-phase recovery was audited under GUI-APP-SHELL-001 and is supporting evidence here, not newly owned functionality.",
         "Evidence includes complete source review of frozen config_manager.cpp/.h; review of current default-path, typed-load, atomic persistence, external-change detection, replace_config propagation, save completion, and daemon rollback paths; 29 focused GUI `config_` tests, all 5 vinpst-config persistence tests, committed-default/bundled-default equivalence and validation tests, and the module-parity ledger checker. No production-code change is required for this unit."
       ]
+    },
+    {
+      "id": "DOWNLOAD-WORKER-001",
+      "state": "audited-intentional-divergence",
+      "title": "GUI blocking workers, progress delivery, and cooperative cancellation",
+      "upstream_files": [
+        "gui/utils/download_worker.cpp",
+        "gui/utils/download_worker.h"
+      ],
+      "current_files": [
+        "crates/vinpst-gui/src/blocking_task.rs",
+        "crates/vinpst-registry/src/operation.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/model_install.rs",
+        "crates/vinpst-gui/src/script_install.rs"
+      ],
+      "notes": [
+        "Frozen DownloadWorker is a generic QThread wrapper around one bool-returning closure plus error text. It also throttles progress emissions: duplicate percentages below 100 are suppressed and changed percentages are emitted at most every 100 ms. Current intentionally splits those responsibilities instead of preserving a GUI-specific arbitrary-task worker class.",
+        "blocking_task.rs owns the thread-execution boundary. Blocking reqwest/zbus and registry work runs on a named plain std thread rather than inside Tokio spawn_blocking, then returns through a typed oneshot into an Iced Task. Spawn failure and premature worker termination, including panic before result delivery, are explicit BlockingTaskFailure values. Operation closures and results are owned, so UI state is not borrowed across the worker lifetime.",
+        "vinpst-registry operation.rs owns long-operation control. RegistryOperationProgress is typed by phase and carries byte/entry counters where meaningful; RegistryOperationControl uses an Arc<AtomicBool> for cooperative cancellation, suppresses progress after cancellation, exposes check_cancelled to inner download/extract/publish loops, and deliberately redacts the reporter closure from Debug. This is stronger than frozen DownloadWorker, which has no cancellation API at all and whose destructor simply waits for the worker to finish.",
+        "Current preserves frozen's effective 10 Hz GUI progress cadence without embedding throttling inside the registry core. Model and script install workers update one shared latest typed progress value as often as needed; the Iced subscription samples that value every 100 ms. This avoids dispatching unbounded per-chunk UI messages while allowing inner operations to retain exact progress and cancellation checkpoints. Frozen's free-form transfer-speed string is intentionally replaced by typed byte/phase progress, as already documented by GUI-RESOURCE-PAGE-001.",
+        "Worker lifetime is intentionally non-blocking at GUI-state destruction. Active model installs, script preparation, and script installs call RegistryOperationControl::cancel from Drop; explicit Cancel does the same and marks the view cancelling. The underlying blocking thread is not synchronously joined merely because its UI state disappears, avoiding frozen's shutdown-time QThread::wait stall. The controlled registry loops own their inputs and observe cooperative cancellation before further publication work, while stale operation generations prevent late completions from mutating newer GUI state.",
+        "Evidence includes complete source review of frozen download_worker.cpp/.h and current blocking_task.rs/registry operation.rs; inspection of model/script worker Drop and explicit cancellation paths plus 100 ms progress subscriptions; the registry operation cancellation test, both blocking_task runtime-boundary tests, exact model drop/cancel tests, the script drop-cancellation test, and strict all-target Clippy for vinpst-registry and vinpst-gui. No production-code change was required."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/utils/download_worker.cpp",
-    "gui/utils/download_worker.h",
     "gui/utils/gui_helpers.cpp",
     "gui/utils/gui_helpers.h",
     "gui/utils/i18n_cache.cpp",
@@ -2226,7 +2250,6 @@
     "crates/vinpst-daemon/src/runtime/scene.rs",
     "crates/vinpst-gui/src/asr_provider_management.rs",
     "crates/vinpst-gui/src/asr_reload_confirmation.rs",
-    "crates/vinpst-gui/src/blocking_task.rs",
     "crates/vinpst-gui/src/daemon_client.rs",
     "crates/vinpst-gui/src/daemon_owner_monitor.rs",
     "crates/vinpst-gui/src/error_dialog.rs",
@@ -2253,7 +2276,6 @@
     "crates/vinpst-protocol/src/text.rs",
     "crates/vinpst-registry/src/error.rs",
     "crates/vinpst-registry/src/lib.rs",
-    "crates/vinpst-registry/src/operation.rs",
     "crates/vinpst-registry/src/plan.rs",
     "crates/vinpst-registry/src/provider_script.rs",
     "crates/vinpst-registry/src/schema.rs",
