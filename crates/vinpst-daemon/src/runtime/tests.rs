@@ -2850,7 +2850,7 @@ fn timeout_scene_finish_error_returns_runtime_to_idle() {
     let message = error.to_string();
 
     assert!(matches!(error, super::RuntimeError::Finish(_)));
-    assert!(message.contains("text adapter backend"));
+    assert!(message.contains("requires a configured text adapter"));
     assert_eq!(runtime.status(), ServiceStatus::Idle);
     assert!(runtime.partial_text().is_none());
 }

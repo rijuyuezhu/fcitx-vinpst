@@ -99,7 +99,7 @@ impl TextAdapter for UnsupportedTextAdapter {
     }
 }
 
-/// Production-safe text finisher used before real LLM/adapter support lands.
+/// Production-safe fallback used when no configured post-processor is selected.
 ///
 /// It only commits raw/no-op scenes that do not require post-processing.
 /// Command scenes, prompted scenes, provider/model-bound scenes, candidate

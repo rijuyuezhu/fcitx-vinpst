@@ -107,7 +107,7 @@ impl RuntimeState {
             "active_session": self.active_session.is_some(),
             "current_scene": self.current_scene,
             "selected_text_present": self.selected_text.is_some(),
-            "partial_text": self.partial_text(),
+            "partial_text_present": self.partial_text().is_some(),
             "capture_device": self.config.global.capture_device,
             "dbus": {
                 "service": dbus::SERVICE_BUS_NAME,
@@ -146,5 +146,27 @@ impl RuntimeState {
         state.reload_in_progress = self.pending_asr_reload.is_some() || self.asr_reload_preparing;
         state.last_error = self.asr_reload_last_error.clone().unwrap_or_default();
         state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vinpst_asr::MockAsrBackend;
+
+    #[test]
+    fn runtime_status_reports_partial_presence_without_partial_text() {
+        let config = VinpstConfig::bundled_default().expect("bundled config");
+        let mut runtime =
+            RuntimeState::with_asr_backend(config, Box::new(MockAsrBackend::buffered("final")))
+                .expect("runtime");
+        runtime.partial_text = Some("spoken-secret-marker".to_owned());
+
+        let status = runtime.runtime_status_json();
+        let rendered = serde_json::to_string(&status).expect("serialize status");
+
+        assert_eq!(status["partial_text_present"], true);
+        assert!(status.get("partial_text").is_none());
+        assert!(!rendered.contains("spoken-secret-marker"));
     }
 }

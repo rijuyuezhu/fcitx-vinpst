@@ -1314,7 +1314,7 @@ fn once_reports_missing_configured_text_adapter() {
         output,
         "vinpst-daemon --once with missing configured text adapter",
     );
-    assert!(stderr.contains("requires a text adapter"));
+    assert!(stderr.contains("requires a configured text adapter"));
 }
 
 #[test]
