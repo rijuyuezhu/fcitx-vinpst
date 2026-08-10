@@ -2213,11 +2213,38 @@
         "Worker lifetime is intentionally non-blocking at GUI-state destruction. Active model installs, script preparation, and script installs call RegistryOperationControl::cancel from Drop; explicit Cancel does the same and marks the view cancelling. The underlying blocking thread is not synchronously joined merely because its UI state disappears, avoiding frozen's shutdown-time QThread::wait stall. The controlled registry loops own their inputs and observe cooperative cancellation before further publication work, while stale operation generations prevent late completions from mutating newer GUI state.",
         "Evidence includes complete source review of frozen download_worker.cpp/.h and current blocking_task.rs/registry operation.rs; inspection of model/script worker Drop and explicit cancellation paths plus 100 ms progress subscriptions; the registry operation cancellation test, both blocking_task runtime-boundary tests, exact model drop/cancel tests, the script drop-cancellation test, and strict all-target Clippy for vinpst-registry and vinpst-gui. No production-code change was required."
       ]
+    },
+    {
+      "id": "GUI-HELPERS-001",
+      "state": "audited-fixed",
+      "title": "GUI helper validation, parsing, translation, and model suggestions",
+      "upstream_files": [
+        "gui/utils/gui_helpers.cpp",
+        "gui/utils/gui_helpers.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-gui/src/adapter_config_management.rs",
+        "crates/vinpst-gui/src/asr_provider_management.rs",
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/llm_provider_management.rs",
+        "crates/vinpst-gui/src/resource_pages.rs",
+        "crates/vinpst-gui/src/scene_management.rs",
+        "crates/vinpst-gui/src/scene_management/view.rs"
+      ],
+      "notes": [
+        "Frozen gui_helpers is a mixed Qt utility bag: MainWindow-context translation, trimmed non-empty line splitting, read-only QTableWidget cells with UserRole data, LLM provider name/base-URL validation, KEY=VALUE command-environment parsing, and asynchronous provider /models suggestions for editable provider/model combos. Current intentionally distributes those responsibilities across typed editors and declarative views rather than preserving a generic GUI helper module, so there is no unique current file to claim.",
+        "The audit found one real compatibility gap in LLM-provider validation. Frozen ValidateProviderInput rejects invalid URLs, non-http(s) schemes, and URLs without a host before the provider can be saved. Current LlmProviderEditorState previously checked only that base_url was non-empty, and the typed config schema intentionally permits opaque non-empty base_url strings for forward compatibility; the GUI could therefore persist ftp://, file://, or relative provider targets and fail only when a request was attempted. The editor now parses the value and accepts only http or https URLs with a host, preserving localhost/explicit ports while rejecting unsupported or relative targets.",
+        "Provider URL validation errors are deliberately secret-free. The new guard returns one generic message and never interpolates the submitted URL, so credentials embedded in malformed or unsupported URLs cannot leak through an error dialog or Debug path. A regression uses a credential-bearing ftp URL and verifies the secret is absent from the error text. The broader base-URL masking logic for userinfo/query/fragment remains intact.",
+        "Frozen NonEmptyLines and ParseCommandEnvText are intentionally not copied literally. Current command/adapter argument editors use JSON string arrays and environment editors use JSON string objects, producing unambiguous typed values; environment values naturally retain arbitrary '=' characters instead of depending on first-equals line splitting. Current redaction is also stronger: frozen's invalid KEY=VALUE diagnostic embeds the complete offending line and may expose a secret value, whereas current parse errors describe the JSON contract without echoing environment contents.",
+        "Frozen MakeCell exists only to construct non-editable QTableWidgetItems and stash an optional identifier in Qt::UserRole. Iced resource/provider/adapter views are declarative: displayed text is immutable presentation data and row actions carry typed ids in Message values, so there is no mutable table-cell helper or hidden UserRole state to reproduce.",
+        "GuiTranslate maps non-QObject callers into the frozen MainWindow translation context. Current uses the typed GuiLocale/GuiText catalog throughout the application rather than dynamic QObject context lookup; the translation catalog itself remains pending for I18N-CACHE-001 and is only supporting evidence here.",
+        "Frozen PopulateProviderModelCombosAsync performs editable /models discovery with Bearer authorization and generation rejection. That capability was already audited and fixed by URL-UTILS-001: current Scene editing retains free-form model input plus provider-specific suggestions, stale-generation protection, a 10-second request boundary, 1 MiB response cap, Bearer support, and secret-free errors without frozen's global API-key cache. It is therefore referenced here rather than double-owned.",
+        "Evidence includes complete source and call-site review of frozen gui_helpers.cpp/.h; review of current LLM/ASR/adapter typed editor parsing, declarative resource views, localization boundary, and previously audited /models discovery; the exact provider URL regression, all 18 LLM-provider tests, all 9 adapter-config tests, strict all-target vinpst-gui Clippy, and the module-parity ledger checker."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/utils/gui_helpers.cpp",
-    "gui/utils/gui_helpers.h",
     "gui/utils/i18n_cache.cpp",
     "gui/utils/i18n_cache.h"
   ],
