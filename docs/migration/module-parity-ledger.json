@@ -1761,12 +1761,49 @@
         "Model metadata is written inside a private installation staging tree and the completed tree is then atomically materialized under REGISTRY-MODELS-001; it is intentionally not refactored into this text-file utility slice merely to centralize fs::write calls.",
         "Evidence includes CONFIG-ROUTER symlink proofs, concurrent CLI and registry atomic-writer tests, registry fresh/stale/partial-temp tests, context JSONL append/truncate/permissions tests, and strict all-target Clippy for vinpst-text, vinpst-registry, and vinpst-cli."
       ]
+    },
+    {
+      "id": "PATH-UTILS-001",
+      "state": "audited-intentional-divergence",
+      "title": "Canonical user paths, XDG roots, and managed resource locations",
+      "upstream_files": [
+        "common/utils/path_utils.cpp",
+        "common/utils/path_utils.h"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/paths.rs",
+        "crates/vinpst-config/src/user_paths.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/sherpa_vad.rs",
+        "crates/vinpst-cli/src/daemon_control/install_service.rs",
+        "crates/vinpst-cli/src/live_i18n.rs",
+        "crates/vinpst-daemon/src/main.rs",
+        "crates/vinpst-fcitx-ffi/src/context_history.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/model_management.rs",
+        "crates/vinpst-gui/src/script_management.rs",
+        "crates/vinpst-gui/src/startup_notifications.rs",
+        "crates/vinpst-registry/src/provider_script.rs",
+        "crates/vinpst-text/src/adapter_runtime.rs",
+        "crates/vinpst-text/src/context_cache.rs"
+      ],
+      "notes": [
+        "Frozen path_utils centralizes XDG config/data/cache roots, core/Fcitx config locations, managed model/provider/adapter directories, registry/cache/runtime state, systemd service locations, Flatpak executable/template paths, and HOME-based tilde expansion. The Rust rewrite had equivalent successful-path values but several copies of the same XDG fallback policy across CLI, GUI, daemon, and Fcitx-FFI.",
+        "Added one small vinpst-config::user_paths module because CLI, GUI, daemon, ASR, and Fcitx-FFI already depend on vinpst-config. It owns only side-effect-free current-user product-path resolution: non-empty XDG overrides win, empty overrides fall back to non-empty HOME, and missing/empty XDG plus HOME returns None. This removes duplicated environment parsing without introducing another crate.",
+        "CLI paths.rs is now a thin user-facing error-context layer over the shared policy and is newly owned here. It retains CLI-only quote_exec_arg formatting, while config/data/model/provider/adapter/cache/staging/D-Bus activation/systemd locations come from the shared path owner. The stale generic HOME error that always mentioned XDG_DATA_HOME was replaced by path-specific diagnostics.",
+        "GUI config, model, model-staging, registry-cache, provider/adapter script, and startup-notification read-state paths now consume the same shared policy. Daemon default config and managed model roots and the Fcitx context-history config lookup do the same. These mixed files remain supporting rather than being double-owned.",
+        "Fixed a real XDG edge case in Silero VAD discovery: an explicitly present but empty XDG_DATA_HOME previously prevented the HOME/.local/share fallback. VAD now reuses user_paths::user_data_home while preserving the existing fcitx-vinpst/vad location and later XDG_DATA_DIRS/development fallbacks. The same shared empty-value semantics now apply to product config/data/cache paths everywhere.",
+        "The automatic registry local-i18n override intentionally remains under the legacy-compatible `$XDG_CONFIG_HOME/vinpst/i18n.local.json` namespace, but its XDG/HOME root selection now uses the shared policy so an empty XDG_CONFIG_HOME correctly falls back to HOME. The recent-input context cache likewise intentionally remains `$XDG_CACHE_HOME/vinpst/context.jsonl`; its domain helper and documented fallback-to-relative behavior are not migrated to the Vinpst product root.",
+        "Vinpst-owned persistent product state intentionally uses `fcitx-vinpst` rather than frozen `vinput`: config.json, models, providers, adapters, registry/model-install cache, and GUI read_notifications all preserve the project identity contract already documented for current users. Fcitx addon config remains `fcitx5/conf/vinpst.conf`.",
+        "Adapter runtime remains owned by vinpst-text and preserves the frozen XDG_RUNTIME_DIR -> TMPDIR -> /tmp ordering through non-empty XDG_RUNTIME_DIR plus std::env::temp_dir(), with only the product namespace changed to vinpst/adapters. Provider-script and text-adapter path expansion preserve HOME-relative `~` support; provider-script resolution deliberately rejects `~other-user/...` instead of reproducing frozen ExpandUserPath's accidental `$HOME/other-user/...` interpretation.",
+        "Frozen Flatpak paths under `/app/addons/Vinput`, executable names `vinput`/`vinput-daemon`, and service unit `vinput-daemon.service` are not reproduced. Current packaging uses Vinpst identities, direct typed daemon control, and its already-audited Flatpak/systemd layout. The shared path module therefore covers user-state roots only rather than reintroducing upstream package names.",
+        "Deterministic evidence includes pure XDG precedence/empty-value tests, CLI init/activation/systemd process tests, daemon discovered-XDG-config proof, Fcitx context-history tests, ASR VAD tests, and strict all-target Clippy across config/ASR/CLI/GUI/daemon/Fcitx-FFI. Closeout also searches the Rust tree to ensure remaining direct XDG_CONFIG/DATA/CACHE computations are only the shared helper, the intentional context-cache domain path, and a GUI test fixture."
+      ]
     }
   ],
   "upstream_pending": [
     "common/utils/debug_log.h",
-    "common/utils/path_utils.cpp",
-    "common/utils/path_utils.h",
     "common/utils/process_utils.cpp",
     "common/utils/process_utils.h",
     "common/utils/sandbox.cpp",
@@ -1813,7 +1850,6 @@
     "crates/vinpst-cli/src/daemon_control/handoff.rs",
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
-    "crates/vinpst-cli/src/paths.rs",
     "crates/vinpst-cli/src/registry_support.rs",
     "crates/vinpst-cli/src/sandbox.rs",
     "crates/vinpst-config/src/diagnostics.rs",
