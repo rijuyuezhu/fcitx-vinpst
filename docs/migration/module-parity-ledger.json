@@ -1729,12 +1729,42 @@
         "No current source file is newly claimed here: commands/config.rs, config_io.rs, and config persistence already have dedicated CLI-CONFIG/CLI-EDITOR/CFG-CORE owners, while paths.rs remains pending for the later path-utils audit. They are supporting files only, preserving non-overlapping ledger ownership.",
         "Evidence includes existing JSON-pointer/string/stdin/missing-pointer/forward-field tests, new typed and process-level symlink preservation tests, strict all-target Clippy for vinpst-config and vinpst-cli, and the broader config/CLI suites run at closeout."
       ]
+    },
+    {
+      "id": "FILE-UTILS-001",
+      "state": "audited-fixed",
+      "title": "Atomic text-file persistence and symlink-safe file utilities",
+      "upstream_files": [
+        "common/utils/file_utils.cpp",
+        "common/utils/file_utils.h"
+      ],
+      "current_files": [],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/config_io.rs",
+        "crates/vinpst-cli/src/daemon_control/install_service.rs",
+        "crates/vinpst-config/src/persistence.rs",
+        "crates/vinpst-registry/src/cache.rs",
+        "crates/vinpst-registry/src/tests.rs",
+        "crates/vinpst-text/src/context_cache.rs",
+        "crates/vinpst-text/src/tests.rs"
+      ],
+      "notes": [
+        "Frozen file_utils provides unrestricted whole-file text reads, parent-directory creation, symlink-target resolution, and mkstemp-based atomic text writes that flush the temporary file before rename. Callers include core config persistence, registry caches/i18n, context-history compaction, and model metadata publication.",
+        "Final symlink-target preservation was fixed and proven under CONFIG-ROUTER-001; this unit audits the remaining generic file semantics without re-owning vinpst-config persistence or CLI config_io. No unowned Rust source maps cleanly one-to-one to the frozen utility, so current_files remains empty.",
+        "Fixed the CLI ordinary atomic writer used by user-systemd service installation. The previous temporary name was only `<target>.tmp-<pid>` and used fs::write, so two writers in the same process could overwrite the same temporary file and race a rename. It now allocates a create_new temporary sibling with a bounded sequence, writes the complete body, fsyncs the file, then renames and removes any failed temporary.",
+        "The CLI private writer now reuses the same unique create_new naming discipline while retaining mode 0600, write_all, fsync, symlink-target resolution, and cleanup. Ordinary service-unit writes intentionally retain normal umask-derived permissions rather than forcing frozen mkstemp mode 0600 onto non-sensitive systemd unit files.",
+        "A deterministic two-thread CLI unit test releases concurrent ordinary writers onto one final path. Both writes must succeed, the final file must equal one complete payload rather than a torn mix, and no `.tmp-` sibling may remain. This specifically proves the old same-process temporary-name collision is closed.",
+        "Fixed RegistryTextCache durability to match frozen AtomicWriteTextFile more closely: cache publication now uses a create_new sibling, write_all plus fsync, rename, and cleanup. Existing fresh/stale cache semantics are unchanged. A two-thread registry test proves concurrent cache writers use distinct temporaries, leave a complete final body, and leave no `.tmp.` residue.",
+        "Fixed recent-input context-cache compaction, another frozen AtomicWriteTextFile caller. Truncation now writes through a unique create_new sibling, fsyncs before rename, and cleans failures instead of reusing a fixed `.tmp` path. New context-cache files and compaction temporaries use mode 0600 on Unix because the JSONL contains user input history.",
+        "Focused context tests prove both initial JSONL append and subsequent tail compaction preserve content semantics while resulting cache permissions are 0600 on Unix. Missing-cache truncation remains a no-op, and the five-second/100-write scheduling policy remains owned by the earlier Fcitx/context-history audit.",
+        "Frozen ReadTextFile itself has no maximum size; current size limits remain correctly owned by higher-level downloader/startup-notification/hotword boundaries instead of being forced into a generic file helper. Likewise frozen AtomicWriteTextFile fsyncs the temporary file but not the containing directory, so current paths that additionally sync directories retain their stronger durability policy.",
+        "Model metadata is written inside a private installation staging tree and the completed tree is then atomically materialized under REGISTRY-MODELS-001; it is intentionally not refactored into this text-file utility slice merely to centralize fs::write calls.",
+        "Evidence includes CONFIG-ROUTER symlink proofs, concurrent CLI and registry atomic-writer tests, registry fresh/stale/partial-temp tests, context JSONL append/truncate/permissions tests, and strict all-target Clippy for vinpst-text, vinpst-registry, and vinpst-cli."
+      ]
     }
   ],
   "upstream_pending": [
     "common/utils/debug_log.h",
-    "common/utils/file_utils.cpp",
-    "common/utils/file_utils.h",
     "common/utils/path_utils.cpp",
     "common/utils/path_utils.h",
     "common/utils/process_utils.cpp",
