@@ -5,7 +5,10 @@ use std::{
 
 use anyhow::Context;
 use vinpst_config::RegistryConfig;
-use vinpst_registry::{LiveScriptRegistry, fetch_live_registry_text};
+use vinpst_registry::{
+    LiveScriptRegistry, fetch_live_registry_text, registry_url_for_diagnostics,
+    resolve_registry_url,
+};
 
 pub(crate) struct LoadedLiveScriptRegistry {
     pub(crate) registry: LiveScriptRegistry,
@@ -16,16 +19,8 @@ pub(crate) fn live_registry_urls(registry: &RegistryConfig, path: &str) -> Vec<S
     registry
         .base_urls
         .iter()
-        .map(|base_url| join_url(base_url, path))
+        .map(|base_url| resolve_registry_url(base_url, path))
         .collect()
-}
-
-fn join_url(base_url: &str, path: &str) -> String {
-    format!(
-        "{}/{}",
-        base_url.trim_end_matches('/'),
-        path.trim_start_matches('/')
-    )
 }
 
 pub(crate) struct FetchedText {
@@ -46,10 +41,10 @@ pub(crate) fn fetch_text_from_mirrors(
         anyhow::bail!("no live registry mirrors configured");
     }
     let fetched = fetch_live_registry_text(urls, cache_path, base_urls, cache_root)?;
-    let resolved_source = fetched
-        .registry
-        .fresh_url
-        .unwrap_or_else(|| cache_path.display().to_string());
+    let resolved_source = fetched.registry.fresh_url.as_deref().map_or_else(
+        || cache_path.display().to_string(),
+        registry_url_for_diagnostics,
+    );
     Ok(FetchedText {
         resolved_source,
         text: fetched.registry.text,
@@ -59,11 +54,23 @@ pub(crate) fn fetch_text_from_mirrors(
     })
 }
 
+pub(crate) fn registry_urls_for_diagnostics(urls: &[String]) -> Vec<String> {
+    urls.iter()
+        .map(|url| registry_url_for_diagnostics(url))
+        .collect()
+}
+
 pub(crate) fn fetched_text_source_json(
     fetched: &FetchedText,
     cache_path: &Path,
     registry_urls: &[String],
 ) -> serde_json::Value {
+    let registry_urls = registry_urls_for_diagnostics(registry_urls);
+    let resolved_source = if fetched.used_cache {
+        fetched.resolved_source.clone()
+    } else {
+        registry_url_for_diagnostics(&fetched.resolved_source)
+    };
     if fetched.used_cache {
         serde_json::json!({
             "kind": "cache",
@@ -77,7 +84,7 @@ pub(crate) fn fetched_text_source_json(
     } else {
         serde_json::json!({
             "kind": "http",
-            "url": fetched.resolved_source,
+            "url": resolved_source,
             "used_cache": false,
             "fallback_error": null,
             "warnings": fetched.warnings,
@@ -91,7 +98,10 @@ pub(crate) fn fetched_text_source_label(fetched: &FetchedText) -> String {
     if fetched.used_cache {
         format!("cache:{}", fetched.resolved_source)
     } else {
-        format!("url:{}", fetched.resolved_source)
+        format!(
+            "url:{}",
+            registry_url_for_diagnostics(&fetched.resolved_source)
+        )
     }
 }
 
@@ -238,4 +248,61 @@ fn transaction_backup_path(script_path: &Path) -> PathBuf {
         ".{file_name}.cli-rollback.{}.{unique}",
         std::process::id()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_registry_urls_append_paths_before_query_and_fragment() {
+        let config = RegistryConfig {
+            base_urls: vec![
+                "https://user:password@example.test/root?token=secret#fragment".to_owned(),
+                "mirror".to_owned(),
+            ],
+        };
+
+        assert_eq!(
+            live_registry_urls(&config, "registry/models.json"),
+            [
+                "https://user:password@example.test/root/registry/models.json?token=secret#fragment",
+                "mirror/registry/models.json",
+            ]
+        );
+    }
+
+    #[test]
+    fn registry_source_diagnostics_redact_network_urls() {
+        let fetched = FetchedText {
+            resolved_source:
+                "https://user:password@example.test/root/registry/models.json?token=secret#fragment"
+                    .to_owned(),
+            text: "{}".to_owned(),
+            used_cache: false,
+            fallback_error: None,
+            warnings: Vec::new(),
+        };
+        let urls = vec![
+            "https://user:password@example.test/root/registry/models.json?token=secret#fragment"
+                .to_owned(),
+            "mirror/registry/models.json".to_owned(),
+        ];
+        let source = fetched_text_source_json(&fetched, Path::new("cache/models.json"), &urls);
+        let rendered = source.to_string();
+
+        assert_eq!(
+            source["url"],
+            "https://example.test/root/registry/models.json?token=REDACTED"
+        );
+        assert_eq!(source["registry_urls"][1], "mirror/registry/models.json");
+        assert_eq!(
+            fetched_text_source_label(&fetched),
+            "url:https://example.test/root/registry/models.json?token=REDACTED"
+        );
+        for secret in ["user", "password", "secret", "fragment"] {
+            assert!(!rendered.contains(secret));
+            assert!(!fetched_text_source_label(&fetched).contains(secret));
+        }
+    }
 }

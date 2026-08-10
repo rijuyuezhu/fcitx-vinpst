@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use vinpst_config::RegistryConfig;
+use vinpst_config::{RegistryConfig, redact_url_for_diagnostics};
 
 use crate::RegistryError;
 
@@ -187,7 +187,7 @@ impl AssetEntry {
         config
             .base_urls
             .iter()
-            .map(|base| join_url(base, &self.path))
+            .map(|base| resolve_registry_url(base, &self.path))
             .collect()
     }
 }
@@ -223,7 +223,13 @@ fn validate_sha256(input: &str) -> Result<(), RegistryError> {
     }
 }
 
-fn join_url(base: &str, path: &str) -> String {
+/// Resolves one registry-relative path against a configured mirror.
+///
+/// Parsed URLs receive the relative asset in their path component while preserving
+/// userinfo, query, and fragment for the actual request. Opaque mirror strings keep
+/// the legacy trailing-slash concatenation behavior.
+#[must_use]
+pub fn resolve_registry_url(base: &str, path: &str) -> String {
     let path = path.trim_start_matches('/');
     if let Ok(mut url) = reqwest::Url::parse(base) {
         let base_path = url.path().trim_end_matches('/');
@@ -237,4 +243,22 @@ fn join_url(base: &str, path: &str) -> String {
     }
 
     format!("{}/{}", base.trim_end_matches('/'), path)
+}
+
+/// Projects a registry URL or opaque mirror into a safe diagnostic representation.
+///
+/// Parsed URLs use the shared credential/query redactor. Legacy opaque mirrors made
+/// only from path-safe characters remain readable; suspicious unparseable values are
+/// replaced by a fixed marker.
+#[must_use]
+pub fn registry_url_for_diagnostics(value: &str) -> String {
+    if reqwest::Url::parse(value).is_ok() {
+        return redact_url_for_diagnostics(value);
+    }
+    if value.bytes().all(|byte| {
+        byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b'~')
+    }) {
+        return value.to_owned();
+    }
+    "<invalid-url>".to_owned()
 }

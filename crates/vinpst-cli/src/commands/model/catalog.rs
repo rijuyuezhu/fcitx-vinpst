@@ -10,6 +10,7 @@ use crate::{
     paths::default_cache_root,
     registry_support::{
         fetched_text_source_json, fetched_text_source_label, print_cache_fallback_warning,
+        registry_urls_for_diagnostics,
     },
 };
 use vinpst_registry::model_registry_cache_path;
@@ -192,7 +193,7 @@ fn load_live_model_registry(
                 "kind": "file",
                 "path": path,
                 "mirror_count": registry_config.base_urls.len(),
-                "registry_urls": registry_urls,
+                "registry_urls": registry_urls_for_diagnostics(&registry_urls),
             }),
             source_label: format!("file:{}", path.display()),
         });

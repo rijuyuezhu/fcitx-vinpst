@@ -64,6 +64,54 @@ fn model_list_json_accepts_live_sensevoice_fixture() {
 }
 
 #[test]
+fn model_list_local_registry_redacts_configured_mirror_credentials_in_source_json() {
+    let mut config: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace_file("data/default-config.json"))
+            .expect("read default config"),
+    )
+    .expect("parse default config");
+    config["registry"]["base_urls"] = serde_json::json!([
+        "https://registry-user:registry-pass@example.test/root?token=registry-secret#private",
+        "mirror"
+    ]);
+    let config_path = write_temp_json(
+        "vinpst-model-registry-source-redaction",
+        &serde_json::to_string_pretty(&config).expect("serialize config"),
+    );
+
+    let output = vinpst_command()
+        .args(["model", "list", "--registry"])
+        .arg(live_models_fixture())
+        .args(["--i18n"])
+        .arg(live_i18n_fixture())
+        .args(["--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .expect("run model list with credentialed mirror config");
+    let value = assert_json_success(output, "model list registry source redaction");
+    let rendered = value["source"].to_string();
+
+    assert_eq!(
+        value["source"]["registry_urls"][0],
+        "https://example.test/root/registry/models.json?token=REDACTED"
+    );
+    assert_eq!(
+        value["source"]["registry_urls"][1],
+        "mirror/registry/models.json"
+    );
+    for secret in [
+        "registry-user",
+        "registry-pass",
+        "registry-secret",
+        "private",
+    ] {
+        assert!(!rendered.contains(secret));
+    }
+    std::fs::remove_file(config_path).expect("remove credentialed registry config");
+}
+
+#[test]
 fn model_list_json_uses_stale_registry_and_i18n_cache_when_mirror_is_offline() {
     let (root, mut command) = isolated_vinpst_command("vinpst-model-stale-cache");
     let config_path = root.path().join("config.json");

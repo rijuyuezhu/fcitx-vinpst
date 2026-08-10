@@ -12,7 +12,8 @@ use crate::{
     config_io::ConfigSetWriteTarget,
     paths::default_cache_root,
     registry_support::{
-        fetched_text_source_json, print_cache_fallback_warning, with_managed_script_transaction,
+        fetched_text_source_json, print_cache_fallback_warning, registry_urls_for_diagnostics,
+        with_managed_script_transaction,
     },
 };
 use vinpst_registry::adapter_registry_cache_path;
@@ -214,7 +215,7 @@ pub(super) fn load_live_adapter_registry(
                 "kind": "file",
                 "path": path,
                 "mirror_count": registry_config.base_urls.len(),
-                "registry_urls": registry_urls,
+                "registry_urls": registry_urls_for_diagnostics(&registry_urls),
             }),
         });
     }

@@ -12,6 +12,7 @@ use vinpst_config::user_paths;
 use vinpst_registry::{
     LiveRegistryI18n, RegistryTextCache, RegistryTextSource, ReqwestRegistryTextSource,
     fetch_registry_text_with_cache, normalize_registry_locale, registry_i18n_cache_path,
+    registry_url_for_diagnostics, resolve_registry_url,
 };
 
 use crate::paths::default_cache_root;
@@ -242,7 +243,7 @@ fn fetch_remote_layer(
 ) -> LoadedI18nLayer {
     let urls = remote_base_urls
         .iter()
-        .map(|base| join_url(base, &format!("i18n/{locale}.json")))
+        .map(|base| resolve_registry_url(base, &format!("i18n/{locale}.json")))
         .collect::<Vec<_>>();
 
     if let Some(cache_root) = cache_root {
@@ -262,10 +263,10 @@ fn fetch_cached_remote_layer(
     let cache = RegistryTextCache::new(&cache_path);
     match fetch_registry_text_with_cache(source, urls, &cache) {
         Ok(fetched) => {
-            let resolved_source = fetched
-                .fresh_url
-                .clone()
-                .unwrap_or_else(|| cache_path.display().to_string());
+            let resolved_source = fetched.fresh_url.as_deref().map_or_else(
+                || cache_path.display().to_string(),
+                registry_url_for_diagnostics,
+            );
             let label = if fetched.used_cache {
                 format!("cache:{resolved_source}")
             } else {
@@ -326,7 +327,8 @@ fn fetch_uncached_remote_layer(
 ) -> LoadedI18nLayer {
     let mut last_error = None;
     for url in urls {
-        let label = format!("url:{url}");
+        let diagnostic_url = registry_url_for_diagnostics(url);
+        let label = format!("url:{diagnostic_url}");
         match source.fetch_registry_text(url) {
             Ok(input) => {
                 return match LiveRegistryI18n::from_json_str(&input) {
@@ -334,7 +336,7 @@ fn fetch_uncached_remote_layer(
                         i18n: Some(i18n),
                         diagnostic: json!({
                             "kind": "http",
-                            "url": url,
+                            "url": diagnostic_url,
                             "locale": locale,
                             "mirror_count": urls.len(),
                             "loaded": true,
@@ -346,7 +348,7 @@ fn fetch_uncached_remote_layer(
                         i18n: None,
                         diagnostic: json!({
                             "kind": "http",
-                            "url": url,
+                            "url": diagnostic_url,
                             "locale": locale,
                             "mirror_count": urls.len(),
                             "loaded": false,
@@ -359,7 +361,10 @@ fn fetch_uncached_remote_layer(
             Err(error) => last_error = Some(error),
         }
     }
-    let url = urls.last().cloned().unwrap_or_default();
+    let url = urls
+        .last()
+        .map(|url| registry_url_for_diagnostics(url))
+        .unwrap_or_default();
     let label = if url.is_empty() {
         "none".to_owned()
     } else {
@@ -397,14 +402,6 @@ fn default_local_i18n_override_path() -> Option<PathBuf> {
         user_paths::user_config_home()?
             .join("vinpst")
             .join("i18n.local.json"),
-    )
-}
-
-fn join_url(base_url: &str, path: &str) -> String {
-    format!(
-        "{}/{}",
-        base_url.trim_end_matches('/'),
-        path.trim_start_matches('/')
     )
 }
 
@@ -475,6 +472,48 @@ mod tests {
         assert_eq!(loaded.source_json["priority"][0], "local");
         assert_eq!(loaded.source_json["layers"]["local"]["loaded"], true);
         assert!(loaded.source_label.starts_with("local:"));
+    }
+
+    #[test]
+    fn remote_i18n_keeps_request_credentials_but_redacts_source_diagnostics() {
+        let base =
+            "https://registry-user:registry-pass@example.test/root?token=registry-secret#private";
+        let bases = vec![base.to_owned()];
+        let preferred_url = resolve_registry_url(base, "i18n/zh_CN.json");
+        let fallback_url = resolve_registry_url(base, "i18n/en_US.json");
+        let source = FakeTextSource {
+            responses: BTreeMap::from([
+                (
+                    preferred_url.clone(),
+                    Ok(r#"{"shared":"preferred"}"#.to_owned()),
+                ),
+                (
+                    fallback_url.clone(),
+                    Ok(r#"{"shared":"fallback"}"#.to_owned()),
+                ),
+            ]),
+            requests: Mutex::new(Vec::new()),
+        };
+
+        let loaded = load_live_i18n_with_source(&source, None, &bases, "zh_CN", None)
+            .expect("load credentialed remote i18n");
+        let rendered = loaded.source_json.to_string();
+
+        assert_eq!(
+            *source.requests.lock().expect("request log lock poisoned"),
+            vec![preferred_url, fallback_url]
+        );
+        assert!(rendered.contains("token=REDACTED"));
+        assert!(loaded.source_label.contains("token=REDACTED"));
+        for secret in [
+            "registry-user",
+            "registry-pass",
+            "registry-secret",
+            "private",
+        ] {
+            assert!(!rendered.contains(secret));
+            assert!(!loaded.source_label.contains(secret));
+        }
     }
 
     #[test]

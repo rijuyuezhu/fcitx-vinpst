@@ -85,7 +85,10 @@ pub use provider_script::{
     prepare_provider_script_edit_with, resolve_editable_provider_script,
     resolve_editable_provider_script_with,
 };
-pub use schema::{AdapterEntry, AssetEntry, ModelEntry, RegistryIndex, RegistryIndexSummary};
+pub use schema::{
+    AdapterEntry, AssetEntry, ModelEntry, RegistryIndex, RegistryIndexSummary,
+    registry_url_for_diagnostics, resolve_registry_url,
+};
 pub use script::{
     AsrProviderMaterialization, AsrProviderMaterializationError, LiveScriptEntry,
     LiveScriptEnvSpec, LiveScriptInstallError, LiveScriptInstallResult, LiveScriptKind,

@@ -4,7 +4,7 @@ use std::fmt;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, Serializer};
-use vinpst_config::{RegistryConfig, redact_url_for_diagnostics};
+use vinpst_config::RegistryConfig;
 
 use crate::{RegistryError, RegistryIndex};
 
@@ -298,20 +298,8 @@ impl PlannedInstallAsset {
 
 fn redacted_urls(urls: &[String]) -> Vec<String> {
     urls.iter()
-        .map(|url| redact_registry_plan_url(url))
+        .map(|url| crate::registry_url_for_diagnostics(url))
         .collect()
-}
-
-fn redact_registry_plan_url(url: &str) -> String {
-    if reqwest::Url::parse(url).is_ok() {
-        return redact_url_for_diagnostics(url);
-    }
-    if url.bytes().all(|byte| {
-        byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-' | b'~')
-    }) {
-        return url.to_owned();
-    }
-    "<invalid-url>".to_owned()
 }
 
 fn serialize_redacted_urls<S>(urls: &[String], serializer: S) -> Result<S::Ok, S::Error>

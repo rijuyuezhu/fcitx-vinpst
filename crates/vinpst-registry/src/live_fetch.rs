@@ -9,7 +9,7 @@ use std::{path::Path, time::Duration};
 use crate::{
     CachedRegistryText, RegistryCachedFetchError, RegistryTextCache, RegistryTextSource,
     ReqwestRegistryTextSource, detect_preferred_registry_locale, fetch_registry_text_with_cache,
-    registry_i18n_cache_path,
+    registry_i18n_cache_path, resolve_registry_url,
 };
 
 const REGISTRY_TIMEOUT: Duration = Duration::from_secs(30);
@@ -115,7 +115,7 @@ fn refresh_locale(
 ) {
     let urls = base_urls
         .iter()
-        .map(|base| format!("{}/i18n/{locale}.json", base.trim_end_matches('/')))
+        .map(|base| resolve_registry_url(base, &format!("i18n/{locale}.json")))
         .collect::<Vec<_>>();
     if urls.is_empty() {
         return;
