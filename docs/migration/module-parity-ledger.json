@@ -1308,11 +1308,40 @@
         "Frozen restart/start diagnostics automatically append the last 20 journal lines, classify actionable text, and emit an ErrorInfo notification. Vinpst deliberately does not auto-dump journal content from the shared systemd layer: systemctl stdout/stderr and structured fallback steps remain available, users opt into bounded daemon log output, and daemon-originated error classification stays with the daemon notification authority. This avoids coupling the low-level runner to D-Bus/error taxonomy and reduces accidental disclosure of provider/path details in control-command failures.",
         "Deterministic evidence includes exact native stop/restart argv, Flatpak host-wrapped argv with tool overrides, captured-output privacy behavior, streaming success/failure status tests, daemon CLI journal/failure integration tests, and strict all-target vinpst-daemon-control Clippy."
       ]
+    },
+    {
+      "id": "CLI-DBUS-RUNTIME-001",
+      "state": "audited-fixed",
+      "title": "CLI D-Bus control transport and deadlines",
+      "upstream_files": [
+        "cli/runtime/dbus_client.cpp",
+        "cli/runtime/dbus_client.h"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/daemon_control/asr.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/commands/adapter/lifecycle.rs",
+        "crates/vinpst-cli/src/daemon_control/mod.rs",
+        "crates/vinpst-cli/src/daemon_control/status.rs",
+        "crates/vinpst-cli/src/daemon_control/tests.rs",
+        "crates/vinpst-cli/src/recording_control.rs",
+        "docs/architecture/dbus-service.md",
+        "scripts/tests/cli/run-asr-config-reload-smoke.sh",
+        "scripts/tests/cli/run-recording-no-activation-smoke.sh"
+      ],
+      "notes": [
+        "Frozen dbus_client is one sd-bus wrapper for daemon ownership/status, ASR state/reload, recording start/stop, adapter lifecycle, and Fcitx notification calls. Vinpst intentionally distributes those typed calls across daemon-control, recording, and adapter modules while keeping one shared connection/proxy boundary for short control operations.",
+        "Fixed a transport deadline regression. Frozen DbusClient sets kDbusCallTimeoutUsec to five seconds on its user bus, while zbus Connection::session() leaves method_timeout unset. Vinpst now builds short CLI control connections with an explicit five-second method timeout, covering NameHasOwner, status/backend/runtime queries, ASR reload, recording start/status, and adapter lifecycle/status. A private-session test asserts the live zbus connection carries exactly that timeout.",
+        "StopRecording deliberately remains outside the five-second connection. Frozen StopRecording is an immediate acknowledgement whose result is delivered asynchronously, but the audited Rust service synchronously returns the final recognition payload after ASR and optional text processing. The CLI therefore bounds the preceding non-activating owner/status control calls while allowing the synchronous final stop operation to complete according to the recognition backend contract.",
+        "Activation remains caller-specific rather than hidden inside the transport. Recording controls and canonical ASR config writes first use NameHasOwner and do not activate an absent daemon; the existing private-session smokes prove both boundaries. Adapter start/stop directly address the service and may activate it as frozen did. Vinpst daemon status/start intentionally use D-Bus activation and were already recorded in CLI-DAEMON-001.",
+        "Frozen Notify is only consumed by the systemctl start/restart failure path. CLI-SYSTEMD-RUNTIME-001 intentionally keeps those failures as structured control diagnostics plus opt-in bounded journal inspection instead of automatically scraping journal text, classifying it, and sending a notifier call. This audit therefore does not add an otherwise-unused CLI notifier transport solely for shape parity.",
+        "Wire method names and ASR backend tuple compatibility are owned by the protocol/service audits. Vinpst adds richer daemon runtime/text-adapter status queries and a standalone daemon reload-asr command without changing the frozen method shapes needed by existing config, recording, or adapter tasks. Typed zbus/anyhow errors replace the frozen bool plus optional error-string API.",
+        "Deterministic evidence includes the private-bus five-second connection assertion, recording no-activation smoke, canonical ASR write/reload smoke, focused recording/adapter/reload tests, and strict all-target vinpst-cli Clippy."
+      ]
     }
   ],
   "upstream_pending": [
-    "cli/runtime/dbus_client.cpp",
-    "cli/runtime/dbus_client.h",
     "cli/utils/cli_context.h",
     "cli/utils/cli_helpers.h",
     "cli/utils/editor_utils.cpp",
@@ -1386,7 +1415,6 @@
     "crates/vinpst-cli/src/commands/system.rs",
     "crates/vinpst-cli/src/config_examples.rs",
     "crates/vinpst-cli/src/config_io.rs",
-    "crates/vinpst-cli/src/daemon_control/asr.rs",
     "crates/vinpst-cli/src/daemon_control/handoff.rs",
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
