@@ -1365,13 +1365,43 @@
         "Vinpst intentionally omits frozen ANSI color/bold decoration and generic display-width table padding. Human command tables use simple domain-specific text/tabular layouts, while --json is the machine-readable surface. This keeps the user interface plain and avoids terminal escape handling without dropping data. Domain warnings also remain owned by their command outcomes rather than introducing a second global formatter abstraction.",
         "Deterministic evidence includes pure argv JSON-mode detection before/after subcommands and the -- delimiter, process-level tests for local and root JSON runtime failures, a text-mode failure regression, the existing root global-JSON propagation tests, and strict all-target vinpst-cli Clippy."
       ]
+    },
+    {
+      "id": "CLI-EDITOR-001",
+      "state": "audited-fixed",
+      "title": "CLI editor command parsing and launch policy",
+      "upstream_files": [
+        "cli/utils/editor_utils.cpp",
+        "cli/utils/editor_utils.h"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/config_io.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/Cargo.toml",
+        "crates/vinpst-cli/src/cli/config.rs",
+        "crates/vinpst-cli/src/commands/config.rs",
+        "crates/vinpst-cli/src/hotword.rs",
+        "crates/vinpst-cli/src/main.rs",
+        "crates/vinpst-cli/tests/config_mutation.rs",
+        "crates/vinpst-cli/tests/hotword.rs",
+        "crates/vinpst-process/src/lib.rs",
+        "crates/vinpst-registry/Cargo.toml",
+        "crates/vinpst-registry/src/provider_script.rs"
+      ],
+      "notes": [
+        "Frozen OpenInEditor selects VISUAL, then EDITOR, then vi; parses a small shell-like command grammar into direct argv; appends the file path; executes with execvp rather than a shell; waits for completion; and propagates the editor exit status. Vinpst keeps direct Command argv execution and adds explicit --editor plus VINPST_*_EDITOR overrides ahead of that legacy fallback chain.",
+        "Fixed the Rust rewrite command parser. config/hotword and provider script editing previously used split_whitespace(), which broke quoted editor arguments and escaped spaces. A shared vinpst-process parse_command_argv state machine now preserves the frozen single-quote, double-quote, backslash, and ASCII-whitespace rules while deliberately performing no shell expansion or operator evaluation. Empty commands and unterminated quote/escape syntax fail before process launch.",
+        "Fixed config/hotword environment priority and fallback. After their explicit/Vinpst-specific override, both now select VISUAL before EDITOR and fall back to vi, matching frozen behavior. Provider editing already had explicit -> VINPST_PROVIDER_EDITOR -> VISUAL -> EDITOR -> vi selection and now shares the corrected argv parser. CLI help text reflects the actual order.",
+        "Vinpst config editing intentionally strengthens frozen direct-file editing: it edits a temporary copy, parses and validates edited core JSON, preserves an existing config backup, and atomically writes the accepted result. Invalid editor output or a failing editor cannot overwrite the live config. Provider-script and hotword editing remain direct existing-file edits, matching their frozen task shape.",
+        "Process launch remains shell-free across all three editor surfaces, so quotes affect argv grouping only and cannot introduce shell evaluation. Vinpst reports typed spawn/parse/exit failures with more context than frozen integer -1 while preserving nonzero editor status as command failure.",
+        "Deterministic evidence includes shared parser quote/escape and malformed-command tests, provider editor priority/default and quoted-argv tests, process-level config/hotword VISUAL-over-EDITOR dry-runs with quoted arguments, existing real editor success/failure tests, and strict all-target Clippy for vinpst-process, vinpst-registry, and vinpst-cli."
+      ]
     }
   ],
   "upstream_pending": [
     "cli/utils/cli_context.h",
     "cli/utils/cli_helpers.h",
-    "cli/utils/editor_utils.cpp",
-    "cli/utils/editor_utils.h",
     "cli/utils/resource_utils.cpp",
     "cli/utils/resource_utils.h",
     "common/config/config_router.cpp",
@@ -1438,7 +1468,6 @@
     "crates/vinpst-cli/src/commands/registry.rs",
     "crates/vinpst-cli/src/commands/system.rs",
     "crates/vinpst-cli/src/config_examples.rs",
-    "crates/vinpst-cli/src/config_io.rs",
     "crates/vinpst-cli/src/daemon_control/handoff.rs",
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
