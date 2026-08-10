@@ -7,6 +7,7 @@ use iced::{
     widget::{column, row, text, text_input},
 };
 use vinpst_config::AsrProviderKind;
+use vinpst_registry::InstalledModelInfo;
 
 use super::{
     AsrProviderEditorField, AsrProviderEditorState, AsrProviderEnvironmentEntry, AsrProviderMessage,
@@ -15,17 +16,23 @@ use crate::{App, GuiLocale, GuiText, Message, SecretInput};
 
 impl App {
     pub(crate) fn asr_provider_editor_view(&self, busy: bool) -> Option<Element<'_, Message>> {
-        self.asr_provider_editor
-            .as_ref()
-            .map(|editor| provider_editor_view(self.locale, editor, busy))
+        self.asr_provider_editor.as_ref().map(|editor| {
+            provider_editor_view(
+                self.locale,
+                editor,
+                self.installed_models.as_deref().unwrap_or(&[]),
+                busy,
+            )
+        })
     }
 }
 
-fn provider_editor_view(
+fn provider_editor_view<'a>(
     locale: GuiLocale,
-    editor: &AsrProviderEditorState,
+    editor: &'a AsrProviderEditorState,
+    installed_models: &'a [InstalledModelInfo],
     busy: bool,
-) -> Element<'_, Message> {
+) -> Element<'a, Message> {
     let dirty = editor.is_dirty();
     let adding = editor.original.is_none();
     column![
@@ -50,6 +57,7 @@ fn provider_editor_view(
             AsrProviderEditorField::Model,
             false,
         ),
+        installed_model_suggestions(locale, &editor.kind, installed_models, busy),
         provider_kind_fields(locale, editor, busy),
         row![
             keyboard_button(locale.text(if adding {
@@ -129,7 +137,7 @@ fn provider_kind_fields(
                 locale.text(GuiText::JsonStringArray),
                 editor.fields.args.as_str(),
                 AsrProviderEditorField::Args,
-                true,
+                false,
             ),
             environment_editor_view(locale, &editor.fields.environment, busy),
         ]
@@ -145,6 +153,42 @@ fn provider_kind_fields(
     }
 }
 
+fn installed_model_suggestions<'a>(
+    locale: GuiLocale,
+    kind: &AsrProviderKind,
+    installed_models: &'a [InstalledModelInfo],
+    busy: bool,
+) -> Element<'a, Message> {
+    if *kind != AsrProviderKind::Local {
+        return column![].into();
+    }
+
+    let usable = installed_models
+        .iter()
+        .filter(|model| !model.is_broken())
+        .collect::<Vec<_>>();
+    if usable.is_empty() {
+        return column![].into();
+    }
+
+    let mut body = column![text(locale.scene_model_suggestion())].spacing(6);
+    for model in usable {
+        let value = model.config_model_value();
+        body = body.push(
+            row![
+                text(&model.model_id).width(Length::Fill),
+                keyboard_button(locale.text(GuiText::Use)).on_press_maybe((!busy).then_some(
+                    Message::AsrProvider(AsrProviderMessage::EditorChanged {
+                        field: AsrProviderEditorField::Model,
+                        value: SecretInput::new(value),
+                    })
+                )),
+            ]
+            .spacing(10),
+        );
+    }
+    body.into()
+}
 fn environment_editor_view(
     locale: GuiLocale,
     entries: &[AsrProviderEnvironmentEntry],
