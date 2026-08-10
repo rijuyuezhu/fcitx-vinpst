@@ -214,6 +214,7 @@ impl LlmProviderEditorState {
         if base_url.trim().is_empty() {
             return Err("LLM provider base URL cannot be empty.".to_owned());
         }
+        validate_provider_base_url(&base_url)?;
         let extra_body = if let Some(provider) =
             original_provider.filter(|_| self.fields.extra_body == self.baseline.extra_body)
         {
@@ -540,6 +541,15 @@ impl App {
 
 pub(super) const fn extra_body_input_is_secure() -> bool {
     true
+}
+
+fn validate_provider_base_url(value: &str) -> Result<(), String> {
+    let url = url::Url::parse(value)
+        .map_err(|_| "LLM provider base URL must be a valid http:// or https:// URL.".to_owned())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err("LLM provider base URL must be a valid http:// or https:// URL.".to_owned());
+    }
+    Ok(())
 }
 
 fn base_url_input_is_secure(value: &str) -> bool {
@@ -933,6 +943,19 @@ mod tests {
             SecretInput::new("[]".to_owned()),
         );
         assert!(invalid.provider().is_err());
+    }
+
+    #[test]
+    fn provider_base_url_requires_http_or_https_with_host() {
+        assert!(validate_provider_base_url("https://example.invalid/v1").is_ok());
+        assert!(validate_provider_base_url("http://localhost:8080").is_ok());
+        assert!(validate_provider_base_url("ftp://example.invalid/v1").is_err());
+        assert!(validate_provider_base_url("file:///tmp/provider").is_err());
+        assert!(validate_provider_base_url("relative/provider").is_err());
+
+        let error = validate_provider_base_url("ftp://user:super-secret@example.invalid/v1")
+            .expect_err("unsupported scheme");
+        assert!(!error.contains("super-secret"));
     }
 
     #[test]
