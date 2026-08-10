@@ -2509,13 +2509,41 @@
         "The typed RegistryCommand surface remains intentionally compact: model/adapter selectors are mutually exclusive at Clap parse time, summary-only removes per-asset rows, validate reads only the explicit local index, and install-plan is side-effect free. Runtime errors retain the previously audited generic JSON/text error formatting rather than introducing a second registry-specific error envelope.",
         "Evidence includes full-file review of cli/registry.rs, commands/registry.rs, and registry_support.rs plus model/provider/adapter/i18n consumers; shared URL join and diagnostic helper regressions, an uncached remote-i18n raw-request-versus-redacted-diagnostic test, a process-level credentialed-config plus local-registry model-list JSON test, registry/provider/model/adapter CLI suites, strict CLI/registry Clippy, downstream compile checks, docs build, secret scan, diff check, and the module-parity ledger checker."
       ]
+    },
+    {
+      "id": "CLI-FACADE-FIXTURES-001",
+      "state": "audited-aligned",
+      "title": "Current-only CLI command facade and hidden config fixtures",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-cli/src/commands/mod.rs",
+        "crates/vinpst-cli/src/config_examples.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-cli/src/cli/config.rs",
+        "crates/vinpst-cli/src/cli/mod.rs",
+        "crates/vinpst-cli/src/commands/config.rs",
+        "crates/vinpst-cli/src/commands/init.rs",
+        "crates/vinpst-cli/src/config_io.rs",
+        "crates/vinpst-cli/src/main.rs",
+        "crates/vinpst-cli/tests/config_validate.rs",
+        "data/default-config.json",
+        "data/e2e-command-demo-config.json",
+        "data/e2e-configured-pipewire-live.json"
+      ],
+      "notes": [
+        "commands/mod.rs is a crate-internal aggregation facade only: it declares the already-audited domain command modules and re-exports their handlers/types to main.rs. It does not define a second parser, formatter, transport, config mutation, or side-effect path, and the complete root/help-surface tests remain the authority for which commands are user-visible.",
+        "config_examples.rs embeds three committed JSON fixtures by compile-time include_str: the ordinary default skeleton plus deterministic command-demo and configured PipeWire-live fixtures. `init` consumes only ConfigExample::Default; the two e2e fixtures are available through the explicit config-example maintenance surface for deterministic tests and live validation.",
+        "The config-example command is already hidden from ordinary help with #[command(hide = true)], and the help-surface regression requires it to remain registered but hidden. This matches the v0.1.0 CLI policy that test/maintenance mechanisms stay script-compatible without cluttering the user-facing interface.",
+        "Export is not blind file copying: commands/config.rs reparses the embedded text as VinpstConfig, validates it, and only then prints or writes it. The three included JSON files parse as JSON and their existing process tests cover list, command-demo stdout, and configured-PipeWire file export; invalid future fixture drift therefore fails tests rather than silently becoming a published example.",
+        "No credentials are synthesized or loaded by this facade. Descriptions contain only stable fixture purpose text, the command facade carries no runtime data, and the embedded examples are repository fixtures rather than environment-derived user configuration. Existing config validation/diagnostic redaction remains outside this unit and is not bypassed by example export.",
+        "Evidence includes full review of commands/mod.rs and config_examples.rs, their parser/handler/init/config-IO call chains, the hidden-maintenance help regression, all three config-example process tests, strict all-target CLI Clippy, JSON parsing of every embedded fixture, diff check, and module-parity ledger validation."
+      ]
     }
   ],
   "upstream_pending": [],
   "current_pending": [
-    "crates/vinpst-cli/src/commands/mod.rs",
     "crates/vinpst-cli/src/commands/system.rs",
-    "crates/vinpst-cli/src/config_examples.rs",
     "crates/vinpst-cli/src/daemon_control/handoff.rs",
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
