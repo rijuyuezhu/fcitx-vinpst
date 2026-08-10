@@ -13,7 +13,7 @@ use vinpst_registry::{
     ReqwestRegistryTextSource, detect_preferred_registry_locale,
     fetch_live_registry_text_with_sources, fetch_registry_text_with_cache,
     install_live_model_controlled, managed_model_dir_name, model_registry_cache_path,
-    registry_i18n_cache_path, remove_managed_model, scan_installed_models,
+    registry_i18n_cache_path, remove_managed_model, resolve_registry_url, scan_installed_models,
 };
 
 use crate::{GuiLocale, model_install::ModelInstallOutcome};
@@ -264,12 +264,7 @@ fn fetch_live_model_registry_from(
     i18n_source: &impl RegistryTextSource,
     cache_root: &Path,
 ) -> Result<LiveModelRegistry, String> {
-    let urls = config
-        .registry
-        .base_urls
-        .iter()
-        .map(|base| format!("{}/registry/models.json", base.trim_end_matches('/')))
-        .collect::<Vec<_>>();
+    let urls = model_registry_urls(config);
     if urls.is_empty() {
         return Err("No registry mirrors are configured.".to_owned());
     }
@@ -287,6 +282,15 @@ fn fetch_live_model_registry_from(
     .map_err(|_| "Registry model catalog is unavailable.".to_owned())?;
     LiveModelRegistry::from_json_str(&fetched.registry.text)
         .map_err(|error| format!("Registry model catalog is invalid: {error}"))
+}
+
+fn model_registry_urls(config: &VinpstConfig) -> Vec<String> {
+    config
+        .registry
+        .base_urls
+        .iter()
+        .map(|base| resolve_registry_url(base, "registry/models.json"))
+        .collect()
 }
 
 pub(crate) fn remove_installed_model(
@@ -392,6 +396,23 @@ mod tests {
                 .cloned()
                 .unwrap_or_else(|| Err("missing fixture".to_owned()))
         }
+    }
+
+    #[test]
+    fn model_registry_urls_insert_catalog_path_before_query_and_fragment() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        config.registry.base_urls = vec![
+            "https://registry.example/root?q=fixture#section".to_owned(),
+            "opaque-mirror/".to_owned(),
+        ];
+
+        assert_eq!(
+            model_registry_urls(&config),
+            [
+                "https://registry.example/root/registry/models.json?q=fixture#section",
+                "opaque-mirror/registry/models.json",
+            ]
+        );
     }
 
     #[test]

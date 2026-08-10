@@ -325,7 +325,7 @@ fn resolve_existing_regular_file(
     } else {
         context.current_dir.join(path)
     };
-    match fs::metadata(&path) {
+    match fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.is_file() => Ok(Some(path)),
         Ok(_) => Ok(None),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -345,6 +345,8 @@ fn exit_status_label(status: ExitStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     fn provider(command: Option<&str>, args: &[&str]) -> AsrProviderConfig {
         AsrProviderConfig {
@@ -401,6 +403,26 @@ mod tests {
             .expect("script path");
 
         assert_eq!(resolved, script);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn editable_script_resolution_refuses_symlink_candidates() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let target = directory.path().join("target.py");
+        let link = directory.path().join("provider.py");
+        fs::write(&target, "target").expect("write target");
+        symlink(&target, &link).expect("create symlink");
+        let provider = provider(Some("python3"), &[link.to_str().expect("link path")]);
+        let context = ProviderScriptResolutionContext {
+            current_dir: directory.path().to_path_buf(),
+            home_dir: None,
+        };
+
+        assert_eq!(
+            resolve_editable_provider_script_with(&provider, &context).expect("resolve"),
+            None
+        );
     }
 
     #[test]

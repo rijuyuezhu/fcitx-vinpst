@@ -17,7 +17,7 @@ use vinpst_registry::{
     adapter_registry_cache_path, detect_preferred_registry_locale,
     fetch_live_registry_text_with_sources, install_live_script_controlled,
     managed_script_relative_path, managed_script_rollback_path, materialize_asr_provider,
-    materialize_llm_adapter, provider_registry_cache_path,
+    materialize_llm_adapter, provider_registry_cache_path, resolve_registry_url,
 };
 
 use crate::{
@@ -347,16 +347,7 @@ fn fetch_live_script_registry_from(
     control: &RegistryOperationControl,
     source: &impl RegistryTextSource,
 ) -> Result<LiveScriptRegistry, String> {
-    let filename = match kind {
-        LiveScriptKind::AsrProvider => "providers.json",
-        LiveScriptKind::LlmAdapter => "adapters.json",
-    };
-    let urls = config
-        .registry
-        .base_urls
-        .iter()
-        .map(|base| format!("{}/registry/{filename}", base.trim_end_matches('/')))
-        .collect::<Vec<_>>();
+    let urls = script_registry_urls(config, kind);
     if urls.is_empty() {
         return Err("No registry mirrors are configured.".to_owned());
     }
@@ -391,16 +382,7 @@ pub(crate) fn fetch_live_script_registry_cached_from(
     i18n_source: &impl RegistryTextSource,
     cache_root: &Path,
 ) -> Result<LiveScriptRegistry, String> {
-    let filename = match kind {
-        LiveScriptKind::AsrProvider => "providers.json",
-        LiveScriptKind::LlmAdapter => "adapters.json",
-    };
-    let urls = config
-        .registry
-        .base_urls
-        .iter()
-        .map(|base| format!("{}/registry/{filename}", base.trim_end_matches('/')))
-        .collect::<Vec<_>>();
+    let urls = script_registry_urls(config, kind);
     if urls.is_empty() {
         return Err("No registry mirrors are configured.".to_owned());
     }
@@ -432,6 +414,19 @@ pub(crate) fn fetch_live_script_registry_cached_from(
             resource_title(kind)
         )
     })
+}
+
+fn script_registry_urls(config: &VinpstConfig, kind: LiveScriptKind) -> Vec<String> {
+    let filename = match kind {
+        LiveScriptKind::AsrProvider => "providers.json",
+        LiveScriptKind::LlmAdapter => "adapters.json",
+    };
+    config
+        .registry
+        .base_urls
+        .iter()
+        .map(|base| resolve_registry_url(base, &format!("registry/{filename}")))
+        .collect()
 }
 
 pub(crate) fn materialize_config(
@@ -715,6 +710,30 @@ mod tests {
             ScriptPrepareOutcome::Prepared(plan) => *plan,
             other => panic!("expected prepared plan, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn script_registry_urls_insert_catalog_path_before_query_and_fragment() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        config.registry.base_urls = vec![
+            "https://registry.example/root?q=fixture#section".to_owned(),
+            "opaque-mirror/".to_owned(),
+        ];
+
+        assert_eq!(
+            script_registry_urls(&config, LiveScriptKind::AsrProvider),
+            [
+                "https://registry.example/root/registry/providers.json?q=fixture#section",
+                "opaque-mirror/registry/providers.json",
+            ]
+        );
+        assert_eq!(
+            script_registry_urls(&config, LiveScriptKind::LlmAdapter),
+            [
+                "https://registry.example/root/registry/adapters.json?q=fixture#section",
+                "opaque-mirror/registry/adapters.json",
+            ]
+        );
     }
 
     #[test]
