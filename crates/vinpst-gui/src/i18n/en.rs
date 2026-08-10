@@ -188,6 +188,9 @@ const fn english_resources(key: GuiText) -> &'static str {
         }
         GuiText::AddCustomProvider => "Add custom provider",
         GuiText::ManagedTextAdapters | GuiText::Adapters => "LLM adapters",
+        GuiText::AdapterInstallHint => {
+            "Install managed adapters from Resources, then start or stop them here."
+        }
         GuiText::AddCustomAdapter => "Add custom adapter",
         GuiText::RefreshRuntime => "Refresh status",
         GuiText::NoTextAdaptersConfigured => "No LLM adapters configured.",

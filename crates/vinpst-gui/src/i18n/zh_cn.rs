@@ -160,6 +160,7 @@ const fn simplified_chinese_resources(key: GuiText) -> &'static str {
         }
         GuiText::AddCustomProvider => "添加自定义提供商",
         GuiText::ManagedTextAdapters | GuiText::Adapters => "LLM 适配器",
+        GuiText::AdapterInstallHint => "请先在“资源”页面安装托管适配器，再回到这里启动或停止。",
         GuiText::AddCustomAdapter => "添加自定义适配器",
         GuiText::RefreshRuntime => "刷新状态",
         GuiText::NoTextAdaptersConfigured => "尚未配置 LLM 适配器。",

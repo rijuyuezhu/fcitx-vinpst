@@ -280,6 +280,7 @@ impl App {
                     ]
                     .spacing(10),
                 );
+                body = body.push(text(self.locale.text(GuiText::AdapterInstallHint)));
                 for adapter in &document.config.llm.adapters {
                     let managed = managed_adapter_script_path(adapter).is_some();
                     body = body.push(adapter_row(

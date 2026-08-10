@@ -118,6 +118,7 @@ pub(crate) enum GuiText {
     AddCustomProvider,
     ManagedTextAdapters,
     Adapters,
+    AdapterInstallHint,
     AddCustomAdapter,
     RefreshRuntime,
     NoTextAdaptersConfigured,
@@ -288,7 +289,7 @@ pub(crate) enum GuiText {
 }
 #[cfg(test)]
 impl GuiText {
-    pub(super) const ALL: [Self; 283] = [
+    pub(super) const ALL: [Self; 284] = [
         Self::ApplicationTitle,
         Self::Control,
         Self::Resources,
@@ -405,6 +406,7 @@ impl GuiText {
         Self::AddCustomProvider,
         Self::ManagedTextAdapters,
         Self::Adapters,
+        Self::AdapterInstallHint,
         Self::AddCustomAdapter,
         Self::RefreshRuntime,
         Self::NoTextAdaptersConfigured,

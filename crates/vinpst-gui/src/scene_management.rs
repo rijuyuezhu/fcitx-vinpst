@@ -132,7 +132,7 @@ impl SceneEditorState {
             prompt: String::new(),
             provider_id: String::new(),
             model: String::new(),
-            candidate_count: "1".to_owned(),
+            candidate_count: "3".to_owned(),
             timeout_ms: String::new(),
             context_lines: "0".to_owned(),
             model_suggestions: Vec::new(),
@@ -183,12 +183,18 @@ impl SceneEditorState {
             .unwrap_or(&self.id)
             .trim()
             .to_owned();
+        let label = self.label.trim();
+        let label = if label.is_empty() {
+            id.clone()
+        } else {
+            label.to_owned()
+        };
         let candidate_count = parse_required_u8("candidate count", &self.candidate_count)?;
         let timeout_ms = parse_optional_u64("timeout", &self.timeout_ms)?;
         let context_lines = parse_required_u8("context lines", &self.context_lines)?;
         Ok(SceneDefinition {
             id,
-            label: self.label.trim().to_owned(),
+            label,
             prompt: optional_trimmed(&self.prompt),
             provider_id: optional_trimmed(&self.provider_id),
             model: optional_trimmed(&self.model),
@@ -635,6 +641,14 @@ mod tests {
     }
 
     #[test]
+    fn add_scene_editor_uses_frozen_gui_candidate_default() {
+        let editor = SceneEditorState::add();
+        assert_eq!(editor.candidate_count, "3");
+        assert_eq!(editor.context_lines, "0");
+        assert!(editor.timeout_ms.is_empty());
+    }
+
+    #[test]
     fn add_scene_builds_trimmed_typed_definition() {
         let config = VinpstConfig::bundled_default().expect("bundled config");
         let updated = add_scene(&config, &new_scene_editor()).expect("add scene");
@@ -651,6 +665,20 @@ mod tests {
         assert_eq!(scene.candidate_count, 2);
         assert_eq!(scene.timeout_ms, Some(5000));
         assert_eq!(scene.context_lines, 3);
+    }
+
+    #[test]
+    fn scene_editor_normalizes_empty_label_to_stable_id() {
+        let mut added = SceneEditorState::add();
+        added.id = " meeting ".to_owned();
+        added.label = "   ".to_owned();
+        assert_eq!(added.definition().expect("add definition").label, "meeting");
+
+        let config = VinpstConfig::bundled_default().expect("bundled config");
+        let mut edited = SceneEditorState::edit(&config.scenes.definitions[0]);
+        edited.label = "\t".to_owned();
+        let definition = edited.definition().expect("edit definition");
+        assert_eq!(definition.label, definition.id);
     }
 
     #[test]
