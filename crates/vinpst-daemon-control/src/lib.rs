@@ -347,4 +347,27 @@ mod tests {
         assert!(outcome.stdout.contains("output-secret"));
         assert!(!format!("{outcome:?}").contains("output-secret"));
     }
+
+    #[test]
+    fn streaming_execution_preserves_child_exit_status_without_capture() {
+        let success = run_user_service_command_streaming(&UserServiceCommand {
+            program: "/bin/true".to_owned(),
+            args: Vec::new(),
+        });
+        assert!(success.ok);
+        assert_eq!(success.exit_status, Some(0));
+        assert!(success.stdout.is_empty());
+        assert!(success.stderr.is_empty());
+        assert!(success.error.is_none());
+
+        let failure = run_user_service_command_streaming(&UserServiceCommand {
+            program: "/bin/false".to_owned(),
+            args: Vec::new(),
+        });
+        assert!(!failure.ok);
+        assert_eq!(failure.exit_status, Some(1));
+        assert!(failure.stdout.is_empty());
+        assert!(failure.stderr.is_empty());
+        assert!(failure.error.is_none());
+    }
 }
