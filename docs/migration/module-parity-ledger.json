@@ -1909,11 +1909,40 @@
         "The safer divergence is deliberate: protocol/user-facing diagnostics remain separately redacted or explicitly raw where the frozen wire contract requires it, while persistent diagnostic logs do not become an opt-in plaintext transcript of recognition and LLM traffic.",
         "Deterministic evidence includes the private-session-bus adapter stderr notification test (raw notification still arrives), the complete default daemon suite, strict daemon Clippy with D-Bus integration enabled, source/call-graph review of every frozen debug-log caller, and current tracing-field review."
       ]
+    },
+    {
+      "id": "SANDBOX-001",
+      "state": "audited-fixed",
+      "title": "Flatpak sandbox detection, permissions, host commands, logs, and daemon service bootstrap",
+      "upstream_files": [
+        "common/utils/sandbox.cpp",
+        "common/utils/sandbox.h"
+      ],
+      "current_files": [
+        "crates/vinpst-cli/src/sandbox.rs"
+      ],
+      "supporting_current_files": [
+        "cpp/fcitx5-addon/src/fcitx_addon.cpp",
+        "crates/vinpst-cli/src/commands/system.rs",
+        "crates/vinpst-cli/src/daemon_control/install_service.rs",
+        "crates/vinpst-cli/tests/protocol.rs",
+        "crates/vinpst-daemon-control/src/lib.rs",
+        "docs/user/installation.md",
+        "packaging/flatpak/manifest-base.json",
+        "scripts/release/run-flatpak-package-smoke-inner.sh"
+      ],
+      "notes": [
+        "Frozen sandbox utilities have five responsibilities and all remain accounted for: `/.flatpak-info` detection, `flatpak-spawn --host` wrapping, sandbox-aware journal filtering, three required Flatpak filesystem permissions, and rewriting the packaged daemon user-service unit so the daemon runs through the Fcitx Flatpak. Current keeps the same responsibilities in the CLI/service layer rather than recreating them in the thin Fcitx addon.",
+        "Host command and log behavior is aligned modulo the product rename: sandboxed systemctl commands are shell-free `flatpak-spawn --host ...`; sandbox logs use the host journal's Flatpak tag plus a Vinpst grep filter, while native logs target `vinpst-daemon.service`. Service rewriting targets `org.fcitx.Fcitx5`, preserves daemon arguments, rewrites the daemon path to `/app/addons/Vinpst/bin/vinpst-daemon`, and installs an INT-based stop command as frozen did.",
+        "The audit found a real permission-detection bug. Current had interpreted frozen's loose `pipewire` substring check as `[Context] sockets=pipewire` and required an exact `xdg-config/systemd` entry. Actual Flatpak metadata produced by the frozen/documented overrides is `filesystems=...;xdg-run/pipewire-0;xdg-config/systemd:create;...`, so correctly configured users were falsely reported as missing PipeWire and systemd access. The parser now checks the three real filesystem grants and accepts writable `:rw`/`:create` modes while rejecting `:ro` for paths Vinpst must write.",
+        "`vinpst doctor` now returns exact `remediation_commands` for whichever Flatpak grants are missing: `xdg-run/pipewire-0`, `xdg-config/systemd:create`, and `xdg-cache`, followed by `flatpak kill org.fcitx.Fcitx5`. This restores the actionable recovery path from frozen's Control-page warning while intentionally keeping installation-policy popups out of the standalone Rust GUI; unlike the frozen warning, the current remediation does not accidentally omit the cache permission that its own checker requires.",
+        "Frozen also performs a sandbox-only service copy from the Fcitx addon constructor, only when the destination unit does not already exist. Current deliberately keeps that host-filesystem side effect out of the thin C++ addon. The equivalent operation is the hidden maintenance command `vinpst daemon install-service`, which reads the packaged Flatpak template, atomically installs or refreshes the user unit, and performs host `daemon-reload`; the Flatpak installation guide now invokes that packaged CLI through the Fcitx Flatpak before enabling the host user service.",
+        "The Flatpak release smoke now executes packaged `daemon install-service --dry-run --json` and asserts both sandbox rewriting and the exact packaged daemon ExecStart, so the service-bootstrap replacement is checked as part of the extension artifact rather than existing only as an unreferenced helper. The user installation guide also distinguishes the Flatpak extension from native packages and no longer assumes extension binaries are present on the host PATH.",
+        "Evidence includes locally generated Flatpak 1.18 `/.flatpak-info` metadata for the three override forms, six sandbox unit tests, six Flatpak-filtered CLI protocol tests, strict all-target vinpst-cli Clippy, shell syntax/ShellCheck for the release smoke, and the module-parity checker. Broader live Fcitx/PipeWire/systemd Flatpak desktop validation remains the separately documented release-environment boundary rather than a SANDBOX-001 code gap."
+      ]
     }
   ],
   "upstream_pending": [
-    "common/utils/sandbox.cpp",
-    "common/utils/sandbox.h",
     "gui/app/main.cpp",
     "gui/app/mainwindow.cpp",
     "gui/app/mainwindow.h",
@@ -1955,7 +1984,6 @@
     "crates/vinpst-cli/src/daemon_control/install_service.rs",
     "crates/vinpst-cli/src/daemon_control/removal.rs",
     "crates/vinpst-cli/src/registry_support.rs",
-    "crates/vinpst-cli/src/sandbox.rs",
     "crates/vinpst-config/src/diagnostics.rs",
     "crates/vinpst-config/src/error.rs",
     "crates/vinpst-config/src/lib.rs",

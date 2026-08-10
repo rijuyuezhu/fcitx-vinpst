@@ -33,14 +33,35 @@ sudo apt install ./fcitx-vinpst_0.1.0-1_ubuntu24.04_amd64.deb
 
 ### Flatpak preview
 
-The Flatpak build extends the Fcitx Flatpak; it does not attach to a system-installed Fcitx.
+The Flatpak build extends the Fcitx Flatpak; it does not attach to a system-installed Fcitx. If you use the system Fcitx package, prefer the native Vinpst package for your distribution.
 
 ```sh
 flatpak info --user org.fcitx.Fcitx5
 flatpak install --user --bundle ./fcitx-vinpst-0.1.0-x86_64.flatpak
 ```
 
-If you use the system Fcitx package, prefer the native Vinpst package for your distribution.
+Grant the Fcitx Flatpak the runtime paths used by audio capture, the per-user systemd service, and Vinpst caches, then restart that Flatpak instance so the new permissions take effect:
+
+```sh
+flatpak override --user --filesystem=xdg-run/pipewire-0 org.fcitx.Fcitx5
+flatpak override --user --filesystem=xdg-config/systemd:create org.fcitx.Fcitx5
+flatpak override --user --filesystem=xdg-cache org.fcitx.Fcitx5
+flatpak kill org.fcitx.Fcitx5
+```
+
+The extension binaries live inside the Fcitx Flatpak rather than on the host `PATH`. Use the packaged CLI once to install the host user-service unit and initialize configuration, then enable the service on the host:
+
+```sh
+flatpak run --user \
+  --command=/app/addons/Vinpst/bin/vinpst \
+  org.fcitx.Fcitx5 daemon install-service
+flatpak run --user \
+  --command=/app/addons/Vinpst/bin/vinpst \
+  org.fcitx.Fcitx5 init
+systemctl --user enable --now vinpst-daemon.service
+```
+
+`vinpst doctor` reports the same Flatpak permission requirements as `remediation_commands` when troubleshooting; run it through the same `flatpak run --command=/app/addons/Vinpst/bin/vinpst org.fcitx.Fcitx5 ...` boundary.
 
 ## Development checkout
 
@@ -64,7 +85,7 @@ just user-remove
 
 ## After installation
 
-Initialize the user configuration, start the daemon, and reload Fcitx:
+For native Arch, Debian, or Ubuntu packages, initialize the user configuration, start the daemon, and reload Fcitx:
 
 ```sh
 vinpst init
@@ -72,7 +93,7 @@ systemctl --user enable --now vinpst-daemon.service
 fcitx5 -r
 ```
 
-Then follow the [Quick start](quick-start.md) to install a model and try dictation.
+The Flatpak preview already performs the equivalent initialization and service bootstrap in the steps above. Then follow the [Quick start](quick-start.md) to install a model and try dictation.
 
 ## Uninstall
 
