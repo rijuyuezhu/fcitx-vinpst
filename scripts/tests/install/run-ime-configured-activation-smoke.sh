@@ -73,9 +73,9 @@ grep -qx "Name=org.fcitx.Vinpst" "${service_file}"
 grep -qx "Exec=${daemon_wrapper} --exit-when-executable-replaced" "${service_file}"
 
 if XDG_DATA_DIRS="${stage_abs}/usr/local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
-  VINPST_DBUS_SMOKE_EXPECTED_NORMAL="demo final: demo heard 16 bytes" \
-  VINPST_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
-  VINPST_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
+  VINPST_DBUS_SMOKE_EXPECTED_NORMAL="demo final: demo heard 16000 bytes" \
+  VINPST_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16000 bytes" \
+  VINPST_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16000 bytes" \
   VINPST_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
   VINPST_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 120s dbus-run-session -- bash -euo pipefail -c '
