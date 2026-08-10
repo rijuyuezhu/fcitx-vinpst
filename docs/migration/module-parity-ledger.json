@@ -1940,12 +1940,45 @@
         "The Flatpak release smoke now executes packaged `daemon install-service --dry-run --json` and asserts both sandbox rewriting and the exact packaged daemon ExecStart, so the service-bootstrap replacement is checked as part of the extension artifact rather than existing only as an unreferenced helper. The user installation guide also distinguishes the Flatpak extension from native packages and no longer assumes extension binaries are present on the host PATH.",
         "Evidence includes locally generated Flatpak 1.18 `/.flatpak-info` metadata for the three override forms, six sandbox unit tests, six Flatpak-filtered CLI protocol tests, strict all-target vinpst-cli Clippy, shell syntax/ShellCheck for the release smoke, and the module-parity checker. Broader live Fcitx/PipeWire/systemd Flatpak desktop validation remains the separately documented release-environment boundary rather than a SANDBOX-001 code gap."
       ]
+    },
+    {
+      "id": "GUI-APP-SHELL-001",
+      "state": "audited-fixed",
+      "title": "Management GUI application shell, navigation, desktop actions, save boundary, and startup notifications",
+      "upstream_files": [
+        "gui/app/main.cpp",
+        "gui/app/mainwindow.cpp",
+        "gui/app/mainwindow.h"
+      ],
+      "current_files": [
+        "crates/vinpst-gui/src/desktop_actions.rs",
+        "crates/vinpst-gui/src/main.rs",
+        "crates/vinpst-gui/src/page.rs",
+        "crates/vinpst-gui/src/startup_notifications.rs"
+      ],
+      "supporting_current_files": [
+        "Cargo.toml",
+        "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/runtime/reload.rs",
+        "crates/vinpst-gui/src/config_editor.rs",
+        "crates/vinpst-gui/src/i18n.rs",
+        "crates/vinpst-gui/src/lib.rs",
+        "crates/vinpst-gui/src/tests.rs",
+        "crates/vinpst-http/src/lib.rs"
+      ],
+      "notes": [
+        "Frozen main/mainwindow provide the management application's outer shell: initialize the Qt desktop application and translations, expose Control/Resources/LLM/Hotwords tabs, provide Open Config and Save Settings actions, refresh pages after config changes, restart the daemon after saving, and perform the startup notification check. Current accounts for those responsibilities with the standalone Iced binary, typed Page navigation, desktop actions, central config-save boundary, embedded i18n, and startup notification state machine.",
+        "The toolkit-specific startup environment is intentionally not copied literally. Frozen sets `QT_IM_MODULE=fcitx` and `XMODIFIERS=@im=fcitx` only when absent because it is a Qt application. Current is an Iced/winit application and leaves Wayland/X11 input-method selection to the desktop session instead of forcing Qt/XIM variables that do not describe its toolkit. Runtime `.qm` discovery is likewise replaced by the current embedded typed English and Simplified Chinese catalogs.",
+        "The audit found one real desktop-shell regression: current forced `Theme::TokyoNight` for every user while frozen opts into desktop settings and otherwise uses the system Qt palette. The explicit Iced theme was removed. The workspace already enables Iced 0.14 `linux-theme-detection`, so the default application theme follows the detected system Light/Dark mode and responds to system theme changes rather than imposing an unrelated fixed palette.",
+        "The four frozen tabs map to the same four current pages, with a sidebar instead of QTabWidget and a larger 960x640 default appropriate to the richer standalone management surface. Current Open Config is stronger in Flatpak: it invokes `xdg-open` directly on native systems and `flatpak-spawn --host xdg-open` in the Fcitx sandbox, without a shell. Current keeps the window open after a successful save instead of closing it; typed page-local save/reset state and unsaved-change guards make that deliberate rather than a missing frozen close call.",
+        "Frozen saves the complete settings document and synchronously restarts the daemon. Current persists the complete typed VinpstConfig and calls the frozen-compatible ReloadAsrBackend D-Bus method, whose daemon implementation reloads and validates the config file, reconciles text adapters, replaces the complete runtime config when safe, rebuilds configured text processing, reconciles remote text, and queues/warm-prepares the selected ASR backend; busy runtime application is deferred until idle. Therefore the legacy method name does not mean current only adopts ASR fields.",
+        "A save-failure consistency hole was found while tracing that replacement path. A D-Bus reload can fail after the daemon runtime has accepted the candidate config, for example when remote-text listener reconciliation cannot bind. The GUI previously restored only the old config file and then reported that the previous config was restored, potentially leaving disk and runtime divergent. After restoring the old document it now issues a second reload to reconcile daemon state too; if that rollback reload fails, the error explicitly says that disk restoration succeeded but daemon-state restoration failed. Deterministic tests cover both rollback-reload success and failure.",
+        "Startup notification behavior is equivalent at the application-shell level while intentionally hardened. Current checks the Vinpst repository feed with a five-second request boundary, locale fallback, monotonic read marker, acknowledge/details actions, and silent network failure; unlike frozen's unrestricted QNetworkReply parsing it also has the shared HTTP response cap, title/text caps, HTTPS-only details links, secret-free Debug output, symlink-safe bounded read state, and atomic 0600 persistence. The presentation is an in-app state/banner rather than a blocking QMessageBox, but acknowledgement and details still mark the notification read.",
+        "Evidence includes source-level call-graph review of all three frozen app-shell files, the complete current GUI suite, strict all-target vinpst-gui Clippy, GUI help/version checks, focused config rollback-reconciliation tests, local inspection of Iced 0.14 system-theme behavior, and the module-parity checker. Page-specific Control/Resources/LLM/Hotwords implementations, i18n internals, and broader lib.rs orchestration remain separately pending and are not claimed by this unit."
+      ]
     }
   ],
   "upstream_pending": [
-    "gui/app/main.cpp",
-    "gui/app/mainwindow.cpp",
-    "gui/app/mainwindow.h",
     "gui/dialogs/adapter_dialog.cpp",
     "gui/dialogs/adapter_dialog.h",
     "gui/dialogs/asr_provider_dialog.cpp",
@@ -2006,7 +2039,6 @@
     "crates/vinpst-gui/src/daemon_client.rs",
     "crates/vinpst-gui/src/daemon_control.rs",
     "crates/vinpst-gui/src/daemon_owner_monitor.rs",
-    "crates/vinpst-gui/src/desktop_actions.rs",
     "crates/vinpst-gui/src/error_dialog.rs",
     "crates/vinpst-gui/src/form_guards.rs",
     "crates/vinpst-gui/src/hotword_activation_retry.rs",
@@ -2024,12 +2056,10 @@
     "crates/vinpst-gui/src/lib.rs",
     "crates/vinpst-gui/src/llm_provider_management.rs",
     "crates/vinpst-gui/src/llm_provider_management/view.rs",
-    "crates/vinpst-gui/src/main.rs",
     "crates/vinpst-gui/src/message.rs",
     "crates/vinpst-gui/src/model_install.rs",
     "crates/vinpst-gui/src/model_management.rs",
     "crates/vinpst-gui/src/model_selection.rs",
-    "crates/vinpst-gui/src/page.rs",
     "crates/vinpst-gui/src/provider_script_edit.rs",
     "crates/vinpst-gui/src/removal_confirmation.rs",
     "crates/vinpst-gui/src/resource_details.rs",
@@ -2043,7 +2073,6 @@
     "crates/vinpst-gui/src/script_recovery.rs",
     "crates/vinpst-gui/src/script_removal.rs",
     "crates/vinpst-gui/src/script_transaction.rs",
-    "crates/vinpst-gui/src/startup_notifications.rs",
     "crates/vinpst-http/src/lib.rs",
     "crates/vinpst-protocol/src/lib.rs",
     "crates/vinpst-protocol/src/text.rs",
