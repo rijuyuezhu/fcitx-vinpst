@@ -2348,6 +2348,29 @@
         "The crate-level documentation was updated from obsolete migration text claiming the real PipeWire layer had not landed. It now describes the actual v0.1.0 boundary: validated PCM and decoding/processing contracts plus capture traits/test doubles, with the optional PipeWire backend implementing those contracts rather than being future work.",
         "Evidence includes complete source review of vinpst-audio lib.rs and tests.rs; repository-wide PcmBuffer/PcmChunkRange producer-consumer and Debug/log call-site searches; the three new serde/Debug regressions, the complete vinpst-audio all-target test suite, PipeWire-feature compilation/tests, strict all-target Clippy, downstream ASR/daemon compile checks, and the module-parity ledger checker."
       ]
+    },
+    {
+      "id": "HTTP-TRANSPORT-001",
+      "state": "audited-aligned",
+      "title": "Current-only shared provider HTTP client, bounded bodies, and safe diagnostics",
+      "upstream_files": [],
+      "current_files": [
+        "crates/vinpst-http/src/lib.rs"
+      ],
+      "supporting_current_files": [
+        "crates/vinpst-asr/src/remote.rs",
+        "crates/vinpst-gui/src/startup_notifications.rs",
+        "crates/vinpst-text/src/openai.rs"
+      ],
+      "notes": [
+        "This is a current-only shared transport unit. Frozen HTTP behavior was embedded independently in remote ASR, text/OpenAI, registry, and GUI call sites; Vinpst centralizes the provider-facing client and bounded response reader in vinpst-http. Consumer-specific request schemas, endpoint construction, authorization headers, and response parsing remain owned by their ASR/text/GUI units; this audit claims only the common trust, redirect, timeout, body-limit, and diagnostic primitives.",
+        "Provider clients use reqwest blocking mode with rustls-tls and its built-in trust roots. SSL_CERT_FILE is additive rather than replacing the built-in roots: a non-empty path must open as a regular file, is bounded to 4 MiB before parsing, must contain at least one PEM certificate, and every parsed certificate is added as an extra root. HttpClientError intentionally stores only fixed error categories, so neither certificate paths, certificate bytes, nor lower-level parser/build details survive into Display or Debug.",
+        "Redirects are disabled at the shared ClientBuilder boundary. This keeps bearer/API credentials and POST bodies bound to the configured endpoint for remote ASR, OpenAI-compatible text/model discovery, and fetch_json_text consumers; a 3xx response therefore remains an ordinary non-success status instead of being automatically followed. The JSON fetch regression proves a 302 is returned as Status(302), and prior remote ASR/text audits own their endpoint-specific fail-closed handling.",
+        "Provider response reading is capped at exactly 1 MiB of bytes exposed by reqwest. The implementation reads through max+1 so an exactly-at-limit body succeeds and the next byte fails deterministically, rejects invalid UTF-8, and maps both direct and nested io/reqwest timeout causes to TimedOut while collapsing other read failures to the fixed Read category. No error variant stores the response body, request URL, or transport error object.",
+        "fetch_json_text applies a caller-supplied complete request deadline, accepts only success statuses, then delegates to the same bounded UTF-8 reader. reqwest_error_category similarly converts reqwest errors into fixed URL-free strings such as timed out, connection failed, request failed, or response decode failed. Remote ASR and OpenAI-compatible text use these shared helpers directly; GUI startup notifications use fetch_json_text and deliberately collapse its already-safe detailed category to a silent fetch failure.",
+        "Call-site review found no second provider-client construction path in those consumers that bypasses this shared redirect/trust/body policy. OpenAI-compatible text deliberately uses the connect-timeout variant so a TCP connection attempt cannot consume its longer overall deadline; remote ASR uses the default shared client plus its own request timeout. Registry transport remains separately owned by vinpst-registry because it has distinct cache/mirror semantics rather than being forced through this provider-response helper.",
+        "Evidence includes complete vinpst-http source/test review; workspace reqwest feature verification; repository-wide call-site inspection for every exported helper/limit; redirect, certificate-path/content redaction, CA-size, exact body-limit, invalid UTF-8, and nested-timeout tests; the complete vinpst-http all-target suite, strict all-target Clippy, downstream ASR/text/GUI compile checks, secret scan, and the module-parity ledger checker. No production-code change was required."
+      ]
     }
   ],
   "upstream_pending": [],
@@ -2393,7 +2416,6 @@
     "crates/vinpst-gui/src/script_recovery.rs",
     "crates/vinpst-gui/src/script_removal.rs",
     "crates/vinpst-gui/src/script_transaction.rs",
-    "crates/vinpst-http/src/lib.rs",
     "crates/vinpst-registry/src/error.rs",
     "crates/vinpst-registry/src/lib.rs",
     "crates/vinpst-registry/src/plan.rs",
