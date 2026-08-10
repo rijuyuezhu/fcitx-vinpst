@@ -309,6 +309,7 @@ void FcitxVinpstAddon::SetupDaemonSignalMonitor(fcitx::dbus::Bus *bus) {
 
 void FcitxVinpstAddon::HandleDaemonAvailability(bool available) {
   daemon_client_.reset();
+  awaiting_result_terminal_status_ = false;
   if (available) {
     ClearDaemonSyncFailure();
   }
@@ -319,6 +320,12 @@ void FcitxVinpstAddon::HandleDaemonAvailability(bool available) {
 }
 
 void FcitxVinpstAddon::HandleDaemonStatus(std::string_view status) {
+  if (awaiting_result_terminal_status_) {
+    awaiting_result_terminal_status_ = false;
+    if (status == "idle" || status == "error") {
+      return;
+    }
+  }
   auto *ic = bridge_.recording() ? active_trigger_ic_.get() : remote_status_ic_.get();
   if (ic == nullptr) {
     ic = last_input_ic_.get();
@@ -332,6 +339,7 @@ void FcitxVinpstAddon::HandleRecognitionResult(std::string_view payload) {
   if (!bridge_.recording()) {
     return;
   }
+  awaiting_result_terminal_status_ = true;
   auto *ic = active_trigger_ic_.get();
   static_cast<void>(ApplyBridgeOutcome(ic, bridge_.CompleteRecognitionResult(payload)));
 }
@@ -366,6 +374,7 @@ void FcitxVinpstAddon::ResetLiveSignalState() {
 void FcitxVinpstAddon::ResetActiveRecording(fcitx::InputContext *ic) {
   CancelTriggerStart();
   CancelTriggerStop();
+  awaiting_result_terminal_status_ = false;
   bridge_.Reset();
   trigger_mode_controller_.RecordingStopped();
   if (ic != nullptr) {
