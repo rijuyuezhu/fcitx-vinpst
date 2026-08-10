@@ -9,7 +9,8 @@ use std::os::unix::fs::OpenOptionsExt;
 
 use anyhow::Context;
 use vinpst_config::{
-    VinpstConfig, config_backup_path as shared_config_backup_path, write_config_file,
+    VinpstConfig, config_backup_path as shared_config_backup_path, resolve_symlink_write_target,
+    write_config_file,
 };
 
 use crate::{ConfigExample, config_example_contents, paths::default_config_path};
@@ -35,20 +36,26 @@ pub(crate) fn write_config_in_place(
 }
 
 pub(crate) fn write_file_atomically(path: &Path, contents: &str) -> anyhow::Result<()> {
-    let temp_path = atomic_temp_path(path);
+    let resolved_path = resolve_symlink_write_target(path)
+        .with_context(|| format!("resolve write target `{}`", path.display()))?;
+    ensure_write_parent(&resolved_path)?;
+    let temp_path = atomic_temp_path(&resolved_path);
     fs::write(&temp_path, contents)
         .with_context(|| format!("write temporary config `{}`", temp_path.display()))?;
-    fs::rename(&temp_path, path).with_context(|| {
+    fs::rename(&temp_path, &resolved_path).with_context(|| {
         format!(
             "rename temporary config `{}` to `{}`",
             temp_path.display(),
-            path.display()
+            resolved_path.display()
         )
     })
 }
 
 pub(crate) fn write_private_file_atomically(path: &Path, contents: &str) -> anyhow::Result<()> {
-    let temp_path = atomic_temp_path(path);
+    let resolved_path = resolve_symlink_write_target(path)
+        .with_context(|| format!("resolve write target `{}`", path.display()))?;
+    ensure_write_parent(&resolved_path)?;
+    let temp_path = atomic_temp_path(&resolved_path);
     let result = (|| {
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
@@ -67,11 +74,11 @@ pub(crate) fn write_private_file_atomically(path: &Path, contents: &str) -> anyh
             )
         })?;
         drop(temporary);
-        fs::rename(&temp_path, path).with_context(|| {
+        fs::rename(&temp_path, &resolved_path).with_context(|| {
             format!(
                 "rename private temporary config `{}` to `{}`",
                 temp_path.display(),
-                path.display()
+                resolved_path.display()
             )
         })
     })();
@@ -79,6 +86,17 @@ pub(crate) fn write_private_file_atomically(path: &Path, contents: &str) -> anyh
         let _ = fs::remove_file(&temp_path);
     }
     result
+}
+
+fn ensure_write_parent(path: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create write target directory `{}`", parent.display()))?;
+    }
+    Ok(())
 }
 
 pub(crate) fn atomic_temp_path(path: &Path) -> PathBuf {

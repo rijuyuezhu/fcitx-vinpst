@@ -5,7 +5,7 @@ mod common;
 use common::{assert_json_success, assert_stdout_success, vinpst_command, workspace_file};
 
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{PermissionsExt, symlink};
 
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
@@ -444,6 +444,46 @@ fn config_set_in_place_writes_backup() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn config_set_in_place_preserves_relative_config_symlink() {
+    let root = unique_temp_dir("vinpst-cli-config-set-symlink");
+    let dotfiles = root.join("dotfiles");
+    std::fs::create_dir_all(&dotfiles).expect("create dotfiles directory");
+    let target_path = dotfiles.join("config.json");
+    std::fs::copy(workspace_file("data/default-config.json"), &target_path)
+        .expect("seed real config target");
+    let link_path = root.join("config.json");
+    symlink("dotfiles/config.json", &link_path).expect("create relative config symlink");
+    let backup_path = root.join("config.json.bak");
+    let original = std::fs::read_to_string(&target_path).expect("read original target");
+
+    let output = vinpst_command()
+        .args(["config", "set", "/asr/normalize_audio", "false", "--config"])
+        .arg(&link_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run config set through symlink");
+
+    let value = assert_json_success(output, "config set symlink json");
+    assert_eq!(value["wrote_config"], true);
+    assert!(
+        std::fs::symlink_metadata(&link_path)
+            .expect("config link metadata")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        std::fs::read_link(&link_path).expect("read config symlink"),
+        std::path::PathBuf::from("dotfiles/config.json")
+    );
+    assert_eq!(read_json(&target_path)["asr"]["normalize_audio"], false);
+    assert_eq!(
+        std::fs::read_to_string(&backup_path).expect("read symlink backup"),
+        original
+    );
+}
+
 #[test]
 fn config_set_rejects_invalid_updated_config() {
     let root = unique_temp_dir("vinpst-cli-config-set-invalid");
@@ -619,6 +659,63 @@ with open(sys.argv[1], "w", encoding="utf-8") as fh:
     assert_eq!(
         std::fs::read_to_string(config_path.with_extension("conf.bak"))
             .expect("read Fcitx config backup"),
+        original
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn config_edit_fcitx_preserves_relative_symlink_target() {
+    let root = unique_temp_dir("vinpst-cli-config-edit-fcitx-symlink");
+    let config_home = root.join("config-home");
+    let config_path = config_home.join("fcitx5/conf/vinpst.conf");
+    std::fs::create_dir_all(config_path.parent().expect("fcitx config parent"))
+        .expect("create Fcitx config parent");
+    let dotfiles = root.join("dotfiles");
+    std::fs::create_dir_all(&dotfiles).expect("create dotfiles directory");
+    let target_path = dotfiles.join("vinpst.conf");
+    let original = "TriggerMode=Both\n";
+    std::fs::write(&target_path, original).expect("write real Fcitx target");
+    let relative_target = std::path::Path::new("../../../dotfiles/vinpst.conf");
+    symlink(relative_target, &config_path).expect("create Fcitx config symlink");
+    let editor = write_editor_script(
+        &root,
+        "edit_fcitx_symlink.py",
+        r#"
+import sys
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write("TriggerMode=Hold\n")
+"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "edit", "fcitx", "--editor"])
+        .arg(format!("python3 {}", editor.display()))
+        .arg("--json")
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("HOME", root.join("home"))
+        .output()
+        .expect("run Fcitx config edit through symlink");
+
+    let value = assert_json_success(output, "config edit fcitx symlink json");
+    assert_eq!(value["wrote_config"], true);
+    assert!(
+        std::fs::symlink_metadata(&config_path)
+            .expect("Fcitx config link metadata")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        std::fs::read_link(&config_path).expect("read Fcitx config symlink"),
+        relative_target
+    );
+    assert_eq!(
+        std::fs::read_to_string(&target_path).expect("read edited Fcitx target"),
+        "TriggerMode=Hold\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(config_path.with_extension("conf.bak"))
+            .expect("read Fcitx symlink-entry backup"),
         original
     );
 }
