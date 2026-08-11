@@ -51,7 +51,7 @@ gh attestation verify ./fcitx-vinpst-0.1.0.tar.gz \
 
 ## Start here
 
-After installing the package for your platform:
+For a native Arch, Debian, or Ubuntu package, initialize the user configuration, start the user daemon, and reload Fcitx:
 
 ```sh
 vinpst init
@@ -60,4 +60,4 @@ fcitx5 -r
 vinpst doctor
 ```
 
-Then install and select an ASR model through `vinpst-gui` or the `vinpst model` commands. See the Installation, Quick start, Troubleshooting, and Known limitations pages in the user guide.
+Then install and select an ASR model through `vinpst-gui` or the `vinpst model` commands. The Flatpak preview has a different host-service bootstrap boundary and does not put these commands on the host `PATH`; follow the Flatpak steps on the Installation page instead. See the Quick start, Troubleshooting, and Known limitations pages in the user guide.
