@@ -74,8 +74,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/package-source-cache
-          key: package-sources-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
+          key: package-sources-${{ runner.os }}-deb-${{ matrix.distribution }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
           restore-keys: |
+            package-sources-${{ runner.os }}-deb-${{ matrix.distribution }}-
             package-sources-${{ runner.os }}-
       - uses: actions/download-artifact@v8
         with:
@@ -143,8 +144,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/package-source-cache
-          key: package-sources-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
+          key: package-sources-${{ runner.os }}-arch-x86_64-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
           restore-keys: |
+            package-sources-${{ runner.os }}-arch-x86_64-
             package-sources-${{ runner.os }}-
       - uses: actions/download-artifact@v8
         with:
@@ -272,8 +274,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/package-source-cache
-          key: package-sources-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
+          key: package-sources-${{ runner.os }}-flatpak-x86_64-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
           restore-keys: |
+            package-sources-${{ runner.os }}-flatpak-x86_64-
             package-sources-${{ runner.os }}-
       - uses: actions/download-artifact@v8
         with:
