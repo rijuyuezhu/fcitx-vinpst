@@ -62,7 +62,7 @@ The tag workflow:
 4. builds that same extracted source through the locked Nix package smoke and publishes the resulting closure to Cachix;
 5. verifies package transactions and assembles the checked GitHub release bundle;
 6. creates signed GitHub/Sigstore provenance attestations;
-7. generates PR-level release notes with git-cliff; squash commits use their trailing `(#N)`, while the repository's older merge commits are normalized from the conventional PR title preserved in their commit body;
+7. generates the release notes from conventional commits with git-cliff;
 8. creates or reuses only a draft GitHub Release;
 9. uploads the exact checked bundle and compares every remote asset name, size, and GitHub-reported SHA-256 digest with the local bundle;
 10. publishes the draft only after the inventory matches.

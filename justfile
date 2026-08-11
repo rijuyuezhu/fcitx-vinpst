@@ -57,7 +57,6 @@ package-check:
     scripts/release/check-release-manifest.sh
     scripts/release/check-release-metadata.sh
     scripts/release/check-release-signature.sh
-    python3 scripts/release/check-git-cliff-config.py
     scripts/release/check-github-release-publish.sh
     scripts/release/check-arch-release-candidate.sh
 

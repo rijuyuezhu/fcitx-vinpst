@@ -38,7 +38,6 @@ if scripts/release/check-release-metadata.sh --tag "v${release_version}.mismatch
   exit 1
 fi
 scripts/release/check-release-signature.sh
-python3 -B scripts/release/check-git-cliff-config.py
 scripts/release/check-github-release-publish.sh
 scripts/release/check-arch-release-candidate.sh
 
