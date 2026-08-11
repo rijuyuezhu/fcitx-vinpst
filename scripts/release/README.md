@@ -67,9 +67,11 @@ production release inputs.
 Package smokes share only immutable/downloaded inputs through
 `target/package-source-cache`: Cargo registry/git data and native runtime assets
 whose SHA-256 values come from the checked runtime manifest. Set
-`VINPST_PACKAGE_SOURCE_CACHE` to relocate that cache. Cargo target directories,
-CMake trees, and package outputs remain under `target/tmp` and are intentionally
-excluded from this cross-run source cache.
+`VINPST_PACKAGE_SOURCE_CACHE` to relocate that cache; relative values resolve
+from the repository root and are normalized to an absolute path before package
+builders change directories. Cargo target directories, CMake trees, and package
+outputs remain under `target/tmp` and are intentionally excluded from this
+cross-run source cache.
 
 The package lifecycle contract installs three cooperating files:
 

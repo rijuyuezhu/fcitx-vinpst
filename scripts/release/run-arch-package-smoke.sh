@@ -63,7 +63,8 @@ build_root="${stage_root}/build"
 source_cache="${stage_root}/sources"
 package_root="${stage_root}/package-root"
 source_archive="${source_cache}/fcitx-vinpst-${version}.tar.gz"
-package_source_cache="${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}"
+package_source_cache="$(scripts/release/resolve-package-source-cache.sh \
+  "${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}")"
 asset_cache="${package_source_cache}/runtime-assets"
 package_cargo_home="${package_source_cache}/cargo-home"
 runtime_bundle="$(

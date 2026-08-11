@@ -52,9 +52,8 @@ command -v docker >/dev/null || {
   exit 1
 }
 
-package_source_cache="${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}"
-mkdir -p "${package_source_cache}"
-package_source_cache="$(realpath "${package_source_cache}")"
+package_source_cache="$(scripts/release/resolve-package-source-cache.sh \
+  "${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}")"
 
 run_target() {
   local base_image="$1"

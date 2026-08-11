@@ -122,7 +122,8 @@ fi
 
 stage_root="${repo_root}/target/tmp/deb-package-build/${distribution}"
 build_cache_root="${repo_root}/target/tmp/deb-package-cache/${distribution}"
-package_source_cache="${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}"
+package_source_cache="$(scripts/release/resolve-package-source-cache.sh \
+  "${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}")"
 asset_cache="${package_source_cache}/runtime-assets"
 runtime_root="${stage_root}/runtime"
 cargo_home="${package_source_cache}/cargo-home"

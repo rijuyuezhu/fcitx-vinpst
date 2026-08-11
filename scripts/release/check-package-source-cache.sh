@@ -17,6 +17,13 @@ check_root="${repo_root}/target/tmp/package-source-cache-check"
 rm -rf "${check_root}"
 mkdir -p "${check_root}"
 
+relative_cache="$(
+  cd "${check_root}"
+  "${repo_root}/scripts/release/resolve-package-source-cache.sh" relative-cache
+)"
+[[ "${relative_cache}" == "${check_root}/relative-cache" ]]
+[[ -d "${relative_cache}" ]]
+
 cached_asset="${check_root}/cached-asset"
 printf 'verified package source cache fixture\n' >"${cached_asset}"
 cached_sha256="$(sha256sum "${cached_asset}" | awk '{print $1}')"
