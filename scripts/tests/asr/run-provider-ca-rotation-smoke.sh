@@ -55,25 +55,7 @@ ruff check "${asr_fixture}" "${text_fixture}"
 ruff format --check "${asr_fixture}" "${text_fixture}"
 cargo build -q -p vinpst-daemon -p vinpst-cli
 
-python3 - "${wav_file}" <<'PY'
-import math
-import struct
-import sys
-import wave
-from pathlib import Path
-
-path = Path(sys.argv[1])
-sample_rate = 16_000
-samples = [
-    int(8_000 * math.sin(2 * math.pi * 440 * index / sample_rate))
-    for index in range(sample_rate // 4)
-]
-with wave.open(str(path), "wb") as wav:
-    wav.setnchannels(1)
-    wav.setsampwidth(2)
-    wav.setframerate(sample_rate)
-    wav.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
-PY
+python3 scripts/fixtures/write-demo-wav.py "${wav_file}"
 
 provider_network_generate_tls_material rotation-a
 ca_a_key="${fixture_ca_key}"
