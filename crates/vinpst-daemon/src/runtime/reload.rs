@@ -172,7 +172,7 @@ impl RuntimeState {
         self.reconcile_reconfigured_text_adapters(config)?;
         self.config.clone_from(config);
         if self.reload_configured_text {
-            self.text_processor = configured_text_processor(config);
+            self.text_processor = configured_text_processor(config, &self.text_shutdown);
         }
         Ok(())
     }

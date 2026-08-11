@@ -39,9 +39,9 @@ use vinpst_audio::{
 use vinpst_config::{COMMAND_SCENE_ID, VinpstConfig};
 use vinpst_protocol::{RecognitionPayload, ServiceStatus};
 use vinpst_text::{
-    AdapterRuntimePaths, CommandTextProcessor, MockTextProcessor, OpenAiCompatibleTextProcessor,
-    ProcessCommandTextRunner, ReqwestOpenAiCompatibleChatTransport, StartedAdapterProcess,
-    TextProcessor,
+    AdapterRuntimePaths, CommandTextProcessor, MockTextProcessor, OpenAiCompatibleShutdown,
+    OpenAiCompatibleTextProcessor, ProcessCommandTextRunner, ReqwestOpenAiCompatibleChatTransport,
+    StartedAdapterProcess, TextProcessor,
 };
 
 const MOCK_PCM: &[i16] = &[256, -128, 64, -32];
@@ -60,6 +60,7 @@ pub struct RuntimeState {
     audio_recorder: Box<dyn AudioRecorder>,
     output_ducker: OutputDucker,
     text_processor: Box<dyn TextProcessor>,
+    text_shutdown: OpenAiCompatibleShutdown,
     reload_configured_text: bool,
     active_session: Option<ActiveRecognitionSession>,
     pending_asr_reload: Option<PendingAsrReload>,
@@ -78,6 +79,7 @@ pub struct RuntimeState {
 
 impl Drop for RuntimeState {
     fn drop(&mut self) {
+        self.text_shutdown.shutdown();
         self.output_ducker.restore();
         self.audio_recorder.set_chunk_callback(None);
         if let Some(session) = self.active_session.take() {
@@ -242,8 +244,10 @@ impl RuntimeState {
         asr_backend: Box<dyn AsrBackend>,
         audio_source: Box<dyn AudioSource>,
     ) -> Result<Self, RuntimeError> {
-        let text_processor = configured_text_processor(&config);
+        let text_shutdown = OpenAiCompatibleShutdown::new();
+        let text_processor = configured_text_processor(&config, &text_shutdown);
         let mut runtime = Self::with_components(config, asr_backend, audio_source, text_processor)?;
+        runtime.text_shutdown = text_shutdown;
         runtime.reload_configured_text = true;
         Ok(runtime)
     }
@@ -254,9 +258,11 @@ impl RuntimeState {
         asr_backend: Box<dyn AsrBackend>,
         audio_recorder: Box<dyn AudioRecorder>,
     ) -> Result<Self, RuntimeError> {
-        let text_processor = configured_text_processor(&config);
+        let text_shutdown = OpenAiCompatibleShutdown::new();
+        let text_processor = configured_text_processor(&config, &text_shutdown);
         let mut runtime =
             Self::with_recorder_components(config, asr_backend, audio_recorder, text_processor)?;
+        runtime.text_shutdown = text_shutdown;
         runtime.reload_configured_text = true;
         Ok(runtime)
     }
@@ -349,6 +355,7 @@ impl RuntimeState {
             audio_recorder,
             output_ducker: OutputDucker::default(),
             text_processor,
+            text_shutdown: OpenAiCompatibleShutdown::new(),
             reload_configured_text: false,
             active_session: None,
             pending_asr_reload: None,
@@ -374,6 +381,10 @@ impl RuntimeState {
     /// Parses this runtime's configured desktop capture target.
     pub fn capture_target_for_runtime(&self) -> Result<CaptureTarget, RuntimeError> {
         Self::configured_capture_target(&self.config)
+    }
+
+    pub(crate) fn text_shutdown_handle(&self) -> OpenAiCompatibleShutdown {
+        self.text_shutdown.clone()
     }
 
     /// Current daemon status.
@@ -420,7 +431,10 @@ fn process_buffered_pcm(pcm: &PcmBuffer, input_gain: f32, normalize_audio: bool)
     processed
 }
 
-fn configured_text_processor(config: &VinpstConfig) -> Box<dyn TextProcessor> {
+fn configured_text_processor(
+    config: &VinpstConfig,
+    text_shutdown: &OpenAiCompatibleShutdown,
+) -> Box<dyn TextProcessor> {
     if config.llm.providers.is_empty() {
         Box::new(CommandTextProcessor::from_configs_with_runner(
             &config.llm.adapters,
@@ -429,7 +443,7 @@ fn configured_text_processor(config: &VinpstConfig) -> Box<dyn TextProcessor> {
     } else {
         Box::new(OpenAiCompatibleTextProcessor::new(
             config.llm.providers.clone(),
-            ReqwestOpenAiCompatibleChatTransport::new(),
+            ReqwestOpenAiCompatibleChatTransport::with_shutdown(text_shutdown.clone()),
         ))
     }
 }

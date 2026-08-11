@@ -241,6 +241,7 @@ async fn main() -> anyhow::Result<()> {
         trace_startup("dbus service owned; waiting for shutdown signal");
         let shutdown_reason =
             wait_for_shutdown_signal(args.upgrade.exit_when_executable_replaced).await?;
+        service.shutdown_text_processing();
         service
             .shutdown_remote_text_service()
             .await

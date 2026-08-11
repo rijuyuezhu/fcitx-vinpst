@@ -9,6 +9,7 @@ use std::{
 use tokio::{sync::Mutex, time::MissedTickBehavior};
 use vinpst_protocol::{AsrBackendState, ServiceStatus, dbus};
 use vinpst_registry::scan_installed_models;
+use vinpst_text::OpenAiCompatibleShutdown;
 use zbus::{Connection, DBusError, object_server::SignalEmitter};
 
 use crate::{
@@ -156,6 +157,7 @@ fn sanitize_dbus_error_message(message: &str) -> String {
 #[derive(Clone)]
 pub struct VinpstDbusService {
     runtime: Arc<Mutex<RuntimeState>>,
+    text_shutdown: OpenAiCompatibleShutdown,
     remote_text: Arc<Mutex<RemoteTextLifecycle>>,
     recording_operation: Arc<Mutex<()>>,
     live_partials: Arc<Mutex<LivePartialEmissionState>>,
@@ -172,8 +174,10 @@ impl VinpstDbusService {
     /// Creates a service facade with an explicit remote-text bind address.
     #[must_use]
     pub fn new_with_remote_bind(runtime: RuntimeState, bind_ip: IpAddr) -> Self {
+        let text_shutdown = runtime.text_shutdown_handle();
         Self {
             runtime: Arc::new(Mutex::new(runtime)),
+            text_shutdown,
             remote_text: Arc::new(Mutex::new(RemoteTextLifecycle::new(bind_ip))),
             recording_operation: Arc::new(Mutex::new(())),
             live_partials: Arc::new(Mutex::new(LivePartialEmissionState::default())),
@@ -202,6 +206,11 @@ impl VinpstDbusService {
     pub async fn start_remote_text_service(&self) -> Result<bool, RemoteTextLifecycleError> {
         let config = self.runtime.lock().await.config_snapshot();
         self.reconcile_remote_text_config(&config).await
+    }
+
+    /// Cancels in-flight OpenAI-compatible post-processing during process shutdown.
+    pub fn shutdown_text_processing(&self) {
+        self.text_shutdown.shutdown();
     }
 
     /// Stops the daemon-owned remote service during process shutdown.

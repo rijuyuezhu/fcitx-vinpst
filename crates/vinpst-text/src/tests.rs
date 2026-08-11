@@ -2,15 +2,15 @@ use super::{
     AdapterProcessSpec, AdapterRuntimePaths, AdapterStopOutcome, CommandTextAdapter,
     CommandTextProcessor, CommandTextRequest, CommandTextResponse, CommandTextRunner,
     LlmTextProcessor, MockTextProcessor, OpenAiCompatibleChatRequest,
-    OpenAiCompatibleChatTransport, OpenAiCompatibleTextAdapter, OpenAiCompatibleTextProcessor,
-    ProcessCommandTextRunner, PromptContext, PromptTemplate, RecentInputContextEntry,
-    ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextError, TextFinisher, TextProcessor,
-    TextRequest, UnsupportedTextAdapter, append_recent_input_context_buffer,
-    append_recent_input_context_entry, build_openai_compatible_chat_request,
-    build_openai_compatible_chat_request_from_context_cache, build_openai_compatible_chat_url,
-    build_openai_compatible_headers, build_openai_compatible_models_url,
-    build_recent_input_context_prefix, command_mode_payload, default_adapter_runtime_dir,
-    default_context_cache_path, discover_openai_compatible_model_ids,
+    OpenAiCompatibleChatTransport, OpenAiCompatibleShutdown, OpenAiCompatibleTextAdapter,
+    OpenAiCompatibleTextProcessor, ProcessCommandTextRunner, PromptContext, PromptTemplate,
+    RecentInputContextEntry, ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextError,
+    TextFinisher, TextProcessor, TextRequest, UnsupportedTextAdapter,
+    append_recent_input_context_buffer, append_recent_input_context_entry,
+    build_openai_compatible_chat_request, build_openai_compatible_chat_request_from_context_cache,
+    build_openai_compatible_chat_url, build_openai_compatible_headers,
+    build_openai_compatible_models_url, build_recent_input_context_prefix, command_mode_payload,
+    default_adapter_runtime_dir, default_context_cache_path, discover_openai_compatible_model_ids,
     extract_openai_compatible_candidates, has_legacy_prompt_interpolation, is_prompt_file_uri,
     load_prompt_file_uri, load_recent_input_context_prefix, merge_openai_compatible_extra_body,
     openai_compatible_candidates_to_payload, openai_compatible_response_to_payload,
@@ -285,6 +285,64 @@ fn serve_delayed_http_response_body(response_body: String, delay: std::time::Dur
     });
     base_url
 }
+fn serve_stalled_http_request() -> (
+    String,
+    std::sync::mpsc::Receiver<()>,
+    std::thread::JoinHandle<bool>,
+) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let (request_seen_tx, request_seen_rx) = std::sync::mpsc::channel();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        let header_end = loop {
+            let read = std::io::Read::read(&mut stream, &mut chunk).unwrap();
+            assert_ne!(read, 0, "HTTP client closed before headers were complete");
+            buffer.extend_from_slice(&chunk[..read]);
+            if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                break position + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&buffer[..header_end]);
+        let content_length = head
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .find(|(name, _)| name.trim().eq_ignore_ascii_case("content-length"))
+            .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+            .expect("reqwest JSON request should carry Content-Length");
+        while buffer.len() < header_end + content_length {
+            let read = std::io::Read::read(&mut stream, &mut chunk).unwrap();
+            assert_ne!(
+                read, 0,
+                "HTTP client closed before request body was complete"
+            );
+            buffer.extend_from_slice(&chunk[..read]);
+        }
+        request_seen_tx.send(()).unwrap();
+
+        loop {
+            match std::io::Read::read(&mut stream, &mut chunk) {
+                Ok(0) => return true,
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) =>
+                {
+                    return false;
+                }
+                Err(_) => return true,
+            }
+        }
+    });
+    (base_url, request_seen_rx, handle)
+}
 
 #[test]
 fn raw_scene_returns_raw_text() {
@@ -521,6 +579,39 @@ fn reqwest_openai_transport_classifies_response_body_timeout() {
         TextError::AdapterFailed(message)
             if message == "OpenAI-compatible HTTP response body timed out"
     ));
+}
+#[test]
+fn reqwest_openai_transport_shutdown_cancels_stalled_request() {
+    let (base_url, request_seen, server) = serve_stalled_http_request();
+    let shutdown = OpenAiCompatibleShutdown::new();
+    let transport = ReqwestOpenAiCompatibleChatTransport::with_shutdown(shutdown.clone());
+    let request = OpenAiCompatibleChatRequest {
+        url: format!("{base_url}/chat/completions"),
+        headers: build_openai_compatible_headers(""),
+        body: serde_json::json!({"messages": []}),
+        ignored_extra_body_keys: Vec::new(),
+    };
+    let sender = std::thread::spawn(move || transport.send(&request, Some(30_000)));
+
+    request_seen
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("provider should receive the complete request before shutdown");
+    let started = std::time::Instant::now();
+    shutdown.shutdown();
+    let body = sender.join().unwrap().unwrap();
+
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "shutdown waited for the request deadline"
+    );
+    assert!(
+        body.is_empty(),
+        "shutdown should use the frozen raw-fallback signal"
+    );
+    assert!(
+        server.join().unwrap(),
+        "dropping the request future should close the stalled connection"
+    );
 }
 
 #[test]

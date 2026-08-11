@@ -11,7 +11,8 @@ use vinpst_config::{
 };
 use vinpst_http::{
     HttpClientError, MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError,
-    blocking_client_from_environment_with_connect_timeout, read_provider_response_text,
+    blocking_client_from_environment_with_connect_timeout,
+    client_from_environment_with_connect_timeout, read_provider_response_text,
     reqwest_error_category,
 };
 use vinpst_protocol::{Candidate, CandidateSource, RecognitionPayload};
@@ -444,24 +445,76 @@ pub trait OpenAiCompatibleChatTransport: Send + Sync {
     ) -> Result<String, TextError>;
 }
 
-/// Blocking HTTP transport for OpenAI-compatible chat-completions providers.
+/// Process-lifetime cancellation handle for OpenAI-compatible post-processing.
+///
+/// A daemon keeps one handle stable across config reloads and triggers it before
+/// shutdown. In-flight async reqwest futures observe the signal independently of
+/// the daemon runtime mutex, matching the frozen post-processor cancellation
+/// boundary without exposing request contents to diagnostics.
+#[derive(Clone)]
+pub struct OpenAiCompatibleShutdown {
+    state: tokio::sync::watch::Sender<bool>,
+}
+
+impl OpenAiCompatibleShutdown {
+    /// Creates an active (not shutting down) lifecycle handle.
+    #[must_use]
+    pub fn new() -> Self {
+        let (state, _receiver) = tokio::sync::watch::channel(false);
+        Self { state }
+    }
+
+    /// Requests cancellation of current and future provider requests.
+    pub fn shutdown(&self) {
+        self.state.send_replace(true);
+    }
+
+    fn subscribe(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.state.subscribe()
+    }
+}
+
+impl Default for OpenAiCompatibleShutdown {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for OpenAiCompatibleShutdown {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiCompatibleShutdown")
+            .field("shutdown", &*self.state.borrow())
+            .finish()
+    }
+}
+
+/// Cancellable HTTP transport for OpenAI-compatible chat-completions providers.
 ///
 /// The transport sends the already-built request body and headers as-is, applies
 /// the optional per-scene timeout to the request, and returns successful response
 /// bodies for the existing candidate parser. Non-success responses are reported
 /// by status only; provider error bodies are never surfaced in diagnostics.
 ///
-/// The reqwest blocking client is created and dropped inside a dedicated thread
-/// so daemon code can call this synchronous seam from a Tokio runtime without
-/// dropping reqwest's internal blocking runtime in an async context.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ReqwestOpenAiCompatibleChatTransport;
+/// The synchronous text seam is preserved by running one current-thread Tokio
+/// runtime inside a dedicated worker thread. Shutdown drops the in-flight reqwest
+/// future rather than waiting for the scene deadline.
+#[derive(Debug, Clone, Default)]
+pub struct ReqwestOpenAiCompatibleChatTransport {
+    shutdown: OpenAiCompatibleShutdown,
+}
 
 impl ReqwestOpenAiCompatibleChatTransport {
-    /// Creates a transport with reqwest's default blocking client settings.
+    /// Creates a transport with an independent lifecycle handle.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a transport that shares a process-lifetime shutdown handle.
+    #[must_use]
+    pub fn with_shutdown(shutdown: OpenAiCompatibleShutdown) -> Self {
+        Self { shutdown }
     }
 }
 
@@ -472,20 +525,39 @@ impl OpenAiCompatibleChatTransport for ReqwestOpenAiCompatibleChatTransport {
         timeout_ms: Option<u64>,
     ) -> Result<String, TextError> {
         let request = request.clone();
-        std::thread::spawn(move || send_openai_compatible_request_blocking(&request, timeout_ms))
-            .join()
-            .map_err(|_| {
-                TextError::AdapterFailed("OpenAI-compatible HTTP worker thread panicked".to_owned())
-            })?
+        let mut shutdown = self.shutdown.subscribe();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| {
+                    TextError::AdapterFailed(
+                        "OpenAI-compatible HTTP worker runtime setup failed".to_owned(),
+                    )
+                })?;
+            runtime.block_on(send_openai_compatible_request(
+                &request,
+                timeout_ms,
+                &mut shutdown,
+            ))
+        })
+        .join()
+        .map_err(|_| {
+            TextError::AdapterFailed("OpenAI-compatible HTTP worker thread panicked".to_owned())
+        })?
     }
 }
 
-fn send_openai_compatible_request_blocking(
+async fn send_openai_compatible_request(
     request: &OpenAiCompatibleChatRequest,
     timeout_ms: Option<u64>,
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<String, TextError> {
-    let client = blocking_client_from_environment_with_connect_timeout(Duration::from_secs(5))
-        .map_err(|error| {
+    if *shutdown.borrow() {
+        return Ok(String::new());
+    }
+    let client =
+        client_from_environment_with_connect_timeout(Duration::from_secs(5)).map_err(|error| {
             TextError::AdapterFailed(format!(
                 "OpenAI-compatible HTTP client setup failed: {error}"
             ))
@@ -499,37 +571,66 @@ fn send_openai_compatible_request_blocking(
     }
 
     let diagnostic_url = request.redacted_url();
-    let response = builder.send().map_err(|error| {
-        if error.is_timeout() {
-            TextError::AdapterFailed("OpenAI-compatible HTTP request timed out".to_owned())
-        } else {
-            TextError::AdapterFailed(format!(
-                "OpenAI-compatible HTTP request failed for `{diagnostic_url}`: {}",
-                reqwest_error_category(&error)
-            ))
-        }
-    })?;
+    let response = tokio::select! {
+        _ = shutdown.changed() => return Ok(String::new()),
+        response = builder.send() => response.map_err(|error| {
+            if error.is_timeout() {
+                TextError::AdapterFailed("OpenAI-compatible HTTP request timed out".to_owned())
+            } else {
+                TextError::AdapterFailed(format!(
+                    "OpenAI-compatible HTTP request failed for `{diagnostic_url}`: {}",
+                    reqwest_error_category(&error)
+                ))
+            }
+        })?,
+    };
     let status = response.status();
     if !status.is_success() {
         return Err(TextError::AdapterFailed(format!(
             "OpenAI-compatible provider returned HTTP {status}"
         )));
     }
-    let body = read_provider_response_text(response).map_err(|error| match error {
-        ResponseBodyError::TimedOut => {
-            TextError::AdapterFailed("OpenAI-compatible HTTP response body timed out".to_owned())
+    read_openai_compatible_response(response, shutdown, &diagnostic_url).await
+}
+
+async fn read_openai_compatible_response(
+    mut response: reqwest::Response,
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
+    diagnostic_url: &str,
+) -> Result<String, TextError> {
+    let mut body = Vec::new();
+    loop {
+        let chunk = tokio::select! {
+            _ = shutdown.changed() => return Ok(String::new()),
+            chunk = response.chunk() => chunk.map_err(|error| {
+                if error.is_timeout() {
+                    TextError::AdapterFailed(
+                        "OpenAI-compatible HTTP response body timed out".to_owned(),
+                    )
+                } else {
+                    TextError::AdapterFailed(format!(
+                        "OpenAI-compatible HTTP response body read failed for `{diagnostic_url}`: {}",
+                        ResponseBodyError::Read,
+                    ))
+                }
+            })?,
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
+        let max_response_bytes = usize::try_from(MAX_PROVIDER_RESPONSE_BYTES).unwrap_or(usize::MAX);
+        if body.len().saturating_add(chunk.len()) > max_response_bytes {
+            return Err(TextError::AdapterFailed(format!(
+                "OpenAI-compatible HTTP response body exceeds {MAX_PROVIDER_RESPONSE_BYTES}-byte limit"
+            )));
         }
-        ResponseBodyError::TooLarge => TextError::AdapterFailed(format!(
-            "OpenAI-compatible HTTP response body exceeds {MAX_PROVIDER_RESPONSE_BYTES}-byte limit"
-        )),
-        ResponseBodyError::InvalidUtf8 => TextError::AdapterFailed(
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body).map_err(|_| {
+        TextError::AdapterFailed(
             "OpenAI-compatible HTTP response body is not valid UTF-8".to_owned(),
-        ),
-        ResponseBodyError::Read => TextError::AdapterFailed(format!(
-            "OpenAI-compatible HTTP response body read failed for `{diagnostic_url}`: {error}"
-        )),
-    })?;
-    Ok(body)
+        )
+    })
 }
 
 /// Text adapter backed by an OpenAI-compatible chat transport.
