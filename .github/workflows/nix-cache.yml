@@ -1,0 +1,40 @@
+name: Nix binary cache
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require Cachix publishing credentials
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          if [[ -z "${CACHIX_AUTH_TOKEN}" ]]; then
+            echo "CACHIX_AUTH_TOKEN must be configured before publishing the Nix cache" >&2
+            exit 1
+          fi
+
+      - uses: DeterminateSystems/nix-installer-action@v18
+
+      - name: Configure Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: fcitx-vinpst
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build and publish locked Nix closure
+        run: nix build .#fcitx-vinpst --no-link
