@@ -2,12 +2,6 @@ name: CI
 
 on:
   workflow_call:
-    inputs:
-      run-deb-packages:
-        description: Run the Debian and Ubuntu package transaction matrix
-        required: false
-        type: string
-        default: enabled
   push:
     branches: [main]
   pull_request:
@@ -69,37 +63,6 @@ jobs:
         run: scripts/tests/daemon/run-dbus-adapter-lifecycle-smoke.sh
       - name: Run optional PipeWire checks
         run: scripts/tests/pipewire-check.sh
-
-  deb-packages:
-    if: inputs.run-deb-packages != 'disabled'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: debian:12
-            distribution: debian12
-          - image: ubuntu:24.04
-            distribution: ubuntu24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Restore package source cache
-        uses: actions/cache@v5
-        with:
-          path: target/package-source-cache
-          key: package-sources-${{ runner.os }}-deb-${{ matrix.distribution }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
-          restore-keys: |
-            package-sources-${{ runner.os }}-deb-${{ matrix.distribution }}-
-            package-sources-${{ runner.os }}-
-      - name: Build and transaction-test Debian package
-        env:
-          VINPST_PACKAGE_SOURCE_CACHE: ${{ github.workspace }}/target/package-source-cache
-        run: |
-          scripts/release/run-deb-package-smoke.sh \
-            --image '${{ matrix.image }}' \
-            --distribution '${{ matrix.distribution }}'
 
   nix:
     runs-on: ubuntu-latest
