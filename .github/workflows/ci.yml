@@ -41,6 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
       - name: Ensure native test tools
         run: |
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list /etc/apt/sources.list.d/microsoft-prod.list
@@ -91,8 +93,16 @@ jobs:
   nix:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v5
       - uses: DeterminateSystems/nix-installer-action@v18
+      - name: Restore Nix build cache
+        uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          diagnostic-endpoint: ""
+          use-flakehub: false
       - name: Build and inspect locked Nix package
         run: scripts/release/run-nix-package-smoke.sh
