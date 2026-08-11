@@ -6,6 +6,7 @@ use std::fmt;
 
 use iced::Task;
 use vinpst_config::{LlmProviderConfig, SceneDefinition, VinpstConfig, redact_url_for_diagnostics};
+use vinpst_protocol::CandidateSource;
 use vinpst_text::{
     OpenAiCompatibleChatTransport, OpenAiCompatibleTextAdapter,
     ReqwestOpenAiCompatibleChatTransport, TextAdapter, TextError, TextRequest,
@@ -213,6 +214,7 @@ impl LlmProviderEditorState {
         if base_url.trim().is_empty() {
             return Err("LLM provider base URL cannot be empty.".to_owned());
         }
+        validate_provider_base_url(&base_url)?;
         let extra_body = if let Some(provider) =
             original_provider.filter(|_| self.fields.extra_body == self.baseline.extra_body)
         {
@@ -336,8 +338,8 @@ impl App {
                 OperationState::Failed(self.locale.text(GuiText::NoValidConfigLoaded).to_owned());
             return Task::none();
         };
-        let updated = match remove_llm_provider(&document.config, provider_id) {
-            Ok(updated) => updated,
+        let removal = match remove_llm_provider(&document.config, provider_id) {
+            Ok(removal) => removal,
             Err(error) => {
                 self.operation = OperationState::Failed(error);
                 return Task::none();
@@ -345,8 +347,9 @@ impl App {
         };
         self.begin_llm_provider_mutation(
             document.clone(),
-            updated,
-            self.locale.llm_provider_changed("remove", provider_id),
+            removal.updated,
+            self.locale
+                .llm_provider_removed(provider_id, removal.cleared_scene_references),
         )
     }
 
@@ -540,6 +543,15 @@ pub(super) const fn extra_body_input_is_secure() -> bool {
     true
 }
 
+fn validate_provider_base_url(value: &str) -> Result<(), String> {
+    let url = url::Url::parse(value)
+        .map_err(|_| "LLM provider base URL must be a valid http:// or https:// URL.".to_owned())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err("LLM provider base URL must be a valid http:// or https:// URL.".to_owned());
+    }
+    Ok(())
+}
+
 fn base_url_input_is_secure(value: &str) -> bool {
     if let Ok(url) = url::Url::parse(value) {
         return !url.username().is_empty()
@@ -682,7 +694,11 @@ fn test_llm_provider_with_transport<T: OpenAiCompatibleChatTransport>(
         .map_err(|error| llm_provider_test_error(&provider.id, &error))?;
     Ok(LlmProviderTestOutcome {
         provider_id: provider.id,
-        candidate_count: payload.candidates.len(),
+        candidate_count: payload
+            .candidates
+            .iter()
+            .filter(|candidate| candidate.source == CandidateSource::Llm)
+            .count(),
     })
 }
 
@@ -726,7 +742,15 @@ fn safe_provider_failure_category(message: &str) -> String {
     }
 }
 
-fn remove_llm_provider(config: &VinpstConfig, provider_id: &str) -> Result<VinpstConfig, String> {
+struct LlmProviderRemoval {
+    updated: VinpstConfig,
+    cleared_scene_references: usize,
+}
+
+fn remove_llm_provider(
+    config: &VinpstConfig,
+    provider_id: &str,
+) -> Result<LlmProviderRemoval, String> {
     let mut updated = config.clone();
     let before = updated.llm.providers.len();
     updated
@@ -738,7 +762,18 @@ fn remove_llm_provider(config: &VinpstConfig, provider_id: &str) -> Result<Vinps
             "LLM provider `{provider_id}` is no longer configured."
         ));
     }
-    validate_llm_provider_update(updated)
+    let mut cleared_scene_references = 0;
+    for scene in &mut updated.scenes.definitions {
+        if scene.provider_id.as_deref() == Some(provider_id) {
+            scene.provider_id = None;
+            scene.model = None;
+            cleared_scene_references += 1;
+        }
+    }
+    Ok(LlmProviderRemoval {
+        updated: validate_llm_provider_update(updated)?,
+        cleared_scene_references,
+    })
 }
 
 fn validate_llm_provider_update(config: VinpstConfig) -> Result<VinpstConfig, String> {
@@ -911,6 +946,19 @@ mod tests {
     }
 
     #[test]
+    fn provider_base_url_requires_http_or_https_with_host() {
+        assert!(validate_provider_base_url("https://example.invalid/v1").is_ok());
+        assert!(validate_provider_base_url("http://localhost:8080").is_ok());
+        assert!(validate_provider_base_url("ftp://example.invalid/v1").is_err());
+        assert!(validate_provider_base_url("file:///tmp/provider").is_err());
+        assert!(validate_provider_base_url("relative/provider").is_err());
+
+        let error = validate_provider_base_url("ftp://user:super-secret@example.invalid/v1")
+            .expect_err("unsupported scheme");
+        assert!(!error.contains("super-secret"));
+    }
+
+    #[test]
     fn edit_provider_keeps_id_and_forward_compatible_fields() {
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         config.llm.providers.push(provider("cloud"));
@@ -944,16 +992,21 @@ mod tests {
     }
 
     #[test]
-    fn remove_provider_requires_unreferenced_config() {
+    fn remove_provider_clears_scene_references_like_upstream_gui() {
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         config.llm.providers.push(provider("cloud"));
 
         let removed = remove_llm_provider(&config, "cloud").expect("remove provider");
-        assert!(removed.llm.providers.is_empty());
+        assert!(removed.updated.llm.providers.is_empty());
+        assert_eq!(removed.cleared_scene_references, 0);
 
         config.scenes.definitions[0].provider_id = Some("cloud".to_owned());
-        let error = remove_llm_provider(&config, "cloud").expect_err("reject referenced provider");
-        assert!(error.contains("cloud"));
+        config.scenes.definitions[0].model = Some("model-a".to_owned());
+        let removed = remove_llm_provider(&config, "cloud").expect("remove referenced provider");
+        assert!(removed.updated.llm.providers.is_empty());
+        assert_eq!(removed.cleared_scene_references, 1);
+        assert_eq!(removed.updated.scenes.definitions[0].provider_id, None);
+        assert_eq!(removed.updated.scenes.definitions[0].model, None);
     }
 
     #[test]

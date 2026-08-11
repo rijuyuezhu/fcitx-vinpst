@@ -66,6 +66,26 @@ pub fn assert_json_success(output: Output, context: &str) -> serde_json::Value {
 }
 
 #[allow(dead_code)]
+pub fn assert_json_failure(output: Output, context: &str) -> serde_json::Value {
+    let Output {
+        status,
+        stdout,
+        stderr: _,
+    } = output;
+    assert!(
+        !status.success(),
+        "{context}: command unexpectedly succeeded with status {:?}",
+        status.code()
+    );
+    serde_json::from_slice(&stdout).unwrap_or_else(|error| {
+        panic!(
+            "{context}: stdout should be JSON: {error}; stdout: {}",
+            String::from_utf8_lossy(&stdout)
+        )
+    })
+}
+
+#[allow(dead_code)]
 pub fn assert_stdout_success(output: Output, context: &str) -> String {
     let Output {
         status,

@@ -3,7 +3,8 @@
 mod common;
 
 use common::{
-    assert_json_success, assert_stdout_success, vinpst_command, workspace_file, write_temp_json,
+    assert_json_success, assert_stdout_success, isolated_vinpst_command, vinpst_command,
+    workspace_file, write_temp_json,
 };
 
 fn live_models_fixture() -> std::path::PathBuf {
@@ -37,8 +38,9 @@ fn model_list_json_accepts_live_sensevoice_fixture() {
     assert_eq!(value["model_count"], 1);
 
     let model = &value["models"][0];
+    assert_eq!(model["id"], "onnx-sv-zh-int8-off");
     assert_eq!(
-        model["id"],
+        model["machine_id"],
         "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8"
     );
     assert_eq!(model["short_id"], "onnx-sv-zh-int8-off");
@@ -59,6 +61,92 @@ fn model_list_json_accepts_live_sensevoice_fixture() {
         model["sha256"],
         "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63"
     );
+}
+
+#[test]
+fn model_list_local_registry_redacts_configured_mirror_credentials_in_source_json() {
+    let mut config: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace_file("data/default-config.json"))
+            .expect("read default config"),
+    )
+    .expect("parse default config");
+    config["registry"]["base_urls"] = serde_json::json!([
+        "https://registry-user:registry-pass@example.test/root?token=registry-secret#private",
+        "mirror"
+    ]);
+    let config_path = write_temp_json(
+        "vinpst-model-registry-source-redaction",
+        &serde_json::to_string_pretty(&config).expect("serialize config"),
+    );
+
+    let output = vinpst_command()
+        .args(["model", "list", "--registry"])
+        .arg(live_models_fixture())
+        .args(["--i18n"])
+        .arg(live_i18n_fixture())
+        .args(["--config"])
+        .arg(&config_path)
+        .arg("--json")
+        .output()
+        .expect("run model list with credentialed mirror config");
+    let value = assert_json_success(output, "model list registry source redaction");
+    let rendered = value["source"].to_string();
+
+    assert_eq!(
+        value["source"]["registry_urls"][0],
+        "https://example.test/root/registry/models.json?token=REDACTED"
+    );
+    assert_eq!(
+        value["source"]["registry_urls"][1],
+        "mirror/registry/models.json"
+    );
+    for secret in [
+        "registry-user",
+        "registry-pass",
+        "registry-secret",
+        "private",
+    ] {
+        assert!(!rendered.contains(secret));
+    }
+    std::fs::remove_file(config_path).expect("remove credentialed registry config");
+}
+
+#[test]
+fn model_list_json_uses_stale_registry_and_i18n_cache_when_mirror_is_offline() {
+    let (root, mut command) = isolated_vinpst_command("vinpst-model-stale-cache");
+    let config_path = root.path().join("config.json");
+    let mut config: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace_file("data/default-config.json"))
+            .expect("read default config"),
+    )
+    .expect("parse default config");
+    config["registry"]["base_urls"] = serde_json::json!(["http://127.0.0.1:9"]);
+    std::fs::write(
+        &config_path,
+        serde_json::to_vec_pretty(&config).expect("serialize test config"),
+    )
+    .expect("write test config");
+
+    let cache_root = root.path().join("cache/fcitx-vinpst/registry");
+    std::fs::create_dir_all(cache_root.join("i18n")).expect("create registry cache");
+    std::fs::copy(live_models_fixture(), cache_root.join("models.json"))
+        .expect("seed model registry cache");
+    std::fs::copy(live_i18n_fixture(), cache_root.join("i18n/zh_CN.json"))
+        .expect("seed registry i18n cache");
+
+    let output = command
+        .args(["model", "list", "--config"])
+        .arg(&config_path)
+        .args(["--locale", "zh_CN", "--json"])
+        .output()
+        .expect("run model list with offline registry mirror");
+
+    let value = assert_json_success(output, "model list stale cache json");
+    assert_eq!(value["source"]["kind"], "cache");
+    assert_eq!(value["source"]["used_cache"], true);
+    assert_eq!(value["i18n"]["kind"], "cache");
+    assert_eq!(value["i18n"]["used_cache"], true);
+    assert_eq!(value["models"][0]["title"], "SenseVoice 五语");
 }
 
 #[test]
@@ -347,12 +435,22 @@ fn model_list_text_prints_source_columns_and_support_marker() {
         .expect("run vinpst model list");
 
     let stdout = assert_stdout_success(output, "model list text");
-    assert!(stdout.contains("registry_source: file:"));
-    assert!(stdout.contains("i18n_source: file:"));
-    assert!(stdout.contains("id\tshort_id\tlanguage\tsize\tbackend\tfamily\tsupport\ttitle"));
-    assert!(stdout.contains("model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8"));
-    assert!(stdout.contains("onnx-sv-zh-int8-off"));
-    assert!(stdout.contains("sherpa-offline\tsense_voice\tsupported\tSenseVoice 五语"));
+    assert!(stdout.contains("ID\tTITLE\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS"));
+    assert!(stdout.contains("onnx-sv-zh-int8-off\tSenseVoice 五语"));
+    assert!(stdout.contains("sense_voice"));
+    assert!(stdout.contains("available"));
+    for internal in [
+        "registry_source:",
+        "i18n_source:",
+        "short_id",
+        "backend",
+        "support:",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal list detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -364,8 +462,8 @@ fn model_list_text_falls_back_to_short_id_without_i18n() {
         .expect("run vinpst model list without i18n");
 
     let stdout = assert_stdout_success(output, "model list text without i18n");
-    assert!(stdout.contains("i18n_source: none"));
     assert!(stdout.contains("onnx-sv-zh-int8-off"));
+    assert!(!stdout.contains("i18n_source:"));
     assert!(!stdout.contains("SenseVoice 五语"));
 }
 
@@ -404,8 +502,9 @@ fn model_info_json_accepts_short_id_and_includes_raw_metadata() {
     assert_eq!(value["i18n"]["kind"], "file");
 
     let model = &value["model"];
+    assert_eq!(model["id"], "onnx-sv-zh-int8-off");
     assert_eq!(
-        model["id"],
+        model["machine_id"],
         "model.sherpa-onnx.sense-voice-zh-en-ja-ko-yue-int8"
     );
     assert_eq!(model["short_id"], "onnx-sv-zh-int8-off");
@@ -518,13 +617,22 @@ fn model_install_dry_run_text_reports_no_side_effects() {
         .expect("run vinpst model install --dry-run");
 
     let stdout = assert_stdout_success(output, "model install dry-run text");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("target_model_dir: /tmp/vinpst-models/onnx-sv-zh-int8-off"));
-    assert!(stdout.contains("archive_format: tar_bz2"));
-    assert!(stdout.contains("archive_supported: true"));
-    assert!(stdout.contains("will_download: false"));
-    assert!(stdout.contains("will_extract: false"));
-    assert!(stdout.contains("will_write_config: false"));
+    assert!(stdout.contains("Would install model"));
+    assert!(stdout.contains("onnx-sv-zh-int8-off"));
+    assert!(stdout.contains("Location: /tmp/vinpst-models/onnx-sv-zh-int8-off"));
+    for internal in [
+        "dry_run:",
+        "archive_format:",
+        "archive_supported:",
+        "will_download",
+        "will_extract",
+        "will_write_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal install detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -602,6 +710,9 @@ fn model_install_without_dry_run_downloads_local_archive_without_config_mutation
         .output()
         .expect("run vinpst model install");
 
+    let stderr =
+        String::from_utf8(output.stderr.clone()).expect("model install stderr should be UTF-8");
+    assert!(stderr.contains("Downloading test-install...: 100%"));
     let value = assert_json_success(output, "model install json");
     assert_eq!(value["ok"], true);
     assert_eq!(value["dry_run"], false);
@@ -817,6 +928,33 @@ fn model_use_installed_bypasses_registry_id_resolution() {
 }
 
 #[test]
+fn model_use_rejects_broken_installed_metadata() {
+    let temp_root = unique_temp_dir("vinpst-cli-model-use-broken");
+    let model_root = temp_root.join("models");
+    let model_dir = model_root.join("broken");
+    std::fs::create_dir_all(&model_dir).expect("create broken model dir");
+    std::fs::write(model_dir.join("vinpst-model.json"), "not-json").expect("write broken metadata");
+
+    for installed_flag in [false, true] {
+        let mut command = vinpst_command();
+        command.args(["model", "use", "broken"]);
+        if installed_flag {
+            command.arg("--installed");
+        }
+        let output = command
+            .arg("--model-root")
+            .arg(&model_root)
+            .args(["--dry-run", "--json"])
+            .output()
+            .expect("run vinpst model use broken installed model");
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
+        assert!(stderr.contains("has broken metadata and cannot be selected"));
+    }
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
 fn model_use_installed_rejects_path_selector() {
     let output = vinpst_command()
         .args([
@@ -851,18 +989,27 @@ fn model_use_dry_run_text_accepts_installed_path_without_registry() {
         .expect("run vinpst model use path --dry-run");
 
     let stdout = assert_stdout_success(output, "model use path dry-run text");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("selector_kind: path"));
-    assert!(stdout.contains("provider_id: sherpa-onnx"));
-    assert!(stdout.contains("model_before: -"));
-    assert!(stdout.contains("model_after: /tmp/vinpst-models/custom"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("reload_daemon_requested: true"));
-    assert!(stdout.contains("daemon_reloaded: false"));
+    assert!(stdout.contains(
+        "Would select model `/tmp/vinpst-models/custom` for ASR provider `sherpa-onnx`."
+    ));
+    for internal in [
+        "dry_run:",
+        "selector_kind:",
+        "model_before:",
+        "model_after:",
+        "will_write_config",
+        "reload_daemon_requested",
+        "daemon_reloaded",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal model-use detail: {internal}"
+        );
+    }
 }
 
 #[test]
-fn model_use_without_dry_run_is_rejected_until_config_mutation_exists() {
+fn model_use_without_write_target_requires_output_or_in_place() {
     let output = vinpst_command()
         .args(["model", "use", "/tmp/vinpst-models/custom"])
         .output()
@@ -1012,15 +1159,30 @@ fn model_use_in_place_updates_config_and_writes_backup() {
 }
 
 #[test]
-fn model_use_in_place_requires_config_path() {
-    let output = vinpst_command()
-        .args(["model", "use", "/tmp/vinpst-models/custom", "--in-place"])
+fn model_use_in_place_without_config_targets_canonical_user_config() {
+    let (root, mut command) = common::isolated_vinpst_command("vinpst-model-use-canonical");
+    let model_path = root.path().join("models/custom");
+    let output = command
+        .args(["model", "use"])
+        .arg(&model_path)
+        .args(["--in-place", "--json"])
         .output()
         .expect("run vinpst model use --in-place without config");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be UTF-8");
-    assert!(stderr.contains("model use --in-place requires --config <path>"));
+    let value = assert_json_success(output, "model use canonical in-place json");
+    let config_path = root.path().join("config/fcitx-vinpst/config.json");
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(value["in_place"], true);
+    assert_eq!(value["output_path"], config_path.to_string_lossy().as_ref());
+    assert_eq!(value["backup_path"], serde_json::Value::Null);
+    let updated: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&config_path).expect("read canonical updated config"),
+    )
+    .expect("parse canonical updated config");
+    assert_eq!(
+        updated["asr"]["providers"][0]["model"],
+        model_path.to_string_lossy().as_ref()
+    );
 }
 
 #[test]
@@ -1096,15 +1258,24 @@ fn model_rm_alias_dry_run_text_accepts_managed_dir_name() {
         .expect("run vinpst model rm --dry-run");
 
     let stdout = assert_stdout_success(output, "model rm dry-run text");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("selector_kind: managed-dir"));
-    assert!(stdout.contains(&format!("model_root: {}", model_root.display())));
+    assert!(stdout.contains("Would remove model `custom-model`."));
     assert!(stdout.contains(&format!(
-        "target_path: {}",
+        "Location: {}",
         model_root.join("custom-model").display()
     )));
-    assert!(stdout.contains("exists: false"));
-    assert!(stdout.contains("will_remove: false"));
+    for internal in [
+        "dry_run:",
+        "selector_kind:",
+        "model_root:",
+        "target_path:",
+        "exists:",
+        "will_remove:",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal removal detail: {internal}"
+        );
+    }
     let _ = std::fs::remove_dir_all(temp_root);
 }
 
@@ -1180,7 +1351,7 @@ fn model_remove_dry_run_rejects_path_outside_model_root() {
 }
 
 #[test]
-fn model_remove_without_dry_run_is_rejected_until_real_remove_exists() {
+fn model_remove_without_yes_requires_confirmation() {
     let output = vinpst_command()
         .args(["model", "remove", "custom-model"])
         .output()
@@ -1647,11 +1818,21 @@ fn model_list_installed_text_prints_local_rows() {
         .expect("run vinpst model list --installed");
 
     let stdout = assert_stdout_success(output, "model list installed text");
-    assert!(stdout.contains(&format!("model_root: {}", model_root.display())));
-    assert!(stdout.contains("models: 1"));
-    assert!(stdout.contains("id\tpath\tlanguage\tsize\tbackend\tfamily\truntime\thotwords\tfiles"));
-    assert!(stdout.contains("installed-text"));
-    assert!(stdout.contains("sherpa-offline\tsense_voice\toffline\tfalse\t2"));
+    assert!(stdout.contains("ID\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS"));
+    assert!(stdout.contains("installed-text\tzh\t42 B\tsense_voice\tno\tinstalled"));
+    for internal in [
+        "model_root:",
+        "models:",
+        "path\t",
+        "backend",
+        "runtime",
+        "files",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal list detail: {internal}"
+        );
+    }
     let _ = std::fs::remove_dir_all(temp_root);
 }
 

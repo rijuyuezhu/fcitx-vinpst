@@ -1,6 +1,6 @@
 //! Typed blocking D-Bus client helpers shared by GUI operations.
 
-use vinpst_protocol::{TextAdapterState, dbus};
+use vinpst_protocol::{AsrBackendState, TextAdapterState, dbus};
 
 use crate::DaemonSnapshot;
 
@@ -40,10 +40,39 @@ pub(crate) fn query_daemon_snapshot_on(
         .call::<_, _, String>(dbus::method::GET_TEXT_ADAPTER_STATE, &())
         .ok();
     let text_adapters = optional_text_adapter_state(text_adapters_json.as_deref());
+    let asr_backend = query_asr_backend_state(&proxy).ok().map(Box::new);
     Ok(DaemonSnapshot {
         status,
         runtime,
         text_adapters,
+        asr_backend,
+    })
+}
+
+pub(crate) fn query_asr_backend_state(
+    proxy: &zbus::blocking::Proxy<'_>,
+) -> Result<AsrBackendState, String> {
+    let state: (
+        String,
+        String,
+        String,
+        String,
+        String,
+        bool,
+        bool,
+        Vec<String>,
+    ) = proxy
+        .call(dbus::method::GET_ASR_BACKEND_STATE, &())
+        .map_err(|error| error.to_string())?;
+    Ok(AsrBackendState {
+        target_provider_id: state.0,
+        target_model_id: state.1,
+        effective_provider_id: state.2,
+        effective_model_id: state.3,
+        last_error: state.4,
+        reload_in_progress: state.5,
+        has_effective_backend: state.6,
+        remote_endpoints: state.7,
     })
 }
 

@@ -1,16 +1,13 @@
 //! Best-effort default-sink output ducking through `WirePlumber`'s `wpctl`.
 
 use std::{
-    io::{self, Read},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    thread,
-    time::{Duration, Instant},
+    process::Command,
+    time::Duration,
 };
 
 const DEFAULT_SINK: &str = "@DEFAULT_AUDIO_SINK@";
 const WPCTL_TIMEOUT: Duration = Duration::from_secs(2);
-const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 /// Abstracts default-sink volume control for deterministic runtime tests.
 pub(super) trait OutputVolumeControl: Send {
@@ -126,7 +123,15 @@ struct SystemWpctlCommandRunner;
 
 impl WpctlCommandRunner for SystemWpctlCommandRunner {
     fn run(&mut self, command: &Path, args: &[&str], timeout: Duration) -> Option<String> {
-        run_command_with_timeout(command, args, timeout)
+        let timeout_ms = u64::try_from(timeout.as_millis()).ok()?;
+        let mut command = Command::new(command);
+        command.args(args);
+        let result =
+            vinpst_process::run_piped_command(&mut command, Some(timeout_ms), |_| Ok(())).ok()?;
+        if !result.output.status.success() {
+            return None;
+        }
+        String::from_utf8(result.output.stdout).ok()
     }
 }
 
@@ -159,74 +164,12 @@ fn parse_wpctl_volume(text: &str) -> Option<f64> {
     (value.is_finite() && value >= 0.0).then_some(value)
 }
 
-fn run_command_with_timeout(command: &Path, args: &[&str], timeout: Duration) -> Option<String> {
-    let deadline = Instant::now() + timeout;
-    let mut child = spawn_command_until(command, args, deadline)?;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    return None;
-                }
-                let mut output = String::new();
-                child.stdout.take()?.read_to_string(&mut output).ok()?;
-                return Some(output);
-            }
-            Ok(None) if Instant::now() < deadline => {
-                thread::sleep(PROCESS_POLL_INTERVAL.min(timeout));
-            }
-            Err(error)
-                if error.kind() == io::ErrorKind::Interrupted && Instant::now() < deadline =>
-            {
-                thread::sleep(PROCESS_POLL_INTERVAL.min(timeout));
-            }
-            Ok(None) | Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
-}
-
-fn spawn_command_until(command: &Path, args: &[&str], deadline: Instant) -> Option<Child> {
-    retry_transient_io(deadline, || {
-        Command::new(command)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-    })
-}
-
-fn retry_transient_io<T>(
-    deadline: Instant,
-    mut operation: impl FnMut() -> io::Result<T>,
-) -> Option<T> {
-    loop {
-        match operation() {
-            Ok(child) => return Some(child),
-            Err(error) if is_transient_process_error(&error) && Instant::now() < deadline => {
-                thread::sleep(PROCESS_POLL_INTERVAL);
-            }
-            Err(_) => return None,
-        }
-    }
-}
-
-fn is_transient_process_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock
-    ) || matches!(error.raw_os_error(), Some(23 | 24))
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
         os::unix::fs::PermissionsExt,
         sync::{Arc, Mutex},
+        time::Instant,
     };
 
     use super::*;
@@ -300,34 +243,6 @@ mod tests {
         assert_eq!(parse_wpctl_volume("no volume"), None);
         assert_eq!(parse_wpctl_volume("Volume: NaN"), None);
         assert_eq!(parse_wpctl_volume("Volume: -0.1"), None);
-    }
-
-    #[test]
-    fn transient_process_errors_are_retried_before_deadline() {
-        let mut attempts = 0;
-        let result = retry_transient_io(Instant::now() + Duration::from_secs(1), || {
-            attempts += 1;
-            match attempts {
-                1 => Err(io::Error::from(io::ErrorKind::WouldBlock)),
-                2 => Err(io::Error::from_raw_os_error(24)),
-                _ => Ok("ready"),
-            }
-        });
-
-        assert_eq!(result, Some("ready"));
-        assert_eq!(attempts, 3);
-    }
-
-    #[test]
-    fn permanent_process_errors_are_not_retried() {
-        let mut attempts = 0;
-        let result = retry_transient_io(Instant::now() + Duration::from_secs(1), || {
-            attempts += 1;
-            Err::<(), _>(io::Error::from(io::ErrorKind::PermissionDenied))
-        });
-
-        assert_eq!(result, None);
-        assert_eq!(attempts, 1);
     }
 
     #[test]
@@ -446,5 +361,20 @@ mod tests {
         let mut control = WpctlOutputVolumeControl::new(&command, Duration::from_millis(20));
         assert_eq!(control.read_default_sink_volume(), None);
         assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn wpctl_control_reads_successful_real_command_output() {
+        let directory = tempfile::tempdir().expect("create wpctl directory");
+        let command = directory.path().join("wpctl");
+        std::fs::write(&command, "#!/bin/sh\necho 'Volume: 0.8'\n").expect("write wpctl fixture");
+        let mut permissions = std::fs::metadata(&command)
+            .expect("stat wpctl fixture")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&command, permissions).expect("make wpctl fixture executable");
+
+        let mut control = WpctlOutputVolumeControl::new(&command, Duration::from_secs(2));
+        assert_eq!(control.read_default_sink_volume(), Some(0.8));
     }
 }

@@ -1,13 +1,13 @@
 use crate::{CaptureTarget, Context, VinpstConfig};
 
-struct AudioDevicesReport {
-    devices: Vec<vinpst_audio::AudioDeviceInfo>,
-    live: bool,
-    enumeration_error: Option<String>,
+pub(crate) struct AudioDevicesReport {
+    pub(crate) devices: Vec<vinpst_audio::AudioDeviceInfo>,
+    pub(crate) live: bool,
+    pub(crate) enumeration_error: Option<String>,
 }
 
 #[cfg(feature = "pipewire-backend")]
-fn enumerate_audio_devices() -> AudioDevicesReport {
+pub(crate) fn enumerate_audio_devices() -> AudioDevicesReport {
     use vinpst_audio::AudioDeviceEnumerator as _;
 
     let mut enumerator = vinpst_audio::pipewire_backend::PipeWireDeviceEnumerator;
@@ -29,7 +29,7 @@ fn enumerate_audio_devices() -> AudioDevicesReport {
 }
 
 #[cfg(not(feature = "pipewire-backend"))]
-fn enumerate_audio_devices() -> AudioDevicesReport {
+pub(crate) fn enumerate_audio_devices() -> AudioDevicesReport {
     AudioDevicesReport {
         devices: Vec::new(),
         live: false,

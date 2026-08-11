@@ -2,19 +2,20 @@
 
 use std::{
     fs::{self, OpenOptions},
-    io::{ErrorKind, Write},
+    io::{ErrorKind, Read, Write},
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Child, ChildStderr, Command, ExitStatus, Stdio},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 use vinpst_config::LlmAdapterConfig;
 use vinpst_process::{
-    ProcessGroupSignal, configure_process_group, process_group_has_live_members,
-    signal_process_group_and_child, terminate_child_process_group, try_wait_child_and_cleanup,
+    MAX_COMMAND_OUTPUT_BYTES, ProcessGroupSignal, configure_process_group,
+    process_group_has_live_members, set_nonblocking, signal_process_group_and_child,
+    terminate_child_process_group, try_wait_child_and_cleanup,
 };
 
 use crate::TextError;
@@ -23,6 +24,7 @@ const ADAPTER_PID_RECORD_VERSION: u32 = 1;
 const ADAPTER_GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 const ADAPTER_FORCE_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 const ADAPTER_STOP_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const ADAPTER_STARTUP_PROBE: Duration = Duration::from_millis(250);
 
 /// Returns the default text adapter runtime directory.
 ///
@@ -280,9 +282,23 @@ pub struct StartedAdapterProcess {
     pub pid_path: PathBuf,
     /// Running child process handle.
     pub child: Child,
+    stderr: Option<ChildStderr>,
+    stderr_buffer: Vec<u8>,
+    stderr_line_truncated: bool,
 }
 
 impl StartedAdapterProcess {
+    /// Drains currently available stderr into trimmed notification lines.
+    pub fn drain_stderr_lines(&mut self, flush_partial: bool) -> Result<Vec<String>, TextError> {
+        drain_adapter_stderr(
+            &self.id,
+            &mut self.stderr,
+            &mut self.stderr_buffer,
+            &mut self.stderr_line_truncated,
+            flush_partial,
+        )
+    }
+
     /// Reaps an exited direct child after cleaning any remaining descendants.
     pub fn try_wait_and_cleanup(&mut self) -> Result<Option<ExitStatus>, TextError> {
         try_wait_child_and_cleanup(&mut self.child).map_err(|error| {
@@ -382,6 +398,45 @@ pub fn stop_started_adapter_process(
     Ok(AdapterStopOutcome::Stopped { pid: process.pid })
 }
 
+fn expand_adapter_candidate_path(
+    candidate: &str,
+    current_dir: &Path,
+    home_dir: Option<&Path>,
+) -> Option<PathBuf> {
+    if candidate.is_empty() {
+        return None;
+    }
+    let mut path = if let Some(suffix) = candidate.strip_prefix('~') {
+        let home_dir = home_dir?;
+        home_dir.join(suffix.strip_prefix('/').unwrap_or(suffix))
+    } else {
+        PathBuf::from(candidate)
+    };
+    if path.is_relative() {
+        path = current_dir.join(path);
+    }
+    Some(path)
+}
+
+pub(crate) fn infer_adapter_working_dir(
+    spec: &AdapterProcessSpec,
+    current_dir: &Path,
+    home_dir: Option<&Path>,
+) -> PathBuf {
+    for candidate in spec.args.iter().chain(std::iter::once(&spec.command)) {
+        let Some(path) = expand_adapter_candidate_path(candidate, current_dir, home_dir) else {
+            continue;
+        };
+        if path.is_file()
+            && let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            return parent.to_path_buf();
+        }
+    }
+    current_dir.to_path_buf()
+}
+
 /// Starts a text adapter process and writes a fingerprinted pid file.
 pub fn start_adapter_process(
     spec: &AdapterProcessSpec,
@@ -396,9 +451,17 @@ pub fn start_adapter_process(
         .envs(&spec.env)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
+    let inferred_working_dir;
     if let Some(working_dir) = &spec.working_dir {
         command.current_dir(working_dir);
+    } else if let Ok(current_dir) = std::env::current_dir() {
+        inferred_working_dir = infer_adapter_working_dir(
+            spec,
+            &current_dir,
+            std::env::var_os("HOME").as_deref().map(Path::new),
+        );
+        command.current_dir(&inferred_working_dir);
     }
 
     let mut child = command.spawn().map_err(|error| {
@@ -407,15 +470,50 @@ pub fn start_adapter_process(
             spec.id
         ))
     })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        TextError::AdapterRuntimeIo(format!("text adapter `{}` did not expose stderr", spec.id))
+    })?;
+    if let Err(error) = set_nonblocking(&stderr) {
+        let _ = terminate_child_process_group(
+            &mut child,
+            ADAPTER_GRACEFUL_STOP_TIMEOUT,
+            ADAPTER_FORCE_STOP_TIMEOUT,
+        );
+        return Err(TextError::AdapterRuntimeIo(format!(
+            "failed to monitor text adapter `{}` stderr: {error}",
+            spec.id
+        )));
+    }
     let pid = child.id();
+    let mut stderr = Some(stderr);
+    let mut stderr_buffer = Vec::new();
+    let mut stderr_line_truncated = false;
+    probe_adapter_startup(
+        &spec.id,
+        &mut child,
+        &mut stderr,
+        &mut stderr_buffer,
+        &mut stderr_line_truncated,
+    )?;
     let Some(identity) = read_process_identity(pid)? else {
+        let lines = drain_adapter_stderr(
+            &spec.id,
+            &mut stderr,
+            &mut stderr_buffer,
+            &mut stderr_line_truncated,
+            true,
+        )?;
         let _ = signal_process_group_and_child(pid, ProcessGroupSignal::Kill);
         let _ = child.wait();
+        if !lines.is_empty() {
+            return Err(TextError::AdapterFailed(lines.join("\n")));
+        }
         return Err(TextError::AdapterRuntimeIo(format!(
             "text adapter `{}` pid {pid} disappeared before supervision",
             spec.id
         )));
     };
+
     let record = AdapterPidRecord {
         version: ADAPTER_PID_RECORD_VERSION,
         pid,
@@ -436,7 +534,122 @@ pub fn start_adapter_process(
         start_time_ticks: identity.start_time_ticks,
         pid_path,
         child,
+        stderr,
+        stderr_buffer,
+        stderr_line_truncated,
     })
+}
+
+fn probe_adapter_startup(
+    adapter_id: &str,
+    child: &mut Child,
+    stderr: &mut Option<ChildStderr>,
+    stderr_buffer: &mut Vec<u8>,
+    stderr_line_truncated: &mut bool,
+) -> Result<(), TextError> {
+    let startup_deadline = Instant::now() + ADAPTER_STARTUP_PROBE;
+    loop {
+        match try_wait_child_and_cleanup(child) {
+            Ok(Some(_status)) => {
+                let lines = drain_adapter_stderr(
+                    adapter_id,
+                    stderr,
+                    stderr_buffer,
+                    stderr_line_truncated,
+                    true,
+                )?;
+                let message = if lines.is_empty() {
+                    "adapter exited immediately".to_owned()
+                } else {
+                    lines.join("\n")
+                };
+                return Err(TextError::AdapterFailed(message));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let _ = terminate_child_process_group(
+                    child,
+                    ADAPTER_GRACEFUL_STOP_TIMEOUT,
+                    ADAPTER_FORCE_STOP_TIMEOUT,
+                );
+                return Err(TextError::AdapterRuntimeIo(format!(
+                    "failed to probe text adapter `{adapter_id}` startup: {error}"
+                )));
+            }
+        }
+        if Instant::now() >= startup_deadline {
+            return Ok(());
+        }
+        thread::sleep(ADAPTER_STOP_POLL_INTERVAL);
+    }
+}
+
+fn drain_adapter_stderr(
+    adapter_id: &str,
+    stderr: &mut Option<ChildStderr>,
+    buffer: &mut Vec<u8>,
+    line_truncated: &mut bool,
+    flush_partial: bool,
+) -> Result<Vec<String>, TextError> {
+    let mut lines = Vec::new();
+    let mut reached_eof = false;
+    if let Some(stderr) = stderr.as_mut() {
+        loop {
+            let mut chunk = [0_u8; 4096];
+            match stderr.read(&mut chunk) {
+                Ok(0) => {
+                    reached_eof = true;
+                    break;
+                }
+                Ok(read) => append_stderr_chunk(&chunk[..read], buffer, line_truncated, &mut lines),
+                Err(error) if error.kind() == ErrorKind::WouldBlock => break,
+                Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                Err(error) => {
+                    return Err(TextError::AdapterRuntimeIo(format!(
+                        "failed to read text adapter `{adapter_id}` stderr: {error}"
+                    )));
+                }
+            }
+        }
+    }
+    if reached_eof {
+        *stderr = None;
+    }
+    if flush_partial || reached_eof {
+        push_stderr_line(buffer, line_truncated, &mut lines);
+    }
+    Ok(lines)
+}
+
+fn append_stderr_chunk(
+    chunk: &[u8],
+    buffer: &mut Vec<u8>,
+    line_truncated: &mut bool,
+    lines: &mut Vec<String>,
+) {
+    for byte in chunk {
+        if *byte == b'\n' {
+            push_stderr_line(buffer, line_truncated, lines);
+        } else if buffer.len() < MAX_COMMAND_OUTPUT_BYTES {
+            buffer.push(*byte);
+        } else {
+            *line_truncated = true;
+        }
+    }
+}
+
+fn push_stderr_line(buffer: &mut Vec<u8>, line_truncated: &mut bool, lines: &mut Vec<String>) {
+    let mut line = String::from_utf8_lossy(buffer)
+        .trim_matches(|ch: char| ch.is_ascii_whitespace())
+        .to_owned();
+    if *line_truncated {
+        line.push('…');
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    buffer.clear();
+    *line_truncated = false;
 }
 
 fn prepare_adapter_pid_slot(

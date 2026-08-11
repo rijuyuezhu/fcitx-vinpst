@@ -7,8 +7,8 @@ mod config_examples;
 mod config_io;
 mod daemon_control;
 mod hotword;
+mod human_output;
 mod live_i18n;
-mod output;
 mod paths;
 mod recording_control;
 mod registry_support;
@@ -24,14 +24,14 @@ use std::{
 
 use anyhow::Context;
 use audio_diagnostics::{audio_devices_json, capture_target_json};
-use clap::ValueEnum;
+use clap::{CommandFactory, ValueEnum};
 use cli::{
-    AdapterCommand, Command, ConfigCommand, ConfigExample, DaemonCommand, DeviceCommand,
+    AdapterCommand, Args, Command, ConfigCommand, ConfigExample, DaemonCommand, DeviceCommand,
     LlmCommand, ModelCommand, ProviderCommand, RecordingCommand, RegistryCommand, SceneCommand,
     force_json_output, parse_args_with_global_json_alias,
 };
 use commands::{
-    ConfigEditRequest, ConfigSetRequest, InitRequest, asr_provider_kind_label, configured_label,
+    ConfigEditRequest, ConfigSetRequest, InitRequest, asr_provider_kind_label,
     handle_adapter_command, handle_config_edit, handle_config_example, handle_config_get,
     handle_config_set, handle_device_command, handle_init, handle_llm_command,
     handle_model_command, handle_provider_command, handle_scene_command, normalize_provider_id,
@@ -43,19 +43,18 @@ use commands::{
 use config_examples::{config_example_contents, config_example_description};
 use config_io::{
     LoadedConfigJson, config_backup_path, config_set_write_target, config_summary_json,
-    load_config_file, load_config_json, same_path_text, split_editor_argv,
+    load_config_file, load_config_json, parse_editor_argv, same_path_text,
     validate_config_json_value, write_config_in_place, write_config_output,
     write_config_set_document, write_file_atomically, write_private_file_atomically,
 };
 use daemon_control::{
-    daemon_owner_probe_plan_json, daemon_service_proxy, handle_daemon_command,
-    reload_asr_backend_via_dbus,
+    AsrReloadAfterWrite, daemon_owner_probe_plan_json, daemon_service_proxy, handle_daemon_command,
+    reload_asr_backend_after_canonical_write, reload_asr_backend_via_dbus,
 };
 use hotword::handle_hotword_command;
 use live_i18n::{LoadedLiveI18n, load_live_i18n};
-use output::bool_label;
 use paths::{
-    default_adapter_root, default_cache_root, default_config_path,
+    default_adapter_root, default_cache_root, default_config_path, default_fcitx_config_path,
     default_model_install_staging_root, default_model_root, default_provider_root, quote_exec_arg,
     user_activation_service_path, user_data_home, user_home,
 };
@@ -71,7 +70,7 @@ use vinpst_registry::{
     ArchiveFormat, AssetEntry, AssetPlanSummary, InstalledModelInfo, LiveModelEntry,
     LiveModelFamily, LiveModelInstallRequest, LiveModelInstallResult, LiveModelRegistry,
     LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, PlannedAsset, RegistryIndex,
-    ReqwestRegistryAssetSource, ReqwestRegistryTextSource, install_live_model, install_live_script,
+    ReqwestRegistryAssetSource, install_live_script,
     load_installed_model_info as load_registry_installed_model_info, managed_script_relative_path,
     materialize_asr_provider, materialize_llm_adapter, prepare_provider_script_edit,
     scan_installed_models,
@@ -81,14 +80,30 @@ use vinpst_text::{
     build_openai_compatible_chat_request,
 };
 
+fn main() -> std::process::ExitCode {
+    let json_output = human_output::argv_requests_json(std::env::args_os());
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            human_output::print_runtime_error(&error, json_output);
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines)]
-fn main() -> anyhow::Result<()> {
+fn run() -> anyhow::Result<()> {
     let mut args = parse_args_with_global_json_alias();
+    let Some(mut command) = args.command.take() else {
+        Args::command().print_help()?;
+        println!();
+        return Ok(());
+    };
     if args.json {
-        force_json_output(&mut args.command);
+        force_json_output(&mut command);
     }
 
-    match args.command {
+    match command {
         Command::Init {
             config,
             model_root,
@@ -127,6 +142,7 @@ fn main() -> anyhow::Result<()> {
             Some(ConfigCommand::Set {
                 pointer,
                 value,
+                stdin,
                 string,
                 config,
                 output,
@@ -135,7 +151,8 @@ fn main() -> anyhow::Result<()> {
                 json,
             }) => handle_config_set(ConfigSetRequest {
                 pointer: &pointer,
-                raw_value: &value,
+                raw_value: value.as_deref(),
+                from_stdin: stdin,
                 force_string: string,
                 config_path: config.as_ref(),
                 output_path: output.as_deref(),
@@ -144,11 +161,13 @@ fn main() -> anyhow::Result<()> {
                 json_output: json,
             }),
             Some(ConfigCommand::Edit {
+                target,
                 config,
                 editor,
                 dry_run,
                 json,
             }) => handle_config_edit(ConfigEditRequest {
+                target: &target,
                 config_path: config.as_ref(),
                 editor: editor.as_deref(),
                 dry_run,

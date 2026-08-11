@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use vinpst_asr::{AsrBackend, AsrBackendFactory};
+use vinpst_asr::{AsrBackend, AsrBackendFactory, UnavailableAsrBackend};
 use vinpst_config::VinpstConfig;
 use vinpst_protocol::{AsrBackendState, ServiceStatus};
 
@@ -141,6 +141,19 @@ impl RuntimeState {
                 .clone_from(&config.global.default_language);
         }
 
+        if let Some(reason) = self.asr_disabled_reason.clone() {
+            self.pending_asr_reload = None;
+            self.pending_asr_reload_config = None;
+            self.asr_reload_worker_running = false;
+            self.asr_reload_preparing = false;
+            self.asr_reload_last_error = Some(reason);
+            return Ok(false);
+        }
+        if config.asr.active_provider.is_empty() {
+            self.apply_unselected_asr_state();
+            return Ok(false);
+        }
+
         self.asr_reload_generation = self.asr_reload_generation.wrapping_add(1);
         let generation = self.asr_reload_generation;
         self.pending_asr_reload = Some(PendingAsrReload::ConfiguredBackend);
@@ -159,7 +172,7 @@ impl RuntimeState {
         self.reconcile_reconfigured_text_adapters(config)?;
         self.config.clone_from(config);
         if self.reload_configured_text {
-            self.text_processor = configured_text_processor(config);
+            self.text_processor = configured_text_processor(config, &self.text_shutdown);
         }
         Ok(())
     }
@@ -262,6 +275,14 @@ impl RuntimeState {
         self.config
             .validate()
             .map_err(RuntimeError::InvalidConfig)?;
+        if let Some(reason) = self.asr_disabled_reason.clone() {
+            self.asr_reload_last_error = Some(reason);
+            return Ok(self.asr_backend_state());
+        }
+        if self.config.asr.active_provider.is_empty() {
+            self.apply_unselected_asr_state();
+            return Ok(self.asr_backend_state());
+        }
         self.asr_reload_last_error = None;
         Ok(self.asr_backend_state())
     }
@@ -270,6 +291,14 @@ impl RuntimeState {
         self.config
             .validate()
             .map_err(RuntimeError::InvalidConfig)?;
+        if let Some(reason) = self.asr_disabled_reason.clone() {
+            self.asr_reload_last_error = Some(reason);
+            return Ok(self.asr_backend_state());
+        }
+        if self.config.asr.active_provider.is_empty() {
+            self.apply_unselected_asr_state();
+            return Ok(self.asr_backend_state());
+        }
         match AsrBackendFactory::build_active_prepared(
             &self.config.asr,
             Some(self.config.global.default_language.clone()),
@@ -285,6 +314,16 @@ impl RuntimeState {
                 Err(error)
             }
         }
+    }
+
+    fn apply_unselected_asr_state(&mut self) {
+        self.asr_reload_generation = self.asr_reload_generation.wrapping_add(1);
+        self.asr_backend = Box::new(UnavailableAsrBackend::new("ASR backend is not ready."));
+        self.pending_asr_reload = None;
+        self.pending_asr_reload_config = None;
+        self.asr_reload_worker_running = false;
+        self.asr_reload_preparing = false;
+        self.asr_reload_last_error = None;
     }
 
     pub(super) fn apply_pending_asr_backend_reload(&mut self) {

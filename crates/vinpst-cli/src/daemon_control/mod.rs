@@ -46,21 +46,35 @@ pub(crate) fn handle_daemon_command(command: &DaemonCommand) -> anyhow::Result<(
             json,
         } => print_daemon_install_service(template.as_deref(), output.as_deref(), *dry_run, *json),
         DaemonCommand::Stop { dry_run, json } => {
-            print_daemon_user_service_plan("stop", None, *dry_run, *json)
+            print_daemon_user_service_plan("stop", None, false, *dry_run, *json)
         }
         DaemonCommand::Restart { dry_run, json } => {
-            print_daemon_user_service_plan("restart", None, *dry_run, *json)
+            print_daemon_user_service_plan("restart", None, false, *dry_run, *json)
         }
         DaemonCommand::Log {
+            follow,
             lines,
             dry_run,
             json,
-        } => print_daemon_user_service_plan("log", *lines, *dry_run, *json),
+        } => print_daemon_user_service_plan("log", Some(*lines), *follow, *dry_run, *json),
     }
 }
 
 const HANDOFF_VERIFY_ATTEMPTS: u32 = 100;
 const HANDOFF_VERIFY_INTERVAL: Duration = Duration::from_millis(50);
+const CLI_DBUS_METHOD_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub(crate) use asr::reload_asr_backend_via_dbus;
-pub(crate) use status::{daemon_owner_probe_plan_json, daemon_service_proxy, optional_json_str};
+pub(crate) fn daemon_session_connection() -> anyhow::Result<zbus::blocking::Connection> {
+    zbus::blocking::connection::Builder::session()
+        .context("create session D-Bus connection builder")?
+        .method_timeout(CLI_DBUS_METHOD_TIMEOUT)
+        .build()
+        .context("connect to session bus")
+}
+
+pub(crate) use asr::{
+    AsrReloadAfterWrite, reload_asr_backend_after_canonical_write, reload_asr_backend_via_dbus,
+};
+pub(crate) use status::{
+    daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy, optional_json_str,
+};

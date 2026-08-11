@@ -3,7 +3,8 @@ use super::{daemon_owner_probe_plan_json, dbus, optional_json_str};
 
 pub(super) use vinpst_daemon_control::UserServiceCommand;
 use vinpst_daemon_control::{
-    DAEMON_SERVICE_NAME, UserServiceAction, run_user_service_command, user_service_command,
+    DAEMON_SERVICE_NAME, UserServiceAction, UserServiceCommandOutcome, run_user_service_command,
+    run_user_service_command_streaming, user_service_command,
 };
 
 use crate::sandbox;
@@ -11,10 +12,11 @@ use crate::sandbox;
 pub(super) fn print_daemon_user_service_plan(
     action: &str,
     log_lines: Option<u16>,
+    follow_logs: bool,
     dry_run: bool,
     json_output: bool,
 ) -> anyhow::Result<()> {
-    let command = daemon_user_service_command(action, log_lines)?;
+    let command = daemon_user_service_command(action, log_lines, follow_logs)?;
     if dry_run {
         let output = daemon_user_service_dry_run_json(action, &command);
         if json_output {
@@ -25,11 +27,22 @@ pub(super) fn print_daemon_user_service_plan(
         return Ok(());
     }
 
-    let output = run_daemon_user_service_command(action, &command);
+    if follow_logs && json_output {
+        anyhow::bail!("daemon log --follow cannot be combined with JSON output");
+    }
+
+    let output = if follow_logs {
+        run_daemon_user_service_command_streaming_json(action, &command)
+    } else {
+        run_daemon_user_service_command(action, &command)
+    };
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         print_daemon_user_service_result_text(&output);
+    }
+    if output["ok"].as_bool() != Some(true) {
+        anyhow::bail!("daemon {action} failed");
     }
     Ok(())
 }
@@ -37,6 +50,7 @@ pub(super) fn print_daemon_user_service_plan(
 pub(super) fn daemon_user_service_command(
     action: &str,
     log_lines: Option<u16>,
+    follow_logs: bool,
 ) -> anyhow::Result<UserServiceCommand> {
     if log_lines == Some(0) {
         anyhow::bail!("daemon log --lines must be greater than 0");
@@ -52,12 +66,18 @@ pub(super) fn daemon_user_service_command(
         _ => anyhow::bail!("unsupported daemon user service action `{action}`"),
     };
     if let Some(action) = service_action {
+        if follow_logs {
+            anyhow::bail!("daemon log --follow is only valid for log retrieval");
+        }
         return Ok(user_service_command(action));
     }
 
     let mut target_args = sandbox::daemon_log_args(DAEMON_SERVICE_NAME);
     if let Some(lines) = log_lines {
         target_args.extend(["-n".to_owned(), lines.to_string()]);
+    }
+    if follow_logs {
+        target_args.push("-f".to_owned());
     }
     let target_program =
         std::env::var("VINPST_DAEMON_JOURNALCTL").unwrap_or_else(|_| "journalctl".to_owned());
@@ -105,36 +125,6 @@ fn daemon_user_service_host_wrapper_json(
         .map(sandbox::host_wrapper_json)
 }
 
-fn print_daemon_user_service_tool_text(action: &str, command: &UserServiceCommand) {
-    let (name, env_override) = daemon_user_service_tool(action);
-    println!("tool: {name}");
-    println!("tool_program: {}", command.target_program());
-    println!("tool_env_override: {env_override}");
-    println!(
-        "tool_overridden: {}",
-        std::env::var_os(env_override).is_some()
-    );
-}
-fn print_daemon_user_service_sandbox_text(command: &UserServiceCommand) {
-    println!(
-        "sandbox: {}",
-        if command.is_host_wrapped() {
-            "flatpak"
-        } else {
-            "none"
-        }
-    );
-    println!("host_command: {}", command.is_host_wrapped());
-    if let Some(program) = command.host_wrapper_program() {
-        println!("host_wrapper_program: {program}");
-        println!("host_wrapper_env_override: {}", sandbox::FLATPAK_SPAWN_ENV);
-        println!(
-            "host_wrapper_overridden: {}",
-            std::env::var_os(sandbox::FLATPAK_SPAWN_ENV).is_some()
-        );
-    }
-}
-
 fn daemon_user_service_tool(action: &str) -> (&'static str, &'static str) {
     match action {
         "log" => ("journalctl", "VINPST_DAEMON_JOURNALCTL"),
@@ -143,17 +133,16 @@ fn daemon_user_service_tool(action: &str) -> (&'static str, &'static str) {
 }
 
 fn print_daemon_user_service_dry_run_text(action: &str, command: &UserServiceCommand) {
-    println!("dry_run: true");
-    println!("action: {action}");
-    println!("will_mutate_user_service: false");
-    println!("strategy: systemd-user-service");
-    print_daemon_user_service_tool_text(action, command);
-    print_daemon_user_service_sandbox_text(command);
-    println!("command: {}", command.display());
-    println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
-    println!("fallback: {}", daemon_user_service_fallback());
-    println!("fallback_step: {}", daemon_user_service_fallback_steps()[0]);
-    println!("next_step: {}", daemon_user_service_next_steps(action)[0]);
+    match action {
+        "log" => println!("Would read Vinpst daemon logs."),
+        "restart" => println!("Would restart the Vinpst daemon."),
+        "stop" => println!("Would stop the Vinpst daemon."),
+        _ => println!("Would run daemon service action `{action}`."),
+    }
+    if command.is_host_wrapped() {
+        println!("The action would run on the Flatpak host.");
+    }
+    println!("No changes were made.");
 }
 
 pub(super) fn run_daemon_user_service_command(
@@ -162,6 +151,23 @@ pub(super) fn run_daemon_user_service_command(
 ) -> serde_json::Value {
     let will_mutate_user_service = matches!(action, "stop" | "restart" | "daemon-reload");
     let outcome = run_user_service_command(command);
+    daemon_user_service_command_result_json(action, command, will_mutate_user_service, outcome)
+}
+
+fn run_daemon_user_service_command_streaming_json(
+    action: &str,
+    command: &UserServiceCommand,
+) -> serde_json::Value {
+    let outcome = run_user_service_command_streaming(command);
+    daemon_user_service_command_result_json(action, command, false, outcome)
+}
+
+fn daemon_user_service_command_result_json(
+    action: &str,
+    command: &UserServiceCommand,
+    will_mutate_user_service: bool,
+    outcome: UserServiceCommandOutcome,
+) -> serde_json::Value {
     if let Some(error) = outcome.error {
         return serde_json::json!({
             "ok": false,
@@ -206,83 +212,50 @@ pub(super) fn run_daemon_user_service_command(
 }
 
 fn print_daemon_user_service_result_text(output: &serde_json::Value) {
-    println!("dry_run: false");
-    println!("action: {}", optional_json_str(&output["action"]));
-    println!(
-        "will_mutate_user_service: {}",
-        output["will_mutate_user_service"]
-            .as_bool()
-            .unwrap_or(false)
-    );
-    println!("strategy: systemd-user-service");
-    if output["tool"].is_object() {
-        println!("tool: {}", optional_json_str(&output["tool"]["name"]));
-        println!(
-            "tool_program: {}",
-            optional_json_str(&output["tool"]["program"])
-        );
-        println!(
-            "tool_env_override: {}",
-            optional_json_str(&output["tool"]["env_override"])
-        );
-        println!("tool_overridden: {}", output["tool"]["overridden"]);
+    let action = optional_json_str(&output["action"]);
+    if action == "log" {
+        if let Some(stdout) = output["stdout"].as_str().filter(|value| !value.is_empty()) {
+            print!("{stdout}");
+            if !stdout.ends_with('\n') {
+                println!();
+            }
+        }
+        if output["ok"].as_bool() == Some(true) {
+            return;
+        }
     }
-    println!("sandbox: {}", optional_json_str(&output["sandbox"]["kind"]));
-    println!(
-        "host_command: {}",
-        output["sandbox"]["host_command"].as_bool().unwrap_or(false)
-    );
-    if output["host_wrapper"].is_object() {
-        println!(
-            "host_wrapper_program: {}",
-            optional_json_str(&output["host_wrapper"]["program"])
-        );
-        println!(
-            "host_wrapper_env_override: {}",
-            optional_json_str(&output["host_wrapper"]["env_override"])
-        );
-        println!(
-            "host_wrapper_overridden: {}",
-            output["host_wrapper"]["overridden"]
-        );
+
+    if output["ok"].as_bool() == Some(true) {
+        match action {
+            "stop" => println!("Vinpst daemon stopped."),
+            "restart" => println!("Vinpst daemon restarted."),
+            _ => println!("Daemon service action `{action}` completed."),
+        }
+        return;
     }
-    println!("command: {}", optional_json_str(&output["command"]));
-    println!("ok: {}", output["ok"].as_bool().unwrap_or(false));
-    match output["exit_status"].as_i64() {
-        Some(status) => println!("exit_status: {status}"),
-        None => println!("exit_status: -"),
-    }
+
+    println!("Daemon service action `{action}` failed.");
     if let Some(stdout) = output["stdout"].as_str().filter(|value| !value.is_empty()) {
-        print!("stdout: {stdout}");
+        print!("{stdout}");
         if !stdout.ends_with('\n') {
             println!();
         }
     }
     if let Some(stderr) = output["stderr"].as_str().filter(|value| !value.is_empty()) {
-        print!("stderr: {stderr}");
+        print!("{stderr}");
         if !stderr.ends_with('\n') {
             println!();
         }
     }
     if let Some(error) = output["error"].as_str().filter(|value| !value.is_empty()) {
-        println!("error: {error}");
-    }
-    if output["ok"].as_bool() != Some(true) {
-        println!("fallback: {}", daemon_user_service_fallback());
-        if let Some(fallback_step) = output["fallback_steps"]
-            .as_array()
-            .and_then(|steps| steps.first())
-            .and_then(serde_json::Value::as_str)
-        {
-            println!("fallback_step: {fallback_step}");
-        }
+        println!("Error: {error}");
     }
     if let Some(next_step) = output["next_steps"]
         .as_array()
         .and_then(|steps| steps.first())
         .and_then(serde_json::Value::as_str)
     {
-        println!("next_step: {next_step}");
+        println!("Next: {next_step}");
     }
 }
 
@@ -338,16 +311,8 @@ pub(super) fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Re
         if json_output {
             println!("{}", serde_json::to_string_pretty(&output)?);
         } else {
-            println!("dry_run: true");
-            println!("action: start");
-            println!("will_call_dbus: false");
-            println!("strategy: dbus-service-activation");
-            println!("method: {}", dbus::method::GET_STATUS);
-            println!("service: {}", dbus::SERVICE_BUS_NAME);
-            println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
-            println!("interface: {}", dbus::SERVICE_INTERFACE);
-            println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
-            println!("next_step: {}", daemon_start_next_steps()[0]);
+            println!("Would activate the Vinpst daemon.");
+            println!("No daemon will be contacted.");
         }
         return Ok(());
     }
@@ -369,11 +334,10 @@ pub(super) fn print_daemon_start(dry_run: bool, json_output: bool) -> anyhow::Re
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        println!("dry_run: false");
-        println!("action: start");
-        println!("will_call_dbus: true");
-        println!("called: true");
-        println!("status: {}", optional_json_str(&output["daemon"]["status"]));
+        println!(
+            "Vinpst daemon is running ({}).",
+            optional_json_str(&output["daemon"]["status"])
+        );
     }
     Ok(())
 }

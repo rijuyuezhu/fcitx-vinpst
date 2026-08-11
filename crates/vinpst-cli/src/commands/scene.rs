@@ -1,5 +1,5 @@
 use crate::{
-    Context, Path, PathBuf, SceneCommand, VinpstConfig, config_set_write_target, configured_label,
+    Context, Path, PathBuf, SceneCommand, VinpstConfig, config_set_write_target,
     default_config_path, load_config_json, validate_config_json_value, write_config_set_document,
 };
 
@@ -127,35 +127,7 @@ struct SceneUseOutcome {
 pub(crate) fn handle_scene_command(command: SceneCommand) -> anyhow::Result<()> {
     match command {
         SceneCommand::List { config, json } => print_scene_list(config.as_ref(), json),
-        SceneCommand::Add {
-            id,
-            label,
-            prompt,
-            provider_id,
-            model,
-            candidate_count,
-            timeout_ms,
-            context_lines,
-            config,
-            output,
-            in_place,
-            dry_run,
-            json,
-        } => print_scene_add(SceneAddRequest {
-            id: &id,
-            label: &label,
-            prompt: prompt.as_deref(),
-            provider_id: provider_id.as_deref(),
-            model: model.as_deref(),
-            candidate_count,
-            timeout_ms,
-            context_lines,
-            config_path: config.as_ref(),
-            output_path: output.as_deref(),
-            in_place,
-            dry_run,
-            json_output: json,
-        }),
+        command @ SceneCommand::Add { .. } => handle_scene_add_command(command),
         SceneCommand::Edit {
             id,
             label,
@@ -226,6 +198,44 @@ pub(crate) fn handle_scene_command(command: SceneCommand) -> anyhow::Result<()> 
     }
 }
 
+fn handle_scene_add_command(command: SceneCommand) -> anyhow::Result<()> {
+    let SceneCommand::Add {
+        id,
+        explicit_id,
+        label,
+        prompt,
+        provider_id,
+        model,
+        candidate_count,
+        timeout_ms,
+        context_lines,
+        config,
+        output,
+        in_place,
+        dry_run,
+        json,
+    } = command
+    else {
+        unreachable!("scene add dispatcher received a non-add command");
+    };
+    let id = resolve_scene_add_id(id.as_deref(), explicit_id.as_deref())?;
+    print_scene_add(SceneAddRequest {
+        id: &id,
+        label: label.as_deref().unwrap_or(""),
+        prompt: prompt.as_deref(),
+        provider_id: provider_id.as_deref(),
+        model: model.as_deref(),
+        candidate_count,
+        timeout_ms,
+        context_lines,
+        config_path: config.as_ref(),
+        output_path: output.as_deref(),
+        in_place,
+        dry_run,
+        json_output: json,
+    })
+}
+
 fn print_scene_list(config_path: Option<&PathBuf>, json_output: bool) -> anyhow::Result<()> {
     let context = load_scene_list_context(config_path)?;
     if json_output {
@@ -284,7 +294,7 @@ fn scene_summary_json(
 ) -> serde_json::Value {
     serde_json::json!({
         "id": scene.id.as_str(),
-        "label": scene.label.as_str(),
+        "label": scene_display_label(&scene.id, &scene.label),
         "active": scene.id.as_str() == active_scene,
         "prompt_configured": scene.prompt.as_ref().is_some_and(|value| !value.trim().is_empty()),
         "provider_id": scene.provider_id.as_deref(),
@@ -296,32 +306,34 @@ fn scene_summary_json(
 }
 
 fn print_scene_list_text(context: &SceneListContext) {
-    println!("source: {}", context.source);
-    if let Some(path) = &context.config_path {
-        println!("config_path: {}", path.display());
-    }
-    println!("active_scene: {}", context.config.scenes.active_scene);
-    println!("scene_count: {}", context.config.scenes.definitions.len());
-    println!("active	id	label	prompt	provider	model	candidates	timeout_ms	context_lines");
+    println!("ID\tLABEL\tPROVIDER\tMODEL\tCANDIDATES\tSTATUS");
     for scene in &context.config.scenes.definitions {
         println!(
-            "{}	{}	{}	{}	{}	{}	{}	{}	{}",
-            if scene.id == context.config.scenes.active_scene {
-                "*"
-            } else {
-                ""
-            },
+            "{}\t{}\t{}\t{}\t{}\t{}",
             scene.id,
-            scene.label,
-            configured_label(scene.prompt.as_deref()),
+            scene_display_label(&scene.id, &scene.label),
             scene.provider_id.as_deref().unwrap_or("-"),
             scene.model.as_deref().unwrap_or("-"),
             scene.candidate_count,
-            scene
-                .timeout_ms
-                .map_or_else(|| "-".to_owned(), |value| value.to_string()),
-            scene.context_lines
+            if scene.id == context.config.scenes.active_scene {
+                "active"
+            } else {
+                ""
+            },
         );
+    }
+}
+
+fn scene_display_label<'a>(id: &'a str, label: &'a str) -> &'a str {
+    match label {
+        "__label_raw__" => "Raw",
+        "__label_command__" => "Command",
+        "" => match id {
+            "__raw__" => "Raw",
+            "__command__" => "Command",
+            _ => id,
+        },
+        _ => label,
     }
 }
 
@@ -341,7 +353,7 @@ fn print_scene_add(request: SceneAddRequest<'_>) -> anyhow::Result<()> {
 
 fn run_scene_add(request: &SceneAddRequest<'_>) -> anyhow::Result<SceneAddOutcome> {
     let id = normalize_scene_id(request.id)?;
-    let label = normalize_scene_label(request.label)?;
+    let label = normalize_scene_label(request.label, &id);
     let default_path = default_config_path()?;
     let mut loaded = load_config_json(request.config_path)?;
     let contents =
@@ -569,7 +581,7 @@ fn apply_scene_edit(
     if let Some(label) = request.label {
         scene_object.insert(
             "label".to_owned(),
-            serde_json::Value::String(normalize_scene_label(label)?),
+            serde_json::Value::String(normalize_scene_label(label, request.id)),
         );
         changed.push("label".to_owned());
     }
@@ -668,12 +680,24 @@ fn scene_definitions_array_mut(
         .with_context(|| "config pointer `/scenes/definitions` not found or not an array")
 }
 
-fn normalize_scene_label(label: &str) -> anyhow::Result<String> {
+fn normalize_scene_label(label: &str, scene_id: &str) -> String {
     let label = label.trim();
     if label.is_empty() {
-        anyhow::bail!("scene label cannot be empty");
+        scene_id.to_owned()
+    } else {
+        label.to_owned()
     }
-    Ok(label.to_owned())
+}
+
+fn resolve_scene_add_id(
+    positional: Option<&str>,
+    explicit: Option<&str>,
+) -> anyhow::Result<String> {
+    match (positional, explicit) {
+        (Some(_), Some(_)) => anyhow::bail!("scene add accepts either <ID> or --id <ID>, not both"),
+        (Some(id), None) | (None, Some(id)) => Ok(id.to_owned()),
+        (None, None) => anyhow::bail!("scene add requires <ID> or --id <ID>"),
+    }
 }
 
 fn scene_add_outcome_json(outcome: &SceneAddOutcome) -> serde_json::Value {
@@ -745,65 +769,39 @@ fn scene_remove_outcome_json(outcome: &SceneRemoveOutcome) -> serde_json::Value 
 }
 
 fn print_scene_add_text(outcome: &SceneAddOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("scene_id: {}", outcome.scene_id);
-    println!("active_scene: {}", outcome.active_scene);
-    println!("before_scene_count: {}", outcome.before_scene_count);
-    println!("after_scene_count: {}", outcome.after_scene_count);
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
+    let preview = format!("Would add scene `{}`.", outcome.scene_id);
+    let applied = format!("Added scene `{}`.", outcome.scene_id);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
 }
 
 fn print_scene_edit_text(outcome: &SceneEditOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("scene_id: {}", outcome.scene_id);
-    println!("active_scene: {}", outcome.active_scene);
-    println!("changed_fields: {}", outcome.changed_fields.join(","));
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
+    let preview = format!("Would update scene `{}`.", outcome.scene_id);
+    let applied = format!("Updated scene `{}`.", outcome.scene_id);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
 }
 
 fn print_scene_remove_text(outcome: &SceneRemoveOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("removed_scene_id: {}", outcome.removed_scene_id);
-    println!("active_scene: {}", outcome.active_scene);
-    println!("before_scene_count: {}", outcome.before_scene_count);
-    println!("after_scene_count: {}", outcome.after_scene_count);
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
+    let preview = format!("Would remove scene `{}`.", outcome.removed_scene_id);
+    let applied = format!("Removed scene `{}`.", outcome.removed_scene_id);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
 }
 
 fn print_scene_use(request: SceneUseRequest<'_>) -> anyhow::Result<()> {
@@ -888,22 +886,15 @@ fn scene_use_outcome_json(outcome: &SceneUseOutcome) -> serde_json::Value {
 }
 
 fn print_scene_use_text(outcome: &SceneUseOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("before: {}", outcome.before);
-    println!("after: {}", outcome.after);
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
+    let preview = format!("Would select scene `{}`.", outcome.after);
+    let applied = format!("Selected scene `{}`.", outcome.after);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
 }
 
 fn normalize_scene_id(id: &str) -> anyhow::Result<String> {

@@ -1,8 +1,8 @@
-//! Pure PCM audio utilities used before the real `PipeWire` capture layer lands.
+//! Typed PCM, capture, and audio-processing boundaries for Vinpst.
 //!
-//! This crate deliberately starts without `PipeWire`.  It owns typed PCM buffers
-//! and deterministic transforms so audio behavior can be tested independently
-//! from desktop/audio-server integration.
+//! The crate owns validated PCM buffers, raw/WAVE decoding, deterministic
+//! transforms, capture traits and test doubles. The optional `PipeWire` backend
+//! implements those same contracts without changing daemon-side audio semantics.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -56,10 +56,36 @@ impl Default for PcmSpec {
 }
 
 /// Mono signed 16-bit PCM buffer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct PcmBuffer {
     spec: PcmSpec,
     samples: Vec<i16>,
+}
+
+#[derive(Deserialize)]
+struct PcmBufferWire {
+    spec: PcmSpec,
+    samples: Vec<i16>,
+}
+
+impl<'de> Deserialize<'de> for PcmBuffer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = PcmBufferWire::deserialize(deserializer)?;
+        Self::with_spec(wire.spec, wire.samples).map_err(serde::de::Error::custom)
+    }
+}
+
+impl std::fmt::Debug for PcmBuffer {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PcmBuffer")
+            .field("spec", &self.spec)
+            .field("samples_len", &self.samples.len())
+            .finish()
+    }
 }
 
 const fn default_channels() -> u16 {
@@ -244,7 +270,7 @@ impl PcmBuffer {
             .cast_signed()
     }
 
-    /// Returns a copy with gain applied using saturating i16 conversion.
+    /// Returns a copy with gain applied using frozen clamp-and-truncate conversion.
     #[must_use]
     pub fn with_gain(&self, gain: f32) -> Self {
         let mut next = self.clone();
@@ -252,7 +278,7 @@ impl PcmBuffer {
         next
     }
 
-    /// Applies gain in place using saturating i16 conversion.
+    /// Applies gain in place using frozen clamp-and-truncate `i16` conversion.
     pub fn apply_gain(&mut self, gain: f32) {
         if !gain.is_finite() {
             return;
@@ -262,98 +288,25 @@ impl PcmBuffer {
         }
     }
 
-    /// Returns a copy normalized to a target peak.
-    #[must_use]
-    pub fn normalized_to_peak(&self, target_peak: i16) -> Self {
-        let mut next = self.clone();
-        next.normalize_to_peak(target_peak);
-        next
-    }
-
-    /// Normalizes in place to a target peak.
-    pub fn normalize_to_peak(&mut self, target_peak: i16) {
-        let current_peak = self.peak_abs();
-        if current_peak == 0 || target_peak <= 0 {
+    /// Peak-normalizes quiet PCM using the frozen daemon's default policy.
+    ///
+    /// A non-zero peak below 0.1 full scale is amplified to full scale. Louder
+    /// audio is left unchanged; normalization never attenuates.
+    pub fn normalize_quiet_to_full_scale(&mut self) {
+        let peak = self
+            .samples
+            .iter()
+            .map(|sample| (f32::from(*sample) / 32_768.0).abs())
+            .fold(0.0_f32, f32::max);
+        if !(1.0e-8..0.1).contains(&peak) {
             return;
         }
-        let gain = f32::from(target_peak) / f32::from(current_peak);
-        self.apply_gain(gain);
-    }
 
-    /// Returns whether all samples are below or equal to the silence threshold.
-    #[must_use]
-    pub fn is_silent(&self, threshold_abs: i16) -> bool {
-        let threshold = threshold_abs.unsigned_abs();
-        self.samples
-            .iter()
-            .all(|sample| sample.unsigned_abs() <= threshold)
-    }
-
-    /// Returns a copy with leading and trailing silent frames removed.
-    #[must_use]
-    pub fn trimmed_silence(&self, threshold_abs: i16) -> Self {
-        let threshold = threshold_abs.unsigned_abs();
-        let channels = usize::from(self.spec.channels);
-        let start_frame = self
-            .samples
-            .chunks_exact(channels)
-            .position(|frame| frame.iter().any(|sample| sample.unsigned_abs() > threshold));
-        let Some(start_frame) = start_frame else {
-            return Self {
-                spec: self.spec,
-                samples: Vec::new(),
-            };
-        };
-        let end_frame = self
-            .samples
-            .chunks_exact(channels)
-            .rposition(|frame| frame.iter().any(|sample| sample.unsigned_abs() > threshold))
-            .expect("start frame exists, so end frame exists");
-        let start = start_frame * channels;
-        let end = (end_frame + 1) * channels;
-        Self {
-            spec: self.spec,
-            samples: self.samples[start..end].to_vec(),
+        let scale = 1.0 / peak;
+        for sample in &mut self.samples {
+            let normalized = (f32::from(*sample) / 32_768.0) * scale;
+            *sample = truncate_scaled_sample(normalized * 32_768.0);
         }
-    }
-}
-
-/// Deterministic audio processing policy applied before ASR delivery.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct AudioProcessingOptions {
-    /// Absolute threshold used to trim quiet leading/trailing regions.
-    pub silence_threshold_abs: i16,
-    /// Optional target peak for normalization.
-    #[serde(default)]
-    pub normalize_to_peak: Option<i16>,
-    /// Gain multiplier applied after optional normalization.
-    pub input_gain: f32,
-}
-
-impl AudioProcessingOptions {
-    /// Creates processing options.
-    #[must_use]
-    pub const fn new(
-        silence_threshold_abs: i16,
-        normalize_to_peak: Option<i16>,
-        input_gain: f32,
-    ) -> Self {
-        Self {
-            silence_threshold_abs,
-            normalize_to_peak,
-            input_gain,
-        }
-    }
-
-    /// Applies trim, optional normalization, and gain in deterministic order.
-    #[must_use]
-    pub fn process(&self, pcm: &PcmBuffer) -> PcmBuffer {
-        let mut processed = pcm.trimmed_silence(self.silence_threshold_abs);
-        if let Some(target_peak) = self.normalize_to_peak {
-            processed.normalize_to_peak(target_peak);
-        }
-        processed.apply_gain(self.input_gain);
-        processed
     }
 }
 
@@ -940,19 +893,18 @@ fn invalid_wav(message: impl Into<String>) -> AudioError {
 }
 
 fn scale_sample(sample: i16, gain: f32) -> i16 {
-    let scaled = f32::from(sample) * gain;
-    if scaled.is_nan() {
-        return sample;
-    }
-    let rounded = scaled.round();
-    if rounded <= f32::from(i16::MIN) {
+    truncate_scaled_sample(f32::from(sample) * gain)
+}
+
+fn truncate_scaled_sample(scaled: f32) -> i16 {
+    if scaled <= f32::from(i16::MIN) {
         i16::MIN
-    } else if rounded >= f32::from(i16::MAX) {
+    } else if scaled >= f32::from(i16::MAX) {
         i16::MAX
     } else {
         #[allow(clippy::cast_possible_truncation)]
         {
-            rounded as i16
+            scaled as i16
         }
     }
 }

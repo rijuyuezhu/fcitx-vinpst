@@ -2,13 +2,17 @@
 
 use std::time::{Duration, Instant};
 
-use vinpst_asr::{AudioDeliveryMode, RecognitionContext, RecognitionEvent, events_to_payload};
-use vinpst_audio::{AudioProcessingOptions, PcmBuffer};
+use vinpst_asr::{
+    AudioDeliveryMode, MIN_SAMPLES_FOR_RECOGNITION, RecognitionContext, RecognitionEvent,
+    events_to_payload,
+};
+use vinpst_audio::PcmBuffer;
 use vinpst_protocol::{RecognitionPayload, ServiceStatus};
 use vinpst_text::TextRequest;
 
 use super::{
-    MOCK_SILENCE_THRESHOLD, PendingStopRecording, RuntimeError, RuntimeState, StopRecordingReport,
+    LiveRecognitionEvent, PendingStopRecording, PreparedStopRecording, ReadyStopRecording,
+    RuntimeError, RuntimeState, StopRecordingReport,
 };
 
 fn duration_millis(duration: Duration) -> u64 {
@@ -32,27 +36,40 @@ impl RuntimeState {
         )
     }
 
-    /// Takes newly decoded streaming partials while a recording is active.
-    pub fn take_live_partial_texts(&mut self) -> Result<Vec<String>, RuntimeError> {
+    /// Takes newly decoded live recognition events while a recording is active.
+    pub(crate) fn take_live_recognition_events(
+        &mut self,
+    ) -> Result<Vec<LiveRecognitionEvent>, RuntimeError> {
         if self.status != ServiceStatus::Recording {
             return Ok(Vec::new());
         }
-        let session = self
+        let live = self
             .active_session
             .as_ref()
-            .ok_or(RuntimeError::MissingAsrSession)?;
-        let partials = session
-            .take_streaming_partial_texts()
-            .map_err(RuntimeError::Asr)?;
-        let mut new_partials = Vec::new();
-        for text in partials {
-            if self.partial_text.as_deref() == Some(text.as_str()) {
-                continue;
+            .ok_or(RuntimeError::MissingAsrSession)?
+            .take_live_recognition_events();
+        let live = match live {
+            Ok(live) => live,
+            Err(error) => {
+                self.enter_live_recording_error();
+                return Err(RuntimeError::Asr(error));
             }
-            self.partial_text = Some(text.clone());
-            new_partials.push(text);
+        };
+        let mut projected = Vec::with_capacity(live.len());
+        for event in live {
+            match event {
+                LiveRecognitionEvent::PartialText(text) => {
+                    if self.partial_text.as_deref() != Some(text.as_str()) {
+                        self.partial_text = Some(text.clone());
+                        projected.push(LiveRecognitionEvent::PartialText(text));
+                    }
+                }
+                LiveRecognitionEvent::Error(message) => {
+                    projected.push(LiveRecognitionEvent::Error(message));
+                }
+            }
         }
-        Ok(new_partials)
+        Ok(projected)
     }
 
     /// Stops recording and returns a deterministic mock result payload.
@@ -68,40 +85,97 @@ impl RuntimeState {
         &mut self,
         scene_id: Option<&str>,
     ) -> Result<StopRecordingReport, RuntimeError> {
-        let pending = self.begin_stop_recording(scene_id)?;
-        self.finish_stop_recording(pending)
+        match self.prepare_stop_recording(scene_id)? {
+            PreparedStopRecording::TooShort => Ok(StopRecordingReport {
+                payload: RecognitionPayload {
+                    commit_text: String::new(),
+                    candidates: Vec::new(),
+                },
+                partial_text: None,
+                postprocess_warning: None,
+            }),
+            PreparedStopRecording::Ready(prepared) => {
+                let pending = self.begin_stop_inference(prepared)?;
+                self.finish_stop_recording(pending)
+            }
+        }
     }
 
-    /// Stops capture and ASR, leaving the runtime in the postprocessing phase.
-    pub(crate) fn begin_stop_recording(
+    /// Stops capture and decides whether the recording is long enough for inference.
+    pub(crate) fn prepare_stop_recording(
         &mut self,
         scene_id: Option<&str>,
-    ) -> Result<PendingStopRecording, RuntimeError> {
+    ) -> Result<PreparedStopRecording, RuntimeError> {
         if self.status != ServiceStatus::Recording {
             return Err(RuntimeError::NotRecording(self.status));
         }
 
-        self.status = ServiceStatus::Inferring;
         let scene = scene_id
             .map(ToOwned::to_owned)
             .or_else(|| self.current_scene.clone())
             .unwrap_or_else(|| self.config.scenes.active_scene.clone());
-
         let result = (|| {
             let session = self
                 .active_session
                 .take()
                 .ok_or(RuntimeError::MissingAsrSession)?;
-            let captured_result = self.stop_recording_buffer();
-            self.output_ducker.restore();
-            let captured = match captured_result {
+            let captured = match self.stop_recording_buffer() {
                 Ok(pcm) => pcm,
                 Err(error) => {
                     let _ = session.cancel();
                     return Err(error);
                 }
             };
+            self.output_ducker.restore();
 
+            if captured.len() < MIN_SAMPLES_FOR_RECOGNITION {
+                tracing::debug!(
+                    sample_count = captured.len(),
+                    minimum_sample_count = MIN_SAMPLES_FOR_RECOGNITION,
+                    "recording too short; skipping recognition inference"
+                );
+                let _ = session.cancel();
+                self.reset_to_idle();
+                return Ok(PreparedStopRecording::TooShort);
+            }
+
+            self.status = ServiceStatus::Inferring;
+            Ok(PreparedStopRecording::Ready(Box::new(ReadyStopRecording {
+                session,
+                captured,
+                scene: self.scene_definition(&scene),
+                selected_text: self.selected_text.clone(),
+            })))
+        })();
+
+        if result.is_err() {
+            if self.audio_recorder.is_recording() {
+                let _ = self.audio_recorder.cancel_recording();
+            }
+            self.audio_recorder.set_chunk_callback(None);
+            self.output_ducker.restore();
+            self.reset_to_idle();
+        }
+        result
+    }
+
+    /// Runs ASR inference after capture length has passed the upstream minimum gate.
+    pub(crate) fn begin_stop_inference(
+        &mut self,
+        prepared: Box<ReadyStopRecording>,
+    ) -> Result<PendingStopRecording, RuntimeError> {
+        if self.status != ServiceStatus::Inferring {
+            let _ = prepared.session.cancel();
+            return Err(RuntimeError::Busy(self.status));
+        }
+
+        let ReadyStopRecording {
+            session,
+            captured,
+            scene,
+            selected_text,
+        } = *prepared;
+        let result = (|| {
             let mut events = match session.delivery_mode() {
                 AudioDeliveryMode::Buffered => {
                     let pcm = self.process_captured_pcm(&captured);
@@ -148,21 +222,18 @@ impl RuntimeState {
             Ok(PendingStopRecording {
                 session,
                 raw_payload,
-                scene: self.scene_definition(&scene),
-                selected_text: self.selected_text.clone(),
+                scene,
+                selected_text,
                 partial_text,
             })
         })();
 
-        if result.is_err() && self.audio_recorder.is_recording() {
-            let _ = self.audio_recorder.cancel_recording();
-        }
-        self.audio_recorder.set_chunk_callback(None);
-        self.output_ducker.restore();
-        if result.is_ok() {
-            self.status = ServiceStatus::Postprocessing;
-        } else {
-            self.reset_to_idle();
+        match &result {
+            Ok(pending) if pending.enters_postprocessing() => {
+                self.status = ServiceStatus::Postprocessing;
+            }
+            Ok(_) => {}
+            Err(_) => self.reset_to_idle(),
         }
         result
     }
@@ -172,26 +243,40 @@ impl RuntimeState {
         &mut self,
         pending: PendingStopRecording,
     ) -> Result<StopRecordingReport, RuntimeError> {
-        if self.status != ServiceStatus::Postprocessing {
+        let needs_text_processing = pending.needs_text_processing();
+        let expected_status = if pending.enters_postprocessing() {
+            ServiceStatus::Postprocessing
+        } else {
+            ServiceStatus::Inferring
+        };
+        if self.status != expected_status {
             let _ = pending.session.cancel();
             return Err(RuntimeError::Busy(self.status));
         }
 
-        let result = self
-            .text_processor
-            .finish(&TextRequest {
-                raw_text: &pending.raw_payload.commit_text,
-                scene: &pending.scene,
-                selected_text: pending.selected_text.as_deref(),
-            })
-            .map(|payload| StopRecordingReport {
-                payload,
+        let result = if needs_text_processing {
+            self.text_processor
+                .finish_report(&TextRequest {
+                    raw_text: &pending.raw_payload.commit_text,
+                    scene: &pending.scene,
+                    selected_text: pending.selected_text.as_deref(),
+                })
+                .map(|report| StopRecordingReport {
+                    payload: report.payload,
+                    partial_text: pending.partial_text,
+                    postprocess_warning: report.warning,
+                })
+                .map_err(|error| {
+                    let _ = pending.session.cancel();
+                    RuntimeError::Finish(error)
+                })
+        } else {
+            Ok(StopRecordingReport {
+                payload: pending.raw_payload,
                 partial_text: pending.partial_text,
+                postprocess_warning: None,
             })
-            .map_err(|error| {
-                let _ = pending.session.cancel();
-                RuntimeError::Finish(error)
-            });
+        };
         self.reset_to_idle();
         result
     }
@@ -323,14 +408,10 @@ impl RuntimeState {
     }
 
     fn process_captured_pcm(&self, pcm: &PcmBuffer) -> PcmBuffer {
-        self.audio_processing_options().process(pcm)
-    }
-
-    fn audio_processing_options(&self) -> AudioProcessingOptions {
-        AudioProcessingOptions::new(
-            MOCK_SILENCE_THRESHOLD,
-            self.config.asr.normalize_audio.then_some(16_000),
+        super::process_buffered_pcm(
+            pcm,
             self.config.asr.input_gain,
+            self.config.asr.normalize_audio,
         )
     }
 
@@ -351,6 +432,27 @@ impl RuntimeState {
                 timeout_ms: None,
                 context_lines: 0,
             })
+    }
+
+    fn enter_live_recording_error(&mut self) {
+        self.status = ServiceStatus::Error;
+        self.audio_recorder.set_chunk_callback(None);
+        if let Some(session) = self.active_session.take() {
+            let _ = session.cancel();
+        }
+        if self.audio_recorder.is_recording() {
+            let _ = self.audio_recorder.cancel_recording();
+        }
+        self.output_ducker.restore();
+        self.current_scene = None;
+        self.selected_text = None;
+        self.partial_text = None;
+    }
+
+    pub(crate) fn recover_live_recording_error(&mut self) {
+        if self.status == ServiceStatus::Error {
+            self.reset_to_idle();
+        }
     }
 
     fn reset_to_idle(&mut self) {

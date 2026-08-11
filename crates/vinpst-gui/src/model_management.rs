@@ -1,18 +1,19 @@
 //! Managed ASR model storage and registry operations for the GUI.
 
 use std::{
-    env,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use vinpst_config::{AsrProviderKind, VinpstConfig};
+use vinpst_config::{AsrProviderKind, VinpstConfig, user_paths};
 use vinpst_registry::{
     InstalledModelInfo, LiveModelFamily, LiveModelInstallError, LiveModelInstallRequest,
     LiveModelRegistry, LiveRegistryI18n, ManagedModelRemoveRequest, RegistryOperationControl,
-    RegistryOperationProgress, RegistryTextSource, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, install_live_model_controlled, managed_model_dir_name,
-    remove_managed_model, scan_installed_models,
+    RegistryOperationProgress, RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource,
+    ReqwestRegistryTextSource, detect_preferred_registry_locale,
+    fetch_live_registry_text_with_sources, fetch_registry_text_with_cache,
+    install_live_model_controlled, managed_model_dir_name, model_registry_cache_path,
+    registry_i18n_cache_path, remove_managed_model, resolve_registry_url, scan_installed_models,
 };
 
 use crate::{GuiLocale, model_install::ModelInstallOutcome};
@@ -49,34 +50,20 @@ pub(crate) enum ModelCatalogState {
 
 /// Returns the managed ASR model root used by CLI and GUI workflows.
 pub fn default_model_root() -> Result<PathBuf, String> {
-    Ok(user_data_home()?.join("fcitx-vinpst").join("models"))
+    user_paths::default_model_root().ok_or_else(|| {
+        "HOME or XDG_DATA_HOME is required to locate managed model storage".to_owned()
+    })
 }
 
 fn default_model_staging_root() -> Result<PathBuf, String> {
-    Ok(user_cache_home()?
-        .join("fcitx-vinpst")
-        .join("model-install"))
+    user_paths::default_model_install_staging_root().ok_or_else(|| {
+        "HOME or XDG_CACHE_HOME is required to locate model install staging".to_owned()
+    })
 }
 
-fn user_data_home() -> Result<PathBuf, String> {
-    match env::var_os("XDG_DATA_HOME") {
-        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
-        _ => Ok(user_home()?.join(".local/share")),
-    }
-}
-
-fn user_cache_home() -> Result<PathBuf, String> {
-    match env::var_os("XDG_CACHE_HOME") {
-        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
-        _ => Ok(user_home()?.join(".cache")),
-    }
-}
-
-fn user_home() -> Result<PathBuf, String> {
-    env::var_os("HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| "HOME is required to locate managed model storage".to_owned())
+pub(crate) fn default_registry_cache_root() -> Result<PathBuf, String> {
+    user_paths::default_cache_root()
+        .ok_or_else(|| "HOME or XDG_CACHE_HOME is required to locate registry cache".to_owned())
 }
 
 pub(crate) fn load_installed_models() -> Result<Vec<InstalledModelInfo>, String> {
@@ -86,80 +73,88 @@ pub(crate) fn load_installed_models() -> Result<Vec<InstalledModelInfo>, String>
 
 pub(crate) fn load_registry_model_catalog(
     config: &VinpstConfig,
-    locale: GuiLocale,
+    _locale: GuiLocale,
 ) -> Result<Vec<RegistryModelSummary>, String> {
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
-    fetch_registry_model_catalog_from(config, locale, &source)
+    let registry_source =
+        ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
+    let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
+    let cache_root = default_registry_cache_root()?;
+    let registry_locale = detect_preferred_registry_locale();
+    fetch_registry_model_catalog_from(
+        config,
+        &registry_locale,
+        &registry_source,
+        &i18n_source,
+        &cache_root,
+    )
 }
 
 fn fetch_registry_model_catalog_from(
     config: &VinpstConfig,
-    locale: GuiLocale,
-    source: &impl RegistryTextSource,
+    registry_locale: &str,
+    registry_source: &impl RegistryTextSource,
+    i18n_source: &impl RegistryTextSource,
+    cache_root: &Path,
 ) -> Result<Vec<RegistryModelSummary>, String> {
-    if config.registry.base_urls.is_empty() {
-        return Err("No registry mirrors are configured.".to_owned());
-    }
-    let mut failure_count = 0;
-    for base in &config.registry.base_urls {
-        let url = format!("{}/registry/models.json", base.trim_end_matches('/'));
-        let Ok(text) = source.fetch_registry_text(&url) else {
-            failure_count += 1;
-            continue;
-        };
-        let Ok(registry) = LiveModelRegistry::from_json_str(&text) else {
-            failure_count += 1;
-            continue;
-        };
-        let i18n = fetch_registry_i18n(source, base, locale);
-        return Ok(registry
-            .items
-            .iter()
-            .map(|model| RegistryModelSummary {
-                id: model.id.clone(),
-                short_id: model.short_id.clone(),
-                title: model.resolved_title(i18n.as_ref()),
-                description: model.resolved_description(i18n.as_ref()),
-                model_type: model
-                    .vinpst_model
-                    .as_ref()
-                    .and_then(|metadata| metadata.model_family().map(str::to_owned)),
-                language: model.language.clone(),
-                size_bytes: model.size_bytes,
-                runtime: model
-                    .vinpst_model
-                    .as_ref()
-                    .and_then(|metadata| metadata.runtime.clone()),
-                supports_hotwords: model.supports_hotwords(),
-                supported: model_is_supported(model),
-            })
-            .collect());
-    }
-    Err(format!(
-        "All {failure_count} configured registry mirrors failed."
-    ))
+    let registry =
+        fetch_live_model_registry_from(config, registry_source, i18n_source, cache_root)?;
+    let i18n = fetch_registry_i18n(
+        i18n_source,
+        &config.registry.base_urls,
+        registry_locale,
+        cache_root,
+    );
+    Ok(registry
+        .items
+        .iter()
+        .map(|model| RegistryModelSummary {
+            id: model.id.clone(),
+            short_id: model.short_id.clone(),
+            title: model.resolved_title(i18n.as_ref()),
+            description: model.resolved_description(i18n.as_ref()),
+            model_type: model
+                .vinpst_model
+                .as_ref()
+                .and_then(|metadata| metadata.model_family().map(str::to_owned)),
+            language: model.language.clone(),
+            size_bytes: model.size_bytes,
+            runtime: model
+                .vinpst_model
+                .as_ref()
+                .and_then(|metadata| metadata.runtime.clone()),
+            supports_hotwords: model.supports_hotwords(),
+            supported: model_is_supported(model),
+        })
+        .collect())
 }
 
-fn fetch_registry_i18n(
+pub(crate) fn fetch_registry_i18n(
     source: &impl RegistryTextSource,
-    base: &str,
-    locale: GuiLocale,
+    bases: &[String],
+    registry_locale: &str,
+    cache_root: &Path,
 ) -> Option<LiveRegistryI18n> {
-    let base = base.trim_end_matches('/');
-    let preferred = locale.code();
-    let fallback = (preferred != "en_US")
-        .then(|| fetch_i18n_layer(source, &format!("{base}/i18n/en_US.json")))
+    let preferred = fetch_i18n_layer(source, bases, registry_locale, cache_root);
+    let fallback = (registry_locale != "en_US")
+        .then(|| fetch_i18n_layer(source, bases, "en_US", cache_root))
         .flatten();
-    let preferred = fetch_i18n_layer(source, &format!("{base}/i18n/{preferred}.json"));
     let merged = LiveRegistryI18n::merge_layers([fallback, preferred].into_iter().flatten());
     (!merged.entries.is_empty()).then_some(merged)
 }
 
-fn fetch_i18n_layer(source: &impl RegistryTextSource, url: &str) -> Option<LiveRegistryI18n> {
-    source
-        .fetch_registry_text(url)
-        .ok()
-        .and_then(|text| LiveRegistryI18n::from_json_str(&text).ok())
+fn fetch_i18n_layer(
+    source: &impl RegistryTextSource,
+    bases: &[String],
+    locale: &str,
+    cache_root: &Path,
+) -> Option<LiveRegistryI18n> {
+    let urls = bases
+        .iter()
+        .map(|base| format!("{}/i18n/{locale}.json", base.trim_end_matches('/')))
+        .collect::<Vec<_>>();
+    let cache = RegistryTextCache::new(registry_i18n_cache_path(cache_root, locale));
+    let fetched = fetch_registry_text_with_cache(source, &urls, &cache).ok()?;
+    LiveRegistryI18n::from_json_str(&fetched.text).ok()
 }
 
 fn model_is_supported(model: &vinpst_registry::LiveModelEntry) -> bool {
@@ -222,7 +217,7 @@ pub(crate) fn install_registry_model_controlled(
         Ok(root) => root.join(&model_name),
         Err(error) => return ModelInstallOutcome::Failed(error),
     };
-    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(300));
+    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(600));
     let installed = install_live_model_controlled(
         &source,
         &LiveModelInstallRequest {
@@ -256,36 +251,46 @@ fn remove_staging_dir(path: &Path) {
 }
 
 fn fetch_live_model_registry(config: &VinpstConfig) -> Result<LiveModelRegistry, String> {
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
-    fetch_live_model_registry_from(config, &source)
+    let registry_source =
+        ReqwestRegistryTextSource::with_limits(Duration::from_secs(30), 4 * 1024 * 1024);
+    let i18n_source = ReqwestRegistryTextSource::with_limits(Duration::from_secs(20), 1024 * 1024);
+    let cache_root = default_registry_cache_root()?;
+    fetch_live_model_registry_from(config, &registry_source, &i18n_source, &cache_root)
 }
 
 fn fetch_live_model_registry_from(
     config: &VinpstConfig,
-    source: &impl RegistryTextSource,
+    registry_source: &impl RegistryTextSource,
+    i18n_source: &impl RegistryTextSource,
+    cache_root: &Path,
 ) -> Result<LiveModelRegistry, String> {
-    let urls = config
-        .registry
-        .base_urls
-        .iter()
-        .map(|base| format!("{}/registry/models.json", base.trim_end_matches('/')))
-        .collect::<Vec<_>>();
+    let urls = model_registry_urls(config);
     if urls.is_empty() {
         return Err("No registry mirrors are configured.".to_owned());
     }
-    let mut failure_count = 0;
-    for url in &urls {
-        match source.fetch_registry_text(url) {
-            Ok(text) => {
-                return LiveModelRegistry::from_json_str(&text)
-                    .map_err(|error| format!("Registry model catalog is invalid: {error}"));
-            }
-            Err(_) => failure_count += 1,
-        }
-    }
-    Err(format!(
-        "All {failure_count} configured registry mirrors failed."
-    ))
+    let cache_path = model_registry_cache_path(cache_root);
+    let preferred_locale = detect_preferred_registry_locale();
+    let fetched = fetch_live_registry_text_with_sources(
+        registry_source,
+        i18n_source,
+        &urls,
+        &cache_path,
+        &config.registry.base_urls,
+        cache_root,
+        &preferred_locale,
+    )
+    .map_err(|_| "Registry model catalog is unavailable.".to_owned())?;
+    LiveModelRegistry::from_json_str(&fetched.registry.text)
+        .map_err(|error| format!("Registry model catalog is invalid: {error}"))
+}
+
+fn model_registry_urls(config: &VinpstConfig) -> Vec<String> {
+    config
+        .registry
+        .base_urls
+        .iter()
+        .map(|base| resolve_registry_url(base, "registry/models.json"))
+        .collect()
 }
 
 pub(crate) fn remove_installed_model(
@@ -339,6 +344,12 @@ pub(crate) fn model_is_selected_by_active_provider(
     })
 }
 
+pub(crate) fn active_provider_can_use_managed_models(config: &VinpstConfig) -> bool {
+    config.asr.providers.iter().any(|provider| {
+        provider.id == config.asr.active_provider && provider.kind == AsrProviderKind::Local
+    })
+}
+
 pub(crate) fn select_model_for_active_provider(
     config: &VinpstConfig,
     model_dir: &Path,
@@ -388,7 +399,25 @@ mod tests {
     }
 
     #[test]
+    fn model_registry_urls_insert_catalog_path_before_query_and_fragment() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        config.registry.base_urls = vec![
+            "https://registry.example/root?q=fixture#section".to_owned(),
+            "opaque-mirror/".to_owned(),
+        ];
+
+        assert_eq!(
+            model_registry_urls(&config),
+            [
+                "https://registry.example/root/registry/models.json?q=fixture#section",
+                "opaque-mirror/registry/models.json",
+            ]
+        );
+    }
+
+    #[test]
     fn registry_model_fetch_uses_mirror_fallback_without_leaking_urls() {
+        let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         let first = "https://user:super-secret@first.invalid".to_owned();
         let second = "https://second.invalid".to_owned();
@@ -412,19 +441,89 @@ mod tests {
             ]),
         };
 
-        let registry = fetch_live_model_registry_from(&config, &source).expect("mirror fallback");
+        let registry = fetch_live_model_registry_from(&config, &source, &source, cache.path())
+            .expect("mirror fallback");
         assert!(registry.model_by_id_or_short_id("fixture").is_some());
 
+        let offline = StubRegistryTextSource::default();
+        let cached = fetch_live_model_registry_from(&config, &offline, &offline, cache.path())
+            .expect("stale cache fallback");
+        assert!(cached.model_by_id_or_short_id("fixture").is_some());
+
+        let empty_cache = tempfile::tempdir().expect("empty cache directory");
         let failed = StubRegistryTextSource::default();
-        let error =
-            fetch_live_model_registry_from(&config, &failed).expect_err("all mirrors should fail");
-        assert_eq!(error, "All 2 configured registry mirrors failed.");
+        let error = fetch_live_model_registry_from(&config, &failed, &failed, empty_cache.path())
+            .expect_err("all mirrors and cache should fail");
+        assert_eq!(error, "Registry model catalog is unavailable.");
         assert!(!error.contains("super-secret"));
         assert!(!error.contains("first.invalid"));
     }
 
     #[test]
+    fn fresh_model_registry_fetch_primes_fallback_i18n_cache() {
+        let cache = tempfile::tempdir().expect("cache directory");
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        let base = "https://registry.example".to_owned();
+        config.registry.base_urls = vec![base.clone()];
+        let registry_source = StubRegistryTextSource {
+            responses: HashMap::from([(
+                format!("{base}/registry/models.json"),
+                Ok(json!({
+                    "version": 1,
+                    "items": [{
+                        "id": "model.test.prefetch",
+                        "short_id": "prefetch",
+                        "urls": ["https://assets.invalid/prefetch.tar.zst"]
+                    }]
+                })
+                .to_string()),
+            )]),
+        };
+        let i18n_source = StubRegistryTextSource {
+            responses: HashMap::from([(
+                format!("{base}/i18n/en_US.json"),
+                Ok(r#"{"model.test.prefetch.title":"Prefetched title"}"#.to_owned()),
+            )]),
+        };
+
+        let registry =
+            fetch_live_model_registry_from(&config, &registry_source, &i18n_source, cache.path())
+                .expect("fresh registry fetch");
+
+        assert!(registry.model_by_id_or_short_id("prefetch").is_some());
+        assert_eq!(
+            std::fs::read_to_string(registry_i18n_cache_path(cache.path(), "en_US"))
+                .expect("prefetched en_US cache"),
+            r#"{"model.test.prefetch.title":"Prefetched title"}"#
+        );
+    }
+
+    #[test]
+    fn registry_i18n_accepts_locale_outside_static_gui_catalog() {
+        let cache = tempfile::tempdir().expect("cache directory");
+        let base = "https://registry.example".to_owned();
+        let source = StubRegistryTextSource {
+            responses: HashMap::from([
+                (
+                    format!("{base}/i18n/fr_FR.json"),
+                    Ok(r#"{"model.test.title":"Modèle français"}"#.to_owned()),
+                ),
+                (
+                    format!("{base}/i18n/en_US.json"),
+                    Ok(r#"{"model.test.description":"English fallback"}"#.to_owned()),
+                ),
+            ]),
+        };
+
+        let i18n = fetch_registry_i18n(&source, &[base], "fr_FR", cache.path())
+            .expect("merged registry i18n");
+        assert_eq!(i18n.get("model.test.title"), Some("Modèle français"));
+        assert_eq!(i18n.get("model.test.description"), Some("English fallback"));
+    }
+
+    #[test]
     fn registry_model_catalog_exposes_localized_browsable_metadata() {
+        let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         let base = "https://registry.invalid".to_owned();
         config.registry.base_urls = vec![base.clone()];
@@ -458,7 +557,8 @@ mod tests {
         };
 
         let catalog =
-            fetch_registry_model_catalog_from(&config, GuiLocale::ZhCn, &source).expect("catalog");
+            fetch_registry_model_catalog_from(&config, "zh_CN", &source, &source, cache.path())
+                .expect("catalog");
         assert_eq!(catalog.len(), 1);
         let model = &catalog[0];
         assert_eq!(model.selector(), "test-stream");
@@ -473,7 +573,8 @@ mod tests {
     }
 
     #[test]
-    fn registry_model_catalog_skips_a_malformed_mirror() {
+    fn registry_model_catalog_rejects_malformed_first_successful_mirror() {
+        let cache = tempfile::tempdir().expect("cache directory");
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         let first = "https://first.invalid".to_owned();
         let second = "https://second.invalid".to_owned();
@@ -492,7 +593,7 @@ mod tests {
             }]
         })
         .to_string();
-        let source = StubRegistryTextSource {
+        let registry_source = StubRegistryTextSource {
             responses: HashMap::from([
                 (
                     format!("{first}/registry/models.json"),
@@ -501,12 +602,22 @@ mod tests {
                 (format!("{second}/registry/models.json"), Ok(valid_registry)),
             ]),
         };
+        let i18n_source = StubRegistryTextSource {
+            responses: HashMap::from([(
+                format!("{first}/i18n/en_US.json"),
+                Ok(r#"{"model.test.fallback.title":"Fallback translation"}"#.to_owned()),
+            )]),
+        };
 
-        let catalog = fetch_registry_model_catalog_from(&config, GuiLocale::EnUs, &source)
-            .expect("malformed mirror must fall through");
-        assert_eq!(catalog.len(), 1);
-        assert_eq!(catalog[0].selector(), "fallback");
-        assert!(catalog[0].supported);
+        let error = fetch_registry_model_catalog_from(
+            &config,
+            "en_US",
+            &registry_source,
+            &i18n_source,
+            cache.path(),
+        )
+        .expect_err("malformed successful response must not fall through");
+        assert!(error.starts_with("Registry model catalog is invalid:"));
     }
 
     #[test]
@@ -591,5 +702,23 @@ mod tests {
 
         assert!(error.contains(&provider_id));
         assert!(error.contains("is not local"));
+    }
+
+    #[test]
+    fn managed_model_selection_availability_tracks_the_active_provider_kind() {
+        let mut config = VinpstConfig::bundled_default().expect("bundled config");
+        assert!(active_provider_can_use_managed_models(&config));
+
+        let active_provider = config
+            .asr
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == config.asr.active_provider)
+            .expect("active provider");
+        active_provider.kind = AsrProviderKind::Remote;
+        assert!(!active_provider_can_use_managed_models(&config));
+
+        config.asr.active_provider = "missing-provider".to_owned();
+        assert!(!active_provider_can_use_managed_models(&config));
     }
 }

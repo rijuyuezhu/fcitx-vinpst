@@ -12,6 +12,7 @@ mod recording;
 mod reload;
 mod scene;
 
+pub(crate) use active_session::LiveRecognitionEvent;
 use active_session::{ActiveRecognitionSession, CaptureStartGate};
 pub(crate) use asr_menu::{
     locale_candidates_from_environment, select_asr_provider, select_asr_target,
@@ -23,26 +24,29 @@ pub(crate) use reload::AsrReloadWorkerStep;
 use reload::PendingAsrReload;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     path::PathBuf,
     time::{Duration, Instant},
 };
-use vinpst_asr::{AsrBackend, AsrBackendFactory, MockAsrBackend, UnavailableAsrBackend};
+use vinpst_asr::{
+    AsrBackend, AsrBackendFactory, MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend,
+    UnavailableAsrBackend,
+};
 use vinpst_audio::{
     AudioRecorder, AudioSource, CaptureTarget, CapturedAudio, MockAudioSource, PcmBuffer,
     SourceAudioRecorder,
 };
-use vinpst_config::VinpstConfig;
+use vinpst_config::{COMMAND_SCENE_ID, VinpstConfig};
 use vinpst_protocol::{RecognitionPayload, ServiceStatus};
 use vinpst_text::{
-    AdapterRuntimePaths, CommandTextProcessor, MockTextProcessor, OpenAiCompatibleTextProcessor,
-    ProcessCommandTextRunner, ReqwestOpenAiCompatibleChatTransport, StartedAdapterProcess,
-    TextProcessor,
+    AdapterRuntimePaths, CommandTextProcessor, MockTextProcessor, OpenAiCompatibleShutdown,
+    OpenAiCompatibleTextProcessor, ProcessCommandTextRunner, ReqwestOpenAiCompatibleChatTransport,
+    StartedAdapterProcess, TextProcessor,
 };
 
 const MOCK_PCM: &[i16] = &[256, -128, 64, -32];
-const MOCK_SILENCE_THRESHOLD: i16 = 8;
 const DEFAULT_MOCK_AUDIO_FRAMES: usize = 4;
+const ASR_NOT_READY_REASON: &str = "ASR backend is not ready.";
 
 /// In-memory runtime state for the first daemon milestone.
 pub struct RuntimeState {
@@ -56,6 +60,7 @@ pub struct RuntimeState {
     audio_recorder: Box<dyn AudioRecorder>,
     output_ducker: OutputDucker,
     text_processor: Box<dyn TextProcessor>,
+    text_shutdown: OpenAiCompatibleShutdown,
     reload_configured_text: bool,
     active_session: Option<ActiveRecognitionSession>,
     pending_asr_reload: Option<PendingAsrReload>,
@@ -64,14 +69,17 @@ pub struct RuntimeState {
     asr_reload_preparing: bool,
     asr_reload_generation: u64,
     asr_reload_last_error: Option<String>,
+    asr_disabled_reason: Option<String>,
     config_path: Option<PathBuf>,
     model_root: Option<PathBuf>,
     adapter_runtime_paths: AdapterRuntimePaths,
     adapter_processes: HashMap<String, StartedAdapterProcess>,
+    adapter_notifications: VecDeque<(String, String)>,
 }
 
 impl Drop for RuntimeState {
     fn drop(&mut self) {
+        self.text_shutdown.shutdown();
         self.output_ducker.restore();
         self.audio_recorder.set_chunk_callback(None);
         if let Some(session) = self.active_session.take() {
@@ -88,12 +96,30 @@ impl Drop for RuntimeState {
 }
 
 /// Payload and stop-time metadata produced by a completed recording.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct StopRecordingReport {
     /// Final recognition payload after scene text processing.
     pub payload: RecognitionPayload,
     /// Latest partial text emitted while finishing the ASR session, if any.
     pub partial_text: Option<String>,
+    /// Recoverable post-processing failure that should be reported separately.
+    pub postprocess_warning: Option<vinpst_text::TextError>,
+}
+
+/// Capture-stop result before recognition inference begins.
+pub(crate) enum PreparedStopRecording {
+    /// The capture was shorter than the upstream minimum and was cancelled.
+    TooShort,
+    /// The capture is long enough to enter recognition inference.
+    Ready(Box<ReadyStopRecording>),
+}
+
+/// Captured audio and ASR session ready to enter inference.
+pub(crate) struct ReadyStopRecording {
+    session: ActiveRecognitionSession,
+    captured: PcmBuffer,
+    scene: vinpst_config::SceneDefinition,
+    selected_text: Option<String>,
 }
 
 /// ASR result waiting for scene text processing after capture has stopped.
@@ -103,6 +129,27 @@ pub(crate) struct PendingStopRecording {
     scene: vinpst_config::SceneDefinition,
     selected_text: Option<String>,
     partial_text: Option<String>,
+}
+
+impl PendingStopRecording {
+    pub(crate) fn needs_text_processing(&self) -> bool {
+        !self.raw_payload.commit_text.is_empty()
+    }
+
+    pub(crate) fn enters_postprocessing(&self) -> bool {
+        if !self.needs_text_processing() || self.scene.candidate_count == 0 {
+            return false;
+        }
+        if self.scene.provider_id.as_deref().is_none_or(str::is_empty) {
+            return false;
+        }
+        self.scene.id == COMMAND_SCENE_ID
+            || self
+                .scene
+                .prompt
+                .as_deref()
+                .is_some_and(|prompt| !prompt.is_empty())
+    }
 }
 
 impl RuntimeState {
@@ -136,6 +183,13 @@ impl RuntimeState {
     pub fn with_configured_backends_or_unavailable(
         config: VinpstConfig,
     ) -> Result<Self, RuntimeError> {
+        if config.asr.active_provider.is_empty() {
+            return Self::with_configured_text(
+                config,
+                unselected_asr_backend(),
+                Box::new(default_mock_audio_source()),
+            );
+        }
         match AsrBackendFactory::build_active_prepared(
             &config.asr,
             Some(config.global.default_language.clone()),
@@ -190,8 +244,10 @@ impl RuntimeState {
         asr_backend: Box<dyn AsrBackend>,
         audio_source: Box<dyn AudioSource>,
     ) -> Result<Self, RuntimeError> {
-        let text_processor = configured_text_processor(&config);
+        let text_shutdown = OpenAiCompatibleShutdown::new();
+        let text_processor = configured_text_processor(&config, &text_shutdown);
         let mut runtime = Self::with_components(config, asr_backend, audio_source, text_processor)?;
+        runtime.text_shutdown = text_shutdown;
         runtime.reload_configured_text = true;
         Ok(runtime)
     }
@@ -202,9 +258,11 @@ impl RuntimeState {
         asr_backend: Box<dyn AsrBackend>,
         audio_recorder: Box<dyn AudioRecorder>,
     ) -> Result<Self, RuntimeError> {
-        let text_processor = configured_text_processor(&config);
+        let text_shutdown = OpenAiCompatibleShutdown::new();
+        let text_processor = configured_text_processor(&config, &text_shutdown);
         let mut runtime =
             Self::with_recorder_components(config, asr_backend, audio_recorder, text_processor)?;
+        runtime.text_shutdown = text_shutdown;
         runtime.reload_configured_text = true;
         Ok(runtime)
     }
@@ -214,6 +272,13 @@ impl RuntimeState {
         config: VinpstConfig,
         audio_recorder: Box<dyn AudioRecorder>,
     ) -> Result<Self, RuntimeError> {
+        if config.asr.active_provider.is_empty() {
+            return Self::with_configured_audio_recorder(
+                config,
+                unselected_asr_backend(),
+                audio_recorder,
+            );
+        }
         match AsrBackendFactory::build_active(&config.asr) {
             Ok(backend) => Self::with_configured_audio_recorder(config, backend, audio_recorder),
             Err(error) => {
@@ -225,6 +290,21 @@ impl RuntimeState {
                 Ok(runtime)
             }
         }
+    }
+
+    /// Disables ASR for this runtime until the process exits.
+    ///
+    /// Config and text-adapter reloads remain available, but ASR reloads keep
+    /// the unavailable backend instead of constructing a configured backend.
+    pub fn disable_asr(&mut self, reason: impl Into<String>) {
+        let reason = reason.into();
+        self.asr_backend = Box::new(UnavailableAsrBackend::new(&reason));
+        self.asr_disabled_reason = Some(reason.clone());
+        self.asr_reload_last_error = Some(reason);
+        self.pending_asr_reload = None;
+        self.pending_asr_reload_config = None;
+        self.asr_reload_worker_running = false;
+        self.asr_reload_preparing = false;
     }
 
     /// Builds an idle runtime from validated config and injected component seams.
@@ -275,6 +355,7 @@ impl RuntimeState {
             audio_recorder,
             output_ducker: OutputDucker::default(),
             text_processor,
+            text_shutdown: OpenAiCompatibleShutdown::new(),
             reload_configured_text: false,
             active_session: None,
             pending_asr_reload: None,
@@ -283,10 +364,12 @@ impl RuntimeState {
             asr_reload_preparing: false,
             asr_reload_generation: 0,
             asr_reload_last_error: None,
+            asr_disabled_reason: None,
             config_path: None,
             model_root: None,
             adapter_runtime_paths: AdapterRuntimePaths::for_current_user(),
             adapter_processes: HashMap::new(),
+            adapter_notifications: VecDeque::new(),
         })
     }
 
@@ -298,6 +381,10 @@ impl RuntimeState {
     /// Parses this runtime's configured desktop capture target.
     pub fn capture_target_for_runtime(&self) -> Result<CaptureTarget, RuntimeError> {
         Self::configured_capture_target(&self.config)
+    }
+
+    pub(crate) fn text_shutdown_handle(&self) -> OpenAiCompatibleShutdown {
+        self.text_shutdown.clone()
     }
 
     /// Current daemon status.
@@ -327,7 +414,27 @@ impl RuntimeState {
     }
 }
 
-fn configured_text_processor(config: &VinpstConfig) -> Box<dyn TextProcessor> {
+fn apply_controller_input_gain(pcm: &mut PcmBuffer, gain: f32) {
+    pcm.apply_gain(gain);
+}
+
+fn normalize_quiet_buffered_pcm(pcm: &mut PcmBuffer) {
+    pcm.normalize_quiet_to_full_scale();
+}
+
+fn process_buffered_pcm(pcm: &PcmBuffer, input_gain: f32, normalize_audio: bool) -> PcmBuffer {
+    let mut processed = pcm.clone();
+    apply_controller_input_gain(&mut processed, input_gain);
+    if normalize_audio {
+        normalize_quiet_buffered_pcm(&mut processed);
+    }
+    processed
+}
+
+fn configured_text_processor(
+    config: &VinpstConfig,
+    text_shutdown: &OpenAiCompatibleShutdown,
+) -> Box<dyn TextProcessor> {
     if config.llm.providers.is_empty() {
         Box::new(CommandTextProcessor::from_configs_with_runner(
             &config.llm.adapters,
@@ -336,13 +443,23 @@ fn configured_text_processor(config: &VinpstConfig) -> Box<dyn TextProcessor> {
     } else {
         Box::new(OpenAiCompatibleTextProcessor::new(
             config.llm.providers.clone(),
-            ReqwestOpenAiCompatibleChatTransport::new(),
+            ReqwestOpenAiCompatibleChatTransport::with_shutdown(text_shutdown.clone()),
         ))
     }
 }
 
+fn unselected_asr_backend() -> Box<dyn AsrBackend> {
+    Box::new(UnavailableAsrBackend::new(ASR_NOT_READY_REASON))
+}
+
 fn default_mock_audio_source() -> MockAudioSource {
-    let frame = CapturedAudio::anonymous(PcmBuffer::at_default_rate(MOCK_PCM.to_vec()));
+    let samples = MOCK_PCM
+        .iter()
+        .copied()
+        .cycle()
+        .take(MIN_SAMPLES_FOR_RECOGNITION)
+        .collect::<Vec<_>>();
+    let frame = CapturedAudio::anonymous(PcmBuffer::at_default_rate(samples));
     MockAudioSource::from_frames(vec![frame; DEFAULT_MOCK_AUDIO_FRAMES])
 }
 

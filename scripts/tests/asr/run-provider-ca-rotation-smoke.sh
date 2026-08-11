@@ -55,25 +55,7 @@ ruff check "${asr_fixture}" "${text_fixture}"
 ruff format --check "${asr_fixture}" "${text_fixture}"
 cargo build -q -p vinpst-daemon -p vinpst-cli
 
-python3 - "${wav_file}" <<'PY'
-import math
-import struct
-import sys
-import wave
-from pathlib import Path
-
-path = Path(sys.argv[1])
-sample_rate = 16_000
-samples = [
-    int(8_000 * math.sin(2 * math.pi * 440 * index / sample_rate))
-    for index in range(sample_rate // 4)
-]
-with wave.open(str(path), "wb") as wav:
-    wav.setnchannels(1)
-    wav.setsampwidth(2)
-    wav.setframerate(sample_rate)
-    wav.writeframes(b"".join(struct.pack("<h", sample) for sample in samples))
-PY
+python3 scripts/fixtures/write-demo-wav.py "${wav_file}"
 
 provider_network_generate_tls_material rotation-a
 ca_a_key="${fixture_ca_key}"
@@ -560,18 +542,18 @@ start_origin text-ca-mismatch "${VINPST_ROTATION_SERVER_A_CERT}" \
 "${VINPST_ROTATION_CLI}" recording start \
   --selected-text "${VINPST_ROTATION_SELECTED}" \
   --json >"${out_dir}/text-mismatch.start.json"
-set +e
 "${VINPST_ROTATION_CLI}" recording stop \
   --scene __command__ \
-  --json >"${out_dir}/text-mismatch.stop.json" \
-  2>"${out_dir}/text-mismatch.stderr"
-mismatch_status=$?
-set -e
-if ((mismatch_status == 0)); then
-  echo "text request unexpectedly trusted the replaced CA mismatch" >&2
-  exit 1
-fi
-grep -Fq 'OpenAI-compatible HTTP request failed' "${out_dir}/text-mismatch.stderr"
+  --json >"${out_dir}/text-mismatch.stop.json"
+jq -e \
+  --arg selected "${VINPST_ROTATION_SELECTED}" \
+  '.ok and ((.payload_json | fromjson) == {
+    commit_text: $selected,
+    candidates: [
+      {text: $selected, source: "raw"},
+      {text: "mock recognition result", source: "asr"}
+    ]
+  })' "${out_dir}/text-mismatch.stop.json" >/dev/null
 test ! -e "${out_dir}/text-ca-mismatch.trace.json"
 stop_origin
 assert_idle_owner "${owner_pid}" "${out_dir}/text-after-mismatch.json"

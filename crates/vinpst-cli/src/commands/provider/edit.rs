@@ -1,13 +1,15 @@
 use super::{
-    Context, InstalledProviderResolution, LiveScriptKind, Path, PathBuf, ProviderEditOutcome,
-    ProviderEditRequest, ProviderEditScriptOutcome, ProviderEditScriptRequest, VinpstConfig,
-    asr_provider_kind_label, config_set_write_target, default_config_path, load_config_json,
-    normalize_provider_id, prepare_provider_script_edit, validate_config_json_value,
-    write_config_set_document,
+    AsrReloadAfterWrite, Context, InstalledProviderResolution, LiveScriptKind, Path, PathBuf,
+    ProviderEditOutcome, ProviderEditRequest, ProviderEditScriptOutcome, ProviderEditScriptRequest,
+    VinpstConfig, asr_provider_kind_label, config_set_write_target, default_config_path,
+    load_config_json, normalize_provider_id, prepare_provider_script_edit,
+    validate_config_json_value, write_config_set_document,
 };
 use super::{
     catalog::{load_live_provider_registry, load_provider_list_context},
-    mutation::{normalize_provider_kind, parse_provider_env},
+    mutation::{
+        normalize_provider_kind, parse_provider_env, reload_after_canonical_provider_write,
+    },
 };
 
 pub(super) fn print_provider_edit(request: ProviderEditRequest<'_>) -> anyhow::Result<()> {
@@ -72,9 +74,11 @@ fn run_provider_edit(request: &ProviderEditRequest<'_>) -> anyhow::Result<Provid
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
 
     Ok(ProviderEditOutcome {
@@ -90,6 +94,7 @@ fn run_provider_edit(request: &ProviderEditRequest<'_>) -> anyhow::Result<Provid
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -109,6 +114,7 @@ fn provider_edit_outcome_json(outcome: &ProviderEditOutcome) -> serde_json::Valu
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst provider list to verify configured ASR providers",
             "run vinpst asr-state to inspect provider runtime readiness",
@@ -118,25 +124,18 @@ fn provider_edit_outcome_json(outcome: &ProviderEditOutcome) -> serde_json::Valu
 }
 
 fn print_provider_edit_text(outcome: &ProviderEditOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
+    let preview = format!("Would update ASR provider `{}`.", outcome.provider_id);
+    let applied = format!("Updated ASR provider `{}`.", outcome.provider_id);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
+    if outcome.runtime_reload.reloaded() {
+        println!("Reloaded the ASR backend.");
     }
-    println!("provider_id: {}", outcome.provider_id);
-    println!("before_provider_type: {}", outcome.before_provider_type);
-    println!("after_provider_type: {}", outcome.after_provider_type);
-    println!("active_provider: {}", outcome.active_provider);
-    println!("changed_fields: {}", outcome.changed_fields.join(","));
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 pub(super) fn print_provider_edit_script(
@@ -257,18 +256,18 @@ fn provider_edit_script_outcome_json(outcome: &ProviderEditScriptOutcome) -> ser
 }
 
 fn print_provider_edit_script_text(outcome: &ProviderEditScriptOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("selector: {}", outcome.selector);
-    println!("provider_id: {}", outcome.provider_id);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("script_path: {}", outcome.script_path.display());
-    println!("editor: {}", outcome.editor_argv.join(" "));
-    println!("edited: {}", outcome.edited);
-    if let Some(exit_status) = outcome.exit_status {
-        println!("exit_status: {exit_status}");
+    if outcome.dry_run {
+        println!(
+            "Would open the script for ASR provider `{}`: {}",
+            outcome.provider_id,
+            outcome.script_path.display()
+        );
+    } else {
+        println!(
+            "Edited the script for ASR provider `{}`: {}",
+            outcome.provider_id,
+            outcome.script_path.display()
+        );
     }
 }
 

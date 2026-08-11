@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace fcitx {
 class Instance;
@@ -30,6 +31,9 @@ struct FrontendNotification {
 
 FrontendNotification BuildFrontendNotification(FrontendNotificationKind kind,
                                                std::string_view body);
+std::pair<FrontendNotificationKind, std::string>
+PlanStructuredDaemonNotification(std::string_view code, std::string_view subject,
+                                 std::string_view detail, std::string_view raw_message);
 bool SendFrontendNotification(fcitx::Instance *instance,
                               const FrontendNotification &notification,
                               std::FILE *fallback_stream = stderr);

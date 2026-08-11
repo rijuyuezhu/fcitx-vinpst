@@ -197,20 +197,22 @@ fn model_remove_plan_json(plan: &ModelRemovePlan) -> serde_json::Value {
         },
         "next_steps": [
             "run vinpst model use --dry-run to verify the active config does not point at the removed model",
-            "restart or reload the daemon after removing an inactive model"
+            "run vinpst model list to inspect the remaining installed models"
         ],
     })
 }
 
 fn print_model_remove_plan_text(plan: &ModelRemovePlan) {
-    println!("dry_run: {}", !plan.removed);
-    println!("selector: {}", plan.selector);
-    println!("selector_kind: {}", plan.selector_kind);
-    println!("model_root: {}", plan.model_root.display());
-    println!("target_path: {}", plan.target_path.display());
-    println!("exists: {}", plan.exists && !plan.removed);
-    println!("is_dir: {}", plan.is_dir);
-    println!("managed: true");
-    println!("will_remove: {}", plan.removed);
-    println!("removed: {}", plan.removed);
+    let display_name = plan
+        .resolved_title
+        .as_deref()
+        .or(plan.resolved_short_id.as_deref())
+        .or(plan.resolved_model_id.as_deref())
+        .unwrap_or(&plan.selector);
+    if plan.removed {
+        println!("Removed model `{display_name}`.");
+    } else {
+        println!("Would remove model `{display_name}`.");
+    }
+    println!("Location: {}", plan.target_path.display());
 }

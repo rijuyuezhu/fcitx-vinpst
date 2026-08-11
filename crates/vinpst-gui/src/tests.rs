@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fs};
 
+use serde_json::json;
+
 use super::*;
 
 #[test]
@@ -105,6 +107,8 @@ fn config_draft_applies_every_editable_field() {
     let mut draft = ConfigDraft::from_config(&config);
     draft.default_language = "zh-CN".to_owned();
     draft.capture_device = "test-source".to_owned();
+    draft.normalize_audio = false;
+    draft.input_gain = 1.4;
     draft.duck_output_while_recording = true;
     draft.duck_output_volume = 0.4;
     draft.vad_enabled = false;
@@ -117,6 +121,8 @@ fn config_draft_applies_every_editable_field() {
     config.validate().expect("validate edited config");
     assert_eq!(config.global.default_language, "zh-CN");
     assert_eq!(config.global.capture_device, "test-source");
+    assert!(!config.asr.normalize_audio);
+    assert!((config.asr.input_gain - 1.4).abs() < f32::EPSILON);
     assert!(config.global.duck_output_while_recording);
     assert!((config.global.duck_output_volume - 0.4).abs() < f32::EPSILON);
     assert!(!config.asr.vad.enabled);
@@ -126,17 +132,37 @@ fn config_draft_applies_every_editable_field() {
 }
 
 #[test]
-fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+fn duck_volume_changes_only_while_ducking_is_enabled() {
     let config = VinpstConfig::bundled_default().expect("bundled config");
-    app.config = Ok(ConfigDocument {
-        path: PathBuf::from("/tmp/vinpst-gui-in-flight-config.json"),
-        from_disk: false,
-        config: config.clone(),
-    });
-    app.draft = Some(ConfigDraft::from_config(&config));
-    app.page = Page::Resources;
+    let mut app = crate::test_support::GuiHarness::with_config(
+        config,
+        "/tmp/vinpst-gui-duck-volume.json",
+        Page::Control,
+    );
+    let original = app.draft.as_ref().expect("config draft").duck_output_volume;
+
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DuckOutput(false)));
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DuckVolume(0.15)));
+    assert!(
+        (app.draft.as_ref().expect("config draft").duck_output_volume - original).abs()
+            < f32::EPSILON
+    );
+
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DuckOutput(true)));
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DuckVolume(0.15)));
+    assert!(
+        (app.draft.as_ref().expect("config draft").duck_output_volume - 0.15).abs() < f32::EPSILON
+    );
+}
+
+#[test]
+fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    let mut app = crate::test_support::GuiHarness::with_config(
+        config,
+        "/tmp/vinpst-gui-in-flight-config.json",
+        Page::Resources,
+    );
     app.begin_add_scene();
     let editor_before = format!("{:?}", app.scene_editor);
     let language_before = app
@@ -147,17 +173,15 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
         .clone();
     app.operation = OperationState::Running("Saving scene…");
 
-    drop(
-        app.update(Message::ConfigDraft(ConfigDraftMessage::DefaultLanguage(
-            "zh-CN".to_owned(),
-        ))),
-    );
-    drop(app.update(Message::SelectPage(Page::Control)));
-    drop(app.update(Message::ReloadConfig));
-    drop(app.update(Message::Scene(SceneMessage::EditorChanged {
+    app.send(Message::ConfigDraft(ConfigDraftMessage::DefaultLanguage(
+        "zh-CN".to_owned(),
+    )));
+    app.send(Message::SelectPage(Page::Control));
+    app.send(Message::ReloadConfig);
+    app.send(Message::Scene(SceneMessage::EditorChanged {
         field: SceneEditorField::Label,
         value: "late editor change".to_owned(),
-    })));
+    }));
 
     assert_eq!(app.page, Page::Resources);
     assert_eq!(
@@ -169,11 +193,9 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
     );
     assert_eq!(format!("{:?}", app.scene_editor), editor_before);
 
-    drop(
-        app.update(Message::Scene(SceneMessage::MutationFinished(Err(
-            "fixture completion".to_owned(),
-        )))),
-    );
+    app.send(Message::Scene(SceneMessage::MutationFinished(Err(
+        "fixture completion".to_owned(),
+    ))));
     assert!(matches!(
         app.operation,
         OperationState::Failed(ref error) if error == "fixture completion"
@@ -182,8 +204,6 @@ fn in_flight_config_mutation_freezes_navigation_and_edit_messages() {
 
 #[test]
 fn llm_provider_forms_and_mutations_reject_dirty_control_draft() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
     let mut config = VinpstConfig::bundled_default().expect("bundled config");
     config.llm.providers.push(vinpst_config::LlmProviderConfig {
         id: "existing".to_owned(),
@@ -193,17 +213,16 @@ fn llm_provider_forms_and_mutations_reject_dirty_control_draft() {
         extra_body: serde_json::json!({}),
         extra: HashMap::new(),
     });
-    app.config = Ok(ConfigDocument {
-        path: PathBuf::from("/tmp/vinpst-gui-dirty-llm-provider.json"),
-        from_disk: false,
-        config: config.clone(),
-    });
+    let mut app = crate::test_support::GuiHarness::with_config(
+        config.clone(),
+        "/tmp/vinpst-gui-dirty-llm-provider.json",
+        Page::Llm,
+    );
     let mut draft = ConfigDraft::from_config(&config);
     draft.default_language = "zh-CN".to_owned();
     app.draft = Some(draft);
-    app.page = Page::Llm;
 
-    drop(app.update(Message::LlmProvider(LlmProviderMessage::BeginAdd)));
+    app.send(Message::LlmProvider(LlmProviderMessage::BeginAdd));
     assert!(matches!(
         app.operation,
         OperationState::Failed(ref error) if error.contains("Save or reset")
@@ -245,8 +264,7 @@ fn llm_provider_forms_and_mutations_reject_dirty_control_draft() {
 
 #[test]
 fn scene_forms_reject_dirty_control_draft() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     let scene_id = config.scenes.definitions[0].id.clone();
     app.config = Ok(ConfigDocument {
@@ -284,8 +302,7 @@ fn scene_forms_reject_dirty_control_draft() {
 
 #[test]
 fn in_flight_llm_provider_mutation_freezes_form_messages() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     app.config = Ok(ConfigDocument {
         path: PathBuf::from("/tmp/vinpst-gui-in-flight-llm-provider.json"),
@@ -336,8 +353,7 @@ fn in_flight_llm_provider_mutation_freezes_form_messages() {
 
 #[test]
 fn same_page_navigation_preserves_page_local_editors() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     app.config = Ok(ConfigDocument {
         path: PathBuf::from("/tmp/vinpst-gui-same-page-navigation.json"),
@@ -380,8 +396,7 @@ fn same_page_navigation_preserves_page_local_editors() {
 
 #[test]
 fn hotword_changes_block_navigation_and_reload_until_reset() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     let document = Ok(ConfigDocument {
         path: PathBuf::from("/tmp/vinpst-gui-hotword-navigation.json"),
@@ -427,8 +442,7 @@ fn hotword_activation_retry_is_blocked_while_busy() {
 
 #[test]
 fn failed_operation_uses_modal_state_without_inline_layout_notice() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     app.page = Page::Control;
     app.operation = OperationState::Failed("fixture failure".to_owned());
 
@@ -455,8 +469,7 @@ fn failed_operation_uses_modal_state_without_inline_layout_notice() {
 
 #[test]
 fn resource_details_are_modal_and_escape_closes_them() {
-    let (mut app, boot_task) = App::boot();
-    drop(boot_task);
+    let mut app = crate::test_support::GuiHarness::new();
     let config = VinpstConfig::bundled_default().expect("bundled config");
     let provider_id = config.asr.active_provider.clone();
     app.config = Ok(ConfigDocument {
@@ -492,14 +505,41 @@ fn resource_mutations_reject_dirty_control_drafts_without_discarding_them() {
         config: config.clone(),
     };
     let clean = ConfigDraft::from_config(&config);
-    assert!(ensure_resource_mutation_draft_clean(&Ok(document.clone()), Some(&clean)).is_ok());
+    assert!(
+        ensure_resource_mutation_draft_clean(GuiLocale::EnUs, &Ok(document.clone()), Some(&clean))
+            .is_ok()
+    );
 
     let mut dirty = clean;
     dirty.default_language = "zh-CN".to_owned();
-    let error = ensure_resource_mutation_draft_clean(&Ok(document), Some(&dirty))
+    let error = ensure_resource_mutation_draft_clean(GuiLocale::EnUs, &Ok(document), Some(&dirty))
         .expect_err("dirty Control draft must block resource mutation");
     assert!(error.contains("Save or reset"));
     assert_eq!(dirty.default_language, "zh-CN");
+}
+
+#[test]
+fn provider_use_does_not_save_unrelated_dirty_audio_settings() {
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    let original_provider = config.asr.active_provider.clone();
+    let mut app = crate::test_support::GuiHarness::with_config(
+        config,
+        "/tmp/vinpst-gui-provider-use.json",
+        Page::Control,
+    );
+    app.draft.as_mut().expect("config draft").capture_device = "unsaved-device".to_owned();
+
+    app.send(Message::UseAsrProvider("other-provider".to_owned()));
+
+    assert_eq!(
+        app.draft.as_ref().expect("preserved draft").active_provider,
+        original_provider
+    );
+    assert_eq!(
+        app.draft.as_ref().expect("preserved draft").capture_device,
+        "unsaved-device"
+    );
+    assert!(matches!(app.operation, OperationState::Failed(_)));
 }
 
 #[test]
@@ -578,6 +618,62 @@ fn config_reload_failure_restore_reinstates_existing_document() {
 }
 
 #[test]
+fn config_reload_failure_reloads_restored_document_into_daemon() {
+    let directory = tempfile::tempdir().expect("create temp dir");
+    let path = directory.path().join("config.json");
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    write_config_file(&config, &path, None).expect("write original config");
+    let document = load_config_document(Some(&path)).expect("load original config");
+    let mut updated = config.clone();
+    updated.global.capture_device = "new-source".to_owned();
+    persist_updated_config(&document, &updated).expect("persist candidate config");
+
+    let mut reload_count = 0;
+    let error = reload_daemon_after_config_save(&document, || {
+        reload_count += 1;
+        if reload_count == 1 {
+            Err("candidate reload rejected".to_owned())
+        } else {
+            Ok(())
+        }
+    })
+    .expect_err("candidate reload failure should fail the save");
+
+    assert_eq!(reload_count, 2);
+    assert!(error.contains("previous config restored and daemon reconciled"));
+    assert_eq!(
+        VinpstConfig::from_json_file(&path).expect("restored config"),
+        config
+    );
+}
+
+#[test]
+fn config_reload_failure_reports_daemon_rollback_failure() {
+    let directory = tempfile::tempdir().expect("create temp dir");
+    let path = directory.path().join("config.json");
+    let config = VinpstConfig::bundled_default().expect("bundled config");
+    write_config_file(&config, &path, None).expect("write original config");
+    let document = load_config_document(Some(&path)).expect("load original config");
+    let mut updated = config.clone();
+    updated.global.capture_device = "new-source".to_owned();
+    persist_updated_config(&document, &updated).expect("persist candidate config");
+
+    let mut reload_count = 0;
+    let error = reload_daemon_after_config_save(&document, || {
+        reload_count += 1;
+        Err(format!("reload attempt {reload_count} failed"))
+    })
+    .expect_err("both daemon reloads should fail");
+
+    assert_eq!(reload_count, 2);
+    assert!(error.contains("restoring daemon state also failed: reload attempt 2 failed"));
+    assert_eq!(
+        VinpstConfig::from_json_file(&path).expect("restored config"),
+        config
+    );
+}
+
+#[test]
 fn config_reload_failure_restore_removes_new_document() {
     let directory = tempfile::tempdir().expect("create temp dir");
     let path = directory.path().join("config.json");
@@ -630,6 +726,7 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     assert!(ensure_config_save_allowed(&idle).is_ok());
 
@@ -637,6 +734,7 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
         status: "recording".to_owned(),
         runtime: json!({"active_session": true}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     assert!(ensure_config_save_allowed(&recording).is_err());
 
@@ -644,8 +742,71 @@ fn config_save_guard_requires_idle_daemon_without_active_session() {
         status: "idle".to_owned(),
         runtime: json!({"active_session": true}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     assert!(ensure_config_save_allowed(&inconsistent).is_err());
+}
+
+#[test]
+fn daemon_snapshot_debug_redacts_backend_error_and_endpoints() {
+    let mut backend =
+        AsrBackendState::unavailable("remote", "model", "credential=super-secret backend failure");
+    backend.remote_endpoints = vec!["https://secret-token@example.test/v1".to_owned()];
+    let snapshot = DaemonSnapshot {
+        status: "idle".to_owned(),
+        runtime: json!({"active_session": false}),
+        text_adapters: TextAdapterState::default(),
+        asr_backend: Some(Box::new(backend)),
+    };
+
+    let debug = format!(
+        "{:?}",
+        Message::DaemonLoaded {
+            operation_id: 7,
+            result: Ok(snapshot),
+        }
+    );
+    assert!(debug.contains("last_error_present=true"));
+    assert!(debug.contains("remote_endpoint_count=1"));
+    assert!(!debug.contains("super-secret"));
+    assert!(!debug.contains("secret-token"));
+}
+
+#[test]
+fn app_debug_reports_structure_without_user_or_error_text() {
+    let mut app = crate::test_support::GuiHarness::new();
+    app.filter = "app-filter-secret".to_owned();
+    app.model_filter = "app-model-filter-secret".to_owned();
+    app.operation = OperationState::Failed("app-operation-secret".to_owned());
+    let document = app.config.as_mut().expect("valid config");
+    document
+        .config
+        .llm
+        .providers
+        .push(vinpst_config::LlmProviderConfig {
+            id: "debug-provider".to_owned(),
+            base_url: "https://user:password@example.test/v1?token=app-url-secret".to_owned(),
+            api_key: String::new(),
+            model: Some("debug-model".to_owned()),
+            extra_body: json!({"token": "app-body-secret"}),
+            extra: std::collections::HashMap::new(),
+        });
+
+    let app_ref: &App = &app;
+    let debug = format!("{app_ref:?}");
+
+    assert!(debug.contains("operation_state: \"failed\""));
+    assert!(debug.contains("filter_len"));
+    for secret in [
+        "app-filter-secret",
+        "app-model-filter-secret",
+        "app-operation-secret",
+        "password",
+        "app-url-secret",
+        "app-body-secret",
+    ] {
+        assert!(!debug.contains(secret));
+    }
 }
 
 #[test]
@@ -654,15 +815,13 @@ fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     assert_eq!(
         daemon_state_from_poll(Ok(Some(snapshot.clone()))),
         DaemonLoadState::Ready(snapshot)
     );
-    assert_eq!(
-        daemon_state_from_poll(Ok(None)),
-        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
-    );
+    assert_eq!(daemon_state_from_poll(Ok(None)), DaemonLoadState::Stopped);
     assert_eq!(
         daemon_state_from_poll(Err("session bus unavailable".to_owned())),
         DaemonLoadState::Failed("session bus unavailable".to_owned())
@@ -671,13 +830,14 @@ fn daemon_fallback_state_distinguishes_owner_loss_and_recovery() {
 
 #[test]
 fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
-    let (mut app, _) = App::boot();
+    let mut app = crate::test_support::GuiHarness::new();
     assert_eq!(app.active_daemon_refresh_id, Some(1));
 
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Connected {
         owned: true,
@@ -690,10 +850,7 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
         owned: false,
     }));
     assert_eq!(app.active_daemon_refresh_id, None);
-    assert_eq!(
-        app.daemon,
-        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
-    );
+    assert_eq!(app.daemon, DaemonLoadState::Stopped);
 
     let _ = app.update(Message::DaemonLoaded {
         operation_id: 1,
@@ -703,7 +860,7 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
         operation_id: 2,
         result: Ok(snapshot.clone()),
     });
-    assert!(matches!(app.daemon, DaemonLoadState::Failed(_)));
+    assert_eq!(app.daemon, DaemonLoadState::Stopped);
 
     let task = app.update(Message::DaemonOwnerEvent(DaemonOwnerEvent::Changed {
         owned: true,
@@ -720,11 +877,12 @@ fn daemon_owner_signals_reject_stale_snapshots_and_recover() {
 
 #[test]
 fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
-    let (mut app, _) = App::boot();
+    let mut app = crate::test_support::GuiHarness::new();
     let snapshot = DaemonSnapshot {
         status: "idle".to_owned(),
         runtime: json!({"active_session": false}),
         text_adapters: TextAdapterState::default(),
+        asr_backend: None,
     };
     let _ = app.update(Message::DaemonLoaded {
         operation_id: 1,
@@ -749,15 +907,12 @@ fn daemon_monitor_failure_uses_serialized_non_activating_fallback() {
         result: Ok(None),
     });
     assert_eq!(app.active_daemon_refresh_id, None);
-    assert_eq!(
-        app.daemon,
-        DaemonLoadState::Failed("Daemon is not running; waiting for its D-Bus owner.".to_owned())
-    );
+    assert_eq!(app.daemon, DaemonLoadState::Stopped);
 }
 
 #[test]
 fn model_install_cancel_completion_retains_exact_retry_selector() {
-    let (mut app, _) = App::boot();
+    let mut app = crate::test_support::GuiHarness::new();
     let first_task = app.update(Message::InstallRegistryModel("fixture-short-id".to_owned()));
     assert_eq!(first_task.units(), 1);
     assert!(app.model_install.is_active());

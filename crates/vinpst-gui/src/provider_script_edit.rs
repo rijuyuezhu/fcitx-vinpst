@@ -5,8 +5,8 @@ use std::path::Path;
 use iced::Task;
 use vinpst_config::AsrProviderConfig;
 use vinpst_registry::{
-    ProviderEditorCommand, ProviderScriptEditPlan, ProviderScriptResolutionContext,
-    prepare_provider_script_edit_with,
+    ProviderEditorCommand, ProviderScriptEditError, ProviderScriptEditPlan,
+    ProviderScriptResolutionContext, prepare_provider_script_edit_with,
 };
 
 use crate::{
@@ -72,12 +72,25 @@ fn edit_managed_provider_script(
     let editor =
         ProviderEditorCommand::from_environment(None).map_err(|error| error.to_string())?;
     let plan = prepare_managed_provider_script_edit_with(provider, managed_path, &context, editor)?;
-    let outcome = plan.execute().map_err(|error| error.to_string())?;
+    let outcome = plan
+        .execute()
+        .map_err(|error| provider_script_execute_error(locale, error))?;
     Ok(locale.provider_script_edited(
         &outcome.provider_id,
         &outcome.script_path.display().to_string(),
-        &outcome.editor_argv.join(" "),
     ))
+}
+
+fn provider_script_execute_error(locale: GuiLocale, error: ProviderScriptEditError) -> String {
+    match error {
+        ProviderScriptEditError::LaunchEditor { .. } => {
+            locale.provider_script_editor_launch_failed()
+        }
+        ProviderScriptEditError::EditorFailed { status, .. } => {
+            locale.provider_script_editor_exit_failed(&status)
+        }
+        other => other.to_string(),
+    }
 }
 
 fn prepare_managed_provider_script_edit_with(
@@ -116,6 +129,30 @@ mod tests {
             args: vec![script.display().to_string()],
             env: std::collections::HashMap::new(),
             endpoint: None,
+        }
+    }
+
+    #[test]
+    fn gui_editor_errors_do_not_echo_editor_arguments() {
+        for locale in [GuiLocale::EnUs, GuiLocale::ZhCn] {
+            let launch = provider_script_execute_error(
+                locale,
+                ProviderScriptEditError::LaunchEditor {
+                    editor: "editor --token editor-secret".to_owned(),
+                    message: "spawn failed".to_owned(),
+                },
+            );
+            let exited = provider_script_execute_error(
+                locale,
+                ProviderScriptEditError::EditorFailed {
+                    editor: "editor --token editor-secret".to_owned(),
+                    status: "17".to_owned(),
+                },
+            );
+
+            assert!(!launch.contains("editor-secret"));
+            assert!(!exited.contains("editor-secret"));
+            assert!(exited.contains("17"));
         }
     }
 

@@ -1,6 +1,6 @@
 # CLI overview
 
-`vinpst` is the management and diagnostics command for the daemon, configuration, registries, and managed resources.
+`vinpst` is the management and diagnostics command for the daemon, configuration, and managed resources.
 
 ```sh
 vinpst --help
@@ -8,6 +8,8 @@ vinpst <command> --help
 ```
 
 Most commands that can emit structured data accept `--json`; `-j/--json` is also available as a global option.
+The normal text output is intended for people. Use `--json` when you need transport details, exact paths, maintenance plans, or stable fields for automation.
+Resource tables and mutation messages intentionally omit implementation plumbing such as config-source labels, command/environment contents, fixture roots, internal counters, and D-Bus plans. Human-readable text is not a machine contract.
 
 ## Main command groups
 
@@ -24,8 +26,9 @@ Most commands that can emit structured data accept `--json`; `-j/--json` is also
 | `scene` | Manage post-processing scenes. |
 | `llm` | Manage and test OpenAI-compatible LLM providers. |
 | `adapter` | Manage command text adapters and their daemon processes. |
-| `registry` | Validate registry metadata and inspect installation plans. |
 | `doctor` | Run combined configuration, ASR, audio, activation, and addon diagnostics; `ok` reflects active ASR readiness and `status` distinguishes `ready` from `setup-required`. |
+
+Low-level protocol, registry-validation, package-lifecycle, fixture-path, and test helpers remain callable for project tooling but are intentionally omitted from `--help`. They are not part of the ordinary user workflow.
 
 ## Safe mutation pattern
 
@@ -44,14 +47,16 @@ vinpst scene use my-scene --dry-run --json
 vinpst scene use my-scene --in-place
 ```
 
-Use `--reload-daemon` where provided, or reload/restart the daemon after changing active ASR settings.
+`config set` also accepts `-i/--stdin` for multiline values, for example `printf '%s\n' 'line one' 'line two' | vinpst config set /scenes/definitions/1/prompt --stdin --in-place`. `vinpst config edit` edits the core JSON config by default; `vinpst config edit fcitx` opens the Fcitx frontend INI through the same temporary-file, backup, and atomic-write workflow.
+
+When a command writes ASR settings to the canonical user config, Vinpst asks an already-running daemon to reload automatically. It does not activate a stopped daemon, and writes to `--output` or another config path remain offline. Use `--reload-daemon` only when you intentionally want the explicit model-use reload path.
 
 ## Registry install versus custom entries
 
 The CLI distinguishes managed registry resources from custom configuration:
 
-- `model install`, `provider install`, and `adapter install` resolve registry metadata and publish managed files;
-- `provider add`, `adapter add`, and `llm add` create explicit custom configuration entries.
+- `model install`, `provider install`, and `adapter install` resolve registry metadata and publish managed files; the upstream-compatible `add` spelling remains accepted for all three managed installs;
+- `provider create` and `adapter create` create explicit custom configuration entries, while `provider configure` edits typed provider configuration; `llm add` keeps its upstream configuration-management meaning.
 
 Review the subcommand help before running a mutation. Pre-release Vinpst does not promise command-line compatibility with another project.
 

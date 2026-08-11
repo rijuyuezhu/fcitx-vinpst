@@ -139,6 +139,47 @@ for _ in $(seq 1 100); do
   sleep 0.05
 done
 
+# A stale systemd owner must not be restarted while a recording is active.
+XDG_CONFIG_HOME="${root}/expected/config" \
+  "${root}/expected/bin/vinpst" recording start --json >"${root}/recording-start.json"
+XDG_CONFIG_HOME="${root}/expected/config" \
+  "${root}/expected/bin/vinpst" daemon status --json >"${root}/busy-status.json"
+jq -e '.status == "recording" and .runtime_status.active_session == true' \
+  "${root}/busy-status.json" >/dev/null
+if XDG_CONFIG_HOME="${root}/expected/config" \
+  VINPST_DAEMON_SYSTEMCTL="${root}/systemctl" \
+  VINPST_HANDOFF_OLD_PID="${old_pid}" \
+  VINPST_HANDOFF_SYSTEMCTL_LOG="${root}/systemctl.log" \
+  VINPST_HANDOFF_CONFIG_HOME="${root}/expected/config" \
+  VINPST_HANDOFF_EXPECTED_DAEMON="${root}/expected/bin/vinpst-daemon" \
+  VINPST_HANDOFF_NEW_DAEMON_LOG="${root}/new-daemon.log" \
+  VINPST_HANDOFF_NEW_PID_FILE="${root}/new.pid" \
+    "${root}/expected/bin/vinpst" daemon handoff --json \
+    >"${root}/busy-handoff.json" 2>"${root}/busy-handoff.err"; then
+  echo "busy systemd owner unexpectedly accepted upgrade handoff" >&2
+  exit 1
+fi
+kill -0 "${old_pid}"
+test ! -e "${root}/systemctl.log"
+jq -e '
+  .ok == false
+  and .handoff_strategy == "systemd-daemon-reload-and-restart"
+  and .will_mutate_user_service == false
+  and .will_signal_owner == false
+  and .restart_attempted == false
+  and .restart_performed == false
+  and .systemd_probe.owner_matches_main_pid == true
+  and .systemd_guard.approved == false
+  and .systemd_guard.status_idle == false
+  and .systemd_guard.active_session == true
+  and .service_reload == null
+  and .service_control == null
+  and .verification.status == "systemd-owner-session-guard-rejected"
+' "${root}/busy-handoff.json" >/dev/null
+
+XDG_CONFIG_HOME="${root}/expected/config" \
+  "${root}/expected/bin/vinpst" recording stop --json >"${root}/recording-stop.json"
+
 XDG_CONFIG_HOME="${root}/expected/config" \
 VINPST_DAEMON_SYSTEMCTL="${root}/systemctl" \
 VINPST_HANDOFF_OLD_PID="${old_pid}" \
@@ -318,10 +359,14 @@ for _ in $(seq 1 100); do
   sleep 0.05
 done
 
-XDG_CONFIG_HOME="${root}/expected/config" \
-VINPST_DAEMON_SYSTEMCTL="${root}/systemctl" \
-VINPST_HANDOFF_OLD_PID="${old_pid}" \
-  "${root}/expected/bin/vinpst" daemon handoff --json >"${root}/handoff.json"
+if XDG_CONFIG_HOME="${root}/expected/config" \
+  VINPST_DAEMON_SYSTEMCTL="${root}/systemctl" \
+  VINPST_HANDOFF_OLD_PID="${old_pid}" \
+    "${root}/expected/bin/vinpst" daemon handoff --json \
+    >"${root}/handoff.json" 2>"${root}/handoff.err"; then
+  echo "daemon-reload failure unexpectedly returned success" >&2
+  exit 1
+fi
 kill -0 "${old_pid}"
 INNER
 

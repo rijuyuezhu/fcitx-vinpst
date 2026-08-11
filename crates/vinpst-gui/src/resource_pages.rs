@@ -7,20 +7,64 @@ use iced::{
     widget::{column, container, row, scrollable, text, text_input},
 };
 use vinpst_config::AsrProviderKind;
-use vinpst_registry::InstalledModelInfo;
+use vinpst_protocol::AsrBackendState;
+use vinpst_registry::{InstalledModelInfo, detect_preferred_registry_locale};
 
 use crate::{
     App, GuiLocale, GuiText, Message, model_is_active, model_is_selected_by_active_provider,
-    model_management::{ModelCatalogState, RegistryModelSummary},
+    model_management::{
+        ModelCatalogState, RegistryModelSummary, active_provider_can_use_managed_models,
+    },
     script_management::{managed_adapter_script_path, managed_provider_script_path},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AsrProviderRuntimeProjection<'a> {
+    effective: bool,
+    loading: bool,
+    reload_failed: bool,
+    remote_endpoints: &'a [String],
+}
+
+fn project_asr_provider_runtime<'a>(
+    state: Option<&'a AsrBackendState>,
+    provider_id: &str,
+    requested_model: &str,
+) -> AsrProviderRuntimeProjection<'a> {
+    let Some(state) = state else {
+        return AsrProviderRuntimeProjection {
+            effective: false,
+            loading: false,
+            reload_failed: false,
+            remote_endpoints: &[],
+        };
+    };
+    let target = state.target_provider_id == provider_id;
+    let effective = state.has_effective_backend && state.effective_provider_id == provider_id;
+    let requested_is_effective = effective && target && state.effective_model_id == requested_model;
+    AsrProviderRuntimeProjection {
+        effective,
+        loading: state.reload_in_progress && target && !requested_is_effective,
+        reload_failed: !state.last_error.is_empty() && target,
+        remote_endpoints: if requested_is_effective {
+            state.remote_endpoints.as_slice()
+        } else {
+            &[]
+        },
+    }
+}
 
 impl App {
     pub(super) fn resources_page(&self) -> Element<'_, Message> {
         let busy = self.is_busy();
-        let resource_controls_busy = busy || self.asr_provider_editor.is_some();
+        let resource_controls_busy = busy
+            || self.asr_provider_editor.is_some()
+            || self.adapter_config_editor.is_some()
+            || self.ensure_no_unsaved_config_draft().is_err();
         let mut body = column![
             text(self.locale.text(GuiText::Resources)).size(30),
+            text_input(self.locale.text(GuiText::FilterModels), &self.model_filter,)
+                .on_input(Message::ModelFilterChanged),
             text(self.locale.text(GuiText::ManagedAsrModels)).size(22),
             text(self.locale.text(GuiText::InstalledModels)).size(18),
             self.installed_models_view(resource_controls_busy),
@@ -35,33 +79,42 @@ impl App {
                 ),
             ]
             .spacing(10),
-            text_input(self.locale.text(GuiText::FilterModels), &self.model_filter,)
-                .on_input(Message::ModelFilterChanged),
             self.available_models_view(resource_controls_busy),
             text(self.locale.text(GuiText::ManagedCommandAsrProviders)).size(22),
             self.provider_install_controls(resource_controls_busy),
-            text_input(
-                self.locale.text(GuiText::FilterProvidersAndScenes),
-                &self.filter
-            )
-            .on_input(Message::FilterChanged),
+            text(self.locale.text(GuiText::ManagedTextAdapters)).size(22),
+            self.adapter_install_controls(resource_controls_busy),
         ]
         .spacing(12);
         if let Some(notice) = self.operation_notice() {
             body = body.push(notice);
         }
-        body = body.push(self.configured_asr_resources_view(busy, resource_controls_busy));
         scrollable(body).into()
     }
 
     fn installed_models_view(&self, busy: bool) -> Element<'_, Message> {
         let mut body = column![].spacing(12);
+        let can_select_model = self
+            .config
+            .as_ref()
+            .is_ok_and(|document| active_provider_can_use_managed_models(&document.config));
         match &self.installed_models {
             Ok(models) if models.is_empty() => {
                 body = body.push(text(self.locale.text(GuiText::NoManagedModelsInstalled)));
             }
             Ok(models) => {
+                if self.config.is_ok() && !can_select_model {
+                    body = body.push(text(
+                        self.locale
+                            .text(GuiText::SelectLocalProviderForManagedModel),
+                    ));
+                }
+                let mut visible = 0_usize;
                 for model in models {
+                    if !installed_model_matches_filter(model, self.locale, &self.model_filter) {
+                        continue;
+                    }
+                    visible += 1;
                     let (selected, referenced) =
                         self.config.as_ref().map_or((false, false), |document| {
                             (
@@ -76,13 +129,23 @@ impl App {
                         self.locale,
                         model,
                         selected,
-                        referenced,
-                        busy,
+                        !busy && can_select_model && !selected && !model.is_broken(),
+                        !busy && !referenced,
                     ));
                 }
+                if visible == 0 {
+                    body = body.push(text(self.locale.text(GuiText::NoRegistryModelsAvailable)));
+                }
             }
-            Err(error) => {
-                body = body.push(text(self.locale.installed_model_scan_failed(error)));
+            Err(_) => {
+                body = body.push(
+                    row![
+                        text(self.locale.text(GuiText::CatalogUnavailable)),
+                        keyboard_button(self.locale.text(GuiText::Retry))
+                            .on_press_maybe((!busy).then_some(Message::RefreshInstalledModels)),
+                    ]
+                    .spacing(10),
+                );
             }
         }
         body.into()
@@ -93,8 +156,8 @@ impl App {
             ModelCatalogState::Loading => {
                 text(self.locale.text(GuiText::LoadingModelCatalog)).into()
             }
-            ModelCatalogState::Failed(error) => column![
-                text(error),
+            ModelCatalogState::Failed(_) => column![
+                text(self.locale.text(GuiText::CatalogUnavailable)),
                 keyboard_button(self.locale.text(GuiText::RefreshCatalog))
                     .on_press_maybe((!busy).then_some(Message::RefreshModelCatalog)),
             ]
@@ -125,11 +188,10 @@ impl App {
         }
     }
 
-    fn configured_asr_resources_view(
-        &self,
-        busy: bool,
-        resource_controls_busy: bool,
-    ) -> Element<'_, Message> {
+    pub(super) fn configured_asr_providers_view(&self, busy: bool) -> Element<'_, Message> {
+        let provider_controls_busy = busy
+            || self.asr_provider_editor.is_some()
+            || self.ensure_no_unsaved_config_draft().is_err();
         let mut body = column![].spacing(12);
         match &self.config {
             Ok(document) => {
@@ -139,13 +201,16 @@ impl App {
                             .size(22)
                             .width(Length::Fill),
                         keyboard_button(self.locale.text(GuiText::AddCustomProvider))
-                            .on_press_maybe((!resource_controls_busy).then_some(
+                            .on_press_maybe((!provider_controls_busy).then_some(
                                 Message::AsrProvider(crate::AsrProviderMessage::BeginAdd,)
                             ),),
                     ]
                     .spacing(10),
                 );
-                let filter = self.filter.to_ascii_lowercase();
+                let asr_backend = match &self.daemon {
+                    crate::DaemonLoadState::Ready(snapshot) => snapshot.asr_backend.as_deref(),
+                    _ => None,
+                };
                 for provider in &document.config.asr.providers {
                     let kind = self.locale.text(match provider.kind {
                         AsrProviderKind::Local => GuiText::Local,
@@ -156,25 +221,40 @@ impl App {
                         .model
                         .as_deref()
                         .unwrap_or_else(|| self.locale.text(GuiText::UnselectedModel));
-                    let label = format!("{} · {kind} · {model}", provider.id);
-                    if !label.to_ascii_lowercase().contains(&filter) {
-                        continue;
+                    let configured = provider.id == document.config.asr.active_provider;
+                    let runtime = project_asr_provider_runtime(
+                        asr_backend,
+                        &provider.id,
+                        provider.model.as_deref().unwrap_or(""),
+                    );
+                    let markers = self.locale.asr_provider_markers((
+                        configured,
+                        runtime.effective,
+                        runtime.loading,
+                        runtime.reload_failed,
+                    ));
+                    let mut label = format!("{} · {kind} · {model}", provider.id);
+                    if !markers.is_empty() {
+                        label.push_str(" · ");
+                        label.push_str(&markers.join(", "));
                     }
-                    let active = provider.id == document.config.asr.active_provider;
+                    if !runtime.remote_endpoints.is_empty() {
+                        label.push_str(" · ");
+                        label.push_str(&runtime.remote_endpoints.join(" / "));
+                    }
                     let managed = managed_provider_script_path(provider).is_some();
                     body = body.push(provider_row(
                         self.locale,
                         label,
                         &provider.id,
-                        resource_controls_busy,
+                        provider_controls_busy,
                         managed,
-                        active,
+                        configured,
                     ));
                 }
                 if let Some(editor) = self.asr_provider_editor_view(busy) {
                     body = body.push(editor);
                 }
-                body = body.push(self.scene_management_view(resource_controls_busy));
             }
             Err(error) => body = body.push(text(self.locale.config_error(error))),
         }
@@ -185,12 +265,7 @@ impl App {
         let busy = self.is_busy();
         let adapter_controls_busy =
             busy || self.llm_provider_editor.is_some() || self.adapter_config_editor.is_some();
-        let mut body = column![
-            text(self.locale.text(GuiText::Llm)).size(30),
-            text(self.locale.text(GuiText::ManagedTextAdapters)).size(22),
-            self.adapter_install_controls(adapter_controls_busy),
-        ]
-        .spacing(12);
+        let mut body = column![text(self.locale.text(GuiText::Llm)).size(30)].spacing(12);
         if let Some(notice) = self.operation_notice() {
             body = body.push(notice);
         }
@@ -213,6 +288,7 @@ impl App {
                     ]
                     .spacing(10),
                 );
+                body = body.push(text(self.locale.text(GuiText::AdapterInstallHint)));
                 for adapter in &document.config.llm.adapters {
                     let managed = managed_adapter_script_path(adapter).is_some();
                     body = body.push(adapter_row(
@@ -229,11 +305,46 @@ impl App {
                 if document.config.llm.adapters.is_empty() {
                     body = body.push(text(self.locale.text(GuiText::NoTextAdaptersConfigured)));
                 }
+                body = body.push(
+                    text_input(
+                        self.locale.text(GuiText::FilterProvidersAndScenes),
+                        &self.filter,
+                    )
+                    .on_input(Message::FilterChanged),
+                );
+                body = body.push(self.scene_management_view(adapter_controls_busy));
             }
             Err(error) => body = body.push(text(self.locale.config_error(error))),
         }
         scrollable(body).into()
     }
+}
+
+fn installed_model_matches_filter(
+    model: &InstalledModelInfo,
+    locale: GuiLocale,
+    filter: &str,
+) -> bool {
+    let filter = filter.trim().to_ascii_lowercase();
+    if filter.is_empty() {
+        return true;
+    }
+    let locale_candidates = installed_model_locale_candidates(locale);
+    let title = model.display_title(&locale_candidates);
+    let directory = model.model_dir.file_name().and_then(|name| name.to_str());
+    [
+        Some(model.stable_model_id()),
+        Some(model.model_id.as_str()),
+        title,
+        directory,
+        model.metadata.backend.as_deref(),
+        model.metadata.language.as_deref(),
+        model.metadata.runtime.as_deref(),
+        model.metadata.model_family(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value.to_ascii_lowercase().contains(&filter))
 }
 
 fn registry_model_matches_filter(model: &RegistryModelSummary, filter: &str) -> bool {
@@ -304,7 +415,12 @@ fn registry_model_row(
     }
     details = details.push(text(metadata));
 
-    let action = keyboard_button(locale.text(GuiText::InstallOrUpdate)).on_press_maybe(
+    let action = keyboard_button(locale.text(if installed {
+        GuiText::Update
+    } else {
+        GuiText::Install
+    }))
+    .on_press_maybe(
         (!busy && model.supported)
             .then(|| Message::InstallRegistryModel(model.selector().to_owned())),
     );
@@ -336,16 +452,25 @@ fn format_model_size(bytes: u64) -> String {
     format!("{whole}.{tenth} {unit}")
 }
 
+fn installed_model_locale_candidates(locale: GuiLocale) -> Vec<String> {
+    let preferred = detect_preferred_registry_locale();
+    if preferred == locale.code() {
+        vec![preferred]
+    } else {
+        vec![preferred, locale.code().to_owned()]
+    }
+}
+
 fn installed_model_row(
     locale: GuiLocale,
     model: &InstalledModelInfo,
     selected: bool,
-    referenced: bool,
-    busy: bool,
+    use_enabled: bool,
+    remove_enabled: bool,
 ) -> Element<'static, Message> {
-    let locale_code = locale.code().to_owned();
+    let locale_candidates = installed_model_locale_candidates(locale);
     let title = model
-        .display_title(&[locale_code])
+        .display_title(&locale_candidates)
         .unwrap_or_else(|| model.stable_model_id());
     let directory = model
         .model_dir
@@ -358,12 +483,11 @@ fn installed_model_row(
         keyboard_button(locale.text(GuiText::Details))
             .on_press(Message::SelectInstalledModelDetail(model.model_dir.clone())),
         keyboard_button(locale.text(GuiText::Use)).on_press_maybe(
-            (!busy && !selected).then_some(Message::UseInstalledModel(model.model_dir.clone())),
+            use_enabled.then_some(Message::UseInstalledModel(model.model_dir.clone())),
         ),
-        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
-            (!busy && !referenced)
-                .then_some(Message::RemoveInstalledModel(model.model_dir.clone())),
-        ),
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(remove_enabled.then_some(
+            Message::RequestRemoveInstalledModel(model.model_dir.clone())
+        ),),
     ]
     .spacing(10)
     .into()
@@ -387,15 +511,15 @@ fn provider_row(
         keyboard_button(locale.text(GuiText::EditScript)).on_press_maybe(
             (!busy && managed).then_some(Message::EditProviderScript(provider_id.to_owned())),
         ),
-        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy && !active).then(
-            || {
-                if managed {
-                    Message::RemoveProvider(provider_id.to_owned())
-                } else {
-                    Message::AsrProvider(crate::AsrProviderMessage::Remove(provider_id.to_owned()))
-                }
+        keyboard_button(locale.text(GuiText::Use)).on_press_maybe(
+            (!busy && !active).then_some(Message::UseAsrProvider(provider_id.to_owned())),
+        ),
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy && !active).then_some(
+            Message::RequestRemoveAsrProvider {
+                id: provider_id.to_owned(),
+                managed,
             }
-        )),
+        ),),
     ]
     .spacing(10)
     .into()
@@ -429,13 +553,12 @@ fn adapter_row(
                 crate::AdapterRuntimeMessage::Stop(stop_id),
             )),
         ),
-        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy).then(|| {
-            if managed {
-                Message::RemoveAdapter(adapter_id.to_owned())
-            } else {
-                Message::AdapterConfig(crate::AdapterConfigMessage::Remove(adapter_id.to_owned()))
+        keyboard_button(locale.text(GuiText::Remove)).on_press_maybe((!busy).then_some(
+            Message::RequestRemoveTextAdapter {
+                id: adapter_id.to_owned(),
+                managed,
             }
-        })),
+        ),),
     ]
     .spacing(10)
     .into()
@@ -443,6 +566,12 @@ fn adapter_row(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, path::PathBuf};
+
+    use vinpst_registry::{
+        InstalledModelDisplayMetadata, InstalledModelState, LiveVinpstModelMetadata,
+    };
+
     use super::*;
 
     fn fixture_model() -> RegistryModelSummary {
@@ -460,6 +589,35 @@ mod tests {
         }
     }
 
+    fn fixture_installed_model() -> InstalledModelInfo {
+        InstalledModelInfo {
+            model_id: "model.test.zh.streaming".to_owned(),
+            model_dir: PathBuf::from("/managed/models/zh-stream"),
+            metadata_path: PathBuf::from("/managed/models/zh-stream/vinpst-model.json"),
+            metadata: LiveVinpstModelMetadata {
+                backend: Some("sherpa-online".to_owned()),
+                language: Some("zh".to_owned()),
+                size_bytes: Some(21_264_113),
+                supports_hotwords: true,
+                runtime: Some("online".to_owned()),
+                family: Some("zipformer2_ctc".to_owned()),
+                model_type: None,
+                recognizer: None,
+                model: None,
+                display: Some(InstalledModelDisplayMetadata {
+                    registry_id: Some("model.test.zh.streaming".to_owned()),
+                    fallback_title: Some("Chinese Streaming Model".to_owned()),
+                    localized_titles: BTreeMap::new(),
+                }),
+                extra: BTreeMap::new(),
+            },
+            state: InstalledModelState::Installed,
+            metadata_error: None,
+            files: vec!["encoder.onnx".to_owned()],
+            file_count: 1,
+        }
+    }
+
     #[test]
     fn registry_model_filter_searches_user_visible_metadata_and_ids() {
         let model = fixture_model();
@@ -471,10 +629,83 @@ mod tests {
     }
 
     #[test]
+    fn installed_model_filter_searches_display_and_runtime_metadata() {
+        let model = fixture_installed_model();
+        assert!(installed_model_matches_filter(&model, GuiLocale::EnUs, ""));
+        assert!(installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "Chinese Streaming"
+        ));
+        assert!(installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "sherpa-online"
+        ));
+        assert!(installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "ZIPFORMER"
+        ));
+        assert!(installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "zh-stream"
+        ));
+        assert!(!installed_model_matches_filter(
+            &model,
+            GuiLocale::EnUs,
+            "english-only"
+        ));
+    }
+
+    #[test]
     fn registry_model_sizes_use_stable_binary_units_without_float_rounding() {
         assert_eq!(format_model_size(999), "999 B");
         assert_eq!(format_model_size(1536), "1.5 KiB");
         assert_eq!(format_model_size(21_264_113), "20.2 MiB");
         assert_eq!(format_model_size(5 * 1024 * 1024 * 1024), "5.0 GiB");
+    }
+
+    #[test]
+    fn asr_runtime_projection_distinguishes_loading_applied_and_failed_fallback() {
+        let mut state = AsrBackendState::ready("remote", "old-model");
+        state.target_provider_id = "remote".to_owned();
+        state.target_model_id = "new-model".to_owned();
+        state.reload_in_progress = true;
+        state.remote_endpoints = vec!["https://asr.example.test/v1".to_owned()];
+
+        let loading = project_asr_provider_runtime(Some(&state), "remote", "new-model");
+        assert!(loading.effective);
+        assert!(loading.loading);
+        assert!(!loading.reload_failed);
+        assert!(loading.remote_endpoints.is_empty());
+
+        state.reload_in_progress = false;
+        state.effective_model_id = "new-model".to_owned();
+        let applied = project_asr_provider_runtime(Some(&state), "remote", "new-model");
+        assert!(applied.effective);
+        assert!(!applied.loading);
+        assert!(!applied.reload_failed);
+        assert_eq!(applied.remote_endpoints, ["https://asr.example.test/v1"]);
+
+        state.target_provider_id = "replacement".to_owned();
+        state.target_model_id = "replacement-model".to_owned();
+        state.effective_provider_id = "previous".to_owned();
+        state.effective_model_id = "old-model".to_owned();
+        state.last_error = "fixture reload failure".to_owned();
+        state.remote_endpoints = vec!["https://replacement.example.test/v1".to_owned()];
+
+        let failed = project_asr_provider_runtime(Some(&state), "replacement", "replacement-model");
+        assert!(!failed.effective);
+        assert!(!failed.loading);
+        assert!(failed.reload_failed);
+        assert!(failed.remote_endpoints.is_empty());
+
+        let previous = project_asr_provider_runtime(Some(&state), "previous", "old-model");
+        assert!(previous.effective);
+        assert!(!previous.loading);
+        assert!(!previous.reload_failed);
+        assert!(previous.remote_endpoints.is_empty());
     }
 }

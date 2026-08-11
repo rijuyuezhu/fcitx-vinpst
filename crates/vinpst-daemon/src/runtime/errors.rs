@@ -55,16 +55,7 @@ pub enum RuntimeError {
     /// The requested scene is not configured.
     #[error("scene `{0}` is not configured")]
     UnknownScene(String),
-    /// Config serialization failed before persistence.
-    #[error("failed to serialize config: {0}")]
-    SerializeConfig(#[source] serde_json::Error),
-    /// Config persistence failed.
-    #[error("failed to persist config `{path}`: {source}")]
-    PersistConfig {
-        /// Path being written or published.
-        path: std::path::PathBuf,
-        /// Underlying filesystem failure.
-        #[source]
-        source: std::io::Error,
-    },
+    /// Validated atomic config persistence failed.
+    #[error("failed to persist config: {0}")]
+    PersistConfig(#[source] vinpst_config::ConfigWriteError),
 }

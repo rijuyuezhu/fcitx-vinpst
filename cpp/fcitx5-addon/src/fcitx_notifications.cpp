@@ -1,6 +1,8 @@
 #include "vinpst_fcitx_bridge/fcitx_notifications.h"
 
 #include "vinpst_fcitx_bridge/fcitx_i18n.h"
+#include "vinpst_fcitx_bridge/rust_string.h"
+#include "vinpst_fcitx_ffi.h"
 
 #include <fcitx/addonmanager.h>
 #include <fcitx/instance.h>
@@ -32,6 +34,30 @@ FrontendNotification BuildFrontendNotification(FrontendNotificationKind kind,
     break;
   }
   return notification;
+}
+
+std::pair<FrontendNotificationKind, std::string>
+PlanStructuredDaemonNotification(std::string_view code, std::string_view subject,
+                                 std::string_view detail,
+                                 std::string_view raw_message) {
+  const VinpstFcitxDaemonNotificationView notification{
+      .code = ToRustStringView(code),
+      .subject = ToRustStringView(subject),
+      .detail = ToRustStringView(detail),
+      .raw = ToRustStringView(raw_message),
+  };
+  VinpstFcitxDaemonSignalPlanView plan{};
+  if (vinpst_fcitx_daemon_notification_plan(&notification, &plan) == 0) {
+    return {FrontendNotificationKind::Error, FrontendText("Unknown error.")};
+  }
+  const auto kind = plan.kind == VINPST_FCITX_DAEMON_SIGNAL_PLAN_NOTIFICATION_INFO
+                        ? FrontendNotificationKind::Info
+                        : FrontendNotificationKind::Error;
+  auto text = CopyRustString(plan.text);
+  if (plan.translate != 0) {
+    text = FrontendText(text);
+  }
+  return {kind, std::move(text)};
 }
 
 bool SendFrontendNotification(fcitx::Instance *instance,

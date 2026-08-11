@@ -33,8 +33,8 @@ int main() {
   fcitx::KeyEvent asr_press(nullptr, fcitx::Key(FcitxKey_F8), false);
   assert(policy.Classify(asr_press) == FcitxTriggerAction::ShowAsrMenu);
 
-  const FcitxKeyTriggerPolicy shift_policy{{fcitx::Key(FcitxKey_Shift_R)},
-                                           {fcitx::Key(FcitxKey_F9)}};
+  const FcitxKeyTriggerPolicy shift_policy{
+      {fcitx::Key(FcitxKey_Shift_R)}, {fcitx::Key(FcitxKey_F9)}, {}, {}};
   assert(shift_policy.Classify(shift_release) == FcitxTriggerAction::StopNormal);
   fcitx::KeyEvent shift_press(nullptr, fcitx::Key(FcitxKey_Shift_R), false);
   assert(shift_policy.Classify(shift_press) == FcitxTriggerAction::StartNormal);
@@ -44,6 +44,18 @@ int main() {
   fcitx::KeyEvent custom_command_press(nullptr, fcitx::Key(FcitxKey_F9), false);
   assert(shift_policy.Classify(custom_command_press) ==
          FcitxTriggerAction::StartCommand);
+  const FcitxKeyTriggerPolicy scene_overlap{{fcitx::Key(FcitxKey_F6)},
+                                            {fcitx::Key(FcitxKey_F7)},
+                                            {fcitx::Key(FcitxKey_F6)},
+                                            {}};
+  fcitx::KeyEvent overlap_press(nullptr, fcitx::Key(FcitxKey_F6), false);
+  assert(scene_overlap.Classify(overlap_press) == FcitxTriggerAction::ShowSceneMenu);
+
+  const FcitxKeyTriggerPolicy asr_overlap{{fcitx::Key(FcitxKey_F6)},
+                                          {fcitx::Key(FcitxKey_F6)},
+                                          {fcitx::Key(FcitxKey_F6)},
+                                          {fcitx::Key(FcitxKey_F6)}};
+  assert(asr_overlap.Classify(overlap_press) == FcitxTriggerAction::ShowAsrMenu);
 
   const FcitxKeyTriggerPolicy multi_policy{
       {fcitx::Key(FcitxKey_F5), fcitx::Key(FcitxKey_F6)},

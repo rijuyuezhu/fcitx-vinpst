@@ -1,10 +1,12 @@
 use super::catalog::load_live_provider_registry;
 use super::{
-    AsrProviderKind, BTreeMap, Context, LiveScriptKind, ProviderAddOutcome, ProviderAddRequest,
-    ProviderRemoveOutcome, ProviderRemoveRequest, ProviderUseOutcome, ProviderUseRequest,
-    VinpstConfig, config_set_write_target, default_config_path, load_config_json,
-    validate_config_json_value, write_config_set_document,
+    AsrProviderKind, AsrReloadAfterWrite, BTreeMap, Context, LiveScriptKind, ProviderAddOutcome,
+    ProviderAddRequest, ProviderRemoveOutcome, ProviderRemoveRequest, ProviderUseOutcome,
+    ProviderUseRequest, VinpstConfig, config_set_write_target, default_config_path,
+    load_config_json, reload_asr_backend_after_canonical_write, validate_config_json_value,
+    write_config_set_document,
 };
+use crate::config_io::ConfigSetWriteTarget;
 
 pub(super) fn print_provider_add(request: ProviderAddRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
@@ -56,9 +58,11 @@ fn run_provider_add(request: &ProviderAddRequest<'_>) -> anyhow::Result<Provider
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
 
     Ok(ProviderAddOutcome {
@@ -74,6 +78,7 @@ fn run_provider_add(request: &ProviderAddRequest<'_>) -> anyhow::Result<Provider
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -165,6 +170,7 @@ fn provider_add_outcome_json(outcome: &ProviderAddOutcome) -> serde_json::Value 
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst provider list to verify configured ASR providers",
             "run vinpst provider use <id> to activate the new provider",
@@ -174,25 +180,22 @@ fn provider_add_outcome_json(outcome: &ProviderAddOutcome) -> serde_json::Value 
 }
 
 fn print_provider_add_text(outcome: &ProviderAddOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("provider_id: {}", outcome.provider_id);
-    println!("provider_type: {}", outcome.provider_type);
-    println!("active_provider: {}", outcome.active_provider);
-    println!("before_provider_count: {}", outcome.before_provider_count);
-    println!("after_provider_count: {}", outcome.after_provider_count);
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
+    let preview = format!(
+        "Would add ASR provider `{}` ({}).",
+        outcome.provider_id, outcome.provider_type
+    );
+    let applied = format!(
+        "Added ASR provider `{}` ({}).",
+        outcome.provider_id, outcome.provider_type
+    );
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
+    print_runtime_reload(&outcome.runtime_reload);
 }
 
 pub(super) fn print_provider_remove(request: ProviderRemoveRequest<'_>) -> anyhow::Result<()> {
@@ -285,9 +288,11 @@ fn run_provider_remove(
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
 
     Ok(ProviderRemoveOutcome {
@@ -307,6 +312,7 @@ fn run_provider_remove(
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -326,6 +332,7 @@ fn provider_remove_outcome_json(outcome: &ProviderRemoveOutcome) -> serde_json::
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst provider list to verify configured ASR providers",
             "run vinpst asr-state to inspect the active provider runtime readiness",
@@ -335,25 +342,19 @@ fn provider_remove_outcome_json(outcome: &ProviderRemoveOutcome) -> serde_json::
 }
 
 fn print_provider_remove_text(outcome: &ProviderRemoveOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("removed_provider_id: {}", outcome.removed_provider_id);
-    println!("removed_provider_type: {}", outcome.removed_provider_type);
-    println!("active_provider: {}", outcome.active_provider);
-    println!("before_provider_count: {}", outcome.before_provider_count);
-    println!("after_provider_count: {}", outcome.after_provider_count);
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
+    let preview = format!(
+        "Would remove ASR provider `{}`.",
+        outcome.removed_provider_id
+    );
+    let applied = format!("Removed ASR provider `{}`.", outcome.removed_provider_id);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
+    print_runtime_reload(&outcome.runtime_reload);
 }
 
 pub(super) fn print_provider_use(request: ProviderUseRequest<'_>) -> anyhow::Result<()> {
@@ -401,9 +402,11 @@ fn run_provider_use(request: &ProviderUseRequest<'_>) -> anyhow::Result<Provider
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
 
     Ok(ProviderUseOutcome {
@@ -417,6 +420,7 @@ fn run_provider_use(request: &ProviderUseRequest<'_>) -> anyhow::Result<Provider
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -442,6 +446,7 @@ fn provider_use_outcome_json(outcome: &ProviderUseOutcome) -> serde_json::Value 
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst provider list to verify the active provider",
             "run vinpst asr-state to inspect the selected provider runtime readiness",
@@ -451,23 +456,35 @@ fn provider_use_outcome_json(outcome: &ProviderUseOutcome) -> serde_json::Value 
 }
 
 fn print_provider_use_text(outcome: &ProviderUseOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
+    let preview = format!("Would select ASR provider `{}`.", outcome.after);
+    let applied = format!("Selected ASR provider `{}`.", outcome.after);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
+    print_runtime_reload(&outcome.runtime_reload);
+}
+
+pub(super) fn reload_after_canonical_provider_write(
+    write_target: &ConfigSetWriteTarget,
+    canonical_config_path: &std::path::Path,
+) -> AsrReloadAfterWrite {
+    let output_path = write_target.output_path();
+    let reload =
+        reload_asr_backend_after_canonical_write(output_path.as_deref(), canonical_config_path);
+    if let Some(warning) = reload.warning() {
+        eprintln!("Warning: {warning}");
     }
-    println!("before: {}", outcome.before);
-    println!("after: {}", outcome.after);
-    println!("provider_type: {}", outcome.provider_type);
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
+    reload
+}
+
+fn print_runtime_reload(runtime_reload: &AsrReloadAfterWrite) {
+    if runtime_reload.reloaded() {
+        println!("Reloaded the ASR backend.");
     }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 pub(super) fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {
@@ -475,13 +492,5 @@ pub(super) fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {
         AsrProviderKind::Local => "local",
         AsrProviderKind::Remote => "remote",
         AsrProviderKind::Command => "command",
-    }
-}
-
-pub(super) fn configured_label(value: Option<&str>) -> &'static str {
-    if value.is_some_and(|value| !value.trim().is_empty()) {
-        "yes"
-    } else {
-        "no"
     }
 }

@@ -5,7 +5,7 @@ mod common;
 use common::{assert_json_success, assert_stdout_success, vinpst_command, workspace_file};
 
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{PermissionsExt, symlink};
 
 fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
@@ -262,6 +262,44 @@ fn config_set_dry_run_json_validates_without_writing() {
 }
 
 #[test]
+fn config_set_stdin_preserves_frozen_multiline_input_semantics() {
+    let root = unique_temp_dir("vinpst-cli-config-set-stdin");
+    let config_path = copy_default_config(&root);
+
+    let mut child = vinpst_command()
+        .args([
+            "config",
+            "set",
+            "/scenes/definitions/1/prompt",
+            "-i",
+            "--config",
+        ])
+        .arg(&config_path)
+        .args(["--in-place", "--json"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn vinpst config set --stdin");
+    std::io::Write::write_all(
+        child.stdin.as_mut().expect("stdin pipe"),
+        b"first prompt line\nsecond prompt line\n",
+    )
+    .expect("write config value to stdin");
+    let output = child
+        .wait_with_output()
+        .expect("wait for config set --stdin");
+
+    let value = assert_json_success(output, "config set --stdin json");
+    assert_eq!(value["raw_value"], "first prompt line\nsecond prompt line");
+    assert_eq!(value["after"], "first prompt line\nsecond prompt line");
+    assert_eq!(
+        read_json(&config_path)["scenes"]["definitions"][1]["prompt"],
+        "first prompt line\nsecond prompt line"
+    );
+}
+
+#[test]
 fn config_set_string_flag_preserves_json_looking_value_as_string() {
     let root = unique_temp_dir("vinpst-cli-config-set-string");
     let config_path = copy_default_config(&root);
@@ -307,9 +345,19 @@ fn config_set_string_flag_text_reports_force_string() {
         .expect("run vinpst config set --string dry-run text");
 
     let stdout = assert_stdout_success(output, "config set --string dry-run text");
-    assert!(stdout.contains("force_string: true"));
-    assert!(stdout.contains("parsed_value_kind: string"));
-    assert!(stdout.contains("after: true"));
+    assert!(stdout.contains("Would update config `/global/capture_device`."));
+    for internal in [
+        "force_string:",
+        "parsed_value_kind:",
+        "before:",
+        "after:",
+        "dry_run:",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal config detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -396,6 +444,46 @@ fn config_set_in_place_writes_backup() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn config_set_in_place_preserves_relative_config_symlink() {
+    let root = unique_temp_dir("vinpst-cli-config-set-symlink");
+    let dotfiles = root.join("dotfiles");
+    std::fs::create_dir_all(&dotfiles).expect("create dotfiles directory");
+    let target_path = dotfiles.join("config.json");
+    std::fs::copy(workspace_file("data/default-config.json"), &target_path)
+        .expect("seed real config target");
+    let link_path = root.join("config.json");
+    symlink("dotfiles/config.json", &link_path).expect("create relative config symlink");
+    let backup_path = root.join("config.json.bak");
+    let original = std::fs::read_to_string(&target_path).expect("read original target");
+
+    let output = vinpst_command()
+        .args(["config", "set", "/asr/normalize_audio", "false", "--config"])
+        .arg(&link_path)
+        .args(["--in-place", "--json"])
+        .output()
+        .expect("run config set through symlink");
+
+    let value = assert_json_success(output, "config set symlink json");
+    assert_eq!(value["wrote_config"], true);
+    assert!(
+        std::fs::symlink_metadata(&link_path)
+            .expect("config link metadata")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        std::fs::read_link(&link_path).expect("read config symlink"),
+        std::path::PathBuf::from("dotfiles/config.json")
+    );
+    assert_eq!(read_json(&target_path)["asr"]["normalize_audio"], false);
+    assert_eq!(
+        std::fs::read_to_string(&backup_path).expect("read symlink backup"),
+        original
+    );
+}
+
 #[test]
 fn config_set_rejects_invalid_updated_config() {
     let root = unique_temp_dir("vinpst-cli-config-set-invalid");
@@ -467,7 +555,15 @@ fn config_edit_dry_run_json_plans_default_user_config_without_writes() {
     let root = unique_temp_dir("vinpst-cli-config-edit-dry-run");
     let config_home = root.join("config-home");
     let output = vinpst_command()
-        .args(["config", "edit", "--dry-run", "--editor", "true", "--json"])
+        .args([
+            "config",
+            "edit",
+            "core",
+            "--dry-run",
+            "--editor",
+            "true",
+            "--json",
+        ])
         .env("XDG_CONFIG_HOME", &config_home)
         .env("XDG_DATA_HOME", root.join("data-home"))
         .env("XDG_CACHE_HOME", root.join("cache-home"))
@@ -493,6 +589,134 @@ fn config_edit_dry_run_json_plans_default_user_config_without_writes() {
     assert!(
         !config_home.exists(),
         "dry-run should not create config home"
+    );
+}
+
+#[test]
+fn config_edit_uses_visual_before_editor_and_preserves_quoted_args() {
+    let root = unique_temp_dir("vinpst-cli-config-edit-editor-priority");
+    let config_home = root.join("config-home");
+    let output = vinpst_command()
+        .args(["config", "edit", "core", "--dry-run", "--json"])
+        .env_remove("VINPST_CONFIG_EDITOR")
+        .env("VISUAL", r#"visual-editor --wait "two words""#)
+        .env("EDITOR", "wrong-editor")
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_DATA_HOME", root.join("data-home"))
+        .env("XDG_CACHE_HOME", root.join("cache-home"))
+        .env("HOME", root.join("home"))
+        .output()
+        .expect("run vinpst config edit with VISUAL");
+
+    let value = assert_json_success(output, "config edit VISUAL priority json");
+    assert_eq!(
+        value["editor_argv"],
+        serde_json::json!(["visual-editor", "--wait", "two words"])
+    );
+    assert!(
+        !config_home.exists(),
+        "dry-run should not create config home"
+    );
+}
+
+#[test]
+fn config_edit_fcitx_uses_xdg_target_and_safe_backup() {
+    let root = unique_temp_dir("vinpst-cli-config-edit-fcitx");
+    let config_home = root.join("config-home");
+    let config_path = config_home.join("fcitx5/conf/vinpst.conf");
+    std::fs::create_dir_all(config_path.parent().expect("fcitx config parent"))
+        .expect("create Fcitx config parent");
+    let original = "TriggerMode=Both\n";
+    std::fs::write(&config_path, original).expect("write Fcitx config");
+    let editor = write_editor_script(
+        &root,
+        "edit_fcitx.py",
+        r#"
+import sys
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write("TriggerMode=Hold\n")
+"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "edit", "fcitx", "--editor"])
+        .arg(format!("python3 {}", editor.display()))
+        .arg("--json")
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("HOME", root.join("home"))
+        .output()
+        .expect("run vinpst config edit fcitx");
+
+    let value = assert_json_success(output, "config edit fcitx json");
+    assert_eq!(value["target"], "fcitx");
+    assert_eq!(value["config_path"], config_path.to_string_lossy().as_ref());
+    assert_eq!(value["changed"], true);
+    assert_eq!(value["wrote_config"], true);
+    assert_eq!(
+        std::fs::read_to_string(&config_path).expect("read edited Fcitx config"),
+        "TriggerMode=Hold\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(config_path.with_extension("conf.bak"))
+            .expect("read Fcitx config backup"),
+        original
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn config_edit_fcitx_preserves_relative_symlink_target() {
+    let root = unique_temp_dir("vinpst-cli-config-edit-fcitx-symlink");
+    let config_home = root.join("config-home");
+    let config_path = config_home.join("fcitx5/conf/vinpst.conf");
+    std::fs::create_dir_all(config_path.parent().expect("fcitx config parent"))
+        .expect("create Fcitx config parent");
+    let dotfiles = root.join("dotfiles");
+    std::fs::create_dir_all(&dotfiles).expect("create dotfiles directory");
+    let target_path = dotfiles.join("vinpst.conf");
+    let original = "TriggerMode=Both\n";
+    std::fs::write(&target_path, original).expect("write real Fcitx target");
+    let relative_target = std::path::Path::new("../../../dotfiles/vinpst.conf");
+    symlink(relative_target, &config_path).expect("create Fcitx config symlink");
+    let editor = write_editor_script(
+        &root,
+        "edit_fcitx_symlink.py",
+        r#"
+import sys
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write("TriggerMode=Hold\n")
+"#,
+    );
+
+    let output = vinpst_command()
+        .args(["config", "edit", "fcitx", "--editor"])
+        .arg(format!("python3 {}", editor.display()))
+        .arg("--json")
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("HOME", root.join("home"))
+        .output()
+        .expect("run Fcitx config edit through symlink");
+
+    let value = assert_json_success(output, "config edit fcitx symlink json");
+    assert_eq!(value["wrote_config"], true);
+    assert!(
+        std::fs::symlink_metadata(&config_path)
+            .expect("Fcitx config link metadata")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        std::fs::read_link(&config_path).expect("read Fcitx config symlink"),
+        relative_target
+    );
+    assert_eq!(
+        std::fs::read_to_string(&target_path).expect("read edited Fcitx target"),
+        "TriggerMode=Hold\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(config_path.with_extension("conf.bak"))
+            .expect("read Fcitx symlink-entry backup"),
+        original
     );
 }
 

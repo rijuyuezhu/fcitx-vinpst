@@ -4,7 +4,7 @@ use std::{env, path::PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use vinpst_config::VadConfig;
+use vinpst_config::{VadConfig, user_paths};
 
 const SILERO_VAD_FILE_NAME: &str = "silero_vad.onnx";
 const DEVELOPMENT_VAD_DIR: Option<&str> = option_env!("VINPST_SHERPA_VAD_DEVELOPMENT_DIR");
@@ -128,19 +128,10 @@ fn resolve_silero_model() -> Option<ResolvedSileroModel> {
         );
     }
 
-    if let Some(data_home) = env::var_os("XDG_DATA_HOME") {
-        if let Some(path) = regular_file(
-            PathBuf::from(data_home)
-                .join("fcitx-vinpst/vad")
-                .join(SILERO_VAD_FILE_NAME),
-            SherpaOnnxVadModelSource::UserData,
-        ) {
-            return Some(path);
-        }
-    } else if let Some(home) = env::var_os("HOME")
+    if let Some(data_home) = user_paths::user_data_home()
         && let Some(path) = regular_file(
-            PathBuf::from(home)
-                .join(".local/share/fcitx-vinpst/vad")
+            data_home
+                .join("fcitx-vinpst/vad")
                 .join(SILERO_VAD_FILE_NAME),
             SherpaOnnxVadModelSource::UserData,
         )
@@ -325,6 +316,17 @@ mod tests {
         let resolved = development_silero_model().expect("test profile development VAD asset");
         assert_eq!(resolved.source, SherpaOnnxVadModelSource::DevelopmentAsset);
         assert!(resolved.path.is_file());
+    }
+
+    #[test]
+    fn default_vad_plan_matches_upstream_silero_parameters() {
+        let plan = SherpaOnnxVadPlan::resolve(&VadConfig::default())
+            .expect("test profile should resolve the development VAD asset");
+
+        assert!((plan.threshold - 0.45).abs() < f32::EPSILON);
+        assert!((plan.min_speech_duration - 0.15).abs() < f32::EPSILON);
+        assert!((plan.min_silence_duration - 0.5).abs() < f32::EPSILON);
+        assert_eq!(plan.speech_pad_ms, 300);
     }
 
     #[test]

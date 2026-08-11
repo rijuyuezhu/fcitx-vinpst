@@ -3,17 +3,21 @@
 use std::{
     fmt,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use vinpst_config::{
     COMMAND_SCENE_ID, LlmProviderConfig, RAW_SCENE_ID, SceneDefinition, redact_url_for_diagnostics,
 };
 use vinpst_http::{
-    MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError, blocking_client_from_environment,
-    read_provider_response_text, reqwest_error_category,
+    HttpClientError, MAX_PROVIDER_RESPONSE_BYTES, ResponseBodyError,
+    blocking_client_from_environment_with_connect_timeout,
+    client_from_environment_with_connect_timeout, read_provider_response_text,
+    reqwest_error_category,
 };
 use vinpst_protocol::{Candidate, CandidateSource, RecognitionPayload};
 
+use crate::payload::{normal_mode_payload, trim_ascii_whitespace};
 use crate::prompt::{
     build_constraints_suffix, render_legacy_prompt_placeholders_with_context, wrap_xml_block,
 };
@@ -21,11 +25,13 @@ use crate::{
     PromptContext, has_legacy_prompt_interpolation, is_prompt_file_uri, load_prompt_file_uri,
 };
 use crate::{
-    TextAdapter, TextError, TextProcessor, TextRequest, command_mode_payload,
+    TextAdapter, TextError, TextProcessReport, TextProcessor, TextRequest, command_mode_payload,
     load_recent_input_context_prefix, scene_needs_postprocessing,
 };
 
 const OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH: &str = "/chat/completions";
+const OPENAI_COMPATIBLE_MODELS_PATH: &str = "/models";
+const OPENAI_COMPATIBLE_MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
 const OPENAI_COMPATIBLE_JSON_CONTENT_TYPE_HEADER: (&str, &str) =
     ("Content-Type", "application/json");
 const OPENAI_COMPATIBLE_AUTHORIZATION_HEADER: &str = "Authorization";
@@ -38,29 +44,109 @@ const OPENAI_COMPATIBLE_BEARER_PREFIX: &str = "Bearer ";
 /// removed before appending exactly one path separator.
 #[must_use]
 pub fn build_openai_compatible_chat_url(base_url: &str) -> Option<String> {
+    build_openai_compatible_endpoint_url(base_url, OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH)
+}
+
+/// Builds the OpenAI-compatible model-list endpoint URL used by the management UI.
+#[must_use]
+pub fn build_openai_compatible_models_url(base_url: &str) -> Option<String> {
+    build_openai_compatible_endpoint_url(base_url, OPENAI_COMPATIBLE_MODELS_PATH)
+}
+
+fn build_openai_compatible_endpoint_url(base_url: &str, suffix: &str) -> Option<String> {
     if base_url.is_empty() {
         return None;
     }
     if let Ok(mut url) = reqwest::Url::parse(base_url) {
-        if !url
-            .path()
-            .trim_end_matches('/')
-            .ends_with(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH)
-        {
-            let path = url.path().trim_end_matches('/');
-            url.set_path(&format!("{path}{OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH}"));
+        let path = url.path().trim_end_matches('/').to_owned();
+        if path.ends_with(suffix) {
+            if url.path() != path {
+                url.set_path(&path);
+            }
+        } else {
+            url.set_path(&format!("{path}{suffix}"));
         }
         return Some(url.to_string());
     }
-    if base_url.ends_with(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH) {
+    if base_url.ends_with(suffix) {
         return Some(base_url.to_owned());
     }
     let mut url = base_url.to_owned();
     while url.ends_with('/') {
         url.pop();
     }
-    url.push_str(OPENAI_COMPATIBLE_CHAT_COMPLETIONS_PATH);
+    url.push_str(suffix);
     Some(url)
+}
+
+/// Stable, secret-free failures from OpenAI-compatible model discovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum OpenAiModelDiscoveryError {
+    /// No requestable base URL was configured.
+    #[error("provider base URL is empty")]
+    MissingBaseUrl,
+    /// The shared provider client could not be constructed.
+    #[error("HTTP client setup failed")]
+    Client(#[from] HttpClientError),
+    /// The GET request failed before a response was available.
+    #[error("HTTP request {0}")]
+    Request(&'static str),
+    /// The endpoint returned a non-success status.
+    #[error("HTTP endpoint returned status {0}")]
+    Status(u16),
+    /// The bounded response body could not be read.
+    #[error("HTTP response body failed: {0}")]
+    Body(#[from] ResponseBodyError),
+    /// The response was not valid JSON.
+    #[error("HTTP response is not valid JSON")]
+    InvalidJson,
+}
+
+/// Discovers OpenAI-compatible model ids from one provider.
+pub fn discover_openai_compatible_model_ids(
+    base_url: &str,
+    api_key: &str,
+) -> Result<Vec<String>, OpenAiModelDiscoveryError> {
+    let url = build_openai_compatible_models_url(base_url)
+        .ok_or(OpenAiModelDiscoveryError::MissingBaseUrl)?;
+    let client = blocking_client_from_environment_with_connect_timeout(
+        OPENAI_COMPATIBLE_MODEL_DISCOVERY_TIMEOUT,
+    )?;
+    let mut request = client
+        .get(url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .timeout(OPENAI_COMPATIBLE_MODEL_DISCOVERY_TIMEOUT);
+    if !api_key.is_empty() {
+        request = request.bearer_auth(api_key);
+    }
+    let response = request
+        .send()
+        .map_err(|error| OpenAiModelDiscoveryError::Request(reqwest_error_category(&error)))?;
+    if !response.status().is_success() {
+        return Err(OpenAiModelDiscoveryError::Status(
+            response.status().as_u16(),
+        ));
+    }
+    let body = read_provider_response_text(response)?;
+    parse_openai_compatible_model_ids(&body)
+}
+
+fn parse_openai_compatible_model_ids(body: &str) -> Result<Vec<String>, OpenAiModelDiscoveryError> {
+    let document = serde_json::from_str::<serde_json::Value>(body)
+        .map_err(|_| OpenAiModelDiscoveryError::InvalidJson)?;
+    let mut models = document
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("id").and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    models.sort_unstable();
+    models.dedup();
+    Ok(models)
 }
 
 /// Builds the legacy OpenAI-compatible request headers.
@@ -113,7 +199,9 @@ pub fn extract_openai_compatible_candidates(response_body: &str) -> Vec<String> 
         .into_iter()
         .flatten()
         .filter_map(serde_json::Value::as_str)
-        .map(str::trim)
+        .map(|candidate| {
+            candidate.trim_matches(|character| matches!(character, ' ' | '\t' | '\r' | '\n'))
+        })
         .filter(|candidate| !candidate.is_empty())
         .map(ToOwned::to_owned)
         .collect()
@@ -253,14 +341,10 @@ pub fn build_openai_compatible_chat_request(
         return Ok(None);
     };
     let headers = build_openai_compatible_headers(&provider.api_key);
-    let Some(prompt) = request
-        .scene
-        .prompt
-        .as_deref()
-        .filter(|prompt| !prompt.is_empty())
-    else {
+    let prompt = request.scene.prompt.as_deref().unwrap_or_default();
+    if prompt.is_empty() && request.scene.id != COMMAND_SCENE_ID {
         return Ok(None);
-    };
+    }
     let base_prompt = if is_prompt_file_uri(prompt) {
         load_prompt_file_uri(prompt)?
     } else {
@@ -280,19 +364,28 @@ pub fn build_openai_compatible_chat_request(
         } else if !content.is_empty() {
             content.push('\n');
         }
-        if !context_prefix.is_empty() {
-            content.push_str(&wrap_xml_block("context", context_prefix));
-            content.push('\n');
-        }
-        if !request.raw_text.is_empty() {
-            content.push_str(&wrap_xml_block("asr", request.raw_text));
-            content.push('\n');
-        }
-        if request.scene.id == COMMAND_SCENE_ID
-            && let Some(selected_text) = request.selected_text.filter(|text| !text.is_empty())
-        {
-            content.push_str(&wrap_xml_block("selected", selected_text));
-            content.push('\n');
+        if request.scene.id == COMMAND_SCENE_ID {
+            if !request.raw_text.is_empty() {
+                content.push_str(&wrap_xml_block("vinput-asr", request.raw_text));
+                content.push_str("\n\n");
+            }
+            if let Some(selected_text) = request.selected_text.filter(|text| !text.is_empty()) {
+                content.push_str(&wrap_xml_block("vinput-selected", selected_text));
+                content.push_str("\n\n");
+            }
+            if !context_prefix.is_empty() {
+                content.push_str(&wrap_xml_block("vinput-context", context_prefix));
+                content.push('\n');
+            }
+        } else {
+            if !context_prefix.is_empty() {
+                content.push_str(&wrap_xml_block("vinput-context", context_prefix));
+                content.push('\n');
+            }
+            if !request.raw_text.is_empty() {
+                content.push_str(&wrap_xml_block("vinput-asr", request.raw_text));
+                content.push('\n');
+            }
         }
         content
     };
@@ -338,7 +431,7 @@ pub fn build_openai_compatible_chat_request_from_context_cache(
     context_cache_path: impl AsRef<Path>,
 ) -> Result<Option<OpenAiCompatibleChatRequest>, TextError> {
     let context_prefix =
-        load_recent_input_context_prefix(context_cache_path, request.scene.context_lines)?;
+        load_recent_input_context_prefix(context_cache_path, request.scene.context_lines);
     build_openai_compatible_chat_request(request, provider, &context_prefix)
 }
 
@@ -352,24 +445,76 @@ pub trait OpenAiCompatibleChatTransport: Send + Sync {
     ) -> Result<String, TextError>;
 }
 
-/// Blocking HTTP transport for OpenAI-compatible chat-completions providers.
+/// Process-lifetime cancellation handle for OpenAI-compatible post-processing.
+///
+/// A daemon keeps one handle stable across config reloads and triggers it before
+/// shutdown. In-flight async reqwest futures observe the signal independently of
+/// the daemon runtime mutex, matching the frozen post-processor cancellation
+/// boundary without exposing request contents to diagnostics.
+#[derive(Clone)]
+pub struct OpenAiCompatibleShutdown {
+    state: tokio::sync::watch::Sender<bool>,
+}
+
+impl OpenAiCompatibleShutdown {
+    /// Creates an active (not shutting down) lifecycle handle.
+    #[must_use]
+    pub fn new() -> Self {
+        let (state, _receiver) = tokio::sync::watch::channel(false);
+        Self { state }
+    }
+
+    /// Requests cancellation of current and future provider requests.
+    pub fn shutdown(&self) {
+        self.state.send_replace(true);
+    }
+
+    fn subscribe(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.state.subscribe()
+    }
+}
+
+impl Default for OpenAiCompatibleShutdown {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for OpenAiCompatibleShutdown {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiCompatibleShutdown")
+            .field("shutdown", &*self.state.borrow())
+            .finish()
+    }
+}
+
+/// Cancellable HTTP transport for OpenAI-compatible chat-completions providers.
 ///
 /// The transport sends the already-built request body and headers as-is, applies
-/// the optional per-scene timeout to the request, and returns the raw response
-/// body for the existing candidate parser. HTTP errors are mapped to
-/// `TextError::AdapterFailed` with the status code and response body included.
+/// the optional per-scene timeout to the request, and returns successful response
+/// bodies for the existing candidate parser. Non-success responses are reported
+/// by status only; provider error bodies are never surfaced in diagnostics.
 ///
-/// The reqwest blocking client is created and dropped inside a dedicated thread
-/// so daemon code can call this synchronous seam from a Tokio runtime without
-/// dropping reqwest's internal blocking runtime in an async context.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ReqwestOpenAiCompatibleChatTransport;
+/// The synchronous text seam is preserved by running one current-thread Tokio
+/// runtime inside a dedicated worker thread. Shutdown drops the in-flight reqwest
+/// future rather than waiting for the scene deadline.
+#[derive(Debug, Clone, Default)]
+pub struct ReqwestOpenAiCompatibleChatTransport {
+    shutdown: OpenAiCompatibleShutdown,
+}
 
 impl ReqwestOpenAiCompatibleChatTransport {
-    /// Creates a transport with reqwest's default blocking client settings.
+    /// Creates a transport with an independent lifecycle handle.
     #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a transport that shares a process-lifetime shutdown handle.
+    #[must_use]
+    pub fn with_shutdown(shutdown: OpenAiCompatibleShutdown) -> Self {
+        Self { shutdown }
     }
 }
 
@@ -380,23 +525,43 @@ impl OpenAiCompatibleChatTransport for ReqwestOpenAiCompatibleChatTransport {
         timeout_ms: Option<u64>,
     ) -> Result<String, TextError> {
         let request = request.clone();
-        std::thread::spawn(move || send_openai_compatible_request_blocking(&request, timeout_ms))
-            .join()
-            .map_err(|_| {
-                TextError::AdapterFailed("OpenAI-compatible HTTP worker thread panicked".to_owned())
-            })?
+        let mut shutdown = self.shutdown.subscribe();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| {
+                    TextError::AdapterFailed(
+                        "OpenAI-compatible HTTP worker runtime setup failed".to_owned(),
+                    )
+                })?;
+            runtime.block_on(send_openai_compatible_request(
+                &request,
+                timeout_ms,
+                &mut shutdown,
+            ))
+        })
+        .join()
+        .map_err(|_| {
+            TextError::AdapterFailed("OpenAI-compatible HTTP worker thread panicked".to_owned())
+        })?
     }
 }
 
-fn send_openai_compatible_request_blocking(
+async fn send_openai_compatible_request(
     request: &OpenAiCompatibleChatRequest,
     timeout_ms: Option<u64>,
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<String, TextError> {
-    let client = blocking_client_from_environment().map_err(|error| {
-        TextError::AdapterFailed(format!(
-            "OpenAI-compatible HTTP client setup failed: {error}"
-        ))
-    })?;
+    if *shutdown.borrow() {
+        return Ok(String::new());
+    }
+    let client =
+        client_from_environment_with_connect_timeout(Duration::from_secs(5)).map_err(|error| {
+            TextError::AdapterFailed(format!(
+                "OpenAI-compatible HTTP client setup failed: {error}"
+            ))
+        })?;
     let mut builder = client.post(&request.url).json(&request.body);
     for (name, value) in &request.headers {
         builder = builder.header(name, value);
@@ -406,58 +571,66 @@ fn send_openai_compatible_request_blocking(
     }
 
     let diagnostic_url = request.redacted_url();
-    let response = builder.send().map_err(|error| {
-        if error.is_timeout() {
-            TextError::AdapterFailed("OpenAI-compatible HTTP request timed out".to_owned())
-        } else {
-            TextError::AdapterFailed(format!(
-                "OpenAI-compatible HTTP request failed for `{diagnostic_url}`: {}",
-                reqwest_error_category(&error)
-            ))
-        }
-    })?;
+    let response = tokio::select! {
+        _ = shutdown.changed() => return Ok(String::new()),
+        response = builder.send() => response.map_err(|error| {
+            if error.is_timeout() {
+                TextError::AdapterFailed("OpenAI-compatible HTTP request timed out".to_owned())
+            } else {
+                TextError::AdapterFailed(format!(
+                    "OpenAI-compatible HTTP request failed for `{diagnostic_url}`: {}",
+                    reqwest_error_category(&error)
+                ))
+            }
+        })?,
+    };
     let status = response.status();
-    let body = read_provider_response_text(response).map_err(|error| match error {
-        ResponseBodyError::TimedOut => {
-            TextError::AdapterFailed("OpenAI-compatible HTTP response body timed out".to_owned())
-        }
-        ResponseBodyError::TooLarge => TextError::AdapterFailed(format!(
-            "OpenAI-compatible HTTP response body exceeds {MAX_PROVIDER_RESPONSE_BYTES}-byte limit"
-        )),
-        ResponseBodyError::InvalidUtf8 => TextError::AdapterFailed(
-            "OpenAI-compatible HTTP response body is not valid UTF-8".to_owned(),
-        ),
-        ResponseBodyError::Read => TextError::AdapterFailed(format!(
-            "OpenAI-compatible HTTP response body read failed for `{diagnostic_url}`: {error}"
-        )),
-    })?;
     if !status.is_success() {
-        let body = redact_openai_error_body(&body, &request.headers);
         return Err(TextError::AdapterFailed(format!(
-            "OpenAI-compatible provider returned HTTP {status}: {body}"
+            "OpenAI-compatible provider returned HTTP {status}"
         )));
     }
-    Ok(body)
+    read_openai_compatible_response(response, shutdown, &diagnostic_url).await
 }
 
-fn redact_openai_error_body(body: &str, headers: &[(String, String)]) -> String {
-    headers
-        .iter()
-        .filter(|(name, value)| {
-            name.eq_ignore_ascii_case(OPENAI_COMPATIBLE_AUTHORIZATION_HEADER) && !value.is_empty()
-        })
-        .flat_map(|(_, value)| {
-            [
-                value.as_str(),
-                value
-                    .strip_prefix(OPENAI_COMPATIBLE_BEARER_PREFIX)
-                    .unwrap_or_default(),
-            ]
-        })
-        .filter(|value| !value.is_empty())
-        .fold(body.to_owned(), |redacted, value| {
-            redacted.replace(value, "<redacted>")
-        })
+async fn read_openai_compatible_response(
+    mut response: reqwest::Response,
+    shutdown: &mut tokio::sync::watch::Receiver<bool>,
+    diagnostic_url: &str,
+) -> Result<String, TextError> {
+    let mut body = Vec::new();
+    loop {
+        let chunk = tokio::select! {
+            _ = shutdown.changed() => return Ok(String::new()),
+            chunk = response.chunk() => chunk.map_err(|error| {
+                if error.is_timeout() {
+                    TextError::AdapterFailed(
+                        "OpenAI-compatible HTTP response body timed out".to_owned(),
+                    )
+                } else {
+                    TextError::AdapterFailed(format!(
+                        "OpenAI-compatible HTTP response body read failed for `{diagnostic_url}`: {}",
+                        ResponseBodyError::Read,
+                    ))
+                }
+            })?,
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
+        let max_response_bytes = usize::try_from(MAX_PROVIDER_RESPONSE_BYTES).unwrap_or(usize::MAX);
+        if body.len().saturating_add(chunk.len()) > max_response_bytes {
+            return Err(TextError::AdapterFailed(format!(
+                "OpenAI-compatible HTTP response body exceeds {MAX_PROVIDER_RESPONSE_BYTES}-byte limit"
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    String::from_utf8(body).map_err(|_| {
+        TextError::AdapterFailed(
+            "OpenAI-compatible HTTP response body is not valid UTF-8".to_owned(),
+        )
+    })
 }
 
 /// Text adapter backed by an OpenAI-compatible chat transport.
@@ -489,6 +662,18 @@ impl<T> OpenAiCompatibleTextAdapter<T> {
 
 impl<T: OpenAiCompatibleChatTransport> TextAdapter for OpenAiCompatibleTextAdapter<T> {
     fn finish(&self, request: &TextRequest<'_>) -> Result<RecognitionPayload, TextError> {
+        if request.scene.id != COMMAND_SCENE_ID
+            && trim_ascii_whitespace(request.raw_text).is_empty()
+        {
+            return Ok(normal_mode_payload(request.raw_text, Vec::<String>::new()));
+        }
+        if request.scene.id == COMMAND_SCENE_ID
+            && (trim_ascii_whitespace(request.raw_text).is_empty()
+                || request.selected_text.unwrap_or_default().is_empty())
+        {
+            return Ok(pre_request_fallback_payload(request));
+        }
+
         let built = if let Some(context_cache_path) = &self.context_cache_path {
             build_openai_compatible_chat_request_from_context_cache(
                 request,
@@ -497,8 +682,10 @@ impl<T: OpenAiCompatibleChatTransport> TextAdapter for OpenAiCompatibleTextAdapt
             )?
         } else {
             build_openai_compatible_chat_request(request, &self.provider, "")?
-        }
-        .ok_or_else(|| TextError::UnsupportedAdapter(request.scene.id.clone()))?;
+        };
+        let Some(built) = built else {
+            return Ok(pre_request_fallback_payload(request));
+        };
 
         let response_body = self
             .transport
@@ -511,12 +698,34 @@ impl<T: OpenAiCompatibleChatTransport> TextAdapter for OpenAiCompatibleTextAdapt
                 candidates,
             ));
         }
-        openai_compatible_candidates_to_payload(candidates).ok_or_else(|| {
-            TextError::AdapterFailed(format!(
-                "OpenAI-compatible provider `{}` response did not contain candidates",
-                self.provider.id
-            ))
-        })
+        Ok(normal_mode_payload(request.raw_text, candidates))
+    }
+}
+
+fn pre_request_fallback_payload(request: &TextRequest<'_>) -> RecognitionPayload {
+    if request.scene.id != COMMAND_SCENE_ID {
+        return normal_mode_payload(request.raw_text, Vec::<String>::new());
+    }
+    let normalized_asr = trim_ascii_whitespace(request.raw_text);
+    let fallback_text = if normalized_asr.is_empty() {
+        request.selected_text.unwrap_or_default()
+    } else {
+        normalized_asr
+    };
+    let mut payload = normal_mode_payload(fallback_text, Vec::<String>::new());
+    fallback_text.clone_into(&mut payload.commit_text);
+    payload
+}
+
+fn post_request_fallback_payload(request: &TextRequest<'_>) -> RecognitionPayload {
+    if request.scene.id == COMMAND_SCENE_ID {
+        command_mode_payload(
+            request.selected_text.unwrap_or_default(),
+            request.raw_text,
+            Vec::<String>::new(),
+        )
+    } else {
+        normal_mode_payload(request.raw_text, Vec::<String>::new())
     }
 }
 
@@ -583,13 +792,30 @@ where
         if request.scene.id == RAW_SCENE_ID || !scene_needs_postprocessing(request.scene) {
             return Ok(RecognitionPayload::raw(request.raw_text));
         }
-        let provider = select_openai_compatible_provider(&self.providers, request.scene)?
-            .ok_or_else(|| TextError::AdapterRequired(request.scene.id.clone()))?;
+        let Some(provider) = select_openai_compatible_provider(&self.providers, request.scene)?
+        else {
+            return Ok(pre_request_fallback_payload(request));
+        };
         let mut adapter =
             OpenAiCompatibleTextAdapter::new(provider.clone(), self.transport.clone());
         if let Some(context_cache_path) = &self.context_cache_path {
             adapter = adapter.with_context_cache_path(context_cache_path.clone());
         }
         adapter.finish(request)
+    }
+
+    fn finish_report(&self, request: &TextRequest<'_>) -> Result<TextProcessReport, TextError> {
+        match self.finish(request) {
+            Ok(payload) => Ok(TextProcessReport::success(payload)),
+            Err(error @ TextError::PromptFileLoad(_)) => Ok(TextProcessReport {
+                payload: pre_request_fallback_payload(request),
+                warning: Some(error),
+            }),
+            Err(error @ TextError::AdapterFailed(_)) => Ok(TextProcessReport {
+                payload: post_request_fallback_payload(request),
+                warning: Some(error),
+            }),
+            Err(error) => Err(error),
+        }
     }
 }

@@ -12,6 +12,26 @@ use crate::LiveVinpstModelMetadata;
 /// Metadata file materialized inside every managed model directory.
 pub const INSTALLED_MODEL_METADATA_FILE: &str = "vinpst-model.json";
 
+/// Installed model health reported by managed discovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstalledModelState {
+    /// Metadata parsed successfully.
+    Installed,
+    /// Metadata exists but could not be read or parsed.
+    Broken,
+}
+
+impl InstalledModelState {
+    /// Stable lower-case status used by CLI and diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Installed => "installed",
+            Self::Broken => "broken",
+        }
+    }
+}
+
 /// One installed model discovered under a managed model root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledModelInfo {
@@ -21,8 +41,12 @@ pub struct InstalledModelInfo {
     pub model_dir: PathBuf,
     /// Parsed metadata file path.
     pub metadata_path: PathBuf,
-    /// Typed model metadata.
+    /// Typed model metadata. Broken entries carry an empty typed value.
     pub metadata: LiveVinpstModelMetadata,
+    /// Discovery health.
+    pub state: InstalledModelState,
+    /// Sanitized metadata failure detail for broken entries.
+    pub metadata_error: Option<String>,
     /// Regular files below the model directory, relative to that directory.
     pub files: Vec<String>,
     /// Number of regular files below the model directory.
@@ -30,6 +54,12 @@ pub struct InstalledModelInfo {
 }
 
 impl InstalledModelInfo {
+    /// Returns whether this entry has usable parsed metadata.
+    #[must_use]
+    pub const fn is_broken(&self) -> bool {
+        matches!(self.state, InstalledModelState::Broken)
+    }
+
     /// Returns the concrete model directory as a lossy UTF-8 config value.
     #[must_use]
     pub fn config_model_value(&self) -> String {
@@ -211,18 +241,21 @@ fn load_installed_model_info_with_id(
         });
     }
     let metadata_path = model_dir.join(INSTALLED_MODEL_METADATA_FILE);
-    let metadata_text =
-        fs::read_to_string(&metadata_path).map_err(|source| InstalledModelError::ReadMetadata {
+    let metadata_file =
+        fs::metadata(&metadata_path).map_err(|source| InstalledModelError::ReadMetadata {
             path: metadata_path.clone(),
             source,
         })?;
-    let metadata =
-        serde_json::from_str::<LiveVinpstModelMetadata>(&metadata_text).map_err(|source| {
-            InstalledModelError::ParseMetadata {
-                path: metadata_path.clone(),
-                source,
-            }
-        })?;
+    if !metadata_file.is_file() {
+        return Err(InstalledModelError::ReadMetadata {
+            path: metadata_path.clone(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidData,
+                "metadata path is not a regular file",
+            ),
+        });
+    }
+    let (metadata, state, metadata_error) = load_installed_metadata(&metadata_path);
     let files = collect_installed_model_files(model_dir)?;
     let file_count = files.len();
     Ok(InstalledModelInfo {
@@ -230,9 +263,50 @@ fn load_installed_model_info_with_id(
         model_dir: model_dir.to_path_buf(),
         metadata_path,
         metadata,
+        state,
+        metadata_error,
         files,
         file_count,
     })
+}
+
+fn load_installed_metadata(
+    metadata_path: &Path,
+) -> (LiveVinpstModelMetadata, InstalledModelState, Option<String>) {
+    let metadata_text = match fs::read_to_string(metadata_path) {
+        Ok(text) => text,
+        Err(error) => {
+            return (
+                empty_installed_metadata(),
+                InstalledModelState::Broken,
+                Some(format!("failed to read metadata: {}", error.kind())),
+            );
+        }
+    };
+    match serde_json::from_str::<LiveVinpstModelMetadata>(&metadata_text) {
+        Ok(metadata) => (metadata, InstalledModelState::Installed, None),
+        Err(error) => (
+            empty_installed_metadata(),
+            InstalledModelState::Broken,
+            Some(format!("invalid metadata JSON: {error}")),
+        ),
+    }
+}
+
+fn empty_installed_metadata() -> LiveVinpstModelMetadata {
+    LiveVinpstModelMetadata {
+        backend: None,
+        language: None,
+        size_bytes: None,
+        supports_hotwords: false,
+        runtime: None,
+        family: None,
+        model_type: None,
+        recognizer: None,
+        model: None,
+        display: None,
+        extra: std::collections::BTreeMap::new(),
+    }
 }
 
 fn collect_installed_model_files(model_dir: &Path) -> Result<Vec<String>, InstalledModelError> {
@@ -370,14 +444,25 @@ mod tests {
     }
 
     #[test]
-    fn invalid_metadata_reports_the_concrete_path() {
+    fn invalid_metadata_is_reported_as_broken_without_hiding_other_models() {
         let temp = tempfile::tempdir().unwrap();
-        let model = temp.path().join("broken");
-        fs::create_dir_all(&model).unwrap();
-        fs::write(model.join(INSTALLED_MODEL_METADATA_FILE), "not-json").unwrap();
+        let broken = temp.path().join("broken");
+        fs::create_dir_all(&broken).unwrap();
+        fs::write(broken.join(INSTALLED_MODEL_METADATA_FILE), "not-json").unwrap();
+        write_metadata(&temp.path().join("healthy"), "sense_voice");
 
-        let error = scan_installed_models(temp.path()).unwrap_err();
-        assert!(matches!(error, InstalledModelError::ParseMetadata { .. }));
-        assert!(error.to_string().contains("broken/vinpst-model.json"));
+        let models = scan_installed_models(temp.path()).unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].model_id, "broken");
+        assert!(models[0].is_broken());
+        assert_eq!(models[0].state.as_str(), "broken");
+        assert!(
+            models[0]
+                .metadata_error
+                .as_deref()
+                .is_some_and(|error| error.contains("invalid metadata JSON"))
+        );
+        assert_eq!(models[1].model_id, "healthy");
+        assert!(!models[1].is_broken());
     }
 }

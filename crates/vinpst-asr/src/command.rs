@@ -335,15 +335,15 @@ fn write_i16_le_pcm(mut writer: impl Write, samples: &[i16]) -> std::io::Result<
     Ok(())
 }
 
-/// Process runner for legacy command-streaming ASR providers.
+/// One-shot JSON-lines compatibility runner used by focused protocol tests.
 ///
-/// This runner sends the legacy JSON-line protocol using one committed audio
-/// chunk followed by a finish control event, then parses stdout JSON event
-/// lines. A fully incremental long-lived session can build on the same payload
-/// and event helpers later.
+/// Production `.streaming` providers use `LegacyCommandStreamingBackend`,
+/// which owns a long-lived helper process across audio pushes.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, Default)]
-pub struct LegacyCommandStreamingRunner;
+pub(crate) struct LegacyCommandStreamingRunner;
 
+#[cfg(test)]
 impl CommandAsrRunner for LegacyCommandStreamingRunner {
     fn recognize(
         &self,
@@ -379,6 +379,7 @@ impl CommandAsrRunner for LegacyCommandStreamingRunner {
     }
 }
 
+#[cfg(test)]
 fn parse_legacy_command_streaming_stdout(stdout: &[u8]) -> Result<Vec<RecognitionEvent>, AsrError> {
     let stdout = String::from_utf8_lossy(stdout);
     let mut events = Vec::new();
@@ -674,7 +675,7 @@ impl<R: CommandAsrRunner> RecognitionSession for CommandRecognitionSession<R> {
             return Err(AsrError::Cancelled);
         }
         if self.finished {
-            return Err(AsrError::AlreadyFinished);
+            return Ok(());
         }
         self.finished = true;
         let request = CommandAsrRequest::from_spec_with_pcm(
@@ -689,7 +690,10 @@ impl<R: CommandAsrRunner> RecognitionSession for CommandRecognitionSession<R> {
 
     fn cancel(&mut self) -> Result<(), AsrError> {
         self.cancelled = true;
+        self.finished = true;
+        self.samples.clear();
         self.events.clear();
+        self.events.push(RecognitionEvent::Completed);
         Ok(())
     }
 

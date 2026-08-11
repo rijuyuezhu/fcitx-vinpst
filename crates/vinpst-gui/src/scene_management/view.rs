@@ -11,7 +11,7 @@ use iced::{
 use vinpst_config::VinpstConfig;
 
 use super::{
-    SceneEditorField, SceneEditorState, SceneMessage, SceneProviderSelection,
+    SceneEditorField, SceneEditorState, SceneMessage, SceneProviderSelection, scene_is_built_in,
     scene_provider_selections,
 };
 use crate::{App, GuiLocale, GuiText, Message};
@@ -62,6 +62,7 @@ impl App {
                 let mut visible = 0_usize;
                 for scene in &document.config.scenes.definitions {
                     let active = scene.id == document.config.scenes.active_scene;
+                    let removable = !active && !scene_is_built_in(&scene.id);
                     let marker = self.locale.text(if active {
                         GuiText::Active
                     } else {
@@ -77,6 +78,7 @@ impl App {
                         label,
                         &scene.id,
                         active,
+                        removable,
                         !busy && !editor_open,
                     ));
                 }
@@ -113,6 +115,7 @@ fn scene_row(
     label: String,
     scene_id: &str,
     active: bool,
+    removable: bool,
     controls_enabled: bool,
 ) -> Element<'static, Message> {
     row![
@@ -126,8 +129,8 @@ fn scene_row(
                 .then_some(Message::Scene(SceneMessage::BeginEdit(scene_id.to_owned()))),
         ),
         keyboard_button(locale.text(GuiText::Remove)).on_press_maybe(
-            (controls_enabled && !active)
-                .then_some(Message::Scene(SceneMessage::Remove(scene_id.to_owned()))),
+            (controls_enabled && removable)
+                .then_some(Message::RequestRemoveScene(scene_id.to_owned())),
         ),
     ]
     .spacing(10)
@@ -173,6 +176,7 @@ fn scene_editor_view(
             next.map(|choice| Message::Scene(SceneMessage::ProviderSelected(choice.selection))),
         )
     };
+    let model_controls = scene_model_controls(locale, editor, busy);
     column![
         text(locale.text(action)).size(22),
         id_field,
@@ -195,13 +199,7 @@ fn scene_editor_view(
             provider_control
         ]
         .spacing(10),
-        labeled_input(
-            locale.text(GuiText::ModelOverride),
-            locale.text(GuiText::OptionalModelId),
-            &editor.model,
-            SceneEditorField::Model,
-            busy,
-        ),
+        model_controls,
         labeled_input(
             locale.text(GuiText::CandidateCount),
             locale.text(GuiText::ZeroTo32),
@@ -233,6 +231,42 @@ fn scene_editor_view(
     ]
     .spacing(10)
     .into()
+}
+
+fn scene_model_controls<'a>(
+    locale: GuiLocale,
+    editor: &'a SceneEditorState,
+    busy: bool,
+) -> Element<'a, Message> {
+    let mut controls = column![labeled_input(
+        locale.text(GuiText::ModelOverride),
+        locale.text(GuiText::OptionalModelId),
+        &editor.model,
+        SceneEditorField::Model,
+        busy,
+    )]
+    .spacing(6);
+    if editor.model_discovery_loading {
+        controls = controls.push(text(locale.scene_models_loading()).size(13));
+    } else if editor.model_discovery_failed {
+        controls = controls.push(text(locale.scene_models_unavailable()).size(13));
+    } else if !editor.model_suggestions.is_empty() {
+        let discovered: Element<'a, Message> = if busy {
+            text(locale.scene_model_suggestion())
+                .width(Length::Fill)
+                .into()
+        } else {
+            pick_list(editor.model_suggestions.clone(), None::<String>, |model| {
+                Message::Scene(SceneMessage::ModelSuggestionSelected(model))
+            })
+            .placeholder(locale.scene_model_suggestion_placeholder())
+            .width(Length::Fill)
+            .into()
+        };
+        controls = controls
+            .push(row![text(locale.scene_model_suggestion()).width(160), discovered].spacing(10));
+    }
+    controls.into()
 }
 
 fn scene_provider_options(locale: GuiLocale, config: &VinpstConfig) -> Vec<SceneProviderChoice> {

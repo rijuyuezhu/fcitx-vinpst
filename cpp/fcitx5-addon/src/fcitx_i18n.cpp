@@ -38,6 +38,38 @@ std::string NormalizeLocaleName(std::string locale) {
   return locale;
 }
 
+std::string PreferredMessageLocale() {
+  constexpr const char *variables[] = {"LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"};
+  for (const auto *name : variables) {
+    const auto *value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+      continue;
+    }
+    auto locale = NormalizeLocaleName(value);
+    if (!locale.empty()) {
+      return locale;
+    }
+  }
+  return {};
+}
+
+void ApplyPreferredMessageLocale() {
+  const auto preferred = PreferredMessageLocale();
+  if (preferred.empty()) {
+    return;
+  }
+  const std::string candidates[] = {
+      preferred,
+      preferred + ".UTF-8",
+      preferred + ".utf8",
+  };
+  for (const auto &candidate : candidates) {
+    if (std::setlocale(LC_MESSAGES, candidate.c_str()) != nullptr) {
+      return;
+    }
+  }
+}
+
 std::vector<std::string> LocaleCandidates() {
   std::vector<std::string> candidates;
   const auto add = [&candidates](const char *value) {
@@ -113,6 +145,7 @@ void InitFrontendI18n() {
   static std::once_flag initialized;
   std::call_once(initialized, [] {
     std::setlocale(LC_ALL, "");
+    ApplyPreferredMessageLocale();
     const auto locale_root = ResolveLocaleRoot();
     fcitx::registerDomain(kFrontendTranslationDomain, locale_root.c_str());
   });

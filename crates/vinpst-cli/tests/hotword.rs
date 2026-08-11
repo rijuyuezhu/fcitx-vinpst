@@ -86,14 +86,7 @@ fn hotword_get_text_reports_active_provider_hotwords_file() {
     fs::remove_file(&path).expect("remove temporary hotword config");
 
     let stdout = assert_stdout_success(output, "hotword get text");
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("active_provider: cmd"));
-    assert!(stdout.contains("provider_id: cmd"));
-    assert!(stdout.contains("provider_type: command"));
-    assert!(stdout.contains("active: true"));
-    assert!(stdout.contains("supported: true"));
-    assert!(stdout.contains("configured: yes"));
-    assert!(stdout.contains("hotwords_file: /tmp/cmd-hotwords.txt"));
+    assert_eq!(stdout.trim(), "/tmp/cmd-hotwords.txt");
 }
 
 #[test]
@@ -161,14 +154,21 @@ fn hotword_set_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary hotword config");
 
     let stdout = assert_stdout_success(output, "hotword set text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("provider_id: cmd"));
-    assert!(stdout.contains("provider_type: command"));
-    assert!(stdout.contains("before: /tmp/cmd-hotwords.txt"));
-    assert!(stdout.contains("after: /tmp/new-hotwords.txt"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would set hotwords for `cmd` to `/tmp/new-hotwords.txt`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "provider_type:",
+        "before:",
+        "after:",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -224,14 +224,21 @@ fn hotword_clear_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary hotword config");
 
     let stdout = assert_stdout_success(output, "hotword clear text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("provider_id: cmd"));
-    assert!(stdout.contains("provider_type: command"));
-    assert!(stdout.contains("before: /tmp/cmd-hotwords.txt"));
-    assert!(stdout.contains("after: -"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would clear hotwords for `cmd`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "provider_type:",
+        "before:",
+        "after:",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -336,6 +343,29 @@ fn hotword_edit_dry_run_json_reports_editor_plan_without_launching() {
 }
 
 #[test]
+fn hotword_edit_uses_visual_before_editor_and_preserves_quoted_args() {
+    let path = write_hotword_fixture("vinpst-hotword-edit-editor-priority");
+
+    let output = vinpst_command()
+        .args(["hotword", "edit", "--config"])
+        .arg(&path)
+        .args(["--dry-run", "--json"])
+        .env_remove("VINPST_HOTWORD_EDITOR")
+        .env_remove("VINPST_CONFIG_EDITOR")
+        .env("VISUAL", r#"visual-editor --wait "two words""#)
+        .env("EDITOR", "wrong-editor")
+        .output()
+        .expect("run vinpst hotword edit with VISUAL");
+    fs::remove_file(&path).expect("remove temporary hotword config");
+
+    let value = assert_json_success(output, "hotword edit VISUAL priority json");
+    assert_eq!(
+        value["editor_argv"],
+        serde_json::json!(["visual-editor", "--wait", "two words"])
+    );
+}
+
+#[test]
 fn hotword_edit_text_dry_run_outputs_expected_fields() {
     let path = write_hotword_fixture("vinpst-hotword-edit-text-dry-run");
 
@@ -348,14 +378,19 @@ fn hotword_edit_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary hotword config");
 
     let stdout = assert_stdout_success(output, "hotword edit text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("active_provider: cmd"));
-    assert!(stdout.contains("provider_id: cmd"));
-    assert!(stdout.contains("provider_type: command"));
-    assert!(stdout.contains("hotwords_file: /tmp/cmd-hotwords.txt"));
-    assert!(stdout.contains("editor: true"));
-    assert!(stdout.contains("edited: false"));
+    assert!(stdout.contains("Would open hotwords file: /tmp/cmd-hotwords.txt"));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "provider_type:",
+        "editor:",
+        "edited:",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal editor detail: {internal}"
+        );
+    }
 }
 
 #[test]

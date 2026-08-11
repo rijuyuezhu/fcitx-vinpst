@@ -136,11 +136,12 @@ fn target_menu_items(
     installed_models: &[InstalledModelInfo],
 ) -> Vec<(String, String, String, String)> {
     let mut items = Vec::new();
+    let has_usable_models = installed_models.iter().any(|model| !model.is_broken());
     for provider in &config.asr.providers {
         let kind = provider_kind_label(&provider.kind).to_owned();
         let configured_model = provider.model.clone().unwrap_or_default();
-        if provider.kind == AsrProviderKind::Local && !installed_models.is_empty() {
-            for model in installed_models {
+        if provider.kind == AsrProviderKind::Local && has_usable_models {
+            for model in installed_models.iter().filter(|model| !model.is_broken()) {
                 items.push((
                     provider.id.clone(),
                     kind.clone(),
@@ -151,6 +152,7 @@ fn target_menu_items(
             if !configured_model.is_empty()
                 && !installed_models
                     .iter()
+                    .filter(|model| !model.is_broken())
                     .any(|model| model.model_dir == Path::new(&configured_model))
             {
                 items.push((
@@ -178,11 +180,12 @@ fn display_menu_items(
     locale_candidates: &[String],
 ) -> Vec<(String, String, String, String, String)> {
     let mut items = Vec::new();
+    let has_usable_models = installed_models.iter().any(|model| !model.is_broken());
     for provider in &config.asr.providers {
         let kind = provider_kind_label(&provider.kind).to_owned();
         let configured_model = provider.model.clone().unwrap_or_default();
-        if provider.kind == AsrProviderKind::Local && !installed_models.is_empty() {
-            for model in installed_models {
+        if provider.kind == AsrProviderKind::Local && has_usable_models {
+            for model in installed_models.iter().filter(|model| !model.is_broken()) {
                 let item_id = model.stable_model_id().to_owned();
                 let display_title = model
                     .display_title(locale_candidates)
@@ -199,6 +202,7 @@ fn display_menu_items(
             if !configured_model.is_empty()
                 && !installed_models
                     .iter()
+                    .filter(|model| !model.is_broken())
                     .any(|model| model.model_dir == Path::new(&configured_model))
             {
                 let item_id = configured_model_label(&configured_model);
@@ -328,6 +332,9 @@ mod tests {
             )
             .unwrap();
         }
+        let broken = temp.path().join("broken");
+        fs::create_dir_all(&broken).unwrap();
+        fs::write(broken.join("vinpst-model.json"), "not-json").unwrap();
         let installed = scan_installed_models(temp.path()).unwrap();
         let mut config = VinpstConfig::bundled_default().unwrap();
         config.asr.providers.push(provider(
@@ -344,6 +351,7 @@ mod tests {
         assert_eq!(state.0, "sherpa-onnx");
         assert_eq!(state.2, "mock");
         assert!(state.6.iter().any(|item| item.2 == "flat"));
+        assert!(!state.6.iter().any(|item| item.2 == "broken"));
         assert!(
             state
                 .6

@@ -6,11 +6,13 @@ use super::{
     RegistryAssetStagingError, RegistryCacheError, RegistryCachedFetchError, RegistryEntryKind,
     RegistryError, RegistryFetchError, RegistryIndex, RegistryMaterializeError,
     RegistrySha256Error, RegistryTextCache, RegistryTextSource, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, checked_archive_entry_target, fetch_registry_index_from_mirrors,
-    fetch_registry_index_with_cache, install_live_model, materialize_staged_tree,
-    plan_archive_staging_paths, plan_archive_staging_paths_for_plan, sha256_hex,
-    stage_archive_by_format, stage_planned_asset, stage_tar_archive, stage_tar_bz2_archive,
-    stage_tar_zst_archive, verify_sha256_bytes, verify_sha256_file, verify_sha256_reader,
+    ReqwestRegistryTextSource, adapter_registry_cache_path, checked_archive_entry_target,
+    fetch_registry_index_from_mirrors, fetch_registry_index_with_cache,
+    fetch_registry_text_with_cache, install_live_model, materialize_staged_tree,
+    model_registry_cache_path, plan_archive_staging_paths, plan_archive_staging_paths_for_plan,
+    provider_registry_cache_path, registry_i18n_cache_path, sha256_hex, stage_archive_by_format,
+    stage_planned_asset, stage_tar_archive, stage_tar_bz2_archive, stage_tar_zst_archive,
+    verify_sha256_bytes, verify_sha256_file, verify_sha256_reader,
 };
 use vinpst_config::RegistryConfig;
 
@@ -218,6 +220,20 @@ fn resolves_live_model_i18n_title_and_description() {
         display.resolved_title(&["zh_CN.UTF-8".to_owned()]),
         Some("SenseVoice 五语")
     );
+}
+
+#[test]
+fn live_registry_i18n_ignores_non_string_entries() {
+    let i18n = LiveRegistryI18n::from_json_str(
+        r#"{"title":"Text","number":1,"flag":true,"nested":{"value":"ignored"}}"#,
+    )
+    .expect("parse mixed i18n object");
+
+    assert_eq!(i18n.get("title"), Some("Text"));
+    assert_eq!(i18n.entries.len(), 1);
+    assert!(!i18n.entries.contains_key("number"));
+    assert!(!i18n.entries.contains_key("flag"));
+    assert!(!i18n.entries.contains_key("nested"));
 }
 
 #[test]
@@ -562,6 +578,91 @@ fn install_plan_tracks_missing_checksums() {
     assert_eq!(plan.summary.missing_checksum_count, 1);
     assert_eq!(plan.assets[0].target_path, "cache/models/m.tar");
     assert_eq!(plan.assets[0].checksum_policy, ChecksumPolicy::Missing);
+}
+
+#[test]
+fn planned_asset_output_redacts_registry_url_credentials_without_changing_internal_urls() {
+    let index = RegistryIndex::from_json_str(
+        r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
+    )
+    .unwrap();
+    let config = RegistryConfig {
+        base_urls: vec![
+            "https://registry-user:registry-pass@example.test/root?token=registry-secret#private"
+                .to_owned(),
+        ],
+    };
+    let assets = index.planned_assets(&config);
+    let plan = InstallPlan::from_assets(&assets, "cache");
+
+    assert_eq!(
+        assets[0].urls[0],
+        "https://registry-user:registry-pass@example.test/root/models/m.tar?token=registry-secret#private"
+    );
+    assert_eq!(plan.assets[0].urls[0], assets[0].urls[0]);
+
+    for rendered in [
+        format!("{:?}", assets[0]),
+        serde_json::to_string(&assets[0]).unwrap(),
+        format!("{:?}", plan.assets[0]),
+        serde_json::to_string(&plan).unwrap(),
+    ] {
+        assert!(rendered.contains("https://example.test/root/models/m.tar?token=REDACTED"));
+        for secret in [
+            "registry-user",
+            "registry-pass",
+            "registry-secret",
+            "private",
+        ] {
+            assert!(!rendered.contains(secret));
+        }
+    }
+}
+
+#[test]
+fn planned_asset_output_preserves_safe_opaque_mirrors_and_hides_suspicious_ones() {
+    let index = RegistryIndex::from_json_str(
+        r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
+    )
+    .unwrap();
+    let assets = index.planned_assets(&RegistryConfig {
+        base_urls: vec![
+            "mirror".to_owned(),
+            "not a url?token=opaque-secret".to_owned(),
+        ],
+    });
+
+    assert_eq!(assets[0].urls[0], "mirror/models/m.tar");
+    assert!(assets[0].urls[1].contains("opaque-secret"));
+
+    let json = serde_json::to_value(&assets[0]).unwrap();
+    assert_eq!(json["urls"][0], "mirror/models/m.tar");
+    assert_eq!(json["urls"][1], "<invalid-url>");
+    let debug = format!("{:?}", assets[0]);
+    assert!(debug.contains("mirror/models/m.tar"));
+    assert!(!debug.contains("opaque-secret"));
+}
+
+#[test]
+fn resolved_urls_append_asset_paths_before_query_and_fragment() {
+    let index = RegistryIndex::from_json_str(
+        r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
+    )
+    .unwrap();
+    let assets = index.planned_assets(&RegistryConfig {
+        base_urls: vec![
+            "https://user:password@example.test/root?token=secret#fragment".to_owned(),
+            "opaque-mirror/root?token=literal".to_owned(),
+        ],
+    });
+
+    assert_eq!(
+        assets[0].urls,
+        [
+            "https://user:password@example.test/root/models/m.tar?token=secret#fragment",
+            "opaque-mirror/root?token=literal/models/m.tar",
+        ]
+    );
 }
 
 #[test]
@@ -932,6 +1033,98 @@ fn registry_text_cache_uses_stale_cache_after_fetch_failure() {
 }
 
 #[test]
+fn raw_registry_text_cache_reports_fresh_and_stale_sources() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let cache = RegistryTextCache::new(temp_dir.path().join("registry/models.json"));
+    let url = "https://mirror.invalid/registry/models.json".to_owned();
+    let fresh_source = StaticRegistryTextSource::default().with_response(&url, Ok("fresh"));
+
+    let fresh = fetch_registry_text_with_cache(&fresh_source, std::slice::from_ref(&url), &cache)
+        .expect("fresh registry text");
+    assert_eq!(fresh.text, "fresh");
+    assert_eq!(fresh.fresh_url.as_deref(), Some(url.as_str()));
+    assert!(!fresh.used_cache);
+    assert_eq!(fresh.fallback_error, None);
+    assert_eq!(std::fs::read_to_string(cache.path()).unwrap(), "fresh");
+
+    let offline_source = StaticRegistryTextSource::default().with_response(&url, Err("offline"));
+    let stale = fetch_registry_text_with_cache(&offline_source, std::slice::from_ref(&url), &cache)
+        .expect("stale registry text");
+    assert_eq!(stale.text, "fresh");
+    assert_eq!(stale.fresh_url, None);
+    assert!(stale.used_cache);
+    assert_eq!(
+        stale.fallback_error.as_deref(),
+        Some("all registry mirrors failed")
+    );
+}
+
+#[test]
+fn registry_text_cache_supports_concurrent_atomic_writers() {
+    use std::sync::{Arc, Barrier};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let cache = RegistryTextCache::new(temp_dir.path().join("registry/models.json"));
+    let barrier = Arc::new(Barrier::new(3));
+    let mut workers = Vec::new();
+    for payload in ["first cache body", "second cache body"] {
+        let cache = cache.clone();
+        let barrier = Arc::clone(&barrier);
+        workers.push(std::thread::spawn(move || {
+            barrier.wait();
+            cache.write_text_atomic(payload)
+        }));
+    }
+    barrier.wait();
+
+    for worker in workers {
+        worker.join().unwrap().unwrap();
+    }
+
+    let final_text = cache.read_text().unwrap();
+    assert!(matches!(
+        final_text.as_str(),
+        "first cache body" | "second cache body"
+    ));
+    let cache_dir = cache.path().parent().unwrap();
+    let leftovers = std::fs::read_dir(cache_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".tmp."))
+        .collect::<Vec<_>>();
+    assert!(
+        leftovers.is_empty(),
+        "temporary cache files left behind: {leftovers:?}"
+    );
+}
+
+#[test]
+fn live_registry_cache_paths_match_vinpst_layout() {
+    let root = std::path::Path::new("/cache/fcitx-vinpst");
+    assert_eq!(
+        model_registry_cache_path(root),
+        root.join("registry/models.json")
+    );
+    assert_eq!(
+        provider_registry_cache_path(root),
+        root.join("registry/providers.json")
+    );
+    assert_eq!(
+        adapter_registry_cache_path(root),
+        root.join("registry/adapters.json")
+    );
+    assert_eq!(
+        registry_i18n_cache_path(root, "zh_CN"),
+        root.join("registry/i18n/zh_CN.json")
+    );
+    assert_eq!(
+        registry_i18n_cache_path(root, "../../bad"),
+        root.join("registry/i18n/______bad.json")
+    );
+}
+
+#[test]
 fn registry_text_cache_reports_invalid_stale_cache_after_fetch_failure() {
     let temp_dir = tempfile::tempdir().unwrap();
     let cache = RegistryTextCache::new(temp_dir.path().join("index.json"));
@@ -1096,6 +1289,27 @@ fn registry_asset_staging_sanitizes_non_success_http_status() {
     assert!(!failures[0].message.contains("private-body"));
     assert!(!failures[0].message.contains(&failures[0].url));
     assert!(!output.exists());
+    handle.join().unwrap();
+}
+
+#[test]
+fn registry_asset_staging_requires_exact_http_200() {
+    let (url, handle) = serve_registry_http_response("206 Partial Content", "hello");
+    let source = ReqwestRegistryAssetSource::new();
+    let asset = planned_install_asset(vec![url.clone()], Some(HELLO_SHA256));
+    let temp_dir = tempfile::tempdir().unwrap();
+    let output = temp_dir.path().join("asset.bin");
+
+    let error = stage_planned_asset(&source, &asset, &output).unwrap_err();
+
+    let RegistryAssetStagingError::AllAssetUrlsFailed { failures, .. } = error else {
+        panic!("expected all asset urls failed");
+    };
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0].url, url);
+    assert!(failures[0].message.contains("HTTP 206 Partial Content"));
+    assert!(!output.exists());
+    assert!(temp_asset_files(temp_dir.path()).is_empty());
     handle.join().unwrap();
 }
 
@@ -2096,6 +2310,26 @@ fn serve_registry_http_response(
     (url, handle)
 }
 
+fn serve_registry_http_response_without_length(
+    status: &str,
+    response_body: &str,
+) -> (String, std::thread::JoinHandle<CapturedRegistryHttpRequest>) {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let status = status.to_owned();
+    let response_body = response_body.to_owned();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let head = read_registry_http_request_head(&mut stream);
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{response_body}"
+        );
+        std::io::Write::write_all(&mut stream, response.as_bytes()).unwrap();
+        CapturedRegistryHttpRequest { head }
+    });
+    (url, handle)
+}
+
 fn read_registry_http_request_head(stream: &mut std::net::TcpStream) -> String {
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 1024];
@@ -2139,6 +2373,39 @@ fn reqwest_registry_text_source_sanitizes_http_error_body() {
     assert!(message.contains("HTTP 500 Internal Server Error"));
     assert!(!message.contains("secret-token"));
     assert!(!message.contains(&url));
+    handle.join().unwrap();
+}
+
+#[test]
+fn reqwest_registry_text_source_requires_exact_http_200() {
+    let (url, handle) = serve_registry_http_response("206 Partial Content", SAMPLE);
+    let source = ReqwestRegistryTextSource::new();
+
+    let message = source.fetch_registry_text(&url).unwrap_err();
+
+    assert!(message.contains("HTTP 206 Partial Content"));
+    handle.join().unwrap();
+}
+
+#[test]
+fn reqwest_registry_text_source_rejects_content_length_over_limit() {
+    let (url, handle) = serve_registry_http_response("200 OK", "123456789");
+    let source = ReqwestRegistryTextSource::with_limits(std::time::Duration::from_secs(1), 8);
+
+    let message = source.fetch_registry_text(&url).unwrap_err();
+
+    assert_eq!(message, "registry HTTP response exceeds maximum size");
+    handle.join().unwrap();
+}
+
+#[test]
+fn reqwest_registry_text_source_rejects_streamed_body_over_limit() {
+    let (url, handle) = serve_registry_http_response_without_length("200 OK", "123456789");
+    let source = ReqwestRegistryTextSource::with_limits(std::time::Duration::from_secs(1), 8);
+
+    let message = source.fetch_registry_text(&url).unwrap_err();
+
+    assert_eq!(message, "registry HTTP response exceeds maximum size");
     handle.join().unwrap();
 }
 
@@ -2285,6 +2552,112 @@ fn install_live_model_downloads_verifies_extracts_and_materializes_single_root()
     );
     assert!(!staging_dir.join("extract/release-root").exists());
     assert!(!staging_dir.join("extract/stale-root").exists());
+}
+
+#[test]
+fn install_live_model_replaces_existing_model_after_staging_completes() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("replacement-model.tar.bz2");
+    write_test_tar_bz2_archive(
+        &archive,
+        &[
+            TestTarEntry::Directory("release-root"),
+            TestTarEntry::File("release-root/model.int8.onnx", b"new-model"),
+            TestTarEntry::File("release-root/tokens.txt", b"new-tokens"),
+        ],
+    );
+    let archive_bytes = std::fs::read(&archive).unwrap();
+    let archive_sha256 = sha256_hex(&archive_bytes);
+    let url = "https://registry.invalid/replacement-model.tar.bz2";
+    let registry = test_live_model_for_archive(url, &archive_sha256);
+    let model = registry.model_by_id_or_short_id("test-sense").unwrap();
+    let source = StaticRegistryAssetSource::default().with_response(url, Ok(archive_bytes));
+    let model_dir = temp_dir.path().join("models/test-sense");
+    std::fs::create_dir_all(&model_dir).unwrap();
+    std::fs::write(model_dir.join("model.int8.onnx"), b"old-model").unwrap();
+    std::fs::write(model_dir.join("old-only.txt"), b"old-only").unwrap();
+
+    let installed = install_live_model(
+        &source,
+        &LiveModelInstallRequest {
+            model,
+            model_dir: model_dir.clone(),
+            staging_dir: temp_dir.path().join("stage/test-sense"),
+            display: None,
+        },
+    )
+    .unwrap();
+
+    assert!(installed.materialized.replaced_existing);
+    assert_eq!(
+        std::fs::read(model_dir.join("model.int8.onnx")).unwrap(),
+        b"new-model"
+    );
+    assert_eq!(
+        std::fs::read(model_dir.join("tokens.txt")).unwrap(),
+        b"new-tokens"
+    );
+    assert!(!model_dir.join("old-only.txt").exists());
+    assert!(model_dir.join("vinpst-model.json").is_file());
+    assert!(materialize_backup_dirs(model_dir.parent().unwrap()).is_empty());
+}
+
+#[test]
+fn install_live_model_preserves_legacy_missing_checksum_behavior() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive = temp_dir.path().join("unchecked-model.tar.bz2");
+    write_test_tar_bz2_archive(
+        &archive,
+        &[
+            TestTarEntry::File("model.int8.onnx", b"unchecked-model"),
+            TestTarEntry::File("tokens.txt", b"tokens"),
+        ],
+    );
+    let url = "https://registry.invalid/unchecked-model.tar.bz2";
+    let input = serde_json::json!({
+        "version": 2,
+        "items": [{
+            "id": "model.test.unchecked",
+            "short_id": "unchecked",
+            "urls": [url],
+            "vinpst_model": {
+                "backend": "sherpa-offline",
+                "family": "sense_voice",
+                "runtime": "offline",
+                "supports_hotwords": false,
+                "model": {
+                    "tokens": "tokens.txt",
+                    "sense_voice": {"model": "model.int8.onnx"}
+                }
+            }
+        }]
+    });
+    let registry = LiveModelRegistry::from_json_str(&input.to_string()).unwrap();
+    let model = registry.model_by_id_or_short_id("unchecked").unwrap();
+    let source = StaticRegistryAssetSource::default()
+        .with_response(url, Ok(std::fs::read(&archive).unwrap()));
+    let model_dir = temp_dir.path().join("models/unchecked");
+
+    let installed = install_live_model(
+        &source,
+        &LiveModelInstallRequest {
+            model,
+            model_dir: model_dir.clone(),
+            staging_dir: temp_dir.path().join("stage/unchecked"),
+            display: None,
+        },
+    )
+    .unwrap();
+
+    assert!(!installed.checksum_verified());
+    assert_eq!(
+        installed.staged_asset.checksum,
+        AssetChecksumStatus::Missing
+    );
+    assert_eq!(
+        std::fs::read(model_dir.join("model.int8.onnx")).unwrap(),
+        b"unchecked-model"
+    );
 }
 
 #[test]

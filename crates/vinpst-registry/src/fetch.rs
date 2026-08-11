@@ -1,6 +1,6 @@
 //! Registry text fetch boundary with deterministic mirror fallback.
 
-use std::time::Duration;
+use std::{io::Read, time::Duration};
 
 use thiserror::Error;
 
@@ -53,16 +53,20 @@ pub trait RegistryTextSource {
 ///
 /// The reqwest blocking client is created and dropped inside a dedicated thread
 /// so synchronous registry fetches remain safe when called from an async runtime.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct ReqwestRegistryTextSource {
     timeout: Option<Duration>,
+    max_bytes: Option<usize>,
 }
 
 impl ReqwestRegistryTextSource {
-    /// Creates a source with reqwest's default timeout behavior.
+    /// Creates a source with the frozen downloader's 30-second default timeout.
     #[must_use]
     pub const fn new() -> Self {
-        Self { timeout: None }
+        Self {
+            timeout: Some(Duration::from_secs(30)),
+            max_bytes: None,
+        }
     }
 
     /// Creates a source that applies a per-request timeout.
@@ -70,7 +74,27 @@ impl ReqwestRegistryTextSource {
     pub const fn with_timeout(timeout: Duration) -> Self {
         Self {
             timeout: Some(timeout),
+            max_bytes: None,
         }
+    }
+
+    /// Creates a source with an explicit timeout and maximum response size.
+    #[must_use]
+    pub const fn with_limits(timeout: Duration, max_bytes: usize) -> Self {
+        Self {
+            timeout: Some(timeout),
+            max_bytes: if max_bytes == 0 {
+                None
+            } else {
+                Some(max_bytes)
+            },
+        }
+    }
+}
+
+impl Default for ReqwestRegistryTextSource {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -78,13 +102,18 @@ impl RegistryTextSource for ReqwestRegistryTextSource {
     fn fetch_registry_text(&self, url: &str) -> Result<String, String> {
         let url = url.to_owned();
         let timeout = self.timeout;
-        std::thread::spawn(move || fetch_registry_text_blocking(&url, timeout))
+        let max_bytes = self.max_bytes;
+        std::thread::spawn(move || fetch_registry_text_blocking(&url, timeout, max_bytes))
             .join()
             .map_err(|_| "registry HTTP worker thread panicked".to_owned())?
     }
 }
 
-fn fetch_registry_text_blocking(url: &str, timeout: Option<Duration>) -> Result<String, String> {
+fn fetch_registry_text_blocking(
+    url: &str,
+    timeout: Option<Duration>,
+    max_bytes: Option<usize>,
+) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
     let mut request = client
         .get(url)
@@ -97,13 +126,38 @@ fn fetch_registry_text_blocking(url: &str, timeout: Option<Duration>) -> Result<
         .send()
         .map_err(|error| sanitize_registry_http_error(&error))?;
     let status = response.status();
-    if !status.is_success() {
+    if status != reqwest::StatusCode::OK {
         return Err(format!("registry HTTP mirror returned HTTP {status}"));
     }
 
+    read_registry_response_text(response, max_bytes)
+}
+
+fn read_registry_response_text(
+    response: reqwest::blocking::Response,
+    max_bytes: Option<usize>,
+) -> Result<String, String> {
+    let Some(max_bytes) = max_bytes else {
+        return response
+            .text()
+            .map_err(|error| sanitize_registry_http_error(&error));
+    };
+    if response
+        .content_length()
+        .is_some_and(|length| length > max_bytes as u64)
+    {
+        return Err("registry HTTP response exceeds maximum size".to_owned());
+    }
+
+    let mut body = Vec::with_capacity(max_bytes.min(64 * 1024));
     response
-        .text()
-        .map_err(|error| sanitize_registry_http_error(&error))
+        .take(max_bytes.saturating_add(1) as u64)
+        .read_to_end(&mut body)
+        .map_err(|_| "registry HTTP response body read failed".to_owned())?;
+    if body.len() > max_bytes {
+        return Err("registry HTTP response exceeds maximum size".to_owned());
+    }
+    String::from_utf8(body).map_err(|_| "registry HTTP response body is not UTF-8".to_owned())
 }
 
 fn sanitize_registry_http_error(error: &reqwest::Error) -> String {

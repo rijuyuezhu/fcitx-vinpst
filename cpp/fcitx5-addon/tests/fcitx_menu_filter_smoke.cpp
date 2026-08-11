@@ -8,6 +8,7 @@ int main() {
   using vinpst_fcitx_bridge::MenuSemanticKey;
   using vinpst_fcitx_bridge::MenuSemanticKeyKind;
   using vinpst_fcitx_bridge::MenuSessionState;
+  using vinpst_fcitx_bridge::PlanResultMenuKey;
 
   const fcitx::KeyList page_prev{fcitx::Key(FcitxKey_Page_Up),
                                  fcitx::Key(FcitxKey_KP_Page_Up)};
@@ -87,6 +88,36 @@ int main() {
       false, -1, 0);
   assert(release_consume.has_value() &&
          release_consume->action == MenuKeyAction::Consume);
+  const auto result_digit = PlanResultMenuKey(
+      false,
+      ClassifyMenuKey(fcitx::Key(FcitxKey_1), false, false, page_prev, page_next), true,
+      5, 1, 6);
+  assert(result_digit.has_value());
+  assert(result_digit->action == MenuKeyAction::Select && result_digit->value == 5);
+  const auto result_invalid_digit = PlanResultMenuKey(
+      false,
+      ClassifyMenuKey(fcitx::Key(FcitxKey_2), false, false, page_prev, page_next), true,
+      5, 1, 6);
+  assert(result_invalid_digit.has_value() &&
+         result_invalid_digit->action == MenuKeyAction::CloseAndPass);
+  const auto result_enter = PlanResultMenuKey(
+      false,
+      ClassifyMenuKey(fcitx::Key(FcitxKey_Return), false, false, page_prev, page_next),
+      true, 5, 1, 6);
+  assert(result_enter.has_value());
+  assert(result_enter->action == MenuKeyAction::Select && result_enter->value == 5);
+  const auto result_escape_release = PlanResultMenuKey(
+      true,
+      ClassifyMenuKey(fcitx::Key(FcitxKey_Escape), false, false, page_prev, page_next),
+      true, 5, 1, 6);
+  assert(result_escape_release.has_value() &&
+         result_escape_release->action == MenuKeyAction::Consume);
+  const auto result_other_press = PlanResultMenuKey(
+      false,
+      ClassifyMenuKey(fcitx::Key(FcitxKey_F1), false, false, page_prev, page_next),
+      true, 5, 1, 6);
+  assert(result_other_press.has_value() &&
+         result_other_press->action == MenuKeyAction::CloseAndPass);
 
   session.Close();
   const auto reset = session.active();

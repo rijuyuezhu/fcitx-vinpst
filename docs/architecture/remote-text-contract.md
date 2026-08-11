@@ -14,7 +14,7 @@ The service is enabled only when the active ASR provider is the command provider
 - `VINPST_ASR_PORT`: explicit listen port in `1..=65535`;
 - otherwise the explicit port in `VINPST_ASR_URL`, when present;
 - otherwise port `8080`;
-- `VINPST_ASR_DEBOUNCE_MS`: positive integer, default `1500`;
+- `VINPST_ASR_DEBOUNCE_MS`: positive 32-bit signed integer, default `1500`;
 - `VINPST_ASR_API_KEY`: required and never exposed by diagnostics or `Debug` output.
 
 Other active providers disable this service without error. Invalid explicit settings fail rather than silently changing values.
@@ -47,23 +47,25 @@ Generated event and item ids are opaque. Tests use deterministic ids; the networ
 - `/` serves a small browser editor and `/favicon.svg` serves its icon;
 - `/ws` upgrades the authenticated browser/input connection;
 - `/v1/realtime` upgrades the loopback-only Bearer-authenticated output connection;
-- WebSocket messages are limited to 2 MiB;
+- WebSocket frames and aggregate messages are limited to 2 MiB;
 - one input and one output writer task are retained around shared protocol state;
 - generation tokens cancel stale debounce timers;
 - graceful shutdown stops the listener and connection tasks;
 - the standalone `remote-text-server` daemon command derives its port and credentials from the active remote provider.
 
-Real local-socket tests cover HTTP assets, authorization failure, single-input ownership, session updates, debounce delivery, the committed/delta/completed event sequence, output disconnect notification, and the standalone command health endpoint.
+HTTP parsing is delegated to Hyper rather than reproducing the legacy hand-written parser. Hyper keeps bounded HTTP/1 buffering and a bounded default header count, but its parser budget is not the legacy parser's exact 64 KiB aggregate-header constant. The rewrite keeps that framework boundary instead of adding a parallel raw HTTP parser solely to reproduce the smaller constant.
+
+Real local-socket tests cover HTTP assets, authorization failure, single-input ownership, session updates, debounce delivery, the committed/delta/completed event sequence, output disconnect notification, active-client shutdown, API-key rotation, and the standalone command health endpoint.
 
 ## Daemon-owned lifecycle
 
-`VinpstDbusService` owns one `RemoteTextLifecycle` beside the ASR runtime. The normal `vinpst-daemon --dbus` path reconciles it before requesting the D-Bus name, then keeps it aligned with the target config used by:
+`VinpstDbusService` owns one `RemoteTextLifecycle` beside the ASR runtime. The normal `vinpst-daemon --dbus` path owns the D-Bus name before starting the optional remote listener, matching the legacy startup order and preventing a losing second daemon from creating remote-service side effects. An initial remote settings/bind failure is reported to stderr but does not tear down the core D-Bus daemon, matching the legacy degraded-startup policy. Once running, the lifecycle stays aligned with the target config used by:
 
 - `SetActiveAsrProvider`;
 - `SetActiveAsrTarget`;
 - `ReloadAsrBackend`.
 
-An unchanged disabled or unchanged active configuration is a no-op. Changing port, debounce, API key, or provider stops the old listener before starting the desired one. Switching to a non-remote provider stops the service. A replacement bind failure returns an explicit D-Bus error and does not retain the stale listener or credentials. `SIGINT` and `SIGTERM` trigger graceful listener shutdown before process exit.
+An unchanged disabled or unchanged active configuration is a no-op. Changing port, debounce, API key, or provider stops the old listener and all upgraded clients before starting the desired one. Switching to a non-remote provider stops the service. A replacement bind failure returns an explicit D-Bus error and does not retain the stale listener, clients, or credentials. `SIGINT` and `SIGTERM` trigger graceful listener and client shutdown before process exit.
 
 Deterministic evidence covers lifecycle start, no-op reconciliation, settings-driven restart, provider-selection enable/disable, bind-failure cleanup, and config-file reload. `scripts/tests/daemon/run-remote-text-daemon-lifecycle-smoke.sh` additionally launches the normal daemon inside a private `dbus-run-session`, proves both `/health` and `GetStatus`, sends `SIGTERM`, and verifies that the listener is released.
 

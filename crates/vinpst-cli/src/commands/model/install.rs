@@ -1,8 +1,17 @@
+use std::{
+    io::{IsTerminal, Write},
+    sync::{Arc, Mutex},
+};
+
+use vinpst_registry::{
+    RegistryOperationControl, RegistryOperationProgress, install_live_model_controlled,
+};
+
 use super::{
     ArchiveFormat, Context, Duration, LiveModelEntry, LiveModelInstallRequest,
     LiveModelInstallResult, LiveRegistryI18n, LoadedLiveI18n, LoadedLiveModelRegistry,
     ModelInstallPlanRequest, Path, ReqwestRegistryAssetSource, default_model_install_staging_root,
-    default_model_root, install_live_model,
+    default_model_root,
 };
 use super::{
     catalog::{live_model_list_json, load_live_model_catalog},
@@ -48,8 +57,19 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
 
     let model_dir = model_root.join(managed_model_dir_name(model));
     let staging_dir = staging_root.join(managed_model_dir_name(model));
-    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(300));
-    let installed = install_live_model(
+    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(600));
+    let progress = Arc::new(Mutex::new(ModelInstallProgress::new(
+        request.id_or_short_id,
+        std::io::stdout().is_terminal(),
+    )));
+    let reporter = Arc::clone(&progress);
+    let control = RegistryOperationControl::new(move |event| {
+        reporter
+            .lock()
+            .expect("model install progress lock poisoned")
+            .report(&event);
+    });
+    let install_result = install_live_model_controlled(
         &source,
         &LiveModelInstallRequest {
             model,
@@ -57,8 +77,13 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
             staging_dir: staging_dir.clone(),
             display: Some(model.installed_display_metadata(request.locale, i18n.i18n.as_ref())),
         },
-    )
-    .with_context(|| format!("install live model `{}`", model.id))?;
+        &control,
+    );
+    progress
+        .lock()
+        .expect("model install progress lock poisoned")
+        .finish(install_result.is_ok());
+    let installed = install_result.with_context(|| format!("install live model `{}`", model.id))?;
 
     if request.json_output {
         let output =
@@ -68,6 +93,63 @@ pub(super) fn print_model_install_plan(request: ModelInstallPlanRequest<'_>) -> 
         print_model_install_result_text(model, i18n.i18n.as_ref(), &installed);
     }
     Ok(())
+}
+
+struct ModelInstallProgress {
+    label: String,
+    is_tty: bool,
+    last_bucket: Option<u64>,
+    tty_line_open: bool,
+}
+
+impl ModelInstallProgress {
+    fn new(label: &str, is_tty: bool) -> Self {
+        Self {
+            label: label.to_owned(),
+            is_tty,
+            last_bucket: None,
+            tty_line_open: false,
+        }
+    }
+
+    fn report(&mut self, event: &RegistryOperationProgress) {
+        let RegistryOperationProgress::Downloading {
+            downloaded_bytes,
+            total_bytes: Some(total_bytes),
+        } = event
+        else {
+            return;
+        };
+        if *total_bytes == 0 {
+            return;
+        }
+        let percent = (downloaded_bytes.saturating_mul(100) / total_bytes).min(100);
+        if self.is_tty {
+            eprint!("\rDownloading {}... {percent}%   ", self.label);
+            let _ = std::io::stderr().flush();
+            self.tty_line_open = true;
+            self.last_bucket = Some(percent);
+            return;
+        }
+        let bucket = (percent / 10) * 10;
+        if self.last_bucket.is_none_or(|last| bucket > last) {
+            eprintln!("Downloading {}...: {bucket}%", self.label);
+            self.last_bucket = Some(bucket);
+        }
+    }
+
+    fn finish(&mut self, success: bool) {
+        if self.is_tty {
+            if self.tty_line_open {
+                eprintln!();
+            }
+            return;
+        }
+        if success && self.last_bucket.unwrap_or_default() < 100 {
+            eprintln!("Downloading {}...: 100%", self.label);
+            self.last_bucket = Some(100);
+        }
+    }
 }
 
 fn live_model_install_result_json(
@@ -188,34 +270,14 @@ fn print_model_install_result_text(
     i18n: Option<&LiveRegistryI18n>,
     installed: &LiveModelInstallResult,
 ) {
-    println!("dry_run: false");
-    println!("id: {}", model.id);
-    println!("short_id: {}", optional_str(model.short_id.as_deref()));
-    println!("title: {}", model.resolved_title(i18n));
     println!(
-        "target_model_dir: {}",
-        installed.materialized.target_path.display()
+        "Installed model `{}` ({}).",
+        model.resolved_title(i18n),
+        model.id
     );
-    println!("metadata_path: {}", installed.metadata_path.display());
-    println!("archive_path: {}", installed.staged_asset.path.display());
-    println!("extract_path: {}", installed.staged_archive.path.display());
+    println!("Location: {}", installed.materialized.target_path.display());
     println!(
-        "materialize_source_path: {}",
-        installed.materialize_source_path.display()
-    );
-    println!(
-        "replaced_existing: {}",
-        installed.materialized.replaced_existing
-    );
-    println!("checksum_verified: {}", installed.checksum_verified());
-    println!("file_count: {}", installed.staged_archive.file_count);
-    println!(
-        "directory_count: {}",
-        installed.staged_archive.directory_count
-    );
-    println!("will_write_config: false");
-    println!(
-        "next_step: vinpst model use {}",
+        "Next: vinpst model use {}",
         optional_str(model.short_id.as_deref().or(Some(model.id.as_str())))
     );
 }
@@ -224,37 +286,18 @@ fn print_model_install_plan_text(
     model: &LiveModelEntry,
     i18n: Option<&LiveRegistryI18n>,
     model_root: &Path,
-    staging_root: &Path,
+    _staging_root: &Path,
 ) -> anyhow::Result<()> {
-    let archive_file_name = model_archive_file_name(model)?;
-    let archive_format = archive_format_label(archive_file_name);
-    let archive_supported = ArchiveFormat::from_path(archive_file_name).is_some();
+    model_archive_file_name(model)?;
     let model_dir_name = managed_model_dir_name(model);
     let model_dir = model_root.join(&model_dir_name);
-    let staging_dir = staging_root.join(&model_dir_name);
-    println!("dry_run: true");
-    println!("id: {}", model.id);
-    println!("short_id: {}", optional_str(model.short_id.as_deref()));
-    println!("title: {}", model.resolved_title(i18n));
-    println!("target_model_dir: {}", model_dir.display());
     println!(
-        "metadata_path: {}",
-        model_dir.join("vinpst-model.json").display()
+        "Would install model `{}` ({}, {}).",
+        model.resolved_title(i18n),
+        model.id,
+        format_size_bytes(model.size_bytes)
     );
-    println!("config_model_value: {}", model_dir.display());
-    println!("staging_dir: {}", staging_dir.display());
-    println!("archive_file: {archive_file_name}");
-    println!("archive_format: {archive_format}");
-    println!("archive_supported: {archive_supported}");
-    println!("sha256: {}", optional_str(model.sha256.as_deref()));
-    println!("size: {}", format_size_bytes(model.size_bytes));
-    println!("urls:");
-    for url in &model.urls {
-        println!("  - {url}");
-    }
-    println!("will_download: false");
-    println!("will_extract: false");
-    println!("will_write_config: false");
+    println!("Location: {}", model_dir.display());
     Ok(())
 }
 

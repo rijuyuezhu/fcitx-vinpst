@@ -7,13 +7,14 @@ use edit::{print_provider_edit, print_provider_edit_script};
 use mutation::{print_provider_add, print_provider_remove, print_provider_use};
 
 use crate::{
-    AsrProviderConfig, AsrProviderKind, BTreeMap, Context, Duration, LiveRegistryI18n,
-    LiveScriptKind, LiveScriptRegistry, LoadedLiveI18n, LoadedLiveScriptRegistry, Path, PathBuf,
-    ProviderCommand, RegistryConfig, ReqwestRegistryAssetSource, ReqwestRegistryTextSource,
-    VinpstConfig, config_set_write_target, default_config_path, default_provider_root,
-    fetch_text_from_mirrors, fs, install_live_script, live_registry_urls, load_config_json,
-    load_live_i18n, managed_script_relative_path, materialize_asr_provider,
-    prepare_provider_script_edit, validate_config_json_value, write_config_set_document,
+    AsrProviderConfig, AsrProviderKind, AsrReloadAfterWrite, BTreeMap, Context, Duration,
+    LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, LoadedLiveI18n, LoadedLiveScriptRegistry,
+    Path, PathBuf, ProviderCommand, RegistryConfig, ReqwestRegistryAssetSource, VinpstConfig,
+    config_set_write_target, default_config_path, default_provider_root, fetch_text_from_mirrors,
+    fs, install_live_script, live_registry_urls, load_config_json, load_live_i18n,
+    managed_script_relative_path, materialize_asr_provider, prepare_provider_script_edit,
+    reload_asr_backend_after_canonical_write, validate_config_json_value,
+    write_config_set_document,
 };
 
 #[allow(clippy::too_many_lines)]
@@ -216,6 +217,7 @@ struct ProviderAddOutcome {
     in_place: bool,
     dry_run: bool,
     wrote_config: bool,
+    runtime_reload: AsrReloadAfterWrite,
 }
 
 #[derive(Clone, Copy)]
@@ -249,6 +251,7 @@ struct ProviderInstallOutcome {
     dry_run: bool,
     wrote_script: bool,
     wrote_config: bool,
+    runtime_reload: AsrReloadAfterWrite,
 }
 
 #[derive(Clone, Copy)]
@@ -290,6 +293,7 @@ struct ProviderEditOutcome {
     in_place: bool,
     dry_run: bool,
     wrote_config: bool,
+    runtime_reload: AsrReloadAfterWrite,
 }
 
 #[derive(Clone, Copy)]
@@ -339,6 +343,7 @@ struct ProviderRemoveOutcome {
     in_place: bool,
     dry_run: bool,
     wrote_config: bool,
+    runtime_reload: AsrReloadAfterWrite,
 }
 
 #[derive(Clone, Copy)]
@@ -363,6 +368,7 @@ struct ProviderUseOutcome {
     in_place: bool,
     dry_run: bool,
     wrote_config: bool,
+    runtime_reload: AsrReloadAfterWrite,
 }
 
 struct ProviderListContext {
@@ -385,8 +391,4 @@ pub(crate) fn normalize_provider_id(input: &str) -> anyhow::Result<String> {
 
 pub(crate) fn asr_provider_kind_label(kind: &AsrProviderKind) -> &'static str {
     mutation::asr_provider_kind_label(kind)
-}
-
-pub(crate) fn configured_label(value: Option<&str>) -> &'static str {
-    mutation::configured_label(value)
 }

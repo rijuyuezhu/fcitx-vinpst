@@ -14,6 +14,7 @@ mod fetch;
 mod install;
 mod installed;
 mod live;
+mod live_fetch;
 mod managed;
 mod materialize;
 mod operation;
@@ -34,8 +35,9 @@ pub use asset::{
     stage_planned_asset_controlled,
 };
 pub use cache::{
-    RegistryCacheError, RegistryCachedFetchError, RegistryTextCache,
-    fetch_registry_index_with_cache,
+    CachedRegistryText, RegistryCacheError, RegistryCachedFetchError, RegistryTextCache,
+    adapter_registry_cache_path, fetch_registry_index_with_cache, fetch_registry_text_with_cache,
+    model_registry_cache_path, provider_registry_cache_path, registry_i18n_cache_path,
 };
 pub use checksum::{
     RegistrySha256Error, sha256_hex, verify_sha256_bytes, verify_sha256_file, verify_sha256_reader,
@@ -50,13 +52,16 @@ pub use install::{
     install_live_model_controlled,
 };
 pub use installed::{
-    INSTALLED_MODEL_METADATA_FILE, InstalledModelError, InstalledModelInfo,
+    INSTALLED_MODEL_METADATA_FILE, InstalledModelError, InstalledModelInfo, InstalledModelState,
     load_installed_model_info, scan_installed_models,
 };
 pub use live::{
     InstalledModelDisplayMetadata, LiveModelEntry, LiveModelFamily, LiveModelRegistry,
     LiveRegistryI18n, LiveVinpstModelMetadata, detect_preferred_registry_locale,
     normalize_registry_locale, select_preferred_registry_locale,
+};
+pub use live_fetch::{
+    LiveRegistryTextFetch, fetch_live_registry_text, fetch_live_registry_text_with_sources,
 };
 pub use managed::{
     ManagedModelRemoveError, ManagedModelRemoveRequest, ManagedModelRemoveResult,
@@ -80,7 +85,10 @@ pub use provider_script::{
     prepare_provider_script_edit_with, resolve_editable_provider_script,
     resolve_editable_provider_script_with,
 };
-pub use schema::{AdapterEntry, AssetEntry, ModelEntry, RegistryIndex, RegistryIndexSummary};
+pub use schema::{
+    AdapterEntry, AssetEntry, ModelEntry, RegistryIndex, RegistryIndexSummary,
+    registry_url_for_diagnostics, resolve_registry_url,
+};
 pub use script::{
     AsrProviderMaterialization, AsrProviderMaterializationError, LiveScriptEntry,
     LiveScriptEnvSpec, LiveScriptInstallError, LiveScriptInstallResult, LiveScriptKind,

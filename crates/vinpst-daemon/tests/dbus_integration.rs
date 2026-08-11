@@ -8,7 +8,11 @@ use std::{
 
 use futures_util::StreamExt;
 use tokio::time::{sleep, timeout};
-use vinpst_asr::{AsrBackendFactory, MockAsrBackend};
+use vinpst_asr::{
+    AsrBackend, AsrBackendFactory, AsrError, BackendCapabilities, BackendDescriptor,
+    MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend, RecognitionContext, RecognitionEvent,
+    RecognitionSession,
+};
 use vinpst_audio::{
     AudioChunkCallback, AudioError, AudioRecorder, CaptureTarget, CapturedAudio, MockAudioSource,
     PcmBuffer,
@@ -63,9 +67,118 @@ const RAW_PAYLOAD_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../fixtures/recognition/raw.json"
 ));
+static WELL_KNOWN_NAME_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn fixture_json(input: &str) -> &str {
     input.trim_end()
+}
+
+fn recognizable_samples(pattern: &[i16]) -> Vec<i16> {
+    assert!(!pattern.is_empty());
+    pattern
+        .iter()
+        .copied()
+        .cycle()
+        .take(MIN_SAMPLES_FOR_RECOGNITION)
+        .collect()
+}
+
+#[derive(Debug)]
+struct EmptyRecognitionBackend;
+
+impl AsrBackend for EmptyRecognitionBackend {
+    fn describe(&self) -> BackendDescriptor {
+        BackendDescriptor::new("empty", "", "Empty ASR", BackendCapabilities::buffered())
+    }
+
+    fn create_session(
+        &self,
+        _context: RecognitionContext,
+    ) -> Result<Box<dyn RecognitionSession>, AsrError> {
+        Ok(Box::new(EmptyRecognitionSession {
+            events: Vec::new(),
+            finished: false,
+            cancelled: false,
+        }))
+    }
+}
+
+struct EmptyRecognitionSession {
+    events: Vec<RecognitionEvent>,
+    finished: bool,
+    cancelled: bool,
+}
+
+impl RecognitionSession for EmptyRecognitionSession {
+    fn push_audio(&mut self, _samples: &[i16]) -> Result<(), AsrError> {
+        if self.cancelled {
+            return Err(AsrError::Cancelled);
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<(), AsrError> {
+        if self.cancelled {
+            return Err(AsrError::Cancelled);
+        }
+        if !self.finished {
+            self.finished = true;
+            self.events.push(RecognitionEvent::Completed);
+        }
+        Ok(())
+    }
+
+    fn cancel(&mut self) -> Result<(), AsrError> {
+        self.cancelled = true;
+        self.events.clear();
+        self.events.push(RecognitionEvent::Completed);
+        Ok(())
+    }
+
+    fn poll_events(&mut self) -> Result<Vec<RecognitionEvent>, AsrError> {
+        Ok(std::mem::take(&mut self.events))
+    }
+}
+
+#[derive(Debug)]
+struct PushFailureBackend;
+
+impl AsrBackend for PushFailureBackend {
+    fn describe(&self) -> BackendDescriptor {
+        BackendDescriptor::new(
+            "push-failure",
+            "",
+            "Push failure ASR",
+            BackendCapabilities::streaming(),
+        )
+    }
+
+    fn create_session(
+        &self,
+        _context: RecognitionContext,
+    ) -> Result<Box<dyn RecognitionSession>, AsrError> {
+        Ok(Box::new(PushFailureSession))
+    }
+}
+
+struct PushFailureSession;
+
+impl RecognitionSession for PushFailureSession {
+    fn push_audio(&mut self, _samples: &[i16]) -> Result<(), AsrError> {
+        Err(AsrError::Backend("test push failed".to_owned()))
+    }
+
+    fn finish(&mut self) -> Result<(), AsrError> {
+        Ok(())
+    }
+
+    fn cancel(&mut self) -> Result<(), AsrError> {
+        Ok(())
+    }
+
+    fn poll_events(&mut self) -> Result<Vec<RecognitionEvent>, AsrError> {
+        Ok(Vec::new())
+    }
 }
 
 async fn spawn_service() -> anyhow::Result<zbus::Connection> {
@@ -75,6 +188,31 @@ async fn spawn_service() -> anyhow::Result<zbus::Connection> {
         .serve_on_session_bus()
         .await?;
     Ok(connection)
+}
+
+#[tokio::test]
+async fn second_service_cannot_replace_or_queue_behind_current_owner() -> anyhow::Result<()> {
+    let _well_known_name_guard = WELL_KNOWN_NAME_TEST_LOCK.lock().await;
+    let first = spawn_service().await?;
+    let first_unique_name = first
+        .unique_name()
+        .ok_or_else(|| anyhow::anyhow!("first service should have a unique bus name"))?
+        .to_owned();
+
+    let second_runtime = RuntimeState::new(VinpstConfig::bundled_default()?)?;
+    let error = VinpstDbusService::new(second_runtime)
+        .serve_on_session_bus()
+        .await
+        .expect_err("a second daemon must not replace or queue behind the current owner");
+    assert!(matches!(error, zbus::Error::NameTaken));
+
+    let bus = zbus::fdo::DBusProxy::new(&first).await?;
+    let owner = bus
+        .get_name_owner(dbus::SERVICE_BUS_NAME.try_into()?)
+        .await?;
+    assert_eq!(owner, first_unique_name);
+    assert!(first.release_name(dbus::SERVICE_BUS_NAME).await?);
+    Ok(())
 }
 
 async fn spawn_runtime_on_unique_name(
@@ -134,13 +272,13 @@ fn configured_command_runtime() -> anyhow::Result<RuntimeState> {
     config.validate()?;
     let backend = AsrBackendFactory::build_active(&config.asr)?;
     let audio_source = MockAudioSource::once(CapturedAudio::named(
-        PcmBuffer::at_default_rate(vec![1_000, -1_000, 2_000, -2_000]),
+        PcmBuffer::at_default_rate(recognizable_samples(&[1_000, -1_000, 2_000, -2_000])),
         "dbus-e2e",
     ));
     RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
 }
 
-fn configured_streaming_command_runtime() -> anyhow::Result<RuntimeState> {
+fn configured_streaming_command_runtime() -> anyhow::Result<(RuntimeState, ManualRecorderHandle)> {
     let mut config = VinpstConfig::bundled_default()?;
     "cmd.streaming".clone_into(&mut config.asr.active_provider);
     config.asr.providers.push(AsrProviderConfig {
@@ -149,22 +287,88 @@ fn configured_streaming_command_runtime() -> anyhow::Result<RuntimeState> {
         timeout_ms: Some(1_000),
         model: Some("cmd-model".to_owned()),
         hotwords_file: None,
-        command: Some("sh".to_owned()),
+        command: Some("python3".to_owned()),
         args: vec![
+            "-u".to_owned(),
             "-c".to_owned(),
-            r#"cat >/dev/null; printf '%s
-' '{"type":"partial","text":"bus partial"}' '{"type":"final","text":"bus streaming final"}' '{"type":"closed"}'"#.to_owned(),
+            r"
+import json
+import sys
+for raw in sys.stdin:
+    if not raw.strip():
+        continue
+    event = json.loads(raw)
+    if event.get('type') == 'audio' and event.get('commit') is False:
+        print(json.dumps({'type':'partial','text':'bus partial'}), flush=True)
+    elif event.get('type') == 'finish':
+        print(json.dumps({'type':'final','text':'bus streaming final'}), flush=True)
+        print(json.dumps({'type':'closed'}), flush=True)
+        break
+"
+            .to_owned(),
         ],
         env: std::collections::HashMap::new(),
         endpoint: None,
     });
     config.validate()?;
     let backend = AsrBackendFactory::build_active(&config.asr)?;
-    let audio_source = MockAudioSource::once(CapturedAudio::named(
-        PcmBuffer::at_default_rate(vec![1_000, -1_000, 2_000, -2_000]),
+    let captured = CapturedAudio::named(
+        PcmBuffer::at_default_rate(vec![1_000; MIN_SAMPLES_FOR_RECOGNITION]),
         "dbus-streaming-command-e2e",
-    ));
-    RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
+    );
+    let (recorder, handle) = ManualAudioRecorder::new(captured);
+    let runtime = RuntimeState::with_audio_recorder(config, backend, Box::new(recorder))?;
+    Ok((runtime, handle))
+}
+
+fn configured_streaming_command_error_runtime(
+    error_on_finish: bool,
+) -> anyhow::Result<(RuntimeState, ManualRecorderHandle)> {
+    let mut config = VinpstConfig::bundled_default()?;
+    "cmd.streaming".clone_into(&mut config.asr.active_provider);
+    let trigger = if error_on_finish { "finish" } else { "audio" };
+    let script = format!(
+        r#"
+import json
+import sys
+sent = False
+trigger = {trigger:?}
+for raw in sys.stdin:
+    if not raw.strip():
+        continue
+    event = json.loads(raw)
+    should_error = (
+        (trigger == 'audio' and event.get('type') == 'audio' and event.get('commit') is False)
+        or (trigger == 'finish' and event.get('type') == 'finish')
+    )
+    if should_error and not sent:
+        print(json.dumps({{'type':'error','message':"ASR provider 'cmd': timed out. upstream detail"}}), flush=True)
+        sent = True
+    if event.get('type') == 'finish':
+        print(json.dumps({{'type':'closed'}}), flush=True)
+        break
+"#
+    );
+    config.asr.providers.push(AsrProviderConfig {
+        id: "cmd.streaming".to_owned(),
+        kind: AsrProviderKind::Command,
+        timeout_ms: Some(1_000),
+        model: Some("cmd-model".to_owned()),
+        hotwords_file: None,
+        command: Some("python3".to_owned()),
+        args: vec!["-u".to_owned(), "-c".to_owned(), script],
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    config.validate()?;
+    let backend = AsrBackendFactory::build_active(&config.asr)?;
+    let captured = CapturedAudio::named(
+        PcmBuffer::at_default_rate(vec![1_000; MIN_SAMPLES_FOR_RECOGNITION]),
+        "dbus-streaming-command-error-e2e",
+    );
+    let (recorder, handle) = ManualAudioRecorder::new(captured);
+    let runtime = RuntimeState::with_audio_recorder(config, backend, Box::new(recorder))?;
+    Ok((runtime, handle))
 }
 
 #[derive(Clone, Default)]
@@ -230,7 +434,7 @@ fn live_partial_runtime() -> anyhow::Result<(RuntimeState, ManualRecorderHandle)
     let config = VinpstConfig::bundled_default()?;
     let backend = MockAsrBackend::streaming("live bus partial", "live bus final");
     let captured = CapturedAudio::named(
-        PcmBuffer::at_default_rate(vec![1_000; 800]),
+        PcmBuffer::at_default_rate(vec![1_000; MIN_SAMPLES_FOR_RECOGNITION]),
         "manual-live-partial",
     );
     let (recorder, handle) = ManualAudioRecorder::new(captured);
@@ -262,7 +466,7 @@ fn configured_command_text_runtime() -> anyhow::Result<RuntimeState> {
     config.validate()?;
     let backend = AsrBackendFactory::build_active(&config.asr)?;
     let audio_source = MockAudioSource::once(CapturedAudio::named(
-        PcmBuffer::at_default_rate(vec![1_000, -1_000, 2_000, -2_000]),
+        PcmBuffer::at_default_rate(recognizable_samples(&[1_000, -1_000, 2_000, -2_000])),
         "dbus-text-e2e",
     ));
     RuntimeState::with_configured_text(config, backend, Box::new(audio_source)).map_err(Into::into)
@@ -282,6 +486,19 @@ async fn next_error_info_signal(
         .await?
         .ok_or_else(|| anyhow::anyhow!("signal stream ended"))?;
     Ok(message.body().deserialize()?)
+}
+
+async fn expect_no_error_info_signal(
+    stream: &mut zbus::proxy::SignalStream<'_>,
+) -> anyhow::Result<()> {
+    match timeout(Duration::from_millis(150), stream.next()).await {
+        Err(_) => Ok(()),
+        Ok(None) => anyhow::bail!("signal stream ended"),
+        Ok(Some(message)) => {
+            let value: (String, String, String, String) = message.body().deserialize()?;
+            anyhow::bail!("unexpected error-info signal: {value:?}");
+        }
+    }
 }
 
 fn single_string_body(message: &Message) -> anyhow::Result<String> {
@@ -546,6 +763,64 @@ async fn dbus_reload_rereads_config_and_rebuilds_backend() -> anyhow::Result<()>
 }
 
 #[tokio::test]
+async fn dbus_reload_to_unselected_provider_clears_effective_backend() -> anyhow::Result<()> {
+    let mut active_config = VinpstConfig::bundled_default()?;
+    active_config.asr.active_provider = "mock".to_owned();
+    active_config.asr.providers.push(AsrProviderConfig {
+        id: "mock".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("mock-model".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    let temp = tempfile::tempdir()?;
+    let config_path = temp.path().join("config.json");
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&active_config)?)?;
+
+    let mut runtime = RuntimeState::with_configured_asr(active_config.clone())?;
+    runtime.set_config_path(Some(config_path.clone()));
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+
+    let before = get_asr_backend_state(&proxy).await?;
+    assert_eq!(before.0, "mock");
+    assert_eq!(before.2, "mock");
+    assert!(before.6);
+
+    let mut unselected = active_config;
+    unselected.asr.active_provider.clear();
+    std::fs::write(&config_path, serde_json::to_vec_pretty(&unselected)?)?;
+    proxy
+        .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
+        .await?;
+
+    let after = get_asr_backend_state(&proxy).await?;
+    assert!(after.0.is_empty());
+    assert!(after.1.is_empty());
+    assert!(after.2.is_empty());
+    assert!(after.3.is_empty());
+    assert!(after.4.is_empty());
+    assert!(!after.5);
+    assert!(!after.6);
+
+    let start: zbus::Result<()> = proxy.call(dbus::method::START_RECORDING, &()).await;
+    assert_legacy_operation_failed(&start.unwrap_err(), "ASR backend is not ready.");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn scene_selection_persists_through_session_bus() -> anyhow::Result<()> {
     let temp = tempfile::tempdir()?;
     let config_path = temp.path().join("config.json");
@@ -718,19 +993,49 @@ async fn asr_provider_selection_persists_and_reloads_through_session_bus() -> an
 
 #[allow(clippy::too_many_lines)]
 #[tokio::test]
-async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
-    let _service_connection = spawn_service().await?;
+async fn empty_recognition_skips_postprocessing_and_emits_empty_result() -> anyhow::Result<()> {
+    let config = VinpstConfig::bundled_default()?;
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[64, -64]),
+    )));
+    let runtime =
+        RuntimeState::with_backends(config, Box::new(EmptyRecognitionBackend), Box::new(source))?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
     let client_connection = zbus::Connection::session().await?;
     let proxy = Proxy::new(
         &client_connection,
-        dbus::SERVICE_BUS_NAME,
+        service_name.as_str(),
         dbus::SERVICE_OBJECT_PATH,
         dbus::SERVICE_INTERFACE,
     )
     .await?;
+    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
+    let mut result_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_RESULT)
+        .await?;
 
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
+
+    let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
+    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
+    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
+    expect_no_string_signal(&mut status_signals).await?;
+    let payload = RecognitionPayload::from_json_str(&payload_json)?;
+    assert!(payload.commit_text.is_empty());
+    assert!(payload.candidates.is_empty());
+    assert_eq!(next_string_signal(&mut result_signals).await?, payload_json);
+
+    Ok(())
+}
+
+async fn assert_legacy_dbus_introspection(
+    client_connection: &zbus::Connection,
+) -> anyhow::Result<()> {
     let introspection_proxy = Proxy::new(
-        &client_connection,
+        client_connection,
         dbus::SERVICE_BUS_NAME,
         dbus::SERVICE_OBJECT_PATH,
         "org.freedesktop.DBus.Introspectable",
@@ -799,128 +1104,104 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
         dbus::signature::ERROR_INFO,
     )?;
     assert_member_missing(interface_xml, "method", dbus::method::NOTIFY);
+    Ok(())
+}
 
-    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
-    let mut partial_signals = proxy
-        .receive_signal(dbus::signal::RECOGNITION_PARTIAL)
-        .await?;
-    let mut result_signals = proxy
-        .receive_signal(dbus::signal::RECOGNITION_RESULT)
-        .await?;
+async fn exercise_legacy_normal_recording(
+    proxy: &Proxy<'_>,
+    status_signals: &mut zbus::proxy::SignalStream<'_>,
+    partial_signals: &mut zbus::proxy::SignalStream<'_>,
+    result_signals: &mut zbus::proxy::SignalStream<'_>,
+) -> anyhow::Result<()> {
     let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
     assert_eq!(status, "idle");
-
     let idle_stop: zbus::Result<String> = proxy.call(dbus::method::STOP_RECORDING, &"").await;
-    let idle_stop_error = idle_stop.expect_err("idle stop should fail");
-    assert_legacy_operation_failed(&idle_stop_error, "runtime is not recording: idle");
-    expect_no_string_signal(&mut status_signals).await?;
-
-    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
-    assert_eq!(status, "idle");
+    assert_legacy_operation_failed(
+        &idle_stop.expect_err("idle stop should fail"),
+        "runtime is not recording: idle",
+    );
+    expect_no_string_signal(status_signals).await?;
 
     proxy
         .call::<_, _, ()>(dbus::method::START_RECORDING, &())
         .await?;
-    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
-    assert_eq!(status, "recording");
-    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
-    expect_no_string_signal(&mut partial_signals).await?;
-
+    assert_eq!(next_string_signal(status_signals).await?, "recording");
+    assert_eq!(next_string_signal(partial_signals).await?, "mock partial");
     let duplicate_start: zbus::Result<()> = proxy.call(dbus::method::START_RECORDING, &()).await;
-    let duplicate_start_error = duplicate_start.expect_err("duplicate start should fail");
-    assert_legacy_operation_failed(&duplicate_start_error, "runtime is busy");
-
+    assert_legacy_operation_failed(
+        &duplicate_start.expect_err("duplicate start should fail"),
+        "runtime is busy",
+    );
     let command_while_recording: zbus::Result<()> = proxy
         .call(dbus::method::START_COMMAND_RECORDING, &"ignored selection")
         .await;
-    let command_while_recording_error =
-        command_while_recording.expect_err("command start while recording should fail");
-    assert_legacy_operation_failed(&command_while_recording_error, "runtime is busy: recording");
-
+    assert_legacy_operation_failed(
+        &command_while_recording.expect_err("command start while recording should fail"),
+        "runtime is busy: recording",
+    );
     proxy
         .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
         .await?;
-    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
-    assert_eq!(status, "recording");
-    let state: (
-        String,
-        String,
-        String,
-        String,
-        String,
-        bool,
-        bool,
-        Vec<String>,
-    ) = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
+    let state: AsrBackendStateTuple = proxy.call(dbus::method::GET_ASR_BACKEND_STATE, &()).await?;
     assert!(
         state.5,
         "reload while recording should be reported as pending"
     );
-    expect_no_string_signal(&mut status_signals).await?;
+    expect_no_string_signal(status_signals).await?;
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     assert_eq!(payload_json, fixture_json(RAW_PAYLOAD_JSON));
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.candidates.len(), 1);
-    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "mock partial"
-    );
-    let result_payload_json = next_string_signal(&mut result_signals).await?;
+    assert_eq!(next_string_signal(status_signals).await?, "inferring");
+    expect_no_string_signal(partial_signals).await?;
+    let result_payload_json = next_string_signal(result_signals).await?;
     assert_eq!(result_payload_json, fixture_json(RAW_PAYLOAD_JSON));
-    let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
-    assert_eq!(signal_payload, payload);
-    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
-    let state = wait_for_asr_reload(&proxy).await?;
-    assert!(!state.5, "pending reload should finish once idle");
+    assert_eq!(
+        RecognitionPayload::from_json_str(&result_payload_json)?,
+        payload
+    );
+    assert_eq!(next_string_signal(status_signals).await?, "idle");
+    assert!(!wait_for_asr_reload(proxy).await?.5);
+    Ok(())
+}
 
+async fn exercise_legacy_command_recording(
+    proxy: &Proxy<'_>,
+    status_signals: &mut zbus::proxy::SignalStream<'_>,
+    partial_signals: &mut zbus::proxy::SignalStream<'_>,
+    result_signals: &mut zbus::proxy::SignalStream<'_>,
+) -> anyhow::Result<()> {
     proxy
         .call::<_, _, ()>(dbus::method::START_COMMAND_RECORDING, &"selected text")
         .await?;
-    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
-    assert_eq!(status, "recording");
-    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
-    expect_no_string_signal(&mut partial_signals).await?;
-
+    assert_eq!(next_string_signal(status_signals).await?, "recording");
+    assert_eq!(next_string_signal(partial_signals).await?, "mock partial");
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(
         payload.commit_text,
         "mock command result for: selected text"
     );
-    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "mock partial"
-    );
-    let result_payload_json = next_string_signal(&mut result_signals).await?;
-    let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
+    assert_eq!(next_string_signal(status_signals).await?, "inferring");
+    expect_no_string_signal(partial_signals).await?;
+    let signal_payload =
+        RecognitionPayload::from_json_str(&next_string_signal(result_signals).await?)?;
     assert_eq!(
         signal_payload.commit_text,
         "mock command result for: selected text"
     );
-    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
-
-    let state = wait_for_asr_reload(&proxy).await?;
+    assert_eq!(next_string_signal(status_signals).await?, "idle");
+    let state = wait_for_asr_reload(proxy).await?;
     assert!(state.6);
     assert_eq!(state.0, "sherpa-onnx");
     assert_eq!(state.2, "mock");
     assert_eq!(state.3, "mock-streaming");
-    assert!(
-        state.4.contains("Failed to reload ASR backend"),
-        "unexpected deferred reload error: {}",
-        state.4
-    );
+    assert!(state.4.contains("Failed to reload ASR backend"));
+    Ok(())
+}
 
+async fn exercise_legacy_diagnostics_and_adapter_errors(proxy: &Proxy<'_>) -> anyhow::Result<()> {
     let text_adapter_state_json: String = proxy
         .call(dbus::method::GET_TEXT_ADAPTER_STATE, &())
         .await?;
@@ -933,38 +1214,84 @@ async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<(
     proxy
         .call::<_, _, ()>(dbus::method::RELOAD_ASR_BACKEND, &())
         .await?;
-    let state = wait_for_asr_reload(&proxy).await?;
+    let state = wait_for_asr_reload(proxy).await?;
     assert_eq!(state.2, "mock");
     assert_eq!(state.3, "mock-streaming");
     assert!(state.6);
     assert!(state.4.contains("Failed to reload ASR backend"));
-    let adapter_start: zbus::Result<()> = proxy
-        .call(dbus::method::START_ADAPTER, &"mock-adapter")
-        .await;
-    let adapter_start_error = adapter_start.expect_err("unconfigured adapter start should fail");
-    assert_legacy_operation_failed(
-        &adapter_start_error,
-        "adapter `mock-adapter` is not configured",
-    );
-    let adapter_stop: zbus::Result<()> = proxy
-        .call(dbus::method::STOP_ADAPTER, &"mock-adapter")
-        .await;
-    let adapter_stop_error = adapter_stop.expect_err("unconfigured adapter stop should fail");
-    assert_legacy_operation_failed(
-        &adapter_stop_error,
-        "adapter `mock-adapter` is not configured",
-    );
-    let empty_adapter_start: zbus::Result<()> = proxy.call(dbus::method::START_ADAPTER, &"").await;
-    let empty_adapter_start_error =
-        empty_adapter_start.expect_err("empty adapter start should fail");
-    assert_legacy_operation_failed(&empty_adapter_start_error, "adapter `` is not configured");
-    let empty_adapter_stop: zbus::Result<()> = proxy.call(dbus::method::STOP_ADAPTER, &"").await;
-    let empty_adapter_stop_error = empty_adapter_stop.expect_err("empty adapter stop should fail");
-    assert_legacy_operation_failed(&empty_adapter_stop_error, "adapter `` is not configured");
-
+    for (method, adapter, message) in [
+        (
+            dbus::method::START_ADAPTER,
+            "mock-adapter",
+            "adapter `mock-adapter` is not configured",
+        ),
+        (
+            dbus::method::STOP_ADAPTER,
+            "mock-adapter",
+            "adapter `mock-adapter` is not configured",
+        ),
+        (
+            dbus::method::START_ADAPTER,
+            "",
+            "adapter `` is not configured",
+        ),
+        (
+            dbus::method::STOP_ADAPTER,
+            "",
+            "adapter `` is not configured",
+        ),
+    ] {
+        let result: zbus::Result<()> = proxy.call(method, &adapter).await;
+        assert_legacy_operation_failed(
+            &result.expect_err("unconfigured adapter call should fail"),
+            message,
+        );
+    }
     let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
     assert_eq!(status, "idle");
+    Ok(())
+}
 
+#[tokio::test]
+async fn legacy_dbus_methods_roundtrip_through_session_bus() -> anyhow::Result<()> {
+    let _well_known_name_guard = WELL_KNOWN_NAME_TEST_LOCK.lock().await;
+    let service_connection = spawn_service().await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        dbus::SERVICE_BUS_NAME,
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    assert_legacy_dbus_introspection(&client_connection).await?;
+    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
+    let mut partial_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_PARTIAL)
+        .await?;
+    let mut result_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_RESULT)
+        .await?;
+    exercise_legacy_normal_recording(
+        &proxy,
+        &mut status_signals,
+        &mut partial_signals,
+        &mut result_signals,
+    )
+    .await?;
+    exercise_legacy_command_recording(
+        &proxy,
+        &mut status_signals,
+        &mut partial_signals,
+        &mut result_signals,
+    )
+    .await?;
+    exercise_legacy_diagnostics_and_adapter_errors(&proxy).await?;
+    assert!(
+        service_connection
+            .release_name(dbus::SERVICE_BUS_NAME)
+            .await?
+    );
     Ok(())
 }
 
@@ -999,23 +1326,93 @@ async fn early_final_roundtrips_through_session_bus() -> anyhow::Result<()> {
         .call::<_, _, ()>(dbus::method::START_RECORDING, &())
         .await?;
     assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
-    expect_no_string_signal(&mut partial_signals).await?;
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "early partial"
+    );
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "early final"
+    );
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "early final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
+    expect_no_string_signal(&mut partial_signals).await?;
+    let result_payload_json = next_string_signal(&mut result_signals).await?;
+    let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
+    assert_eq!(signal_payload.commit_text, "early final");
+    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn configured_llm_scene_emits_postprocessing_status() -> anyhow::Result<()> {
+    let mut config = VinpstConfig::bundled_default()?;
+    config.llm.providers.push(vinpst_config::LlmProviderConfig {
+        id: "bus-provider".to_owned(),
+        base_url: "https://example.invalid/v1".to_owned(),
+        api_key: "test-key".to_owned(),
+        model: Some("test-model".to_owned()),
+        extra_body: serde_json::json!({}),
+        extra: std::collections::HashMap::new(),
+    });
+    config.scenes.active_scene = "bus-postprocess".to_owned();
+    config
+        .scenes
+        .definitions
+        .push(vinpst_config::SceneDefinition {
+            id: "bus-postprocess".to_owned(),
+            label: "Bus postprocess".to_owned(),
+            prompt: Some("Polish: {{ asr }}".to_owned()),
+            provider_id: Some("bus-provider".to_owned()),
+            model: None,
+            candidate_count: 1,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[64, -64]),
+    )));
+    let runtime = RuntimeState::with_components(
+        config,
+        Box::new(MockAsrBackend::buffered("bus recognized")),
+        Box::new(source),
+        Box::new(vinpst_text::MockTextProcessor::new()),
+    )?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
+    let mut result_signals = proxy
+        .receive_signal(dbus::signal::RECOGNITION_RESULT)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
+
+    let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
+    let payload = RecognitionPayload::from_json_str(&payload_json)?;
+    assert_eq!(
+        payload.commit_text,
+        "mock postprocess result: bus recognized"
+    );
+    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
     assert_eq!(
         next_string_signal(&mut status_signals).await?,
         "postprocessing"
     );
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "early partial"
-    );
-    let result_payload_json = next_string_signal(&mut result_signals).await?;
-    let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
-    assert_eq!(signal_payload.commit_text, "early final");
+    assert_eq!(next_string_signal(&mut result_signals).await?, payload_json);
     assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
 
     Ok(())
@@ -1045,15 +1442,17 @@ async fn configured_command_backend_roundtrips_through_session_bus() -> anyhow::
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
-    assert_eq!(payload.commit_text.trim(), "8");
-    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
     assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
+        payload.commit_text.trim(),
+        (MIN_SAMPLES_FOR_RECOGNITION * 2).to_string()
     );
+    assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
-    assert_eq!(signal_payload.commit_text.trim(), "8");
+    assert_eq!(
+        signal_payload.commit_text.trim(),
+        (MIN_SAMPLES_FOR_RECOGNITION * 2).to_string()
+    );
     assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
 
     Ok(())
@@ -1104,8 +1503,9 @@ async fn chunked_runtime_emits_partial_before_stop_without_duplicate() -> anyhow
 }
 
 #[tokio::test]
-async fn configured_streaming_command_backend_emits_stop_partial_signal() -> anyhow::Result<()> {
-    let runtime = configured_streaming_command_runtime()?;
+async fn configured_streaming_command_backend_emits_live_partial_before_stop() -> anyhow::Result<()>
+{
+    let (runtime, recorder) = configured_streaming_command_runtime()?;
     let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
     let client_connection = zbus::Connection::session().await?;
     let proxy = Proxy::new(
@@ -1127,25 +1527,178 @@ async fn configured_streaming_command_backend_emits_stop_partial_signal() -> any
         .call::<_, _, ()>(dbus::method::START_RECORDING, &())
         .await?;
     assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
+    recorder.emit(&PcmBuffer::at_default_rate(vec![1_000; 800]));
     expect_no_string_signal(&mut partial_signals).await?;
+    recorder.emit(&PcmBuffer::at_default_rate(vec![2_000; 800]));
+    assert_eq!(
+        next_string_signal(&mut partial_signals).await?,
+        "bus partial"
+    );
 
     let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "bus streaming final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
-    assert_eq!(
-        next_string_signal(&mut partial_signals).await?,
-        "bus partial"
-    );
+    expect_no_string_signal(&mut partial_signals).await?;
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload.commit_text, "bus streaming final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn duplicate_start_emits_daemon_busy_notification() -> anyhow::Result<()> {
+    let (runtime, _recorder) = live_partial_runtime()?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    let duplicate: zbus::Result<()> = proxy.call(dbus::method::START_RECORDING, &()).await;
+    assert_legacy_operation_failed(&duplicate.unwrap_err(), "runtime is busy: recording");
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "daemon_busy".to_owned(),
+            String::new(),
+            String::new(),
+            "Daemon is busy.".to_owned(),
+        )
+    );
+    expect_no_error_info_signal(&mut notifications).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn streaming_push_failure_emits_error_status_and_stops_without_stop_call()
+-> anyhow::Result<()> {
+    let config = VinpstConfig::bundled_default()?;
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[96, -96]),
+    )));
+    let runtime =
+        RuntimeState::with_backends(config, Box::new(PushFailureBackend), Box::new(source))?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut status_signals = proxy.receive_signal(dbus::signal::STATUS_CHANGED).await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+
+    assert_eq!(next_string_signal(&mut status_signals).await?, "recording");
+    assert_eq!(next_string_signal(&mut status_signals).await?, "error");
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "unknown".to_owned(),
+            String::new(),
+            String::new(),
+            "test push failed".to_owned(),
+        )
+    );
+    assert_eq!(next_string_signal(&mut status_signals).await?, "idle");
+    let status: String = proxy.call(dbus::method::GET_STATUS, &()).await?;
+    assert_eq!(status, "idle");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn streaming_error_emits_live_notification_without_stop_duplicate() -> anyhow::Result<()> {
+    let (runtime, recorder) = configured_streaming_command_error_runtime(false)?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    recorder.emit(&PcmBuffer::at_default_rate(vec![1_000; 800]));
+    recorder.emit(&PcmBuffer::at_default_rate(vec![2_000; 800]));
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "asr_provider_timeout".to_owned(),
+            "cmd".to_owned(),
+            "upstream detail".to_owned(),
+            "ASR provider 'cmd': timed out. upstream detail".to_owned(),
+        )
+    );
+
+    let payload_json: String = proxy.call(dbus::method::STOP_RECORDING, &"").await?;
+    let payload = RecognitionPayload::from_json_str(&payload_json)?;
+    assert!(payload.commit_text.is_empty());
+    assert!(payload.candidates.is_empty());
+    expect_no_error_info_signal(&mut notifications).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn stop_time_streaming_error_emits_notification_before_failure() -> anyhow::Result<()> {
+    let (runtime, recorder) = configured_streaming_command_error_runtime(true)?;
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_RECORDING, &())
+        .await?;
+    recorder.emit(&PcmBuffer::at_default_rate(vec![1_000; 800]));
+    let stop: zbus::Result<String> = proxy.call(dbus::method::STOP_RECORDING, &"").await;
+    let error = stop.expect_err("finish-time ASR error should fail StopRecording");
+    assert_legacy_operation_failed(&error, "upstream detail");
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "asr_provider_timeout".to_owned(),
+            "cmd".to_owned(),
+            "upstream detail".to_owned(),
+            "ASR provider 'cmd': timed out. upstream detail".to_owned(),
+        )
+    );
+    expect_no_error_info_signal(&mut notifications).await?;
     Ok(())
 }
 
@@ -1157,6 +1710,7 @@ async fn configured_adapter_supervision_roundtrips_through_session_bus() -> anyh
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "llm": {
             "adapters": [{"id":"cmd-adapter","command":"sleep","args":["30"]}]
           },
@@ -1216,6 +1770,122 @@ async fn configured_adapter_supervision_roundtrips_through_session_bus() -> anyh
 }
 
 #[tokio::test]
+async fn immediate_adapter_exit_returns_stderr_without_publishing_pid() -> anyhow::Result<()> {
+    let runtime_dir = unique_adapter_runtime_dir("adapter-startup-stderr");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let config: VinpstConfig = serde_json::from_str(
+        r#"
+        {
+          "version": 1,
+          "asr": {"active_provider":""},
+          "llm": {
+            "adapters": [{
+              "id":"cmd-adapter",
+              "command":"/bin/sh",
+              "args":["-c", "printf 'adapter startup failed\\n' >&2; exit 7"]
+            }]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    )?;
+    config.validate()?;
+    let runtime = RuntimeState::new(config)?
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+
+    let error = proxy
+        .call::<_, _, ()>(dbus::method::START_ADAPTER, &"cmd-adapter")
+        .await
+        .expect_err("immediately exited adapter should fail StartAdapter");
+    assert_legacy_operation_failed(&error, "adapter startup failed");
+    assert!(
+        !pid_path.exists(),
+        "failed startup must not publish pid file"
+    );
+    let _ = std::fs::remove_dir_all(runtime_dir);
+    Ok(())
+}
+
+#[tokio::test]
+async fn adapter_stderr_is_emitted_as_raw_daemon_notification() -> anyhow::Result<()> {
+    let runtime_dir = unique_adapter_runtime_dir("adapter-stderr-signal");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let config: VinpstConfig = serde_json::from_str(
+        r#"
+        {
+          "version": 1,
+          "asr": {"active_provider":""},
+          "llm": {
+            "adapters": [{
+              "id":"cmd-adapter",
+              "command":"/bin/sh",
+              "args":["-c", "sleep 0.35; printf 'adapter live warning\\n' >&2; sleep 0.3"]
+            }]
+          },
+          "scenes": {
+            "active_scene": "raw",
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+          }
+        }
+        "#,
+    )?;
+    config.validate()?;
+    let runtime = RuntimeState::new(config)?
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+    let (_service_connection, service_name) = spawn_runtime_on_unique_name(runtime).await?;
+    let client_connection = zbus::Connection::session().await?;
+    let proxy = Proxy::new(
+        &client_connection,
+        service_name.as_str(),
+        dbus::SERVICE_OBJECT_PATH,
+        dbus::SERVICE_INTERFACE,
+    )
+    .await?;
+    let mut notifications = proxy
+        .receive_signal(dbus::signal::DAEMON_NOTIFICATION)
+        .await?;
+
+    proxy
+        .call::<_, _, ()>(dbus::method::START_ADAPTER, &"cmd-adapter")
+        .await?;
+    assert!(pid_path.exists());
+    assert_eq!(
+        next_error_info_signal(&mut notifications).await?,
+        (
+            "unknown".to_owned(),
+            String::new(),
+            String::new(),
+            "adapter live warning".to_owned(),
+        )
+    );
+
+    for _ in 0..20 {
+        if !pid_path.exists() {
+            break;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        !pid_path.exists(),
+        "stderr pump should also reap exited adapter"
+    );
+    let _ = std::fs::remove_dir_all(runtime_dir);
+    Ok(())
+}
+
+#[tokio::test]
 async fn exited_adapter_is_reaped_from_dbus_diagnostics() -> anyhow::Result<()> {
     let runtime_dir = unique_adapter_runtime_dir("adapter-reap");
     let pid_path = runtime_dir.join("cmd-adapter.pid");
@@ -1223,8 +1893,13 @@ async fn exited_adapter_is_reaped_from_dbus_diagnostics() -> anyhow::Result<()> 
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "llm": {
-            "adapters": [{"id":"cmd-adapter","command":"true"}]
+            "adapters": [{
+              "id":"cmd-adapter",
+              "command":"/bin/sh",
+              "args":["-c", "sleep 0.35"]
+            }]
           },
           "scenes": {
             "active_scene": "raw",
@@ -1298,10 +1973,6 @@ async fn configured_text_adapter_roundtrips_through_session_bus() -> anyhow::Res
     let payload = RecognitionPayload::from_json_str(&payload_json)?;
     assert_eq!(payload.commit_text, "bus adapter final");
     assert_eq!(next_string_signal(&mut status_signals).await?, "inferring");
-    assert_eq!(
-        next_string_signal(&mut status_signals).await?,
-        "postprocessing"
-    );
     let result_payload_json = next_string_signal(&mut result_signals).await?;
     let signal_payload = RecognitionPayload::from_json_str(&result_payload_json)?;
     assert_eq!(signal_payload.commit_text, "bus adapter final");

@@ -48,12 +48,15 @@ void CommitText(fcitx::InputContext *input_context, std::string_view text,
 
 bool ShowCandidateMenu(fcitx::InputContext *input_context,
                        const CandidatePresentation &presentation,
-                       bool replace_selection) {
-  auto candidate_list = BuildResultCandidateList(
-      presentation, [replace_selection](fcitx::InputContext *selected_context,
-                                        const PresentedCandidate &candidate) {
-        ApplyResultCandidateSelection(selected_context, candidate, replace_selection);
-      });
+                       bool replace_selection,
+                       ResultCandidateSelectCallback on_candidate_select) {
+  if (!on_candidate_select) {
+    on_candidate_select = [replace_selection](fcitx::InputContext *selected_context,
+                                              const PresentedCandidate &candidate) {
+      ApplyResultCandidateSelection(selected_context, candidate, replace_selection);
+    };
+  }
+  auto candidate_list = BuildResultCandidateList(presentation, on_candidate_select);
   if (candidate_list == nullptr) {
     return false;
   }
@@ -68,8 +71,10 @@ bool ShowCandidateMenu(fcitx::InputContext *input_context,
 
 } // namespace
 
-AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
-                                                fcitx::InputContext *input_context) {
+AppliedOutcome
+ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
+                                 fcitx::InputContext *input_context,
+                                 ResultCandidateSelectCallback on_candidate_select) {
   if (input_context == nullptr) {
     return AppliedOutcome::None;
   }
@@ -92,7 +97,7 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
     return AppliedOutcome::Commit;
   case BridgeOutcome::Kind::CandidateMenu:
     if (ShowCandidateMenu(input_context, outcome.candidate_menu,
-                          outcome.replace_selection)) {
+                          outcome.replace_selection, std::move(on_candidate_select))) {
       return AppliedOutcome::CandidateMenu;
     }
     if (outcome.text.empty()) {

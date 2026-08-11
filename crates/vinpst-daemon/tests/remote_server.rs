@@ -19,8 +19,12 @@ use vinpst_daemon::remote::{RemoteTextLifecycle, RemoteTextServer, remote_text_s
 type ClientSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 fn remote_config(port: Option<u16>, debounce_ms: u64) -> VinpstConfig {
+    remote_config_with_key(port, debounce_ms, "fixture-key")
+}
+
+fn remote_config_with_key(port: Option<u16>, debounce_ms: u64, api_key: &str) -> VinpstConfig {
     let mut env = json!({
-        "VINPST_ASR_API_KEY":"fixture-key",
+        "VINPST_ASR_API_KEY":api_key,
         "VINPST_ASR_DEBOUNCE_MS":debounce_ms.to_string()
     });
     if let Some(port) = port {
@@ -106,6 +110,24 @@ async fn send_json(socket: &mut ClientSocket, value: Value) {
         .expect("send websocket JSON");
 }
 
+async fn assert_socket_closes(socket: &mut ClientSocket) {
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            match socket.next().await {
+                None
+                | Some(Err(WebSocketError::ConnectionClosed | WebSocketError::AlreadyClosed)) => {
+                    return;
+                }
+                Some(Ok(Message::Close(_))) => return,
+                Some(Ok(_)) => {}
+                Some(Err(error)) => panic!("unexpected websocket shutdown error: {error}"),
+            }
+        }
+    })
+    .await
+    .expect("remote service shutdown should close websocket promptly");
+}
+
 async fn connect_input(address: SocketAddr, api_key: &str) -> ClientSocket {
     let (mut socket, _) = connect_async(format!("ws://{address}/ws"))
         .await
@@ -159,6 +181,9 @@ async fn serves_health_browser_and_favicon_assets() {
     assert!(index.contains("Vinpst Remote"));
     assert!(index.contains("/ws"));
     assert!(index.contains("text_update"));
+    assert!(index.contains("localStorage.setItem('vinpst_remote_api_key', entered)"));
+    assert!(index.contains("outputStatus.textContent = 'output disconnected'"));
+    assert!(index.contains("socket.onerror = () => socket.close()"));
 
     let favicon = client
         .get(format!("http://{address}/favicon.svg"))
@@ -280,6 +305,74 @@ async fn websocket_runtime_emits_session_and_debounced_transcription_events() {
     );
     input.close(None).await.expect("close input websocket");
     server.shutdown().await.expect("shutdown remote server");
+}
+
+#[tokio::test]
+async fn server_shutdown_closes_authenticated_websocket_clients() {
+    let server = start_server(25).await;
+    let address = server.local_addr();
+
+    let mut input = connect_input(address, "fixture-key").await;
+    assert_eq!(receive_json(&mut input).await["type"], "auth_ok");
+    assert_eq!(receive_json(&mut input).await["type"], "init");
+
+    let mut output = connect_output(address, "fixture-key").await;
+    assert_eq!(receive_json(&mut input).await["type"], "output_connected");
+
+    tokio::time::timeout(Duration::from_secs(1), server.shutdown())
+        .await
+        .expect("remote server shutdown should not wait for websocket clients")
+        .expect("shutdown remote server");
+    assert_socket_closes(&mut input).await;
+    assert_socket_closes(&mut output).await;
+}
+
+#[tokio::test]
+async fn websocket_rejects_payload_over_frozen_two_mib_limit() {
+    let server = start_server(25).await;
+    let address = server.local_addr();
+    let mut input = connect_input(address, "fixture-key").await;
+    assert_eq!(receive_json(&mut input).await["type"], "auth_ok");
+    assert_eq!(receive_json(&mut input).await["type"], "init");
+
+    input
+        .send(Message::Text("x".repeat(2 * 1024 * 1024 + 1).into()))
+        .await
+        .expect("send oversized websocket frame");
+    assert_socket_closes(&mut input).await;
+    server.shutdown().await.expect("shutdown remote server");
+}
+
+#[tokio::test]
+async fn lifecycle_key_rotation_closes_old_clients_and_requires_new_key() {
+    let port = reserve_port();
+    let mut lifecycle = RemoteTextLifecycle::new("127.0.0.1".parse().unwrap());
+    let first = remote_config_with_key(Some(port), 25, "old-key");
+    assert!(lifecycle.reconcile_config(&first).await.unwrap());
+    let address = lifecycle.status().local_addr.unwrap();
+
+    let mut old_client = connect_input(address, "old-key").await;
+    assert_eq!(receive_json(&mut old_client).await["type"], "auth_ok");
+    assert_eq!(receive_json(&mut old_client).await["type"], "init");
+
+    let rotated = remote_config_with_key(Some(port), 25, "new-key");
+    assert!(lifecycle.reconcile_config(&rotated).await.unwrap());
+    assert_socket_closes(&mut old_client).await;
+
+    let mut rejected = connect_input(address, "old-key").await;
+    let error = receive_json(&mut rejected).await;
+    assert_eq!(error["type"], "error");
+    assert_eq!(error["message"], "Unauthorized.");
+    assert_socket_closes(&mut rejected).await;
+
+    let mut current = connect_input(address, "new-key").await;
+    assert_eq!(receive_json(&mut current).await["type"], "auth_ok");
+    assert_eq!(receive_json(&mut current).await["type"], "init");
+    current
+        .close(None)
+        .await
+        .expect("close rotated input client");
+    assert!(lifecycle.stop().await.unwrap());
 }
 
 #[tokio::test]

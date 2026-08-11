@@ -1,6 +1,7 @@
 use crate::{
     AssetEntry, AssetPlanSummary, Context, Path, PathBuf, PlannedAsset, RegistryConfig,
     RegistryIndex, VinpstConfig, fs, load_config_file,
+    registry_support::registry_urls_for_diagnostics,
 };
 
 pub(crate) fn print_registry_summary() -> anyhow::Result<()> {
@@ -12,7 +13,7 @@ pub(crate) fn print_registry_summary() -> anyhow::Result<()> {
     };
     let summary = serde_json::json!({
         "base_url_count": config.registry.base_urls.len(),
-        "index_urls": index_asset.resolved_urls(&config.registry),
+        "index_urls": registry_urls_for_diagnostics(&index_asset.resolved_urls(&config.registry)),
     });
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())

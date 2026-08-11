@@ -15,6 +15,7 @@ sherpa-onnx-backend = ["dep:sherpa-onnx"]
 
 [dependencies]
 reqwest.workspace = true
+nix.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -16,10 +16,34 @@ pub struct TextRequest<'a> {
     pub selected_text: Option<&'a str>,
 }
 
+/// Result of one text-processing pass, including a recoverable post-processing warning.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TextProcessReport {
+    /// Payload that should still be delivered to the frontend.
+    pub payload: RecognitionPayload,
+    /// Recoverable post-processing failure that should be surfaced separately.
+    pub warning: Option<TextError>,
+}
+
+impl TextProcessReport {
+    /// Builds a successful report without a warning.
+    #[must_use]
+    pub const fn success(payload: RecognitionPayload) -> Self {
+        Self {
+            payload,
+            warning: None,
+        }
+    }
+}
+
 /// Synchronous text post-processing seam used by daemon runtime and tests.
 pub trait TextProcessor: Send {
     /// Finishes raw recognition text into a payload suitable for the frontend.
     fn finish(&self, request: &TextRequest<'_>) -> Result<RecognitionPayload, TextError>;
+    /// Finishes text and preserves a payload when a backend reports a recoverable warning.
+    fn finish_report(&self, request: &TextRequest<'_>) -> Result<TextProcessReport, TextError> {
+        self.finish(request).map(TextProcessReport::success)
+    }
 }
 
 /// Adapter seam for real scene post-processing backends.
@@ -57,12 +81,12 @@ impl<A: TextAdapter> TextProcessor for LlmTextProcessor<A> {
     }
 }
 
-/// Adapter placeholder used until concrete local adapters are ported.
+/// Explicit fallback used when no usable text adapter is selected.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct UnsupportedTextAdapter;
 
 impl UnsupportedTextAdapter {
-    /// Creates an unsupported adapter placeholder.
+    /// Creates the explicit unavailable-adapter fallback.
     #[must_use]
     pub const fn new() -> Self {
         Self
@@ -75,7 +99,7 @@ impl TextAdapter for UnsupportedTextAdapter {
     }
 }
 
-/// Production-safe text finisher used before real LLM/adapter support lands.
+/// Production-safe fallback used when no configured post-processor is selected.
 ///
 /// It only commits raw/no-op scenes that do not require post-processing.
 /// Command scenes, prompted scenes, provider/model-bound scenes, candidate

@@ -73,6 +73,14 @@ fn pcm16le_bytes(samples: &[i16]) -> Vec<u8> {
         .collect()
 }
 
+fn recognition_fixture_samples() -> Vec<i16> {
+    [1_000, -1_000, 2_000, -2_000]
+        .into_iter()
+        .cycle()
+        .take(8_000)
+        .collect()
+}
+
 fn wav_pcm16le_bytes(sample_rate_hz: u32, channels: u16, samples: &[i16]) -> Vec<u8> {
     let data = pcm16le_bytes(samples);
     let data_len = u32::try_from(data.len()).expect("test data should fit in u32");
@@ -1025,10 +1033,11 @@ fn once_can_use_configured_openai_provider_over_http() {
 
 #[test]
 fn once_can_read_pcm_file_into_configured_command_pipeline() {
+    let samples = recognition_fixture_samples();
     let pcm = TempBytes::write(
         "configured-command-pcm-once",
         "pcm",
-        &pcm16le_bytes(&[1_000, -1_000, 2_000, -2_000]),
+        &pcm16le_bytes(&samples),
     );
     let config = TempConfig::write(
         "configured-command-pcm-once",
@@ -1075,15 +1084,16 @@ fn once_can_read_pcm_file_into_configured_command_pipeline() {
         ),
         "recognition payload",
     );
-    assert_eq!(value["commit_text"], "adapted pcm bytes: 8");
+    assert_eq!(value["commit_text"], "adapted pcm bytes: 16000");
 }
 
 #[test]
 fn once_can_read_wav_file_into_configured_command_asr() {
+    let samples = recognition_fixture_samples();
     let wav = TempBytes::write(
         "configured-command-wav-once",
         "wav",
-        &wav_pcm16le_bytes(16_000, 1, &[1_000, -1_000, 2_000, -2_000]),
+        &wav_pcm16le_bytes(16_000, 1, &samples),
     );
     let config = TempConfig::write(
         "configured-command-wav-once",
@@ -1118,15 +1128,16 @@ fn once_can_read_wav_file_into_configured_command_asr() {
         ),
         "recognition payload",
     );
-    assert_eq!(value["commit_text"], "8");
+    assert_eq!(value["commit_text"], "16000");
 }
 
 #[test]
 fn once_runs_committed_e2e_demo_config_with_wav() {
+    let samples = recognition_fixture_samples();
     let wav = TempBytes::write(
         "committed-e2e-demo",
         "wav",
-        &wav_pcm16le_bytes(16_000, 1, &[1_000, -1_000, 2_000, -2_000]),
+        &wav_pcm16le_bytes(16_000, 1, &samples),
     );
     let wav_path = wav.path.to_string_lossy().into_owned();
 
@@ -1143,15 +1154,12 @@ fn once_runs_committed_e2e_demo_config_with_wav() {
         ),
         "recognition payload",
     );
-    assert_eq!(value["commit_text"], "demo final: demo heard 8 bytes");
+    assert_eq!(value["commit_text"], "demo final: demo heard 16000 bytes");
 }
 #[test]
 fn once_runs_live_demo_config_with_wav() {
-    let wav = TempBytes::write(
-        "live-demo",
-        "wav",
-        &wav_pcm16le_bytes(16_000, 1, &[1_000, -1_000, 2_000, -2_000]),
-    );
+    let samples = recognition_fixture_samples();
+    let wav = TempBytes::write("live-demo", "wav", &wav_pcm16le_bytes(16_000, 1, &samples));
     let wav_path = wav.path.to_string_lossy().into_owned();
 
     let value = assert_json_success(
@@ -1306,7 +1314,7 @@ fn once_reports_missing_configured_text_adapter() {
         output,
         "vinpst-daemon --once with missing configured text adapter",
     );
-    assert!(stderr.contains("requires a text adapter"));
+    assert!(stderr.contains("requires a configured text adapter"));
 }
 
 #[test]
@@ -1316,6 +1324,7 @@ fn text_adapters_reports_configured_adapter_summary() {
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "llm": {
             "adapters": [{
               "id":"cmd-adapter",
@@ -1364,6 +1373,7 @@ fn text_adapters_reports_empty_adapter_summary() {
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "scenes": {
             "active_scene": "raw",
             "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
@@ -1393,6 +1403,7 @@ fn text_adapters_reports_multiple_adapter_ids() {
         r#"
         {
           "version": 1,
+          "asr": {"active_provider":""},
           "llm": {
             "adapters": [
               {"id":"first","command":"first-helper"},

@@ -175,6 +175,12 @@ fn legacy_unknown_active_scene_and_provider_are_strictly_rejected() {
         provider.validate().unwrap_err(),
         ConfigError::UnknownActiveAsrProvider(id) if id == "missing"
     ));
+
+    provider.asr.providers.clear();
+    assert!(matches!(
+        provider.validate().unwrap_err(),
+        ConfigError::UnknownActiveAsrProvider(id) if id == "missing"
+    ));
 }
 
 #[test]

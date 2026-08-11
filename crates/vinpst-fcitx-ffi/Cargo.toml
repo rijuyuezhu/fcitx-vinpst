@@ -22,3 +22,8 @@ missing_panics_doc = "allow"
 [dependencies]
 vinpst-fcitx-core = { path = "../vinpst-fcitx-core" }
 vinpst-fcitx-dbus = { path = "../vinpst-fcitx-dbus" }
+vinpst-config = { path = "../vinpst-config" }
+vinpst-text = { path = "../vinpst-text" }
+
+[dev-dependencies]
+tempfile = "3.23.0"

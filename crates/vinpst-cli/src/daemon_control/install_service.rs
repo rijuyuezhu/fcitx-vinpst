@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Context;
 
 use super::service::{daemon_user_service_command, run_daemon_user_service_command};
-use crate::{fs, paths::user_config_home, sandbox, write_file_atomically};
+use crate::{fs, paths::user_systemd_unit_dir, sandbox, write_file_atomically};
 
 const NATIVE_SERVICE_TEMPLATE: &str = "/usr/lib/systemd/user/vinpst-daemon.service";
 
@@ -26,10 +26,7 @@ pub(super) fn print_daemon_install_service(
     );
     let output_path = match output {
         Some(path) => path.to_path_buf(),
-        None => user_config_home()?
-            .join("systemd")
-            .join("user")
-            .join("vinpst-daemon.service"),
+        None => user_systemd_unit_dir()?.join("vinpst-daemon.service"),
     };
     let template_contents = fs::read_to_string(&template_path)
         .with_context(|| format!("read daemon service template {}", template_path.display()))?;
@@ -50,7 +47,7 @@ pub(super) fn print_daemon_install_service(
             .with_context(|| format!("create daemon service directory {}", parent.display()))?;
         write_file_atomically(&output_path, &rendered)
             .with_context(|| format!("install daemon service {}", output_path.display()))?;
-        let command = daemon_user_service_command("daemon-reload", None)?;
+        let command = daemon_user_service_command("daemon-reload", None, false)?;
         reload = run_daemon_user_service_command("daemon-reload", &command);
         anyhow::ensure!(
             reload["ok"].as_bool() == Some(true),

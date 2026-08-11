@@ -274,14 +274,19 @@ impl App {
                 | Message::SaveConfig
                 | Message::InstallRegistryModel(_)
                 | Message::RetryModelInstall
+                | Message::RequestRemoveInstalledModel(_)
                 | Message::RemoveInstalledModel(_)
+                | Message::RequestRemoveAsrProvider { .. }
+                | Message::RequestRemoveTextAdapter { .. }
+                | Message::RequestRemoveLlmProvider(_)
+                | Message::RequestRemoveScene(_)
                 | Message::Scene(_)
                 | Message::AsrProvider(_)
                 | Message::LlmProvider(_)
                 | Message::Hotword(_)
                 | Message::AdapterRuntime(_)
-                | Message::InstallProvider
-                | Message::InstallAdapter
+                | Message::InstallProvider(_)
+                | Message::InstallAdapter(_)
                 | Message::ConfirmScriptInstall
                 | Message::RetryScriptInstall
                 | Message::RetryScriptConfigUpdate
@@ -290,9 +295,7 @@ impl App {
                 | Message::RemoveAdapter(_)
         ) || matches!(message, Message::SelectPage(page) if *page != crate::Page::Llm && editor.is_dirty());
         if blocks_open_editor {
-            self.operation = OperationState::Failed(
-                "Save or cancel the open text-adapter form before continuing.".to_owned(),
-            );
+            self.operation = OperationState::Failed(self.locale.open_adapter_form_continue_guard());
             return Some(Task::none());
         }
         None
@@ -822,7 +825,7 @@ mod tests {
 
     #[test]
     fn dirty_adapter_form_blocks_runtime_control_and_cross_page_navigation() {
-        let (mut app, _) = App::boot();
+        let mut app = crate::test_support::GuiHarness::new();
         let original = adapter();
         app.config
             .as_mut()

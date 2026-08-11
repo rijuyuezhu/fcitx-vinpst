@@ -18,6 +18,41 @@ pub enum GuiLocale {
 }
 
 impl GuiLocale {
+    pub(crate) const fn scene_models_loading(self) -> &'static str {
+        match self {
+            Self::EnUs => "Loading provider models…",
+            Self::ZhCn => "正在加载提供商模型…",
+        }
+    }
+
+    pub(crate) const fn scene_models_unavailable(self) -> &'static str {
+        match self {
+            Self::EnUs => "Couldn’t load models; enter one manually.",
+            Self::ZhCn => "无法加载模型；仍可手动输入。",
+        }
+    }
+
+    pub(crate) const fn scene_model_suggestion(self) -> &'static str {
+        match self {
+            Self::EnUs => "Available models",
+            Self::ZhCn => "可用模型",
+        }
+    }
+
+    pub(crate) const fn scene_model_suggestion_placeholder(self) -> &'static str {
+        match self {
+            Self::EnUs => "Choose a discovered model",
+            Self::ZhCn => "选择已发现的模型",
+        }
+    }
+
+    pub(crate) const fn default_capture_device(self) -> &'static str {
+        match self {
+            Self::EnUs => "Default",
+            Self::ZhCn => "默认",
+        }
+    }
+
     /// Detects the preferred GUI locale using the legacy environment priority.
     #[must_use]
     pub fn detect() -> Self {
@@ -66,13 +101,6 @@ impl GuiLocale {
             .unwrap_or(Self::EnUs)
     }
 
-    pub(crate) fn config_path(self, path: impl std::fmt::Display) -> String {
-        match self {
-            Self::EnUs => format!("Config: {path}"),
-            Self::ZhCn => format!("配置：{path}"),
-        }
-    }
-
     pub(crate) fn config_error(self, error: &str) -> String {
         match self {
             Self::EnUs => format!("Config error: {error}"),
@@ -81,27 +109,22 @@ impl GuiLocale {
     }
 
     pub(crate) fn daemon_status(self, status: &str) -> String {
-        match self {
-            Self::EnUs => format!("Daemon: {status}"),
-            Self::ZhCn => format!("守护进程：{status}"),
-        }
+        self.daemon_status_with_backend(status, false, false)
     }
 
-    pub(crate) fn daemon_unavailable(self, error: &str) -> String {
-        match self {
-            Self::EnUs => format!("Daemon unavailable: {error}"),
-            Self::ZhCn => format!("守护进程不可用：{error}"),
-        }
-    }
-
-    pub(crate) fn owner_monitor_degraded(self, error: &str) -> String {
-        match self {
-            Self::EnUs => format!(
-                "Owner monitoring degraded; using a 30-second non-activating fallback: {error}"
-            ),
-            Self::ZhCn => {
-                format!("所有者监控已降级；正在使用 30 秒一次且不会激活服务的回退查询：{error}")
-            }
+    pub(crate) fn daemon_status_with_backend(
+        self,
+        status: &str,
+        loading: bool,
+        failed: bool,
+    ) -> String {
+        match (self, loading, failed) {
+            (Self::EnUs, true, _) => format!("Daemon: {status} (loading backend)"),
+            (Self::EnUs, false, true) => format!("Daemon: {status} (backend error)"),
+            (Self::EnUs, false, false) => format!("Daemon: {status}"),
+            (Self::ZhCn, true, _) => format!("守护进程：{status}（正在加载后端）"),
+            (Self::ZhCn, false, true) => format!("守护进程：{status}（后端错误）"),
+            (Self::ZhCn, false, false) => format!("守护进程：{status}"),
         }
     }
 
@@ -112,10 +135,10 @@ impl GuiLocale {
         }
     }
 
-    pub(crate) fn vad_threshold(self, threshold: f32) -> String {
+    pub(crate) fn input_gain(self, gain: f32) -> String {
         match self {
-            Self::EnUs => format!("VAD threshold: {threshold:.2}"),
-            Self::ZhCn => format!("VAD 阈值：{threshold:.2}"),
+            Self::EnUs => format!("Input gain: {gain:.1}×"),
+            Self::ZhCn => format!("输入增益：{gain:.1}×"),
         }
     }
 
@@ -187,13 +210,6 @@ impl GuiLocale {
             (Self::ZhCn, true) => format!(
                 "守护进程{action}请求已接受；当前所有者状态不可用，将由 D-Bus 监控进行协调。"
             ),
-        }
-    }
-
-    pub(crate) fn installed_model_scan_failed(self, error: &str) -> String {
-        match self {
-            Self::EnUs => format!("Installed model scan failed: {error}"),
-            Self::ZhCn => format!("已安装模型扫描失败：{error}"),
         }
     }
 
@@ -282,6 +298,42 @@ impl GuiLocale {
             Self::EnUs => format!("{label} (selected)"),
             Self::ZhCn => format!("{label}（已选择）"),
         }
+    }
+
+    pub(crate) fn asr_provider_markers(self, state: (bool, bool, bool, bool)) -> Vec<&'static str> {
+        let (configured, effective, loading, reload_failed) = state;
+        let mut markers = Vec::new();
+        match self {
+            Self::EnUs => {
+                if configured {
+                    markers.push("configured");
+                }
+                if effective {
+                    markers.push("effective");
+                }
+                if loading {
+                    markers.push("loading");
+                }
+                if reload_failed {
+                    markers.push("reload failed");
+                }
+            }
+            Self::ZhCn => {
+                if configured {
+                    markers.push("已配置");
+                }
+                if effective {
+                    markers.push("正在使用");
+                }
+                if loading {
+                    markers.push("加载中");
+                }
+                if reload_failed {
+                    markers.push("重载失败");
+                }
+            }
+        }
+        markers
     }
 
     pub(crate) fn scene_added(self, scene_id: &str) -> String {
@@ -373,6 +425,22 @@ impl GuiLocale {
             (Self::ZhCn, "add") => format!("已添加 LLM 提供商“{provider_id}”。"),
             (Self::ZhCn, "update") => format!("已更新 LLM 提供商“{provider_id}”。"),
             (Self::ZhCn, _) => format!("已移除 LLM 提供商“{provider_id}”。"),
+        }
+    }
+
+    pub(crate) fn llm_provider_removed(self, provider_id: &str, cleared_scenes: usize) -> String {
+        if cleared_scenes == 0 {
+            return self.llm_provider_changed("remove", provider_id);
+        }
+        match self {
+            Self::EnUs => format!(
+                "Removed LLM provider `{provider_id}` and cleared it from {cleared_scenes} scene(s)."
+            ),
+            Self::ZhCn => {
+                format!(
+                    "已移除 LLM 提供商“{provider_id}”，并从 {cleared_scenes} 个场景中清除其引用。"
+                )
+            }
         }
     }
 
@@ -589,19 +657,77 @@ impl GuiLocale {
         }
     }
 
-    pub(crate) fn provider_script_edited(
-        self,
-        provider_id: &str,
-        path: &str,
-        editor: &str,
-    ) -> String {
+    pub(crate) fn provider_script_edited(self, provider_id: &str, path: &str) -> String {
         match self {
-            Self::EnUs => format!(
-                "Edited managed ASR provider `{provider_id}` script at {path} with {editor}."
-            ),
-            Self::ZhCn => {
-                format!("已使用 {editor} 编辑托管 ASR 提供商“{provider_id}”位于 {path} 的脚本。")
+            Self::EnUs => {
+                format!("Edited managed ASR provider `{provider_id}` script at {path}.")
             }
+            Self::ZhCn => format!("已编辑托管 ASR 提供商“{provider_id}”位于 {path} 的脚本。"),
+        }
+    }
+
+    pub(crate) fn provider_script_editor_launch_failed(self) -> String {
+        match self {
+            Self::EnUs => "Failed to start the configured provider script editor.".to_owned(),
+            Self::ZhCn => "无法启动已配置的提供商脚本编辑器。".to_owned(),
+        }
+    }
+
+    pub(crate) fn provider_script_editor_exit_failed(self, status: &str) -> String {
+        match self {
+            Self::EnUs => {
+                format!("The configured provider script editor exited with status {status}.")
+            }
+            Self::ZhCn => format!("已配置的提供商脚本编辑器退出，状态为 {status}。"),
+        }
+    }
+
+    pub(crate) fn open_llm_provider_form_guard(self) -> String {
+        match self {
+            Self::EnUs => "Save or cancel the open LLM provider form before modifying provider or adapter scripts.".to_owned(),
+            Self::ZhCn => "修改提供商或适配器脚本前，请先保存或取消当前打开的 LLM 提供商表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn open_asr_provider_form_guard(self) -> String {
+        match self {
+            Self::EnUs => {
+                "Save or cancel the open ASR provider form before modifying resources.".to_owned()
+            }
+            Self::ZhCn => "修改资源前，请先保存或取消当前打开的 ASR 提供商表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn open_asr_provider_form_continue_guard(self) -> String {
+        match self {
+            Self::EnUs => "Save or cancel the open ASR provider form before continuing.".to_owned(),
+            Self::ZhCn => "继续操作前，请先保存或取消当前打开的 ASR 提供商表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn open_adapter_form_continue_guard(self) -> String {
+        match self {
+            Self::EnUs => "Save or cancel the open text-adapter form before continuing.".to_owned(),
+            Self::ZhCn => "继续操作前，请先保存或取消当前打开的文本适配器表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn open_scene_form_guard(self) -> String {
+        match self {
+            Self::EnUs => {
+                "Save or cancel the open Scene form before modifying providers or adapters."
+                    .to_owned()
+            }
+            Self::ZhCn => "修改提供商或适配器前，请先保存或取消当前打开的场景表单。".to_owned(),
+        }
+    }
+
+    pub(crate) fn dirty_control_draft_guard(self) -> String {
+        match self {
+            Self::EnUs => {
+                "Save or reset the Control page changes before modifying resources.".to_owned()
+            }
+            Self::ZhCn => "修改资源前，请先保存或重置控制页面中的更改。".to_owned(),
         }
     }
 
@@ -757,10 +883,8 @@ impl GuiLocale {
 
     pub(crate) fn registry_selector_required(self, resource: &str) -> String {
         match self {
-            Self::EnUs => {
-                format!("Enter a {resource} registry id or short id before installing.")
-            }
-            Self::ZhCn => format!("安装前请输入{resource}注册表 ID 或短 ID。"),
+            Self::EnUs => format!("Choose a {resource} to install."),
+            Self::ZhCn => format!("请选择要安装的{resource}。"),
         }
     }
 
@@ -865,7 +989,7 @@ mod tests {
                 false,
                 reload,
             );
-            let edit = locale.provider_script_edited(provider_id, path, "editor-command");
+            let edit = locale.provider_script_edited(provider_id, path);
             assert!(model_progress.contains("2 MiB"));
             assert!(model_progress.contains("8 MiB"));
             assert!(script_progress.contains("2048"));
@@ -878,8 +1002,50 @@ mod tests {
             assert!(removal.contains(reload));
             assert!(edit.contains(provider_id));
             assert!(edit.contains(path));
-            assert!(edit.contains("editor-command"));
+            assert!(!edit.contains("editor-command"));
+            assert!(!locale.open_llm_provider_form_guard().is_empty());
+            assert!(!locale.open_asr_provider_form_guard().is_empty());
+            assert!(!locale.open_asr_provider_form_continue_guard().is_empty());
+            assert!(!locale.open_adapter_form_continue_guard().is_empty());
+            assert!(!locale.open_scene_form_guard().is_empty());
+            assert!(!locale.dirty_control_draft_guard().is_empty());
         }
+        assert_ne!(
+            GuiLocale::EnUs.open_asr_provider_form_continue_guard(),
+            GuiLocale::ZhCn.open_asr_provider_form_continue_guard()
+        );
+        assert_ne!(
+            GuiLocale::EnUs.open_adapter_form_continue_guard(),
+            GuiLocale::ZhCn.open_adapter_form_continue_guard()
+        );
+        assert_ne!(
+            GuiLocale::EnUs.open_scene_form_guard(),
+            GuiLocale::ZhCn.open_scene_form_guard()
+        );
+        assert_ne!(
+            GuiLocale::EnUs.dirty_control_draft_guard(),
+            GuiLocale::ZhCn.dirty_control_draft_guard()
+        );
+    }
+
+    #[test]
+    fn daemon_backend_status_is_localized_without_embedding_error_details() {
+        assert_eq!(
+            GuiLocale::EnUs.daemon_status_with_backend("idle", true, false),
+            "Daemon: idle (loading backend)"
+        );
+        assert_eq!(
+            GuiLocale::EnUs.daemon_status_with_backend("idle", false, true),
+            "Daemon: idle (backend error)"
+        );
+        assert_eq!(
+            GuiLocale::ZhCn.daemon_status_with_backend("idle", true, false),
+            "守护进程：idle（正在加载后端）"
+        );
+        assert_eq!(
+            GuiLocale::ZhCn.daemon_status_with_backend("idle", false, true),
+            "守护进程：idle（后端错误）"
+        );
     }
 
     #[test]

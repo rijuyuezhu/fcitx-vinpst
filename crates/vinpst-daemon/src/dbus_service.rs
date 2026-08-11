@@ -9,14 +9,20 @@ use std::{
 use tokio::{sync::Mutex, time::MissedTickBehavior};
 use vinpst_protocol::{AsrBackendState, ServiceStatus, dbus};
 use vinpst_registry::scan_installed_models;
+use vinpst_text::OpenAiCompatibleShutdown;
 use zbus::{Connection, DBusError, object_server::SignalEmitter};
 
 use crate::{
     RuntimeError, RuntimeState,
+    error_info::{
+        ERROR_CODE_ASR_BACKEND_RELOAD_FAILED, ErrorInfo, classify_error_text, make_error_info,
+        make_raw_error,
+    },
     remote::{RemoteTextLifecycle, RemoteTextLifecycleError, RemoteTextLifecycleStatus},
     runtime::{
-        AsrReloadWorkerStep, PendingStopRecording, locale_candidates_from_environment,
-        persist_config_atomically, select_asr_provider, select_asr_target,
+        AsrReloadWorkerStep, LiveRecognitionEvent, PendingStopRecording, PreparedStopRecording,
+        ReadyStopRecording, locale_candidates_from_environment, persist_config_atomically,
+        select_asr_provider, select_asr_target,
     },
 };
 
@@ -50,7 +56,56 @@ type DbusResult<T> = Result<T, VinpstDbusError>;
 const MAX_ERROR_DESCRIPTION_LEN: usize = 512;
 const LIVE_PARTIAL_POLL_INTERVAL: Duration = Duration::from_millis(40);
 const ASR_RELOAD_POLL_INTERVAL: Duration = Duration::from_millis(20);
-const ASR_RELOAD_FAILED_CODE: &str = "asr_backend_reload_failed";
+const ADAPTER_STDERR_POLL_INTERVAL: Duration = Duration::from_millis(100);
+fn postprocess_notification(error: &vinpst_text::TextError) -> ErrorInfo {
+    match error {
+        vinpst_text::TextError::PromptFileLoad(message) => {
+            classify_error_text(&format!("Prompt file load failed: {message}"))
+        }
+        vinpst_text::TextError::AdapterFailed(message) => {
+            if let Some(http_failure) =
+                message.strip_prefix("OpenAI-compatible provider returned HTTP ")
+            {
+                classify_error_text(&format!("HTTP {http_failure}"))
+            } else {
+                classify_error_text(&format!("LLM request failed: {message}"))
+            }
+        }
+        _ => make_raw_error(error.to_string()),
+    }
+}
+
+fn runtime_error_detail(error: &RuntimeError) -> String {
+    match error {
+        RuntimeError::Busy(_) => "Daemon is busy.".to_owned(),
+        RuntimeError::Asr(vinpst_asr::AsrError::Backend(message)) => message.clone(),
+        RuntimeError::Asr(error) => error.to_string(),
+        RuntimeError::Audio(vinpst_audio::AudioError::RecordingBackendUnavailable(message)) => {
+            message.clone()
+        }
+        RuntimeError::Audio(error) => error.to_string(),
+        _ => error.to_string(),
+    }
+}
+
+fn recording_start_notification(error: &RuntimeError, command: bool) -> ErrorInfo {
+    let operation = if command {
+        "Failed to start command recording"
+    } else {
+        "Failed to start recording"
+    };
+    classify_error_text(&format!("{operation}: {}", runtime_error_detail(error)))
+}
+
+fn recognition_error_notification(error: &RuntimeError) -> Option<ErrorInfo> {
+    match error {
+        RuntimeError::Asr(vinpst_asr::AsrError::Backend(message)) => {
+            Some(classify_error_text(message))
+        }
+        RuntimeError::Asr(error) => Some(classify_error_text(&error.to_string())),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Default)]
 struct LivePartialEmissionState {
@@ -102,6 +157,7 @@ fn sanitize_dbus_error_message(message: &str) -> String {
 #[derive(Clone)]
 pub struct VinpstDbusService {
     runtime: Arc<Mutex<RuntimeState>>,
+    text_shutdown: OpenAiCompatibleShutdown,
     remote_text: Arc<Mutex<RemoteTextLifecycle>>,
     recording_operation: Arc<Mutex<()>>,
     live_partials: Arc<Mutex<LivePartialEmissionState>>,
@@ -118,8 +174,10 @@ impl VinpstDbusService {
     /// Creates a service facade with an explicit remote-text bind address.
     #[must_use]
     pub fn new_with_remote_bind(runtime: RuntimeState, bind_ip: IpAddr) -> Self {
+        let text_shutdown = runtime.text_shutdown_handle();
         Self {
             runtime: Arc::new(Mutex::new(runtime)),
+            text_shutdown,
             remote_text: Arc::new(Mutex::new(RemoteTextLifecycle::new(bind_ip))),
             recording_operation: Arc::new(Mutex::new(())),
             live_partials: Arc::new(Mutex::new(LivePartialEmissionState::default())),
@@ -135,7 +193,12 @@ impl VinpstDbusService {
             .object_server()
             .at(dbus::SERVICE_OBJECT_PATH, self.clone())
             .await?;
-        connection.request_name(dbus::SERVICE_BUS_NAME).await?;
+        connection
+            .request_name_with_flags(
+                dbus::SERVICE_BUS_NAME,
+                zbus::fdo::RequestNameFlags::DoNotQueue.into(),
+            )
+            .await?;
         Ok(connection)
     }
 
@@ -143,6 +206,11 @@ impl VinpstDbusService {
     pub async fn start_remote_text_service(&self) -> Result<bool, RemoteTextLifecycleError> {
         let config = self.runtime.lock().await.config_snapshot();
         self.reconcile_remote_text_config(&config).await
+    }
+
+    /// Cancels in-flight OpenAI-compatible post-processing during process shutdown.
+    pub fn shutdown_text_processing(&self) {
+        self.text_shutdown.shutdown();
     }
 
     /// Stops the daemon-owned remote service during process shutdown.
@@ -158,8 +226,31 @@ impl VinpstDbusService {
     /// Binds background signal emission to the connection hosting this service.
     pub async fn bind_signal_connection(&self, connection: &Connection) -> zbus::Result<()> {
         let emitter = SignalEmitter::new(connection, dbus::SERVICE_OBJECT_PATH)?.to_owned();
-        *self.signal_emitter.lock().await = Some(emitter);
+        *self.signal_emitter.lock().await = Some(emitter.clone());
+        self.spawn_adapter_stderr_emitter(emitter);
         Ok(())
+    }
+
+    fn spawn_adapter_stderr_emitter(&self, emitter: SignalEmitter<'static>) {
+        let runtime = Arc::clone(&self.runtime);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(ADAPTER_STDERR_POLL_INTERVAL);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let notifications = runtime.lock().await.take_text_adapter_notifications();
+                for (adapter_id, message) in notifications {
+                    tracing::warn!(adapter_id, "text adapter emitted stderr");
+                    let notification = make_raw_error(message);
+                    if Self::emit_error_info(&emitter, &notification)
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            }
+        });
     }
 
     fn operation_failed(message: impl AsRef<str>) -> VinpstDbusError {
@@ -183,11 +274,24 @@ impl VinpstDbusService {
         let Some(emitter) = emitter else {
             return;
         };
-        if let Err(error) =
-            Self::daemon_notification(&emitter, ASR_RELOAD_FAILED_CODE, "", "", message).await
-        {
+        let notification = make_error_info(ERROR_CODE_ASR_BACKEND_RELOAD_FAILED, "", "", message);
+        if let Err(error) = Self::emit_error_info(&emitter, &notification).await {
             tracing::warn!(%error, "failed to emit ASR reload notification");
         }
+    }
+
+    async fn emit_error_info(
+        emitter: &SignalEmitter<'_>,
+        notification: &ErrorInfo,
+    ) -> zbus::Result<()> {
+        Self::daemon_notification(
+            emitter,
+            notification.code,
+            &notification.subject,
+            &notification.detail,
+            &notification.raw_message,
+        )
+        .await
     }
 
     async fn run_asr_reload_worker(self) {
@@ -293,11 +397,9 @@ impl VinpstDbusService {
         Ok(())
     }
 
-    async fn start_recording_state(&self) -> DbusResult<(String, Option<String>)> {
+    async fn start_recording_state(&self) -> Result<(String, Option<String>), RuntimeError> {
         let mut runtime = self.runtime.lock().await;
-        runtime
-            .start_recording()
-            .map_err(|error| Self::map_runtime_error(&error))?;
+        runtime.start_recording()?;
         Ok((
             runtime.status().to_string(),
             runtime.partial_text().map(ToOwned::to_owned),
@@ -307,11 +409,9 @@ impl VinpstDbusService {
     async fn start_command_recording_state(
         &self,
         selected_text: &str,
-    ) -> DbusResult<(String, Option<String>)> {
+    ) -> Result<(String, Option<String>), RuntimeError> {
         let mut runtime = self.runtime.lock().await;
-        runtime
-            .start_command_recording(selected_text)
-            .map_err(|error| Self::map_runtime_error(&error))?;
+        runtime.start_command_recording(selected_text)?;
         Ok((
             runtime.status().to_string(),
             runtime.partial_text().map(ToOwned::to_owned),
@@ -329,21 +429,28 @@ impl VinpstDbusService {
         }
     }
 
-    async fn begin_stop_recording_payload(
+    async fn prepare_stop_recording_payload(
         &self,
         scene_id: &str,
-    ) -> DbusResult<PendingStopRecording> {
+    ) -> DbusResult<PreparedStopRecording> {
         let scene = (!scene_id.is_empty()).then_some(scene_id);
         let mut runtime = self.runtime.lock().await;
         runtime
-            .begin_stop_recording(scene)
+            .prepare_stop_recording(scene)
             .map_err(|error| Self::map_runtime_error(&error))
+    }
+
+    async fn begin_stop_inference_payload(
+        &self,
+        prepared: Box<ReadyStopRecording>,
+    ) -> Result<PendingStopRecording, RuntimeError> {
+        self.runtime.lock().await.begin_stop_inference(prepared)
     }
 
     async fn finish_stop_recording_payload(
         &self,
         pending: PendingStopRecording,
-    ) -> DbusResult<(String, String, Option<String>)> {
+    ) -> DbusResult<(String, String, Option<String>, Option<ErrorInfo>)> {
         let mut runtime = self.runtime.lock().await;
         let report = runtime
             .finish_stop_recording(pending)
@@ -352,10 +459,15 @@ impl VinpstDbusService {
             .payload
             .to_json_string()
             .map_err(Self::map_json_error)?;
+        let notification = report
+            .postprocess_warning
+            .as_ref()
+            .map(postprocess_notification);
         Ok((
             payload_json,
             runtime.status().to_string(),
             report.partial_text,
+            notification,
         ))
     }
 
@@ -370,8 +482,18 @@ impl VinpstDbusService {
         &self,
         scene_id: &str,
     ) -> DbusResult<(String, String, Option<String>)> {
-        let pending = self.begin_stop_recording_payload(scene_id).await?;
-        self.finish_stop_recording_payload(pending).await
+        match self.prepare_stop_recording_payload(scene_id).await? {
+            PreparedStopRecording::TooShort => Ok((String::new(), "idle".to_owned(), None)),
+            PreparedStopRecording::Ready(prepared) => {
+                let pending = self
+                    .begin_stop_inference_payload(prepared)
+                    .await
+                    .map_err(|error| Self::map_runtime_error(&error))?;
+                let (payload, status, partial, _) =
+                    self.finish_stop_recording_payload(pending).await?;
+                Ok((payload, status, partial))
+            }
+        }
     }
 
     async fn begin_live_partial_emission(&self, last_emitted: Option<String>) -> u64 {
@@ -398,32 +520,58 @@ impl VinpstDbusService {
                     break;
                 }
 
-                let partials = {
+                let live_result = {
                     let mut runtime = runtime.lock().await;
                     if runtime.status() != ServiceStatus::Recording {
                         break;
                     }
-                    match runtime.take_live_partial_texts() {
-                        Ok(partials) => partials,
-                        Err(_) => break,
+                    runtime.take_live_recognition_events()
+                };
+                let events = match live_result {
+                    Ok(events) => events,
+                    Err(error) => {
+                        let notification = make_raw_error(runtime_error_detail(&error));
+                        let _ = Self::status_changed(&emitter, "error").await;
+                        let _ = Self::emit_error_info(&emitter, &notification).await;
+                        {
+                            let mut runtime = runtime.lock().await;
+                            runtime.recover_live_recording_error();
+                        }
+                        let _ = Self::status_changed(&emitter, "idle").await;
+                        break;
                     }
                 };
 
-                for partial in partials {
-                    let should_emit = {
-                        let state = live_partials.lock().await;
-                        state.is_current(generation)
-                            && state.last_emitted.as_deref() != Some(partial.as_str())
-                    };
-                    if !should_emit {
-                        continue;
-                    }
-                    if Self::recognition_partial(&emitter, &partial).await.is_err() {
+                for event in events {
+                    if !live_partials.lock().await.is_current(generation) {
                         return;
                     }
-                    let mut state = live_partials.lock().await;
-                    if state.is_current(generation) {
-                        state.last_emitted = Some(partial);
+                    match event {
+                        LiveRecognitionEvent::PartialText(partial) => {
+                            let should_emit = {
+                                let state = live_partials.lock().await;
+                                state.last_emitted.as_deref() != Some(partial.as_str())
+                            };
+                            if !should_emit {
+                                continue;
+                            }
+                            if Self::recognition_partial(&emitter, &partial).await.is_err() {
+                                return;
+                            }
+                            let mut state = live_partials.lock().await;
+                            if state.is_current(generation) {
+                                state.last_emitted = Some(partial);
+                            }
+                        }
+                        LiveRecognitionEvent::Error(message) => {
+                            let notification = classify_error_text(&message);
+                            if Self::emit_error_info(&emitter, &notification)
+                                .await
+                                .is_err()
+                            {
+                                return;
+                            }
+                        }
                     }
                 }
             }
@@ -441,7 +589,14 @@ impl VinpstDbusService {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<(), VinpstDbusError> {
         let _operation = self.lock_recording_operation().await;
-        let (status, partial_text) = self.start_recording_state().await?;
+        let (status, partial_text) = match self.start_recording_state().await {
+            Ok(state) => state,
+            Err(error) => {
+                let notification = recording_start_notification(&error, false);
+                let _ = Self::emit_error_info(&emitter, &notification).await;
+                return Err(Self::map_runtime_error(&error));
+            }
+        };
         Self::status_changed(&emitter, &status)
             .await
             .map_err(|error| Self::map_signal_error(&error))?;
@@ -463,7 +618,14 @@ impl VinpstDbusService {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
     ) -> Result<(), VinpstDbusError> {
         let _operation = self.lock_recording_operation().await;
-        let (status, partial_text) = self.start_command_recording_state(selected_text).await?;
+        let (status, partial_text) = match self.start_command_recording_state(selected_text).await {
+            Ok(state) => state,
+            Err(error) => {
+                let notification = recording_start_notification(&error, true);
+                let _ = Self::emit_error_info(&emitter, &notification).await;
+                return Err(Self::map_runtime_error(&error));
+            }
+        };
         Self::status_changed(&emitter, &status)
             .await
             .map_err(|error| Self::map_signal_error(&error))?;
@@ -487,22 +649,40 @@ impl VinpstDbusService {
         let _operation = self.lock_recording_operation().await;
         self.ensure_recording_for_stop().await?;
         let last_emitted_partial = self.cancel_live_partial_emission().await;
-        Self::status_changed(&emitter, "inferring")
-            .await
-            .map_err(|error| Self::map_signal_error(&error))?;
-        let pending = match self.begin_stop_recording_payload(scene_id).await {
-            Ok(pending) => pending,
+        let prepared = match self.prepare_stop_recording_payload(scene_id).await {
+            Ok(prepared) => prepared,
             Err(error) => {
                 let _ = Self::status_changed(&emitter, "idle").await;
                 return Err(error);
             }
         };
-        if let Err(error) = Self::status_changed(&emitter, "postprocessing").await {
+        let PreparedStopRecording::Ready(prepared) = prepared else {
+            Self::status_changed(&emitter, "idle")
+                .await
+                .map_err(|error| Self::map_signal_error(&error))?;
+            return Ok(String::new());
+        };
+        Self::status_changed(&emitter, "inferring")
+            .await
+            .map_err(|error| Self::map_signal_error(&error))?;
+        let pending = match self.begin_stop_inference_payload(prepared).await {
+            Ok(pending) => pending,
+            Err(error) => {
+                if let Some(notification) = recognition_error_notification(&error) {
+                    let _ = Self::emit_error_info(&emitter, &notification).await;
+                }
+                let _ = Self::status_changed(&emitter, "idle").await;
+                return Err(Self::map_runtime_error(&error));
+            }
+        };
+        if pending.enters_postprocessing()
+            && let Err(error) = Self::status_changed(&emitter, "postprocessing").await
+        {
             let status = self.abort_stop_recording_payload(pending).await;
             let _ = Self::status_changed(&emitter, &status).await;
             return Err(Self::map_signal_error(&error));
         }
-        let (payload_json, status, partial_text) =
+        let (payload_json, status, partial_text, notification) =
             match self.finish_stop_recording_payload(pending).await {
                 Ok(result) => result,
                 Err(error) => {
@@ -515,6 +695,11 @@ impl VinpstDbusService {
                 && last_emitted_partial.as_deref() != Some(partial_text.as_str())
             {
                 Self::recognition_partial(&emitter, &partial_text)
+                    .await
+                    .map_err(|error| Self::map_signal_error(&error))?;
+            }
+            if let Some(notification) = notification {
+                Self::emit_error_info(&emitter, &notification)
                     .await
                     .map_err(|error| Self::map_signal_error(&error))?;
             }

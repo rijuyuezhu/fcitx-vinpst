@@ -1,28 +1,27 @@
 //! Rust management GUI state, data loading, and D-Bus integration.
 
-use crate::keyboard_action::keyboard_button;
-
 use std::{
-    env,
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use iced::{
-    Element, Length, Subscription, Task, Theme,
+    Element, Length, Subscription, Task,
     widget::{column, container, row, scrollable, stack, text},
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 #[cfg(test)]
 use vinpst_config::AsrProviderKind;
-use vinpst_config::{VinpstConfig, config_backup_path, write_config_file};
-use vinpst_protocol::{TextAdapterState, dbus};
-use vinpst_registry::{InstalledModelInfo, LiveScriptKind};
+use vinpst_config::{VinpstConfig, config_backup_path, user_paths, write_config_file};
+use vinpst_protocol::{AsrBackendState, TextAdapterState, dbus};
+use vinpst_registry::InstalledModelInfo;
 
 mod adapter_config_management;
 mod adapter_runtime;
+mod app_diagnostics;
 mod asr_provider_management;
 mod asr_reload_confirmation;
+mod audio_devices;
 mod blocking_task;
 mod config_editor;
 mod daemon_client;
@@ -45,15 +44,19 @@ mod model_management;
 mod model_selection;
 mod page;
 mod provider_script_edit;
+mod removal_confirmation;
 mod resource_details;
 mod resource_pages;
 mod scene_management;
+mod script_catalog;
 mod script_install;
 mod script_management;
 mod script_recovery;
 mod script_removal;
 mod script_transaction;
 mod startup_notifications;
+#[cfg(test)]
+mod test_support;
 
 use adapter_config_management::AdapterConfigEditorState;
 pub use adapter_config_management::{
@@ -63,6 +66,7 @@ pub use adapter_runtime::{
     AdapterRuntimeAction, AdapterRuntimeConfirmation, AdapterRuntimeError,
     AdapterRuntimeErrorCategory, AdapterRuntimeMessage, AdapterRuntimeOutcome,
 };
+pub use app_diagnostics::headless_snapshot;
 use asr_provider_management::AsrProviderEditorState;
 pub use asr_provider_management::{
     AsrProviderEditorField, AsrProviderMessage, AsrProviderMutationOutcome,
@@ -70,6 +74,8 @@ pub use asr_provider_management::{
 pub(crate) use asr_reload_confirmation::{
     reload_asr_backend, reload_asr_backend_and_wait, wait_for_requested_asr_backend,
 };
+use audio_devices::AudioDeviceState;
+pub use audio_devices::CaptureDeviceChoice;
 pub use daemon_client::query_daemon_snapshot;
 pub(crate) use daemon_client::{daemon_proxy, query_daemon_snapshot_if_owned};
 pub use daemon_control::{
@@ -88,6 +94,7 @@ use llm_provider_management::LlmProviderEditorState;
 pub use llm_provider_management::{
     LlmProviderEditorField, LlmProviderMessage, LlmProviderMutationOutcome, LlmProviderTestOutcome,
 };
+use message::Message::{DaemonFallbackPollTick, DaemonFallbackPolled, DaemonLoaded};
 pub use message::{ConfigDraftMessage, Message};
 pub use model_install::ModelInstallOutcome;
 use model_install::ModelInstallState;
@@ -97,11 +104,14 @@ use model_management::{
 };
 pub use model_management::{RegistryModelSummary, default_model_root};
 pub use page::Page;
+use removal_confirmation::RemovalConfirmation;
 use resource_details::ResourceSelection;
 use scene_management::SceneEditorState;
 pub use scene_management::{
     SceneEditorField, SceneMessage, SceneMutationOutcome, SceneProviderSelection,
 };
+pub use script_catalog::RegistryScriptSummary;
+use script_catalog::ScriptCatalogState;
 use script_install::ScriptInstallState;
 pub use script_install::{ScriptInstallOutcome, ScriptPreparationResult, SecretInput};
 use startup_notifications::StartupNotificationState;
@@ -123,7 +133,7 @@ pub struct ConfigDocument {
 }
 
 /// Redacted daemon state shown in the GUI.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct DaemonSnapshot {
     /// Legacy daemon status wire value.
     pub status: String,
@@ -131,12 +141,44 @@ pub struct DaemonSnapshot {
     pub runtime: Value,
     /// Typed text-adapter runtime state returned by the daemon.
     pub text_adapters: TextAdapterState,
+    /// Live ASR target/effective state when supported by the daemon.
+    pub asr_backend: Option<Box<AsrBackendState>>,
+}
+
+impl std::fmt::Debug for DaemonSnapshot {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = formatter.debug_struct("DaemonSnapshot");
+        debug
+            .field("status", &self.status)
+            .field("runtime", &self.runtime)
+            .field("text_adapters", &self.text_adapters);
+        match &self.asr_backend {
+            Some(state) => debug.field(
+                "asr_backend",
+                &format_args!(
+                    "target={:?}/{:?}, effective={:?}/{:?}, reload_in_progress={}, has_effective_backend={}, last_error_present={}, remote_endpoint_count={}",
+                    state.target_provider_id,
+                    state.target_model_id,
+                    state.effective_provider_id,
+                    state.effective_model_id,
+                    state.reload_in_progress,
+                    state.has_effective_backend,
+                    !state.last_error.is_empty(),
+                    state.remote_endpoints.len()
+                ),
+            ),
+            None => debug.field("asr_backend", &Option::<()>::None),
+        };
+        debug.finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct ConfigDraft {
     default_language: String,
     capture_device: String,
+    normalize_audio: bool,
+    input_gain: f32,
     duck_output_while_recording: bool,
     duck_output_volume: f32,
     vad_enabled: bool,
@@ -150,6 +192,8 @@ impl ConfigDraft {
         Self {
             default_language: config.global.default_language.clone(),
             capture_device: config.global.capture_device.clone(),
+            normalize_audio: config.asr.normalize_audio,
+            input_gain: config.asr.input_gain,
             duck_output_while_recording: config.global.duck_output_while_recording,
             duck_output_volume: config.global.duck_output_volume,
             vad_enabled: config.asr.vad.enabled,
@@ -172,6 +216,8 @@ impl ConfigDraft {
             .global
             .capture_device
             .clone_from(&self.capture_device);
+        config.asr.normalize_audio = self.normalize_audio;
+        config.asr.input_gain = self.input_gain;
         config.global.duck_output_while_recording = self.duck_output_while_recording;
         config.global.duck_output_volume = self.duck_output_volume;
         config.asr.vad.enabled = self.vad_enabled;
@@ -203,12 +249,12 @@ enum OperationState {
 #[derive(Debug, Clone, PartialEq)]
 enum DaemonLoadState {
     Loading,
+    Stopped,
     Ready(DaemonSnapshot),
     Failed(String),
 }
 
 /// GUI state.
-#[derive(Debug)]
 pub struct App {
     locale: GuiLocale,
     page: Page,
@@ -228,12 +274,14 @@ pub struct App {
     model_catalog: ModelCatalogState,
     model_install: ModelInstallState,
     next_model_install_id: u64,
-    provider_selector: String,
-    adapter_selector: String,
+    audio_devices: AudioDeviceState,
+    provider_catalog: ScriptCatalogState,
+    adapter_catalog: ScriptCatalogState,
     script_install: ScriptInstallState,
     next_script_install_id: u64,
     installed_models: Result<Vec<InstalledModelInfo>, String>,
     selected_resource: Option<ResourceSelection>,
+    removal_confirmation: Option<RemovalConfirmation>,
     scene_editor: Option<SceneEditorState>,
     asr_provider_editor: Option<AsrProviderEditorState>,
     llm_provider_editor: Option<LlmProviderEditorState>,
@@ -277,12 +325,14 @@ impl App {
             model_catalog: ModelCatalogState::Loading,
             model_install: ModelInstallState::default(),
             next_model_install_id: 1,
-            provider_selector: String::new(),
-            adapter_selector: String::new(),
+            audio_devices: AudioDeviceState::Loading,
+            provider_catalog: ScriptCatalogState::Loading,
+            adapter_catalog: ScriptCatalogState::Loading,
             script_install: ScriptInstallState::default(),
             next_script_install_id: 1,
             installed_models: load_installed_models(),
             selected_resource: None,
+            removal_confirmation: None,
             scene_editor: None,
             asr_provider_editor: None,
             llm_provider_editor: None,
@@ -295,9 +345,19 @@ impl App {
         let daemon_task = app.begin_daemon_refresh(true);
         let notification_task = app.begin_startup_notification_load();
         let model_catalog_task = app.begin_model_catalog_refresh();
+        let audio_devices_task = app.begin_audio_device_refresh();
+        let provider_catalog_task = app.begin_provider_catalog_refresh();
+        let adapter_catalog_task = app.begin_adapter_catalog_refresh();
         (
             app,
-            Task::batch([daemon_task, notification_task, model_catalog_task]),
+            Task::batch([
+                daemon_task,
+                notification_task,
+                model_catalog_task,
+                audio_devices_task,
+                provider_catalog_task,
+                adapter_catalog_task,
+            ]),
         )
     }
 
@@ -305,6 +365,9 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         if self.has_error_dialog() && !self.error_dialog_allows(&message) {
             return Task::none();
+        }
+        if let Some(task) = self.intercept_removal_confirmation_message(&message) {
+            return task;
         }
         if let Some(task) = self.intercept_startup_notification_message(&message) {
             return task;
@@ -324,6 +387,9 @@ impl App {
         if let Some(task) = self.intercept_asr_provider_message(&message) {
             return task;
         }
+        if let Some(task) = self.intercept_script_removal_message(&message) {
+            return task;
+        }
         if self.is_busy() && message.blocked_while_busy() {
             return Task::none();
         }
@@ -339,6 +405,9 @@ impl App {
             | Message::DaemonFallbackPolled { .. }
             | Message::DaemonOwnerEvent(_)
             | Message::ModelCatalogLoaded(_)
+            | Message::AudioDevicesLoaded(_)
+            | Message::ProviderCatalogLoaded(_)
+            | Message::AdapterCatalogLoaded(_)
             | Message::StartupNotification(StartupNotificationMessage::Loaded(_)) => true,
             Message::RetryModelInstall => self.model_install.failure_message().is_some(),
             Message::RetryScriptInstall => self.script_install.failure_message().is_some(),
@@ -351,14 +420,17 @@ impl App {
             Message::SelectPage(page) => self.select_page(page),
             Message::FilterChanged(filter) => self.filter = filter,
             Message::ModelFilterChanged(filter) => self.model_filter = filter,
+            Message::UseAsrProvider(provider_id) => {
+                return self.begin_asr_provider_use(provider_id);
+            }
             Message::Interaction(message) => return self.handle_interaction_message(message),
             Message::RefreshDaemon => return self.begin_daemon_refresh(true),
-            Message::DaemonLoaded {
+            DaemonLoaded {
                 operation_id,
                 result,
             } => self.finish_daemon_refresh(operation_id, result),
-            Message::DaemonFallbackPollTick => return self.begin_daemon_fallback_poll(),
-            Message::DaemonFallbackPolled {
+            DaemonFallbackPollTick => return self.begin_daemon_fallback_poll(),
+            DaemonFallbackPolled {
                 operation_id,
                 result,
             } => self.finish_daemon_fallback_poll(operation_id, result),
@@ -377,7 +449,14 @@ impl App {
                 return self.finish_recording(start, result);
             }
             Message::RefreshModelCatalog => return self.begin_model_catalog_refresh(),
+            Message::RefreshInstalledModels => self.installed_models = load_installed_models(),
             Message::ModelCatalogLoaded(result) => self.finish_model_catalog_refresh(result),
+            Message::RefreshAudioDevices => return self.begin_audio_device_refresh(),
+            Message::AudioDevicesLoaded(result) => self.finish_audio_device_refresh(result),
+            Message::RefreshProviderCatalog => return self.begin_provider_catalog_refresh(),
+            Message::ProviderCatalogLoaded(result) => self.finish_provider_catalog_refresh(result),
+            Message::RefreshAdapterCatalog => return self.begin_adapter_catalog_refresh(),
+            Message::AdapterCatalogLoaded(result) => self.finish_adapter_catalog_refresh(result),
             Message::InstallRegistryModel(selector) => {
                 return self.begin_model_install_for(selector);
             }
@@ -398,10 +477,8 @@ impl App {
             Message::SelectLlmProviderDetail(id) => self.select_llm_provider_detail(id),
             Message::SelectLlmAdapterDetail(id) => self.select_llm_adapter_detail(id),
             Message::ClearResourceDetail => self.clear_resource_detail(),
-            Message::ProviderSelectorChanged(value) => self.provider_selector = value,
-            Message::AdapterSelectorChanged(value) => self.adapter_selector = value,
-            Message::InstallProvider => return self.begin_provider_install(),
-            Message::InstallAdapter => return self.begin_adapter_install(),
+            Message::InstallProvider(selector) => return self.begin_provider_install(selector),
+            Message::InstallAdapter(selector) => return self.begin_adapter_install(selector),
             Message::ScriptPrepared {
                 operation_id,
                 outcome,
@@ -421,27 +498,35 @@ impl App {
             } => return self.finish_script_install(operation_id, outcome),
             Message::EditProviderScript(id) => return self.begin_provider_script_edit(&id),
             Message::ProviderScriptEdited(result) => self.finish_provider_script_edit(result),
-            Message::RemoveProvider(id) => {
-                return self.begin_script_remove(LiveScriptKind::AsrProvider, id);
-            }
-            Message::RemoveAdapter(id) => {
-                return self.begin_script_remove(LiveScriptKind::LlmAdapter, id);
-            }
-            Message::ScriptRemoved(result) => return self.finish_script_remove(result),
             Message::StartupNotification(_)
             | Message::DesktopAction(_)
             | Message::DaemonControl(_)
             | Message::AdapterRuntime(_)
             | Message::AdapterConfig(_)
-            | Message::AsrProvider(_) => unreachable!("domain messages are intercepted"),
+            | Message::AsrProvider(_)
+            | Message::RequestRemoveInstalledModel(_)
+            | Message::RequestRemoveAsrProvider { .. }
+            | Message::RequestRemoveTextAdapter { .. }
+            | Message::RequestRemoveLlmProvider(_)
+            | Message::RequestRemoveScene(_)
+            | Message::ConfirmRemoval
+            | Message::CancelRemoval
+            | Message::RemoveProvider(_)
+            | Message::RemoveAdapter(_)
+            | Message::ScriptRemoved(_) => unreachable!("intercepted message reached app routing"),
         }
         Task::none()
     }
 
-    /// Subscribes to owner changes and uses low-frequency polling only as a fallback.
+    /// Subscribes to daemon lifecycle plus page-specific live state updates.
     pub fn subscription(&self) -> Subscription<Message> {
         let mut subscriptions = self.daemon_reconciliation_subscriptions();
         subscriptions.push(interaction::subscription());
+        if self.page == Page::Control {
+            subscriptions.push(
+                iced::time::every(Duration::from_secs(2)).map(|_| Message::DaemonFallbackPollTick),
+            );
+        }
         if self.model_install.is_active() {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
@@ -458,15 +543,12 @@ impl App {
     }
 
     pub(crate) fn ensure_no_unsaved_config_draft(&self) -> Result<(), String> {
-        ensure_resource_mutation_draft_clean(&self.config, self.draft.as_ref())
+        ensure_resource_mutation_draft_clean(self.locale, &self.config, self.draft.as_ref())
     }
 
     pub(crate) fn ensure_no_open_scene_editor(&self) -> Result<(), String> {
         if self.scene_editor.is_some() {
-            return Err(
-                "Save or cancel the open Scene form before modifying providers or adapters."
-                    .to_owned(),
-            );
+            return Err(self.locale.open_scene_form_guard());
         }
         Ok(())
     }
@@ -722,6 +804,14 @@ impl App {
             None => base,
         };
 
+        let base = match self.removal_confirmation_view() {
+            Some(dialog) => stack([base, dialog])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            None => base,
+        };
+
         match self.error_dialog_view() {
             Some(dialog) => stack([base, dialog])
                 .width(Length::Fill)
@@ -735,55 +825,42 @@ impl App {
         let busy = self.is_busy();
         let mut body = column![
             text(self.locale.text(GuiText::Control)).size(30),
-            text(self.locale.text(GuiText::DaemonService)).size(22),
-            self.daemon_control_actions(busy),
-            self.daemon_status_view(),
-            text(self.locale.text(GuiText::Recording)).size(22),
-            self.recording_actions(busy),
+            self.config_editor(busy),
+            self.configured_asr_providers_view(busy),
         ]
         .spacing(14);
         if let Some(notice) = self.operation_notice() {
             body = body.push(notice);
         }
-        body = body.push(self.config_editor(busy));
+        body = body
+            .push(text(self.locale.text(GuiText::DaemonService)).size(22))
+            .push(self.daemon_control_actions(busy))
+            .push(self.daemon_status_view());
         scrollable(body).into()
     }
 
-    fn recording_actions(&self, busy: bool) -> Element<'_, Message> {
-        let daemon_status = match &self.daemon {
-            DaemonLoadState::Ready(snapshot) => Some(snapshot.status.as_str()),
-            DaemonLoadState::Loading | DaemonLoadState::Failed(_) => None,
-        };
-        let can_start = !busy && daemon_status == Some("idle");
-        let can_stop = !busy && daemon_status == Some("recording");
-        row![
-            keyboard_button(self.locale.text(GuiText::ReloadConfig))
-                .on_press_maybe((!busy).then_some(Message::ReloadConfig)),
-            keyboard_button(self.locale.text(GuiText::StartRecording))
-                .on_press_maybe(can_start.then_some(Message::StartRecording)),
-            keyboard_button(self.locale.text(GuiText::StopRecording))
-                .on_press_maybe(can_stop.then_some(Message::StopRecording)),
-        ]
-        .spacing(10)
-        .into()
-    }
-
     fn daemon_status_view(&self) -> Element<'_, Message> {
-        let daemon = match &self.daemon {
+        match &self.daemon {
             DaemonLoadState::Loading => text(self.locale.text(GuiText::DaemonLoading)),
-            DaemonLoadState::Ready(snapshot) => text(self.locale.daemon_status(&snapshot.status)),
-            DaemonLoadState::Failed(error) => text(self.locale.daemon_unavailable(error)),
-        };
-        let monitor = match &self.daemon_owner_monitor {
-            DaemonOwnerMonitorState::Connecting => {
-                self.locale.text(GuiText::OwnerMonitorConnecting).to_owned()
+            DaemonLoadState::Stopped => text(
+                self.locale
+                    .daemon_status(self.locale.text(GuiText::Stopped)),
+            ),
+            DaemonLoadState::Ready(snapshot) => {
+                let (loading, failed) = snapshot
+                    .asr_backend
+                    .as_deref()
+                    .map_or((false, false), |state| {
+                        (state.reload_in_progress, !state.last_error.is_empty())
+                    });
+                text(
+                    self.locale
+                        .daemon_status_with_backend(&snapshot.status, loading, failed),
+                )
             }
-            DaemonOwnerMonitorState::Ready => {
-                self.locale.text(GuiText::OwnerMonitorReady).to_owned()
-            }
-            DaemonOwnerMonitorState::Failed(error) => self.locale.owner_monitor_degraded(error),
-        };
-        column![daemon, text(monitor)].spacing(5).into()
+            DaemonLoadState::Failed(_) => text(self.locale.text(GuiText::DaemonStatusUnavailable)),
+        }
+        .into()
     }
 
     fn is_busy(&self) -> bool {
@@ -791,6 +868,7 @@ impl App {
             || self.model_install.is_active()
             || self.script_install.blocks_operations()
             || self.has_error_dialog()
+            || self.removal_confirmation.is_some()
     }
 
     fn has_error_dialog(&self) -> bool {
@@ -828,16 +906,8 @@ impl App {
 
 /// Returns the default user config path.
 pub fn default_config_path() -> Result<PathBuf, String> {
-    let config_home = match env::var_os("XDG_CONFIG_HOME") {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => {
-            let home = env::var_os("HOME").ok_or_else(|| {
-                "HOME or XDG_CONFIG_HOME is required to locate the user config".to_owned()
-            })?;
-            PathBuf::from(home).join(".config")
-        }
-    };
-    Ok(config_home.join("fcitx-vinpst").join("config.json"))
+    user_paths::default_config_path()
+        .ok_or_else(|| "HOME or XDG_CONFIG_HOME is required to locate the user config".to_owned())
 }
 
 /// Loads and validates a config document, falling back to the bundled default if absent.
@@ -868,9 +938,7 @@ pub fn load_config_document(path: Option<&Path>) -> Result<ConfigDocument, Strin
 fn daemon_state_from_poll(result: Result<Option<DaemonSnapshot>, String>) -> DaemonLoadState {
     match result {
         Ok(Some(snapshot)) => DaemonLoadState::Ready(snapshot),
-        Ok(None) => DaemonLoadState::Failed(
-            "Daemon is not running; waiting for its D-Bus owner.".to_owned(),
-        ),
+        Ok(None) => DaemonLoadState::Stopped,
         Err(error) => DaemonLoadState::Failed(error),
     }
 }
@@ -889,6 +957,7 @@ fn ensure_config_save_allowed(snapshot: &DaemonSnapshot) -> Result<(), String> {
 }
 
 fn ensure_resource_mutation_draft_clean(
+    locale: GuiLocale,
     config: &Result<ConfigDocument, String>,
     draft: Option<&ConfigDraft>,
 ) -> Result<(), String> {
@@ -896,9 +965,7 @@ fn ensure_resource_mutation_draft_clean(
         return Ok(());
     };
     if draft.is_dirty(&document.config) {
-        return Err(
-            "Save or reset the Control page changes before modifying resources.".to_owned(),
-        );
+        return Err(locale.dirty_control_draft_guard());
     }
     Ok(())
 }
@@ -985,23 +1052,33 @@ pub(crate) fn save_updated_config_with_daemon(
     }
     let mut outcome = persist_updated_config(document, updated)?;
     outcome.daemon_reload = match daemon {
-        Ok(_) => match reload_asr_backend() {
-            Ok(()) => DAEMON_RELOAD_REQUESTED.to_owned(),
-            Err(error) => {
-                let rollback = restore_config_document(document);
-                return Err(match rollback {
-                    Ok(()) => {
-                        format!("Daemon config reload failed: {error}; previous config restored.")
-                    }
-                    Err(rollback_error) => format!(
-                        "Daemon config reload failed: {error}; restoring previous config also failed: {rollback_error}"
-                    ),
-                });
-            }
-        },
+        Ok(_) => reload_daemon_after_config_save(document, reload_asr_backend)?,
         Err(error) => format!("config saved; daemon reload skipped: {error}"),
     };
     Ok(outcome)
+}
+
+fn reload_daemon_after_config_save(
+    document: &ConfigDocument,
+    mut reload: impl FnMut() -> Result<(), String>,
+) -> Result<String, String> {
+    let Err(error) = reload() else {
+        return Ok(DAEMON_RELOAD_REQUESTED.to_owned());
+    };
+
+    let Err(rollback_error) = restore_config_document(document) else {
+        return match reload() {
+            Ok(()) => Err(format!(
+                "Daemon config reload failed: {error}; previous config restored and daemon reconciled."
+            )),
+            Err(rollback_reload_error) => Err(format!(
+                "Daemon config reload failed: {error}; previous config restored, but restoring daemon state also failed: {rollback_reload_error}"
+            )),
+        };
+    };
+    Err(format!(
+        "Daemon config reload failed: {error}; restoring previous config also failed: {rollback_error}"
+    ))
 }
 
 fn restore_config_document(document: &ConfigDocument) -> Result<(), String> {
@@ -1044,46 +1121,6 @@ fn run_recording_action(start: bool, scene: &str) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         Ok(())
     }
-}
-
-/// Builds a redacted machine-readable snapshot for package and CI checks.
-pub fn headless_snapshot(path: Option<&Path>, probe_daemon: bool) -> Result<Value, String> {
-    let document = load_config_document(path)?;
-    let daemon = if probe_daemon {
-        match query_daemon_snapshot() {
-            Ok(snapshot) => json!({
-                "ok": true,
-                "status": snapshot.status,
-                "runtime": snapshot.runtime,
-            }),
-            Err(error) => json!({
-                "ok": false,
-                "error": error,
-            }),
-        }
-    } else {
-        json!({
-            "ok": null,
-            "skipped": true,
-        })
-    };
-    Ok(json!({
-        "ok": true,
-        "application": "vinpst-gui",
-        "ui_locale": GuiLocale::detect().code(),
-        "config": {
-            "path": document.path,
-            "from_disk": document.from_disk,
-            "summary": document.config.summary(),
-            "capture_device": document.config.global.capture_device,
-            "default_language": document.config.global.default_language,
-            "llm_provider_count": document.config.llm.providers.len(),
-            "adapter_count": document.config.llm.adapters.len(),
-        },
-        "daemon": daemon,
-        "interaction": interaction::capability_snapshot(),
-        "pages": Page::ALL.map(Page::machine_label),
-    }))
 }
 
 #[cfg(test)]
@@ -1149,7 +1186,6 @@ pub fn run_on_page(initial_page: Page) -> iced::Result {
     )
     .title(App::window_title)
     .subscription(App::subscription)
-    .theme(Theme::TokyoNight)
     .window_size((960.0, 640.0))
     .run()
 }

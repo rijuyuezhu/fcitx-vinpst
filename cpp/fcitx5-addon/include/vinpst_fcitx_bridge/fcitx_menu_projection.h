@@ -21,8 +21,8 @@ class RustMenuControllerOwner {
 public:
   RustMenuControllerOwner(const RustMenuControllerOwner &) = delete;
   RustMenuControllerOwner &operator=(const RustMenuControllerOwner &) = delete;
-  RustMenuControllerOwner(RustMenuControllerOwner &&) = delete;
-  RustMenuControllerOwner &operator=(RustMenuControllerOwner &&) = delete;
+  RustMenuControllerOwner(RustMenuControllerOwner &&) noexcept = default;
+  RustMenuControllerOwner &operator=(RustMenuControllerOwner &&) noexcept = default;
 
   const Controller *raw_handle() const {
     return controller_.raw_handle();
@@ -106,6 +106,8 @@ public:
                                       vinpst_fcitx_scene_menu_controller_free>;
 
   SceneMenuController() = default;
+  SceneMenuController(SceneMenuController &&) noexcept = default;
+  SceneMenuController &operator=(SceneMenuController &&) noexcept = default;
 
   std::shared_ptr<MenuProjection> Project(const MenuSessionState &session) const;
   using Owner::mutable_raw_handle;
@@ -122,6 +124,8 @@ public:
                                                 vinpst_fcitx_asr_menu_controller_free>;
 
   AsrMenuController() = default;
+  AsrMenuController(AsrMenuController &&) noexcept = default;
+  AsrMenuController &operator=(AsrMenuController &&) noexcept = default;
 
   std::shared_ptr<MenuProjection>
   Project(const MenuSessionState &session,

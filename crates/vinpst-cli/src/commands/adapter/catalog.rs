@@ -2,13 +2,21 @@ use super::mutation::{explicit_adapter_index, llm_adapters_array_mut, normalize_
 use super::{
     AdapterInstallOutcome, AdapterInstallRequest, AdapterListContext, Context, Duration,
     LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry, LoadedLiveI18n, LoadedLiveScriptRegistry,
-    Path, PathBuf, RegistryConfig, RegistryIndex, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, VinpstConfig, bool_label, config_set_write_target,
-    default_adapter_root, default_config_path, fetch_text_from_mirrors, fs, install_live_script,
-    live_registry_urls, load_config_file, load_config_json, load_live_i18n,
-    managed_script_relative_path, materialize_llm_adapter, validate_config_json_value,
-    write_config_set_document,
+    Path, PathBuf, RegistryConfig, RegistryIndex, ReqwestRegistryAssetSource, VinpstConfig,
+    config_set_write_target, default_adapter_root, default_config_path, fetch_text_from_mirrors,
+    fs, install_live_script, live_registry_urls, load_config_file, load_config_json,
+    load_live_i18n, managed_script_relative_path, materialize_llm_adapter,
+    validate_config_json_value, write_config_set_document,
 };
+use crate::{
+    config_io::ConfigSetWriteTarget,
+    paths::default_cache_root,
+    registry_support::{
+        fetched_text_source_json, print_cache_fallback_warning, registry_urls_for_diagnostics,
+        with_managed_script_transaction,
+    },
+};
+use vinpst_registry::adapter_registry_cache_path;
 
 pub(super) fn print_adapter_install(request: AdapterInstallRequest<'_>) -> anyhow::Result<()> {
     let json_output = request.json_output;
@@ -77,18 +85,14 @@ fn run_adapter_install(
     let mut wrote_script = false;
     let mut wrote_config = false;
     if !request.dry_run {
-        let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
-        let installed =
-            install_live_script(&source, LiveScriptKind::LlmAdapter, &entry, &adapter_root)?;
-        if installed.script_path != script_path {
-            anyhow::bail!(
-                "installed adapter script path `{}` did not match planned path `{}`",
-                installed.script_path.display(),
-                script_path.display()
-            );
-        }
+        install_adapter_and_config(
+            &entry,
+            &adapter_root,
+            &script_path,
+            &loaded.document,
+            &write_target,
+        )?;
         wrote_script = true;
-        write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
     }
     let required_env = entry
@@ -122,6 +126,33 @@ fn run_adapter_install(
     })
 }
 
+fn install_adapter_and_config(
+    entry: &vinpst_registry::LiveScriptEntry,
+    adapter_root: &Path,
+    script_path: &Path,
+    document: &serde_json::Value,
+    write_target: &ConfigSetWriteTarget,
+) -> anyhow::Result<()> {
+    let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
+    with_managed_script_transaction(
+        script_path,
+        || {
+            let installed =
+                install_live_script(&source, LiveScriptKind::LlmAdapter, entry, adapter_root)?;
+            if installed.script_path != script_path {
+                anyhow::bail!(
+                    "installed adapter script path `{}` did not match planned path `{}`",
+                    installed.script_path.display(),
+                    script_path.display()
+                );
+            }
+            Ok(installed)
+        },
+        |_| write_config_set_document(document, write_target),
+    )?;
+    Ok(())
+}
+
 fn adapter_install_outcome_json(outcome: &AdapterInstallOutcome) -> serde_json::Value {
     serde_json::json!({
         "ok": true,
@@ -151,30 +182,21 @@ fn adapter_install_outcome_json(outcome: &AdapterInstallOutcome) -> serde_json::
 }
 
 fn print_adapter_install_text(outcome: &AdapterInstallOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
+    let preview = format!("Would install text adapter `{}`.", outcome.adapter_id);
+    let applied = format!("Installed text adapter `{}`.", outcome.adapter_id);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
+    if !outcome.required_env.is_empty() {
+        println!(
+            "Required configuration: {}",
+            outcome.required_env.join(", ")
+        );
     }
-    println!("adapter_id: {}", outcome.adapter_id);
-    if let Some(short_id) = &outcome.short_id {
-        println!("short_id: {short_id}");
-    }
-    println!("script_path: {}", outcome.script_path.display());
-    println!("replacing_managed: {}", outcome.replacing_managed);
-    println!("required_env: {}", outcome.required_env.join(","));
-    println!("optional_env: {}", outcome.optional_env.join(","));
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_download_script: {}", !outcome.dry_run);
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_script: {}", outcome.wrote_script);
-    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 pub(super) fn load_live_adapter_registry(
@@ -193,34 +215,29 @@ pub(super) fn load_live_adapter_registry(
                 "kind": "file",
                 "path": path,
                 "mirror_count": registry_config.base_urls.len(),
-                "registry_urls": registry_urls,
+                "registry_urls": registry_urls_for_diagnostics(&registry_urls),
             }),
-            remote_base_url: None,
         });
     }
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
-    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
-        .context("fetch live adapter registry from configured mirrors")?;
+    let cache_root = default_cache_root()?;
+    let cache_path = adapter_registry_cache_path(&cache_root);
+    let fetched = fetch_text_from_mirrors(
+        &registry_urls,
+        &cache_path,
+        &registry_config.base_urls,
+        &cache_root,
+    )
+    .context("fetch live adapter registry from configured mirrors")?;
     let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::LlmAdapter)
         .with_context(|| {
             format!(
                 "validate live adapter registry fetched from `{}`",
-                fetched.url
+                fetched.resolved_source
             )
         })?;
-    let remote_base_url = fetched
-        .url
-        .strip_suffix("/registry/adapters.json")
-        .map(str::to_owned);
     Ok(LoadedLiveScriptRegistry {
         registry,
-        source_json: serde_json::json!({
-            "kind": "http",
-            "url": fetched.url,
-            "mirror_count": registry_config.base_urls.len(),
-            "registry_urls": registry_urls,
-        }),
-        remote_base_url,
+        source_json: fetched_text_source_json(&fetched, &cache_path, &registry_urls),
     })
 }
 
@@ -344,7 +361,12 @@ fn print_available_adapter_list(
 ) -> anyhow::Result<()> {
     let context = load_adapter_list_context(config_path)?;
     let loaded = load_live_adapter_registry(registry_path, &context.config.registry)?;
-    let loaded_i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
+    let remote_base_urls = if registry_path.is_some() {
+        &[][..]
+    } else {
+        context.config.registry.base_urls.as_slice()
+    };
+    let loaded_i18n = load_live_i18n(i18n_path, remote_base_urls, locale)?;
     let configured_ids = context
         .config
         .llm
@@ -377,6 +399,7 @@ fn print_available_adapter_list(
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        print_cache_fallback_warning(&loaded.source_json, "adapter registry");
         print_available_adapter_list_text(&loaded, &loaded_i18n, &context, &configured_ids);
     }
     Ok(())
@@ -398,7 +421,7 @@ fn available_live_adapter_json(
         })
         .collect::<Vec<_>>();
     serde_json::json!({
-        "id": adapter.short_id.as_deref().unwrap_or(&adapter.id),
+        "id": adapter.display_id(),
         "machine_id": adapter.id,
         "title": adapter.resolved_title(i18n),
         "description": adapter.resolved_description(i18n),
@@ -417,34 +440,20 @@ fn available_live_adapter_json(
 fn print_available_adapter_list_text(
     loaded: &LoadedLiveScriptRegistry,
     loaded_i18n: &LoadedLiveI18n,
-    context: &AdapterListContext,
+    _context: &AdapterListContext,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) {
-    println!("registry_source: {}", loaded.source_json);
-    println!("i18n: {}", loaded_i18n.source_json);
-    println!("config_source: {}", context.source);
-    if let Some(path) = &context.config_path {
-        println!("config_path: {}", path.display());
-    }
-    println!("adapter_count: {}", loaded.registry.items.len());
-    println!("title\tmachine_id\tstatus\tcommand\tenvs\treadme\tdescription");
+    println!("ID\tTITLE\tSTATUS");
     for adapter in &loaded.registry.items {
         println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}",
+            adapter.display_id(),
             adapter.resolved_title(loaded_i18n.i18n.as_ref()),
-            adapter.id,
             if configured_ids.contains(adapter.id.as_str()) {
                 "installed"
             } else {
                 "available"
             },
-            adapter.command,
-            adapter.envs.len(),
-            adapter.readme_url.as_deref().unwrap_or("-"),
-            adapter
-                .resolved_description(loaded_i18n.i18n.as_ref())
-                .as_deref()
-                .unwrap_or("-"),
         );
     }
 }
@@ -500,26 +509,8 @@ fn adapter_summary_json(adapter: &vinpst_config::LlmAdapterConfig) -> serde_json
 }
 
 fn print_adapter_list_text(context: &AdapterListContext) {
-    println!("source: {}", context.source);
-    if let Some(path) = &context.config_path {
-        println!("config_path: {}", path.display());
-    }
-    println!("adapter_count: {}", context.config.llm.adapters.len());
-    println!("id	command	args	env	working_dir	extra_fields");
+    println!("ID\tSTATUS");
     for adapter in &context.config.llm.adapters {
-        println!(
-            "{}	{}	{}	{}	{}	{}",
-            adapter.id,
-            bool_label(!adapter.command.trim().is_empty()),
-            adapter.args.len(),
-            adapter.env.len(),
-            bool_label(
-                adapter
-                    .working_dir
-                    .as_ref()
-                    .is_some_and(|value| !value.trim().is_empty())
-            ),
-            adapter.extra.len(),
-        );
+        println!("{}\tconfigured", adapter.id);
     }
 }

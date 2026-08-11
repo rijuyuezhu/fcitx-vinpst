@@ -267,6 +267,47 @@ fn pipewire_recording_params_encode_requested_audio_policy() {
 }
 
 #[test]
+fn pipewire_recording_properties_match_frozen_capture_policy() {
+    let default = super::PipeWireStreamConfig::for_target(super::CaptureTarget::Default);
+    let default_props = super::pipewire_recording_properties(&default);
+    assert_eq!(
+        default_props.get(*pipewire::keys::MEDIA_TYPE),
+        Some("Audio")
+    );
+    assert_eq!(
+        default_props.get(*pipewire::keys::MEDIA_CATEGORY),
+        Some("Capture")
+    );
+    assert_eq!(
+        default_props.get(*pipewire::keys::MEDIA_ROLE),
+        Some("Communication")
+    );
+    assert_eq!(
+        default_props.get(*pipewire::keys::STREAM_CAPTURE_SINK),
+        Some("false")
+    );
+    assert_eq!(default_props.get("target.object"), None);
+
+    let explicit = super::PipeWireStreamConfig::for_target(super::CaptureTarget::Object(
+        "alsa_input.usb-mic".to_owned(),
+    ));
+    let explicit_props = super::pipewire_recording_properties(&explicit);
+    assert_eq!(
+        explicit_props.get("target.object"),
+        Some("alsa_input.usb-mic")
+    );
+}
+
+#[test]
+fn pipewire_recording_flags_match_frozen_non_rt_callback_policy() {
+    let flags = super::pipewire_recording_stream_flags();
+    assert!(flags.contains(pipewire::stream::StreamFlags::AUTOCONNECT));
+    assert!(flags.contains(pipewire::stream::StreamFlags::INACTIVE));
+    assert!(flags.contains(pipewire::stream::StreamFlags::MAP_BUFFERS));
+    assert!(!flags.contains(pipewire::stream::StreamFlags::RT_PROCESS));
+}
+
+#[test]
 fn pipewire_recording_error_includes_stream_plan() {
     let config = super::PipeWireStreamConfig::for_target(super::CaptureTarget::Object(
         "alsa_input.usb-mic".to_owned(),

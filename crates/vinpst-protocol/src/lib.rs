@@ -1,8 +1,8 @@
-//! Stable protocol types shared by the daemon, CLI, and Fcitx5 frontend bridge.
+//! Stable protocol types shared by the daemon, CLI, GUI, and Fcitx5 frontend bridge.
 //!
-//! This crate is intentionally small and dependency-light.  It mirrors the
-//! public JSON and D-Bus ABI exposed by the original C++ implementation before
-//! the Rust daemon starts replacing internals.
+//! This crate keeps cross-process JSON and D-Bus types dependency-light. Legacy
+//! wire compatibility is preserved where required, while Vinpst-only diagnostic
+//! extensions use explicit sanitized summaries instead of exposing runtime secrets.
 
 pub mod asr;
 pub mod dbus;

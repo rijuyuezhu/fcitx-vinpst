@@ -283,6 +283,11 @@ fn send_remote_asr_request_blocking(request: &RemoteAsrRequest) -> Result<String
         }
     })?;
     let status = response.status();
+    if !status.is_success() {
+        return Err(AsrError::Backend(format!(
+            "remote ASR provider returned HTTP {status}"
+        )));
+    }
     let body = read_provider_response_text(response).map_err(|error| match error {
         ResponseBodyError::TimedOut => {
             AsrError::Backend("remote ASR HTTP response body timed out".to_owned())
@@ -297,28 +302,7 @@ fn send_remote_asr_request_blocking(request: &RemoteAsrRequest) -> Result<String
             "remote ASR HTTP response read failed for `{diagnostic_url}`: {error}"
         )),
     })?;
-    if !status.is_success() {
-        let body = redact_known_values(
-            &body,
-            [
-                request.api_key(),
-                request.prompt.as_deref().unwrap_or_default(),
-            ],
-        );
-        return Err(AsrError::Backend(format!(
-            "remote ASR provider returned HTTP {status}: {body}"
-        )));
-    }
     Ok(body)
-}
-
-fn redact_known_values<'a>(text: &str, values: impl IntoIterator<Item = &'a str>) -> String {
-    values
-        .into_iter()
-        .filter(|value| !value.is_empty())
-        .fold(text.to_owned(), |redacted, value| {
-            redacted.replace(value, "<redacted>")
-        })
 }
 
 /// Extracts the required non-empty `text` field from an OpenAI-compatible response.
@@ -398,7 +382,7 @@ impl<T: RemoteAsrTransport + Clone + 'static> AsrBackend for RemoteAsrBackend<T>
     }
 }
 
-#[derive(Debug)]
+// Intentionally no `Debug`: a live session owns raw PCM and command selected text.
 struct RemoteRecognitionSession<T> {
     spec: RemoteAsrSpec,
     context: RecognitionContext,
@@ -870,30 +854,36 @@ mod tests {
     }
 
     #[test]
-    fn reqwest_transport_reports_http_body_and_timeout() {
+    fn reqwest_transport_reports_status_without_error_body_and_success_timeouts() {
+        const UNIT_TIMEOUT_MS: u64 = 500;
+        const STALLED_RESPONSE: Duration = Duration::from_secs(1);
+
+        let provider_secret = "provider-private-secret";
         let (url, handle) = serve_single_response(
             "503 Service Unavailable",
-            r#"{"error":"fixture-token fixture prompt"}"#,
+            &format!(r#"{{"error":"fixture-token fixture prompt {provider_secret}"}}"#),
             Duration::ZERO,
-            Duration::ZERO,
+            STALLED_RESPONSE,
         );
         let error = ReqwestRemoteAsrTransport
-            .transcribe(&request(url, Some(2_000)))
-            .unwrap_err();
+            .transcribe(&request(url, Some(UNIT_TIMEOUT_MS)))
+            .unwrap_err()
+            .to_string();
         handle.join().unwrap();
-        assert!(error.to_string().contains("HTTP 503"));
-        assert!(error.to_string().contains("<redacted>"));
-        assert!(!error.to_string().contains("fixture-token"));
-        assert!(!error.to_string().contains("fixture prompt"));
+        assert!(error.contains("HTTP 503"));
+        assert!(!error.contains("timed out"));
+        assert!(!error.contains("fixture-token"));
+        assert!(!error.contains("fixture prompt"));
+        assert!(!error.contains(provider_secret));
 
         let (url, handle) = serve_single_response(
             "200 OK",
             r#"{"text":"late"}"#,
-            Duration::from_millis(200),
+            STALLED_RESPONSE,
             Duration::ZERO,
         );
         let error = ReqwestRemoteAsrTransport
-            .transcribe(&request(url, Some(20)))
+            .transcribe(&request(url, Some(UNIT_TIMEOUT_MS)))
             .unwrap_err();
         assert!(error.to_string().contains("timed out"));
         handle.join().unwrap();
@@ -902,10 +892,10 @@ mod tests {
             "200 OK",
             r#"{"text":"late body"}"#,
             Duration::ZERO,
-            Duration::from_millis(200),
+            STALLED_RESPONSE,
         );
         let error = ReqwestRemoteAsrTransport
-            .transcribe(&request(url, Some(20)))
+            .transcribe(&request(url, Some(UNIT_TIMEOUT_MS)))
             .unwrap_err();
         assert_eq!(
             error.to_string(),

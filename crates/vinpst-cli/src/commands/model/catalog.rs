@@ -1,12 +1,19 @@
 use super::support::{format_size_bytes, optional_str, safe_path_component};
 use super::{
-    Context, Duration, InstalledModelInfo, LiveModelEntry, LiveModelFamily, LiveModelRegistry,
+    Context, InstalledModelInfo, LiveModelEntry, LiveModelFamily, LiveModelRegistry,
     LiveRegistryI18n, LoadedLiveI18n, LoadedLiveModelRegistry, ModelInfoRequest,
     ModelListOwnedRequest, ModelListRequest, ModelSupport, Path, PathBuf, RegistryConfig,
-    ReqwestRegistryTextSource, VinpstConfig, default_model_root, fetch_text_from_mirrors, fs,
-    live_registry_urls, load_config_file, load_live_i18n, load_registry_installed_model_info,
-    scan_installed_models,
+    VinpstConfig, default_model_root, fetch_text_from_mirrors, fs, live_registry_urls,
+    load_config_file, load_live_i18n, load_registry_installed_model_info, scan_installed_models,
 };
+use crate::{
+    paths::default_cache_root,
+    registry_support::{
+        fetched_text_source_json, fetched_text_source_label, print_cache_fallback_warning,
+        registry_urls_for_diagnostics,
+    },
+};
+use vinpst_registry::model_registry_cache_path;
 
 pub(super) fn handle_model_list_command(request: &ModelListOwnedRequest) -> anyhow::Result<()> {
     print_model_list(ModelListRequest {
@@ -52,6 +59,7 @@ fn print_model_list(request: ModelListRequest<'_>) -> anyhow::Result<()> {
     if request.json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        print_cache_fallback_warning(&loaded.source_json, "model registry");
         print_model_list_text(&loaded, &i18n);
     }
     Ok(())
@@ -113,6 +121,7 @@ pub(super) fn print_model_info(request: ModelInfoRequest<'_>) -> anyhow::Result<
     if request.json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        print_cache_fallback_warning(&loaded.source_json, "model registry");
         print_model_info_text(model, i18n.i18n.as_ref(), &loaded, &i18n);
     }
     Ok(())
@@ -158,8 +167,13 @@ pub(super) fn load_live_model_catalog(
         Some(config_path) => load_config_file(config_path)?,
         None => VinpstConfig::bundled_default().context("parse bundled config")?,
     };
+    let remote_base_urls = if registry_path.is_some() {
+        &[][..]
+    } else {
+        config.registry.base_urls.as_slice()
+    };
     let loaded = load_live_model_registry(registry_path, &config.registry)?;
-    let i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
+    let i18n = load_live_i18n(i18n_path, remote_base_urls, locale)?;
     Ok((loaded, i18n))
 }
 
@@ -179,37 +193,32 @@ fn load_live_model_registry(
                 "kind": "file",
                 "path": path,
                 "mirror_count": registry_config.base_urls.len(),
-                "registry_urls": registry_urls,
+                "registry_urls": registry_urls_for_diagnostics(&registry_urls),
             }),
             source_label: format!("file:{}", path.display()),
-            remote_base_url: None,
         });
     }
 
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
-    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
-        .context("fetch live model registry from configured mirrors")?;
+    let cache_root = default_cache_root()?;
+    let cache_path = model_registry_cache_path(&cache_root);
+    let fetched = fetch_text_from_mirrors(
+        &registry_urls,
+        &cache_path,
+        &registry_config.base_urls,
+        &cache_root,
+    )
+    .context("fetch live model registry from configured mirrors")?;
     let registry = LiveModelRegistry::from_json_str(&fetched.text).with_context(|| {
         format!(
             "validate live model registry fetched from `{}`",
-            fetched.url
+            fetched.resolved_source
         )
     })?;
-    let remote_base_url = fetched
-        .url
-        .strip_suffix("/registry/models.json")
-        .map(str::to_owned);
-    let source_label = format!("url:{}", fetched.url);
+    let source_label = fetched_text_source_label(&fetched);
     Ok(LoadedLiveModelRegistry {
         registry,
-        source_json: serde_json::json!({
-            "kind": "http",
-            "url": fetched.url,
-            "mirror_count": registry_config.base_urls.len(),
-            "registry_urls": registry_urls,
-        }),
+        source_json: fetched_text_source_json(&fetched, &cache_path, &registry_urls),
         source_label,
-        remote_base_url,
     })
 }
 
@@ -219,7 +228,8 @@ pub(super) fn live_model_list_json(
 ) -> serde_json::Value {
     let support = live_model_support(model);
     serde_json::json!({
-        "id": model.id,
+        "id": model.display_id(),
+        "machine_id": model.id,
         "short_id": model.short_id,
         "title": model.resolved_title(i18n),
         "description": model.resolved_description(i18n),
@@ -262,6 +272,8 @@ fn installed_model_list_item_json(info: &InstalledModelInfo) -> serde_json::Valu
         "name": installed_model_dir_name(&info.model_dir),
         "model_dir": info.model_dir,
         "metadata_path": info.metadata_path,
+        "state": info.state.as_str(),
+        "metadata_error": info.metadata_error,
         "backend": info.metadata.backend,
         "family": info.metadata.model_family(),
         "language": info.metadata.language,
@@ -285,6 +297,8 @@ fn installed_model_info_json(info: &InstalledModelInfo) -> anyhow::Result<serde_
             "id": info.model_id,
             "model_dir": info.model_dir,
             "metadata_path": info.metadata_path,
+            "state": info.state.as_str(),
+            "metadata_error": info.metadata_error,
             "backend": info.metadata.backend,
             "family": info.metadata.model_family(),
             "language": info.metadata.language,
@@ -323,42 +337,45 @@ fn live_model_info_json(
 }
 
 fn print_model_list_text(loaded: &LoadedLiveModelRegistry, i18n: &LoadedLiveI18n) {
-    println!("registry_source: {}", loaded.source_label);
-    println!("i18n_source: {}", i18n.source_label);
-    println!("models: {}", loaded.registry.items.len());
-    println!("id\tshort_id\tlanguage\tsize\tbackend\tfamily\tsupport\ttitle");
+    println!("ID\tTITLE\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS");
     for model in &loaded.registry.items {
         let support = live_model_support(model);
         println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            model.id,
-            optional_str(model.short_id.as_deref()),
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            model.display_id(),
+            model.resolved_title(i18n.i18n.as_ref()),
             optional_str(model.language.as_deref()),
             format_size_bytes(model.size_bytes),
-            optional_str(model.backend()),
             optional_str(model.model_family()),
-            support.reason,
-            model.resolved_title(i18n.i18n.as_ref()),
+            if model.supports_hotwords() {
+                "yes"
+            } else {
+                "no"
+            },
+            if support.supported {
+                "available"
+            } else {
+                "unsupported"
+            },
         );
     }
 }
 
-fn print_installed_model_list_text(model_root: &Path, models: &[InstalledModelInfo]) {
-    println!("model_root: {}", model_root.display());
-    println!("models: {}", models.len());
-    println!("id	path	language	size	backend	family	runtime	hotwords	files");
+fn print_installed_model_list_text(_model_root: &Path, models: &[InstalledModelInfo]) {
+    println!("ID\tLANGUAGE\tSIZE\tTYPE\tHOTWORDS\tSTATUS");
     for model in models {
         println!(
-            "{}	{}	{}	{}	{}	{}	{}	{}	{}",
+            "{}\t{}\t{}\t{}\t{}\t{}",
             model.model_id,
-            model.model_dir.display(),
             optional_str(model.metadata.language.as_deref()),
             format_size_bytes(model.metadata.size_bytes),
-            optional_str(model.metadata.backend.as_deref()),
             optional_str(model.metadata.model_family()),
-            optional_str(model.metadata.runtime.as_deref()),
-            model.metadata.supports_hotwords,
-            model.file_count,
+            if model.metadata.supports_hotwords {
+                "yes"
+            } else {
+                "no"
+            },
+            model.state.as_str(),
         );
     }
 }
@@ -375,6 +392,10 @@ fn print_installed_model_info_text(info: &InstalledModelInfo) {
     println!("id: {}", info.model_id);
     println!("model_dir: {}", info.model_dir.display());
     println!("metadata_path: {}", info.metadata_path.display());
+    println!("status: {}", info.state.as_str());
+    if let Some(error) = info.metadata_error.as_deref() {
+        println!("metadata_error: {error}");
+    }
     println!(
         "backend: {}",
         optional_str(info.metadata.backend.as_deref())

@@ -27,6 +27,7 @@ vinpst-audio = { path = "../vinpst-audio" }
 vinpst-config = { path = "../vinpst-config" }
 vinpst-daemon-control = { path = "../vinpst-daemon-control" }
 vinpst-protocol = { path = "../vinpst-protocol" }
+vinpst-process = { path = "../vinpst-process" }
 vinpst-registry = { path = "../vinpst-registry" }
 vinpst-text = { path = "../vinpst-text" }
 zbus = { workspace = true, features = ["blocking-api"] }

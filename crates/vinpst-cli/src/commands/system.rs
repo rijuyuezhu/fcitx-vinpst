@@ -1,9 +1,8 @@
 use crate::{
-    AsrBackendFactory, AsrTimeoutProbe, ConfigExample, Context, Path, PathBuf, ServiceStatus,
-    SherpaOnnxVadProbe, VinpstConfig, audio_devices_json, config_example_contents,
-    config_summary_json, daemon_owner_probe_plan_json, dbus, default_cache_root,
-    default_config_path, default_model_root, fs, load_config_json, quote_exec_arg, sandbox,
-    user_activation_service_path, user_data_home, user_home, write_private_file_atomically,
+    AsrBackendFactory, AsrTimeoutProbe, Context, Path, PathBuf, ServiceStatus, SherpaOnnxVadProbe,
+    VinpstConfig, audio_devices_json, config_summary_json, daemon_owner_probe_plan_json, dbus, fs,
+    load_config_json, quote_exec_arg, sandbox, user_activation_service_path, user_data_home,
+    user_home, write_file_atomically,
 };
 
 pub(crate) fn print_protocol() -> anyhow::Result<()> {
@@ -24,215 +23,6 @@ pub(crate) fn print_protocol() -> anyhow::Result<()> {
     });
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct InitRequest<'a> {
-    pub(crate) config_path: Option<&'a Path>,
-    pub(crate) model_root: Option<&'a Path>,
-    pub(crate) cache_root: Option<&'a Path>,
-    pub(crate) force: bool,
-    pub(crate) dry_run: bool,
-    pub(crate) json_output: bool,
-}
-
-#[allow(clippy::struct_excessive_bools)]
-struct InitOutcome {
-    dry_run: bool,
-    force: bool,
-    config_path: PathBuf,
-    config_existed: bool,
-    wrote_config: bool,
-    model_root: PathBuf,
-    model_root_existed: bool,
-    created_model_root: bool,
-    cache_root: PathBuf,
-    cache_root_existed: bool,
-    created_cache_root: bool,
-    activation_service_path: Option<PathBuf>,
-    activation_command_argv: Vec<String>,
-}
-
-pub(crate) fn handle_init(request: InitRequest<'_>) -> anyhow::Result<()> {
-    let json_output = request.json_output;
-    let outcome = run_init(&request)?;
-    if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&init_outcome_json(&outcome))?
-        );
-    } else {
-        print_init_outcome_text(&outcome);
-    }
-    Ok(())
-}
-
-fn run_init(request: &InitRequest<'_>) -> anyhow::Result<InitOutcome> {
-    let config_path = match request.config_path {
-        Some(path) => path.to_path_buf(),
-        None => default_config_path()?,
-    };
-    let model_root = match request.model_root {
-        Some(path) => path.to_path_buf(),
-        None => default_model_root()?,
-    };
-    let cache_root = match request.cache_root {
-        Some(path) => path.to_path_buf(),
-        None => default_cache_root()?,
-    };
-    let activation_service_path = user_activation_service_path().ok();
-    let activation_command_argv = init_activation_command_argv(&config_path);
-
-    let config_existed = config_path.exists();
-    let model_root_existed = model_root.exists();
-    let cache_root_existed = cache_root.exists();
-    let mut wrote_config = false;
-    let mut created_model_root = false;
-    let mut created_cache_root = false;
-
-    let bundled_config = VinpstConfig::bundled_default().context("parse bundled init config")?;
-    bundled_config
-        .validate()
-        .context("validate bundled init config")?;
-
-    if !request.dry_run {
-        if !config_existed || request.force {
-            if let Some(parent) = config_path
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-            {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("create config directory `{}`", parent.display()))?;
-            }
-            let contents = config_example_contents(ConfigExample::Default);
-            write_private_file_atomically(&config_path, contents)
-                .with_context(|| format!("write default config `{}`", config_path.display()))?;
-            wrote_config = true;
-        }
-        if !model_root_existed {
-            fs::create_dir_all(&model_root)
-                .with_context(|| format!("create model root `{}`", model_root.display()))?;
-            created_model_root = true;
-        }
-        if !cache_root_existed {
-            fs::create_dir_all(&cache_root)
-                .with_context(|| format!("create cache root `{}`", cache_root.display()))?;
-            created_cache_root = true;
-        }
-    }
-
-    Ok(InitOutcome {
-        dry_run: request.dry_run,
-        force: request.force,
-        config_path,
-        config_existed,
-        wrote_config,
-        model_root,
-        model_root_existed,
-        created_model_root,
-        cache_root,
-        cache_root_existed,
-        created_cache_root,
-        activation_service_path,
-        activation_command_argv,
-    })
-}
-
-fn init_outcome_json(outcome: &InitOutcome) -> serde_json::Value {
-    serde_json::json!({
-        "ok": true,
-        "dry_run": outcome.dry_run,
-        "force": outcome.force,
-        "config": {
-            "path": outcome.config_path,
-            "existed": outcome.config_existed,
-            "will_write": outcome.dry_run && (!outcome.config_existed || outcome.force),
-            "wrote": outcome.wrote_config,
-        },
-        "directories": {
-            "model_root": {
-                "path": outcome.model_root,
-                "existed": outcome.model_root_existed,
-                "will_create": outcome.dry_run && !outcome.model_root_existed,
-                "created": outcome.created_model_root,
-            },
-            "cache_root": {
-                "path": outcome.cache_root,
-                "existed": outcome.cache_root_existed,
-                "will_create": outcome.dry_run && !outcome.cache_root_existed,
-                "created": outcome.created_cache_root,
-            },
-        },
-        "activation_service": {
-            "user_service_path": outcome.activation_service_path,
-            "command": outcome.activation_command_argv.join(" "),
-            "command_argv": outcome.activation_command_argv,
-        },
-        "next_steps": [
-            "install a model with vinpst model install <id-or-short-id>",
-            "select it with vinpst model use <id-or-short-id> --config <path> --in-place",
-            "install D-Bus activation with the suggested activation-service command"
-        ],
-    })
-}
-
-fn print_init_outcome_text(outcome: &InitOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("force: {}", outcome.force);
-    println!("config_path: {}", outcome.config_path.display());
-    println!("config_existed: {}", outcome.config_existed);
-    println!(
-        "config_will_write: {}",
-        outcome.dry_run && (!outcome.config_existed || outcome.force)
-    );
-    println!("config_wrote: {}", outcome.wrote_config);
-    println!("model_root: {}", outcome.model_root.display());
-    println!("model_root_existed: {}", outcome.model_root_existed);
-    println!(
-        "model_root_will_create: {}",
-        outcome.dry_run && !outcome.model_root_existed
-    );
-    println!("model_root_created: {}", outcome.created_model_root);
-    println!("cache_root: {}", outcome.cache_root.display());
-    println!("cache_root_existed: {}", outcome.cache_root_existed);
-    println!(
-        "cache_root_will_create: {}",
-        outcome.dry_run && !outcome.cache_root_existed
-    );
-    println!("cache_root_created: {}", outcome.created_cache_root);
-    if let Some(path) = &outcome.activation_service_path {
-        println!("activation_service_path: {}", path.display());
-    }
-    println!(
-        "activation_service_command: {}",
-        outcome.activation_command_argv.join(" ")
-    );
-    println!("next: vinpst model install <id-or-short-id>");
-}
-
-fn init_activation_command_argv(config_path: &Path) -> Vec<String> {
-    vec![
-        "vinpst".to_owned(),
-        "activation-service".to_owned(),
-        "--daemon".to_owned(),
-        default_daemon_path_hint().to_string_lossy().into_owned(),
-        "--config".to_owned(),
-        config_path.to_string_lossy().into_owned(),
-        "--configured-backends".to_owned(),
-        "--user".to_owned(),
-    ]
-}
-
-fn default_daemon_path_hint() -> PathBuf {
-    if let Ok(current_exe) = std::env::current_exe()
-        && let Some(parent) = current_exe.parent()
-    {
-        let sibling = parent.join("vinpst-daemon");
-        if sibling.exists() {
-            return sibling;
-        }
-    }
-    PathBuf::from("vinpst-daemon")
 }
 
 pub(crate) fn validate_config() -> anyhow::Result<()> {
@@ -363,8 +153,7 @@ fn doctor_next_steps(
                 "run vinpst model list --available to choose a compatible managed model".to_owned(),
                 "run vinpst model install <id-or-short-id> to install the selected model"
                     .to_owned(),
-                "run vinpst model use <id-or-short-id> --in-place --reload-daemon to activate it"
-                    .to_owned(),
+                "run vinpst model use <id-or-short-id> --in-place to activate it".to_owned(),
             ]);
         }
     }
@@ -471,17 +260,30 @@ fn fcitx_addon_status_json(module_path: &Path, metadata_path: &Path) -> serde_js
 }
 
 fn user_activation_service_json(path: &Path) -> serde_json::Value {
-    let exists = path.exists();
-    if !exists {
-        return serde_json::json!({
-            "user_service_path": path,
-            "user_service_exists": false,
-            "user_service_name": null,
-            "user_service_name_matches": false,
-            "user_service_exec": null,
-            "read_error": null,
-            "next_steps": activation_service_status_next_steps(),
-        });
+    match fs::symlink_metadata(path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return serde_json::json!({
+                "user_service_path": path,
+                "user_service_exists": false,
+                "user_service_name": null,
+                "user_service_name_matches": false,
+                "user_service_exec": null,
+                "read_error": null,
+                "next_steps": activation_service_status_next_steps(),
+            });
+        }
+        Err(error) => {
+            return serde_json::json!({
+                "user_service_path": path,
+                "user_service_exists": false,
+                "user_service_name": null,
+                "user_service_name_matches": false,
+                "user_service_exec": null,
+                "read_error": error.to_string(),
+                "next_steps": activation_service_status_next_steps(),
+            });
+        }
     }
 
     match fs::read_to_string(path) {
@@ -567,15 +369,7 @@ pub(crate) fn write_activation_service(
     };
 
     if let Some(output) = output {
-        if let Some(parent) = output
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-        {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("create activation service directory `{}`", parent.display())
-            })?;
-        }
-        fs::write(output, service)
+        write_file_atomically(output, &service)
             .with_context(|| format!("write activation service `{}`", output.display()))?;
     } else {
         print!("{service}");
@@ -594,7 +388,14 @@ pub(crate) fn print_user_activation_service_status() -> anyhow::Result<()> {
 
 pub(crate) fn remove_user_activation_service() -> anyhow::Result<()> {
     let path = user_activation_service_path()?;
-    let existed = path.exists();
+    let existed = match fs::symlink_metadata(&path) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect activation service `{}`", path.display()));
+        }
+    };
     if existed {
         fs::remove_file(&path)
             .with_context(|| format!("remove activation service `{}`", path.display()))?;

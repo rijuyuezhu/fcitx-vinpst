@@ -77,10 +77,18 @@ ARG RUSTUP_UPDATE_ROOT=""
 RUN mkdir -p /opt/cargo /opt/rustup \
     && if [ -n "${RUSTUP_DIST_SERVER}" ]; then export RUSTUP_DIST_SERVER; fi \
     && if [ -n "${RUSTUP_UPDATE_ROOT}" ]; then export RUSTUP_UPDATE_ROOT; fi \
+    && rustup_tmpdir="$(mktemp -d)" \
+    && rustup_installer="${rustup_tmpdir}/rustup-init" \
+    && rustup_update_root="${RUSTUP_UPDATE_ROOT:-https://static.rust-lang.org/rustup}" \
+    && rustup_target="$(uname -m)-unknown-linux-gnu" \
     && curl --retry 5 --retry-all-errors --connect-timeout 30 \
-      --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
-      | CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup sh -s -- \
-        -y --profile minimal --default-toolchain stable \
+      --proto '=https' --tlsv1.2 -fsSL \
+      -o "${rustup_installer}" \
+      "${rustup_update_root}/dist/${rustup_target}/rustup-init" \
+    && chmod +x "${rustup_installer}" \
+    && CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup \
+      "${rustup_installer}" -y --profile minimal --default-toolchain stable \
+    && rm -rf "${rustup_tmpdir}" \
     && chmod -R a+rX /opt/cargo /opt/rustup
 
 ENV PATH=/opt/cargo/bin:${PATH}

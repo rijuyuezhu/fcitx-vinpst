@@ -122,6 +122,27 @@ pub(crate) fn render_legacy_prompt_placeholders_with_context(
         .into_owned()
 }
 
+fn replace_single_brace_placeholder(input: &str, name: &str, value: &str) -> String {
+    let needle = format!("{{{name}}}");
+    let mut output = String::with_capacity(input.len());
+    let mut cursor = 0;
+    while let Some(offset) = input[cursor..].find(&needle) {
+        let start = cursor + offset;
+        let end = start + needle.len();
+        let nested_in_double_braces = start > 0 && input.as_bytes()[start - 1] == b'{'
+            || end < input.len() && input.as_bytes()[end] == b'}';
+        output.push_str(&input[cursor..start]);
+        if nested_in_double_braces {
+            output.push_str(&input[start..end]);
+        } else {
+            output.push_str(value);
+        }
+        cursor = end;
+    }
+    output.push_str(&input[cursor..]);
+    output
+}
+
 pub(crate) fn wrap_xml_block(tag: &str, text: &str) -> String {
     let mut out = String::with_capacity(tag.len() * 2 + text.len() + 12);
     out.push('<');
@@ -154,7 +175,7 @@ pub(crate) fn build_constraints_suffix(candidate_count: u8) -> String {
     )
 }
 
-/// Tiny deterministic template renderer for command placeholders and future adapters.
+/// Tiny deterministic template renderer for command and provider adapters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptTemplate {
     template: String,
@@ -166,8 +187,9 @@ impl PromptTemplate {
     /// Supported placeholders are `{raw_text}`, `{selected_text}`, `{scene_id}`,
     /// `{scene_prompt}`, `{provider_id}`, `{model}`, `{candidate_count}`,
     /// `{context_lines}`, and `{timeout_ms}`. Legacy prompt placeholders
-    /// `{{asr}}`, `{{selected}}`, and `{{context}}` are also accepted; context
-    /// expands to an empty string until recent-input cache wiring lands.
+    /// `{{asr}}`, `{{selected}}`, and `{{context}}` are also accepted. This
+    /// standalone renderer leaves context empty; provider request builders can
+    /// supply recent-input context through the context-aware rendering helper.
     /// Unknown placeholders are kept as literal text for forward compatibility.
     #[must_use]
     pub fn new(template: impl Into<String>) -> Self {
@@ -183,16 +205,23 @@ impl PromptTemplate {
             .timeout_ms
             .map(|timeout_ms| timeout_ms.to_string())
             .unwrap_or_default();
-        render_legacy_prompt_placeholders(&self.template, context)
-            .replace("{raw_text}", context.raw_text)
-            .replace("{selected_text}", context.selected_text)
-            .replace("{scene_id}", context.scene_id)
-            .replace("{scene_prompt}", context.scene_prompt)
-            .replace("{provider_id}", context.provider_id)
-            .replace("{model}", context.model)
-            .replace("{candidate_count}", &context.candidate_count.to_string())
-            .replace("{context_lines}", &context.context_lines.to_string())
-            .replace("{timeout_ms}", &timeout_ms)
+        let candidate_count = context.candidate_count.to_string();
+        let context_lines = context.context_lines.to_string();
+        let mut rendered = render_legacy_prompt_placeholders(&self.template, context);
+        for (name, value) in [
+            ("raw_text", context.raw_text),
+            ("selected_text", context.selected_text),
+            ("scene_id", context.scene_id),
+            ("scene_prompt", context.scene_prompt),
+            ("provider_id", context.provider_id),
+            ("model", context.model),
+            ("candidate_count", candidate_count.as_str()),
+            ("context_lines", context_lines.as_str()),
+            ("timeout_ms", timeout_ms.as_str()),
+        ] {
+            rendered = replace_single_brace_placeholder(&rendered, name, value);
+        }
+        rendered
     }
 
     /// Renders supported placeholders directly from a text request.

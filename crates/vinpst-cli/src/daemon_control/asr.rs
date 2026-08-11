@@ -1,5 +1,30 @@
-use super::status::{DaemonAsrBackendStateTuple, empty_as_dash};
-use super::{Context, daemon_owner_probe_plan_json, daemon_service_proxy, dbus};
+use super::status::DaemonAsrBackendStateTuple;
+use super::{
+    Context, Path, daemon_name_has_owner, daemon_owner_probe_plan_json, daemon_service_proxy,
+    daemon_session_connection, dbus,
+};
+use crate::same_path_text;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AsrReloadAfterWrite {
+    NotCanonical,
+    DaemonNotRunning,
+    Reloaded,
+    Warning(String),
+}
+
+impl AsrReloadAfterWrite {
+    pub(crate) fn reloaded(&self) -> bool {
+        matches!(self, Self::Reloaded)
+    }
+
+    pub(crate) fn warning(&self) -> Option<&str> {
+        match self {
+            Self::Warning(message) => Some(message),
+            Self::NotCanonical | Self::DaemonNotRunning | Self::Reloaded => None,
+        }
+    }
+}
 
 pub(super) fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
     let asr_state = if dry_run {
@@ -10,25 +35,31 @@ pub(super) fn print_daemon_reload_asr_plan(dry_run: bool, json_output: bool) -> 
     let output = daemon_reload_asr_output(dry_run, asr_state.as_ref());
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
-        println!("dry_run: {dry_run}");
-        println!("will_call_dbus: {}", !dry_run);
-        println!("called: {}", !dry_run);
-        println!("service: {}", dbus::SERVICE_BUS_NAME);
-        println!("object_path: {}", dbus::SERVICE_OBJECT_PATH);
-        println!("interface: {}", dbus::SERVICE_INTERFACE);
-        println!("method: {}", dbus::method::RELOAD_ASR_BACKEND);
-        if let Some(asr) = asr_state {
-            println!("reload_in_progress: {}", asr.5);
-            println!("target_provider_id: {}", empty_as_dash(&asr.0));
-            println!("target_model_id: {}", empty_as_dash(&asr.1));
-            println!("effective_provider_id: {}", empty_as_dash(&asr.2));
-            println!("effective_model_id: {}", empty_as_dash(&asr.3));
-            println!("last_error: {}", empty_as_dash(&asr.4));
+    } else if dry_run {
+        println!("Would reload the selected ASR backend.");
+        println!("No daemon will be contacted.");
+    } else if let Some(asr) = asr_state {
+        if asr.6 {
+            println!("ASR backend reloaded: {}", display_value(&asr.2));
+            if !asr.3.is_empty() {
+                println!("Model: {}", asr.3);
+            }
+        } else {
+            println!("ASR backend reload completed, but no backend is ready.");
         }
-        println!("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline");
+        if !asr.4.is_empty() {
+            println!("ASR error: {}", asr.4);
+        }
     }
     Ok(())
+}
+
+fn display_value(value: &str) -> &str {
+    if value.is_empty() {
+        "not selected"
+    } else {
+        value
+    }
 }
 
 fn daemon_reload_asr_output(
@@ -72,8 +103,53 @@ pub(crate) fn reload_asr_backend_via_dbus() -> anyhow::Result<()> {
 }
 
 fn request_asr_reload_via_dbus() -> anyhow::Result<DaemonAsrBackendStateTuple> {
-    let connection = zbus::blocking::Connection::session().context("connect to session bus")?;
-    let proxy = daemon_service_proxy(&connection)?;
+    let connection = daemon_session_connection()?;
+    request_asr_reload_on_connection(&connection)
+}
+
+pub(crate) fn reload_asr_backend_after_canonical_write(
+    written_path: Option<&Path>,
+    canonical_path: &Path,
+) -> AsrReloadAfterWrite {
+    let Some(written_path) = written_path else {
+        return AsrReloadAfterWrite::NotCanonical;
+    };
+    if !same_path_text(written_path, canonical_path) {
+        return AsrReloadAfterWrite::NotCanonical;
+    }
+
+    let connection = match daemon_session_connection() {
+        Ok(connection) => connection,
+        Err(error) => {
+            return AsrReloadAfterWrite::Warning(format!(
+                "Config saved, but ASR backend reload was skipped: {error}"
+            ));
+        }
+    };
+    let daemon_running = match daemon_name_has_owner(&connection) {
+        Ok(running) => running,
+        Err(error) => {
+            return AsrReloadAfterWrite::Warning(format!(
+                "Config saved, but ASR backend reload was skipped: {error}"
+            ));
+        }
+    };
+    if !daemon_running {
+        return AsrReloadAfterWrite::DaemonNotRunning;
+    }
+
+    match request_asr_reload_on_connection(&connection) {
+        Ok(_) => AsrReloadAfterWrite::Reloaded,
+        Err(error) => AsrReloadAfterWrite::Warning(format!(
+            "Config saved, but failed to reload ASR backend: {error:#}"
+        )),
+    }
+}
+
+fn request_asr_reload_on_connection(
+    connection: &zbus::blocking::Connection,
+) -> anyhow::Result<DaemonAsrBackendStateTuple> {
+    let proxy = daemon_service_proxy(connection)?;
     let _: () = proxy
         .call(dbus::method::RELOAD_ASR_BACKEND, &())
         .context("call ReloadAsrBackend on daemon D-Bus service")?;

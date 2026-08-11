@@ -29,6 +29,7 @@ thiserror.workspace = true
 vinpst-asr = { path = "../vinpst-asr" }
 vinpst-audio = { path = "../vinpst-audio" }
 vinpst-config = { path = "../vinpst-config" }
+vinpst-process = { path = "../vinpst-process" }
 vinpst-protocol = { path = "../vinpst-protocol" }
 vinpst-registry = { path = "../vinpst-registry" }
 vinpst-text = { path = "../vinpst-text" }

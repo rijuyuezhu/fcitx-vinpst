@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace vinpst_fcitx_bridge {
 
@@ -41,6 +42,8 @@ struct BridgeOutcome {
   std::string text;
   CandidatePresentation candidate_menu;
   bool replace_selection = false;
+  std::vector<ContextEntryPresentation> context_entries;
+  bool suppress_commit_context = false;
 };
 
 class FrontendBridge {
@@ -61,6 +64,16 @@ public:
                      const SceneMenuController &scene_controller);
   BridgeOutcome AdoptAndStop(const ::VinpstFcitxDaemonClient *client, bool command_mode,
                              const SceneMenuController &scene_controller);
+  bool PrepareStartNormal(const SceneMenuController &scene_controller);
+  bool PrepareStartCommand(std::string_view selected_text, std::string_view scene_id);
+  bool PrepareStop(const SceneMenuController &scene_controller);
+  bool PrepareAdoptAndStop(bool command_mode,
+                           const SceneMenuController &scene_controller);
+  bool AdoptExternalRecording(bool command_mode,
+                              const SceneMenuController &scene_controller);
+  bool PendingArgument(std::string *argument) const;
+  BridgeOutcome Complete(bool success, std::string_view response);
+  BridgeOutcome CompleteRecognitionResult(std::string_view response);
   void SetPresentationText(std::string original, std::string voice_command,
                            std::string cancel);
   void Reset();

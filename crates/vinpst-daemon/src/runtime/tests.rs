@@ -5,8 +5,9 @@ use super::{
     output_ducker::{OutputDucker, OutputVolumeControl},
 };
 use vinpst_asr::{
-    AsrBackend, AsrBackendFactory, AsrError, BackendDescriptor, MockAsrAudioLog, MockAsrAudioPush,
-    MockAsrBackend, RecognitionContext, RecognitionEvent, RecognitionSession,
+    AsrBackend, AsrBackendFactory, AsrError, BackendDescriptor, MIN_SAMPLES_FOR_RECOGNITION,
+    MockAsrAudioLog, MockAsrAudioPush, MockAsrBackend, RecognitionContext, RecognitionEvent,
+    RecognitionSession,
 };
 use vinpst_audio::{
     AudioChunkCallback, AudioError, AudioRecorder, CaptureTarget, CapturedAudio, MockAudioSource,
@@ -48,6 +49,16 @@ impl TextProcessor for RecordingTextProcessor {
 
 fn fixture_json(input: &str) -> &str {
     input.trim_end()
+}
+
+fn recognizable_samples(pattern: &[i16]) -> Vec<i16> {
+    assert!(!pattern.is_empty());
+    pattern
+        .iter()
+        .copied()
+        .cycle()
+        .take(MIN_SAMPLES_FOR_RECOGNITION)
+        .collect()
 }
 
 #[test]
@@ -684,7 +695,56 @@ fn normal_recording_mock_roundtrip_returns_to_idle() {
 }
 
 #[test]
-fn stop_exposes_postprocessing_before_text_finishing() {
+fn recording_below_upstream_minimum_skips_inference_and_text_processing() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let cancelled = Arc::new(Mutex::new(false));
+    let backend = CancelTrackingBackend::new(Arc::clone(&cancelled));
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let processor = RecordingTextProcessor {
+        calls: Arc::clone(&calls),
+    };
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        vec![64; MIN_SAMPLES_FOR_RECOGNITION - 1],
+    )));
+    let mut runtime = RuntimeState::with_components(
+        config,
+        Box::new(backend),
+        Box::new(source),
+        Box::new(processor),
+    )
+    .unwrap();
+
+    runtime.start_recording().unwrap();
+    let report = runtime.stop_recording_report(None).unwrap();
+
+    assert!(report.payload.commit_text.is_empty());
+    assert!(report.payload.candidates.is_empty());
+    assert!(report.partial_text.is_none());
+    assert!(report.postprocess_warning.is_none());
+    assert!(*cancelled.lock().expect("cancel lock poisoned"));
+    assert!(calls.lock().expect("processor calls poisoned").is_empty());
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
+fn recording_at_upstream_minimum_enters_inference() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let backend = MockAsrBackend::buffered("boundary final");
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        vec![64; MIN_SAMPLES_FOR_RECOGNITION],
+    )));
+    let mut runtime =
+        RuntimeState::with_backends(config, Box::new(backend), Box::new(source)).unwrap();
+
+    runtime.start_recording().unwrap();
+    let payload = runtime.stop_recording(None).unwrap();
+
+    assert_eq!(payload.commit_text, "boundary final");
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
+fn raw_scene_stays_inferring_while_text_finishing_runs() {
     let config = VinpstConfig::bundled_default().unwrap();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let processor = RecordingTextProcessor {
@@ -699,7 +759,74 @@ fn stop_exposes_postprocessing_before_text_finishing() {
     .unwrap();
 
     runtime.start_recording().unwrap();
-    let pending = runtime.begin_stop_recording(None).unwrap();
+    let prepared = runtime.prepare_stop_recording(None).unwrap();
+    let super::PreparedStopRecording::Ready(prepared) = prepared else {
+        panic!("default mock capture should satisfy the recognition minimum");
+    };
+    assert_eq!(runtime.status(), ServiceStatus::Inferring);
+    let pending = runtime.begin_stop_inference(prepared).unwrap();
+
+    assert_eq!(runtime.status(), ServiceStatus::Inferring);
+    assert!(
+        calls
+            .lock()
+            .expect("text processor call log poisoned")
+            .is_empty()
+    );
+
+    let report = runtime.finish_stop_recording(pending).unwrap();
+
+    assert_eq!(report.payload.commit_text, "processed: custom final");
+    assert_eq!(
+        *calls.lock().expect("text processor call log poisoned"),
+        vec!["custom final"]
+    );
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
+fn llm_scene_exposes_postprocessing_before_text_finishing() {
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    config.llm.providers.push(vinpst_config::LlmProviderConfig {
+        id: "postprocess-provider".to_owned(),
+        base_url: "https://example.invalid/v1".to_owned(),
+        api_key: "test-key".to_owned(),
+        model: Some("test-model".to_owned()),
+        extra_body: serde_json::json!({}),
+        extra: std::collections::HashMap::new(),
+    });
+    config.scenes.active_scene = "postprocess-scene".to_owned();
+    config
+        .scenes
+        .definitions
+        .push(vinpst_config::SceneDefinition {
+            id: "postprocess-scene".to_owned(),
+            label: "Postprocess scene".to_owned(),
+            prompt: Some("Polish: {{ asr }}".to_owned()),
+            provider_id: Some("postprocess-provider".to_owned()),
+            model: None,
+            candidate_count: 1,
+            timeout_ms: None,
+            context_lines: 0,
+        });
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let processor = RecordingTextProcessor {
+        calls: Arc::clone(&calls),
+    };
+    let mut runtime = RuntimeState::with_components(
+        config,
+        Box::new(MockAsrBackend::buffered("custom final")),
+        Box::new(super::default_mock_audio_source()),
+        Box::new(processor),
+    )
+    .unwrap();
+
+    runtime.start_recording().unwrap();
+    let prepared = runtime.prepare_stop_recording(None).unwrap();
+    let super::PreparedStopRecording::Ready(prepared) = prepared else {
+        panic!("default mock capture should satisfy the recognition minimum");
+    };
+    let pending = runtime.begin_stop_inference(prepared).unwrap();
 
     assert_eq!(runtime.status(), ServiceStatus::Postprocessing);
     assert!(
@@ -1112,7 +1239,7 @@ fn refresh_text_adapters_reaps_exited_processes_and_descendants() {
         command: "/bin/sh".to_owned(),
         args: vec![
             "-c".to_owned(),
-            r#"sleep 30 & echo $! > "$CHILD_PID""#.to_owned(),
+            r#"sleep 30 & echo $! > "$CHILD_PID"; sleep 0.35"#.to_owned(),
         ],
         env: std::collections::HashMap::from([(
             "CHILD_PID".to_owned(),
@@ -1153,6 +1280,46 @@ fn refresh_text_adapters_reaps_exited_processes_and_descendants() {
     assert_eq!(runtime.text_adapter_pid("cmd-adapter"), None);
     assert!(!pid_path.exists());
     wait_until_process_stops_running(child_pid);
+    let _ = std::fs::remove_dir_all(runtime_dir);
+}
+
+#[test]
+fn text_adapter_notifications_preserve_lines_and_flush_partial_on_exit() {
+    let runtime_dir = unique_adapter_runtime_dir("stderr-notifications");
+    let pid_path = runtime_dir.join("cmd-adapter.pid");
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    config.llm.adapters.push(vinpst_config::LlmAdapterConfig {
+        id: "cmd-adapter".to_owned(),
+        command: "/bin/sh".to_owned(),
+        args: vec![
+            "-c".to_owned(),
+            "printf ' first \\nsecond\\npartial' >&2; sleep 0.5; exit 0".to_owned(),
+        ],
+        env: std::collections::HashMap::default(),
+        working_dir: None,
+        extra: std::collections::HashMap::default(),
+    });
+    let mut runtime = RuntimeState::new(config)
+        .unwrap()
+        .with_adapter_runtime_paths(AdapterRuntimePaths::new(runtime_dir.clone()));
+
+    runtime.start_text_adapter("cmd-adapter").unwrap();
+    assert_eq!(
+        runtime.take_text_adapter_notifications(),
+        [
+            ("cmd-adapter".to_owned(), "first".to_owned()),
+            ("cmd-adapter".to_owned(), "second".to_owned()),
+        ]
+    );
+    assert!(pid_path.exists());
+
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    assert_eq!(
+        runtime.take_text_adapter_notifications(),
+        [("cmd-adapter".to_owned(), "partial".to_owned())]
+    );
+    assert!(!runtime.is_text_adapter_running("cmd-adapter"));
+    assert!(!pid_path.exists());
     let _ = std::fs::remove_dir_all(runtime_dir);
 }
 
@@ -1324,6 +1491,78 @@ fn reload_asr_backend_keeps_injected_backend() {
     assert_eq!(state.effective_provider_id, "mock");
     assert_eq!(state.target_provider_id, "cmd");
     assert_eq!(state.target_model_id, "cmd-model");
+}
+
+#[test]
+fn command_line_disabled_asr_survives_configured_reloads() {
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    config.asr.active_provider = "cmd".to_owned();
+    config.asr.providers.push(AsrProviderConfig {
+        id: "cmd".to_owned(),
+        kind: AsrProviderKind::Command,
+        timeout_ms: Some(1_000),
+        model: Some("cmd-model".to_owned()),
+        hotwords_file: None,
+        command: Some("sh".to_owned()),
+        args: vec!["-c".to_owned(), "printf disabled".to_owned()],
+        env: std::collections::HashMap::new(),
+        endpoint: None,
+    });
+    let mut runtime = RuntimeState::new(config.clone()).unwrap();
+    runtime.disable_asr("ASR disabled by command line.");
+
+    let state = runtime.asr_backend_state();
+    assert!(!state.has_effective_backend);
+    assert_eq!(state.target_provider_id, "cmd");
+    assert_eq!(state.target_model_id, "cmd-model");
+    assert_eq!(state.last_error, "ASR disabled by command line.");
+
+    let state = runtime.reload_configured_asr_backend().unwrap();
+    assert!(!state.has_effective_backend);
+    assert_eq!(state.last_error, "ASR disabled by command line.");
+
+    let mut updated = config;
+    updated.global.default_language = "en-US".to_owned();
+    assert!(!runtime.queue_configured_asr_reload(updated).unwrap());
+    assert!(matches!(
+        runtime.next_asr_reload_worker_step(),
+        AsrReloadWorkerStep::Stop
+    ));
+    assert_eq!(
+        runtime.asr_backend_state().last_error,
+        "ASR disabled by command line."
+    );
+}
+
+#[test]
+fn unselecting_provider_during_recording_disables_future_sessions_but_keeps_active_session() {
+    let config = config_with_mock_asr();
+    let mut runtime = RuntimeState::with_configured_asr(config.clone()).unwrap();
+    runtime.start_recording().unwrap();
+
+    let mut unselected = config;
+    unselected.asr.active_provider.clear();
+    assert!(!runtime.queue_configured_asr_reload(unselected).unwrap());
+
+    let disabled = runtime.asr_backend_state();
+    assert!(disabled.target_provider_id.is_empty());
+    assert!(disabled.effective_provider_id.is_empty());
+    assert!(!disabled.has_effective_backend);
+    assert!(disabled.last_error.is_empty());
+    assert!(matches!(
+        runtime.next_asr_reload_worker_step(),
+        AsrReloadWorkerStep::Stop
+    ));
+
+    let payload = runtime.stop_recording(None).unwrap();
+    assert_eq!(payload.commit_text, "mock recognition result");
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+
+    let error = runtime.start_recording().unwrap_err();
+    assert!(matches!(
+        error,
+        RuntimeError::Asr(AsrError::Backend(message)) if message == "ASR backend is not ready."
+    ));
 }
 
 #[test]
@@ -1661,7 +1900,7 @@ fn configured_command_asr_provider_forwards_runtime_pcm_metadata() {
             sample_rate_hz: 48_000,
             channels: 2,
         },
-        vec![16, -32, 48, -64],
+        recognizable_samples(&[16, -32, 48, -64]),
     )
     .unwrap();
     let audio = CapturedAudio::named(pcm, "fixture");
@@ -1678,10 +1917,9 @@ fn configured_command_asr_provider_forwards_runtime_pcm_metadata() {
 
     let bytes = std::fs::read(&capture_path).unwrap();
     std::fs::remove_file(&capture_path).unwrap();
-    let expected_samples = [4000_i16, -8000, 12000, -16000];
-    let expected_bytes = expected_samples
-        .iter()
-        .flat_map(|sample| sample.to_le_bytes())
+    let expected_bytes = recognizable_samples(&[8192_i16, -16384, 24576, -32768])
+        .into_iter()
+        .flat_map(i16::to_le_bytes)
         .collect::<Vec<_>>();
     assert_eq!(bytes, expected_bytes);
     assert_eq!(runtime.status(), ServiceStatus::Idle);
@@ -1766,6 +2004,45 @@ fn reload_configured_asr_backend_swaps_to_configured_provider() {
     assert_eq!(state.effective_model_id, "mock-streaming");
     assert_eq!(state.target_model_id, "mock-model");
     assert!(state.has_effective_backend);
+}
+
+#[test]
+fn configured_runtime_treats_unselected_provider_as_disabled_state() {
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    config.asr.active_provider.clear();
+    let mut runtime = RuntimeState::with_configured_backends_or_unavailable(config).unwrap();
+
+    let state = runtime.asr_backend_state();
+    assert!(state.target_provider_id.is_empty());
+    assert!(state.target_model_id.is_empty());
+    assert!(state.effective_provider_id.is_empty());
+    assert!(state.effective_model_id.is_empty());
+    assert!(!state.has_effective_backend);
+    assert!(state.last_error.is_empty());
+
+    let error = runtime.start_recording().unwrap_err();
+    assert!(matches!(
+        error,
+        RuntimeError::Asr(AsrError::Backend(message)) if message == "ASR backend is not ready."
+    ));
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
+fn configured_recorder_runtime_treats_unselected_provider_as_disabled_state() {
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    config.asr.active_provider.clear();
+    let recorder = Box::new(SourceAudioRecorder::new(Box::new(
+        super::default_mock_audio_source(),
+    )));
+    let runtime =
+        RuntimeState::with_configured_audio_recorder_or_unavailable(config, recorder).unwrap();
+
+    let state = runtime.asr_backend_state();
+    assert!(state.target_provider_id.is_empty());
+    assert!(state.effective_provider_id.is_empty());
+    assert!(!state.has_effective_backend);
+    assert!(state.last_error.is_empty());
 }
 
 #[test]
@@ -1883,6 +2160,33 @@ fn configured_asr_reports_default_backend_as_unsupported() {
 }
 
 #[test]
+fn live_streaming_push_failure_enters_error_before_stop() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let cancelled = Arc::new(Mutex::new(false));
+    let backend = PushFailureBackend::new(Arc::clone(&cancelled));
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[96, -96]),
+    )));
+    let mut runtime =
+        RuntimeState::with_backends(config, Box::new(backend), Box::new(source)).unwrap();
+
+    runtime.start_recording().unwrap();
+    assert_eq!(runtime.status(), ServiceStatus::Recording);
+    let error = runtime.take_live_recognition_events().unwrap_err();
+
+    assert!(matches!(
+        error,
+        super::RuntimeError::Asr(AsrError::Backend(message))
+            if message == "test push failed"
+    ));
+    assert_eq!(runtime.status(), ServiceStatus::Error);
+    assert!(*cancelled.lock().expect("cancel lock poisoned"));
+
+    runtime.recover_live_recording_error();
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
+}
+
+#[test]
 fn asr_push_failure_cancels_session_and_returns_to_idle() {
     let config = VinpstConfig::bundled_default().unwrap();
     let cancelled = Arc::new(Mutex::new(false));
@@ -1890,7 +2194,7 @@ fn asr_push_failure_cancels_session_and_returns_to_idle() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let recorder = EventRecordingRecorder::new(
         Arc::clone(&events),
-        CapturedAudio::anonymous(PcmBuffer::at_default_rate(vec![0, 96, -96, 0])),
+        CapturedAudio::anonymous(PcmBuffer::at_default_rate(recognizable_samples(&[96, -96]))),
     );
     let mut runtime =
         RuntimeState::with_audio_recorder(config, Box::new(backend), Box::new(recorder)).unwrap();
@@ -1918,7 +2222,6 @@ fn asr_stop_result_failures_cancel_session_and_return_to_idle() {
         SessionFailureStage::PartialPoll,
         SessionFailureStage::Finish,
         SessionFailureStage::FinalPoll,
-        SessionFailureStage::NoFinalText,
     ] {
         let config = VinpstConfig::bundled_default().unwrap();
         let cancelled = Arc::new(Mutex::new(false));
@@ -1927,7 +2230,7 @@ fn asr_stop_result_failures_cancel_session_and_return_to_idle() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let recorder = EventRecordingRecorder::new(
             Arc::clone(&events),
-            CapturedAudio::anonymous(PcmBuffer::at_default_rate(vec![0, 96, -96, 0])),
+            CapturedAudio::anonymous(PcmBuffer::at_default_rate(recognizable_samples(&[96, -96]))),
         );
         let mut runtime =
             RuntimeState::with_audio_recorder(config, Box::new(backend), Box::new(recorder))
@@ -1949,6 +2252,38 @@ fn asr_stop_result_failures_cancel_session_and_return_to_idle() {
             vec!["begin", "stop"]
         );
     }
+}
+
+#[test]
+fn completed_without_final_text_skips_postprocessing_and_returns_empty_payload() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let cancelled = Arc::new(Mutex::new(false));
+    let backend =
+        SessionFailureBackend::new(Arc::clone(&cancelled), SessionFailureStage::NoFinalText);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let processor = RecordingTextProcessor {
+        calls: Arc::clone(&calls),
+    };
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        recognizable_samples(&[96, -96]),
+    )));
+    let mut runtime = RuntimeState::with_components(
+        config,
+        Box::new(backend),
+        Box::new(source),
+        Box::new(processor),
+    )
+    .unwrap();
+
+    runtime.start_recording().unwrap();
+    let report = runtime.stop_recording_report(None).unwrap();
+
+    assert!(report.payload.commit_text.is_empty());
+    assert!(report.payload.candidates.is_empty());
+    assert!(report.postprocess_warning.is_none());
+    assert!(calls.lock().expect("processor calls poisoned").is_empty());
+    assert!(!*cancelled.lock().expect("cancel lock poisoned"));
+    assert_eq!(runtime.status(), ServiceStatus::Idle);
 }
 
 #[test]
@@ -2150,6 +2485,36 @@ fn early_final_event_is_preserved_until_payload_conversion() {
 }
 
 #[test]
+fn controller_input_gain_matches_frozen_i16_truncation() {
+    let mut pcm = PcmBuffer::at_default_rate(vec![3, -3, 20_000, -20_000]);
+
+    super::apply_controller_input_gain(&mut pcm, 1.5);
+
+    assert_eq!(pcm.samples(), &[4, -4, 30_000, -30_000]);
+}
+
+#[test]
+fn buffered_preprocessing_applies_gain_before_normalization_without_silence_trim() {
+    let pcm = PcmBuffer::at_default_rate(vec![0, 3_000, -1_500, 0]);
+
+    let processed = super::process_buffered_pcm(&pcm, 2.0, true);
+
+    assert_eq!(processed.samples(), &[0, 6_000, -3_000, 0]);
+}
+
+#[test]
+fn buffered_preprocessing_only_normalizes_quiet_audio() {
+    let quiet = PcmBuffer::at_default_rate(vec![0, 1_000, -500, 0]);
+    let loud = PcmBuffer::at_default_rate(vec![0, 10_000, -5_000, 0]);
+
+    let quiet = super::process_buffered_pcm(&quiet, 1.0, true);
+    let loud = super::process_buffered_pcm(&loud, 1.0, true);
+
+    assert_eq!(quiet.samples(), &[0, i16::MAX, -16_384, 0]);
+    assert_eq!(loud.samples(), &[0, 10_000, -5_000, 0]);
+}
+
+#[test]
 fn runtime_pushes_processed_pcm_with_metadata_to_buffered_asr_session() {
     let config = VinpstConfig::bundled_default().unwrap();
     let audio_log = MockAsrAudioLog::new();
@@ -2160,7 +2525,7 @@ fn runtime_pushes_processed_pcm_with_metadata_to_buffered_asr_session() {
                 sample_rate_hz: 48_000,
                 channels: 2,
             },
-            vec![0, 0, 12, -12, 20, -20, 0, 0],
+            recognizable_samples(&[12, -12, 20, -20]),
         )
         .unwrap(),
     ));
@@ -2174,7 +2539,7 @@ fn runtime_pushes_processed_pcm_with_metadata_to_buffered_asr_session() {
     assert_eq!(
         audio_log.records(),
         vec![MockAsrAudioPush {
-            sample_len: 4,
+            sample_len: MIN_SAMPLES_FOR_RECOGNITION,
             pcm_spec: Some(PcmSpec {
                 sample_rate_hz: 48_000,
                 channels: 2,
@@ -2190,7 +2555,7 @@ fn runtime_streams_pcm_in_legacy_sized_batches_without_replaying_final_buffer() 
     let backend =
         MockAsrBackend::streaming("listening", "custom final").with_audio_log(audio_log.clone());
     let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
-        vec![64; 1_700],
+        vec![64; 8_100],
     )));
     let recorder = SourceAudioRecorder::new(Box::new(source))
         .with_chunk_frames(300)
@@ -2203,23 +2568,18 @@ fn runtime_streams_pcm_in_legacy_sized_batches_without_replaying_final_buffer() 
 
     assert_eq!(report.partial_text.as_deref(), Some("listening"));
     assert_eq!(report.payload.commit_text, "custom final");
-    assert_eq!(
-        audio_log.records(),
-        vec![
-            MockAsrAudioPush {
-                sample_len: 800,
-                pcm_spec: Some(PcmSpec::default()),
-            },
-            MockAsrAudioPush {
-                sample_len: 800,
-                pcm_spec: Some(PcmSpec::default()),
-            },
-            MockAsrAudioPush {
-                sample_len: 100,
-                pcm_spec: Some(PcmSpec::default()),
-            },
-        ]
-    );
+    let mut expected = vec![
+        MockAsrAudioPush {
+            sample_len: 800,
+            pcm_spec: Some(PcmSpec::default()),
+        };
+        10
+    ];
+    expected.push(MockAsrAudioPush {
+        sample_len: 100,
+        pcm_spec: Some(PcmSpec::default()),
+    });
+    assert_eq!(audio_log.records(), expected);
 }
 
 #[test]
@@ -2227,8 +2587,8 @@ fn injected_audio_source_is_used_by_runtime() {
     let config = VinpstConfig::bundled_default().unwrap();
     let backend = MockAsrBackend::streaming("listening", "custom final");
     let source = MockAudioSource::from_frames(vec![
-        CapturedAudio::anonymous(PcmBuffer::at_default_rate(vec![0, 32, -32, 0])),
-        CapturedAudio::anonymous(PcmBuffer::at_default_rate(vec![0, 64, -64, 0])),
+        CapturedAudio::anonymous(PcmBuffer::at_default_rate(recognizable_samples(&[32, -32]))),
+        CapturedAudio::anonymous(PcmBuffer::at_default_rate(recognizable_samples(&[64, -64]))),
     ]);
     let mut runtime =
         RuntimeState::with_backends(config, Box::new(backend), Box::new(source)).unwrap();
@@ -2244,7 +2604,7 @@ fn injected_audio_recorder_uses_start_stop_lifecycle() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let recorder = EventRecordingRecorder::new(
         Arc::clone(&events),
-        CapturedAudio::anonymous(PcmBuffer::at_default_rate(vec![0, 96, -96, 0])),
+        CapturedAudio::anonymous(PcmBuffer::at_default_rate(recognizable_samples(&[96, -96]))),
     );
     let mut runtime =
         RuntimeState::with_audio_recorder(config, Box::new(backend), Box::new(recorder)).unwrap();
@@ -2490,7 +2850,7 @@ fn timeout_scene_finish_error_returns_runtime_to_idle() {
     let message = error.to_string();
 
     assert!(matches!(error, super::RuntimeError::Finish(_)));
-    assert!(message.contains("text adapter backend"));
+    assert!(message.contains("requires a configured text adapter"));
     assert_eq!(runtime.status(), ServiceStatus::Idle);
     assert!(runtime.partial_text().is_none());
 }

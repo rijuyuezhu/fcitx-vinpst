@@ -60,6 +60,12 @@ impl CaptureStartGate {
 }
 
 /// Active ASR session shared with an audio-recorder callback when chunked delivery is requested.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LiveRecognitionEvent {
+    PartialText(String),
+    Error(String),
+}
+
 pub(super) struct ActiveRecognitionSession {
     session: SharedSession,
     delivery_mode: AudioDeliveryMode,
@@ -135,22 +141,53 @@ impl ActiveRecognitionSession {
         Ok(std::mem::take(&mut state.events))
     }
 
-    /// Removes new streaming partial hypotheses while retaining final/completed events for stop.
-    pub(super) fn take_streaming_partial_texts(&self) -> Result<Vec<String>, AsrError> {
+    /// Takes events projected live while a streaming recording remains active.
+    ///
+    /// Upstream projects both partial and early final events onto `RecognitionPartial`,
+    /// while error events are drained immediately for `DaemonNotification`. Final events
+    /// remain retained so stop-time payload construction still sees them.
+    pub(super) fn take_live_recognition_events(
+        &self,
+    ) -> Result<Vec<LiveRecognitionEvent>, AsrError> {
         let Some(state) = &self.streaming_state else {
             return Ok(Vec::new());
         };
+        // A streaming backend may produce output asynchronously after the audio
+        // push returns (for example a long-lived command helper). Poll the
+        // backend on every live tick before projecting queued events. Do this
+        // before taking the streaming-state lock to preserve the session ->
+        // state lock ordering used by live audio delivery.
+        let new_events = self.lock_session()?.poll_events()?;
         let mut state = lock_streaming_state(state)?;
+        if let Some(error) = state.error.take() {
+            return Err(error);
+        }
+        state.events.extend(new_events);
         let mut retained = Vec::with_capacity(state.events.len());
-        let mut partials = Vec::new();
+        let mut live = Vec::new();
         for event in std::mem::take(&mut state.events) {
             match event {
-                RecognitionEvent::PartialText { text } => partials.push(text),
-                event => retained.push(event),
+                RecognitionEvent::PartialText { text } => {
+                    if !text.is_empty() {
+                        live.push(LiveRecognitionEvent::PartialText(text));
+                    }
+                }
+                RecognitionEvent::FinalText { text } => {
+                    if !text.is_empty() {
+                        live.push(LiveRecognitionEvent::PartialText(text.clone()));
+                    }
+                    retained.push(RecognitionEvent::FinalText { text });
+                }
+                RecognitionEvent::Error { message } => {
+                    if !message.is_empty() {
+                        live.push(LiveRecognitionEvent::Error(message));
+                    }
+                }
+                RecognitionEvent::Completed => retained.push(RecognitionEvent::Completed),
             }
         }
         state.events = retained;
-        Ok(partials)
+        Ok(live)
     }
 
     /// Drains events not already collected by a streaming callback.
@@ -258,7 +295,7 @@ impl StreamingDeliveryState {
         self.ensure_pcm_spec(pcm.spec())?;
 
         let mut processed = pcm.clone();
-        processed.apply_gain(self.input_gain);
+        super::apply_controller_input_gain(&mut processed, self.input_gain);
         self.pending_samples.extend_from_slice(processed.samples());
         self.take_complete_batches()
     }
@@ -379,11 +416,11 @@ mod tests {
                 pushes: Arc::clone(&pushes),
             }),
             AudioDeliveryMode::Chunked,
-            2.0,
+            1.5,
         );
         let mut callback = callback.expect("chunked session should install a callback");
 
-        callback(&PcmBuffer::at_default_rate(vec![100; 900]));
+        callback(&PcmBuffer::at_default_rate(vec![3; 900]));
         assert_eq!(pushes.lock().expect("push log lock poisoned").len(), 1);
         session.finish_streaming_delivery().unwrap();
 
@@ -395,7 +432,7 @@ mod tests {
             pushes
                 .iter()
                 .flat_map(PcmBuffer::samples)
-                .all(|sample| *sample == 200)
+                .all(|sample| *sample == 4)
         );
     }
 
@@ -449,14 +486,22 @@ mod tests {
                 text: "final".to_owned(),
             },
             RecognitionEvent::Completed,
+            RecognitionEvent::Error {
+                message: "ASR provider 'cmd': timed out. detail".to_owned(),
+            },
             RecognitionEvent::PartialText {
                 text: "second".to_owned(),
             },
         ]);
 
         assert_eq!(
-            session.take_streaming_partial_texts().unwrap(),
-            ["first", "second"]
+            session.take_live_recognition_events().unwrap(),
+            [
+                LiveRecognitionEvent::PartialText("first".to_owned()),
+                LiveRecognitionEvent::PartialText("final".to_owned()),
+                LiveRecognitionEvent::Error("ASR provider 'cmd': timed out. detail".to_owned()),
+                LiveRecognitionEvent::PartialText("second".to_owned()),
+            ]
         );
         assert_eq!(
             session.finish_streaming_delivery().unwrap(),

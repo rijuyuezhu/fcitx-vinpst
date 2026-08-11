@@ -6,6 +6,7 @@
 use std::fs;
 use std::{
     io::{self, Read},
+    os::fd::AsFd,
     os::unix::process::CommandExt,
     process::{Child, ChildStdin, Command, Output, Stdio},
     sync::{
@@ -23,12 +24,76 @@ use nix::{
     sys::wait::{Id, WaitPidFlag, WaitStatus, waitid},
 };
 use nix::{
+    fcntl::{FcntlArg, OFlag, fcntl},
     sys::signal::{Signal, kill, killpg},
     unistd::Pid,
 };
 
 /// Maximum bytes retained independently from command stdout and stderr.
 pub const MAX_COMMAND_OUTPUT_BYTES: usize = 1024 * 1024;
+
+/// Errors produced while parsing a shell-like command string into direct argv.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum CommandArgvParseError {
+    /// No executable argument was present.
+    #[error("command is empty")]
+    Empty,
+    /// A quote or trailing escape was not closed.
+    #[error("command has an unterminated quote or escape")]
+    Unterminated,
+}
+
+/// Parses a simple editor/helper command into argv without invoking a shell.
+///
+/// This matches the frozen CLI editor parser: ASCII whitespace separates words
+/// outside quotes, single/double quotes are removed, and backslash escapes the
+/// next character except inside single quotes. Shell expansion and operators
+/// are intentionally not evaluated.
+pub fn parse_command_argv(command: &str) -> Result<Vec<String>, CommandArgvParseError> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaping = false;
+
+    for ch in command.chars() {
+        if escaping {
+            current.push(ch);
+            escaping = false;
+            continue;
+        }
+        if !in_single_quote && ch == '\\' {
+            escaping = true;
+            continue;
+        }
+        if !in_double_quote && ch == '\'' {
+            in_single_quote = !in_single_quote;
+            continue;
+        }
+        if !in_single_quote && ch == '"' {
+            in_double_quote = !in_double_quote;
+            continue;
+        }
+        if !in_single_quote && !in_double_quote && ch.is_ascii_whitespace() {
+            if !current.is_empty() {
+                args.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        current.push(ch);
+    }
+
+    if escaping || in_single_quote || in_double_quote {
+        return Err(CommandArgvParseError::Unterminated);
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    if args.is_empty() {
+        return Err(CommandArgvParseError::Empty);
+    }
+    Ok(args)
+}
 
 /// Signal used for supervised helper process groups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +175,15 @@ pub enum PipedCommandError {
 /// Configures a command so its child becomes leader of a new process group.
 pub fn configure_process_group(command: &mut Command) {
     command.process_group(0);
+}
+
+/// Marks a Unix file descriptor nonblocking while preserving its other flags.
+pub fn set_nonblocking(fd: &impl AsFd) -> io::Result<()> {
+    let raw_flags = fcntl(fd, FcntlArg::F_GETFL).map_err(io::Error::from)?;
+    let flags = OFlag::from_bits_truncate(raw_flags);
+    fcntl(fd, FcntlArg::F_SETFL(flags | OFlag::O_NONBLOCK))
+        .map(|_| ())
+        .map_err(io::Error::from)
 }
 
 /// Returns whether a process group currently exists.
@@ -563,12 +637,46 @@ mod tests {
     #[cfg(target_os = "linux")]
     use std::{process::Stdio, thread, time::Duration};
 
-    use super::{MAX_COMMAND_OUTPUT_BYTES, PipedCommandError, run_piped_command};
+    use super::{
+        CommandArgvParseError, MAX_COMMAND_OUTPUT_BYTES, PipedCommandError, parse_command_argv,
+        run_piped_command,
+    };
     #[cfg(target_os = "linux")]
     use super::{
         ProcessGroupSignal, configure_process_group, process_group_exists,
         process_group_has_live_members, signal_process_group_and_child,
     };
+
+    #[test]
+    fn command_argv_parser_matches_frozen_editor_quoting() {
+        assert_eq!(
+            parse_command_argv(r#"code --wait "two words" 'three words' escaped\ space"#).unwrap(),
+            [
+                "code",
+                "--wait",
+                "two words",
+                "three words",
+                "escaped space"
+            ]
+        );
+        assert_eq!(
+            parse_command_argv(r#"editor "a\"b" 'c\d'"#).unwrap(),
+            ["editor", "a\"b", "c\\d"]
+        );
+    }
+
+    #[test]
+    fn command_argv_parser_rejects_empty_and_unterminated_commands() {
+        assert_eq!(parse_command_argv("   "), Err(CommandArgvParseError::Empty));
+        assert_eq!(
+            parse_command_argv("editor 'unfinished"),
+            Err(CommandArgvParseError::Unterminated)
+        );
+        assert_eq!(
+            parse_command_argv("editor trailing\\"),
+            Err(CommandArgvParseError::Unterminated)
+        );
+    }
 
     #[test]
     fn captures_bounded_output_and_stdin() {
@@ -596,6 +704,23 @@ mod tests {
             error,
             PipedCommandError::TimedOut { timeout_ms: 25 }
         ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_piped_command_reaps_descendants_that_inherit_output_pipes() {
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            r#"printf 'ready\n'; sleep 30 & child=$!; kill -0 "$child" || exit 7; exit 0"#,
+        ]);
+        let started = Instant::now();
+        let result = run_piped_command(&mut command, Some(2_000), |_| Ok(())).unwrap();
+
+        assert!(result.output.status.success());
+        assert_eq!(result.output.stdout, b"ready\n");
+        assert!(result.output.stderr.is_empty());
+        assert!(started.elapsed() < Duration::from_millis(500));
     }
 
     #[test]

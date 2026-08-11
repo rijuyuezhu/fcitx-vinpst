@@ -1,8 +1,8 @@
-//! Configuration model and validation for vinpst.
+//! Typed configuration contract for Vinpst.
 //!
-//! The first implementation preserves the original `default-config.json` shape
-//! and focuses on typed deserialization plus lightweight validation. Later
-//! migrations can add versioned upgrades here without touching daemon code.
+//! This crate owns schema parsing, compatibility normalization, validation,
+//! secret-safe diagnostics, user-path resolution, and atomic persistence so
+//! CLI, daemon, and GUI callers share one configuration boundary.
 
 mod config;
 mod defaults;
@@ -12,12 +12,14 @@ mod persistence;
 mod schema;
 #[cfg(test)]
 mod tests;
+pub mod user_paths;
 mod validation;
 
 pub use diagnostics::redact_url_for_diagnostics;
 pub use error::ConfigError;
 pub use persistence::{
-    ConfigWriteError, ConfigWriteReceipt, config_backup_path, write_config_file,
+    ConfigWriteError, ConfigWriteReceipt, config_backup_path, resolve_symlink_write_target,
+    write_config_file,
 };
 pub use schema::{
     AsrConfig, AsrProviderConfig, AsrProviderKind, COMMAND_SCENE_ID, CURRENT_CONFIG_VERSION,

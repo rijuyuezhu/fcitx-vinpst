@@ -10,7 +10,7 @@ use vinpst_fcitx_core::{AsrDisplaySnapshot, AsrDisplaySnapshotItem, SceneSnapsho
 use vinpst_protocol::dbus;
 use zbus::blocking::{Connection, Proxy, connection::Builder};
 
-const METHOD_CALL_TIMEOUT: Duration = Duration::from_secs(60);
+const METHOD_CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// One daemon operation exposed to the narrow C ABI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

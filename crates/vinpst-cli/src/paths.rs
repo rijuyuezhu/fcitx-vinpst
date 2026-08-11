@@ -1,65 +1,61 @@
 use std::path::PathBuf;
 
 use anyhow::Context;
+use vinpst_config::user_paths;
 
 pub(crate) fn user_activation_service_path() -> anyhow::Result<PathBuf> {
-    Ok(user_data_home()?
-        .join("dbus-1")
-        .join("services")
-        .join("org.fcitx.Vinpst.service"))
+    user_paths::user_activation_service_path()
+        .context("resolve user D-Bus activation path: HOME and XDG_DATA_HOME are both unavailable")
 }
 
 pub(crate) fn default_config_path() -> anyhow::Result<PathBuf> {
-    Ok(user_config_home()?.join("fcitx-vinpst").join("config.json"))
+    user_paths::default_config_path()
+        .context("resolve user config path: HOME and XDG_CONFIG_HOME are both unavailable")
 }
 
-pub(crate) fn user_config_home() -> anyhow::Result<PathBuf> {
-    match std::env::var_os("XDG_CONFIG_HOME") {
-        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
-        _ => Ok(user_home()?.join(".config")),
-    }
+pub(crate) fn default_fcitx_config_path() -> anyhow::Result<PathBuf> {
+    user_paths::default_fcitx_config_path()
+        .context("resolve Fcitx config path: HOME and XDG_CONFIG_HOME are both unavailable")
 }
 
 pub(crate) fn user_data_home() -> anyhow::Result<PathBuf> {
-    match std::env::var_os("XDG_DATA_HOME") {
-        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
-        _ => Ok(user_home()?.join(".local/share")),
-    }
+    user_paths::user_data_home()
+        .context("resolve data home: HOME and XDG_DATA_HOME are both unavailable")
 }
 
-pub(crate) fn user_cache_home() -> anyhow::Result<PathBuf> {
-    match std::env::var_os("XDG_CACHE_HOME") {
-        Some(value) if !value.is_empty() => Ok(PathBuf::from(value)),
-        _ => Ok(user_home()?.join(".cache")),
-    }
+pub(crate) fn user_systemd_unit_dir() -> anyhow::Result<PathBuf> {
+    user_paths::user_systemd_unit_dir().context(
+        "resolve systemd user unit directory: HOME and XDG_CONFIG_HOME are both unavailable",
+    )
 }
 
 pub(crate) fn default_model_root() -> anyhow::Result<PathBuf> {
-    Ok(user_data_home()?.join("fcitx-vinpst").join("models"))
+    user_paths::default_model_root()
+        .context("resolve model root: HOME and XDG_DATA_HOME are both unavailable")
 }
 
 pub(crate) fn default_provider_root() -> anyhow::Result<PathBuf> {
-    Ok(user_data_home()?.join("fcitx-vinpst").join("providers"))
+    user_paths::default_provider_root()
+        .context("resolve provider root: HOME and XDG_DATA_HOME are both unavailable")
 }
 
 pub(crate) fn default_adapter_root() -> anyhow::Result<PathBuf> {
-    Ok(user_data_home()?.join("fcitx-vinpst").join("adapters"))
+    user_paths::default_adapter_root()
+        .context("resolve adapter root: HOME and XDG_DATA_HOME are both unavailable")
 }
 
 pub(crate) fn default_cache_root() -> anyhow::Result<PathBuf> {
-    Ok(user_cache_home()?.join("fcitx-vinpst"))
+    user_paths::default_cache_root()
+        .context("resolve cache root: HOME and XDG_CACHE_HOME are both unavailable")
 }
 
 pub(crate) fn default_model_install_staging_root() -> anyhow::Result<PathBuf> {
-    Ok(user_cache_home()?
-        .join("fcitx-vinpst")
-        .join("model-install"))
+    user_paths::default_model_install_staging_root()
+        .context("resolve model staging root: HOME and XDG_CACHE_HOME are both unavailable")
 }
 
 pub(crate) fn user_home() -> anyhow::Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .context("resolve user path: HOME is unset and XDG_DATA_HOME is unset")?;
-    Ok(PathBuf::from(home))
+    user_paths::user_home().context("resolve user home: HOME is unavailable")
 }
 
 pub(crate) fn quote_exec_arg(value: &str) -> String {

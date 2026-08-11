@@ -225,7 +225,9 @@ fn installed_model_detail(
         .field(locale.text(GuiText::StableId), model.stable_model_id())
         .field(
             locale.text(GuiText::Status),
-            locale.text(if active {
+            locale.text(if model.is_broken() {
+                GuiText::Broken
+            } else if active {
                 GuiText::Active
             } else {
                 GuiText::Inactive
@@ -439,7 +441,9 @@ mod tests {
 
     use super::*;
     use serde_json::json;
-    use vinpst_registry::{InstalledModelDisplayMetadata, LiveVinpstModelMetadata};
+    use vinpst_registry::{
+        InstalledModelDisplayMetadata, InstalledModelState, LiveVinpstModelMetadata,
+    };
 
     #[test]
     fn model_detail_uses_typed_metadata_without_raw_backend_json() {
@@ -465,6 +469,8 @@ mod tests {
                 }),
                 extra: BTreeMap::from([("private".to_owned(), json!("metadata-secret"))]),
             },
+            state: InstalledModelState::Installed,
+            metadata_error: None,
             files: vec!["model.onnx".to_owned()],
             file_count: 1,
         };
@@ -478,6 +484,16 @@ mod tests {
         assert!(!debug.contains("recognizer-secret"));
         assert!(!debug.contains("model-secret"));
         assert!(!debug.contains("metadata-secret"));
+
+        let mut broken = model.clone();
+        broken.state = InstalledModelState::Broken;
+        broken.metadata_error = Some("invalid metadata JSON".to_owned());
+        let broken_debug = format!(
+            "{:?}",
+            installed_model_detail(GuiLocale::EnUs, &broken, true)
+        );
+        assert!(broken_debug.contains("broken"));
+        assert!(!broken_debug.contains("active"));
     }
 
     #[test]

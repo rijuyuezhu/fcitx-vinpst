@@ -169,7 +169,7 @@ set(VINPST_DAEMON_EXECUTABLE
     "${CMAKE_INSTALL_FULL_BINDIR}/vinpst-daemon"
     CACHE FILEPATH "Installed vinpst-daemon executable used by DBus activation")
 set(VINPST_DAEMON_ARGS
-    "--dbus"
+    ""
     CACHE STRING "Arguments used by the DBus activation service for vinpst-daemon")
 set(VINPST_DAEMON_ARGS_SUFFIX "")
 if(NOT "${VINPST_DAEMON_ARGS}" STREQUAL "")
@@ -324,6 +324,23 @@ if(Fcitx5Core_FOUND)
   )
 
   add_executable(
+    vinpst_fcitx_bridge_notifier_dbus_object_smoke
+    tests/fcitx_notifier_dbus_object_smoke.cpp
+  )
+  target_link_libraries(
+    vinpst_fcitx_bridge_notifier_dbus_object_smoke
+    PRIVATE
+      vinpst_fcitx_bridge::fcitx
+      Fcitx5::Core
+  )
+  vinpst_bridge_apply_warnings(vinpst_fcitx_bridge_notifier_dbus_object_smoke)
+  add_test(
+    NAME vinpst_fcitx_bridge_notifier_dbus_object_smoke
+    COMMAND "${DBUS_RUN_SESSION_EXECUTABLE}" --
+            $<TARGET_FILE:vinpst_fcitx_bridge_notifier_dbus_object_smoke>
+  )
+
+  add_executable(
     vinpst_fcitx_bridge_notifications_smoke
     tests/fcitx_notifications_smoke.cpp
   )
@@ -355,10 +372,19 @@ if(Fcitx5Core_FOUND)
     NAME vinpst_fcitx_bridge_i18n_smoke
     COMMAND vinpst_fcitx_bridge_i18n_smoke
   )
+  add_test(
+    NAME vinpst_fcitx_bridge_i18n_language_override_smoke
+    COMMAND vinpst_fcitx_bridge_i18n_smoke
+  )
   set_tests_properties(
     vinpst_fcitx_bridge_i18n_smoke
     PROPERTIES ENVIRONMENT
       "LANGUAGE=zh_CN;LC_ALL=zh_CN.utf8;VINPST_FCITX_LOCALEDIR=${VINPST_FCITX_BUILD_LOCALEDIR}"
+  )
+  set_tests_properties(
+    vinpst_fcitx_bridge_i18n_language_override_smoke
+    PROPERTIES ENVIRONMENT
+      "LANGUAGE=zh_CN;LC_ALL=C;VINPST_FCITX_LOCALEDIR=${VINPST_FCITX_BUILD_LOCALEDIR}"
   )
 
   add_executable(

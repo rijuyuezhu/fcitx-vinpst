@@ -30,13 +30,22 @@ typedef struct VinpstFcitxFrontendPresentationView {
   VinpstFcitxStringView text;
   size_t candidate_count;
   size_t cursor_index;
+  size_t context_entry_count;
+  uint8_t suppress_commit_context;
 } VinpstFcitxFrontendPresentationView;
 
 typedef struct VinpstFcitxPresentedCandidateView {
   VinpstFcitxStringView text;
   VinpstFcitxStringView comment;
   uint8_t commit;
+  VinpstFcitxStringView context_source;
+  uint8_t suppress_commit_context;
 } VinpstFcitxPresentedCandidateView;
+
+typedef struct VinpstFcitxContextEntryView {
+  VinpstFcitxStringView text;
+  VinpstFcitxStringView source;
+} VinpstFcitxContextEntryView;
 
 typedef struct VinpstFcitxFrontendPresentationTextView {
   VinpstFcitxStringView original;
@@ -143,6 +152,7 @@ enum {
   VINPST_FCITX_DAEMON_CONTROL_PLAN_PRESENT_REMOTE_STATUS = 5,
   VINPST_FCITX_DAEMON_CONTROL_PLAN_ADOPT_AND_STOP_NORMAL = 6,
   VINPST_FCITX_DAEMON_CONTROL_PLAN_CLEAR_DAEMON_ERROR = 7,
+  VINPST_FCITX_DAEMON_CONTROL_PLAN_ADOPT_EXTERNAL_STATUS = 8,
 };
 
 enum {
@@ -266,6 +276,9 @@ uint8_t vinpst_fcitx_menu_session_handle_key(
     VinpstFcitxMenuSession *session,
     const VinpstFcitxMenuKeyInputView *input,
     VinpstFcitxMenuKeyDecisionView *decision_out);
+uint8_t vinpst_fcitx_result_menu_plan_key(
+    const VinpstFcitxMenuKeyInputView *input, int32_t current_page,
+    VinpstFcitxMenuKeyDecisionView *decision_out);
 int32_t vinpst_fcitx_clamp_menu_page(int32_t total_pages,
                                      int32_t requested_page);
 
@@ -360,6 +373,30 @@ uint8_t vinpst_fcitx_frontend_controller_command_mode(
 uint8_t vinpst_fcitx_frontend_controller_plan_trigger(
     const VinpstFcitxFrontendController *controller, uint8_t request,
     uint8_t *intent_out);
+uint8_t vinpst_fcitx_frontend_controller_prepare_start_normal(
+    VinpstFcitxFrontendController *controller,
+    const VinpstFcitxSceneMenuController *scene_controller);
+uint8_t vinpst_fcitx_frontend_controller_prepare_start_command(
+    VinpstFcitxFrontendController *controller, const uint8_t *selected_data,
+    size_t selected_len, const uint8_t *scene_data, size_t scene_len);
+uint8_t vinpst_fcitx_frontend_controller_prepare_stop(
+    VinpstFcitxFrontendController *controller,
+    const VinpstFcitxSceneMenuController *scene_controller);
+uint8_t vinpst_fcitx_frontend_controller_prepare_adopt_and_stop(
+    VinpstFcitxFrontendController *controller, uint8_t command_mode,
+    const VinpstFcitxSceneMenuController *scene_controller);
+uint8_t vinpst_fcitx_frontend_controller_adopt_external_recording(
+    VinpstFcitxFrontendController *controller, uint8_t command_mode,
+    const VinpstFcitxSceneMenuController *scene_controller);
+uint8_t vinpst_fcitx_frontend_controller_pending_argument(
+    const VinpstFcitxFrontendController *controller,
+    VinpstFcitxStringView *argument_out);
+VinpstFcitxFrontendOutcome *vinpst_fcitx_frontend_controller_complete(
+    VinpstFcitxFrontendController *controller, uint8_t success,
+    const uint8_t *response_data, size_t response_len);
+VinpstFcitxFrontendOutcome *vinpst_fcitx_frontend_controller_complete_recognition_result(
+    VinpstFcitxFrontendController *controller, const uint8_t *response_data,
+    size_t response_len);
 VinpstFcitxFrontendOutcome *
 vinpst_fcitx_frontend_controller_start_normal_with_daemon(
     VinpstFcitxFrontendController *controller,
@@ -396,6 +433,29 @@ uint8_t vinpst_fcitx_frontend_presentation_view(
 uint8_t vinpst_fcitx_frontend_presentation_candidate(
     const VinpstFcitxFrontendPresentation *presentation, size_t index,
     VinpstFcitxPresentedCandidateView *view_out);
+uint8_t vinpst_fcitx_frontend_presentation_context_entry(
+    const VinpstFcitxFrontendPresentation *presentation, size_t index,
+    VinpstFcitxContextEntryView *view_out);
+
+typedef struct VinpstFcitxContextHistory VinpstFcitxContextHistory;
+VinpstFcitxContextHistory *vinpst_fcitx_context_history_new(void);
+void vinpst_fcitx_context_history_free(VinpstFcitxContextHistory *history);
+void vinpst_fcitx_context_history_reload(VinpstFcitxContextHistory *history);
+uint8_t vinpst_fcitx_context_history_user_commit(VinpstFcitxContextHistory *history,
+                                                 size_t context,
+                                                 const uint8_t *text_data,
+                                                 size_t text_len);
+void vinpst_fcitx_context_history_append_entry(VinpstFcitxContextHistory *history,
+                                               const uint8_t *text_data,
+                                               size_t text_len,
+                                               const uint8_t *source_data,
+                                               size_t source_len);
+void vinpst_fcitx_context_history_suppress_next(VinpstFcitxContextHistory *history,
+                                                const uint8_t *text_data,
+                                                size_t text_len);
+void vinpst_fcitx_context_history_context_destroyed(VinpstFcitxContextHistory *history,
+                                                    size_t context);
+void vinpst_fcitx_context_history_flush(VinpstFcitxContextHistory *history);
 
 #ifdef __cplusplus
 }

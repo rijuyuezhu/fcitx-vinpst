@@ -75,14 +75,23 @@ fn scene_list_text_prints_table_and_active_marker() {
     fs::remove_file(&path).expect("remove temporary scene config");
 
     let stdout = assert_stdout_success(output, "scene list text");
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("active_scene: rewrite"));
-    assert!(stdout.contains("scene_count: 5"));
-    assert!(stdout.contains(
-        "active\tid\tlabel\tprompt\tprovider\tmodel\tcandidates\ttimeout_ms\tcontext_lines"
-    ));
-    assert!(stdout.contains("\traw\tRaw\tno\t-\t-\t0\t-\t0"));
-    assert!(stdout.contains("*\trewrite\tRewrite\tyes\topenai\tgpt-scene\t2\t2500\t4"));
+    assert!(stdout.contains("ID\tLABEL\tPROVIDER\tMODEL\tCANDIDATES\tSTATUS"));
+    assert!(stdout.contains("raw\tRaw\t-\t-\t0\t"));
+    assert!(stdout.contains("rewrite\tRewrite\topenai\tgpt-scene\t2\tactive"));
+    for internal in [
+        "source:",
+        "config_path:",
+        "active_scene:",
+        "scene_count:",
+        "prompt",
+        "timeout_ms",
+        "context_lines",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal list detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -171,6 +180,54 @@ fn scene_add_output_writes_valid_config_without_overwriting_input() {
     let scenes = json["scenes"]["definitions"].as_array().unwrap();
     assert!(scenes.iter().any(|scene| scene["id"] == "summarize"));
     fs::remove_dir_all(root).expect("remove scene add output fixture dir");
+}
+
+#[test]
+fn scene_add_preserves_frozen_default_candidate_and_label_fallback() {
+    let root = unique_temp_dir("vinpst-scene-add-frozen-defaults");
+    let input_path = root.join("input.json");
+    let output_path = root.join("output.json");
+    fs::write(&input_path, scene_fixture_json()).expect("write scene config");
+
+    let output = vinpst_command()
+        .args(["scene", "add", "--id", "legacy", "--config"])
+        .arg(&input_path)
+        .args(["--output"])
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("run frozen-compatible scene add defaults");
+    let value = assert_json_success(output, "scene add frozen defaults json");
+    assert_eq!(value["wrote_config"], true);
+
+    let config = read_json(&output_path);
+    let scene = config["scenes"]["definitions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|scene| scene["id"] == "legacy")
+        .expect("legacy scene");
+    assert_eq!(scene["label"], "legacy");
+    assert_eq!(scene["candidate_count"], 1);
+    assert!(scene.get("timeout_ms").is_none());
+
+    let list = vinpst_command()
+        .args(["scene", "list", "--config"])
+        .arg(&output_path)
+        .arg("--json")
+        .output()
+        .expect("list frozen-compatible scene");
+    let list = assert_json_success(list, "scene list frozen defaults json");
+    let scene = list["scenes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|scene| scene["id"] == "legacy")
+        .expect("listed legacy scene");
+    assert_eq!(scene["label"], "legacy");
+    assert_eq!(scene["candidate_count"], 1);
+
+    fs::remove_dir_all(root).expect("remove scene frozen-default fixture dir");
 }
 
 #[test]
@@ -300,13 +357,20 @@ fn scene_edit_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary scene config");
 
     let stdout = assert_stdout_success(output, "scene edit text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("scene_id: rewrite"));
-    assert!(stdout.contains("active_scene: rewrite"));
-    assert!(stdout.contains("changed_fields: label"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would update scene `rewrite`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "active_scene:",
+        "changed_fields",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
 }
 
 #[test]
@@ -498,12 +562,20 @@ fn scene_use_text_dry_run_outputs_expected_fields() {
     fs::remove_file(&path).expect("remove temporary scene config");
 
     let stdout = assert_stdout_success(output, "scene use text dry-run");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("source: file"));
-    assert!(stdout.contains("before: rewrite"));
-    assert!(stdout.contains("after: command"));
-    assert!(stdout.contains("will_write_config: false"));
-    assert!(stdout.contains("wrote_config: false"));
+    assert!(stdout.contains("Would select scene `command`."));
+    for internal in [
+        "dry_run:",
+        "source:",
+        "before:",
+        "after:",
+        "will_write_config",
+        "wrote_config",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal mutation detail: {internal}"
+        );
+    }
 }
 
 #[test]

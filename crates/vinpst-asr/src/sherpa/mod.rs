@@ -14,6 +14,15 @@ use vinpst_config::{AsrProviderConfig, AsrProviderKind};
 
 use crate::AsrError;
 
+#[cfg(any(test, feature = "sherpa-onnx-backend"))]
+pub(crate) fn sherpa_result_text(text: &str, tokens: &[String]) -> String {
+    let text = text.trim();
+    if !text.is_empty() {
+        return text.to_owned();
+    }
+    tokens.concat().trim().to_owned()
+}
+
 use offline_layout::{display_path, infer_offline_layout, reject_url_like, resolve_against};
 
 /// Legacy local provider id used by bundled config and diagnostics.
@@ -39,6 +48,28 @@ pub struct SherpaOnnxModelPaths {
     pub model_dir: PathBuf,
     /// Resolved hotwords file, when configured.
     pub hotwords_file: Option<PathBuf>,
+}
+
+/// Frozen-upstream single-file offline model families.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SherpaOnnxOfflineSingleModelKind {
+    /// Zipformer CTC.
+    ZipformerCtc,
+    /// `FireRed` ASR CTC.
+    FireRedAsrCtc,
+    /// `NeMo` CTC.
+    NemoCtc,
+    /// `WeNet` CTC.
+    WenetCtc,
+    /// TDNN.
+    Tdnn,
+    /// Omnilingual ASR CTC.
+    Omnilingual,
+    /// `MedASR` CTC.
+    MedAsr,
+    /// `TeleSpeech` CTC.
+    TelespeechCtc,
 }
 
 /// Supported local `sherpa-onnx` offline model layout.
@@ -81,6 +112,90 @@ pub enum SherpaOnnxOfflineModelLayout {
         /// Whether sherpa-onnx inverse text normalization is enabled.
         use_itn: bool,
     },
+    /// Single-file CTC/TDNN layout selected by a typed native family.
+    SingleModel {
+        /// Native family selector.
+        family: SherpaOnnxOfflineSingleModelKind,
+        /// ONNX model file.
+        model: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
+    /// Whisper encoder/decoder layout.
+    Whisper {
+        /// Encoder model.
+        encoder: PathBuf,
+        /// Decoder model.
+        decoder: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+        /// Recognition language.
+        language: String,
+        /// Whisper task.
+        task: String,
+        /// Tail padding frames.
+        tail_paddings: i32,
+        /// Whether token timestamps are enabled.
+        enable_token_timestamps: bool,
+        /// Whether segment timestamps are enabled.
+        enable_segment_timestamps: bool,
+    },
+    /// `FireRed` ASR encoder/decoder layout.
+    FireRedAsr {
+        /// Encoder model.
+        encoder: PathBuf,
+        /// Decoder model.
+        decoder: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
+    /// Canary encoder/decoder layout.
+    Canary {
+        /// Encoder model.
+        encoder: PathBuf,
+        /// Decoder model.
+        decoder: PathBuf,
+        /// Tokens file.
+        tokens: PathBuf,
+        /// Source language.
+        src_lang: String,
+        /// Target language.
+        tgt_lang: String,
+        /// Whether punctuation/casing is enabled.
+        use_pnc: bool,
+    },
+    /// `FunASR` Nano layout.
+    FunAsrNano {
+        /// Encoder adaptor model.
+        encoder_adaptor: PathBuf,
+        /// LLM model.
+        llm: PathBuf,
+        /// Embedding model.
+        embedding: PathBuf,
+        /// Tokenizer directory or file.
+        tokenizer: PathBuf,
+        /// Maximum generated tokens.
+        max_new_tokens: i32,
+        /// Sampling temperature.
+        temperature: f32,
+        /// Nucleus sampling threshold.
+        top_p: f32,
+        /// Random seed.
+        seed: i32,
+        /// Optional language hint.
+        language: String,
+        /// Whether ITN is enabled.
+        itn: bool,
+        /// Optional system prompt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system_prompt: Option<String>,
+        /// Optional user prompt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_prompt: Option<String>,
+        /// Optional inline hotwords string.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hotwords: Option<String>,
+    },
     /// Qwen3 ASR model directory with encoder, decoder, frontend, and tokenizer assets.
     Qwen3Asr {
         /// Convolution frontend ONNX model.
@@ -115,6 +230,18 @@ pub enum SherpaOnnxOfflineModelLayout {
         uncached_decoder: PathBuf,
         /// Decoder used after the first token.
         cached_decoder: PathBuf,
+        /// Optional merged decoder used by newer Moonshine exports.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        merged_decoder: Option<PathBuf>,
+        /// Tokens file.
+        tokens: PathBuf,
+    },
+    /// Moonshine v2 layout with encoder and merged decoder assets.
+    MoonshineV2 {
+        /// Encoder ONNX model.
+        encoder: PathBuf,
+        /// Merged decoder ONNX model.
+        merged_decoder: PathBuf,
         /// Tokens file.
         tokens: PathBuf,
     },
@@ -150,6 +277,8 @@ pub struct SherpaOnnxOfflineSettings {
     pub lm_model: Option<PathBuf>,
     /// Language-model scale.
     pub lm_scale: f32,
+    /// Whether model metadata declares hotword support.
+    pub supports_hotwords: bool,
     /// Decoding method.
     pub decoding_method: String,
     /// Maximum active decoding paths.
@@ -291,6 +420,20 @@ pub enum SherpaOnnxModelPathError {
         /// Declared model family.
         family: String,
     },
+    /// Model metadata resolves an asset outside the model directory.
+    #[error(
+        "sherpa-onnx {family} model asset `{asset}` escapes model root `{model_root}` via `{path}`"
+    )]
+    ModelAssetEscapesRoot {
+        /// Declared model family.
+        family: String,
+        /// Family-specific asset field.
+        asset: String,
+        /// Canonical model root.
+        model_root: String,
+        /// Canonical escaped asset path.
+        path: String,
+    },
     /// A family-specific model asset is absent from the extracted model directory.
     #[error("sherpa-onnx {family} model asset `{asset}` is missing at `{path}`")]
     MissingModelAsset {
@@ -310,9 +453,13 @@ pub enum SherpaOnnxModelPathError {
 }
 
 impl SherpaOnnxSpec {
-    /// Parses a config provider into the future local `sherpa-onnx` spec.
+    /// Parses a local config provider into the `sherpa-onnx` runtime spec.
+    ///
+    /// `SHERPA_ONNX_PROVIDER_ID` is the bundled/default provider id, not a
+    /// runtime type discriminator. Custom local provider ids use the same
+    /// model-metadata-driven runtime selection as upstream.
     pub fn from_provider(provider: &AsrProviderConfig) -> Result<Self, AsrError> {
-        if provider.id != SHERPA_ONNX_PROVIDER_ID || provider.kind != AsrProviderKind::Local {
+        if provider.kind != AsrProviderKind::Local {
             return Err(AsrError::UnsupportedProviderKind {
                 provider_id: provider.id.clone(),
                 kind: crate::factory::provider_kind_label(&provider.kind).to_owned(),
@@ -446,7 +593,25 @@ impl SherpaOnnxSpec {
 
 #[cfg(feature = "sherpa-onnx-backend")]
 mod backend;
-mod offline_layout;
+pub(crate) mod offline_layout;
 
 #[cfg(feature = "sherpa-onnx-backend")]
 pub use backend::SherpaOnnxBackend;
+
+#[cfg(test)]
+mod result_text_tests {
+    use super::sherpa_result_text;
+
+    #[test]
+    fn result_text_prefers_text_and_falls_back_to_tokens() {
+        assert_eq!(
+            sherpa_result_text("  direct  ", &["ignored".to_owned()]),
+            "direct"
+        );
+        assert_eq!(
+            sherpa_result_text("   ", &[" token".to_owned(), " text ".to_owned()]),
+            "token text"
+        );
+        assert_eq!(sherpa_result_text("", &[]), "");
+    }
+}

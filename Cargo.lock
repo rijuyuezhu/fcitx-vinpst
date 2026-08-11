@@ -4225,6 +4225,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "vinpst-asr"
 version = "0.1.0"
 dependencies = [
+ "nix",
  "reqwest",
  "schemars",
  "serde",
@@ -4263,6 +4264,7 @@ dependencies = [
  "vinpst-audio",
  "vinpst-config",
  "vinpst-daemon-control",
+ "vinpst-process",
  "vinpst-protocol",
  "vinpst-registry",
  "vinpst-text",
@@ -4304,6 +4306,7 @@ dependencies = [
  "vinpst-asr",
  "vinpst-audio",
  "vinpst-config",
+ "vinpst-process",
  "vinpst-protocol",
  "vinpst-registry",
  "vinpst-text",
@@ -4340,8 +4343,11 @@ dependencies = [
 name = "vinpst-fcitx-ffi"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
+ "vinpst-config",
  "vinpst-fcitx-core",
  "vinpst-fcitx-dbus",
+ "vinpst-text",
 ]
 
 [[package]]
@@ -4355,6 +4361,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "vinpst-audio",
  "vinpst-config",
  "vinpst-daemon-control",
  "vinpst-http",
@@ -4408,6 +4415,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "vinpst-config",
+ "vinpst-process",
  "zstd",
 ]
 
@@ -4421,6 +4429,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "vinpst-config",
  "vinpst-http",
  "vinpst-process",

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 TAG_PATTERN = re.compile(
-    r"<(?P<tag>asr|selected)>\n(?P<text>.*?)\n</(?P=tag)>", re.DOTALL
+    r"<vinput-(?P<tag>asr|selected)>\n(?P<text>.*?)\n</vinput-(?P=tag)>", re.DOTALL
 )
 
 

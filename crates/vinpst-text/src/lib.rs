@@ -1,4 +1,4 @@
-//! Deterministic text finishing helpers and adapter seams.
+//! Text post-processing, command/OpenAI-compatible adapters, prompts, and context cache for Vinpst.
 
 mod adapter_runtime;
 mod command;
@@ -27,17 +27,19 @@ pub use context_cache::{
 };
 pub(crate) use core::scene_needs_postprocessing;
 pub use core::{
-    LlmTextProcessor, MockTextProcessor, TextAdapter, TextFinisher, TextProcessor, TextRequest,
-    UnsupportedTextAdapter,
+    LlmTextProcessor, MockTextProcessor, TextAdapter, TextFinisher, TextProcessReport,
+    TextProcessor, TextRequest, UnsupportedTextAdapter,
 };
 pub use error::TextError;
 pub use openai::{
-    OpenAiCompatibleChatRequest, OpenAiCompatibleChatTransport, OpenAiCompatibleTextAdapter,
-    OpenAiCompatibleTextProcessor, ReqwestOpenAiCompatibleChatTransport,
-    build_openai_compatible_chat_request, build_openai_compatible_chat_request_from_context_cache,
-    build_openai_compatible_chat_url, build_openai_compatible_headers,
-    extract_openai_compatible_candidates, merge_openai_compatible_extra_body,
-    openai_compatible_candidates_to_payload, openai_compatible_response_to_payload,
+    OpenAiCompatibleChatRequest, OpenAiCompatibleChatTransport, OpenAiCompatibleShutdown,
+    OpenAiCompatibleTextAdapter, OpenAiCompatibleTextProcessor, OpenAiModelDiscoveryError,
+    ReqwestOpenAiCompatibleChatTransport, build_openai_compatible_chat_request,
+    build_openai_compatible_chat_request_from_context_cache, build_openai_compatible_chat_url,
+    build_openai_compatible_headers, build_openai_compatible_models_url,
+    discover_openai_compatible_model_ids, extract_openai_compatible_candidates,
+    merge_openai_compatible_extra_body, openai_compatible_candidates_to_payload,
+    openai_compatible_response_to_payload,
 };
 pub use payload::command_mode_payload;
 pub use prompt::{

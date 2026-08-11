@@ -1,6 +1,7 @@
 //! Command-backed text adapter protocol, process runner, registry, and processor.
 
 use std::{
+    fmt,
     io::Write,
     process::{Command, Output},
 };
@@ -16,7 +17,7 @@ use crate::{
 };
 
 /// JSON request passed to command-backed text adapter helpers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandTextRequest {
     /// Stable adapter id from config.
     pub adapter_id: String,
@@ -27,6 +28,24 @@ pub struct CommandTextRequest {
     pub selected_text: Option<String>,
     /// Scene metadata that selected this adapter.
     pub scene: CommandTextScene,
+}
+
+impl fmt::Debug for CommandTextRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommandTextRequest")
+            .field("adapter_id", &self.adapter_id)
+            .field("raw_text_len", &self.raw_text.chars().count())
+            .field(
+                "selected_text_len",
+                &self
+                    .selected_text
+                    .as_deref()
+                    .map(|text| text.chars().count()),
+            )
+            .field("scene", &self.scene)
+            .finish()
+    }
 }
 
 impl CommandTextRequest {
@@ -43,7 +62,7 @@ impl CommandTextRequest {
 }
 
 /// Scene metadata serialized into command text adapter requests.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandTextScene {
     /// Scene id.
     pub id: String,
@@ -67,6 +86,22 @@ pub struct CommandTextScene {
     pub context_lines: u8,
 }
 
+impl fmt::Debug for CommandTextScene {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommandTextScene")
+            .field("id", &self.id)
+            .field("label", &self.label)
+            .field("has_prompt", &self.prompt.is_some())
+            .field("provider_id", &self.provider_id)
+            .field("model", &self.model)
+            .field("candidate_count", &self.candidate_count)
+            .field("timeout_ms", &self.timeout_ms)
+            .field("context_lines", &self.context_lines)
+            .finish()
+    }
+}
+
 impl CommandTextScene {
     /// Copies command-helper scene metadata from typed config.
     #[must_use]
@@ -85,7 +120,7 @@ impl CommandTextScene {
 }
 
 /// JSON response returned by command-backed text adapter helpers.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandTextResponse {
     /// Full recognition payload returned by the helper.
     #[serde(default)]
@@ -96,6 +131,20 @@ pub struct CommandTextResponse {
     /// Error message returned by the helper.
     #[serde(default, alias = "failure")]
     pub error: Option<String>,
+}
+
+impl fmt::Debug for CommandTextResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommandTextResponse")
+            .field("has_payload", &self.payload.is_some())
+            .field(
+                "text_len",
+                &self.text.as_deref().map(|text| text.chars().count()),
+            )
+            .field("has_error", &self.error.is_some())
+            .finish()
+    }
 }
 
 impl CommandTextResponse {
@@ -130,7 +179,7 @@ pub trait CommandTextRunner: Send + Sync {
     ) -> Result<RecognitionPayload, TextError>;
 }
 
-/// Runner placeholder used until process execution is ported.
+/// Runner that explicitly reports command adapters as unavailable.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UnsupportedCommandTextRunner;
 
@@ -263,11 +312,8 @@ fn text_adapter_exit_error(
     )))
 }
 
-/// Command-backed text adapter skeleton.
-///
-/// It owns the command configuration shape and delegates execution to a runner
-/// seam so real process spawning can be added without making tests flaky.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Command-backed text adapter with an injectable execution runner.
+#[derive(Clone, PartialEq, Eq)]
 pub struct CommandTextAdapter<R = UnsupportedCommandTextRunner> {
     id: String,
     command: String,
@@ -277,14 +323,27 @@ pub struct CommandTextAdapter<R = UnsupportedCommandTextRunner> {
     runner: R,
 }
 
+impl<R> fmt::Debug for CommandTextAdapter<R> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommandTextAdapter")
+            .field("id", &self.id)
+            .field("has_command", &(!self.command.is_empty()))
+            .field("args_count", &self.args.len())
+            .field("env_count", &self.env.len())
+            .field("has_working_dir", &self.working_dir.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl CommandTextAdapter<UnsupportedCommandTextRunner> {
-    /// Creates a command adapter skeleton from executable and arguments.
+    /// Creates a command adapter with the explicit unavailable runner.
     #[must_use]
     pub fn new(command: impl Into<String>, args: Vec<String>) -> Self {
         Self::with_runner(command, args, UnsupportedCommandTextRunner)
     }
 
-    /// Creates a command adapter skeleton from typed config.
+    /// Creates a command adapter from typed config with the unavailable runner.
     #[must_use]
     pub fn from_config(config: &LlmAdapterConfig) -> Self {
         Self::with_adapter_config(config, UnsupportedCommandTextRunner)
@@ -389,9 +448,18 @@ impl<R: CommandTextRunner> TextAdapter for CommandTextAdapter<R> {
 }
 
 /// Registry of configured text adapters.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct AdapterRegistry {
     command_adapters: std::collections::HashMap<String, CommandTextAdapter>,
+}
+
+impl fmt::Debug for AdapterRegistry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AdapterRegistry")
+            .field("adapter_count", &self.command_adapters.len())
+            .finish()
+    }
 }
 
 impl AdapterRegistry {
@@ -448,9 +516,18 @@ impl AdapterRegistry {
 }
 
 /// Text processor that dispatches post-processing scenes to configured command adapters.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CommandTextProcessor<R = UnsupportedCommandTextRunner> {
     adapters: Vec<CommandTextAdapter<R>>,
+}
+
+impl<R> fmt::Debug for CommandTextProcessor<R> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CommandTextProcessor")
+            .field("adapter_count", &self.adapters.len())
+            .finish()
+    }
 }
 
 impl CommandTextProcessor<UnsupportedCommandTextRunner> {

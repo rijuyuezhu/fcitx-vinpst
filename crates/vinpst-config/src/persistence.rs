@@ -30,6 +30,15 @@ pub enum ConfigWriteError {
     /// The candidate config failed typed validation.
     #[error("validate config before writing: {0}")]
     Validation(#[from] ConfigError),
+    /// The destination symlink chain could not be resolved safely.
+    #[error("resolve config write target `{path}`: {source}")]
+    ResolveTarget {
+        /// User-facing destination path.
+        path: PathBuf,
+        /// Underlying filesystem error.
+        #[source]
+        source: io::Error,
+    },
     /// The output parent directory could not be created.
     #[error("create config directory `{path}`: {source}")]
     CreateDirectory {
@@ -103,8 +112,14 @@ pub fn write_config_file(
     backup_path: Option<&Path>,
 ) -> Result<ConfigWriteReceipt, ConfigWriteError> {
     config.validate()?;
+    let resolved_output = resolve_symlink_write_target(output_path).map_err(|source| {
+        ConfigWriteError::ResolveTarget {
+            path: output_path.to_path_buf(),
+            source,
+        }
+    })?;
 
-    if let Some(parent) = output_path
+    if let Some(parent) = resolved_output
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
     {
@@ -117,7 +132,7 @@ pub fn write_config_file(
     let mut contents = serde_json::to_string_pretty(config)?;
     contents.push('\n');
 
-    let (temporary_path, mut temporary_file) = create_temporary_file(output_path)?;
+    let (temporary_path, mut temporary_file) = create_temporary_file(&resolved_output)?;
     if let Err(source) = temporary_file
         .write_all(contents.as_bytes())
         .and_then(|()| temporary_file.sync_all())
@@ -135,7 +150,7 @@ pub fn write_config_file(
     // existing backup. This keeps a prior recovery point intact when the
     // destination directory cannot even accept the candidate transaction.
     if let Some(backup_path) = backup_path
-        && let Err(source) = fs::copy(output_path, backup_path)
+        && let Err(source) = fs::copy(&resolved_output, backup_path)
             .and_then(|_| set_private_file_permissions(backup_path))
     {
         let _ = fs::remove_file(&temporary_path);
@@ -146,7 +161,7 @@ pub fn write_config_file(
         });
     }
 
-    if let Err(source) = fs::rename(&temporary_path, output_path) {
+    if let Err(source) = fs::rename(&temporary_path, &resolved_output) {
         let _ = fs::remove_file(&temporary_path);
         return Err(ConfigWriteError::Rename {
             temporary_path,
@@ -159,6 +174,50 @@ pub fn write_config_file(
         path: output_path.to_path_buf(),
         backup_path: backup_path.map(Path::to_path_buf),
     })
+}
+
+/// Resolves a final symlink write target without requiring the leaf to exist.
+///
+/// Relative symlink targets are interpreted relative to the link parent and
+/// symlink chains are bounded to the frozen implementation's 32 levels.
+pub fn resolve_symlink_write_target(path: &Path) -> io::Result<PathBuf> {
+    resolve_symlink_write_target_inner(path, 0)
+}
+
+fn resolve_symlink_write_target_inner(path: &Path, depth: usize) -> io::Result<PathBuf> {
+    if depth >= 32 {
+        return Err(io::Error::other(format!(
+            "too many symlink levels while resolving `{}`",
+            path.display()
+        )));
+    }
+
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            let target = fs::read_link(path)?;
+            let target = if target.is_absolute() {
+                target
+            } else {
+                path.parent()
+                    .map_or(target.clone(), |parent| parent.join(target))
+            };
+            resolve_symlink_write_target_inner(&target, depth + 1)
+        }
+        Ok(_) => Ok(path.to_path_buf()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            let Some(parent) = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            else {
+                return Ok(path.to_path_buf());
+            };
+            let resolved_parent = resolve_symlink_write_target_inner(parent, depth)?;
+            Ok(path
+                .file_name()
+                .map_or(resolved_parent.clone(), |name| resolved_parent.join(name)))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(unix)]
@@ -206,7 +265,7 @@ fn create_temporary_file(path: &Path) -> Result<(PathBuf, fs::File), ConfigWrite
 mod tests {
     use std::fs;
     #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{PermissionsExt, symlink};
 
     use super::*;
 
@@ -285,6 +344,46 @@ mod tests {
                     .file_name()
                     .to_string_lossy()
                     .starts_with(&temporary_prefix))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_preserves_relative_symlink_and_backs_up_target_contents() {
+        let directory = tempfile::tempdir().expect("create temp directory");
+        let real_dir = directory.path().join("dotfiles");
+        fs::create_dir_all(&real_dir).expect("create dotfiles directory");
+        let target_path = real_dir.join("config.json");
+        let link_path = directory.path().join("config.json");
+        let backup_path = config_backup_path(&link_path);
+        let original = VinpstConfig::bundled_default().expect("bundled config");
+        let mut original_text =
+            serde_json::to_string_pretty(&original).expect("serialize original");
+        original_text.push('\n');
+        fs::write(&target_path, &original_text).expect("seed real config target");
+        symlink("dotfiles/config.json", &link_path).expect("create relative config symlink");
+
+        let mut updated = original;
+        updated.global.default_language = "en-US".to_owned();
+        let receipt = write_config_file(&updated, &link_path, Some(&backup_path))
+            .expect("write through config symlink");
+
+        assert_eq!(receipt.path, link_path);
+        assert!(
+            fs::symlink_metadata(&link_path)
+                .expect("link metadata")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_link(&link_path).expect("read config symlink"),
+            PathBuf::from("dotfiles/config.json")
+        );
+        let loaded = VinpstConfig::from_json_file(&target_path).expect("load updated target");
+        assert_eq!(loaded.global.default_language, "en-US");
+        assert_eq!(
+            fs::read_to_string(&backup_path).expect("read symlink-entry backup"),
+            original_text
         );
     }
 

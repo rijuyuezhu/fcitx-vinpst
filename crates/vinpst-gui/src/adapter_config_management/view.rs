@@ -57,7 +57,7 @@ fn adapter_config_editor_view(
         locale.text(GuiText::JsonStringArray),
         editor.fields.args.as_str(),
         AdapterConfigEditorField::Args,
-        true,
+        false,
     ))
     .push(labeled_input(
         locale.text(GuiText::Environment),

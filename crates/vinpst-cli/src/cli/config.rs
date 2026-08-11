@@ -10,10 +10,11 @@ pub(crate) enum ConfigCommand {
         /// Path to a config JSON file.
         path: PathBuf,
         /// Explicitly print only summary fields.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         summary_only: bool,
     },
     /// Read a config value by JSON pointer.
+    #[command(alias = "g")]
     Get {
         /// JSON pointer such as `/global/default_language`. Use an empty string for the whole document.
         pointer: String,
@@ -34,11 +35,16 @@ pub(crate) enum ConfigCommand {
         json: bool,
     },
     /// Set an existing config value by JSON pointer.
+    #[command(alias = "s")]
     Set {
         /// JSON pointer such as `/global/default_language`. The pointer must already exist.
         pointer: String,
         /// New value. Parsed as JSON when possible, otherwise treated as a string.
-        value: String,
+        #[arg(required_unless_present = "stdin")]
+        value: Option<String>,
+        /// Read the new value from standard input instead of VALUE.
+        #[arg(short = 'i', long = "stdin")]
+        stdin: bool,
         /// Treat VALUE as a literal string without JSON parsing.
         #[arg(long)]
         string: bool,
@@ -58,12 +64,16 @@ pub(crate) enum ConfigCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Open a config in an editor, then validate and write it back safely.
+    /// Open a config in an editor, then write it back safely.
+    #[command(alias = "e")]
     Edit {
-        /// Optional config JSON file. Omitted to edit the user config, or create it from the bundled default.
+        /// Config target: core daemon JSON or Fcitx frontend INI.
+        #[arg(default_value = "core", value_parser = ["core", "fcitx"])]
+        target: String,
+        /// Optional core config JSON file. Omitted to edit the user config, or create it from the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
-        /// Editor executable to run. Defaults to `$VINPST_CONFIG_EDITOR`, `$EDITOR`, then `$VISUAL`.
+        /// Editor command to run. Defaults to `$VINPST_CONFIG_EDITOR`, `$VISUAL`, `$EDITOR`, then `vi`.
         #[arg(long)]
         editor: Option<String>,
         /// Print the editor plan without invoking the editor or writing files.
@@ -74,6 +84,7 @@ pub(crate) enum ConfigCommand {
         json: bool,
     },
     /// Print, list, or write a bundled example config JSON file.
+    #[command(hide = true)]
     Example {
         /// Example config to export. Omit with --list to show available examples.
         #[arg(value_enum, required_unless_present = "list")]

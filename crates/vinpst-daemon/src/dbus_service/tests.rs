@@ -1,9 +1,55 @@
-use super::{AsrBackendStateTuple, LivePartialEmissionState, VinpstDbusService};
+use super::{
+    AsrBackendStateTuple, LivePartialEmissionState, MAX_ERROR_DESCRIPTION_LEN, VinpstDbusService,
+    postprocess_notification, sanitize_dbus_error_message,
+};
 use crate::RuntimeState;
-use tokio::time::{Duration, sleep, timeout};
-use vinpst_asr::MockAsrBackend;
+use tokio::{
+    sync::Mutex,
+    time::{Duration, sleep, timeout},
+};
+use vinpst_asr::{MIN_SAMPLES_FOR_RECOGNITION, MockAsrBackend};
+use vinpst_audio::{CapturedAudio, MockAudioSource, PcmBuffer};
 use vinpst_config::{AsrProviderConfig, AsrProviderKind, LlmAdapterConfig, VinpstConfig};
 use vinpst_protocol::{RecognitionPayload, TextAdapterState};
+use vinpst_text::TextError;
+
+#[test]
+fn postprocess_notifications_match_upstream_error_codes() {
+    let http = postprocess_notification(&TextError::AdapterFailed(
+        "OpenAI-compatible provider returned HTTP 429: rate limited".to_owned(),
+    ));
+    assert_eq!(http.code, "llm_http_failed");
+    assert!(http.raw_message.starts_with("HTTP 429"));
+
+    let request = postprocess_notification(&TextError::AdapterFailed(
+        "OpenAI-compatible HTTP request timed out".to_owned(),
+    ));
+    assert_eq!(request.code, "llm_request_failed");
+    assert!(request.raw_message.starts_with("LLM request failed:"));
+
+    let prompt = postprocess_notification(&TextError::PromptFileLoad(
+        "file:///tmp/prompt: failed".to_owned(),
+    ));
+    assert_eq!(prompt.code, "prompt_file_load_failed");
+    assert!(prompt.raw_message.starts_with("Prompt file load failed:"));
+}
+
+#[test]
+fn dbus_error_messages_are_redacted_normalized_and_bounded() {
+    assert_eq!(
+        sanitize_dbus_error_message("request failed\nAuthorization: Bearer secret-token"),
+        "operation failed"
+    );
+    assert_eq!(
+        sanitize_dbus_error_message("  capture   failed\nwith\tdevice  "),
+        "capture failed with device"
+    );
+
+    let long_message = "界".repeat(MAX_ERROR_DESCRIPTION_LEN + 32);
+    let sanitized = sanitize_dbus_error_message(&long_message);
+    assert_eq!(sanitized.chars().count(), MAX_ERROR_DESCRIPTION_LEN);
+    assert!(sanitized.ends_with('…'));
+}
 
 fn service() -> VinpstDbusService {
     let config = VinpstConfig::bundled_default().unwrap();
@@ -34,6 +80,8 @@ fn unique_adapter_runtime_dir(name: &str) -> std::path::PathBuf {
             .as_nanos()
     ))
 }
+
+static REMOTE_LIFECYCLE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
 fn reserve_remote_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0")
@@ -98,6 +146,28 @@ async fn dbus_facade_exercises_normal_mock_flow() {
 }
 
 #[tokio::test]
+async fn dbus_short_recording_returns_legacy_empty_payload() {
+    let config = VinpstConfig::bundled_default().unwrap();
+    let source = MockAudioSource::once(CapturedAudio::anonymous(PcmBuffer::at_default_rate(
+        vec![64; MIN_SAMPLES_FOR_RECOGNITION - 1],
+    )));
+    let runtime = RuntimeState::with_backends(
+        config,
+        Box::new(MockAsrBackend::buffered("must not run")),
+        Box::new(source),
+    )
+    .unwrap();
+    let service = VinpstDbusService::new(runtime);
+
+    service.start_recording_state().await.unwrap();
+    let (payload, status, partial) = service.stop_recording_payload("").await.unwrap();
+
+    assert_eq!(payload, "");
+    assert_eq!(status, "idle");
+    assert_eq!(partial, None);
+}
+
+#[tokio::test]
 async fn dbus_facade_keeps_remote_asr_and_remote_text_endpoints_separate() {
     let mut config = VinpstConfig::bundled_default().unwrap();
     config.asr.active_provider = "remote-asr".to_owned();
@@ -132,6 +202,7 @@ async fn dbus_facade_keeps_remote_asr_and_remote_text_endpoints_separate() {
 
 #[tokio::test]
 async fn dbus_facade_reconciles_remote_service_on_config_reload() {
+    let _remote_lifecycle = REMOTE_LIFECYCLE_TEST_LOCK.lock().await;
     let first_port = reserve_remote_port();
     let mut second_port = reserve_remote_port();
     while second_port == first_port {
@@ -199,6 +270,7 @@ async fn dbus_facade_reconciles_remote_service_on_config_reload() {
 
 #[tokio::test]
 async fn dbus_facade_remote_bind_failure_drops_stale_listener() {
+    let _remote_lifecycle = REMOTE_LIFECYCLE_TEST_LOCK.lock().await;
     let first_port = reserve_remote_port();
     let occupied = std::net::TcpListener::bind("127.0.0.1:0").expect("occupy remote reload port");
     let occupied_port = occupied.local_addr().unwrap().port();
@@ -240,6 +312,7 @@ async fn dbus_facade_remote_bind_failure_drops_stale_listener() {
 
 #[tokio::test]
 async fn dbus_facade_provider_selection_starts_and_stops_remote_service() {
+    let _remote_lifecycle = REMOTE_LIFECYCLE_TEST_LOCK.lock().await;
     let port = reserve_remote_port();
     let root = unique_adapter_runtime_dir("remote-provider-selection");
     std::fs::create_dir_all(&root).expect("create remote selection directory");

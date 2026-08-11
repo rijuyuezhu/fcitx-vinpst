@@ -16,24 +16,28 @@ use super::{
 use crate::sandbox;
 
 pub(super) fn print_daemon_handoff(dry_run: bool, json_output: bool) -> anyhow::Result<()> {
-    let command = daemon_user_service_command("restart", None)?;
+    let command = daemon_user_service_command("restart", None, false)?;
     let output = if dry_run {
         daemon_handoff_dry_run_json(&command)
     } else {
         run_daemon_handoff(&command)?
     };
+    let ok = output["ok"].as_bool() == Some(true);
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
         print_daemon_handoff_result_text(&output);
     }
+    if !dry_run && !ok {
+        anyhow::bail!("daemon upgrade handoff did not complete safely");
+    }
     Ok(())
 }
 
 fn daemon_handoff_dry_run_json(command: &UserServiceCommand) -> serde_json::Value {
-    let main_pid_probe = daemon_user_service_command("main-pid", None)
+    let main_pid_probe = daemon_user_service_command("main-pid", None, false)
         .expect("internal systemd MainPID command must be valid");
-    let service_reload = daemon_user_service_command("daemon-reload", None)
+    let service_reload = daemon_user_service_command("daemon-reload", None, false)
         .expect("internal systemd daemon-reload command must be valid");
     let direct_signal = direct_daemon_signal_command("<owner-pid>");
     serde_json::json!({
@@ -51,6 +55,11 @@ fn daemon_handoff_dry_run_json(command: &UserServiceCommand) -> serde_json::Valu
         ],
         "systemd_control": {
             "owner_probe": daemon_user_service_dry_run_json("main-pid", &main_pid_probe),
+            "guards": [
+                "owner-matches-unit-main-pid",
+                "owner-is-idle",
+                "no-active-recording-session"
+            ],
             "reload": daemon_user_service_dry_run_json("daemon-reload", &service_reload),
             "restart": daemon_user_service_dry_run_json("restart", command),
         },
@@ -86,6 +95,7 @@ fn daemon_handoff_dry_run_json(command: &UserServiceCommand) -> serde_json::Valu
 
 #[derive(Clone, Copy)]
 enum HandoffMutationTarget {
+    None,
     UserService,
     DirectOwner,
 }
@@ -104,6 +114,7 @@ struct HandoffControl {
     outcome: HandoffOutcome,
     failure_status: &'static str,
     systemd_probe: serde_json::Value,
+    systemd_guard: serde_json::Value,
     direct_guard: serde_json::Value,
     direct_revalidation: serde_json::Value,
     dbus_reload: serde_json::Value,
@@ -174,6 +185,7 @@ fn daemon_handoff_not_needed_json(before: &serde_json::Value) -> serde_json::Val
         "restart_performed": false,
         "before": before,
         "systemd_probe": null,
+        "systemd_guard": null,
         "direct_guard": null,
         "direct_revalidation": null,
         "dbus_reload": null,
@@ -211,6 +223,7 @@ fn daemon_handoff_failure_json(
         "restart_performed": control.performed(),
         "before": before,
         "systemd_probe": control.systemd_probe,
+        "systemd_guard": control.systemd_guard,
         "direct_guard": control.direct_guard,
         "direct_revalidation": control.direct_revalidation,
         "dbus_reload": control.dbus_reload,
@@ -251,6 +264,7 @@ fn daemon_handoff_success_json(
         "restart_performed": control.performed(),
         "before": before,
         "systemd_probe": control.systemd_probe,
+        "systemd_guard": control.systemd_guard,
         "direct_guard": control.direct_guard,
         "direct_revalidation": control.direct_revalidation,
         "dbus_reload": control.dbus_reload,
@@ -280,7 +294,24 @@ fn execute_daemon_handoff(
     let owner_pid = daemon_snapshot_owner_pid(before);
     let systemd_probe = daemon_systemd_owner_probe(owner_pid)?;
     if systemd_probe["owner_matches_main_pid"].as_bool() == Some(true) {
-        execute_systemd_daemon_handoff(systemd_probe, restart_command)
+        let systemd_guard = systemd_owner_handoff_guard(before, &systemd_probe);
+        if systemd_guard["approved"].as_bool() != Some(true) {
+            return Ok(HandoffControl {
+                strategy: "systemd-daemon-reload-and-restart",
+                mutation_target: HandoffMutationTarget::None,
+                outcome: HandoffOutcome::NotAttempted,
+                failure_status: "systemd-owner-session-guard-rejected",
+                systemd_probe,
+                systemd_guard,
+                direct_guard: serde_json::Value::Null,
+                direct_revalidation: serde_json::Value::Null,
+                dbus_reload: serde_json::Value::Null,
+                service_reload: serde_json::Value::Null,
+                service_control: serde_json::Value::Null,
+                direct_signal: serde_json::Value::Null,
+            });
+        }
+        execute_systemd_daemon_handoff(systemd_probe, systemd_guard, restart_command)
     } else {
         execute_direct_daemon_handoff(before, owner_pid, systemd_probe)
     }
@@ -288,9 +319,10 @@ fn execute_daemon_handoff(
 
 fn execute_systemd_daemon_handoff(
     systemd_probe: serde_json::Value,
+    systemd_guard: serde_json::Value,
     restart_command: &UserServiceCommand,
 ) -> anyhow::Result<HandoffControl> {
-    let reload_command = daemon_user_service_command("daemon-reload", None)?;
+    let reload_command = daemon_user_service_command("daemon-reload", None, false)?;
     let service_reload = run_daemon_user_service_command("daemon-reload", &reload_command);
     if service_reload["ok"].as_bool() != Some(true) {
         return Ok(HandoffControl {
@@ -299,6 +331,7 @@ fn execute_systemd_daemon_handoff(
             outcome: HandoffOutcome::FailedBeforeHandoff,
             failure_status: "daemon-reload-failed",
             systemd_probe,
+            systemd_guard: systemd_guard.clone(),
             direct_guard: serde_json::Value::Null,
             direct_revalidation: serde_json::Value::Null,
             dbus_reload: serde_json::Value::Null,
@@ -319,6 +352,7 @@ fn execute_systemd_daemon_handoff(
         },
         failure_status: "restart-failed",
         systemd_probe,
+        systemd_guard,
         direct_guard: serde_json::Value::Null,
         direct_revalidation: serde_json::Value::Null,
         dbus_reload: serde_json::Value::Null,
@@ -341,6 +375,7 @@ fn execute_direct_daemon_handoff(
             outcome: HandoffOutcome::NotAttempted,
             failure_status: "direct-owner-guard-rejected",
             systemd_probe,
+            systemd_guard: serde_json::Value::Null,
             direct_guard,
             direct_revalidation: serde_json::Value::Null,
             dbus_reload: serde_json::Value::Null,
@@ -358,6 +393,7 @@ fn execute_direct_daemon_handoff(
             outcome: HandoffOutcome::FailedBeforeHandoff,
             failure_status: "dbus-reload-failed",
             systemd_probe,
+            systemd_guard: serde_json::Value::Null,
             direct_guard,
             direct_revalidation: serde_json::Value::Null,
             dbus_reload,
@@ -375,6 +411,7 @@ fn execute_direct_daemon_handoff(
             outcome: HandoffOutcome::FailedBeforeHandoff,
             failure_status: "direct-owner-identity-changed",
             systemd_probe,
+            systemd_guard: serde_json::Value::Null,
             direct_guard,
             direct_revalidation,
             dbus_reload,
@@ -397,6 +434,7 @@ fn execute_direct_daemon_handoff(
         },
         failure_status: "direct-owner-signal-failed",
         systemd_probe,
+        systemd_guard: serde_json::Value::Null,
         direct_guard,
         direct_revalidation,
         dbus_reload,
@@ -415,7 +453,7 @@ pub(super) fn daemon_snapshot_owner_pid(snapshot: &serde_json::Value) -> Option<
 pub(super) fn daemon_systemd_owner_probe(
     owner_pid: Option<u32>,
 ) -> anyhow::Result<serde_json::Value> {
-    let command = daemon_user_service_command("main-pid", None)?;
+    let command = daemon_user_service_command("main-pid", None, false)?;
     let command_result = run_daemon_user_service_command("main-pid", &command);
     let main_pid = command_result["stdout"]
         .as_str()
@@ -429,6 +467,21 @@ pub(super) fn daemon_systemd_owner_probe(
         "owner_matches_main_pid": owner_pid.zip(main_pid).is_some_and(|(owner, main)| owner == main),
         "command_result": command_result,
     }))
+}
+
+fn systemd_owner_handoff_guard(
+    snapshot: &serde_json::Value,
+    systemd_probe: &serde_json::Value,
+) -> serde_json::Value {
+    let status_idle = snapshot["status"].as_str() == Some("idle");
+    let active_session = snapshot["runtime_status"]["active_session"].as_bool();
+    let systemd_probe_matches = systemd_probe["owner_matches_main_pid"].as_bool() == Some(true);
+    serde_json::json!({
+        "approved": systemd_probe_matches && status_idle && active_session == Some(false),
+        "status_idle": status_idle,
+        "active_session": active_session,
+        "systemd_probe_matches": systemd_probe_matches,
+    })
 }
 
 pub(super) fn direct_owner_handoff_guard(
@@ -692,4 +745,39 @@ pub(super) fn first_json_string(value: &serde_json::Value) -> &str {
         .and_then(|values| values.first())
         .and_then(serde_json::Value::as_str)
         .unwrap_or("-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::systemd_owner_handoff_guard;
+
+    fn snapshot(status: &str, active_session: bool) -> serde_json::Value {
+        serde_json::json!({
+            "status": status,
+            "runtime_status": {"active_session": active_session}
+        })
+    }
+
+    #[test]
+    fn systemd_handoff_guard_requires_idle_inactive_matching_owner() {
+        let matching_probe = serde_json::json!({"owner_matches_main_pid": true});
+        let mismatched_probe = serde_json::json!({"owner_matches_main_pid": false});
+
+        assert_eq!(
+            systemd_owner_handoff_guard(&snapshot("idle", false), &matching_probe)["approved"],
+            true
+        );
+        assert_eq!(
+            systemd_owner_handoff_guard(&snapshot("recording", true), &matching_probe)["approved"],
+            false
+        );
+        assert_eq!(
+            systemd_owner_handoff_guard(&snapshot("idle", true), &matching_probe)["approved"],
+            false
+        );
+        assert_eq!(
+            systemd_owner_handoff_guard(&snapshot("idle", false), &mismatched_probe)["approved"],
+            false
+        );
+    }
 }

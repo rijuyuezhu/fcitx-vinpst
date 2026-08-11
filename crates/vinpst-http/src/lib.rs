@@ -96,6 +96,42 @@ pub fn blocking_client_from_environment() -> Result<reqwest::blocking::Client, H
     blocking_client_with_extra_ca_path(certificate_path.as_deref())
 }
 
+/// Builds the blocking provider client with an explicit TCP connect deadline.
+///
+/// Per-request timeouts still bound the complete exchange; this limit only
+/// prevents a connect attempt from consuming an otherwise long deadline.
+pub fn blocking_client_from_environment_with_connect_timeout(
+    connect_timeout: Duration,
+) -> Result<reqwest::blocking::Client, HttpClientError> {
+    let certificate_path = env::var_os(SSL_CERT_FILE_ENV)
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from);
+    blocking_client_with_extra_ca_path_and_connect_timeout(
+        certificate_path.as_deref(),
+        Some(connect_timeout),
+    )
+}
+
+/// Builds the asynchronous provider client with an explicit TCP connect deadline.
+///
+/// Trust roots and redirect policy are identical to the blocking provider client.
+/// Callers that need cooperative cancellation can drop an in-flight request future
+/// without weakening TLS validation or provider endpoint isolation.
+pub fn client_from_environment_with_connect_timeout(
+    connect_timeout: Duration,
+) -> Result<reqwest::Client, HttpClientError> {
+    let certificate_path = env::var_os(SSL_CERT_FILE_ENV)
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from);
+    let mut builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(connect_timeout);
+    for certificate in extra_certificates(certificate_path.as_deref())? {
+        builder = builder.add_root_certificate(certificate);
+    }
+    builder.build().map_err(|_| HttpClientError::ClientBuild)
+}
+
 /// Fetches one bounded JSON text document with redirects disabled.
 ///
 /// Diagnostics intentionally omit the request URL and response body. The shared
@@ -224,40 +260,57 @@ fn error_cause_is_timeout(cause: &(dyn std::error::Error + 'static)) -> bool {
 fn blocking_client_with_extra_ca_path(
     certificate_path: Option<&Path>,
 ) -> Result<reqwest::blocking::Client, HttpClientError> {
+    blocking_client_with_extra_ca_path_and_connect_timeout(certificate_path, None)
+}
+
+fn blocking_client_with_extra_ca_path_and_connect_timeout(
+    certificate_path: Option<&Path>,
+    connect_timeout: Option<Duration>,
+) -> Result<reqwest::blocking::Client, HttpClientError> {
     let mut builder =
         reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none());
-    if let Some(certificate_path) = certificate_path {
-        let certificate_file = fs::File::open(certificate_path)
-            .map_err(|_| HttpClientError::CertificateFileInspection)?;
-        let metadata = certificate_file
-            .metadata()
-            .map_err(|_| HttpClientError::CertificateFileInspection)?;
-        if !metadata.is_file() {
-            return Err(HttpClientError::CertificateFileNotRegular);
-        }
-        if metadata.len() > MAX_EXTRA_CA_BUNDLE_BYTES {
-            return Err(HttpClientError::CertificateFileTooLarge);
-        }
-        let capacity = usize::try_from(metadata.len())
-            .map_err(|_| HttpClientError::CertificateFileTooLarge)?;
-        let mut pem_bundle = Vec::with_capacity(capacity);
-        certificate_file
-            .take(MAX_EXTRA_CA_BUNDLE_BYTES + 1)
-            .read_to_end(&mut pem_bundle)
-            .map_err(|_| HttpClientError::CertificateFileRead)?;
-        if pem_bundle.len() as u64 > MAX_EXTRA_CA_BUNDLE_BYTES {
-            return Err(HttpClientError::CertificateFileTooLarge);
-        }
-        let certificates = reqwest::Certificate::from_pem_bundle(&pem_bundle)
-            .map_err(|_| HttpClientError::CertificateBundleInvalid)?;
-        if certificates.is_empty() {
-            return Err(HttpClientError::CertificateBundleInvalid);
-        }
-        for certificate in certificates {
-            builder = builder.add_root_certificate(certificate);
-        }
+    if let Some(connect_timeout) = connect_timeout {
+        builder = builder.connect_timeout(connect_timeout);
+    }
+    for certificate in extra_certificates(certificate_path)? {
+        builder = builder.add_root_certificate(certificate);
     }
     builder.build().map_err(|_| HttpClientError::ClientBuild)
+}
+
+fn extra_certificates(
+    certificate_path: Option<&Path>,
+) -> Result<Vec<reqwest::Certificate>, HttpClientError> {
+    let Some(certificate_path) = certificate_path else {
+        return Ok(Vec::new());
+    };
+    let certificate_file =
+        fs::File::open(certificate_path).map_err(|_| HttpClientError::CertificateFileInspection)?;
+    let metadata = certificate_file
+        .metadata()
+        .map_err(|_| HttpClientError::CertificateFileInspection)?;
+    if !metadata.is_file() {
+        return Err(HttpClientError::CertificateFileNotRegular);
+    }
+    if metadata.len() > MAX_EXTRA_CA_BUNDLE_BYTES {
+        return Err(HttpClientError::CertificateFileTooLarge);
+    }
+    let capacity =
+        usize::try_from(metadata.len()).map_err(|_| HttpClientError::CertificateFileTooLarge)?;
+    let mut pem_bundle = Vec::with_capacity(capacity);
+    certificate_file
+        .take(MAX_EXTRA_CA_BUNDLE_BYTES + 1)
+        .read_to_end(&mut pem_bundle)
+        .map_err(|_| HttpClientError::CertificateFileRead)?;
+    if pem_bundle.len() as u64 > MAX_EXTRA_CA_BUNDLE_BYTES {
+        return Err(HttpClientError::CertificateFileTooLarge);
+    }
+    let certificates = reqwest::Certificate::from_pem_bundle(&pem_bundle)
+        .map_err(|_| HttpClientError::CertificateBundleInvalid)?;
+    if certificates.is_empty() {
+        return Err(HttpClientError::CertificateBundleInvalid);
+    }
+    Ok(certificates)
 }
 
 #[cfg(test)]

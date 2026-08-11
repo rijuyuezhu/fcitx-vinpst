@@ -4,7 +4,10 @@ mod common;
 
 use std::fs;
 
-use common::{assert_json_success, assert_stdout_success, vinpst_command};
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+
+use common::{assert_json_failure, assert_json_success, assert_stdout_success, vinpst_command};
 use tempfile::NamedTempFile;
 use vinpst_protocol::{RecognitionPayload, ServiceStatus, dbus};
 
@@ -28,7 +31,7 @@ fn flatpak_info_fixture() -> NamedTempFile {
     let file = NamedTempFile::new().expect("create flatpak info fixture");
     fs::write(
         file.path(),
-        "[Context]\nshared=network;ipc;\nsockets=wayland;pipewire;\nfilesystems=xdg-config/systemd;xdg-cache;\n",
+        "[Context]\nshared=network;ipc;\nsockets=wayland;\nfilesystems=xdg-run/pipewire-0;xdg-config/systemd:create;xdg-cache;\n",
     )
     .expect("write flatpak info fixture");
     file
@@ -48,6 +51,27 @@ fn assert_daemon_owner_probe_plan(value: &serde_json::Value) {
         assert!(
             process_fields.contains(&serde_json::json!(field)),
             "missing owner probe process field {field}"
+        );
+    }
+}
+
+fn assert_human_output_hides_transport_details(stdout: &str) {
+    assert!(!stdout.trim().is_empty());
+    for internal in [
+        "org.fcitx.Vinpst",
+        "/org/fcitx/Vinpst",
+        "GetNameOwner",
+        "owner_probe:",
+        "will_call_dbus:",
+        "tool_program:",
+        "tool_env_override:",
+        "dry_run:",
+        "called:",
+        "method:",
+    ] {
+        assert!(
+            !stdout.contains(internal),
+            "leaked internal detail: {internal}"
         );
     }
 }
@@ -179,6 +203,88 @@ fn activation_service_user_writes_xdg_data_home_service() {
         "[D-BUS Service]\nName=org.fcitx.Vinpst\nExec=/usr/bin/vinpst-daemon --dbus --exit-when-executable-replaced\n"
     );
     std::fs::remove_dir_all(data_home).expect("remove generated user service fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn activation_service_user_preserves_relative_symlink_and_writes_target_atomically() {
+    let data_home = tempfile::Builder::new()
+        .prefix("vinpst-cli-user-service-symlink-")
+        .tempdir()
+        .expect("create user service symlink fixture");
+    let service_dir = data_home.path().join("dbus-1/services");
+    let target_path = data_home.path().join("dotfiles/vinpst.service");
+    let service_path = service_dir.join("org.fcitx.Vinpst.service");
+    fs::create_dir_all(&service_dir).expect("create service directory");
+    symlink("../../dotfiles/vinpst.service", &service_path)
+        .expect("create relative service symlink");
+
+    let output = vinpst_command()
+        .env("XDG_DATA_HOME", data_home.path())
+        .args([
+            "activation-service",
+            "--daemon",
+            "/usr/bin/vinpst-daemon",
+            "--user",
+        ])
+        .output()
+        .expect("run activation-service through relative symlink");
+
+    let stdout = assert_stdout_success(output, "activation service symlink write");
+    assert!(stdout.is_empty());
+    assert!(
+        fs::symlink_metadata(&service_path)
+            .expect("inspect service symlink")
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read_link(&service_path).expect("read service symlink"),
+        std::path::PathBuf::from("../../dotfiles/vinpst.service")
+    );
+    assert_eq!(
+        fs::read_to_string(&target_path).expect("read atomic service target"),
+        "[D-BUS Service]\nName=org.fcitx.Vinpst\nExec=/usr/bin/vinpst-daemon --dbus --exit-when-executable-replaced\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn activation_service_user_status_and_remove_handle_dangling_symlink() {
+    let data_home = tempfile::Builder::new()
+        .prefix("vinpst-cli-user-service-dangling-")
+        .tempdir()
+        .expect("create dangling user service fixture");
+    let service_dir = data_home.path().join("dbus-1/services");
+    let service_path = service_dir.join("org.fcitx.Vinpst.service");
+    fs::create_dir_all(&service_dir).expect("create service directory");
+    symlink("../../dotfiles/missing.service", &service_path)
+        .expect("create dangling service symlink");
+
+    let status_output = vinpst_command()
+        .env("XDG_DATA_HOME", data_home.path())
+        .args(["activation-service", "--user-status"])
+        .output()
+        .expect("inspect dangling user activation service");
+    let status = assert_json_success(status_output, "dangling activation service status");
+    assert_eq!(status["user_service_exists"], true);
+    assert!(
+        status["read_error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty())
+    );
+
+    let remove_output = vinpst_command()
+        .env("XDG_DATA_HOME", data_home.path())
+        .args(["activation-service", "--remove-user"])
+        .output()
+        .expect("remove dangling user activation service");
+    let removed = assert_json_success(remove_output, "dangling activation service removal");
+    assert_eq!(removed["removed"], true);
+    assert!(matches!(
+        fs::symlink_metadata(&service_path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    ));
 }
 
 #[test]
@@ -318,21 +424,21 @@ fn daemon_reload_asr_dry_run_prints_dbus_plan_json() {
 }
 
 #[test]
-fn daemon_reload_asr_text_dry_run_prints_dbus_plan() {
-    let text_output = vinpst_command()
-        .args(["daemon", "reload-asr", "--dry-run"])
-        .output()
-        .expect("run vinpst daemon reload-asr --dry-run");
-    let stdout = assert_stdout_success(text_output, "daemon reload-asr dry-run text");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("will_call_dbus: false"));
-    assert!(stdout.contains("called: false"));
-    assert!(stdout.contains("service: org.fcitx.Vinpst"));
-    assert!(stdout.contains("method: ReloadAsrBackend"));
-    assert!(
-        stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
+fn daemon_dry_run_text_hides_transport_details() {
+    for args in [
+        vec!["daemon", "reload-asr", "--dry-run"],
+        vec!["daemon", "status", "--dry-run"],
+        vec!["daemon", "start", "--dry-run"],
+        vec!["daemon", "stop", "--dry-run"],
+        vec!["daemon", "log", "--lines", "7", "--dry-run"],
+    ] {
+        let output = vinpst_command()
+            .args(args)
+            .output()
+            .expect("run daemon human-output dry-run");
+        let stdout = assert_stdout_success(output, "daemon human-output dry-run");
+        assert_human_output_hides_transport_details(&stdout);
+    }
 }
 
 #[test]
@@ -368,29 +474,6 @@ fn daemon_status_dry_run_prints_dbus_plan_json() {
 }
 
 #[test]
-fn daemon_status_text_dry_run_prints_dbus_plan() {
-    let output = vinpst_command()
-        .args(["daemon", "status", "--dry-run"])
-        .output()
-        .expect("run vinpst daemon status --dry-run");
-    let stdout = assert_stdout_success(output, "daemon status dry-run text");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("will_call_dbus: false"));
-    assert!(stdout.contains("service: org.fcitx.Vinpst"));
-    assert!(stdout.contains("GetStatus"));
-    assert!(stdout.contains("GetAsrBackendState"));
-    assert!(stdout.contains("GetRuntimeStatus"));
-    assert!(stdout.contains(
-        "reports: service_status, bus_owner, daemon_handoff, asr_backend, runtime_status, text_adapters"
-    ));
-    assert!(
-        stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
-    assert!(stdout.contains("next_step: run vinpst daemon status without --dry-run"));
-}
-
-#[test]
 fn recording_start_dry_run_prints_dbus_plan_json() {
     let output = vinpst_command()
         .args([
@@ -423,35 +506,18 @@ fn recording_start_dry_run_prints_dbus_plan_json() {
 }
 
 #[test]
-fn recording_stop_and_toggle_dry_run_print_text_plans() {
-    let stop = vinpst_command()
-        .args(["recording", "stop", "--scene", "demo", "--dry-run"])
-        .output()
-        .expect("run vinpst recording stop --dry-run");
-    let stop_stdout = assert_stdout_success(stop, "recording stop dry-run text");
-    assert!(stop_stdout.contains("action: stop"));
-    assert!(stop_stdout.contains("StopRecording"));
-    assert!(
-        stop_stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
-    assert!(stop_stdout.contains("next_step: run vinpst recording status --dry-run --json"));
-    assert!(stop_stdout.contains("scene: demo"));
-
-    let toggle = vinpst_command()
-        .args(["recording", "toggle", "--dry-run"])
-        .output()
-        .expect("run vinpst recording toggle --dry-run");
-    let toggle_stdout = assert_stdout_success(toggle, "recording toggle dry-run text");
-    assert!(toggle_stdout.contains("action: toggle"));
-    assert!(toggle_stdout.contains("GetStatus"));
-    assert!(toggle_stdout.contains("StartRecording"));
-    assert!(toggle_stdout.contains("StopRecording"));
-    assert!(
-        toggle_stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
-    assert!(toggle_stdout.contains("next_step: run vinpst recording status --dry-run --json"));
+fn recording_dry_run_text_hides_transport_details() {
+    for args in [
+        vec!["recording", "stop", "--scene", "demo", "--dry-run"],
+        vec!["recording", "toggle", "--dry-run"],
+    ] {
+        let output = vinpst_command()
+            .args(args)
+            .output()
+            .expect("run recording human-output dry-run");
+        let stdout = assert_stdout_success(output, "recording human-output dry-run");
+        assert_human_output_hides_transport_details(&stdout);
+    }
 }
 
 #[test]
@@ -483,27 +549,6 @@ fn daemon_start_dry_run_prints_activation_plan_json() {
 }
 
 #[test]
-fn daemon_start_text_dry_run_prints_activation_plan() {
-    let output = vinpst_command()
-        .args(["daemon", "start", "--dry-run"])
-        .output()
-        .expect("run vinpst daemon start --dry-run");
-    let stdout = assert_stdout_success(output, "daemon start dry-run text");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("action: start"));
-    assert!(stdout.contains("strategy: dbus-service-activation"));
-    assert!(stdout.contains("method: GetStatus"));
-    assert!(stdout.contains("service: org.fcitx.Vinpst"));
-    assert!(
-        stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
-    assert!(
-        stdout.contains("next_step: run vinpst daemon status to inspect live D-Bus/runtime state")
-    );
-}
-
-#[test]
 fn daemon_user_service_dry_run_commands_print_plans_json() {
     for (command, expected, tool, env_override) in [
         (
@@ -520,7 +565,7 @@ fn daemon_user_service_dry_run_commands_print_plans_json() {
         ),
         (
             "log",
-            "journalctl --user -u vinpst-daemon.service",
+            "journalctl --user -u vinpst-daemon.service -n 100",
             "journalctl",
             "VINPST_DAEMON_JOURNALCTL",
         ),
@@ -577,7 +622,18 @@ fn doctor_reports_missing_flatpak_permissions() {
     assert_eq!(value["sandbox"]["detected"], true);
     assert_eq!(
         value["sandbox"]["missing_permissions"],
-        serde_json::json!(["socket:pipewire", "filesystem:xdg-config/systemd"])
+        serde_json::json!([
+            "filesystem:xdg-run/pipewire-0",
+            "filesystem:xdg-config/systemd"
+        ])
+    );
+    assert_eq!(
+        value["sandbox"]["remediation_commands"],
+        serde_json::json!([
+            "flatpak override --user --filesystem=xdg-run/pipewire-0 org.fcitx.Fcitx5",
+            "flatpak override --user --filesystem=xdg-config/systemd:create org.fcitx.Fcitx5",
+            "flatpak kill org.fcitx.Fcitx5"
+        ])
     );
 }
 
@@ -775,6 +831,14 @@ fn daemon_handoff_dry_run_pins_conditional_restart_and_verification() {
         value["systemd_control"]["reload"]["command"],
         "systemctl --user daemon-reload"
     );
+    assert_eq!(
+        value["systemd_control"]["guards"],
+        serde_json::json!([
+            "owner-matches-unit-main-pid",
+            "owner-is-idle",
+            "no-active-recording-session"
+        ])
+    );
     assert_eq!(value["direct_control"]["signal"], "TERM");
     assert_eq!(
         value["direct_control"]["reactivation"],
@@ -869,15 +933,53 @@ fn daemon_log_lines_dry_run_adds_journalctl_limit() {
 }
 
 #[test]
-fn daemon_log_lines_text_dry_run_prints_limit() {
+fn daemon_log_defaults_to_frozen_last_hundred_lines() {
     let output = vinpst_command()
-        .args(["daemon", "log", "--lines", "7", "--dry-run"])
+        .args(["daemon", "log", "--dry-run", "--json"])
         .output()
-        .expect("run vinpst daemon log --lines --dry-run");
+        .expect("run vinpst daemon log default dry-run json");
 
-    let stdout = assert_stdout_success(output, "daemon log lines dry-run text");
-    assert!(stdout.contains("action: log"));
-    assert!(stdout.contains("journalctl --user -u vinpst-daemon.service -n 7"));
+    let value = assert_json_success(output, "daemon log default dry-run json");
+    assert_eq!(
+        value["command_argv"],
+        serde_json::json!([
+            "journalctl",
+            "--user",
+            "-u",
+            "vinpst-daemon.service",
+            "-n",
+            "100"
+        ])
+    );
+}
+
+#[test]
+fn daemon_log_follow_streams_child_output() {
+    let output = vinpst_command()
+        .env("VINPST_DAEMON_JOURNALCTL", "/bin/echo")
+        .args(["daemon", "log", "--follow", "--lines", "3"])
+        .output()
+        .expect("run vinpst daemon log --follow");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).expect("follow stdout should be utf8"),
+        "--user -u vinpst-daemon.service -n 3 -f\n"
+    );
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn daemon_log_follow_rejects_live_json_output() {
+    let output = vinpst_command()
+        .env("VINPST_DAEMON_JOURNALCTL", "/bin/echo")
+        .args(["daemon", "log", "--follow", "--json"])
+        .output()
+        .expect("run vinpst daemon log --follow --json");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("follow json stderr should be utf8");
+    assert!(stderr.contains("daemon log --follow cannot be combined with JSON output"));
 }
 
 #[test]
@@ -936,7 +1038,7 @@ fn daemon_user_service_missing_tool_reports_fallback_steps_json() {
         .output()
         .expect("run vinpst daemon stop with missing systemctl");
 
-    let value = assert_json_success(output, "daemon missing systemctl json");
+    let value = assert_json_failure(output, "daemon missing systemctl json");
     assert_eq!(value["ok"], false);
     assert_eq!(value["tool"]["name"], "systemctl");
     assert_eq!(
@@ -969,7 +1071,7 @@ fn daemon_log_missing_tool_reports_fallback_steps_json() {
         .output()
         .expect("run vinpst daemon log with missing journalctl");
 
-    let value = assert_json_success(output, "daemon missing journalctl json");
+    let value = assert_json_failure(output, "daemon missing journalctl json");
     assert_eq!(value["ok"], false);
     assert_eq!(value["action"], "log");
     assert_eq!(value["will_mutate_user_service"], false);
@@ -989,22 +1091,15 @@ fn daemon_log_missing_tool_reports_fallback_steps_json() {
 }
 
 #[test]
-fn daemon_user_service_missing_tool_text_prints_fallback_step() {
+fn daemon_failure_text_hides_tool_plumbing() {
     let output = vinpst_command()
         .env("VINPST_DAEMON_SYSTEMCTL", "/tmp/vinpst-no-systemctl")
         .args(["daemon", "stop"])
         .output()
-        .expect("run vinpst daemon stop text with missing systemctl");
-
-    let stdout = assert_stdout_success(output, "daemon missing systemctl text");
-    assert!(stdout.contains("dry_run: false"));
-    assert!(stdout.contains("ok: false"));
-    assert!(stdout.contains("tool: systemctl"));
-    assert!(stdout.contains("tool_program: /tmp/vinpst-no-systemctl"));
-    assert!(stdout.contains("tool_env_override: VINPST_DAEMON_SYSTEMCTL"));
-    assert!(stdout.contains("tool_overridden: true"));
-    assert!(stdout.contains("fallback_step: run vinpst activation-service --user-status"));
-    assert!(stdout.contains("next_step: run vinpst daemon status to verify daemon availability"));
+        .expect("run daemon stop with missing systemctl");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("daemon failure stdout should be UTF-8");
+    assert_human_output_hides_transport_details(&stdout);
 }
 
 #[test]
@@ -1012,7 +1107,7 @@ fn daemon_user_service_real_commands_report_external_output_json() {
     for (command, expected_stdout, will_mutate) in [
         ("stop", "--user stop vinpst-daemon.service\n", true),
         ("restart", "--user restart vinpst-daemon.service\n", true),
-        ("log", "--user -u vinpst-daemon.service\n", false),
+        ("log", "--user -u vinpst-daemon.service -n 100\n", false),
     ] {
         let output = vinpst_command()
             .env("VINPST_DAEMON_SYSTEMCTL", "/bin/echo")
@@ -1052,72 +1147,37 @@ fn daemon_user_service_real_commands_report_external_output_json() {
 }
 
 #[test]
-fn daemon_user_service_real_text_prints_tool_program() {
-    let output = vinpst_command()
-        .env("VINPST_DAEMON_SYSTEMCTL", "/bin/echo")
-        .args(["daemon", "stop"])
-        .output()
-        .expect("run vinpst daemon stop text with echo systemctl");
+fn daemon_user_service_child_failures_propagate_process_failure() {
+    for (command, tool_env) in [
+        ("stop", "VINPST_DAEMON_SYSTEMCTL"),
+        ("restart", "VINPST_DAEMON_SYSTEMCTL"),
+        ("log", "VINPST_DAEMON_JOURNALCTL"),
+    ] {
+        let output = vinpst_command()
+            .env(tool_env, "/bin/false")
+            .args(["daemon", command, "--json"])
+            .output()
+            .expect("run failing daemon user-service command");
 
-    let stdout = assert_stdout_success(output, "daemon stop real text");
-    assert!(stdout.contains("dry_run: false"));
-    assert!(stdout.contains("ok: true"));
-    assert!(stdout.contains("tool: systemctl"));
-    assert!(stdout.contains("tool_program: /bin/echo"));
-    assert!(stdout.contains("tool_env_override: VINPST_DAEMON_SYSTEMCTL"));
-    assert!(stdout.contains("tool_overridden: true"));
-    assert!(stdout.contains("stdout: --user stop vinpst-daemon.service"));
-    assert!(stdout.contains("next_step: run vinpst daemon status to verify daemon availability"));
+        let value = assert_json_failure(output, "daemon user-service child failure json");
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["action"], command);
+        assert_eq!(value["exit_status"], 1);
+    }
 }
 
 #[test]
-fn daemon_log_real_text_prints_tool_program() {
-    let output = vinpst_command()
-        .env("VINPST_DAEMON_JOURNALCTL", "/bin/echo")
-        .args(["daemon", "log"])
-        .output()
-        .expect("run vinpst daemon log text with echo journalctl");
-
-    let stdout = assert_stdout_success(output, "daemon log real text");
-    assert!(stdout.contains("dry_run: false"));
-    assert!(stdout.contains("ok: true"));
-    assert!(stdout.contains("tool: journalctl"));
-    assert!(stdout.contains("tool_program: /bin/echo"));
-    assert!(stdout.contains("tool_env_override: VINPST_DAEMON_JOURNALCTL"));
-    assert!(stdout.contains("tool_overridden: true"));
-    assert!(stdout.contains("stdout: --user -u vinpst-daemon.service"));
-    assert!(stdout.contains("next_step: adjust --lines"));
-}
-
-#[test]
-fn daemon_log_dry_run_next_step_mentions_lines() {
-    let output = vinpst_command()
-        .args(["daemon", "log", "--lines", "5", "--dry-run"])
-        .output()
-        .expect("run vinpst daemon log --lines --dry-run text");
-
-    let stdout = assert_stdout_success(output, "daemon log lines next-step text");
-    assert!(stdout.contains("next_step: adjust --lines to inspect more or fewer journal entries"));
-}
-
-#[test]
-fn daemon_stop_text_dry_run_prints_user_service_plan() {
-    let output = vinpst_command()
-        .args(["daemon", "stop", "--dry-run"])
-        .output()
-        .expect("run vinpst daemon stop --dry-run");
-    let stdout = assert_stdout_success(output, "daemon stop dry-run text");
-    assert!(stdout.contains("dry_run: true"));
-    assert!(stdout.contains("action: stop"));
-    assert!(stdout.contains("will_mutate_user_service: false"));
-    assert!(stdout.contains("tool: systemctl"));
-    assert!(stdout.contains("tool_env_override: VINPST_DAEMON_SYSTEMCTL"));
-    assert!(stdout.contains("tool_overridden: false"));
-    assert!(stdout.contains("fallback_step: run vinpst activation-service --user-status"));
-    assert!(stdout.contains("systemctl --user stop vinpst-daemon.service"));
-    assert!(
-        stdout
-            .contains("owner_probe: GetNameOwner, GetConnectionUnixProcessID, procfs exe/cmdline")
-    );
-    assert!(stdout.contains("next_step: run vinpst daemon status to verify daemon availability"));
+fn daemon_real_text_hides_tool_plumbing() {
+    for (env_name, action) in [
+        ("VINPST_DAEMON_SYSTEMCTL", "stop"),
+        ("VINPST_DAEMON_JOURNALCTL", "log"),
+    ] {
+        let output = vinpst_command()
+            .env(env_name, "/bin/echo")
+            .args(["daemon", action])
+            .output()
+            .expect("run daemon action with echo tool");
+        let stdout = assert_stdout_success(output, "daemon real human output");
+        assert_human_output_hides_transport_details(&stdout);
+    }
 }

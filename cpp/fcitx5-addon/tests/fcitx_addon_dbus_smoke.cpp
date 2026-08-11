@@ -1,6 +1,10 @@
 #include "vinpst_fcitx_bridge/fcitx_addon.h"
 #include "vinpst_fcitx_bridge/sd_bus_daemon_client.h"
 
+#include <fcitx-utils/dbus/bus.h>
+#include <fcitx-utils/event.h>
+
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
@@ -8,6 +12,8 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
 using vinpst_fcitx_bridge::AppliedOutcome;
 using vinpst_fcitx_bridge::BridgeOutcome;
@@ -19,6 +25,25 @@ using vinpst_fcitx_bridge::SdBusDaemonClient;
 namespace {
 
 BridgeOutcome g_last_outcome;
+std::vector<BridgeOutcome> g_outcomes;
+
+void ResetOutcomes() {
+  g_last_outcome = {};
+  g_outcomes.clear();
+}
+
+bool OutcomeSeen(BridgeOutcome::Kind kind, std::string_view text, bool command_mode) {
+  return std::any_of(g_outcomes.begin(), g_outcomes.end(),
+                     [&](const BridgeOutcome &outcome) {
+                       return outcome.kind == kind && outcome.text == text &&
+                              outcome.replace_selection == command_mode;
+                     });
+}
+
+void Reschedule(fcitx::EventSourceTime *event, std::uint64_t delay_usec) {
+  event->setTime(fcitx::now(CLOCK_MONOTONIC) + delay_usec);
+  event->setEnabled(true);
+}
 
 std::unique_ptr<SdBusDaemonClient> ConnectWithRetry(std::string *error) {
   for (int attempt = 0; attempt < 50; ++attempt) {
@@ -41,18 +66,10 @@ bool ExpectApplied(AppliedOutcome actual, AppliedOutcome expected,
   if (actual == expected) {
     return true;
   }
-  std::cerr << label << " produced unexpected applied outcome\n";
-  return false;
-}
-
-bool ExpectLastOutcome(BridgeOutcome::Kind kind, std::string_view text,
-                       bool command_mode, std::string_view label) {
-  if (g_last_outcome.kind == kind && g_last_outcome.text == text &&
-      g_last_outcome.replace_selection == command_mode) {
-    return true;
-  }
-  std::cerr << label << " produced unexpected bridge outcome: " << g_last_outcome.text
-            << '\n';
+  std::cerr << label << " produced unexpected applied outcome: actual="
+            << static_cast<int>(actual) << " expected=" << static_cast<int>(expected)
+            << " bridge-kind=" << static_cast<int>(g_last_outcome.kind)
+            << " text=" << g_last_outcome.text << '\n';
   return false;
 }
 
@@ -73,9 +90,13 @@ bool ExpectIgnoredTrigger(FcitxVinpstAddon *addon, FcitxTriggerAction action,
 
 namespace vinpst_fcitx_bridge {
 
-AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
-                                                fcitx::InputContext *) {
+AppliedOutcome
+ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome, fcitx::InputContext *,
+                                 ResultCandidateSelectCallback on_candidate_select) {
+  auto ignored_callback = std::move(on_candidate_select);
+  static_cast<void>(ignored_callback);
   g_last_outcome = outcome;
+  g_outcomes.push_back(outcome);
   switch (outcome.kind) {
   case BridgeOutcome::Kind::None:
     return AppliedOutcome::None;
@@ -92,10 +113,26 @@ AppliedOutcome ApplyBridgeOutcomeToInputContext(const BridgeOutcome &outcome,
   return AppliedOutcome::None;
 }
 
+std::string ResultCandidateMenuTitle(std::size_t) {
+  return "Choose Result";
+}
+
+void ClearResultCandidateMenu(fcitx::InputContext *) {}
+
+void ApplyResultCandidateSelection(fcitx::InputContext *, const PresentedCandidate &,
+                                   bool) {}
+
 } // namespace vinpst_fcitx_bridge
 
 int main() {
-  FcitxVinpstAddon addon(nullptr);
+  fcitx::EventLoop event_loop;
+  fcitx::dbus::Bus signal_bus(fcitx::dbus::BusType::Session);
+  if (!signal_bus.isOpen()) {
+    std::cerr << "Fcitx session bus is unavailable\n";
+    return 1;
+  }
+  signal_bus.attachEventLoop(&event_loop);
+  FcitxVinpstAddon addon(nullptr, &signal_bus, &event_loop);
 
   std::string error;
   auto client = ConnectWithRetry(&error);
@@ -132,69 +169,158 @@ int main() {
   const auto expected_takeover_text = expected_takeover_env == nullptr
                                           ? expected_normal_text
                                           : std::string(expected_takeover_env);
-  const auto recovered_stop =
-      addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StartNormal);
-  if (!ExpectApplied(recovered_stop, AppliedOutcome::Commit,
-                     "cross-client normal takeover") ||
-      !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_takeover_text, false,
-                         "cross-client normal takeover")) {
-    std::cerr << "addon did not stop externally started normal recording\n";
-    return 1;
-  }
-  if (!client->GetStatus(&external_status, &error) || external_status != "idle") {
-    std::cerr << "external normal takeover did not return daemon to idle: " << error
-              << '\n';
-    return 1;
-  }
-
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal,
-                            "normal stop while idle") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand,
-                            "command stop while idle")) {
-    return 1;
-  }
-
-  const auto command_start = addon.ApplyTriggerAction(
-      nullptr, FcitxTriggerAction::StartCommand, "selected text");
-  if (!ExpectApplied(command_start, AppliedOutcome::Preedit, "command start") ||
-      !ExpectLastOutcome(BridgeOutcome::Kind::Preedit, "... Commanding ...", false,
-                         "command start")) {
-    std::cerr << "addon command trigger did not enter command recording mode\n";
-    return 1;
-  }
-
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand,
-                            "duplicate command start") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal,
-                            "normal start while command recording") ||
-      !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal,
-                            "normal stop while command recording")) {
-    return 1;
-  }
-
-  if (!client->GetStatus(&external_status, &error) || external_status != "recording") {
-    std::cerr << "daemon status command recording check failed: " << error << '\n';
-    return 1;
-  }
-
   const auto expected_command_text = ExpectedText(
       "VINPST_DBUS_SMOKE_EXPECTED_COMMAND", "mock command result for: selected text");
-  const auto command_stop =
-      addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopCommand);
-  if (!ExpectApplied(command_stop, AppliedOutcome::Commit, "command stop") ||
-      !ExpectLastOutcome(BridgeOutcome::Kind::Commit, expected_command_text, true,
-                         "command stop")) {
-    std::cerr << "addon command trigger did not commit and reset\n";
-    return 1;
-  }
 
-  if (!client->GetStatus(&external_status, &error) || external_status != "idle") {
-    std::cerr << "daemon status after command stop failed: " << error << '\n';
-    return 1;
-  }
+  AppliedOutcome recovered_stop = AppliedOutcome::None;
+  AppliedOutcome command_start = AppliedOutcome::None;
+  AppliedOutcome command_stop = AppliedOutcome::None;
+  bool takeover_attempted = false;
+  std::string stage = "waiting for takeover dispatch";
+  std::string failure;
+  auto fail = [&](std::string message) {
+    if (failure.empty()) {
+      failure = std::move(message);
+    }
+    event_loop.exit();
+  };
 
-  if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand,
-                            "command stop after reset")) {
+  ResetOutcomes();
+  std::unique_ptr<fcitx::EventSourceTime> command_stop_dispatch;
+  std::unique_ptr<fcitx::EventSourceTime> final_check;
+  auto takeover_dispatch =
+      event_loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 10'000, 0,
+                              [&](fcitx::EventSourceTime *, std::uint64_t) {
+                                takeover_attempted = true;
+                                recovered_stop = addon.ApplyTriggerAction(
+                                    nullptr, FcitxTriggerAction::StartNormal);
+                                stage = "waiting for takeover result";
+                                return false;
+                              });
+  takeover_dispatch->setOneShot();
+
+  auto command_dispatch = event_loop.addTimeEvent(
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 50'000, 0,
+      [&](fcitx::EventSourceTime *event, std::uint64_t) {
+        if (!takeover_attempted) {
+          Reschedule(event, 20'000);
+          return true;
+        }
+        if (!ExpectApplied(recovered_stop, AppliedOutcome::None,
+                           "cross-client normal takeover dispatch")) {
+          fail("cross-client normal takeover did not dispatch asynchronously");
+          return false;
+        }
+        if (!OutcomeSeen(BridgeOutcome::Kind::Commit, expected_takeover_text, false)) {
+          Reschedule(event, 20'000);
+          return true;
+        }
+        if (!client->GetStatus(&external_status, &error)) {
+          fail("external normal takeover status query failed: " + error);
+          return false;
+        }
+        if (external_status != "idle") {
+          Reschedule(event, 20'000);
+          return true;
+        }
+        if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal,
+                                  "normal stop while idle") ||
+            !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand,
+                                  "command stop while idle")) {
+          fail("idle trigger gating failed after normal takeover");
+          return false;
+        }
+        ResetOutcomes();
+        command_start = addon.ApplyTriggerAction(
+            nullptr, FcitxTriggerAction::StartCommand, "selected text");
+        stage = "waiting for command recording";
+        command_stop_dispatch = event_loop.addTimeEvent(
+            CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 20'000, 0,
+            [&](fcitx::EventSourceTime *event, std::uint64_t) {
+              if (!ExpectApplied(command_start, AppliedOutcome::Preedit,
+                                 "command start dispatch") ||
+                  !OutcomeSeen(BridgeOutcome::Kind::Preedit, "... Commanding ...",
+                               false)) {
+                fail("addon command trigger did not enter command recording mode");
+                return false;
+              }
+              if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand,
+                                        "duplicate command start") ||
+                  !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartNormal,
+                                        "normal start while command recording") ||
+                  !ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopNormal,
+                                        "normal stop while command recording")) {
+                fail("recording trigger gating failed during command mode");
+                return false;
+              }
+              if (!client->GetStatus(&external_status, &error)) {
+                fail("daemon status command recording query failed: " + error);
+                return false;
+              }
+              if (external_status != "recording") {
+                Reschedule(event, 20'000);
+                return true;
+              }
+              ResetOutcomes();
+              command_stop =
+                  addon.ApplyTriggerAction(nullptr, FcitxTriggerAction::StopCommand);
+              stage = "waiting for command result";
+              final_check = event_loop.addTimeEvent(
+                  CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 20'000, 0,
+                  [&](fcitx::EventSourceTime *event, std::uint64_t) {
+                    if (!ExpectApplied(command_stop, AppliedOutcome::None,
+                                       "command stop dispatch")) {
+                      fail("addon command stop did not dispatch asynchronously");
+                      return false;
+                    }
+                    if (!OutcomeSeen(BridgeOutcome::Kind::Commit, expected_command_text,
+                                     true)) {
+                      Reschedule(event, 20'000);
+                      return true;
+                    }
+                    if (!client->GetStatus(&external_status, &error)) {
+                      fail("daemon status after command stop query failed: " + error);
+                      return false;
+                    }
+                    if (external_status != "idle") {
+                      Reschedule(event, 20'000);
+                      return true;
+                    }
+                    if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StopCommand,
+                                              "command stop after reset")) {
+                      fail("command stop after reset was not ignored");
+                      return false;
+                    }
+                    event_loop.exit();
+                    stage = "complete";
+                    return false;
+                  });
+              return false;
+            });
+        return false;
+      });
+
+  auto timeout = event_loop.addTimeEvent(
+      CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 3'000'000, 0,
+      [&](fcitx::EventSourceTime *, std::uint64_t) {
+        std::string observed_status;
+        std::string observed_error;
+        static_cast<void>(client->GetStatus(&observed_status, &observed_error));
+        fail("addon async D-Bus smoke timed out: stage=" + stage +
+             " status=" + observed_status + " status-error=" + observed_error +
+             " outcomes=" + std::to_string(g_outcomes.size()) +
+             " last-kind=" + std::to_string(static_cast<int>(g_last_outcome.kind)) +
+             " last-text=" + g_last_outcome.text +
+             " last-replace=" + std::to_string(g_last_outcome.replace_selection) +
+             " expected-takeover=" + expected_takeover_text);
+        return false;
+      });
+  timeout->setOneShot();
+
+  if (!event_loop.exec() || !failure.empty()) {
+    if (!failure.empty()) {
+      std::cerr << failure << '\n';
+    }
     return 1;
   }
 

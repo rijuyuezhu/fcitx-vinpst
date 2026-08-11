@@ -1,13 +1,22 @@
+use super::mutation::reload_after_canonical_provider_write;
 use super::{
-    AsrProviderConfig, Context, Duration, LiveRegistryI18n, LiveScriptKind, LiveScriptRegistry,
-    LoadedLiveI18n, LoadedLiveScriptRegistry, Path, PathBuf, ProviderInstallOutcome,
-    ProviderInstallRequest, ProviderListContext, RegistryConfig, ReqwestRegistryAssetSource,
-    ReqwestRegistryTextSource, VinpstConfig, asr_provider_kind_label, config_set_write_target,
-    configured_label, default_config_path, default_provider_root, fetch_text_from_mirrors, fs,
-    install_live_script, live_registry_urls, load_config_json, load_live_i18n,
-    managed_script_relative_path, materialize_asr_provider, normalize_provider_id,
-    validate_config_json_value, write_config_set_document,
+    AsrProviderConfig, AsrReloadAfterWrite, Context, Duration, LiveRegistryI18n, LiveScriptKind,
+    LiveScriptRegistry, LoadedLiveI18n, LoadedLiveScriptRegistry, Path, PathBuf,
+    ProviderInstallOutcome, ProviderInstallRequest, ProviderListContext, RegistryConfig,
+    ReqwestRegistryAssetSource, VinpstConfig, asr_provider_kind_label, config_set_write_target,
+    default_config_path, default_provider_root, fetch_text_from_mirrors, fs, install_live_script,
+    live_registry_urls, load_config_json, load_live_i18n, managed_script_relative_path,
+    materialize_asr_provider, normalize_provider_id, validate_config_json_value,
+    write_config_set_document,
 };
+use crate::{
+    paths::default_cache_root,
+    registry_support::{
+        fetched_text_source_json, print_cache_fallback_warning, registry_urls_for_diagnostics,
+        with_managed_script_transaction,
+    },
+};
+use vinpst_registry::provider_registry_cache_path;
 
 pub(super) fn print_available_provider_list(
     registry_path: Option<&Path>,
@@ -18,7 +27,12 @@ pub(super) fn print_available_provider_list(
 ) -> anyhow::Result<()> {
     let context = load_provider_list_context(config_path)?;
     let loaded = load_live_provider_registry(registry_path, &context.config.registry)?;
-    let loaded_i18n = load_live_i18n(i18n_path, loaded.remote_base_url.as_deref(), locale)?;
+    let remote_base_urls = if registry_path.is_some() {
+        &[][..]
+    } else {
+        context.config.registry.base_urls.as_slice()
+    };
+    let loaded_i18n = load_live_i18n(i18n_path, remote_base_urls, locale)?;
     let configured_ids = context
         .config
         .asr
@@ -51,6 +65,7 @@ pub(super) fn print_available_provider_list(
     if json_output {
         println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
+        print_cache_fallback_warning(&loaded.source_json, "provider registry");
         print_available_provider_list_text(&loaded, &loaded_i18n, &context, &configured_ids);
     }
     Ok(())
@@ -72,7 +87,7 @@ fn available_live_provider_json(
         })
         .collect::<Vec<_>>();
     serde_json::json!({
-        "id": provider.short_id.as_deref().unwrap_or(&provider.id),
+        "id": provider.display_id(),
         "machine_id": provider.id,
         "title": provider.resolved_title(i18n),
         "description": provider.resolved_description(i18n),
@@ -91,39 +106,25 @@ fn available_live_provider_json(
 fn print_available_provider_list_text(
     loaded: &LoadedLiveScriptRegistry,
     loaded_i18n: &LoadedLiveI18n,
-    context: &ProviderListContext,
+    _context: &ProviderListContext,
     configured_ids: &std::collections::BTreeSet<&str>,
 ) {
-    println!("registry_source: {}", loaded.source_json);
-    println!("i18n: {}", loaded_i18n.source_json);
-    println!("config_source: {}", context.source);
-    if let Some(path) = &context.config_path {
-        println!("config_path: {}", path.display());
-    }
-    println!("provider_count: {}", loaded.registry.items.len());
-    println!("title\tmachine_id\tstatus\tprotocol\tcommand\tenvs\treadme\tdescription");
+    println!("ID\tTITLE\tMODE\tSTATUS");
     for provider in &loaded.registry.items {
         println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}",
+            provider.display_id(),
             provider.resolved_title(loaded_i18n.i18n.as_ref()),
-            provider.id,
-            if configured_ids.contains(provider.id.as_str()) {
-                "installed"
-            } else {
-                "available"
-            },
             if provider.stream {
                 "streaming"
             } else {
                 "batch"
             },
-            provider.command,
-            provider.envs.len(),
-            provider.readme_url.as_deref().unwrap_or("-"),
-            provider
-                .resolved_description(loaded_i18n.i18n.as_ref())
-                .as_deref()
-                .unwrap_or("-"),
+            if configured_ids.contains(provider.id.as_str()) {
+                "installed"
+            } else {
+                "available"
+            },
         );
     }
 }
@@ -204,20 +205,32 @@ fn run_provider_install(
     )?;
     let mut wrote_script = false;
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         let source = ReqwestRegistryAssetSource::with_timeout(Duration::from_secs(120));
-        let installed =
-            install_live_script(&source, LiveScriptKind::AsrProvider, &entry, &provider_root)?;
-        if installed.script_path != script_path {
-            anyhow::bail!(
-                "installed provider script path `{}` did not match planned path `{}`",
-                installed.script_path.display(),
-                script_path.display()
-            );
-        }
+        with_managed_script_transaction(
+            &script_path,
+            || {
+                let installed = install_live_script(
+                    &source,
+                    LiveScriptKind::AsrProvider,
+                    &entry,
+                    &provider_root,
+                )?;
+                if installed.script_path != script_path {
+                    anyhow::bail!(
+                        "installed provider script path `{}` did not match planned path `{}`",
+                        installed.script_path.display(),
+                        script_path.display()
+                    );
+                }
+                Ok(installed)
+            },
+            |_| write_config_set_document(&loaded.document, &write_target),
+        )?;
         wrote_script = true;
-        write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        runtime_reload = reload_after_canonical_provider_write(&write_target, &default_path);
     }
     let required_env = entry
         .envs
@@ -248,6 +261,7 @@ fn run_provider_install(
         dry_run: request.dry_run,
         wrote_script,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -272,6 +286,7 @@ fn provider_install_outcome_json(outcome: &ProviderInstallOutcome) -> serde_json
         "will_write_config": !outcome.dry_run,
         "wrote_script": outcome.wrote_script,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "set required provider environment values in config before selecting it",
             "run vinpst provider use <machine-id> to select the installed provider",
@@ -281,38 +296,32 @@ fn provider_install_outcome_json(outcome: &ProviderInstallOutcome) -> serde_json
 }
 
 fn print_provider_install_text(outcome: &ProviderInstallOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("provider_id: {}", outcome.provider_id);
-    if let Some(short_id) = &outcome.short_id {
-        println!("short_id: {short_id}");
-    }
-    println!(
-        "protocol: {}",
-        if outcome.streaming {
-            "streaming"
-        } else {
-            "batch"
-        }
+    let mode = if outcome.streaming {
+        "streaming"
+    } else {
+        "batch"
+    };
+    let preview = format!(
+        "Would install ASR provider `{}` ({mode}).",
+        outcome.provider_id
     );
-    println!("script_path: {}", outcome.script_path.display());
-    println!("replacing_managed: {}", outcome.replacing_managed);
-    println!("required_env: {}", outcome.required_env.join(","));
-    println!("optional_env: {}", outcome.optional_env.join(","));
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
+    let applied = format!("Installed ASR provider `{}` ({mode}).", outcome.provider_id);
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
+    if outcome.runtime_reload.reloaded() {
+        println!("Reloaded the ASR backend.");
     }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
+    if !outcome.required_env.is_empty() {
+        println!(
+            "Required configuration: {}",
+            outcome.required_env.join(", ")
+        );
     }
-    println!("will_download_script: {}", !outcome.dry_run);
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_script: {}", outcome.wrote_script);
-    println!("wrote_config: {}", outcome.wrote_config);
 }
 
 pub(super) fn load_live_provider_registry(
@@ -331,34 +340,29 @@ pub(super) fn load_live_provider_registry(
                 "kind": "file",
                 "path": path,
                 "mirror_count": registry_config.base_urls.len(),
-                "registry_urls": registry_urls,
+                "registry_urls": registry_urls_for_diagnostics(&registry_urls),
             }),
-            remote_base_url: None,
         });
     }
-    let source = ReqwestRegistryTextSource::with_timeout(Duration::from_secs(30));
-    let fetched = fetch_text_from_mirrors(&source, &registry_urls)
-        .context("fetch live provider registry from configured mirrors")?;
+    let cache_root = default_cache_root()?;
+    let cache_path = provider_registry_cache_path(&cache_root);
+    let fetched = fetch_text_from_mirrors(
+        &registry_urls,
+        &cache_path,
+        &registry_config.base_urls,
+        &cache_root,
+    )
+    .context("fetch live provider registry from configured mirrors")?;
     let registry = LiveScriptRegistry::from_json_str(&fetched.text, LiveScriptKind::AsrProvider)
         .with_context(|| {
             format!(
                 "validate live provider registry fetched from `{}`",
-                fetched.url
+                fetched.resolved_source
             )
         })?;
-    let remote_base_url = fetched
-        .url
-        .strip_suffix("/registry/providers.json")
-        .map(str::to_owned);
     Ok(LoadedLiveScriptRegistry {
         registry,
-        source_json: serde_json::json!({
-            "kind": "http",
-            "url": fetched.url,
-            "mirror_count": registry_config.base_urls.len(),
-            "registry_urls": registry_urls,
-        }),
-        remote_base_url,
+        source_json: fetched_text_source_json(&fetched, &cache_path, &registry_urls),
     })
 }
 
@@ -436,30 +440,18 @@ fn provider_summary_json(provider: &AsrProviderConfig, active_provider: &str) ->
 }
 
 fn print_provider_list_text(context: &ProviderListContext) {
-    println!("source: {}", context.source);
-    if let Some(path) = &context.config_path {
-        println!("config_path: {}", path.display());
-    }
-    println!("active_provider: {}", context.config.asr.active_provider);
-    println!("provider_count: {}", context.config.asr.providers.len());
-    println!("active\tid\ttype\tmodel\thotwords\tcommand\tendpoint\ttimeout_ms");
+    println!("ID\tTYPE\tMODEL\tSTATUS");
     for provider in &context.config.asr.providers {
         println!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            if provider.id == context.config.asr.active_provider {
-                "*"
-            } else {
-                ""
-            },
+            "{}\t{}\t{}\t{}",
             provider.id,
             asr_provider_kind_label(&provider.kind),
             provider.model.as_deref().unwrap_or("-"),
-            configured_label(provider.hotwords_file.as_deref()),
-            configured_label(provider.command.as_deref()),
-            configured_label(provider.endpoint.as_deref()),
-            provider
-                .timeout_ms
-                .map_or_else(|| "-".to_owned(), |value| value.to_string())
+            if provider.id == context.config.asr.active_provider {
+                "active"
+            } else {
+                ""
+            },
         );
     }
 }

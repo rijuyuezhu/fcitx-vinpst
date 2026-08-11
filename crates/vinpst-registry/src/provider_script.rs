@@ -1,7 +1,7 @@
 //! Shared provider-script resolution and editor-launch boundary.
 
 use std::{
-    env, fs,
+    env, fmt, fs,
     path::PathBuf,
     process::{Command, ExitStatus},
 };
@@ -10,12 +10,21 @@ use thiserror::Error;
 use vinpst_config::{AsrProviderConfig, AsrProviderKind};
 
 /// Deterministic filesystem context used to resolve provider script candidates.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderScriptResolutionContext {
     /// Directory used to resolve relative command and argument paths.
     pub current_dir: PathBuf,
     /// Home directory used to expand `~` and `~/...` candidates.
     pub home_dir: Option<PathBuf>,
+}
+
+impl fmt::Debug for ProviderScriptResolutionContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderScriptResolutionContext")
+            .field("has_home_dir", &self.home_dir.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderScriptResolutionContext {
@@ -31,22 +40,29 @@ impl ProviderScriptResolutionContext {
 }
 
 /// Parsed editor command with direct argv execution and no shell evaluation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderEditorCommand {
     argv: Vec<String>,
 }
 
+impl fmt::Debug for ProviderEditorCommand {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderEditorCommand")
+            .field("argv_count", &self.argv.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl ProviderEditorCommand {
-    /// Parses one whitespace-separated editor command.
+    /// Parses one shell-like editor command into direct argv without a shell.
     pub fn parse(command: &str) -> Result<Self, ProviderScriptEditError> {
-        let argv = command
-            .split_whitespace()
-            .filter(|part| !part.is_empty())
-            .map(ToOwned::to_owned)
-            .collect::<Vec<_>>();
-        if argv.is_empty() {
-            return Err(ProviderScriptEditError::EmptyEditor);
-        }
+        let argv = vinpst_process::parse_command_argv(command).map_err(|error| match error {
+            vinpst_process::CommandArgvParseError::Empty => ProviderScriptEditError::EmptyEditor,
+            vinpst_process::CommandArgvParseError::Unterminated => {
+                ProviderScriptEditError::InvalidEditor(error.to_string())
+            }
+        })?;
         Ok(Self { argv })
     }
 
@@ -78,7 +94,7 @@ impl ProviderEditorCommand {
 }
 
 /// Prepared provider-script edit that can be inspected without launching an editor.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderScriptEditPlan {
     /// Stable configured provider id.
     pub provider_id: String,
@@ -86,6 +102,16 @@ pub struct ProviderScriptEditPlan {
     pub script_path: PathBuf,
     /// Direct editor argv.
     pub editor: ProviderEditorCommand,
+}
+
+impl fmt::Debug for ProviderScriptEditPlan {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderScriptEditPlan")
+            .field("provider_id", &self.provider_id)
+            .field("editor", &self.editor)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderScriptEditPlan {
@@ -120,7 +146,7 @@ impl ProviderScriptEditPlan {
 }
 
 /// Successful provider-script editor execution.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProviderScriptEditOutcome {
     /// Stable configured provider id.
     pub provider_id: String,
@@ -130,6 +156,17 @@ pub struct ProviderScriptEditOutcome {
     pub editor_argv: Vec<String>,
     /// Process exit code when the platform reported one.
     pub exit_status: Option<i32>,
+}
+
+impl fmt::Debug for ProviderScriptEditOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderScriptEditOutcome")
+            .field("provider_id", &self.provider_id)
+            .field("editor_arg_count", &self.editor_argv.len())
+            .field("exit_status", &self.exit_status)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Typed provider-script resolution or editor failure.
@@ -158,6 +195,9 @@ pub enum ProviderScriptEditError {
     /// The selected editor command had no argv.
     #[error("provider editor command is empty")]
     EmptyEditor,
+    /// The selected editor command had invalid quote/escape syntax.
+    #[error("invalid provider editor command: {0}")]
+    InvalidEditor(String),
     /// Starting the editor process failed.
     #[error("run provider editor `{editor}`: {message}")]
     LaunchEditor {
@@ -285,7 +325,7 @@ fn resolve_existing_regular_file(
     } else {
         context.current_dir.join(path)
     };
-    match fs::metadata(&path) {
+    match fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.is_file() => Ok(Some(path)),
         Ok(_) => Ok(None),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -305,6 +345,8 @@ fn exit_status_label(status: ExitStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     fn provider(command: Option<&str>, args: &[&str]) -> AsrProviderConfig {
         AsrProviderConfig {
@@ -361,6 +403,26 @@ mod tests {
             .expect("script path");
 
         assert_eq!(resolved, script);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn editable_script_resolution_refuses_symlink_candidates() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let target = directory.path().join("target.py");
+        let link = directory.path().join("provider.py");
+        fs::write(&target, "target").expect("write target");
+        symlink(&target, &link).expect("create symlink");
+        let provider = provider(Some("python3"), &[link.to_str().expect("link path")]);
+        let context = ProviderScriptResolutionContext {
+            current_dir: directory.path().to_path_buf(),
+            home_dir: None,
+        };
+
+        assert_eq!(
+            resolve_editable_provider_script_with(&provider, &context).expect("resolve"),
+            None
+        );
     }
 
     #[test]
@@ -474,5 +536,49 @@ mod tests {
             "editor"
         );
         assert_eq!(select_editor_command(None, None, None, None), "vi");
+    }
+
+    #[test]
+    fn provider_script_debug_omits_paths_and_editor_arguments() {
+        let secret_path = PathBuf::from("/home/private-user/provider-secret.py");
+        let editor = ProviderEditorCommand::parse("editor --token editor-secret").expect("editor");
+        let context = ProviderScriptResolutionContext {
+            current_dir: PathBuf::from("/home/private-user/work"),
+            home_dir: Some(PathBuf::from("/home/private-user")),
+        };
+        let plan = ProviderScriptEditPlan {
+            provider_id: "provider.fixture".to_owned(),
+            script_path: secret_path.clone(),
+            editor: editor.clone(),
+        };
+        let outcome = ProviderScriptEditOutcome {
+            provider_id: "provider.fixture".to_owned(),
+            script_path: secret_path,
+            editor_argv: editor.argv().to_vec(),
+            exit_status: Some(0),
+        };
+
+        for rendered in [
+            format!("{context:?}"),
+            format!("{editor:?}"),
+            format!("{plan:?}"),
+            format!("{outcome:?}"),
+        ] {
+            assert!(!rendered.contains("private-user"));
+            assert!(!rendered.contains("provider-secret.py"));
+            assert!(!rendered.contains("editor-secret"));
+        }
+        assert!(format!("{plan:?}").contains("provider.fixture"));
+        assert!(format!("{outcome:?}").contains("exit_status: Some(0)"));
+    }
+
+    #[test]
+    fn provider_editor_parser_preserves_quoted_arguments() {
+        let editor = ProviderEditorCommand::parse(r#"code --wait "two words" escaped\ space"#)
+            .expect("parse quoted provider editor");
+        assert_eq!(
+            editor.argv(),
+            ["code", "--wait", "two words", "escaped space"]
+        );
     }
 }

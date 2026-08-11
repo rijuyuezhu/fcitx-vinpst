@@ -63,9 +63,9 @@ grep -q -- "--wav ${install_root}/share/fcitx-vinpst/e2e-command-demo.wav" "${se
 # shellcheck disable=SC2016
 XDG_DATA_HOME="${install_root}/share" \
 XDG_DATA_DIRS="${install_root}/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" \
-VINPST_DBUS_SMOKE_EXPECTED_NORMAL="demo heard 16 bytes" \
-VINPST_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16 bytes" \
-VINPST_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16 bytes" \
+VINPST_DBUS_SMOKE_EXPECTED_NORMAL="demo final: demo heard 16000 bytes" \
+VINPST_DBUS_SMOKE_EXPECTED_COMMAND="demo final: demo heard 16000 bytes" \
+VINPST_DBUS_SMOKE_EXPECTED_TAKEOVER="demo final: demo heard 16000 bytes" \
 VINPST_DBUS_SMOKE_EXPECTED_ACTIVE_SCENE="demo-postprocess" \
 VINPST_DBUS_SMOKE_EXPECT_SCENE_PERSISTED="1" \
   timeout 20s dbus-run-session -- bash -euo pipefail -c '"$1"; "$2"' \

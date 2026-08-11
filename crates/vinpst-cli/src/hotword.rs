@@ -10,9 +10,10 @@ use clap::Subcommand;
 use vinpst_config::{AsrProviderConfig, VinpstConfig};
 
 use crate::{
-    asr_provider_kind_label, config_set_write_target, configured_label, default_config_path,
-    hotword_supported, load_config_json, normalize_provider_id, split_editor_argv,
-    validate_config_json_value, write_config_set_document,
+    AsrReloadAfterWrite, asr_provider_kind_label, config_set_write_target, default_config_path,
+    hotword_supported, load_config_json, normalize_provider_id, parse_editor_argv,
+    reload_asr_backend_after_canonical_write, validate_config_json_value,
+    write_config_set_document,
 };
 
 /// Hotword configuration inspection commands.
@@ -75,6 +76,7 @@ pub(crate) enum HotwordCommand {
         json: bool,
     },
     /// Open the configured hotwords file in an editor.
+    #[command(alias = "e")]
     Edit {
         /// Optional ASR provider id. Defaults to the active provider.
         #[arg(long)]
@@ -82,7 +84,7 @@ pub(crate) enum HotwordCommand {
         /// Optional config JSON file. Omitted to read the user config, then the bundled default.
         #[arg(long)]
         config: Option<PathBuf>,
-        /// Editor executable to run. Defaults to `$VINPST_HOTWORD_EDITOR`, `$VINPST_CONFIG_EDITOR`, `$EDITOR`, then `$VISUAL`.
+        /// Editor command to run. Defaults to `$VINPST_HOTWORD_EDITOR`, `$VINPST_CONFIG_EDITOR`, `$VISUAL`, `$EDITOR`, then `vi`.
         #[arg(long)]
         editor: Option<String>,
         /// Print the edit plan without launching the editor.
@@ -197,6 +199,7 @@ struct HotwordMutationOutcome {
     in_place: bool,
     dry_run: bool,
     wrote_config: bool,
+    runtime_reload: AsrReloadAfterWrite,
 }
 
 struct HotwordGetContext {
@@ -275,26 +278,26 @@ fn hotword_get_json(context: &HotwordGetContext) -> serde_json::Value {
 }
 
 fn print_hotword_get_text(context: &HotwordGetContext) {
-    println!("source: {}", context.source);
-    if let Some(path) = &context.config_path {
-        println!("config_path: {}", path.display());
+    if !hotword_supported(&context.provider.kind) {
+        println!(
+            "ASR provider `{}` does not support hotwords.",
+            context.provider.id
+        );
+        return;
     }
-    println!("active_provider: {}", context.active_provider);
-    println!("provider_id: {}", context.provider.id);
-    println!(
-        "provider_type: {}",
-        asr_provider_kind_label(&context.provider.kind)
-    );
-    println!("active: {}", context.provider.id == context.active_provider);
-    println!("supported: {}", hotword_supported(&context.provider.kind));
-    println!(
-        "configured: {}",
-        configured_label(context.provider.hotwords_file.as_deref())
-    );
-    println!(
-        "hotwords_file: {}",
-        context.provider.hotwords_file.as_deref().unwrap_or("-")
-    );
+    if let Some(path) = context
+        .provider
+        .hotwords_file
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+    {
+        println!("{path}");
+    } else {
+        println!(
+            "No hotwords file is configured for `{}`.",
+            context.provider.id
+        );
+    }
 }
 
 fn print_hotword_edit(request: HotwordEditRequest<'_>) -> anyhow::Result<()> {
@@ -372,19 +375,13 @@ fn hotword_edit_json(outcome: &HotwordEditOutcome) -> serde_json::Value {
 }
 
 fn print_hotword_edit_text(outcome: &HotwordEditOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
-    }
-    println!("active_provider: {}", outcome.active_provider);
-    println!("provider_id: {}", outcome.provider_id);
-    println!("provider_type: {}", outcome.provider_type);
-    println!("hotwords_file: {}", outcome.hotwords_file.display());
-    println!("editor: {}", outcome.editor_argv.join(" "));
-    println!("edited: {}", outcome.edited);
-    if let Some(exit_status) = outcome.exit_status {
-        println!("exit_status: {exit_status}");
+    if outcome.dry_run {
+        println!(
+            "Would open hotwords file: {}",
+            outcome.hotwords_file.display()
+        );
+    } else {
+        println!("Edited hotwords file: {}", outcome.hotwords_file.display());
     }
 }
 
@@ -393,16 +390,10 @@ fn resolve_hotword_editor(editor: Option<&str>) -> anyhow::Result<Vec<String>> {
         .map(str::to_owned)
         .or_else(|| std::env::var("VINPST_HOTWORD_EDITOR").ok())
         .or_else(|| std::env::var("VINPST_CONFIG_EDITOR").ok())
-        .or_else(|| std::env::var("EDITOR").ok())
         .or_else(|| std::env::var("VISUAL").ok())
-        .with_context(
-            || "hotword edit requires --editor or $VINPST_HOTWORD_EDITOR/$VINPST_CONFIG_EDITOR/$EDITOR/$VISUAL",
-        )?;
-    let argv = split_editor_argv(&editor);
-    if argv.is_empty() {
-        anyhow::bail!("hotword editor command is empty");
-    }
-    Ok(argv)
+        .or_else(|| std::env::var("EDITOR").ok())
+        .unwrap_or_else(|| "vi".to_owned());
+    parse_editor_argv(&editor).context("parse hotword editor")
 }
 
 fn run_hotword_editor(
@@ -492,9 +483,17 @@ fn run_hotword_mutation(
     )?;
 
     let mut wrote_config = false;
+    let mut runtime_reload = AsrReloadAfterWrite::NotCanonical;
     if !request.dry_run {
         write_config_set_document(&loaded.document, &write_target)?;
         wrote_config = true;
+        let output_path = write_target.output_path();
+        let reload =
+            reload_asr_backend_after_canonical_write(output_path.as_deref(), &default_path);
+        if let Some(warning) = reload.warning() {
+            eprintln!("Warning: {warning}");
+        }
+        runtime_reload = reload;
     }
 
     Ok(HotwordMutationOutcome {
@@ -510,6 +509,7 @@ fn run_hotword_mutation(
         in_place: write_target.in_place(),
         dry_run: request.dry_run,
         wrote_config,
+        runtime_reload,
     })
 }
 
@@ -537,6 +537,7 @@ fn hotword_mutation_json(outcome: &HotwordMutationOutcome) -> serde_json::Value 
         "in_place": outcome.in_place,
         "will_write_config": !outcome.dry_run,
         "wrote_config": outcome.wrote_config,
+        "reloaded_daemon": outcome.runtime_reload.reloaded(),
         "next_steps": [
             "run vinpst hotword get to verify the configured hotwords file",
             "run vinpst asr-state to inspect the selected provider runtime readiness",
@@ -546,23 +547,28 @@ fn hotword_mutation_json(outcome: &HotwordMutationOutcome) -> serde_json::Value 
 }
 
 fn print_hotword_mutation_text(outcome: &HotwordMutationOutcome) {
-    println!("dry_run: {}", outcome.dry_run);
-    println!("source: {}", outcome.source);
-    if let Some(config_path) = &outcome.config_path {
-        println!("config_path: {}", config_path.display());
+    let (preview, applied) = if let Some(path) = outcome.after.as_deref() {
+        (
+            format!(
+                "Would set hotwords for `{}` to `{path}`.",
+                outcome.provider_id
+            ),
+            format!("Set hotwords for `{}` to `{path}`.", outcome.provider_id),
+        )
+    } else {
+        (
+            format!("Would clear hotwords for `{}`.", outcome.provider_id),
+            format!("Cleared hotwords for `{}`.", outcome.provider_id),
+        )
+    };
+    crate::human_output::print_config_mutation(
+        outcome.dry_run,
+        &preview,
+        &applied,
+        outcome.output_path.as_deref(),
+        outcome.backup_path.as_deref(),
+    );
+    if outcome.runtime_reload.reloaded() {
+        println!("Reloaded the ASR backend.");
     }
-    println!("active_provider: {}", outcome.active_provider);
-    println!("provider_id: {}", outcome.provider_id);
-    println!("provider_type: {}", outcome.provider_type);
-    println!("before: {}", outcome.before.as_deref().unwrap_or("-"));
-    println!("after: {}", outcome.after.as_deref().unwrap_or("-"));
-    println!("in_place: {}", outcome.in_place);
-    if let Some(output_path) = &outcome.output_path {
-        println!("output_path: {}", output_path.display());
-    }
-    if let Some(backup_path) = &outcome.backup_path {
-        println!("backup_path: {}", backup_path.display());
-    }
-    println!("will_write_config: {}", !outcome.dry_run);
-    println!("wrote_config: {}", outcome.wrote_config);
 }

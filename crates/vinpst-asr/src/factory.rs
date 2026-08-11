@@ -8,9 +8,8 @@ use vinpst_protocol::AsrBackendState;
 #[cfg(feature = "sherpa-onnx-backend")]
 use crate::SherpaOnnxBackend;
 use crate::{
-    AsrBackend, AsrError, BackendCapabilities, CommandAsrBackend, CommandAsrSpec,
-    LegacyCommandBatchRunner, LegacyCommandStreamingRunner, MockAsrBackend, RecognitionContext,
-    RemoteAsrBackend, SHERPA_ONNX_PROVIDER_ID,
+    AsrBackend, AsrError, CommandAsrBackend, CommandAsrSpec, LegacyCommandBatchRunner,
+    LegacyCommandStreamingBackend, MockAsrBackend, RecognitionContext, RemoteAsrBackend,
 };
 
 const WARMUP_SCENE_ID: &str = "__vinpst_asr_warmup__";
@@ -95,10 +94,8 @@ impl AsrBackendFactory {
         }
         if provider.kind == AsrProviderKind::Command {
             if is_legacy_streaming_command_provider(&provider.id) {
-                return Ok(Box::new(CommandAsrBackend::with_config_and_capabilities(
+                return Ok(Box::new(LegacyCommandStreamingBackend::with_config(
                     provider,
-                    LegacyCommandStreamingRunner,
-                    BackendCapabilities::streaming(),
                 )?));
             }
             return Ok(Box::new(CommandAsrBackend::with_config(
@@ -109,7 +106,7 @@ impl AsrBackendFactory {
         if provider.kind == AsrProviderKind::Remote {
             return Ok(Box::new(RemoteAsrBackend::with_config(provider)?));
         }
-        if provider.id == SHERPA_ONNX_PROVIDER_ID && provider.kind == AsrProviderKind::Local {
+        if provider.kind == AsrProviderKind::Local {
             #[cfg(feature = "sherpa-onnx-backend")]
             {
                 return Ok(Box::new(SherpaOnnxBackend::with_config_and_vad(
@@ -130,6 +127,11 @@ impl AsrBackendFactory {
     pub fn state_for_config(config: &AsrConfig) -> AsrBackendState {
         let target_model_id = target_model_id(config);
         let remote_endpoints = remote_endpoints(config);
+        if config.active_provider.is_empty() {
+            let mut state = AsrBackendState::unavailable("", target_model_id, "");
+            state.remote_endpoints = remote_endpoints;
+            return state;
+        }
         match Self::build_active_prepared(config, None) {
             Ok(backend) => {
                 let descriptor = backend.describe();

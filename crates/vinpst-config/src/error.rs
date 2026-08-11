@@ -28,7 +28,7 @@ pub enum ConfigError {
     /// Registry base URL is empty.
     #[error("invalid empty registry base URL")]
     InvalidRegistryBaseUrl(String),
-    /// Registry base URL is duplicated.
+    /// Registry base URL is duplicated; the stored diagnostic URL is redacted.
     #[error("duplicate registry base URL `{0}`")]
     DuplicateRegistryBaseUrl(String),
     /// Default language is empty.
@@ -40,6 +40,9 @@ pub enum ConfigError {
     /// Output ducking volume is outside the supported range.
     #[error("invalid duck_output_volume {0}; expected a finite value in 0.0..=1.0")]
     InvalidDuckOutputVolume(f32),
+    /// ASR input gain is outside the range accepted by the upstream runtime.
+    #[error("invalid input_gain {0}; expected a finite value in 0.1..=10.0")]
+    InvalidInputGain(f32),
     /// Active scene is not listed in scene definitions.
     #[error("active scene `{0}` is not defined")]
     UnknownActiveScene(String),

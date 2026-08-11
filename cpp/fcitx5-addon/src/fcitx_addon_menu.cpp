@@ -26,11 +26,11 @@
 #include <fcitx/text.h>
 #include <fcitx/userinterface.h>
 
-#include <chrono>
+#include <algorithm>
 #include <functional>
 #include <limits>
-#include <optional>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 namespace vinpst_fcitx_bridge {
@@ -280,36 +280,102 @@ void ClearProjectedMenu(FcitxProjectedMenuState &menu) {
   previous_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
 }
 
-template <typename HideOther, typename RefreshMenu, typename RebuildMenu,
-          typename PresentError>
-void OpenProjectedMenu(fcitx::InputContext *input_context, bool recording,
-                       FcitxProjectedMenuState &menu, HideOther hide_other,
-                       RefreshMenu refresh_menu, RebuildMenu rebuild_menu,
-                       PresentError present_error) {
-  if (input_context == nullptr || recording) {
-    return;
-  }
-  hide_other();
-  std::string error;
-  if (!refresh_menu(&error)) {
-    present_error(input_context, std::move(error));
-    return;
-  }
-  menu.input_context = input_context;
-  menu.session.Open();
-  rebuild_menu();
-}
-
 } // namespace
 
+void FcitxVinpstAddon::HideResultMenu() {
+  auto *input_context = result_menu_ic_.get();
+  result_menu_ic_.unwatch();
+  ClearResultCandidateMenu(input_context);
+}
+
+bool FcitxVinpstAddon::HandleResultMenuKeyEvent(fcitx::KeyEvent &event) {
+  auto *input_context = result_menu_ic_.get();
+  if (input_context == nullptr) {
+    return false;
+  }
+
+  auto candidate_list = input_context->inputPanel().candidateList();
+  if (candidate_list == nullptr) {
+    HideResultMenu();
+    return false;
+  }
+  auto *bulk = candidate_list->toBulk();
+  auto *common = dynamic_cast<fcitx::CommonCandidateList *>(candidate_list.get());
+  auto *cursor = candidate_list->toCursorMovable();
+  auto *pageable = candidate_list->toPageable();
+  const int item_count = bulk != nullptr ? bulk->totalSize() : candidate_list->size();
+  const int current_page =
+      pageable != nullptr && pageable->currentPage() >= 0 ? pageable->currentPage() : 0;
+  const int current_selection = common != nullptr ? common->globalCursorIndex() : -1;
+  const auto semantic_key =
+      ClassifyMenuKey(event.key(), false, false, frontend_settings_.page_prev_keys,
+                      frontend_settings_.page_next_keys);
+  const auto decision = PlanResultMenuKey(
+      event.isRelease(), semantic_key, cursor != nullptr, current_selection,
+      current_page, static_cast<std::size_t>(std::max(item_count, 0)));
+  if (!decision.has_value()) {
+    HideResultMenu();
+    return false;
+  }
+
+  auto consume = [&event]() {
+    event.filterAndAccept();
+    return true;
+  };
+  switch (decision->action) {
+  case MenuKeyAction::Pass:
+    return false;
+  case MenuKeyAction::Consume:
+    return consume();
+  case MenuKeyAction::CloseAndPass:
+    HideResultMenu();
+    return false;
+  case MenuKeyAction::CloseAndConsume:
+    HideResultMenu();
+    return consume();
+  case MenuKeyAction::Rebuild:
+    if (pageable != nullptr) {
+      if (decision->value < current_page && pageable->hasPrev()) {
+        pageable->prev();
+      } else if (decision->value > current_page && pageable->hasNext()) {
+        pageable->next();
+      }
+      input_context->inputPanel().setAuxUp(fcitx::Text(DecoratePagedMenuTitle(
+          ResultCandidateMenuTitle(static_cast<std::size_t>(std::max(item_count, 0))),
+          candidate_list.get())));
+      input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    }
+    return consume();
+  case MenuKeyAction::MovePrevious:
+    cursor->prevCandidate();
+    input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    return consume();
+  case MenuKeyAction::MoveNext:
+    cursor->nextCandidate();
+    input_context->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+    return consume();
+  case MenuKeyAction::Select:
+    if (bulk == nullptr || decision->value < 0 || decision->value >= item_count) {
+      HideResultMenu();
+      return consume();
+    }
+    bulk->candidateFromAll(static_cast<int>(decision->value)).select(input_context);
+    return consume();
+  }
+  return false;
+}
+
 void FcitxVinpstAddon::ShowSceneMenu(fcitx::InputContext *ic) {
-  OpenProjectedMenu(
-      ic, bridge_.recording(), scene_menu_, [this]() { HideAsrMenu(); },
-      [this](std::string *error) { return RefreshSceneState(error); },
-      [this]() { RebuildSceneMenu(); },
-      [this](fcitx::InputContext *input_context, std::string error) {
-        ApplyDaemonUnavailable(input_context, std::move(error));
-      });
+  if (ic == nullptr || bridge_.recording()) {
+    return;
+  }
+  HideAsrMenu();
+  scene_menu_.input_context = ic;
+  scene_menu_.session.Open();
+  if (scene_menu_controller_.Project(scene_menu_.session)) {
+    RebuildSceneMenu();
+  }
+  RequestSceneMenuStateRefresh(ic);
 }
 
 void FcitxVinpstAddon::RebuildSceneMenu(int page) {
@@ -326,11 +392,63 @@ void FcitxVinpstAddon::RebuildSceneMenu(int page) {
 
 bool FcitxVinpstAddon::RefreshSceneState(std::string *error) {
   auto *client = EnsureDaemonClient(error);
-  return client != nullptr &&
-         client->RefreshSceneMenuController(&scene_menu_controller_, error);
+  if (client == nullptr) {
+    return false;
+  }
+  if (!client->RefreshSceneMenuController(&scene_menu_controller_, error)) {
+    NoteDaemonSyncFailure();
+    daemon_client_.reset();
+    return false;
+  }
+  ClearDaemonSyncFailure();
+  return true;
+}
+
+void FcitxVinpstAddon::RequestSceneMenuStateRefresh(fcitx::InputContext *ic) {
+  if (ic == nullptr || menu_refresh_dispatcher_ == nullptr) {
+    return;
+  }
+  const auto seq = ++scene_menu_refresh_seq_;
+  const bool had_cached_projection = scene_menu_.projection != nullptr;
+  auto ic_ref = ic->watch();
+  std::weak_ptr<bool> lifetime = menu_refresh_lifetime_;
+  auto dispatcher = menu_refresh_dispatcher_;
+  std::thread([this, seq, had_cached_projection, ic_ref = std::move(ic_ref), lifetime,
+               dispatcher]() mutable {
+    auto refreshed = std::make_shared<SceneMenuController>();
+    std::string error;
+    auto client = SdBusDaemonClient::ConnectSession(&error);
+    const bool ok = client != nullptr &&
+                    client->RefreshSceneMenuController(refreshed.get(), &error);
+    if (lifetime.expired()) {
+      return;
+    }
+    dispatcher->schedule([this, seq, had_cached_projection, ic_ref = std::move(ic_ref),
+                          lifetime, refreshed = std::move(refreshed),
+                          error = std::move(error), ok]() mutable {
+      if (lifetime.expired() || scene_menu_refresh_seq_.load() != seq ||
+          !ic_ref.isValid()) {
+        return;
+      }
+      if (!ok) {
+        NoteDaemonSyncFailure();
+        if (scene_menu_.input_context == ic_ref.get() && !had_cached_projection) {
+          HideSceneMenu();
+          ApplyDaemonUnavailable(ic_ref.get(), std::move(error));
+        }
+        return;
+      }
+      ClearDaemonSyncFailure();
+      scene_menu_controller_ = std::move(*refreshed);
+      if (scene_menu_.input_context == ic_ref.get()) {
+        RebuildSceneMenu();
+      }
+    });
+  }).detach();
 }
 
 void FcitxVinpstAddon::HideSceneMenu() {
+  ++scene_menu_refresh_seq_;
   ClearProjectedMenu(scene_menu_);
 }
 
@@ -345,13 +463,26 @@ bool FcitxVinpstAddon::HandleSceneMenuKeyEvent(fcitx::KeyEvent &event) {
 }
 
 void FcitxVinpstAddon::ShowAsrMenu(fcitx::InputContext *ic) {
-  OpenProjectedMenu(
-      ic, bridge_.recording(), asr_menu_, [this]() { HideSceneMenu(); },
-      [this](std::string *error) { return RefreshAsrMenuState(error); },
-      [this]() { RebuildAsrMenu(); },
-      [this](fcitx::InputContext *input_context, std::string error) {
-        ApplyDaemonUnavailable(input_context, std::move(error));
-      });
+  if (ic == nullptr || bridge_.recording()) {
+    return;
+  }
+  HideSceneMenu();
+  asr_menu_.input_context = ic;
+  asr_menu_.session.Open();
+  const auto local = FrontendText("Local");
+  const auto remote = FrontendText("Remote");
+  const auto command = FrontendText("Command");
+  const auto loading_suffix = FrontendText(" (loading)");
+  const auto unavailable = FrontendText("unavailable");
+  const auto loading_prefix = FrontendText("Loading: ");
+  const auto error_prefix = FrontendText("Error: ");
+  const AsrMenuLocalization localization{local,          remote,      command,
+                                         loading_suffix, unavailable, loading_prefix,
+                                         error_prefix};
+  if (asr_menu_controller_.Project(asr_menu_.session, localization)) {
+    RebuildAsrMenu();
+  }
+  RequestAsrMenuStateRefresh(ic);
 }
 
 void FcitxVinpstAddon::RebuildAsrMenu(int page) {
@@ -376,13 +507,51 @@ void FcitxVinpstAddon::RebuildAsrMenu(int page) {
       });
 }
 
-bool FcitxVinpstAddon::RefreshAsrMenuState(std::string *error) {
-  auto *client = EnsureDaemonClient(error);
-  return client != nullptr &&
-         client->RefreshAsrMenuController(&asr_menu_controller_, error);
+void FcitxVinpstAddon::RequestAsrMenuStateRefresh(fcitx::InputContext *ic) {
+  if (ic == nullptr || menu_refresh_dispatcher_ == nullptr) {
+    return;
+  }
+  const auto seq = ++asr_menu_refresh_seq_;
+  const bool had_cached_projection = asr_menu_.projection != nullptr;
+  auto ic_ref = ic->watch();
+  std::weak_ptr<bool> lifetime = menu_refresh_lifetime_;
+  auto dispatcher = menu_refresh_dispatcher_;
+  std::thread([this, seq, had_cached_projection, ic_ref = std::move(ic_ref), lifetime,
+               dispatcher]() mutable {
+    auto refreshed = std::make_shared<AsrMenuController>();
+    std::string error;
+    auto client = SdBusDaemonClient::ConnectSession(&error);
+    const bool ok =
+        client != nullptr && client->RefreshAsrMenuController(refreshed.get(), &error);
+    if (lifetime.expired()) {
+      return;
+    }
+    dispatcher->schedule([this, seq, had_cached_projection, ic_ref = std::move(ic_ref),
+                          lifetime, refreshed = std::move(refreshed),
+                          error = std::move(error), ok]() mutable {
+      if (lifetime.expired() || asr_menu_refresh_seq_.load() != seq ||
+          !ic_ref.isValid()) {
+        return;
+      }
+      if (!ok) {
+        NoteDaemonSyncFailure();
+        if (asr_menu_.input_context == ic_ref.get() && !had_cached_projection) {
+          HideAsrMenu();
+          ApplyDaemonUnavailable(ic_ref.get(), std::move(error));
+        }
+        return;
+      }
+      ClearDaemonSyncFailure();
+      asr_menu_controller_ = std::move(*refreshed);
+      if (asr_menu_.input_context == ic_ref.get()) {
+        RebuildAsrMenu();
+      }
+    });
+  }).detach();
 }
 
 void FcitxVinpstAddon::HideAsrMenu() {
+  ++asr_menu_refresh_seq_;
   ClearProjectedMenu(asr_menu_);
 }
 
@@ -407,10 +576,15 @@ void FcitxVinpstAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
     if (client == nullptr ||
         !client->SetActiveScene(&scene_menu_controller_, control.first, &persisted,
                                 &error)) {
+      if (client != nullptr) {
+        NoteDaemonSyncFailure();
+        daemon_client_.reset();
+      }
       HideSceneMenu();
       ApplyDaemonUnavailable(ic, std::move(error));
       return;
     }
+    ClearDaemonSyncFailure();
     HideSceneMenu();
     Notify(FrontendNotificationKind::Info,
            FrontendValueText("Switched scene to '%s'.", control.display_label));
@@ -420,10 +594,15 @@ void FcitxVinpstAddon::ExecuteMenuControl(const ProjectedMenuControl &control,
   case ProjectedMenuControlKind::SetActiveAsrTarget:
     if (client == nullptr || !client->SetActiveAsrTarget(control.first, control.second,
                                                          &persisted, &error)) {
+      if (client != nullptr) {
+        NoteDaemonSyncFailure();
+        daemon_client_.reset();
+      }
       HideAsrMenu();
       ApplyDaemonUnavailable(ic, std::move(error));
       return;
     }
+    ClearDaemonSyncFailure();
     HideAsrMenu();
     Notify(FrontendNotificationKind::Info,
            FrontendValueText("ASR switch requested for '%s'.", control.display_label));

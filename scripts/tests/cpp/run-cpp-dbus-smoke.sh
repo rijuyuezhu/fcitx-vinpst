@@ -27,18 +27,33 @@ write_isolated_dbus_session_config "${dbus_config}" "${dbus_service_dir}"
 dbus-run-session --config-file="${dbus_config}" -- bash -euo pipefail <<'INNER'
 log_file="target/tmp/vinpst-cpp-dbus-smoke-daemon.log"
 config_home="target/tmp/vinpst-cpp-dbus-smoke-config"
+cache_home="target/tmp/vinpst-cpp-dbus-smoke-cache"
 bridge_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_bridge_dbus_smoke"
 addon_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_addon_dbus_smoke"
+native_addon_smoke_bin="target/cpp/fcitx5-addon/vinpst_fcitx_native_addon_dbus_smoke"
 mkdir -p "$(dirname "${log_file}")"
-rm -rf "${config_home}"
-mkdir -p "${config_home}"
+rm -rf "${config_home}" "${cache_home}"
+mkdir -p "${config_home}" "${cache_home}"
 export XDG_CONFIG_HOME="$(pwd)/${config_home}"
+export XDG_CACHE_HOME="$(pwd)/${cache_home}"
 
-target/debug/vinpst-daemon --dbus >"${log_file}" 2>&1 &
-daemon_pid=$!
+daemon_pid=""
+
+start_daemon() {
+  target/debug/vinpst-daemon --dbus >"${log_file}" 2>&1 &
+  daemon_pid=$!
+}
+
+stop_daemon() {
+  if [[ -n "${daemon_pid}" ]]; then
+    kill "${daemon_pid}" >/dev/null 2>&1 || true
+    wait "${daemon_pid}" >/dev/null 2>&1 || true
+    daemon_pid=""
+  fi
+}
+
 cleanup() {
-  kill "${daemon_pid}" >/dev/null 2>&1 || true
-  wait "${daemon_pid}" >/dev/null 2>&1 || true
+  stop_daemon
 }
 trap cleanup EXIT
 
@@ -67,26 +82,20 @@ wait_for_spawned_owner() {
   return 1
 }
 
+start_daemon
 wait_for_spawned_owner
+"${bridge_smoke_bin}"
+stop_daemon
 
-run_smokes() {
-  "${bridge_smoke_bin}" || return 1
-  if [[ -x "${addon_smoke_bin}" ]]; then
-    "${addon_smoke_bin}" || return 1
-  fi
-}
-
-for _ in $(seq 1 50); do
-  if run_smokes; then
-    exit 0
-  fi
-  if ! kill -0 "${daemon_pid}" >/dev/null 2>&1; then
-    cat "${log_file}" >&2
-    exit 1
-  fi
-  sleep 0.1
-done
-
-cat "${log_file}" >&2
-exit 1
+start_daemon
+wait_for_spawned_owner
+if [[ -x "${addon_smoke_bin}" ]]; then
+  "${addon_smoke_bin}"
+fi
+if [[ -x "${native_addon_smoke_bin}" ]]; then
+  VINPST_NATIVE_ADDON_MENU_PROBE=scene-ready "${native_addon_smoke_bin}"
+  VINPST_NATIVE_ADDON_MENU_PROBE=asr-ready "${native_addon_smoke_bin}"
+fi
+stop_daemon
+trap - EXIT
 INNER

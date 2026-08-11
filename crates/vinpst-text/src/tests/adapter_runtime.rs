@@ -169,6 +169,53 @@ fn adapter_process_spec_copies_typed_config() {
 }
 
 #[test]
+fn inferred_adapter_working_dir_matches_upstream_script_discovery_order() {
+    let root = unique_runtime_dir("working-dir");
+    let current_dir = root.join("current");
+    let script_dir = current_dir.join("scripts");
+    let command_dir = current_dir.join("bin");
+    let home_dir = root.join("home");
+    std::fs::create_dir_all(&script_dir).unwrap();
+    std::fs::create_dir_all(&command_dir).unwrap();
+    std::fs::create_dir_all(home_dir.join("tools")).unwrap();
+    std::fs::write(script_dir.join("adapter.py"), "# fixture\n").unwrap();
+    std::fs::write(command_dir.join("adapter-helper"), "# fixture\n").unwrap();
+    std::fs::write(home_dir.join("tools/home.py"), "# fixture\n").unwrap();
+
+    let mut spec = AdapterProcessSpec {
+        id: "adapter.demo".to_owned(),
+        command: "bin/adapter-helper".to_owned(),
+        args: vec!["--serve".to_owned(), "scripts/adapter.py".to_owned()],
+        env: std::collections::HashMap::new(),
+        working_dir: None,
+    };
+    assert_eq!(
+        crate::adapter_runtime::infer_adapter_working_dir(&spec, &current_dir, Some(&home_dir)),
+        script_dir
+    );
+
+    spec.args = vec!["--serve".to_owned()];
+    assert_eq!(
+        crate::adapter_runtime::infer_adapter_working_dir(&spec, &current_dir, Some(&home_dir)),
+        command_dir
+    );
+
+    spec.command = "missing-helper".to_owned();
+    spec.args = vec!["~/tools/home.py".to_owned()];
+    assert_eq!(
+        crate::adapter_runtime::infer_adapter_working_dir(&spec, &current_dir, Some(&home_dir)),
+        home_dir.join("tools")
+    );
+
+    spec.args.clear();
+    assert_eq!(
+        crate::adapter_runtime::infer_adapter_working_dir(&spec, &current_dir, Some(&home_dir)),
+        current_dir
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn start_adapter_process_writes_atomic_fingerprinted_pid_file() {
     let runtime_dir = unique_runtime_dir("process-runtime");
     let paths = AdapterRuntimePaths::new(&runtime_dir);
@@ -284,6 +331,50 @@ fn start_adapter_process_reports_spawn_failure_without_pid_file() {
             if message.contains("failed to spawn text adapter `cmd-adapter`")
     ));
     assert_eq!(paths.read_pid("cmd-adapter").unwrap(), None);
+}
+
+#[test]
+fn start_adapter_process_reports_immediate_exit_stderr_without_pid_file() {
+    let runtime_dir = unique_runtime_dir("immediate-stderr");
+    let paths = AdapterRuntimePaths::new(&runtime_dir);
+    let spec = sleep_adapter_spec(vec![
+        "-c".to_owned(),
+        "printf 'adapter startup failed\\n' >&2; exit 7".to_owned(),
+    ]);
+
+    let error = start_adapter_process(&spec, &paths).unwrap_err();
+
+    assert_eq!(
+        error,
+        TextError::AdapterFailed("adapter startup failed".to_owned())
+    );
+    assert_eq!(paths.read_pid("cmd-adapter").unwrap(), None);
+    std::fs::remove_dir_all(runtime_dir).unwrap();
+}
+
+#[test]
+fn started_adapter_process_drains_lines_and_flushes_partial_stderr_on_exit() {
+    let runtime_dir = unique_runtime_dir("stderr-lines");
+    let paths = AdapterRuntimePaths::new(&runtime_dir);
+    let spec = sleep_adapter_spec(vec![
+        "-c".to_owned(),
+        "printf ' first \\nsecond\\npartial' >&2; sleep 0.5; exit 0".to_owned(),
+    ]);
+    let mut started = start_adapter_process(&spec, &paths).unwrap();
+
+    assert_eq!(
+        started.drain_stderr_lines(false).unwrap(),
+        ["first".to_owned(), "second".to_owned()]
+    );
+    assert!(started.try_wait_and_cleanup().unwrap().is_none());
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(started.try_wait_and_cleanup().unwrap().is_some());
+    assert_eq!(
+        started.drain_stderr_lines(true).unwrap(),
+        ["partial".to_owned()]
+    );
+    paths.remove_pid("cmd-adapter").unwrap();
+    std::fs::remove_dir_all(runtime_dir).unwrap();
 }
 
 #[test]

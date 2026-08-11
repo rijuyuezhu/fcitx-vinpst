@@ -1213,7 +1213,7 @@ fn asr_state_reports_unselected_provider() {
     assert_eq!(value["target_provider_id"], "");
     assert_eq!(value["effective_provider_id"], "");
     assert_eq!(value["has_effective_backend"], false);
-    assert_eq!(value["last_error"], "no active ASR provider is configured");
+    assert_eq!(value["last_error"], "");
 }
 
 #[test]

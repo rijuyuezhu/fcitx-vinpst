@@ -7,7 +7,7 @@ use std::{
 
 use vinpst_fcitx_core::{
     MenuFilterState, MenuKeyAction, MenuSemanticKey, MenuSessionKeyInput, MenuSessionState,
-    clamp_menu_page,
+    ResultMenuKeyInput, clamp_menu_page, plan_result_menu_key,
 };
 
 use crate::ffi_string::{VinpstFcitxStringView, string_view, text_input};
@@ -88,8 +88,8 @@ pub(crate) fn boxed_menu_session(state: MenuFilterState) -> *mut VinpstFcitxMenu
     }))
 }
 
-unsafe fn menu_key_input(input: &VinpstFcitxMenuKeyInputView) -> Option<MenuSessionKeyInput<'_>> {
-    let key = match input.key_kind {
+unsafe fn menu_semantic_key(input: &VinpstFcitxMenuKeyInputView) -> Option<MenuSemanticKey<'_>> {
+    match input.key_kind {
         MENU_KEY_OTHER => Some(MenuSemanticKey::Other),
         MENU_KEY_PASSIVE => Some(MenuSemanticKey::Passive),
         MENU_KEY_ESCAPE => Some(MenuSemanticKey::Escape),
@@ -111,12 +111,17 @@ unsafe fn menu_key_input(input: &VinpstFcitxMenuKeyInputView) -> Option<MenuSess
         MENU_KEY_MOVE_NEXT => Some(MenuSemanticKey::MoveNext),
         MENU_KEY_ENTER => Some(MenuSemanticKey::Enter),
         _ => None,
-    }?;
-    let current_selection = if input.current_selection < 0 {
-        None
-    } else {
-        Some(usize::try_from(input.current_selection).ok()?)
-    };
+    }
+}
+
+fn menu_current_selection(input: &VinpstFcitxMenuKeyInputView) -> Option<usize> {
+    usize::try_from(input.current_selection).ok()
+}
+
+unsafe fn menu_key_input(input: &VinpstFcitxMenuKeyInputView) -> Option<MenuSessionKeyInput<'_>> {
+    // SAFETY: Forwarded from this helper's caller contract.
+    let key = unsafe { menu_semantic_key(input) }?;
+    let current_selection = menu_current_selection(input);
     Some(MenuSessionKeyInput {
         release: input.release != 0,
         key,
@@ -161,6 +166,45 @@ fn decision_view(action: MenuKeyAction) -> VinpstFcitxMenuKeyDecisionView {
             value: i64::try_from(visible_index).unwrap_or(i64::MAX),
         },
     }
+}
+
+/// Plans one key for the non-filtering five-row result candidate menu.
+///
+/// # Safety
+///
+/// `input` must be readable, its text range must satisfy the string-view
+/// contract, and `decision_out` must be writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vinpst_fcitx_result_menu_plan_key(
+    input: *const VinpstFcitxMenuKeyInputView,
+    current_page: i32,
+    decision_out: *mut VinpstFcitxMenuKeyDecisionView,
+) -> u8 {
+    crate::ffi_catch(0, || {
+        if decision_out.is_null() {
+            return 0;
+        }
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(input) = (unsafe { input.as_ref() }) else {
+            return 0;
+        };
+        // SAFETY: Forwarded from this function's caller contract.
+        let Some(key) = (unsafe { menu_semantic_key(input) }) else {
+            return 0;
+        };
+        let current_selection = menu_current_selection(input);
+        let decision = decision_view(plan_result_menu_key(ResultMenuKeyInput {
+            release: input.release != 0,
+            key,
+            cursor_available: input.cursor_available != 0,
+            current_selection,
+            current_page,
+            item_count: input.visible_item_count,
+        }));
+        // SAFETY: `decision_out` is non-null and writable by contract.
+        unsafe { decision_out.write(decision) };
+        1
+    })
 }
 
 /// Creates a closed empty menu session.

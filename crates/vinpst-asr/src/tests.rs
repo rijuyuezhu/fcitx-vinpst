@@ -1,11 +1,13 @@
+use super::sherpa::SherpaOnnxOfflineSingleModelKind;
 use super::{
     AsrBackend, AsrBackendFactory, AsrError, AudioDeliveryMode, CommandAsrBackend,
     CommandAsrRequest, CommandAsrResponse, CommandAsrRunner, CommandAsrSpec,
-    LegacyCommandBatchRunner, LegacyCommandStreamingRunner, MockAsrAudioLog, MockAsrAudioPush,
-    MockAsrBackend, ProcessCommandAsrRunner, RecognitionContext, RecognitionEvent,
-    SherpaOnnxModelPathError, SherpaOnnxOfflineModelLayout, SherpaOnnxOfflineRuntimePlan,
-    SherpaOnnxSpec, events_to_payload, legacy_command_streaming_audio_line,
-    legacy_command_streaming_finish_line, parse_legacy_command_streaming_line,
+    LegacyCommandBatchRunner, LegacyCommandStreamingBackend, LegacyCommandStreamingRunner,
+    MockAsrAudioLog, MockAsrAudioPush, MockAsrBackend, ProcessCommandAsrRunner, RecognitionContext,
+    RecognitionEvent, SherpaOnnxModelPathError, SherpaOnnxOfflineModelLayout,
+    SherpaOnnxOfflineRuntimePlan, SherpaOnnxSpec, events_to_payload,
+    legacy_command_streaming_audio_line, legacy_command_streaming_finish_line,
+    parse_legacy_command_streaming_line,
 };
 use vinpst_audio::{PcmBuffer, PcmSpec};
 use vinpst_config::{AsrConfig, AsrProviderConfig, AsrProviderKind};
@@ -259,18 +261,51 @@ fn mock_streaming_backend_can_emit_final_before_finish() {
 }
 
 #[test]
-fn error_event_maps_to_payload() {
-    let payload = events_to_payload(&[RecognitionEvent::Error {
+fn error_event_fails_instead_of_becoming_committed_text() {
+    let error = events_to_payload(&[RecognitionEvent::Error {
         message: "err".to_owned(),
     }])
-    .unwrap();
-    assert_eq!(payload.commit_text, "err");
+    .unwrap_err();
+    assert!(matches!(error, AsrError::Backend(message) if message == "err"));
 }
 
 #[test]
-fn events_without_final_text_return_error() {
-    let error = events_to_payload(&[RecognitionEvent::Completed]).unwrap_err();
-    assert!(matches!(error, AsrError::Backend(message) if message.contains("without final text")));
+fn error_event_wins_over_final_text() {
+    let error = events_to_payload(&[
+        RecognitionEvent::FinalText {
+            text: "must not commit".to_owned(),
+        },
+        RecognitionEvent::Error {
+            message: "backend failed".to_owned(),
+        },
+    ])
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        AsrError::Backend(message) if message == "backend failed"
+    ));
+}
+
+#[test]
+fn last_final_text_wins_like_upstream_event_consumption() {
+    let payload = events_to_payload(&[
+        RecognitionEvent::FinalText {
+            text: "stale final".to_owned(),
+        },
+        RecognitionEvent::FinalText {
+            text: "latest final".to_owned(),
+        },
+        RecognitionEvent::Completed,
+    ])
+    .unwrap();
+    assert_eq!(payload.commit_text, "latest final");
+}
+
+#[test]
+fn completed_without_final_text_returns_empty_payload() {
+    let payload = events_to_payload(&[RecognitionEvent::Completed]).unwrap();
+    assert!(payload.commit_text.is_empty());
+    assert!(payload.candidates.is_empty());
 }
 
 #[test]
@@ -355,7 +390,7 @@ fn backend_factory_reports_unselected_active_provider() {
     let state = AsrBackendFactory::state_for_config(&config);
     assert_eq!(state.target_provider_id, "");
     assert!(!state.has_effective_backend);
-    assert_eq!(state.last_error, "no active ASR provider is configured");
+    assert!(state.last_error.is_empty());
 }
 
 #[test]
@@ -630,6 +665,42 @@ fn backend_factory_marks_streaming_command_provider_capabilities() {
 }
 
 #[test]
+fn command_asr_session_cancel_emits_completed_and_finish_is_idempotent() {
+    let backend = CommandAsrBackend::with_runner(
+        CommandAsrSpec {
+            provider_id: "cmd".to_owned(),
+            command: "helper".to_owned(),
+            args: Vec::new(),
+            env: std::collections::HashMap::default(),
+            model_id: None,
+            hotwords_file: None,
+            timeout_ms: None,
+        },
+        FinalTextCommandRunner,
+    );
+    let mut cancelled = backend
+        .create_session(RecognitionContext::normal("raw", None))
+        .unwrap();
+    cancelled.push_audio(&[1, 2]).unwrap();
+    cancelled.cancel().unwrap();
+    assert_eq!(
+        cancelled.poll_events().unwrap(),
+        vec![RecognitionEvent::Completed]
+    );
+
+    let mut finished = backend
+        .create_session(RecognitionContext::normal("raw", None))
+        .unwrap();
+    finished.push_audio(&[1, 2]).unwrap();
+    finished.finish().unwrap();
+    finished.finish().unwrap();
+    assert!(matches!(
+        finished.push_audio(&[3]).unwrap_err(),
+        AsrError::AlreadyFinished
+    ));
+}
+
+#[test]
 fn command_asr_backend_delegates_to_injected_runner() {
     let backend = CommandAsrBackend::with_runner(
         CommandAsrSpec {
@@ -865,6 +936,50 @@ fn sherpa_onnx_spec_preserves_local_provider_config() {
     assert_eq!(spec.model.as_deref(), Some("paraformer"));
     assert_eq!(spec.hotwords_file.as_deref(), Some("hotwords.txt"));
     assert_eq!(spec.timeout_ms, Some(12_000));
+}
+
+#[test]
+fn sherpa_onnx_spec_accepts_custom_local_provider_id() {
+    let provider = AsrProviderConfig {
+        id: "my-local-provider".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: Some(2_500),
+        model: Some("model-dir".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+
+    let spec = SherpaOnnxSpec::from_provider(&provider).unwrap();
+
+    assert_eq!(spec.provider_id, "my-local-provider");
+    assert_eq!(spec.model.as_deref(), Some("model-dir"));
+    assert_eq!(spec.timeout_ms, Some(2_500));
+}
+
+#[cfg(not(feature = "sherpa-onnx-backend"))]
+#[test]
+fn backend_factory_routes_custom_local_provider_to_sherpa_runtime() {
+    let provider = AsrProviderConfig {
+        id: "my-local-provider".to_owned(),
+        kind: AsrProviderKind::Local,
+        timeout_ms: None,
+        model: Some("model-dir".to_owned()),
+        hotwords_file: None,
+        command: None,
+        args: Vec::new(),
+        env: std::collections::HashMap::default(),
+        endpoint: None,
+    };
+
+    let Err(error) = AsrBackendFactory::build_provider(&provider) else {
+        panic!("feature-less build should report the missing sherpa runtime");
+    };
+    let message = error.to_string();
+    assert!(message.contains("sherpa-onnx runtime"));
+    assert!(message.contains("my-local-provider"));
 }
 
 #[test]
@@ -1426,6 +1541,51 @@ fn sherpa_onnx_offline_runtime_plan_uses_dolphin_metadata() {
 }
 
 #[test]
+fn sherpa_onnx_offline_hotword_capability_controls_runtime_settings() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path();
+    for name in ["model.onnx", "tokens.txt", "hotwords.txt"] {
+        std::fs::write(model_dir.join(name), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline",
+            "family":"paraformer",
+            "supports_hotwords":true,
+            "model": {
+                "tokens":"tokens.txt",
+                "paraformer": {"model":"model.onnx"}
+            },
+            "recognizer": {
+                "decoding_method":"greedy_search",
+                "hotwords_file":"hotwords.txt"
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some(model_dir.to_string_lossy().into_owned()),
+        hotwords_file: Some(
+            model_dir
+                .join("hotwords.txt")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        timeout_ms: None,
+    };
+
+    let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+    assert!(plan.settings.supports_hotwords);
+    assert_eq!(
+        plan.paths.hotwords_file.as_deref(),
+        Some(model_dir.join("hotwords.txt").as_path())
+    );
+}
+
+#[test]
 fn sherpa_onnx_offline_runtime_plan_uses_paraformer_metadata() {
     let temp_dir = tempfile::tempdir().unwrap();
     let root = temp_dir.path();
@@ -1566,12 +1726,7 @@ fn sherpa_onnx_offline_runtime_plan_uses_qwen3_asr_metadata() {
                     "conv_frontend": "conv_frontend.onnx",
                     "encoder": "encoder.int8.onnx",
                     "decoder": "decoder.int8.onnx",
-                    "tokenizer": "tokenizer",
-                    "max_total_len": 4096,
-                    "max_new_tokens": 1024,
-                    "temperature": 1.0,
-                    "top_p": 0.9,
-                    "seed": 0
+                    "tokenizer": "tokenizer"
                 }
             }
         }"#,
@@ -1612,6 +1767,274 @@ fn sherpa_onnx_offline_runtime_plan_uses_qwen3_asr_metadata() {
             hotwords: None,
         }
     );
+}
+
+#[test]
+fn sherpa_onnx_offline_runtime_plan_uses_nemo_transducer_family_assets() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path().join("nemo-transducer");
+    std::fs::create_dir(&model_dir).unwrap();
+    for file in ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"] {
+        std::fs::write(model_dir.join(file), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline",
+            "family":"nemo_transducer",
+            "model":{
+                "tokens":"tokens.txt",
+                "nemo_transducer":{
+                    "encoder":"encoder.onnx",
+                    "decoder":"decoder.onnx",
+                    "joiner":"joiner.onnx"
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some("nemo-transducer".to_owned()),
+        hotwords_file: None,
+        timeout_ms: None,
+    };
+
+    let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+    assert_eq!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::Transducer {
+            encoder: model_dir.join("encoder.onnx"),
+            decoder: model_dir.join("decoder.onnx"),
+            joiner: model_dir.join("joiner.onnx"),
+            tokens: model_dir.join("tokens.txt"),
+        }
+    );
+    assert_eq!(plan.settings.model_type.as_deref(), Some("nemo_transducer"));
+}
+
+#[test]
+fn sherpa_onnx_offline_runtime_plan_supports_frozen_single_model_families() {
+    let temp = tempfile::tempdir().unwrap();
+    let cases = [
+        (
+            "zipformer_ctc",
+            SherpaOnnxOfflineSingleModelKind::ZipformerCtc,
+        ),
+        (
+            "fire_red_asr_ctc",
+            SherpaOnnxOfflineSingleModelKind::FireRedAsrCtc,
+        ),
+        ("nemo_ctc", SherpaOnnxOfflineSingleModelKind::NemoCtc),
+        ("wenet_ctc", SherpaOnnxOfflineSingleModelKind::WenetCtc),
+        ("tdnn", SherpaOnnxOfflineSingleModelKind::Tdnn),
+        ("omnilingual", SherpaOnnxOfflineSingleModelKind::Omnilingual),
+        ("medasr", SherpaOnnxOfflineSingleModelKind::MedAsr),
+        (
+            "telespeech_ctc",
+            SherpaOnnxOfflineSingleModelKind::TelespeechCtc,
+        ),
+    ];
+    for (family, native_family) in cases {
+        let model_dir = temp.path().join(family);
+        std::fs::create_dir(&model_dir).unwrap();
+        std::fs::write(model_dir.join("model.onnx"), b"model").unwrap();
+        std::fs::write(model_dir.join("tokens.txt"), b"tokens").unwrap();
+        let model = if family == "telespeech_ctc" {
+            serde_json::json!({"tokens":"tokens.txt","telespeech_ctc":"model.onnx"})
+        } else {
+            serde_json::json!({"tokens":"tokens.txt", family:{"model":"model.onnx"}})
+        };
+        std::fs::write(
+            model_dir.join("vinpst-model.json"),
+            serde_json::json!({"backend":"sherpa-offline","family":family,"model":model})
+                .to_string(),
+        )
+        .unwrap();
+        let spec = SherpaOnnxSpec {
+            provider_id: "local".to_owned(),
+            model: Some(family.to_owned()),
+            hotwords_file: None,
+            timeout_ms: None,
+        };
+
+        let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+        assert_eq!(
+            plan.layout,
+            SherpaOnnxOfflineModelLayout::SingleModel {
+                family: native_family,
+                model: model_dir.join("model.onnx"),
+                tokens: model_dir.join("tokens.txt"),
+            },
+            "family {family}"
+        );
+        assert_eq!(plan.settings.model_type.as_deref(), Some(family));
+    }
+}
+
+#[test]
+fn sherpa_onnx_offline_whisper_uses_frozen_defaults_and_model_language() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path().join("whisper");
+    std::fs::create_dir(&model_dir).unwrap();
+    for file in ["encoder.onnx", "decoder.onnx", "tokens.txt"] {
+        std::fs::write(model_dir.join(file), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline",
+            "family":"whisper",
+            "language":"zh",
+            "model":{
+                "tokens":"tokens.txt",
+                "whisper":{
+                    "encoder":"encoder.onnx",
+                    "decoder":"decoder.onnx",
+                    "enable_token_timestamps":true,
+                    "enable_segment_timestamps":true
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some("whisper".to_owned()),
+        hotwords_file: None,
+        timeout_ms: None,
+    };
+
+    let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+    assert_eq!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::Whisper {
+            encoder: model_dir.join("encoder.onnx"),
+            decoder: model_dir.join("decoder.onnx"),
+            tokens: model_dir.join("tokens.txt"),
+            language: "zh".to_owned(),
+            task: "transcribe".to_owned(),
+            tail_paddings: -1,
+            enable_token_timestamps: true,
+            enable_segment_timestamps: true,
+        }
+    );
+}
+
+#[test]
+fn sherpa_onnx_offline_runtime_language_ignores_multilingual_catalog_label() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path().join("whisper-multilingual");
+    std::fs::create_dir(&model_dir).unwrap();
+    for file in ["encoder.onnx", "decoder.onnx", "tokens.txt"] {
+        std::fs::write(model_dir.join(file), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline",
+            "family":"whisper",
+            "language":"multilingual",
+            "model":{
+                "tokens":"tokens.txt",
+                "whisper":{"encoder":"encoder.onnx","decoder":"decoder.onnx"}
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some("whisper-multilingual".to_owned()),
+        hotwords_file: None,
+        timeout_ms: None,
+    };
+
+    let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+    assert!(matches!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::Whisper { language, .. } if language.is_empty()
+    ));
+}
+
+#[test]
+fn sherpa_onnx_offline_canary_uses_model_language_for_both_sides() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path().join("canary");
+    std::fs::create_dir(&model_dir).unwrap();
+    for file in ["encoder.onnx", "decoder.onnx", "tokens.txt"] {
+        std::fs::write(model_dir.join(file), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline","family":"canary","language":"zh",
+            "model":{"tokens":"tokens.txt","canary":{
+                "encoder":"encoder.onnx","decoder":"decoder.onnx","use_pnc":true
+            }}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some("canary".to_owned()),
+        hotwords_file: None,
+        timeout_ms: None,
+    };
+
+    let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+    assert!(matches!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::Canary { src_lang, tgt_lang, use_pnc: true, .. }
+            if src_lang == "zh" && tgt_lang == "zh"
+    ));
+}
+
+#[test]
+fn sherpa_onnx_offline_funasr_nano_uses_frozen_defaults_and_model_language() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path().join("funasr-nano");
+    std::fs::create_dir_all(model_dir.join("tokenizer")).unwrap();
+    for file in ["encoder.onnx", "llm.onnx", "embedding.onnx"] {
+        std::fs::write(model_dir.join(file), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline","family":"funasr_nano","language":"zh",
+            "model":{"funasr_nano":{
+                "encoder_adapter":"encoder.onnx","llm":"llm.onnx",
+                "embedding":"embedding.onnx","tokenizer":"tokenizer"
+            }}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some("funasr-nano".to_owned()),
+        hotwords_file: None,
+        timeout_ms: None,
+    };
+
+    let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+    assert!(matches!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::FunAsrNano {
+            max_new_tokens: 1024,
+            temperature,
+            top_p,
+            seed: 0,
+            language,
+            itn: false,
+            ..
+        } if (temperature - 1.0).abs() < f32::EPSILON
+            && (top_p - 0.9).abs() < f32::EPSILON
+            && language == "zh"
+    ));
 }
 
 #[test]
@@ -1670,10 +2093,54 @@ fn sherpa_onnx_offline_runtime_plan_uses_moonshine_metadata() {
             encoder: model_dir.join("encode.int8.onnx"),
             uncached_decoder: model_dir.join("uncached_decode.int8.onnx"),
             cached_decoder: model_dir.join("cached_decode.int8.onnx"),
+            merged_decoder: None,
             tokens: model_dir.join("tokens.txt"),
         }
     );
     assert_eq!(plan.layout_source, "metadata");
+}
+
+#[test]
+fn sherpa_onnx_offline_runtime_plan_accepts_moonshine_v2_shape() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path().join("moonshine-v2");
+    std::fs::create_dir(&model_dir).unwrap();
+    for file in ["encoder.onnx", "merged_decoder.onnx", "tokens.txt"] {
+        std::fs::write(model_dir.join(file), b"fixture").unwrap();
+    }
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline",
+            "family":"moonshine",
+            "model":{
+                "moonshine":{
+                    "encoder":"encoder.onnx",
+                    "merged_decoder":"merged_decoder.onnx"
+                },
+                "tokens":"tokens.txt"
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some("moonshine-v2".to_owned()),
+        hotwords_file: None,
+        timeout_ms: None,
+    };
+
+    let plan = spec.resolve_offline_runtime_plan(temp.path()).unwrap();
+    assert_eq!(
+        plan.layout,
+        SherpaOnnxOfflineModelLayout::MoonshineV2 {
+            encoder: model_dir.join("encoder.onnx"),
+            merged_decoder: model_dir.join("merged_decoder.onnx"),
+            tokens: model_dir.join("tokens.txt"),
+        }
+    );
+    assert_eq!(plan.settings.model_type.as_deref(), Some("moonshine"));
 }
 
 #[test]
@@ -1760,6 +2227,82 @@ fn sherpa_onnx_offline_runtime_plan_accepts_non_int8_sense_voice_model() {
         plan.layout,
         SherpaOnnxOfflineModelLayout::SenseVoice { model, .. }
             if model == model_dir.join("model.onnx")
+    ));
+}
+
+#[test]
+fn sherpa_onnx_offline_runtime_plan_rejects_metadata_asset_parent_escape() {
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path().join("model");
+    std::fs::create_dir(&model_dir).unwrap();
+    let outside_model = temp.path().join("outside.onnx");
+    std::fs::write(&outside_model, b"fixture").unwrap();
+    std::fs::write(model_dir.join("tokens.txt"), b"tokens").unwrap();
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline",
+            "family":"paraformer",
+            "model": {
+                "tokens":"tokens.txt",
+                "paraformer":{"model":"../outside.onnx"}
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some(model_dir.to_string_lossy().into_owned()),
+        hotwords_file: None,
+        timeout_ms: None,
+    };
+
+    let error = spec.resolve_offline_runtime_plan(temp.path()).unwrap_err();
+    assert!(matches!(
+        error,
+        SherpaOnnxModelPathError::ModelAssetEscapesRoot { asset, .. }
+            if asset == "model"
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn sherpa_onnx_offline_runtime_plan_rejects_metadata_asset_symlink_escape() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let model_dir = temp.path().join("model");
+    std::fs::create_dir(&model_dir).unwrap();
+    let outside_model = temp.path().join("outside.onnx");
+    std::fs::write(&outside_model, b"fixture").unwrap();
+    symlink(&outside_model, model_dir.join("linked.onnx")).unwrap();
+    std::fs::write(model_dir.join("tokens.txt"), b"tokens").unwrap();
+    std::fs::write(
+        model_dir.join("vinpst-model.json"),
+        serde_json::json!({
+            "backend":"sherpa-offline",
+            "family":"paraformer",
+            "model": {
+                "tokens":"tokens.txt",
+                "paraformer":{"model":"linked.onnx"}
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let spec = SherpaOnnxSpec {
+        provider_id: "local".to_owned(),
+        model: Some(model_dir.to_string_lossy().into_owned()),
+        hotwords_file: None,
+        timeout_ms: None,
+    };
+
+    let error = spec.resolve_offline_runtime_plan(temp.path()).unwrap_err();
+    assert!(matches!(
+        error,
+        SherpaOnnxModelPathError::ModelAssetEscapesRoot { asset, .. }
+            if asset == "model"
     ));
 }
 
@@ -1935,30 +2478,6 @@ fn backend_factory_reports_sherpa_onnx_runtime_unavailable() {
         error,
         AsrError::Backend(message)
             if message == "sherpa-onnx runtime for provider `sherpa-onnx` is not enabled; build with feature `sherpa-onnx-backend`"
-    ));
-}
-
-#[test]
-fn backend_factory_reports_unimplemented_provider_kind() {
-    let provider = AsrProviderConfig {
-        id: "local-other".to_owned(),
-        kind: AsrProviderKind::Local,
-        timeout_ms: None,
-        model: None,
-        hotwords_file: None,
-        command: None,
-        args: Vec::new(),
-        env: std::collections::HashMap::default(),
-        endpoint: None,
-    };
-
-    let Err(error) = AsrBackendFactory::build_provider(&provider) else {
-        panic!("unsupported provider should fail");
-    };
-    assert!(matches!(
-        error,
-        AsrError::UnsupportedProviderKind { provider_id, kind }
-            if provider_id == "local-other" && kind == "local"
     ));
 }
 
