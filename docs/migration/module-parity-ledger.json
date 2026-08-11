@@ -24,7 +24,7 @@
   "audits": [
     {
       "id": "ASR-CONTRACT-001",
-      "state": "audited-with-gap",
+      "state": "audited-fixed",
       "title": "Recognition session event contract, payload conversion, and minimum recording gate",
       "upstream_files": [
         "daemon/asr/runtime/recognition_contract.h"
@@ -44,7 +44,8 @@
         "Restored the upstream 8000 raw-sample minimum: shorter recordings cancel the session, return directly to idle, skip ASR/text finishing, and expose an exact empty StopRecording D-Bus reply without RecognitionResult.",
         "Aligned streaming text projection so non-empty PartialText and early FinalText are emitted through RecognitionPartial during recording while early finals remain retained for stop-time payload construction and are not duplicated at stop.",
         "Rust keeps a smaller typed BackendCapabilities shape because current upstream runtime decisions read only audio_delivery_mode; upstream supports_streaming, supports_partial_results, and requires_network are descriptor metadata without runtime consumers, while hotword capability is carried by model/provider metadata in both implementations.",
-        "The separate ERROR-INFO-001 audit now owns and implements frozen live RecognitionEvent::Error -> DaemonNotification classification; this recognition-contract unit remains non-overlapping and only owns event reduction/payload semantics."
+        "The separate ERROR-INFO-001 audit now owns and implements frozen live RecognitionEvent::Error -> DaemonNotification classification; this recognition-contract unit remains non-overlapping and only owns event reduction/payload semantics.",
+        "Closeout confirms no recognition-contract gap remains: live RecognitionEvent::Error notification classification was completed under ERROR-INFO-001, while this unit owns only event reduction, streaming projection, payload construction, and the 8,000-sample gate."
       ]
     },
     {
@@ -123,7 +124,7 @@
     },
     {
       "id": "TXT-POST-001",
-      "state": "audited-with-gap",
+      "state": "audited-fixed",
       "title": "Scene/LLM post-processing, payload fallback, context, and OpenAI-compatible transport contract",
       "upstream_files": [
         "daemon/postprocess/post_processor.cpp",
@@ -137,8 +138,10 @@
       ],
       "supporting_current_files": [
         "crates/vinpst-daemon/src/dbus_service.rs",
+        "crates/vinpst-daemon/src/main.rs",
         "crates/vinpst-daemon/src/runtime.rs",
         "crates/vinpst-daemon/src/runtime/recording.rs",
+        "crates/vinpst-daemon/src/runtime/reload.rs",
         "crates/vinpst-gui/src/llm_provider_management.rs",
         "crates/vinpst-http/src/lib.rs",
         "scripts/fixtures/openai-compatible-text-provider-fixture.py",
@@ -150,7 +153,7 @@
         "Transport and prompt-file failures now preserve raw/selected+ASR payloads and emit typed warning notifications.",
         "Context cache read failures are non-fatal like upstream.",
         "OpenAI-compatible text connect attempts use the upstream 5-second maximum while scene timeout still bounds the full request.",
-        "Known gap: shutdown does not yet actively cancel an in-flight blocking OpenAI-compatible HTTP request; it waits for the request deadline."
+        "Closed the shutdown gap: the daemon owns one OpenAiCompatibleShutdown handle across config reloads and triggers it immediately after SIGTERM/SIGINT or executable-replacement shutdown detection, without acquiring the RuntimeState mutex. The synchronous text seam now runs an async reqwest request in a dedicated current-thread Tokio worker; request and response-body futures select on the shared shutdown signal and are dropped on cancellation. Cancellation returns an empty provider body so the existing raw/selected+ASR fallback is used without a spurious provider warning, matching frozen PostProcessor::Shutdown/error_out clearing. A stalled local provider with a 30-second request deadline is cancelled after the complete POST arrives, returns promptly, and observes the client connection close; full text/http/daemon suites and strict Clippy pass."
       ]
     },
     {
@@ -286,7 +289,7 @@
     },
     {
       "id": "ASR-SHERPA-RUNTIME-001",
-      "state": "audited-with-gap",
+      "state": "audited-intentional-divergence",
       "title": "Native Sherpa offline and streaming recognition runtime",
       "upstream_files": [
         "daemon/asr/backends/sherpa_offline_backend.cpp",
@@ -314,8 +317,8 @@
         "Added all frozen-upstream online families supported by the sherpa-onnx Rust binding: transducer, zipformer2_ctc, paraformer, nemo_ctc, and t_one_ctc, with path-level metadata tests and native-feature compilation.",
         "Aligned thread policy: offline metadata defaults to 4 threads when omitted while explicit offline model metadata may override it; online runtime uses the frozen upstream runtime default of 4 threads rather than model metadata.",
         "All frozen offline family mappings are now owned and completed by ASR-MODEL-001; this runtime unit retains only recognizer/session behavior ownership.",
-        "Known gap: frozen upstream can supply model tokens and hotwords through in-memory tokens_buf/hotwords_buf JSON byte strings. The later model-manager audit verified that sherpa-onnx 1.13.3 safe high-level OfflineModelConfig/OnlineModelConfig does not expose those C-API fields, so Vinpst keeps the gap explicit rather than adding raw unsafe FFI.",
-        "Model path discovery/layout inference and VAD remain supporting evidence only and stay pending for their own non-overlapping audits."
+        "Intentional binding divergence: frozen streaming code can optionally forward tokens_buf and hotwords_buf to the sherpa C API, but frozen ModelManager still requires a path-backed tokens asset for installed models and the frozen source tree contains no shipped metadata using either buffer key. sherpa-onnx 1.13.3 safe Rust OnlineRecognizerConfig does not expose these raw-buffer fields. Vinpst therefore keeps the normal path-backed tokens and hotwords_file contract, including provider hotword override, rather than introducing unsafe raw FFI for an unused optional knob; this is not a v0.1 installed-model compatibility blocker.",
+        "Model discovery/layout ownership is completed by ASR-MODEL-001 and VAD ownership by ASR-VAD-001; those files remain supporting evidence here without duplicate ownership."
       ]
     },
     {
@@ -346,7 +349,7 @@
     },
     {
       "id": "ASR-MODEL-001",
-      "state": "audited-with-gap",
+      "state": "audited-fixed",
       "title": "Installed ASR model discovery, metadata, layout, and removal",
       "upstream_files": [
         "common/asr/model_manager.cpp",
@@ -379,12 +382,12 @@
         "Fixed native model coverage and metadata semantics: all 19 frozen offline families and all five frozen streaming families are accepted, including nemo_transducer family-keyed assets, Moonshine v2 encoder+merged-decoder layouts, frozen Qwen3/FunASR defaults, Whisper timestamp flags, and frozen RuntimeLanguageHint behavior.",
         "Installed discovery now preserves malformed metadata entries as explicit broken models instead of failing the whole catalog; CLI reports broken state, daemon target menus exclude broken models, and GUI semantic state disables Use while keeping removal available.",
         "Intentional Vinpst extensions remain: flat managed-model discovery in addition to the frozen two-level layout, a moonshine_v1 compatibility alias, and stronger active-model/symlink removal guards.",
-        "Remaining dependency gap: frozen tokens_buf/hotwords_buf in-memory Sherpa metadata cannot be represented through sherpa-onnx 1.13.3 safe Rust Offline/Online model configs; normal crates remain unsafe-free rather than bypassing the binding with raw FFI."
+        "Closeout removes the earlier buffer-field gap from model-manager ownership: frozen ModelManager itself requires the resolved tokens file for every non-tokenizer family, so tokens_buf cannot replace an installed text asset there. Optional streaming C-API buffer forwarding is an intentional runtime binding divergence recorded under ASR-SHERPA-RUNTIME-001; installed discovery, validation, layout, and removal have no remaining model-manager parity gap."
       ]
     },
     {
       "id": "ERROR-INFO-001",
-      "state": "audited-with-gap",
+      "state": "audited-fixed",
       "title": "Daemon error classification and notification payloads",
       "upstream_files": [
         "common/dbus/error_info.cpp",
@@ -404,7 +407,7 @@
         "Ported the frozen daemon ClassifyErrorText taxonomy into one crate-private classifier preserving code, subject, detail, raw-message, prefix recursion, nested provider/model adoption, model/audio/D-Bus failures, LLM/HTTP processing failures, prompt-file URI parsing, and unknown fallback.",
         "D-Bus emission now uses the classifier for recording-start failures, live streaming RecognitionEvent::Error, stop-time ASR failures, text postprocess failures, and current-generation ASR reload failures. Live Error events are drained in event order while the session retains its fatal state, so Stop produces no fabricated text and does not duplicate an already-emitted notification.",
         "Private-session D-Bus evidence proves exact daemon_busy and asr_provider_timeout ssss payloads, live notification before Stop, stop-time notification before the operation failure, and bounded no-duplicate behavior. The complete daemon lib suite and 19 private-bus integration tests pass under strict dbus-integration Clippy.",
-        "The frozen header also defines daemon_start_failed and daemon_restart_failed, but frozen generation occurs only in cli/runtime/systemd_client.{cpp,h}, not error_info.cpp. The corresponding Rust CLI daemon-control files remain pending and do not yet project those two structured codes; that cross-module gap stays assigned to the later CLI-service audit rather than creating unused daemon constants."
+        "The frozen header also defines daemon_start_failed and daemon_restart_failed, whose live sender is cli/runtime/systemd_client rather than error_info. CLI-SYSTEMD-RUNTIME-001 later completed that ownership and intentionally keeps Vinpst lifecycle failures as command diagnostics instead of coupling the low-level systemd runner to the frontend Notify taxonomy. No daemon error-classification behavior remains missing from this unit."
       ]
     },
     {
@@ -738,7 +741,7 @@
         "The normal addon registers the notifier object on the existing Fcitx D-Bus connection beside its signal monitor. Registration creates no extra bus, thread, or event loop; failure is a bounded warning and leaves the rest of the addon functional.",
         "DaemonNotification signals and Notify method calls now share PlanStructuredDaemonNotification, which delegates severity/text selection to the existing Rust daemon-notification planner before using the same Fcitx presentation path. Raw/detail priority, localized unknown fallback, recording-reset policy, icons, and 3/5-second notification timeouts therefore cannot drift between the two ingress forms.",
         "A private-session CTest owns org.fcitx.Fcitx5 on a receiver connection, registers the real object vtable, invokes Notify through a separate D-Bus sender, verifies all four strings and the empty method reply, then verifies the shared planner produces an error presentation with the expected raw text. The complete addon CTest suite passes 12/12.",
-        "This audit owns only the frontend receive object. Frozen cli/runtime/systemd_client.cpp is the live sender for daemon_start_failed/daemon_restart_failed and remains pending for the separate CLI service-control audit; restoring this ingress does not claim those current CLI failure paths already send Notify."
+        "This audit owns only the frontend receive object. The later CLI-SYSTEMD-RUNTIME-001 audit completed frozen systemd-client ownership and intentionally does not emit daemon_start_failed/daemon_restart_failed Notify calls: Vinpst reports bounded command diagnostics and keeps daemon-originated notification authority separate. The ingress object remains compatible for structured notifications that are actually emitted."
       ]
     },
     {
