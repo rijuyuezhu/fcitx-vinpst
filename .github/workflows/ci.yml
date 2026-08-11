@@ -22,8 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
@@ -39,7 +39,7 @@ jobs:
     # adapter, and PipeWire feature checks in this job.
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@v2
@@ -83,7 +83,7 @@ jobs:
           - image: ubuntu:24.04
             distribution: ubuntu24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Build and transaction-test Debian package
         run: |
           scripts/release/run-deb-package-smoke.sh \
@@ -97,7 +97,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v18
       - name: Restore Nix build cache
         uses: DeterminateSystems/magic-nix-cache-action@v14
