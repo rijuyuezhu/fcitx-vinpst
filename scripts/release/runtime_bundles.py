@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Checked native-runtime bundle manifest loading shared by package renderers."""
 
+import argparse
 import json
 import re
 from pathlib import Path
@@ -96,3 +97,16 @@ def load_runtime_bundle(path: Path, requested_id: str | None) -> dict[str, str]:
     if selected is None:
         raise SystemExit(f"unknown runtime bundle: {selected_id}")
     return selected
+
+
+def main() -> None:
+    """Print one strictly validated runtime bundle as stable JSON."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("manifest", type=Path)
+    parser.add_argument("--bundle")
+    args = parser.parse_args()
+    print(json.dumps(load_runtime_bundle(args.manifest, args.bundle), sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

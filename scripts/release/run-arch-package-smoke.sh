@@ -64,8 +64,19 @@ source_cache="${stage_root}/sources"
 package_root="${stage_root}/package-root"
 source_archive="${source_cache}/fcitx-vinpst-${version}.tar.gz"
 asset_cache="${repo_root}/target/tmp/arch-package-assets"
-sherpa_archive="${asset_cache}/sherpa-onnx-v1.13.3-linux-x64-shared-lib.tar.bz2"
-legacy_sherpa_archive="${repo_root}/target/sherpa-onnx-prebuilt/sherpa-onnx-v1.13.3-linux-x64-shared-lib.tar.bz2"
+runtime_bundle="$(
+  scripts/release/runtime_bundles.py packaging/arch/runtime-bundles.json
+)"
+sherpa_version="$(jq -er '.sherpa_onnx_version' <<<"${runtime_bundle}")"
+sherpa_archive_name="$(jq -er '.sherpa_onnx_archive' <<<"${runtime_bundle}")"
+sherpa_sha256="$(jq -er '.sherpa_onnx_sha256' <<<"${runtime_bundle}")"
+sherpa_license_sha256="$(jq -er '.sherpa_onnx_license_sha256' <<<"${runtime_bundle}")"
+onnxruntime_version="$(jq -er '.onnxruntime_version' <<<"${runtime_bundle}")"
+onnxruntime_license_sha256="$(jq -er '.onnxruntime_license_sha256' <<<"${runtime_bundle}")"
+sherpa_archive="${asset_cache}/${sherpa_archive_name}"
+legacy_sherpa_archive="${repo_root}/target/sherpa-onnx-prebuilt/${sherpa_archive_name}"
+sherpa_license="${asset_cache}/sherpa-onnx-LICENSE-${sherpa_version}"
+onnxruntime_license="${asset_cache}/onnxruntime-LICENSE-${onnxruntime_version}"
 
 rm -rf "${stage_root}"
 mkdir -p "${build_root}" "${source_cache}" "${package_root}" "${asset_cache}"
@@ -85,24 +96,24 @@ if [[ ! -s "${sherpa_archive}" && -s "${legacy_sherpa_archive}" ]]; then
   cp "${legacy_sherpa_archive}" "${sherpa_archive}"
 fi
 fetch_asset \
-  https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.3/sherpa-onnx-v1.13.3-linux-x64-shared-lib.tar.bz2 \
+  "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpa_version}/${sherpa_archive_name}" \
   "${sherpa_archive}"
 fetch_asset \
-  https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v1.13.3/LICENSE \
-  "${asset_cache}/sherpa-onnx-LICENSE"
+  "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${sherpa_version}/LICENSE" \
+  "${sherpa_license}"
 fetch_asset \
-  https://raw.githubusercontent.com/microsoft/onnxruntime/v1.24.4/LICENSE \
-  "${asset_cache}/onnxruntime-LICENSE"
+  "https://raw.githubusercontent.com/microsoft/onnxruntime/v${onnxruntime_version}/LICENSE" \
+  "${onnxruntime_license}"
 cp "${sherpa_archive}" "${source_cache}/"
-cp "${asset_cache}/sherpa-onnx-LICENSE" \
-  "${source_cache}/sherpa-onnx-LICENSE-1.13.3"
-cp "${asset_cache}/onnxruntime-LICENSE" \
-  "${source_cache}/onnxruntime-LICENSE-1.24.4"
+cp "${sherpa_license}" \
+  "${source_cache}/sherpa-onnx-LICENSE-${sherpa_version}"
+cp "${onnxruntime_license}" \
+  "${source_cache}/onnxruntime-LICENSE-${onnxruntime_version}"
 
 sha256sum -c <<EOF
-650d3da32694fa48e6e018f7087e4840aace56b3187a294a18ba3b9f51e80943  ${source_cache}/sherpa-onnx-v1.13.3-linux-x64-shared-lib.tar.bz2
-cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30  ${source_cache}/sherpa-onnx-LICENSE-1.13.3
-2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c  ${source_cache}/onnxruntime-LICENSE-1.24.4
+${sherpa_sha256}  ${source_cache}/${sherpa_archive_name}
+${sherpa_license_sha256}  ${source_cache}/sherpa-onnx-LICENSE-${sherpa_version}
+${onnxruntime_license_sha256}  ${source_cache}/onnxruntime-LICENSE-${onnxruntime_version}
 EOF
 
 if [[ -n "${input_source_archive}" ]]; then

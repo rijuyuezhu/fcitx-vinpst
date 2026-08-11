@@ -112,6 +112,23 @@ cat >"${check_root}/runtime-bundles.json" <<'EOF'
   ]
 }
 EOF
+default_runtime_bundle="$(
+  PYTHONDONTWRITEBYTECODE=1 \
+    scripts/release/runtime_bundles.py "${check_root}/runtime-bundles.json"
+)"
+jq -e \
+  '.id == "fixture-x86_64" and .sherpa_onnx_version == "1.0.0" and .onnxruntime_version == "2.0.0"' \
+  <<<"${default_runtime_bundle}" >/dev/null
+selected_runtime_bundle="$(
+  PYTHONDONTWRITEBYTECODE=1 \
+    scripts/release/runtime_bundles.py \
+      "${check_root}/runtime-bundles.json" \
+      --bundle fixture-aarch64
+)"
+jq -e \
+  '.id == "fixture-aarch64" and .sherpa_onnx_archive == "fixture-aarch64.tar.bz2" and .sherpa_onnx_sha256 == "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" and .onnxruntime_version == "8.8.8"' \
+  <<<"${selected_runtime_bundle}" >/dev/null
+
 
 scripts/release/render-arch-pkgbuild.py \
   --version "${version}" \
