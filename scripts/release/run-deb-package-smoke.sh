@@ -51,6 +51,15 @@ command -v docker >/dev/null || {
   echo "Docker is required for the Debian package smoke" >&2
   exit 1
 }
+command -v rustc >/dev/null || {
+  echo "rustc is required on the host for the Debian package smoke" >&2
+  exit 1
+}
+rust_sysroot="$(rustc --print sysroot)"
+[[ -x "${rust_sysroot}/bin/rustc" && -x "${rust_sysroot}/bin/cargo" ]] || {
+  echo "host Rust sysroot does not contain rustc and cargo: ${rust_sysroot}" >&2
+  exit 1
+}
 
 package_source_cache="$(scripts/release/resolve-package-source-cache.sh \
   "${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}")"
@@ -72,12 +81,6 @@ run_target() {
   if [[ -n "${VINPST_DEB_APT_SECURITY_MIRROR:-}" ]]; then
     build_args+=(--build-arg "APT_SECURITY_MIRROR=${VINPST_DEB_APT_SECURITY_MIRROR}")
   fi
-  if [[ -n "${VINPST_DEB_RUSTUP_DIST_SERVER:-}" ]]; then
-    build_args+=(--build-arg "RUSTUP_DIST_SERVER=${VINPST_DEB_RUSTUP_DIST_SERVER}")
-  fi
-  if [[ -n "${VINPST_DEB_RUSTUP_UPDATE_ROOT:-}" ]]; then
-    build_args+=(--build-arg "RUSTUP_UPDATE_ROOT=${VINPST_DEB_RUSTUP_UPDATE_ROOT}")
-  fi
   docker build \
     "${build_args[@]}" \
     --file packaging/debian/Dockerfile \
@@ -86,8 +89,10 @@ run_target() {
   docker run --rm \
     --volume "${repo_root}:/workspace" \
     --volume "${package_source_cache}:/package-source-cache" \
+    --volume "${rust_sysroot}:${rust_sysroot}:ro" \
     --workdir /workspace \
-    --env RUSTUP_TOOLCHAIN=stable \
+    --env "VINPST_RUST_SYSROOT=${rust_sysroot}" \
+    --env "PATH=${rust_sysroot}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     --env "VINPST_DEB_CARGO_OFFLINE=${VINPST_DEB_CARGO_OFFLINE:-0}" \
     --env VINPST_PACKAGE_SOURCE_CACHE=/package-source-cache \
     --env "VINPST_HOST_UID=$(id -u)" \
@@ -95,6 +100,8 @@ run_target() {
     "${docker_tag}" \
     bash -lc "
       set -euo pipefail
+      rustc --version
+      cargo --version
       cleanup() {
         chown -R \"\${VINPST_HOST_UID}:\${VINPST_HOST_GID}\" \
           /workspace/target/tmp/deb-package-build \

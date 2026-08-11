@@ -47,13 +47,13 @@ grep -q 'package-remove-handoff' packaging/debian/prerm
 grep -q 'intentionally preserved' packaging/debian/postrm
 grep -q 'License: GPL-3+' packaging/debian/copyright
 test -s LICENSE
-grep -q 'rustup_tmpdir="$(mktemp -d)"' packaging/debian/Dockerfile
-grep -q 'rustup_installer="${rustup_tmpdir}/rustup-init"' packaging/debian/Dockerfile
-grep -q 'rustup_update_root="${RUSTUP_UPDATE_ROOT:-https://static.rust-lang.org/rustup}"' packaging/debian/Dockerfile
-grep -q 'rustup_target="$(uname -m)-unknown-linux-gnu"' packaging/debian/Dockerfile
-grep -q '"${rustup_update_root}/dist/${rustup_target}/rustup-init"' packaging/debian/Dockerfile
-! grep -q 'sh.rustup.rs' packaging/debian/Dockerfile
-! grep -q '| CARGO_HOME=' packaging/debian/Dockerfile
+! grep -qE 'rustup|static\.rust-lang\.org|sh\.rustup\.rs' packaging/debian/Dockerfile
+grep -q 'rust_sysroot="$(rustc --print sysroot)"' scripts/release/run-deb-package-smoke.sh
+grep -q -- '--volume "${rust_sysroot}:${rust_sysroot}:ro"' scripts/release/run-deb-package-smoke.sh
+grep -q -- '--env "VINPST_RUST_SYSROOT=${rust_sysroot}"' scripts/release/run-deb-package-smoke.sh
+grep -q -- '--env "PATH=${rust_sysroot}/bin:' scripts/release/run-deb-package-smoke.sh
+grep -q 'rustc --version' scripts/release/run-deb-package-smoke.sh
+grep -q 'cargo --version' scripts/release/run-deb-package-smoke.sh
 
 after_failure() {
   local name="$1"

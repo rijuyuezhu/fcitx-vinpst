@@ -1,9 +1,6 @@
 name: Nix binary cache
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -36,5 +33,5 @@ jobs:
           name: fcitx-vinpst
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - name: Build and publish locked Nix closure
-        run: nix build .#fcitx-vinpst --no-link
+      - name: Build, validate, and publish locked Nix closure
+        run: scripts/release/run-nix-package-smoke.sh

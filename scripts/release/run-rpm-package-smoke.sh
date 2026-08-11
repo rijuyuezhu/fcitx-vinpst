@@ -13,6 +13,51 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
+input_source_archive=""
+distribution="fedora43"
+while (($#)); do
+  case "$1" in
+    --source-archive)
+      (($# >= 2)) || {
+        echo "missing value for --source-archive" >&2
+        exit 2
+      }
+      [[ -z "${input_source_archive}" ]] || {
+        echo "--source-archive may be specified only once" >&2
+        exit 2
+      }
+      input_source_archive="$2"
+      shift 2
+      ;;
+    --distribution)
+      (($# >= 2)) || {
+        echo "missing value for --distribution" >&2
+        exit 2
+      }
+      distribution="$2"
+      shift 2
+      ;;
+    *)
+      echo "unknown RPM package smoke argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+case "${distribution}" in
+  fedora43 | opensuse16.0) ;;
+  *)
+    echo "unsupported RPM smoke distribution: ${distribution@Q}" >&2
+    exit 2
+    ;;
+esac
+if [[ -n "${input_source_archive}" ]]; then
+  [[ -f "${input_source_archive}" && ! -L "${input_source_archive}" ]] || {
+    echo "RPM source archive must be a regular file" >&2
+    exit 1
+  }
+  input_source_archive="$(cd "$(dirname "${input_source_archive}")" && pwd)/$(basename "${input_source_archive}")"
+fi
+
 version="$(
   cargo metadata --no-deps --format-version 1 |
     jq -r '.packages[] | select(.name == "vinpst-cli") | .version'
@@ -28,7 +73,6 @@ topdir="${stage_root}/rpmbuild"
 source_cache="${topdir}/SOURCES"
 spec_dir="${topdir}/SPECS"
 package_root="${stage_root}/package-root"
-rpm_root="${stage_root}/rpm-root"
 source_archive="${source_cache}/${source_dir}.tar.gz"
 asset_cache="${package_source_cache}/runtime-assets"
 runtime_bundle="$(
@@ -81,13 +125,21 @@ ${sherpa_license_sha256}  ${source_cache}/sherpa-onnx-LICENSE-${sherpa_version}
 ${onnxruntime_license_sha256}  ${source_cache}/onnxruntime-LICENSE-${onnxruntime_version}
 EOF
 
-scripts/release/create-source-archive.sh "${source_archive}" "${version}" >/dev/null
+if [[ -n "${input_source_archive}" ]]; then
+  cp --reflink=auto "${input_source_archive}" "${source_archive}"
+  cmp "${input_source_archive}" "${source_archive}"
+else
+  scripts/release/create-source-archive.sh "${source_archive}" "${version}" >/dev/null
+fi
 source_sha256="$(sha256sum "${source_archive}" | awk '{print $1}')"
+printf '%s  %s\n' "${source_sha256}" "$(basename "${source_archive}")" \
+  >"${stage_root}/source-archive.sha256"
 
 render_spec() {
   local release="$1"
   local output="$2"
   scripts/release/render-rpm-spec.py \
+    --distribution "${distribution}" \
     --version "${version}" \
     --release "${release}" \
     --source-name "${source_dir}.tar.gz" \
@@ -128,7 +180,8 @@ rpm --dbpath "${verify_db}" --initdb
 rpm --dbpath "${verify_db}" -K --nosignature "${initial_rpm}"
 test "$(rpm --dbpath "${verify_db}" -qp --qf '%{NAME}' "${initial_rpm}")" = fcitx-vinpst
 test "$(rpm --dbpath "${verify_db}" -qp --qf '%{VERSION}' "${initial_rpm}")" = "${version}"
-test "$(rpm --dbpath "${verify_db}" -qp --qf '%{RELEASE}' "${initial_rpm}")" = 1
+initial_release="$(rpm --dbpath "${verify_db}" -qp --qf '%{RELEASE}' "${initial_rpm}")"
+[[ "${initial_release}" == 1 || "${initial_release}" == 1.* ]]
 test "$(rpm --dbpath "${verify_db}" -qp --qf '%{ARCH}' "${initial_rpm}")" = x86_64
 test "$(rpm --dbpath "${verify_db}" -qp --qf '%{LICENSE}' "${initial_rpm}")" = \
   'GPL-3.0-or-later AND Apache-2.0 AND MIT'
@@ -136,7 +189,13 @@ test "$(rpm --dbpath "${verify_db}" -qp --qf '%{LICENSE}' "${initial_rpm}")" = \
 ! rpm --dbpath "${verify_db}" -qp --conflicts "${initial_rpm}" | grep -q .
 ! rpm --dbpath "${verify_db}" -qp --obsoletes "${initial_rpm}" | grep -q .
 rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx 'fcitx5'
-rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx 'pipewire-libs'
+rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx '/usr/bin/gdbus'
+rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx '/usr/bin/systemctl'
+if rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" |
+  grep -Eq '^lib(onnxruntime|sherpa-onnx-c-api)\.so'; then
+  echo "RPM exposes private native runtime libraries as package dependencies" >&2
+  exit 1
+fi
 rpm --dbpath "${verify_db}" -qp --scripts "${initial_rpm}" >"${stage_root}/scriptlets.txt"
 grep -Fq '/usr/lib/fcitx-vinpst/package-upgrade-handoff' \
   "${stage_root}/scriptlets.txt"
@@ -228,35 +287,57 @@ grep -qx 'SystemdService=vinpst-daemon.service' \
 grep -qx 'ExecStart=/usr/bin/vinpst-daemon --dbus --configured-backends --audio-backend pipewire --exit-when-executable-replaced' \
   "${package_root}/usr/lib/systemd/user/vinpst-daemon.service"
 
-mkdir -p "${rpm_root}/var/lib/rpm" "${rpm_root}/home/test/.config/fcitx-vinpst"
-printf '%s\n' '{"schema_version":999}' >"${rpm_root}/home/test/.config/fcitx-vinpst/config.json"
-config_sha256="$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')"
-unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm --initdb
-unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
-  --nodeps --noscripts --nosignature -i "${initial_rpm}"
-test "$(unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm -q \
-  --qf '%{VERSION}-%{RELEASE}' fcitx-vinpst)" = "${version}-1"
-unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
+transaction_dir="$(mktemp -d /tmp/fcitx-vinpst-rpm-transaction.XXXXXX)"
+trap 'rm -rf "${transaction_dir}"' EXIT
+transaction_root="${transaction_dir}/root"
+transaction_initial_rpm="${transaction_dir}/initial.rpm"
+transaction_upgrade_rpm="${transaction_dir}/upgrade.rpm"
+cp "${initial_rpm}" "${transaction_initial_rpm}"
+cp "${upgrade_rpm}" "${transaction_upgrade_rpm}"
+mkdir -p \
+  "${transaction_root}/var/lib/rpm" \
+  "${transaction_root}/home/test/.config/fcitx-vinpst"
+# Keep the user-namespace transaction entirely off the bind-mounted workspace.
+# Namespace-root can then own its rpmdb and read the copied package inputs
+# without depending on host UID mappings or workspace mount permissions.
+chmod -R a+rX "${transaction_dir}"
+chmod -R a+rwX "${transaction_root}"
+printf '%s\n' '{"schema_version":999}' \
+  >"${transaction_root}/home/test/.config/fcitx-vinpst/config.json"
+config_sha256="$(sha256sum "${transaction_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')"
+# The namespace must not inherit the bind-mounted repository as its current
+# directory either: rpm resolves cwd before processing --root.
+cd "${transaction_dir}"
+unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm --initdb
+unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm \
+  --nodeps --noscripts --nosignature -i "${transaction_initial_rpm}"
+installed_release="$(unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm -q \
+  --qf '%{VERSION}-%{RELEASE}' fcitx-vinpst)"
+[[ "${installed_release}" == "${version}-1" || \
+  "${installed_release}" == "${version}-1."* ]]
+unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm \
   -V --nodeps fcitx-vinpst
-unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
-  --nodeps --noscripts --nosignature -U "${upgrade_rpm}"
-test "$(unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm -q \
-  --qf '%{VERSION}-%{RELEASE}' fcitx-vinpst)" = "${version}-2"
-unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
+unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm \
+  --nodeps --noscripts --nosignature -U "${transaction_upgrade_rpm}"
+installed_release="$(unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm -q \
+  --qf '%{VERSION}-%{RELEASE}' fcitx-vinpst)"
+[[ "${installed_release}" == "${version}-2" || \
+  "${installed_release}" == "${version}-2."* ]]
+unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm \
   -V --nodeps fcitx-vinpst
-test "$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')" = \
+test "$(sha256sum "${transaction_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')" = \
   "${config_sha256}"
-unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
+unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm \
   --nodeps --noscripts -e fcitx-vinpst
-if unshare -Ur rpm --root "${rpm_root}" --dbpath /var/lib/rpm \
+if unshare -Ur rpm --root "${transaction_root}" --dbpath /var/lib/rpm \
   -q fcitx-vinpst >/dev/null 2>&1; then
   echo "RPM remained registered after removal" >&2
   exit 1
 fi
-test "$(sha256sum "${rpm_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')" = \
+test "$(sha256sum "${transaction_root}/home/test/.config/fcitx-vinpst/config.json" | awk '{print $1}')" = \
   "${config_sha256}"
 for relative in "${required_files[@]}"; do
-  test ! -e "${rpm_root}/${relative}"
+  test ! -e "${transaction_root}/${relative}"
 done
 
 echo "RPM package build and transaction smoke passed: ${initial_rpm}"

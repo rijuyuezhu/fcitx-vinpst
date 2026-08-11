@@ -23,10 +23,13 @@ installed closure layout. A Nix release is normally distributed through a
 binary cache rather than attached to GitHub as a `.nix` binary file. The flake
 and lock file remain in the source archive.
 
-Formal release tags and manual runs of `.github/workflows/nix-cache.yml` build
-the locked `fcitx-vinpst` package and publish the resulting closure to the
-public `fcitx-vinpst` Cachix cache. The workflow requires only a repository
-secret named `CACHIX_AUTH_TOKEN`; use a per-cache write token rather than a
-personal account token. Public read access does not require that secret. Add
-the cache substituter and trusted public key to `flake.nix` only after the
-cache has been created and its Cachix-managed public key is known.
+The Release workflow materializes the same checked source archive used by the
+native packages, runs the full locked Nix package smoke from that tree, and
+publishes the resulting closure to the public `fcitx-vinpst` Cachix cache
+before the checked GitHub release bundle may proceed. `.github/workflows/nix-cache.yml`
+remains as a manual cache-refresh escape hatch and runs the same package smoke.
+Both paths require only the repository secret `CACHIX_AUTH_TOKEN`; use a
+per-cache write token rather than a personal account token. Public read access
+does not require that secret. Add the cache substituter and trusted public key
+to `flake.nix` only after the cache has been created and its Cachix-managed
+public key is known.

@@ -23,6 +23,7 @@ check_root="${repo_root}/target/tmp/rpm-spec-check"
 rm -rf "${check_root}"
 mkdir -p "${check_root}"
 spec="${check_root}/fcitx-vinpst.spec"
+opensuse_spec="${check_root}/fcitx-vinpst-opensuse.spec"
 
 scripts/release/render-rpm-spec.py \
   --version "${version}" \
@@ -30,14 +31,31 @@ scripts/release/render-rpm-spec.py \
   --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
   --source-dir "fcitx-vinpst-${version}" \
   --output "${spec}"
+scripts/release/render-rpm-spec.py \
+  --distribution opensuse16.0 \
+  --version "${version}" \
+  --source-name "fcitx-vinpst-${version}.tar.gz" \
+  --source-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --source-dir "fcitx-vinpst-${version}" \
+  --output "${opensuse_spec}"
 
 rpmspec -P "${spec}" >"${check_root}/expanded.spec"
+rpmspec -P "${opensuse_spec}" >"${check_root}/expanded-opensuse.spec"
 query="$(rpmspec -q --qf '%{NAME}\n%{VERSION}\n%{RELEASE}\n%{ARCH}\n' "${spec}")"
 test "${query}" = $'fcitx-vinpst\n'"${version}"$'\n1\nx86_64'
+opensuse_query="$(rpmspec -q --qf '%{NAME}\n%{VERSION}\n%{RELEASE}\n%{ARCH}\n' "${opensuse_spec}")"
+test "${opensuse_query}" = $'fcitx-vinpst\n'"${version}"$'\n1\nx86_64'
 ! rpmspec -q --provides "${spec}" | grep -Eq '^fcitx5-vinpst = '
 rpmspec -q --requires "${spec}" | grep -qx 'fcitx5'
-rpmspec -q --requires "${spec}" | grep -qx 'pipewire-libs'
-rpmspec -q --requires "${spec}" | grep -qx 'systemd'
+rpmspec -q --requires "${spec}" | grep -qx '/usr/bin/gdbus'
+rpmspec -q --requires "${spec}" | grep -qx '/usr/bin/systemctl'
+! rpmspec -q --requires "${spec}" | grep -Eq '^lib(onnxruntime|sherpa-onnx-c-api)\.so'
+rpmspec -q --requires "${opensuse_spec}" | grep -qx '/usr/bin/gdbus'
+rpmspec -q --requires "${opensuse_spec}" | grep -qx '/usr/bin/systemctl'
+! rpmspec -q --requires "${opensuse_spec}" | grep -Eq '^lib(onnxruntime|sherpa-onnx-c-api)\.so'
+grep -Fq 'BuildRequires:  ninja-build' "${spec}"
+grep -Fq 'BuildRequires:  clang' "${opensuse_spec}"
+grep -Fq 'BuildRequires:  ninja' "${opensuse_spec}"
 
 grep -Fq 'cargo build --frozen --release' "${check_root}/expanded.spec"
 grep -Fq -- '-p vinpst-gui' "${check_root}/expanded.spec"
@@ -57,6 +75,10 @@ grep -Fq '%preun -p /bin/bash' "${spec}"
 grep -Fq '%postun -p /bin/bash' "${spec}"
 if grep -Fq '@VINPST_' "${spec}"; then
   echo "RPM spec still contains unresolved placeholders" >&2
+  exit 1
+fi
+if grep -Fq '@VINPST_' "${opensuse_spec}"; then
+  echo "openSUSE RPM spec still contains unresolved placeholders" >&2
   exit 1
 fi
 

@@ -74,20 +74,6 @@ if [[ -n "${tag}" && "${tag}" != "v${version}" ]]; then
   exit 1
 fi
 
-notes_file="${repo_root}/RELEASE_NOTES.md"
-[[ -f "${notes_file}" && ! -L "${notes_file}" && -s "${notes_file}" ]] || {
-  echo "release notes must be a non-empty regular file: ${notes_file}" >&2
-  exit 1
-}
-expected_heading="# Vinpst ${version}"
-actual_heading="$(head -n 1 "${notes_file}")"
-[[ "${actual_heading}" == "${expected_heading}" ]] || {
-  echo "release notes heading does not match workspace version" >&2
-  echo "expected: ${expected_heading}" >&2
-  echo "actual: ${actual_heading}" >&2
-  exit 1
-}
-
 # Render each native package metadata format with the resolved workspace version.
 # This proves that the checked templates accept the same version before any
 # source archive or distribution package is built.

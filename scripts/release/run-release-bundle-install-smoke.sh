@@ -34,7 +34,7 @@ bundle_dir="$(realpath "${bundle_dir}")"
   echo "release bundle directory does not exist: ${bundle_dir}" >&2
   exit 1
 }
-for command in docker jq python3 sha256sum; do
+for command in docker jq python3 sha256sum tar; do
   command -v "${command}" >/dev/null 2>&1 || {
     echo "required unrelated-environment release smoke command is missing: ${command}" >&2
     exit 1
@@ -49,6 +49,7 @@ done
 
 package_name="$(jq -r '.package.name' "${bundle_dir}/manifest.json")"
 architecture="$(jq -r '.package.architecture' "${bundle_dir}/manifest.json")"
+version="$(jq -r '.package.version' "${bundle_dir}/manifest.json")"
 [[ "${package_name}" == fcitx-vinpst ]] || {
   echo "release bundle package name is not fcitx-vinpst" >&2
   exit 1
@@ -57,13 +58,40 @@ architecture="$(jq -r '.package.architecture' "${bundle_dir}/manifest.json")"
   echo "release bundle architecture is not x86_64" >&2
   exit 1
 }
-expected_roles=$'arch-x86_64\ndeb-debian12\ndeb-ubuntu24.04\nflatpak-x86_64\nsource-archive'
+[[ -n "${version}" && "${version}" != null ]] || {
+  echo "release manifest version is empty" >&2
+  exit 1
+}
+expected_roles=$'arch-x86_64\ndeb-debian12\ndeb-ubuntu24.04\nflatpak-x86_64\nlinux-tarball-bundled\nrpm-fedora43-x86_64\nrpm-opensuse16.0-x86_64\nsource-archive'
 actual_roles="$(jq -r '.artifacts[].role' "${bundle_dir}/manifest.json" | LC_ALL=C sort)"
 [[ "${actual_roles}" == "${expected_roles}" ]] || {
   echo "release bundle does not contain the exact selected 0.1.0 artifact roles" >&2
   diff -u <(printf '%s\n' "${expected_roles}") <(printf '%s\n' "${actual_roles}") || true
   exit 1
 }
+
+mapfile -t tarballs < <(
+  find "${bundle_dir}" -mindepth 1 -maxdepth 1 -type f \
+    -name 'fcitx-vinpst_*-1_linux_x86_64_bundled.tar.gz' \
+    -printf '%f\n' | LC_ALL=C sort
+)
+((${#tarballs[@]} == 1)) || {
+  echo "expected exactly one bundled Linux tarball, found ${#tarballs[@]}" >&2
+  exit 1
+}
+tarball="${tarballs[0]}"
+tarball_root="fcitx-vinpst_${version}-1_linux_x86_64_bundled"
+tar_stage="$(mktemp -d)"
+trap 'rm -rf "${tar_stage}"' EXIT
+tar -xzf "${bundle_dir}/${tarball}" -C "${tar_stage}"
+[[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst" ]]
+[[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst-daemon" ]]
+[[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst-gui" ]]
+"${tar_stage}/${tarball_root}/usr/bin/vinpst" --version >/dev/null
+"${tar_stage}/${tarball_root}/usr/bin/vinpst-daemon" --help >/dev/null
+XDG_CONFIG_HOME="${tar_stage}/config" \
+  "${tar_stage}/${tarball_root}/usr/bin/vinpst-gui" --check --offline |
+  jq -e '.ok and .application == "vinpst-gui" and .daemon.skipped' >/dev/null
 
 mapfile -t packages < <(
   find "${bundle_dir}" -mindepth 1 -maxdepth 1 -type f \
@@ -75,20 +103,6 @@ mapfile -t packages < <(
   exit 1
 }
 package="${packages[0]}"
-version="$(
-  python3 - "${bundle_dir}/manifest.json" <<'PY'
-import json
-import pathlib
-import sys
-
-manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-print(manifest["package"]["version"])
-PY
-)"
-[[ -n "${version}" ]] || {
-  echo "release manifest version is empty" >&2
-  exit 1
-}
 
 docker run --rm \
   --env DEBIAN_FRONTEND=noninteractive \

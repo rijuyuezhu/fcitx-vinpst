@@ -1,8 +1,8 @@
-# RPM packaging baseline
+# Fedora and openSUSE RPM release packages
 
-`fcitx-vinpst.spec.in` is the checked RPM-family source-package template. It is rendered by `scripts/release/render-rpm-spec.py` from the same strict native-runtime bundle manifest used by the Arch package.
+`fcitx-vinpst.spec.in` is the checked RPM-family source-package template. `scripts/release/render-rpm-spec.py` renders Fedora 43 and openSUSE Leap 16.0 variants from the same strict native-runtime bundle manifest used by the Arch package.
 
-The current baseline targets x86_64 and packages:
+The current release targets are Fedora 43 x86_64 and openSUSE Leap 16.0 x86_64. Both package:
 
 - `vinpst`, `vinpst-daemon`, and `vinpst-gui`;
 - the retained Fcitx 5 addon, D-Bus activation metadata, and systemd user unit;
@@ -10,7 +10,7 @@ The current baseline targets x86_64 and packages:
 - the checksum-pinned sherpa-onnx C API and ONNX Runtime libraries under `/usr/lib/fcitx-vinpst` with private rpaths;
 - the shared upgrade/removal session helpers.
 
-The spec declares Fedora/RHEL-family dependency names and uses `/usr/lib64/fcitx5` for the addon while keeping the systemd user unit under `/usr/lib/systemd/user`.
+The renderer keeps one shared payload and portable runtime command dependencies while selecting distribution-specific `BuildRequires` and release suffixes. Private sherpa-onnx/ONNX Runtime libraries under `/usr/lib/fcitx-vinpst` are excluded from RPM automatic provides/requires. The addon stays under `/usr/lib64/fcitx5` and the systemd user unit under `/usr/lib/systemd/user` on both release targets.
 
 Run the lightweight deterministic metadata gate with:
 
@@ -24,6 +24,6 @@ Run the explicit release gate with:
 just rpm-package-smoke
 ```
 
-The release gate renders two package releases from a clean source archive, builds both with `rpmbuild`, validates metadata/scriptlets/payload/rpaths/linkage and the display-independent GUI check, then uses an unprivileged user namespace to perform `--noscripts` install, upgrade, verification, and removal against an isolated chroot/rpmdb while proving an unsupported future user config is byte-preserved.
+The release gate accepts the checked release source archive, renders two package releases, builds both with `rpmbuild`, validates metadata/scriptlets/payload/rpaths/linkage and the display-independent GUI check, then uses an unprivileged user namespace to perform `--noscripts` install, upgrade, verification, and removal against an isolated chroot/rpmdb while proving an unsupported future user config is byte-preserved. `.github/workflows/release.yml` runs this gate separately in Fedora 43 and openSUSE Leap 16.0 and publishes only release 1 from each job into the checked GitHub release bundle.
 
-The isolated transaction intentionally does not execute package scriptlets because the synthetic rpm root does not contain a complete Fedora userspace or live desktop sessions. Scriptlet metadata and argument guards are checked deterministically; executing upgrade/removal handoff inside a real Fedora-family package transaction remains a live release requirement. Repository metadata, package signing, DNF installation, SELinux policy review, and builds inside supported Fedora/openSUSE distributions also remain.
+The isolated transaction intentionally does not execute package scriptlets because the synthetic rpm root does not contain a complete desktop session. Scriptlet metadata and argument guards are checked deterministically. Hosted DNF/Zypper repositories, RPM signing, SELinux policy review, and real desktop lifecycle-script execution remain separate follow-on distribution work.

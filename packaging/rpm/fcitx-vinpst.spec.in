@@ -7,10 +7,13 @@
 %global vinpst_cargo_home %{?_vinpst_cargo_home}%{!?_vinpst_cargo_home:%{_topdir}/cargo-home}
 %global vinpst_cargo_target %{?_vinpst_cargo_target}%{!?_vinpst_cargo_target:%{_topdir}/cargo-target}
 %global vinpst_cmake_build %{?_vinpst_cmake_build}%{!?_vinpst_cmake_build:%{_topdir}/cmake-build}
+%global __provides_exclude_from ^/usr/lib/fcitx-vinpst/.*$
+%global __requires_exclude_from ^/usr/lib/fcitx-vinpst/.*$
+%global __requires_exclude ^lib(onnxruntime|sherpa-onnx-c-api)\\.so(\\(.*\\))?$
 
 Name:           fcitx-vinpst
 Version:        @VINPST_VERSION@
-Release:        @VINPST_RELEASE@%{?dist}
+Release:        @VINPST_RELEASE@@VINPST_RELEASE_SUFFIX@
 Summary:        Rust voice-input addon and daemon for Fcitx 5
 License:        GPL-3.0-or-later AND Apache-2.0 AND MIT
 URL:            https://github.com/rijuyuezhu/fcitx-vinpst
@@ -20,26 +23,15 @@ Source2:        sherpa-onnx-LICENSE-@VINPST_SHERPA_ONNX_VERSION@
 Source3:        onnxruntime-LICENSE-@VINPST_ONNXRUNTIME_VERSION@
 
 ExclusiveArch:  @VINPST_PACKAGE_ARCH@
-Requires:       coreutils
 Requires:       fcitx5
-Requires:       fontconfig
-Requires:       glib2
-Requires:       libX11
-Requires:       libxkbcommon
-Requires:       pipewire-libs
-Requires:       systemd
-Requires:       util-linux
-Requires:       wayland
+Requires:       /usr/bin/env
+Requires:       /usr/bin/gdbus
+Requires:       /usr/bin/getent
+Requires:       /usr/bin/kill
+Requires:       /usr/bin/runuser
+Requires:       /usr/bin/systemctl
 
-BuildRequires:  cargo
-BuildRequires:  clang
-BuildRequires:  cmake
-BuildRequires:  gettext
-BuildRequires:  ninja-build
-BuildRequires:  patchelf
-BuildRequires:  pkgconfig(fcitx5)
-BuildRequires:  pkgconfig(libsystemd)
-BuildRequires:  pkgconfig(libpipewire-0.3)
+@VINPST_BUILD_REQUIRES@
 
 %description
 The package contains the command-line management tool, D-Bus daemon,
