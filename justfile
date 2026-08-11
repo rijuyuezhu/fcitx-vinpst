@@ -51,6 +51,7 @@ package-check:
     scripts/release/check-deb-package.sh
     scripts/release/check-flatpak-manifest.sh
     scripts/release/check-nix-flake.sh
+    scripts/release/check-package-source-cache.sh
     scripts/release/check-rpm-spec.sh
     scripts/release/check-source-archive.sh
     scripts/release/check-release-manifest.sh

@@ -26,6 +26,38 @@ SAFE_SOURCE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*\.tar\.gz")
 SAFE_SOURCE_DIR_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
+DISTRIBUTIONS = {
+    "fedora43": {
+        "release_suffix": "%{?dist}",
+        "build_requires": """BuildRequires:  cargo >= 1.88
+BuildRequires:  clang
+BuildRequires:  cmake
+BuildRequires:  fcitx5-devel
+BuildRequires:  gcc-c++
+BuildRequires:  gettext
+BuildRequires:  ninja-build
+BuildRequires:  patchelf
+BuildRequires:  pkgconfig(libpipewire-0.3)
+BuildRequires:  pkgconfig(libsystemd)
+BuildRequires:  rust >= 1.88""",
+    },
+    "opensuse16.0": {
+        "release_suffix": "",
+        "build_requires": """BuildRequires:  cargo >= 1.88
+BuildRequires:  clang
+BuildRequires:  cmake >= 3.23
+BuildRequires:  fcitx5-devel
+BuildRequires:  gcc-c++
+BuildRequires:  gettext-tools
+BuildRequires:  ninja
+BuildRequires:  patchelf
+BuildRequires:  pipewire-devel
+BuildRequires:  pkg-config
+BuildRequires:  rust >= 1.88
+BuildRequires:  systemd-devel""",
+    },
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -35,6 +67,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-sha256", required=True)
     parser.add_argument("--source-dir", required=True)
     parser.add_argument("--runtime-bundle")
+    parser.add_argument(
+        "--distribution",
+        choices=sorted(DISTRIBUTIONS),
+        default="fedora43",
+    )
     parser.add_argument(
         "--runtime-bundles",
         type=Path,
@@ -63,9 +100,12 @@ def main() -> None:
     source_name = checked(args.source_name, SAFE_SOURCE_RE, "source name")
     source_sha256 = checked(args.source_sha256, SHA256_RE, "source SHA-256")
     source_dir = checked(args.source_dir, SAFE_SOURCE_DIR_RE, "source directory")
+    distribution = DISTRIBUTIONS[args.distribution]
     replacements = {
         "@VINPST_VERSION@": version,
         "@VINPST_RELEASE@": release,
+        "@VINPST_RELEASE_SUFFIX@": distribution["release_suffix"],
+        "@VINPST_BUILD_REQUIRES@": distribution["build_requires"],
         "@VINPST_SOURCE_NAME@": source_name,
         "@VINPST_SOURCE_SHA256@": source_sha256,
         "@VINPST_SOURCE_DIR@": source_dir,

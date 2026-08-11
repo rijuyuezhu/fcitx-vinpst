@@ -112,6 +112,22 @@ cat >"${check_root}/runtime-bundles.json" <<'EOF'
   ]
 }
 EOF
+default_runtime_bundle="$(
+  PYTHONDONTWRITEBYTECODE=1 \
+    scripts/release/runtime_bundles.py "${check_root}/runtime-bundles.json"
+)"
+jq -e \
+  '.id == "fixture-x86_64" and .sherpa_onnx_version == "1.0.0" and .onnxruntime_version == "2.0.0"' \
+  <<<"${default_runtime_bundle}" >/dev/null
+selected_runtime_bundle="$(
+  PYTHONDONTWRITEBYTECODE=1 \
+    scripts/release/runtime_bundles.py \
+      "${check_root}/runtime-bundles.json" \
+      --bundle fixture-aarch64
+)"
+jq -e \
+  '.id == "fixture-aarch64" and .sherpa_onnx_archive == "fixture-aarch64.tar.bz2" and .sherpa_onnx_sha256 == "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" and .onnxruntime_version == "8.8.8"' \
+  <<<"${selected_runtime_bundle}" >/dev/null
 
 scripts/release/render-arch-pkgbuild.py \
   --version "${version}" \
@@ -140,20 +156,24 @@ mkdir -p \
 cat >"${check_root}/selected/fake-bin/cargo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >"${VINPST_FAKE_CARGO_LOG:?}"
+printf 'CARGO_HOME=%s\nARGS=%s\n' "${CARGO_HOME:-}" "$*" >"${VINPST_FAKE_CARGO_LOG:?}"
 EOF
 chmod 755 "${check_root}/selected/fake-bin/cargo"
 (
   cd "${check_root}/selected/src"
   export srcdir="$PWD"
   export VINPST_FAKE_CARGO_LOG="${check_root}/selected/cargo.log"
+  export VINPST_PACKAGE_CARGO_HOME="${check_root}/selected/shared-cargo-home"
   export PATH="${check_root}/selected/fake-bin:${PATH}"
   # shellcheck disable=SC1091
   source ../PKGBUILD
   prepare
 )
 grep -qx \
-  'fetch --locked --target aarch64-unknown-linux-gnu' \
+  "CARGO_HOME=${check_root}/selected/shared-cargo-home" \
+  "${check_root}/selected/cargo.log"
+grep -qx \
+  'ARGS=fetch --locked --target aarch64-unknown-linux-gnu' \
   "${check_root}/selected/cargo.log"
 
 expect_render_failure() {

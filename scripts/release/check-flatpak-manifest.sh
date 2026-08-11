@@ -309,6 +309,59 @@ scripts/release/prefetch-flatpak-cargo-sources.py \
 cmp "${cargo_source_dir}/${cargo_archive}" \
   "${prefetched_cargo_dir}/${cargo_archive}"
 
+download_sources="${work_dir}/download-cargo-sources.json"
+python3 - "${cargo_source_dir}/cargo-sources.json" "${download_sources}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+sources = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+archive = next(source for source in sources if source.get("type") == "archive")
+Path(sys.argv[2]).write_text(json.dumps([archive]), encoding="utf-8")
+PY
+fake_bin="${work_dir}/fake-curl-bin"
+empty_cache="${work_dir}/empty-cargo-cache"
+downloaded_cargo_dir="${work_dir}/downloaded-cargo-sources"
+write_cache_dir="${work_dir}/shared-cargo-write-cache"
+offline_cargo_dir="${work_dir}/offline-cargo-sources"
+mkdir -p "${fake_bin}" "${empty_cache}"
+cat >"${fake_bin}/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+destination=""
+while (($#)); do
+  if [[ "$1" == "-o" ]]; then
+    destination="$2"
+    shift 2
+  else
+    shift
+  fi
+done
+[[ -n "${destination}" ]]
+cp "${VINPST_FAKE_CURL_SOURCE:?}" "${destination}"
+SH
+chmod +x "${fake_bin}/curl"
+PATH="${fake_bin}:${PATH}" \
+  VINPST_FAKE_CURL_SOURCE="${cargo_source_dir}/${cargo_archive}" \
+  scripts/release/prefetch-flatpak-cargo-sources.py \
+    --sources "${download_sources}" \
+    --cache-dir "${empty_cache}" \
+    --write-cache-dir "${write_cache_dir}" \
+    --output-dir "${downloaded_cargo_dir}" \
+    --jobs 1
+cmp "${cargo_source_dir}/${cargo_archive}" \
+  "${downloaded_cargo_dir}/${cargo_archive}"
+cmp "${cargo_source_dir}/${cargo_archive}" \
+  "${write_cache_dir}/${cargo_archive}"
+scripts/release/prefetch-flatpak-cargo-sources.py \
+  --sources "${download_sources}" \
+  --write-cache-dir "${write_cache_dir}" \
+  --output-dir "${offline_cargo_dir}" \
+  --jobs 1 \
+  --offline
+cmp "${cargo_source_dir}/${cargo_archive}" \
+  "${offline_cargo_dir}/${cargo_archive}"
+
 expect_failure bad-source-digest \
   scripts/release/render-flatpak-manifest.py \
     --source-archive "${source_archive}" \

@@ -121,44 +121,39 @@ if [[ "${package_arch}" != "x86_64" || "${rust_target}" != "x86_64-unknown-linux
 fi
 
 stage_root="${repo_root}/target/tmp/deb-package-build/${distribution}"
-cache_root="${repo_root}/target/tmp/deb-package-cache/${distribution}"
-asset_cache="${repo_root}/target/tmp/deb-package-assets"
+build_cache_root="${repo_root}/target/tmp/deb-package-cache/${distribution}"
+package_source_cache="$(scripts/release/resolve-package-source-cache.sh \
+  "${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}")"
+asset_cache="${package_source_cache}/runtime-assets"
 runtime_root="${stage_root}/runtime"
-cargo_home="${cache_root}/cargo-home"
-cargo_target="${cache_root}/cargo-target"
-cmake_build="${cache_root}/cmake-build"
-mkdir -p "${stage_root}" "${cache_root}" "${asset_cache}" "${output_dir}"
+cargo_home="${package_source_cache}/cargo-home"
+cargo_target="${build_cache_root}/cargo-target"
+cmake_build="${build_cache_root}/cmake-build"
+mkdir -p \
+  "${stage_root}" \
+  "${build_cache_root}" \
+  "${asset_cache}" \
+  "${cargo_home}" \
+  "${output_dir}"
 rm -rf "${runtime_root}"
 mkdir -p "${runtime_root}"
 
-fetch_asset() {
-  local url="$1"
-  local output="$2"
-  if [[ ! -s "${output}" ]]; then
-    local temporary="${output}.tmp"
-    rm -f "${temporary}"
-    curl \
-      --retry 5 \
-      --retry-all-errors \
-      --connect-timeout 30 \
-      --max-time 120 \
-      -fsSL "${url}" -o "${temporary}"
-    mv "${temporary}" "${output}"
-  fi
-}
 
 sherpa_archive="${asset_cache}/${sherpa_archive_name}"
 sherpa_license="${asset_cache}/sherpa-onnx-LICENSE-${sherpa_version}"
 onnxruntime_license="${asset_cache}/onnxruntime-LICENSE-${onnxruntime_version}"
-fetch_asset \
+scripts/release/fetch-checked-asset.sh \
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpa_version}/${sherpa_archive_name}" \
-  "${sherpa_archive}"
-fetch_asset \
+  "${sherpa_archive}" \
+  "${sherpa_sha256}"
+scripts/release/fetch-checked-asset.sh \
   "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${sherpa_version}/LICENSE" \
-  "${sherpa_license}"
-fetch_asset \
+  "${sherpa_license}" \
+  "${sherpa_license_sha256}"
+scripts/release/fetch-checked-asset.sh \
   "https://raw.githubusercontent.com/microsoft/onnxruntime/v${onnxruntime_version}/LICENSE" \
-  "${onnxruntime_license}"
+  "${onnxruntime_license}" \
+  "${onnxruntime_license_sha256}"
 printf '%s  %s\n' "${sherpa_sha256}" "${sherpa_archive}" | sha256sum -c -
 printf '%s  %s\n' "${sherpa_license_sha256}" "${sherpa_license}" | sha256sum -c -
 printf '%s  %s\n' "${onnxruntime_license_sha256}" "${onnxruntime_license}" | sha256sum -c -

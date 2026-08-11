@@ -17,12 +17,18 @@ Vinpst 0.1.0 is the first public release of the independent `fcitx-vinpst` voice
 The selected 0.1.0 publication matrix is:
 
 - source archive;
+- bundled Linux x86_64 tarball derived from the tested Ubuntu payload;
 - Arch Linux x86_64 native package;
 - Debian 12 amd64 native package;
 - Ubuntu 24.04 amd64 native package;
+- Fedora 43 x86_64 RPM package;
+- openSUSE Leap 16.0 x86_64 RPM package;
 - x86_64 Flatpak extension bundle for `org.fcitx.Fcitx5//stable`.
 
-RPM and Nix remain validated build paths, but they are not published as 0.1.0 release assets.
+The release also publishes the locked x86_64 Nix closure to the public
+`fcitx-vinpst` Cachix binary cache. Nix is a release channel rather than a
+GitHub Release file, so it is gated by the same release workflow but is not
+listed in `manifest.json` or `SHA256SUMS`.
 
 ## Verify downloads
 
@@ -51,7 +57,7 @@ gh attestation verify ./fcitx-vinpst-0.1.0.tar.gz \
 
 ## Start here
 
-For a native Arch, Debian, or Ubuntu package, initialize the user configuration, start the user daemon, and reload Fcitx:
+For a native Arch, Debian, Ubuntu, or Fedora package, initialize the user configuration, start the user daemon, and reload Fcitx:
 
 ```sh
 vinpst init

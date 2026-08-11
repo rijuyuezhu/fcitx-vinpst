@@ -22,8 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
           cache: pip
@@ -39,13 +39,15 @@ jobs:
     # adapter, and PipeWire feature checks in this job.
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
       - name: Ensure native test tools
         run: |
           sudo rm -f /etc/apt/sources.list.d/azure-cli.list /etc/apt/sources.list.d/microsoft-prod.list
           sudo apt-get update
-          sudo apt-get install -y dbus libpipewire-0.3-dev libspa-0.2-dev libclang-dev clang pkg-config cmake g++ clang-format clang-tidy gettext locales jq gnupg makepkg pacman-package-manager libarchive-tools zstd libsystemd-dev libfcitx5core-dev fcitx5-modules-dev libgtk-3-dev libgtk-4-dev qt6-base-dev python3-venv
+          sudo apt-get install -y dbus libpipewire-0.3-dev libspa-0.2-dev libclang-dev clang pkg-config cmake g++ clang-format clang-tidy shellcheck gettext locales jq gnupg makepkg pacman-package-manager libarchive-tools zstd libsystemd-dev libfcitx5core-dev fcitx5-modules-dev libgtk-3-dev libgtk-4-dev qt6-base-dev python3-venv
           sudo locale-gen zh_CN.UTF-8
       - name: Ensure Python lint tools
         run: |
@@ -81,8 +83,19 @@ jobs:
           - image: ubuntu:24.04
             distribution: ubuntu24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Restore package source cache
+        uses: actions/cache@v5
+        with:
+          path: target/package-source-cache
+          key: package-sources-${{ runner.os }}-deb-${{ matrix.distribution }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
+          restore-keys: |
+            package-sources-${{ runner.os }}-deb-${{ matrix.distribution }}-
+            package-sources-${{ runner.os }}-
       - name: Build and transaction-test Debian package
+        env:
+          VINPST_PACKAGE_SOURCE_CACHE: ${{ github.workspace }}/target/package-source-cache
         run: |
           scripts/release/run-deb-package-smoke.sh \
             --image '${{ matrix.image }}' \
@@ -91,8 +104,16 @@ jobs:
   nix:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v18
+      - name: Restore Nix build cache
+        uses: DeterminateSystems/magic-nix-cache-action@v14
+        with:
+          diagnostic-endpoint: ""
+          use-flakehub: false
       - name: Build and inspect locked Nix package
         run: scripts/release/run-nix-package-smoke.sh

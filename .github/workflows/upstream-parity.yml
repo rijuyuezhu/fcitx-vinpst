@@ -18,9 +18,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out Vinpst
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       - name: Check out upstream C++ project
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: xifan2333/fcitx5-vinput
           path: target/upstream/fcitx5-vinput

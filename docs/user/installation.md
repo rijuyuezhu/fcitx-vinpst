@@ -6,9 +6,13 @@ Vinpst is preparing its first `0.1.0` release. Public release packages are not p
 
 The first release is being prepared for:
 
+- a bundled Linux x86_64 tarball for manual integration;
 - Arch Linux x86_64;
 - Debian 12 amd64;
 - Ubuntu 24.04 amd64;
+- Fedora 43 x86_64;
+- openSUSE Leap 16.0 x86_64;
+- a public x86_64 Nix/Cachix channel;
 - an x86_64 Flatpak extension preview for `org.fcitx.Fcitx5//stable`.
 
 When those artifacts are published, install the package built for your distribution.
@@ -30,6 +34,39 @@ sudo apt install ./fcitx-vinpst_0.1.0-1_debian12_amd64.deb
 ```sh
 sudo apt install ./fcitx-vinpst_0.1.0-1_ubuntu24.04_amd64.deb
 ```
+
+### Fedora 43
+
+```sh
+sudo dnf install ./fcitx-vinpst-0.1.0-1-fedora43-x86_64.rpm
+```
+
+### openSUSE Leap 16.0
+
+```sh
+sudo zypper install ./fcitx-vinpst-0.1.0-1-opensuse16.0-x86_64.rpm
+```
+
+### Nix / Cachix
+
+The release workflow publishes the locked `x86_64-linux` closure to the public
+`fcitx-vinpst` Cachix cache. Once the cache is public, `cachix use
+fcitx-vinpst` configures the substituter and its managed signing key; the flake
+itself remains the source of the package definition:
+
+```sh
+cachix use fcitx-vinpst
+nix build github:rijuyuezhu/fcitx-vinpst/v0.1.0#fcitx-vinpst
+```
+
+### Bundled Linux tarball
+
+`fcitx-vinpst_0.1.0-1_linux_x86_64_bundled.tar.gz` contains the same `/usr`
+payload as the transaction-tested Ubuntu release package, including the private
+sherpa-onnx/ONNX Runtime libraries. It is primarily for manual integration,
+inspection, or environments that cannot consume a native package; prefer the
+native package for normal desktops because tarball extraction is not tracked by
+a package manager.
 
 ### Flatpak preview
 
@@ -85,7 +122,7 @@ just user-remove
 
 ## After installation
 
-For native Arch, Debian, or Ubuntu packages, initialize the user configuration, start the daemon, and reload Fcitx:
+For native Arch, Debian, Ubuntu, Fedora, or openSUSE packages, initialize the user configuration, start the daemon, and reload Fcitx:
 
 ```sh
 vinpst init

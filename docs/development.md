@@ -169,7 +169,7 @@ just deb-package-smoke
 just nix-package-smoke
 ```
 
-The Debian gate builds and transaction-tests Debian 12 and Ubuntu 24.04 packages inside Docker. The Nix gate evaluates the locked flake, builds the closure, runs the display-independent GUI binary/config check, and validates the addon and activation metadata. Both are release-grade build gates; production Nix binary-cache publication remains separate.
+The Debian gate builds and transaction-tests Debian 12 and Ubuntu 24.04 packages inside Docker. The Nix gate evaluates the locked flake, builds the closure, runs the display-independent GUI binary/config check, and validates the addon and activation metadata. Both are release-grade build gates. The Release workflow additionally runs the same Nix smoke from the checked release source and publishes the resulting closure to the public Cachix cache before GitHub bundle assembly proceeds.
 
 ### Native ASR evidence
 

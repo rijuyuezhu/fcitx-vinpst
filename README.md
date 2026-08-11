@@ -4,7 +4,7 @@ Voice input for Fcitx 5, built around a Rust daemon, CLI, and management GUI wit
 
 Vinpst supports local, command, and OpenAI-compatible remote ASR; normal dictation; selected-text command editing; scenes and LLM post-processing; model/provider/adapter registries; configurable audio and VAD behavior; and English/zh_CN frontend localization.
 
-> **Release status:** the project is preparing its first `0.1.0` release. The source, Arch x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, and Flatpak x86_64 matrix is frozen; final candidate and post-publication checks remain before public artifacts are announced.
+> **Release status:** the project is preparing its first `0.1.0` release. The selected release set is source, bundled Linux x86_64 tarball, Arch x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, Fedora 43 x86_64, openSUSE Leap 16.0 x86_64, Flatpak x86_64, plus a public x86_64 Nix/Cachix channel; final candidate and post-publication checks remain before public artifacts are announced.
 
 ## Get started
 

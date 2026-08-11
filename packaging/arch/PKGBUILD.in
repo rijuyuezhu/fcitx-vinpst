@@ -54,13 +54,13 @@ sha256sums=(
 
 prepare() {
   cd "${_source_dir}"
-  export CARGO_HOME="${srcdir}/cargo-home"
+  export CARGO_HOME="${VINPST_PACKAGE_CARGO_HOME:-${srcdir}/cargo-home}"
   cargo fetch --locked --target @VINPST_RUST_TARGET@
 }
 
 build() {
   cd "${_source_dir}"
-  export CARGO_HOME="${srcdir}/cargo-home"
+  export CARGO_HOME="${VINPST_PACKAGE_CARGO_HOME:-${srcdir}/cargo-home}"
   export CARGO_TARGET_DIR="${srcdir}/cargo-target"
   export CARGO_NET_OFFLINE=true
   export SHERPA_ONNX_LIB_DIR="${srcdir}/${_sherpa_onnx_archive_root}/lib"

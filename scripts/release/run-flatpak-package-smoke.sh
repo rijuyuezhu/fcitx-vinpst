@@ -62,6 +62,11 @@ lock_file="${repo_root}/target/tmp/flatpak-package-smoke.lock"
 source_archive="${work_dir}/fcitx-vinpst-source.tar.gz"
 runtime_source_dir="${work_dir}/runtime-sources"
 cargo_source_dir="${work_dir}/cargo-sources"
+package_source_cache="$(scripts/release/resolve-package-source-cache.sh \
+  "${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}")"
+runtime_asset_cache="${package_source_cache}/runtime-assets"
+package_cargo_cache_dir="${package_source_cache}/cargo-home/registry/cache"
+flatpak_cargo_cache_dir="${package_cargo_cache_dir}/flatpak"
 container_id_file="${work_dir}/builder.cid"
 mkdir -p "$(dirname "${lock_file}")"
 exec 9>"${lock_file}"
@@ -106,6 +111,7 @@ rm -rf \
 
 mkdir -p "${runtime_source_dir}"
 mkdir -p "${cargo_source_dir}"
+mkdir -p "${runtime_asset_cache}" "${flatpak_cargo_cache_dir}"
 
 readarray -t runtime_bundle < <(
   PYTHONDONTWRITEBYTECODE=1 \
@@ -138,71 +144,36 @@ sherpa_license_sha256="${runtime_bundle[3]}"
 onnxruntime_version="${runtime_bundle[4]}"
 onnxruntime_license_sha256="${runtime_bundle[5]}"
 
-download_checked() {
-  local url="$1"
-  local destination="$2"
-  local expected_sha256="$3"
-  local actual_sha256
-  local attempt
-  local temporary="${destination}.partial"
-
-  if [[ -f "${destination}" ]]; then
-    actual_sha256="$(sha256sum "${destination}" | awk '{print $1}')"
-    if [[ "${actual_sha256}" == "${expected_sha256}" ]]; then
-      return 0
-    fi
-    rm -f "${destination}"
-  fi
-
-  for attempt in 1 2 3 4 5; do
-    rm -f "${temporary}"
-    if curl \
-      --retry 3 \
-      --retry-all-errors \
-      --retry-delay 2 \
-      --connect-timeout 30 \
-      --max-time 300 \
-      --speed-limit 32768 \
-      --speed-time 30 \
-      --proto '=https' \
-      --tlsv1.2 \
-      -fsSL "${url}" \
-      -o "${temporary}"; then
-      actual_sha256="$(sha256sum "${temporary}" | awk '{print $1}')"
-      if [[ "${actual_sha256}" == "${expected_sha256}" ]]; then
-        mv "${temporary}" "${destination}"
-        return 0
-      fi
-      echo "Flatpak runtime source digest mismatch from ${url}" >&2
-    fi
-    sleep "$((attempt * 5))"
-  done
-  rm -f "${temporary}"
-  echo "failed to download checked Flatpak runtime source: ${url}" >&2
-  return 1
-}
-
-download_checked \
+sherpa_cached="${runtime_asset_cache}/${sherpa_archive}"
+sherpa_license_cached="${runtime_asset_cache}/sherpa-onnx-LICENSE-${sherpa_version}"
+onnxruntime_license_cached="${runtime_asset_cache}/onnxruntime-LICENSE-${onnxruntime_version}"
+scripts/release/fetch-checked-asset.sh \
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpa_version}/${sherpa_archive}" \
-  "${runtime_source_dir}/${sherpa_archive}" \
+  "${sherpa_cached}" \
   "${sherpa_sha256}"
-download_checked \
+scripts/release/fetch-checked-asset.sh \
   "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${sherpa_version}/LICENSE" \
-  "${runtime_source_dir}/sherpa-onnx-LICENSE" \
+  "${sherpa_license_cached}" \
   "${sherpa_license_sha256}"
-download_checked \
+scripts/release/fetch-checked-asset.sh \
   "https://raw.githubusercontent.com/microsoft/onnxruntime/v${onnxruntime_version}/LICENSE" \
-  "${runtime_source_dir}/onnxruntime-LICENSE" \
+  "${onnxruntime_license_cached}" \
   "${onnxruntime_license_sha256}"
+cp --reflink=auto "${sherpa_cached}" "${runtime_source_dir}/${sherpa_archive}"
+cp --reflink=auto "${sherpa_license_cached}" "${runtime_source_dir}/sherpa-onnx-LICENSE"
+cp --reflink=auto "${onnxruntime_license_cached}" "${runtime_source_dir}/onnxruntime-LICENSE"
 
 cargo_cache_dir="${CARGO_HOME:-${HOME}/.cargo}/registry/cache"
 cargo_prefetch_args=(
   --sources "${repo_root}/packaging/flatpak/cargo-sources.json"
   --output-dir "${cargo_source_dir}"
+  --cache-dir "${package_cargo_cache_dir}"
+  --write-cache-dir "${flatpak_cargo_cache_dir}"
   --jobs "${VINPST_FLATPAK_CARGO_DOWNLOAD_JOBS:-16}"
   --attempts "${VINPST_FLATPAK_CARGO_DOWNLOAD_ATTEMPTS:-5}"
 )
-if [[ -d "${cargo_cache_dir}" && ! -L "${cargo_cache_dir}" ]]; then
+if [[ "${cargo_cache_dir}" != "${package_cargo_cache_dir}" && \
+  -d "${cargo_cache_dir}" && ! -L "${cargo_cache_dir}" ]]; then
   cargo_prefetch_args+=(--cache-dir "${cargo_cache_dir}")
 fi
 scripts/release/prefetch-flatpak-cargo-sources.py "${cargo_prefetch_args[@]}"
