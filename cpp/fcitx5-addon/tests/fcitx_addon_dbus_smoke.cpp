@@ -132,7 +132,7 @@ int main() {
     return 1;
   }
   signal_bus.attachEventLoop(&event_loop);
-  FcitxVinpstAddon addon(nullptr, &signal_bus);
+  FcitxVinpstAddon addon(nullptr, &signal_bus, &event_loop);
 
   std::string error;
   auto client = ConnectWithRetry(&error);

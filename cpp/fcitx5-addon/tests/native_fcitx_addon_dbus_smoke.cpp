@@ -110,7 +110,7 @@ int main() {
     return 1;
   }
 
-  FcitxVinpstAddon addon(nullptr, &signal_bus);
+  FcitxVinpstAddon addon(nullptr, &signal_bus, &signal_loop);
   if (!menu_probe.empty()) {
     FcitxTriggerAction action = FcitxTriggerAction::None;
     bool expect_ready = false;

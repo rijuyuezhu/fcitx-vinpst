@@ -41,7 +41,8 @@ struct FcitxProjectedMenuState {
 class FcitxVinpstAddon final : public fcitx::AddonInstance {
 public:
   explicit FcitxVinpstAddon(fcitx::Instance *instance);
-  FcitxVinpstAddon(fcitx::Instance *instance, fcitx::dbus::Bus *signal_bus);
+  FcitxVinpstAddon(fcitx::Instance *instance, fcitx::dbus::Bus *signal_bus,
+                   fcitx::EventLoop *signal_event_loop = nullptr);
   ~FcitxVinpstAddon() override;
 
   FcitxVinpstAddon(const FcitxVinpstAddon &) = delete;

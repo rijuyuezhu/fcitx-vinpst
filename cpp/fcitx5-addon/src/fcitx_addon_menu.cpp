@@ -300,14 +300,13 @@ bool FcitxVinpstAddon::HandleResultMenuKeyEvent(fcitx::KeyEvent &event) {
     return false;
   }
   auto *bulk = candidate_list->toBulk();
-  auto *bulk_cursor = candidate_list->toBulkCursor();
+  auto *common = dynamic_cast<fcitx::CommonCandidateList *>(candidate_list.get());
   auto *cursor = candidate_list->toCursorMovable();
   auto *pageable = candidate_list->toPageable();
   const int item_count = bulk != nullptr ? bulk->totalSize() : candidate_list->size();
   const int current_page =
       pageable != nullptr && pageable->currentPage() >= 0 ? pageable->currentPage() : 0;
-  const int current_selection =
-      bulk_cursor != nullptr ? bulk_cursor->globalCursorIndex() : -1;
+  const int current_selection = common != nullptr ? common->globalCursorIndex() : -1;
   const auto semantic_key =
       ClassifyMenuKey(event.key(), false, false, frontend_settings_.page_prev_keys,
                       frontend_settings_.page_next_keys);

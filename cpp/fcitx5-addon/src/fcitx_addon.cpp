@@ -167,7 +167,8 @@ FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance)
     : FcitxVinpstAddon(instance, nullptr) {}
 
 FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
-                                   fcitx::dbus::Bus *signal_bus)
+                                   fcitx::dbus::Bus *signal_bus,
+                                   fcitx::EventLoop *signal_event_loop)
     : instance_(instance), frontend_settings_(LoadFrontendSettings()),
       trigger_policy_(FcitxKeyTriggerPolicy::WithEnvironmentOverrides(
           frontend_settings_.normal_triggers, frontend_settings_.command_triggers,
@@ -211,8 +212,8 @@ FcitxVinpstAddon::FcitxVinpstAddon(fcitx::Instance *instance,
         fcitx::EventType::InputContextCommitString,
         fcitx::EventWatcherPhase::PostInputMethod,
         [this](fcitx::Event &event) { HandleCommitString(event); }));
-  } else if (signal_bus != nullptr && signal_bus->eventLoop() != nullptr) {
-    menu_refresh_dispatcher_->attach(signal_bus->eventLoop());
+  } else if (signal_event_loop != nullptr) {
+    menu_refresh_dispatcher_->attach(signal_event_loop);
   }
   if (signal_bus != nullptr) {
     SetupDaemonSignalMonitor(signal_bus);
