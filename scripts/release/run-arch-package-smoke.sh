@@ -63,7 +63,9 @@ build_root="${stage_root}/build"
 source_cache="${stage_root}/sources"
 package_root="${stage_root}/package-root"
 source_archive="${source_cache}/fcitx-vinpst-${version}.tar.gz"
-asset_cache="${repo_root}/target/tmp/arch-package-assets"
+package_source_cache="${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}"
+asset_cache="${package_source_cache}/runtime-assets"
+package_cargo_home="${package_source_cache}/cargo-home"
 runtime_bundle="$(
   scripts/release/runtime_bundles.py packaging/arch/runtime-bundles.json
 )"
@@ -79,31 +81,28 @@ sherpa_license="${asset_cache}/sherpa-onnx-LICENSE-${sherpa_version}"
 onnxruntime_license="${asset_cache}/onnxruntime-LICENSE-${onnxruntime_version}"
 
 rm -rf "${stage_root}"
-mkdir -p "${build_root}" "${source_cache}" "${package_root}" "${asset_cache}"
-
-fetch_asset() {
-  local url="$1"
-  local output="$2"
-  if [[ ! -s "${output}" ]]; then
-    local temporary="${output}.tmp"
-    rm -f "${temporary}"
-    curl --retry 3 --retry-all-errors -fsSL "${url}" -o "${temporary}"
-    mv "${temporary}" "${output}"
-  fi
-}
+mkdir -p \
+  "${build_root}" \
+  "${source_cache}" \
+  "${package_root}" \
+  "${asset_cache}" \
+  "${package_cargo_home}"
 
 if [[ ! -s "${sherpa_archive}" && -s "${legacy_sherpa_archive}" ]]; then
   cp "${legacy_sherpa_archive}" "${sherpa_archive}"
 fi
-fetch_asset \
+scripts/release/fetch-checked-asset.sh \
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpa_version}/${sherpa_archive_name}" \
-  "${sherpa_archive}"
-fetch_asset \
+  "${sherpa_archive}" \
+  "${sherpa_sha256}"
+scripts/release/fetch-checked-asset.sh \
   "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${sherpa_version}/LICENSE" \
-  "${sherpa_license}"
-fetch_asset \
+  "${sherpa_license}" \
+  "${sherpa_license_sha256}"
+scripts/release/fetch-checked-asset.sh \
   "https://raw.githubusercontent.com/microsoft/onnxruntime/v${onnxruntime_version}/LICENSE" \
-  "${onnxruntime_license}"
+  "${onnxruntime_license}" \
+  "${onnxruntime_license_sha256}"
 cp "${sherpa_archive}" "${source_cache}/"
 cp "${sherpa_license}" \
   "${source_cache}/sherpa-onnx-LICENSE-${sherpa_version}"
@@ -141,9 +140,12 @@ cmp packaging/arch/fcitx-vinpst.install \
   "${build_root}/fcitx-vinpst.install"
 (
   cd "${build_root}"
-  SRCDEST="${source_cache}" makepkg --printsrcinfo >.SRCINFO
-  SRCDEST="${source_cache}" makepkg --verifysource --noconfirm
-  SRCDEST="${source_cache}" makepkg --nodeps --noconfirm --force
+  VINPST_PACKAGE_CARGO_HOME="${package_cargo_home}" \
+    SRCDEST="${source_cache}" makepkg --printsrcinfo >.SRCINFO
+  VINPST_PACKAGE_CARGO_HOME="${package_cargo_home}" \
+    SRCDEST="${source_cache}" makepkg --verifysource --noconfirm
+  VINPST_PACKAGE_CARGO_HOME="${package_cargo_home}" \
+    SRCDEST="${source_cache}" makepkg --nodeps --noconfirm --force
 )
 
 package_archive="$(find "${build_root}" -maxdepth 1 -type f \
@@ -252,7 +254,8 @@ grep -qx 'Exec=/usr/bin/vinpst-daemon --dbus --configured-backends --audio-backe
     --source-sha256 "${source_sha256}" \
     --source-dir "${source_dir}" \
     --output PKGBUILD
-  SRCDEST="${source_cache}" makepkg --repackage --nodeps --noconfirm --force
+  VINPST_PACKAGE_CARGO_HOME="${package_cargo_home}" \
+    SRCDEST="${source_cache}" makepkg --repackage --nodeps --noconfirm --force
 )
 upgrade_package_archive="$(find "${build_root}" -maxdepth 1 -type f \
   -name "fcitx-vinpst-${version}-2-*.pkg.tar.zst" \

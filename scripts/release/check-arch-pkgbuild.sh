@@ -129,7 +129,6 @@ jq -e \
   '.id == "fixture-aarch64" and .sherpa_onnx_archive == "fixture-aarch64.tar.bz2" and .sherpa_onnx_sha256 == "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" and .onnxruntime_version == "8.8.8"' \
   <<<"${selected_runtime_bundle}" >/dev/null
 
-
 scripts/release/render-arch-pkgbuild.py \
   --version "${version}" \
   --source-url file:///tmp/fcitx-vinpst-source.tar.gz \
@@ -157,20 +156,24 @@ mkdir -p \
 cat >"${check_root}/selected/fake-bin/cargo" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >"${VINPST_FAKE_CARGO_LOG:?}"
+printf 'CARGO_HOME=%s\nARGS=%s\n' "${CARGO_HOME:-}" "$*" >"${VINPST_FAKE_CARGO_LOG:?}"
 EOF
 chmod 755 "${check_root}/selected/fake-bin/cargo"
 (
   cd "${check_root}/selected/src"
   export srcdir="$PWD"
   export VINPST_FAKE_CARGO_LOG="${check_root}/selected/cargo.log"
+  export VINPST_PACKAGE_CARGO_HOME="${check_root}/selected/shared-cargo-home"
   export PATH="${check_root}/selected/fake-bin:${PATH}"
   # shellcheck disable=SC1091
   source ../PKGBUILD
   prepare
 )
 grep -qx \
-  'fetch --locked --target aarch64-unknown-linux-gnu' \
+  "CARGO_HOME=${check_root}/selected/shared-cargo-home" \
+  "${check_root}/selected/cargo.log"
+grep -qx \
+  'ARGS=fetch --locked --target aarch64-unknown-linux-gnu' \
   "${check_root}/selected/cargo.log"
 
 expect_render_failure() {

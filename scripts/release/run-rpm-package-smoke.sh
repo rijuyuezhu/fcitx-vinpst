@@ -20,14 +20,16 @@ version="$(
 test -n "${version}"
 source_dir="fcitx-vinpst-${version}"
 stage_root="${repo_root}/target/tmp/rpm-package-smoke"
-cache_root="${repo_root}/target/tmp/rpm-package-cache"
+build_cache_root="${repo_root}/target/tmp/rpm-package-cache"
+package_source_cache="${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}"
+package_cargo_home="${package_source_cache}/cargo-home"
 topdir="${stage_root}/rpmbuild"
 source_cache="${topdir}/SOURCES"
 spec_dir="${topdir}/SPECS"
 package_root="${stage_root}/package-root"
 rpm_root="${stage_root}/rpm-root"
 source_archive="${source_cache}/${source_dir}.tar.gz"
-asset_cache="${repo_root}/target/tmp/arch-package-assets"
+asset_cache="${package_source_cache}/runtime-assets"
 runtime_bundle="$(
   scripts/release/runtime_bundles.py packaging/arch/runtime-bundles.json
 )"
@@ -51,29 +53,21 @@ mkdir -p \
   "${spec_dir}" \
   "${package_root}" \
   "${asset_cache}" \
-  "${cache_root}/cargo-home" \
-  "${cache_root}/cargo-target"
+  "${package_cargo_home}" \
+  "${build_cache_root}/cargo-target"
 
-fetch_asset() {
-  local url="$1"
-  local output="$2"
-  if [[ ! -s "${output}" ]]; then
-    local temporary="${output}.tmp"
-    rm -f "${temporary}"
-    curl --retry 3 --retry-all-errors -fsSL "${url}" -o "${temporary}"
-    mv "${temporary}" "${output}"
-  fi
-}
-
-fetch_asset \
+scripts/release/fetch-checked-asset.sh \
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${sherpa_version}/${sherpa_archive_name}" \
-  "${sherpa_archive}"
-fetch_asset \
+  "${sherpa_archive}" \
+  "${sherpa_sha256}"
+scripts/release/fetch-checked-asset.sh \
   "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v${sherpa_version}/LICENSE" \
-  "${sherpa_license}"
-fetch_asset \
+  "${sherpa_license}" \
+  "${sherpa_license_sha256}"
+scripts/release/fetch-checked-asset.sh \
   "https://raw.githubusercontent.com/microsoft/onnxruntime/v${onnxruntime_version}/LICENSE" \
-  "${onnxruntime_license}"
+  "${onnxruntime_license}" \
+  "${onnxruntime_license_sha256}"
 cp "${sherpa_archive}" "${source_cache}/"
 cp "${sherpa_license}" \
   "${source_cache}/sherpa-onnx-LICENSE-${sherpa_version}"
@@ -106,9 +100,9 @@ build_rpm() {
   rpmbuild -bb --nodeps \
     --define "_topdir ${topdir}" \
     --define "_smp_build_ncpus $(nproc)" \
-    --define "_vinpst_cargo_home ${cache_root}/cargo-home" \
-    --define "_vinpst_cargo_target ${cache_root}/cargo-target" \
-    --define "_vinpst_cmake_build ${cache_root}/cmake-build" \
+    --define "_vinpst_cargo_home ${package_cargo_home}" \
+    --define "_vinpst_cargo_target ${build_cache_root}/cargo-target" \
+    --define "_vinpst_cmake_build ${build_cache_root}/cmake-build" \
     "${spec}"
 }
 

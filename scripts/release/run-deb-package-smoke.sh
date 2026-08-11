@@ -52,6 +52,10 @@ command -v docker >/dev/null || {
   exit 1
 }
 
+package_source_cache="${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}"
+mkdir -p "${package_source_cache}"
+package_source_cache="$(realpath "${package_source_cache}")"
+
 run_target() {
   local base_image="$1"
   local label="$2"
@@ -82,9 +86,11 @@ run_target() {
     packaging/debian
   docker run --rm \
     --volume "${repo_root}:/workspace" \
+    --volume "${package_source_cache}:/package-source-cache" \
     --workdir /workspace \
     --env RUSTUP_TOOLCHAIN=stable \
     --env "VINPST_DEB_CARGO_OFFLINE=${VINPST_DEB_CARGO_OFFLINE:-0}" \
+    --env VINPST_PACKAGE_SOURCE_CACHE=/package-source-cache \
     --env "VINPST_HOST_UID=$(id -u)" \
     --env "VINPST_HOST_GID=$(id -g)" \
     "${docker_tag}" \
@@ -94,7 +100,7 @@ run_target() {
         chown -R \"\${VINPST_HOST_UID}:\${VINPST_HOST_GID}\" \
           /workspace/target/tmp/deb-package-build \
           /workspace/target/tmp/deb-package-cache \
-          /workspace/target/tmp/deb-package-assets \
+          /package-source-cache \
           /workspace/${output_dir} 2>/dev/null || true
       }
       trap cleanup EXIT
