@@ -10,13 +10,11 @@ for script in "${shell_scripts[@]}"; do
   bash -n "${script}"
 done
 
-shellcheck_bin="$(command -v shellcheck || true)"
-if [[ -z "${shellcheck_bin}" && -x "${HOME}/.local/share/nvim/mason/bin/shellcheck" ]]; then
-  shellcheck_bin="${HOME}/.local/share/nvim/mason/bin/shellcheck"
-fi
-if [[ -n "${shellcheck_bin}" ]]; then
-  "${shellcheck_bin}" -S warning "${shell_scripts[@]}"
-fi
+command -v shellcheck >/dev/null 2>&1 || {
+  echo "missing required script lint tool: shellcheck" >&2
+  exit 1
+}
+shellcheck -S warning "${shell_scripts[@]}"
 
 mapfile -t python_scripts < <(find scripts -type f -name '*.py' -print | sort)
 pycache_root="${repo_root}/target/tmp/scripts-lint-pycache"
