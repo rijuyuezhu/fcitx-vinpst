@@ -19,8 +19,6 @@ jobs:
       contents: read
       id-token: write
     uses: ./.github/workflows/ci.yml
-    with:
-      run-deb-packages: disabled
 
   source-archive:
     runs-on: ubuntu-latest
@@ -151,7 +149,8 @@ jobs:
         with:
           name: release-deb-ubuntu24.04
           path: release-inputs/ubuntu24.04
-      - name: Build bundled Linux tarball from tested Ubuntu payload
+      - id: ubuntu-package
+        name: Select tested Ubuntu payload
         shell: bash
         run: |
           set -euo pipefail
@@ -164,8 +163,26 @@ jobs:
             echo "expected exactly one Ubuntu release package, found ${#packages[@]}" >&2
             exit 1
           fi
+          echo "path=${packages[0]}" >>"${GITHUB_OUTPUT}"
+      - name: Install declared tarball host runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          package='${{ steps.ubuntu-package.outputs.path }}'
+          depends="$(dpkg-deb --field "${package}" Depends)"
+          if [[ -z "${depends}" ]]; then
+            echo "Ubuntu release package has no Depends metadata" >&2
+            exit 1
+          fi
+          sudo apt-get satisfy -y --no-install-recommends "${depends}"
+      - name: Build bundled Linux tarball from tested Ubuntu payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ needs.source-archive.outputs.version }}'
+          package='${{ steps.ubuntu-package.outputs.path }}'
           scripts/release/build-bundled-linux-tarball.sh \
-            --package "${packages[0]}" \
+            --package "${package}" \
             --version "${version}" \
             --output dist/tarball
       - uses: actions/upload-artifact@v7

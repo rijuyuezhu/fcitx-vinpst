@@ -33,14 +33,17 @@ scripts/release/run-rpm-package-smoke.sh
 
 After bundle assembly, the release workflow runs
 `run-release-bundle-install-smoke.sh` in a fresh Ubuntu 24.04 container. It
-verifies the final manifest and checksums, installs the selected Ubuntu package,
+verifies the final manifest and checksums, satisfies the selected Ubuntu
+package's declared runtime dependencies, exercises the bundled tarball before
+the native package is installed, then installs the selected Ubuntu package,
 runs the installed CLI and offline GUI check, initializes a new user profile,
 removes the package, and requires that user configuration remain byte-identical.
 
 The tag workflow first calls the same reusable CI workflow used for pull
 requests, retaining strict docs, complete Rust/FFI/integration, and locked Nix
-checks while skipping its duplicate Debian matrix. It then creates one
-deterministic source archive. Arch, Debian, Fedora RPM, openSUSE RPM, Flatpak,
+checks. Full distribution-package builds remain release-only gates. The release
+workflow then creates one deterministic source archive. Arch, Debian, Fedora RPM,
+openSUSE RPM, Flatpak,
 and release Nix jobs download that artifact, materialize it through
 `extract-source-archive.py`, and run package construction from the extracted
 tree rather than the Actions checkout. Arch, both RPM jobs, and Flatpak

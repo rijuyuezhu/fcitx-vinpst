@@ -80,18 +80,6 @@ mapfile -t tarballs < <(
   exit 1
 }
 tarball="${tarballs[0]}"
-tarball_root="fcitx-vinpst_${version}-1_linux_x86_64_bundled"
-tar_stage="$(mktemp -d)"
-trap 'rm -rf "${tar_stage}"' EXIT
-tar -xzf "${bundle_dir}/${tarball}" -C "${tar_stage}"
-[[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst" ]]
-[[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst-daemon" ]]
-[[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst-gui" ]]
-"${tar_stage}/${tarball_root}/usr/bin/vinpst" --version >/dev/null
-"${tar_stage}/${tarball_root}/usr/bin/vinpst-daemon" --help >/dev/null
-XDG_CONFIG_HOME="${tar_stage}/config" \
-  "${tar_stage}/${tarball_root}/usr/bin/vinpst-gui" --check --offline |
-  jq -e '.ok and .application == "vinpst-gui" and .daemon.skipped' >/dev/null
 
 mapfile -t packages < <(
   find "${bundle_dir}" -mindepth 1 -maxdepth 1 -type f \
@@ -107,6 +95,7 @@ package="${packages[0]}"
 docker run --rm \
   --env DEBIAN_FRONTEND=noninteractive \
   --env "VINPST_PACKAGE=${package}" \
+  --env "VINPST_TARBALL=${tarball}" \
   --env "VINPST_VERSION=${version}" \
   --volume "${bundle_dir}:/release:ro" \
   "${image}" \
@@ -129,7 +118,29 @@ EOF
     apt-get "${apt_options[@]}" update
     apt-get "${apt_options[@]}" install -y --no-install-recommends \
       ca-certificates \
-      jq \
+      jq
+
+    depends="$(dpkg-deb --field "/release/${VINPST_PACKAGE}" Depends)"
+    [[ -n "${depends}" ]] || {
+      echo "Ubuntu release package has no Depends metadata" >&2
+      exit 1
+    }
+    apt-get "${apt_options[@]}" satisfy -y --no-install-recommends "${depends}"
+
+    tarball_root="fcitx-vinpst_${VINPST_VERSION}-1_linux_x86_64_bundled"
+    tar_stage="$(mktemp -d)"
+    trap "rm -rf \"${tar_stage}\"" EXIT
+    tar -xzf "/release/${VINPST_TARBALL}" -C "${tar_stage}"
+    [[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst" ]]
+    [[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst-daemon" ]]
+    [[ -x "${tar_stage}/${tarball_root}/usr/bin/vinpst-gui" ]]
+    "${tar_stage}/${tarball_root}/usr/bin/vinpst" --version >/dev/null
+    "${tar_stage}/${tarball_root}/usr/bin/vinpst-daemon" --help >/dev/null
+    XDG_CONFIG_HOME="${tar_stage}/config" \
+      "${tar_stage}/${tarball_root}/usr/bin/vinpst-gui" --check --offline |
+      jq -e ".ok and .application == \"vinpst-gui\" and .daemon.skipped" >/dev/null
+
+    apt-get "${apt_options[@]}" install -y --no-install-recommends \
       "/release/${VINPST_PACKAGE}"
 
     [[ "$(dpkg-query -W -f="\${Status}" fcitx-vinpst)" == "install ok installed" ]]

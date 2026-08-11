@@ -22,12 +22,19 @@ done
 
 smoke_root="${repo_root}/target/tmp/nix-package-smoke"
 result_link="${smoke_root}/result"
+flake_ref="."
+if [[ ! -e "${repo_root}/.git" ]]; then
+  # Release rehearsals run this script from a source archive extracted beneath
+  # the outer Git checkout. An explicit path flake makes Nix consume that
+  # checked archive instead of rejecting it as untracked outer-repository data.
+  flake_ref="path:${repo_root}"
+fi
 rm -rf "${smoke_root}"
 mkdir -p "${smoke_root}"
 
-nix flake metadata --no-update-lock-file >/dev/null
-nix flake check --no-update-lock-file --print-build-logs
-nix build .#fcitx-vinpst \
+nix flake metadata "${flake_ref}" --no-update-lock-file >/dev/null
+nix flake check "${flake_ref}" --no-update-lock-file --print-build-logs
+nix build "${flake_ref}#fcitx-vinpst" \
   --no-update-lock-file \
   --print-build-logs \
   --out-link "${result_link}"
