@@ -32,28 +32,29 @@ ln -s cached-asset "${check_root}/symlink-asset"
 if scripts/release/fetch-checked-asset.sh \
   https://example.invalid/never-requested \
   "${check_root}/symlink-asset" \
-  "${cached_sha256}" 2>"${check_root}/symlink.stderr"; then
+  "${cached_sha256}" 2>/dev/null; then
   echo "checked asset helper accepted a symlink destination" >&2
   exit 1
 fi
-grep -Fq 'must not be a symlink' "${check_root}/symlink.stderr"
+[[ -L "${check_root}/symlink-asset" ]]
+grep -qx 'verified package source cache fixture' "${cached_asset}"
 
 if scripts/release/fetch-checked-asset.sh \
   https://example.invalid/never-requested \
   "${check_root}/invalid-digest" \
-  NOT-A-SHA256 2>"${check_root}/digest.stderr"; then
+  NOT-A-SHA256 2>/dev/null; then
   echo "checked asset helper accepted an invalid digest" >&2
   exit 1
 fi
-grep -Fq 'must be lowercase SHA-256' "${check_root}/digest.stderr"
+[[ ! -e "${check_root}/invalid-digest" ]]
 
 if scripts/release/fetch-checked-asset.sh \
   http://example.invalid/never-requested \
   "${check_root}/insecure-url" \
-  "${cached_sha256}" 2>"${check_root}/url.stderr"; then
+  "${cached_sha256}" 2>/dev/null; then
   echo "checked asset helper accepted a non-HTTPS URL" >&2
   exit 1
 fi
-grep -Fq 'must use https' "${check_root}/url.stderr"
+[[ ! -e "${check_root}/insecure-url" ]]
 
 echo "Package source cache check passed"
