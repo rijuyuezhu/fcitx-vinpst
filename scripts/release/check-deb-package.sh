@@ -48,12 +48,118 @@ grep -q 'intentionally preserved' packaging/debian/postrm
 grep -q 'License: GPL-3+' packaging/debian/copyright
 test -s LICENSE
 ! grep -qE 'rustup|static\.rust-lang\.org|sh\.rustup\.rs' packaging/debian/Dockerfile
-grep -q 'rust_sysroot="$(rustc --print sysroot)"' scripts/release/run-deb-package-smoke.sh
-grep -q -- '--volume "${rust_sysroot}:${rust_sysroot}:ro"' scripts/release/run-deb-package-smoke.sh
-grep -q -- '--env "VINPST_RUST_SYSROOT=${rust_sysroot}"' scripts/release/run-deb-package-smoke.sh
-grep -q -- '--env "PATH=${rust_sysroot}/bin:' scripts/release/run-deb-package-smoke.sh
-grep -q 'rustc --version' scripts/release/run-deb-package-smoke.sh
-grep -q 'cargo --version' scripts/release/run-deb-package-smoke.sh
+tool_injection_root="${check_root}/tool-injection"
+fake_bin="${tool_injection_root}/bin"
+fake_sysroot="${tool_injection_root}/rust-sysroot"
+docker_run_args="${tool_injection_root}/docker-run.args"
+mkdir -p "${fake_bin}" "${fake_sysroot}/bin"
+cat >"${fake_bin}/rustc" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == '--print sysroot' ]]; then
+  printf '%s\n' "${VINPST_TEST_RUST_SYSROOT:?}"
+  exit 0
+fi
+echo "unexpected fake rustc invocation: $*" >&2
+exit 1
+EOF
+cat >"${fake_sysroot}/bin/rustc" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat >"${fake_sysroot}/bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+cat >"${fake_bin}/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+build)
+  exit 0
+  ;;
+run)
+  shift
+  printf '%s\0' "$@" >"${VINPST_TEST_DOCKER_RUN_ARGS:?}"
+  ;;
+*)
+  echo "unexpected fake docker invocation: $*" >&2
+  exit 1
+  ;;
+esac
+EOF
+chmod +x \
+  "${fake_bin}/rustc" \
+  "${fake_bin}/docker" \
+  "${fake_sysroot}/bin/rustc" \
+  "${fake_sysroot}/bin/cargo"
+PATH="${fake_bin}:${PATH}" \
+  VINPST_TEST_RUST_SYSROOT="${fake_sysroot}" \
+  VINPST_TEST_DOCKER_RUN_ARGS="${docker_run_args}" \
+  VINPST_PACKAGE_SOURCE_CACHE="${tool_injection_root}/package-cache" \
+  scripts/release/run-deb-package-smoke.sh \
+    --image example.invalid/debian:test \
+    --distribution debian-test
+python3 - "${docker_run_args}" "${fake_sysroot}" <<'PY'
+import pathlib
+import sys
+
+args_path = pathlib.Path(sys.argv[1])
+expected_sysroot = sys.argv[2]
+args = [part.decode() for part in args_path.read_bytes().split(b"\0") if part]
+
+
+def option_values(name: str, short: str | None = None) -> list[str]:
+    values: list[str] = []
+    for index, arg in enumerate(args):
+        if arg == name or (short is not None and arg == short):
+            if index + 1 >= len(args):
+                raise SystemExit(f"missing value after {arg}")
+            values.append(args[index + 1])
+        elif arg.startswith(name + "="):
+            values.append(arg.split("=", 1)[1])
+    return values
+
+
+readonly_sysroot = False
+for value in option_values("--volume", "-v"):
+    fields = value.split(":")
+    if len(fields) >= 3 and fields[0] == expected_sysroot and fields[1] == expected_sysroot:
+        readonly_sysroot = "ro" in fields[2].split(",")
+for value in option_values("--mount"):
+    fields: dict[str, str] = {}
+    flags: set[str] = set()
+    for field in value.split(","):
+        if "=" in field:
+            key, item = field.split("=", 1)
+            fields[key] = item
+        else:
+            flags.add(field)
+    source = fields.get("src", fields.get("source"))
+    target = fields.get("dst", fields.get("target", fields.get("destination")))
+    if source == expected_sysroot and target == expected_sysroot:
+        readonly_sysroot = "readonly" in flags or fields.get("readonly") == "true"
+if not readonly_sysroot:
+    raise SystemExit("Debian smoke did not bind the host Rust sysroot read-only")
+
+environment: dict[str, str] = {}
+for value in option_values("--env", "-e"):
+    key, separator, item = value.partition("=")
+    if separator:
+        environment[key] = item
+if environment.get("VINPST_RUST_SYSROOT") != expected_sysroot:
+    raise SystemExit("Debian smoke did not pass the host Rust sysroot into the container")
+
+try:
+    bash_index = args.index("bash")
+except ValueError as error:
+    raise SystemExit("Debian smoke did not launch its checked container shell") from error
+if args[bash_index + 1 : bash_index + 2] != ["-lc"] or bash_index + 2 >= len(args):
+    raise SystemExit("Debian smoke container shell invocation is incomplete")
+container_script = args[bash_index + 2]
+if "VINPST_RUST_SYSROOT" not in container_script or "rustc --version" not in container_script:
+    raise SystemExit("Debian smoke container does not activate and probe the injected Rust sysroot")
+PY
 
 after_failure() {
   local name="$1"

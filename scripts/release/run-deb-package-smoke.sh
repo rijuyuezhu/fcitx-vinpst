@@ -92,26 +92,29 @@ run_target() {
     --volume "${rust_sysroot}:${rust_sysroot}:ro" \
     --workdir /workspace \
     --env "VINPST_RUST_SYSROOT=${rust_sysroot}" \
-    --env "PATH=${rust_sysroot}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     --env "VINPST_DEB_CARGO_OFFLINE=${VINPST_DEB_CARGO_OFFLINE:-0}" \
     --env VINPST_PACKAGE_SOURCE_CACHE=/package-source-cache \
+    --env "VINPST_DEB_LABEL=${label}" \
+    --env "VINPST_DEB_OUTPUT_DIR=/workspace/${output_dir}" \
     --env "VINPST_HOST_UID=$(id -u)" \
     --env "VINPST_HOST_GID=$(id -g)" \
     "${docker_tag}" \
-    bash -lc "
+    bash -lc '
       set -euo pipefail
+      export PATH="${VINPST_RUST_SYSROOT}/bin:${PATH}"
       rustc --version
       cargo --version
       cleanup() {
-        chown -R \"\${VINPST_HOST_UID}:\${VINPST_HOST_GID}\" \
+        chown -R "${VINPST_HOST_UID}:${VINPST_HOST_GID}" \
           /workspace/target/tmp/deb-package-build \
           /workspace/target/tmp/deb-package-cache \
           /package-source-cache \
-          /workspace/${output_dir} 2>/dev/null || true
+          "${VINPST_DEB_OUTPUT_DIR}" 2>/dev/null || true
       }
       trap cleanup EXIT
-      scripts/release/run-deb-package-smoke-inner.sh '${label}' '/workspace/${output_dir}'
-    "
+      scripts/release/run-deb-package-smoke-inner.sh \
+        "${VINPST_DEB_LABEL}" "${VINPST_DEB_OUTPUT_DIR}"
+    '
 }
 
 if [[ -n "${image}" || -n "${distribution}" ]]; then
