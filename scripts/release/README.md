@@ -33,7 +33,9 @@ scripts/release/run-rpm-package-smoke.sh
 
 After bundle assembly, the release workflow runs
 `run-release-bundle-install-smoke.sh` in a fresh Ubuntu 24.04 container. It
-verifies the final manifest and checksums, installs the selected Ubuntu package,
+verifies the final manifest and checksums, satisfies the selected Ubuntu
+package's declared runtime dependencies, exercises the bundled tarball before
+the native package is installed, then installs the selected Ubuntu package,
 runs the installed CLI and offline GUI check, initializes a new user profile,
 removes the package, and requires that user configuration remain byte-identical.
 
