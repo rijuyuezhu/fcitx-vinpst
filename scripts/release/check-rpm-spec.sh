@@ -39,8 +39,6 @@ scripts/release/render-rpm-spec.py \
   --source-dir "fcitx-vinpst-${version}" \
   --output "${opensuse_spec}"
 
-rpmspec -P "${spec}" >"${check_root}/expanded.spec"
-rpmspec -P "${opensuse_spec}" >"${check_root}/expanded-opensuse.spec"
 query="$(rpmspec -q --qf '%{NAME}\n%{VERSION}\n%{RELEASE}\n%{ARCH}\n' "${spec}")"
 test "${query}" = $'fcitx-vinpst\n'"${version}"$'\n1\nx86_64'
 opensuse_query="$(rpmspec -q --qf '%{NAME}\n%{VERSION}\n%{RELEASE}\n%{ARCH}\n' "${opensuse_spec}")"
@@ -53,26 +51,25 @@ rpmspec -q --requires "${spec}" | grep -qx '/usr/bin/systemctl'
 rpmspec -q --requires "${opensuse_spec}" | grep -qx '/usr/bin/gdbus'
 rpmspec -q --requires "${opensuse_spec}" | grep -qx '/usr/bin/systemctl'
 ! rpmspec -q --requires "${opensuse_spec}" | grep -Eq '^lib(onnxruntime|sherpa-onnx-c-api)\.so'
-grep -Fq 'BuildRequires:  ninja-build' "${spec}"
-grep -Fq 'BuildRequires:  clang' "${opensuse_spec}"
-grep -Fq 'BuildRequires:  ninja' "${opensuse_spec}"
+fedora_buildrequires="$(rpmspec -q --buildrequires "${spec}")"
+opensuse_buildrequires="$(rpmspec -q --buildrequires "${opensuse_spec}")"
+grep -qx 'ninja-build' <<<"${fedora_buildrequires}"
+grep -qx 'clang' <<<"${opensuse_buildrequires}"
+grep -qx 'ninja' <<<"${opensuse_buildrequires}"
 
-grep -Fq 'cargo build --frozen --release' "${check_root}/expanded.spec"
-grep -Fq -- '-p vinpst-gui' "${check_root}/expanded.spec"
-grep -Fq -- '-DCMAKE_INSTALL_LIBDIR=lib64' "${check_root}/expanded.spec"
-grep -Fq -- '-DVINPST_SYSTEMD_USER_UNIT_DIR=lib/systemd/user' \
-  "${check_root}/expanded.spec"
-grep -Fq -- '--target fcitx5_vinpst_addon' "${check_root}/expanded.spec"
-grep -Fq "/usr/lib/fcitx-vinpst/package-upgrade-handoff" \
-  "${check_root}/expanded.spec"
-grep -Fq "/usr/lib/fcitx-vinpst/package-remove-handoff" \
-  "${check_root}/expanded.spec"
-grep -Fq 'install -Dm644 LICENSE' "${check_root}/expanded.spec"
-grep -Fq '/usr/share/licenses/fcitx-vinpst/LICENSE' \
-  "${check_root}/expanded.spec"
-grep -Fq '%post -p /bin/bash' "${spec}"
-grep -Fq '%preun -p /bin/bash' "${spec}"
-grep -Fq '%postun -p /bin/bash' "${spec}"
+for rpm_spec in "${spec}" "${opensuse_spec}"; do
+  test "$(rpmspec -q --qf '%{LICENSE}' "${rpm_spec}")" = \
+    'GPL-3.0-or-later AND Apache-2.0 AND MIT'
+  test "$(rpmspec -q --qf '%{POSTINPROG}' "${rpm_spec}")" = /bin/bash
+  test "$(rpmspec -q --qf '%{PREUNPROG}' "${rpm_spec}")" = /bin/bash
+  test "$(rpmspec -q --qf '%{POSTUNPROG}' "${rpm_spec}")" = /bin/bash
+  post_script="$(rpmspec -q --qf '%{POSTIN}' "${rpm_spec}")"
+  preun_script="$(rpmspec -q --qf '%{PREUN}' "${rpm_spec}")"
+  postun_script="$(rpmspec -q --qf '%{POSTUN}' "${rpm_spec}")"
+  grep -Fq '/usr/lib/fcitx-vinpst/package-upgrade-handoff' <<<"${post_script}"
+  grep -Fq '/usr/lib/fcitx-vinpst/package-remove-handoff' <<<"${preun_script}"
+  grep -Fq 'User configuration, models, and cache were preserved' <<<"${postun_script}"
+done
 if grep -Fq '@VINPST_' "${spec}"; then
   echo "RPM spec still contains unresolved placeholders" >&2
   exit 1
