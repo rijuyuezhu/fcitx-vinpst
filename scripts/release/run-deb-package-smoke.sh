@@ -86,6 +86,13 @@ run_target() {
     --file packaging/debian/Dockerfile \
     --tag "${docker_tag}" \
     packaging/debian
+  docker run --rm "${docker_tag}" bash -c '
+    set -euo pipefail
+    if command -v rustc >/dev/null 2>&1 || command -v cargo >/dev/null 2>&1; then
+      echo "Debian package builder unexpectedly contains a Rust toolchain" >&2
+      exit 1
+    fi
+  '
   docker run --rm \
     --volume "${repo_root}:/workspace" \
     --volume "${package_source_cache}:/package-source-cache" \

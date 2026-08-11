@@ -47,12 +47,12 @@ grep -q 'package-remove-handoff' packaging/debian/prerm
 grep -q 'intentionally preserved' packaging/debian/postrm
 grep -q 'License: GPL-3+' packaging/debian/copyright
 test -s LICENSE
-! grep -qE 'rustup|static\.rust-lang\.org|sh\.rustup\.rs' packaging/debian/Dockerfile
 tool_injection_root="${check_root}/tool-injection"
 fake_bin="${tool_injection_root}/bin"
+fake_image_bin="${tool_injection_root}/image-bin"
 fake_sysroot="${tool_injection_root}/rust-sysroot"
 docker_run_args="${tool_injection_root}/docker-run.args"
-mkdir -p "${fake_bin}" "${fake_sysroot}/bin"
+mkdir -p "${fake_bin}" "${fake_image_bin}" "${fake_sysroot}/bin"
 cat >"${fake_bin}/rustc" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -80,6 +80,43 @@ build)
   ;;
 run)
   shift
+  has_mount=false
+  for arg in "$@"; do
+    case "${arg}" in
+    --volume | -v | --mount | --volume=* | -v=* | --mount=*)
+      has_mount=true
+      ;;
+    esac
+  done
+  if [[ "${has_mount}" == false ]]; then
+    args=("$@")
+    shell_index=-1
+    for index in "${!args[@]}"; do
+      if [[ "${args[index]}" == bash ]]; then
+        shell_index="${index}"
+        break
+      fi
+    done
+    ((shell_index >= 0 && shell_index + 2 < ${#args[@]})) || {
+      echo "builder preflight did not invoke a checked shell" >&2
+      exit 1
+    }
+    mode="${args[shell_index + 1]}"
+    script="${args[shell_index + 2]}"
+    image_bin="${VINPST_TEST_IMAGE_BIN:?}"
+    host_bash="${VINPST_TEST_HOST_BASH:?}"
+    PATH="${image_bin}" "${host_bash}" "${mode}" "${script}"
+    printf '#!/bin/sh\nexit 0\n' >"${image_bin}/rustc"
+    printf '#!/bin/sh\nexit 0\n' >"${image_bin}/cargo"
+    chmod +x "${image_bin}/rustc" "${image_bin}/cargo"
+    if PATH="${image_bin}" "${host_bash}" "${mode}" "${script}" \
+      >/dev/null 2>&1; then
+      echo "builder preflight accepted an image-provided Rust toolchain" >&2
+      exit 1
+    fi
+    rm -f "${image_bin}/rustc" "${image_bin}/cargo"
+    exit 0
+  fi
   printf '%s\0' "$@" >"${VINPST_TEST_DOCKER_RUN_ARGS:?}"
   ;;
 *)
@@ -94,6 +131,8 @@ chmod +x \
   "${fake_sysroot}/bin/rustc" \
   "${fake_sysroot}/bin/cargo"
 PATH="${fake_bin}:${PATH}" \
+  VINPST_TEST_HOST_BASH="$(command -v bash)" \
+  VINPST_TEST_IMAGE_BIN="${fake_image_bin}" \
   VINPST_TEST_RUST_SYSROOT="${fake_sysroot}" \
   VINPST_TEST_DOCKER_RUN_ARGS="${docker_run_args}" \
   VINPST_PACKAGE_SOURCE_CACHE="${tool_injection_root}/package-cache" \
