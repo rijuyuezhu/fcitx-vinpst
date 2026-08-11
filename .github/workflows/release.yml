@@ -390,6 +390,8 @@ jobs:
                 tar \
                 util-linux \
                 wayland-devel
+              test -x /usr/sbin/runuser
+              rpm -qf /usr/sbin/runuser >/dev/null
               export PATH="${VINPST_RUST_SYSROOT}/bin:${PATH}"
               rustc --version
               cargo --version
@@ -519,6 +521,8 @@ jobs:
                 tar \
                 util-linux \
                 wayland-devel
+              test -x /usr/sbin/runuser
+              rpm -qf /usr/sbin/runuser >/dev/null
               export PATH="${VINPST_RUST_SYSROOT}/bin:${PATH}"
               rustc --version
               cargo --version

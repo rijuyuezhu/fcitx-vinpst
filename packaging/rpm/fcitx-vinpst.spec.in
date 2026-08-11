@@ -28,7 +28,7 @@ Requires:       /usr/bin/env
 Requires:       /usr/bin/gdbus
 Requires:       /usr/bin/getent
 Requires:       /usr/bin/kill
-Requires:       /usr/bin/runuser
+Requires:       /usr/sbin/runuser
 Requires:       /usr/bin/systemctl
 
 @VINPST_BUILD_REQUIRES@
