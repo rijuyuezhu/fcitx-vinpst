@@ -63,10 +63,12 @@ nix build github:rijuyuezhu/fcitx-vinpst/v0.1.0#fcitx-vinpst
 
 `fcitx-vinpst_0.1.0-1_linux_x86_64_bundled.tar.gz` contains the same `/usr`
 payload as the transaction-tested Ubuntu release package, including the private
-sherpa-onnx/ONNX Runtime libraries. It is primarily for manual integration,
-inspection, or environments that cannot consume a native package; prefer the
-native package for normal desktops because tarball extraction is not tracked by
-a package manager.
+sherpa-onnx/ONNX Runtime libraries. It does not bundle ordinary host libraries
+or desktop services: a compatible Linux system still needs the normal Fcitx,
+PipeWire, systemd, Wayland/X11, fontconfig, and related runtime dependencies.
+It is primarily for manual integration, inspection, or environments that cannot
+consume a native package; prefer the native package for normal desktops because
+tarball extraction is not tracked by a package manager.
 
 ### Flatpak preview
 
