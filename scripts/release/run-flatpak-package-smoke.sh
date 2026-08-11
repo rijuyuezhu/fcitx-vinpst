@@ -65,6 +65,7 @@ cargo_source_dir="${work_dir}/cargo-sources"
 package_source_cache="${VINPST_PACKAGE_SOURCE_CACHE:-${repo_root}/target/package-source-cache}"
 runtime_asset_cache="${package_source_cache}/runtime-assets"
 package_cargo_cache_dir="${package_source_cache}/cargo-home/registry/cache"
+flatpak_cargo_cache_dir="${package_cargo_cache_dir}/flatpak"
 container_id_file="${work_dir}/builder.cid"
 mkdir -p "$(dirname "${lock_file}")"
 exec 9>"${lock_file}"
@@ -109,7 +110,7 @@ rm -rf \
 
 mkdir -p "${runtime_source_dir}"
 mkdir -p "${cargo_source_dir}"
-mkdir -p "${runtime_asset_cache}" "${package_cargo_cache_dir}"
+mkdir -p "${runtime_asset_cache}" "${flatpak_cargo_cache_dir}"
 
 readarray -t runtime_bundle < <(
   PYTHONDONTWRITEBYTECODE=1 \
@@ -166,6 +167,7 @@ cargo_prefetch_args=(
   --sources "${repo_root}/packaging/flatpak/cargo-sources.json"
   --output-dir "${cargo_source_dir}"
   --cache-dir "${package_cargo_cache_dir}"
+  --write-cache-dir "${flatpak_cargo_cache_dir}"
   --jobs "${VINPST_FLATPAK_CARGO_DOWNLOAD_JOBS:-16}"
   --attempts "${VINPST_FLATPAK_CARGO_DOWNLOAD_ATTEMPTS:-5}"
 )

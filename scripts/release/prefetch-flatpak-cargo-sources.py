@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sources", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--cache-dir", action="append", default=[], type=Path)
+    parser.add_argument("--write-cache-dir", type=Path)
     parser.add_argument("--jobs", default=8, type=int)
     parser.add_argument("--attempts", default=3, type=int)
     parser.add_argument("--offline", action="store_true")
@@ -133,6 +134,25 @@ def atomic_copy(source: Path, destination: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def populate_write_cache(
+    source: Path, write_cache_dir: Path, filename: str, expected: str
+) -> None:
+    destination = write_cache_dir / filename
+    if destination == source:
+        return
+    if destination.is_symlink():
+        raise ValueError(
+            f"Cargo write-cache entry must not be a symlink: {destination}"
+        )
+    if destination.is_file():
+        if sha256_file(destination) == expected:
+            return
+        destination.unlink()
+    atomic_copy(source, destination)
+    if sha256_file(destination) != expected:
+        raise RuntimeError(f"written Cargo cache digest mismatch: {filename}")
+
+
 def download_archive(url: str, destination: Path, expected: str, attempts: int) -> None:
     temporary = destination.with_name(
         f".{destination.name}.{os.getpid()}.{threading.get_ident()}.partial"
@@ -180,6 +200,7 @@ def materialize_archive(
     archive: dict[str, str],
     output_dir: Path,
     cache_index: dict[str, list[Path]],
+    write_cache_dir: Path | None,
     attempts: int,
     offline: bool,
 ) -> str:
@@ -190,22 +211,36 @@ def materialize_archive(
         raise ValueError(
             f"Cargo archive destination must not be a symlink: {destination}"
         )
+
+    origin: str | None = None
     if destination.is_file():
         if sha256_file(destination) == expected:
-            return "output"
-        destination.unlink()
+            origin = "output"
+        else:
+            destination.unlink()
 
-    for candidate in cache_index.get(filename, []):
-        if sha256_file(candidate) == expected:
-            atomic_copy(candidate, destination)
-            if sha256_file(destination) != expected:
-                raise RuntimeError(f"copied Cargo archive digest mismatch: {filename}")
-            return "cache"
+    if origin is None:
+        for candidate in cache_index.get(filename, []):
+            if sha256_file(candidate) == expected:
+                atomic_copy(candidate, destination)
+                if sha256_file(destination) != expected:
+                    raise RuntimeError(
+                        f"copied Cargo archive digest mismatch: {filename}"
+                    )
+                origin = "cache"
+                break
 
-    if offline:
-        raise RuntimeError(f"missing checked Cargo archive in offline mode: {filename}")
-    download_archive(archive["url"], destination, expected, attempts)
-    return "download"
+    if origin is None:
+        if offline:
+            raise RuntimeError(
+                f"missing checked Cargo archive in offline mode: {filename}"
+            )
+        download_archive(archive["url"], destination, expected, attempts)
+        origin = "download"
+
+    if write_cache_dir is not None:
+        populate_write_cache(destination, write_cache_dir, filename, expected)
+    return origin
 
 
 def main() -> None:
@@ -216,10 +251,17 @@ def main() -> None:
     output_dir = checked_directory(
         args.output_dir, "Flatpak Cargo source directory", create=True
     )
+    write_cache_dir = (
+        checked_directory(args.write_cache_dir, "Cargo write cache", create=True)
+        if args.write_cache_dir is not None
+        else None
+    )
     cache_dirs = args.cache_dir
     if not cache_dirs:
         cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
         cache_dirs = [cargo_home / "registry/cache"]
+    if write_cache_dir is not None:
+        cache_dirs.append(write_cache_dir)
     cache_index = index_cache(cache_dirs)
 
     results: list[str] = []
@@ -231,6 +273,7 @@ def main() -> None:
                 archive,
                 output_dir,
                 cache_index,
+                write_cache_dir,
                 args.attempts,
                 args.offline,
             ): archive["filename"]
