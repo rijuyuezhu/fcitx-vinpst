@@ -70,6 +70,13 @@ jobs:
             distribution: ubuntu24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Restore package source cache
+        uses: actions/cache@v5
+        with:
+          path: target/package-source-cache
+          key: package-sources-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
+          restore-keys: |
+            package-sources-${{ runner.os }}-
       - uses: actions/download-artifact@v8
         with:
           name: source-archive
@@ -89,6 +96,8 @@ jobs:
       - name: Build and transaction-test package
         working-directory: ${{ steps.release-source.outputs.path }}
         shell: bash
+        env:
+          VINPST_PACKAGE_SOURCE_CACHE: ${{ github.workspace }}/target/package-source-cache
         run: |
           scripts/release/run-deb-package-smoke.sh \
             --image '${{ matrix.image }}' \
@@ -130,6 +139,13 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
+      - name: Restore package source cache
+        uses: actions/cache@v5
+        with:
+          path: target/package-source-cache
+          key: package-sources-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
+          restore-keys: |
+            package-sources-${{ runner.os }}-
       - uses: actions/download-artifact@v8
         with:
           name: source-archive
@@ -159,12 +175,16 @@ jobs:
           host_gid="$(id -g)"
           source_dir='${{ steps.release-source.outputs.path }}'
           archive='${{ steps.release-source.outputs.archive }}'
+          package_source_cache="${GITHUB_WORKSPACE}/target/package-source-cache"
+          mkdir -p "${package_source_cache}"
           docker run --rm --privileged \
             --env "VINPST_HOST_UID=${host_uid}" \
             --env "VINPST_HOST_GID=${host_gid}" \
             --env "VINPST_SOURCE_DIR=${source_dir}" \
             --env "VINPST_SOURCE_ARCHIVE=${archive}" \
+            --env VINPST_PACKAGE_SOURCE_CACHE=/package-source-cache \
             --volume "${GITHUB_WORKSPACE}:${GITHUB_WORKSPACE}" \
+            --volume "${package_source_cache}:/package-source-cache" \
             --workdir "${source_dir}" \
             archlinux:base-devel \
             bash -lc '
@@ -195,10 +215,10 @@ jobs:
                 wayland
               useradd --create-home --uid 1000 --user-group builder
               install -d -m 700 -o builder -g builder /run/user/1000
-              chown -R builder:builder "${VINPST_SOURCE_DIR}"
+              chown -R builder:builder "${VINPST_SOURCE_DIR}" /package-source-cache
               cleanup() {
                 chown -R "${VINPST_HOST_UID}:${VINPST_HOST_GID}" \
-                  "${VINPST_SOURCE_DIR}" 2>/dev/null || true
+                  "${VINPST_SOURCE_DIR}" /package-source-cache 2>/dev/null || true
               }
               trap cleanup EXIT
               runuser -u builder -- env \
@@ -248,6 +268,13 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
+      - name: Restore package source cache
+        uses: actions/cache@v5
+        with:
+          path: target/package-source-cache
+          key: package-sources-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
+          restore-keys: |
+            package-sources-${{ runner.os }}-
       - uses: actions/download-artifact@v8
         with:
           name: source-archive
@@ -272,6 +299,8 @@ jobs:
       - name: Build and transaction-test Flatpak extension
         working-directory: ${{ steps.release-source.outputs.path }}
         shell: bash
+        env:
+          VINPST_PACKAGE_SOURCE_CACHE: ${{ github.workspace }}/target/package-source-cache
         run: |
           scripts/release/run-flatpak-package-smoke.sh \
             --source-archive '${{ steps.release-source.outputs.archive }}'

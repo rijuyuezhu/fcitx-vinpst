@@ -84,7 +84,16 @@ jobs:
             distribution: ubuntu24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Restore package source cache
+        uses: actions/cache@v5
+        with:
+          path: target/package-source-cache
+          key: package-sources-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'packaging/arch/runtime-bundles.json') }}
+          restore-keys: |
+            package-sources-${{ runner.os }}-
       - name: Build and transaction-test Debian package
+        env:
+          VINPST_PACKAGE_SOURCE_CACHE: ${{ github.workspace }}/target/package-source-cache
         run: |
           scripts/release/run-deb-package-smoke.sh \
             --image '${{ matrix.image }}' \
