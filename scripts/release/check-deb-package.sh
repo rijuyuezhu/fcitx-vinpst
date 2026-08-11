@@ -47,6 +47,9 @@ grep -q 'package-remove-handoff' packaging/debian/prerm
 grep -q 'intentionally preserved' packaging/debian/postrm
 grep -q 'License: GPL-3+' packaging/debian/copyright
 test -s LICENSE
+grep -q 'rustup_installer="$(mktemp)"' packaging/debian/Dockerfile
+grep -q -- '-o "${rustup_installer}" https://sh.rustup.rs' packaging/debian/Dockerfile
+! grep -q '| CARGO_HOME=' packaging/debian/Dockerfile
 
 after_failure() {
   local name="$1"

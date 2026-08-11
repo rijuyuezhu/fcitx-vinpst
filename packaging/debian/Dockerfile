@@ -77,10 +77,14 @@ ARG RUSTUP_UPDATE_ROOT=""
 RUN mkdir -p /opt/cargo /opt/rustup \
     && if [ -n "${RUSTUP_DIST_SERVER}" ]; then export RUSTUP_DIST_SERVER; fi \
     && if [ -n "${RUSTUP_UPDATE_ROOT}" ]; then export RUSTUP_UPDATE_ROOT; fi \
+    && rustup_installer="$(mktemp)" \
     && curl --retry 5 --retry-all-errors --connect-timeout 30 \
-      --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
-      | CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup sh -s -- \
+      --proto '=https' --tlsv1.2 -fsSL \
+      -o "${rustup_installer}" https://sh.rustup.rs \
+    && CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup \
+      sh "${rustup_installer}" -s -- \
         -y --profile minimal --default-toolchain stable \
+    && rm -f "${rustup_installer}" \
     && chmod -R a+rX /opt/cargo /opt/rustup
 
 ENV PATH=/opt/cargo/bin:${PATH}
