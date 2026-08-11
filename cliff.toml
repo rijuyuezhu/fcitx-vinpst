@@ -15,10 +15,12 @@ body = """
 {% endif -%}
 
 {% for group, commits in commits | group_by(attribute="group") %}
+{% if group != "zz-Internal" -%}
 ### {{ group | striptags | trim | upper_first }}
 {% for commit in commits %}
 - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}\
 {% endfor %}
+{% endif -%}
 {% endfor %}
 """
 trim = true
@@ -26,20 +28,30 @@ footer = ""
 
 [git]
 conventional_commits = true
-filter_unconventional = true
+filter_unconventional = false
 split_commits = false
+# Public release notes are PR-level. Squash commits already carry a trailing
+# `(#N)`; normalize the repository's older merge-commit PRs from the
+# conventional title preserved in their commit body.
+commit_preprocessors = [
+  { pattern = '(?s)^Merge pull request #([0-9]+) from [^\n]+\n\n((?:feat|fix|perf|refactor|docs|test|build|ci|chore)(?:\([^)]*\))?!?:[^\n]+).*$', replace = '$2 (#$1)' },
+]
 commit_parsers = [
-  { message = "^feat", group = "Features" },
-  { message = "^fix", group = "Bug Fixes" },
-  { message = "^perf", group = "Performance" },
-  { message = "^refactor", group = "Refactor" },
-  { message = "^docs", group = "Documentation" },
-  { message = "^test", group = "Testing" },
-  { message = "^build", group = "Build" },
-  { message = "^ci", group = "CI" },
-  { message = "^chore", group = "Miscellaneous" },
+  { field = "raw_message", pattern = '(?m)^feat[^\n]*\(#[0-9]+\)$', group = "Features" },
+  { field = "raw_message", pattern = '(?m)^fix[^\n]*\(#[0-9]+\)$', group = "Bug Fixes" },
+  { field = "raw_message", pattern = '(?m)^perf[^\n]*\(#[0-9]+\)$', group = "Performance" },
+  { field = "raw_message", pattern = '(?m)^refactor[^\n]*\(#[0-9]+\)$', group = "Refactor" },
+  { field = "raw_message", pattern = '(?m)^docs[^\n]*\(#[0-9]+\)$', group = "Documentation" },
+  { field = "raw_message", pattern = '(?m)^test[^\n]*\(#[0-9]+\)$', group = "Testing" },
+  { field = "raw_message", pattern = '(?m)^build[^\n]*\(#[0-9]+\)$', group = "Build" },
+  { field = "raw_message", pattern = '(?m)^ci[^\n]*\(#[0-9]+\)$', group = "CI" },
+  { field = "raw_message", pattern = '(?m)^chore[^\n]*\(#[0-9]+\)$', group = "Miscellaneous" },
+  { message = ".*", group = "zz-Internal" },
 ]
 protect_breaking_commits = false
+# Historical direct commits and other non-PR entries are grouped as Internal so
+# git-cliff can process the first release without treating intentional omission
+# as a grouping error; the changelog template above does not render that group.
 filter_commits = false
 tag_pattern = "v[0-9].*"
 sort_commits = "newest"
