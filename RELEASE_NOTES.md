@@ -57,7 +57,7 @@ gh attestation verify ./fcitx-vinpst-0.1.0.tar.gz \
 
 ## Start here
 
-For a native Arch, Debian, Ubuntu, or Fedora package, initialize the user configuration, start the user daemon, and reload Fcitx:
+For a native Arch, Debian, Ubuntu, Fedora, or openSUSE package, initialize the user configuration, start the user daemon, and reload Fcitx:
 
 ```sh
 vinpst init
