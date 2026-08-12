@@ -91,7 +91,8 @@ assert "@" not in serialized
 PY
 
 source_archive="${work_dir}/source.tar.gz"
-scripts/release/create-source-archive.sh "${source_archive}" 0.1.0 >/dev/null
+release_version="$(scripts/release/check-release-metadata.sh --print-version)"
+scripts/release/create-source-archive.sh "${source_archive}" "${release_version}" >/dev/null
 source_sha256="$(sha256sum "${source_archive}" | awk '{print $1}')"
 scripts/release/render-flatpak-manifest.py \
   --source-archive "${source_archive}" \
