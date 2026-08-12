@@ -48,13 +48,14 @@ sudo zypper install ./fcitx-vinpst-*-opensuse16.0-x86_64.rpm
 ### Nix / Cachix
 
 The release workflow publishes the locked `x86_64-linux` closure to the public
-`fcitx-vinpst` Cachix cache. Once the cache is public, `cachix use
-fcitx-vinpst` configures the substituter and its managed signing key; the flake
-itself remains the source of the package definition:
+`fcitx-vinpst` Cachix cache. `cachix use fcitx-vinpst` configures the
+substituter and its managed signing key. Set `release_tag` to a tag shown on
+GitHub Releases (for example `v0.1.0`), then build the flake:
 
 ```sh
+release_tag=v0.1.0
 cachix use fcitx-vinpst
-nix build github:rijuyuezhu/fcitx-vinpst/vX.Y.Z#fcitx-vinpst
+nix build "github:rijuyuezhu/fcitx-vinpst/${release_tag}#fcitx-vinpst"
 ```
 
 ### Bundled Linux tarball
