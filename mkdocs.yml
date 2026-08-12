@@ -1,6 +1,6 @@
 site_name: Vinpst
 site_description: Voice input and voice-driven text editing for Fcitx 5
-site_url: https://rijuyuezhu.github.io/fcitx-vinpst/
+site_url: https://project.rijuyuezhu.top/fcitx-vinpst/
 repo_url: https://github.com/rijuyuezhu/fcitx-vinpst
 repo_name: rijuyuezhu/fcitx-vinpst
 edit_uri: edit/main/docs/
@@ -22,35 +22,31 @@ nav:
       - Troubleshooting: user/troubleshooting.md
       - Known limitations: user/limitations.md
   - Development:
-      - Documentation map: development-index.md
       - Development guide: development.md
       - Architecture contracts: architecture/README.md
-      - Migration status: migration/function-gap-audit.md
-      - Capability matrix: migration/e2e-capability-matrix.md
-      - Active plan: migration/e2e-replication-plan.md
-      - 0.1.0 release readiness: release/readiness.md
       - Publishing and rollback: release/publishing.md
-      - Upstream source analysis: legacy/README.md
 
 not_in_nav: |
   architecture/**
   legacy/**
   migration/**
+  release/**
   user/**
+  development-index.md
   live-toolkit-debugging.md
-
-exclude_docs: |
-  plan/**
 
 theme:
   name: material
   language: en
   features:
+    - content.action.edit
     - content.code.copy
+    - navigation.instant
     - navigation.footer
     - navigation.indexes
     - navigation.sections
     - navigation.top
+    - navigation.tracking
     - search.highlight
     - search.suggest
   palette:
