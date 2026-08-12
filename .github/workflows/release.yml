@@ -878,3 +878,11 @@ jobs:
             --bundle-dir release \
             --notes-file release-notes.md \
             --repo "${GH_REPO}"
+
+  aur:
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'rijuyuezhu/fcitx-vinpst'
+    needs: publish
+    uses: ./.github/workflows/aur.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets: inherit

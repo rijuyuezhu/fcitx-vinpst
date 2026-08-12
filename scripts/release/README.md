@@ -99,7 +99,8 @@ with git-cliff, creates or reuses only a draft GitHub Release, uploads the
 complete checked bundle, compares the remote
 asset names, sizes, and GitHub-reported SHA-256 digests with the local bundle,
 and publishes only after they match. The workflow refuses to replace assets on
-an already-public release. Nix is distributed through Cachix rather than as a
+an already-public release, then publishes the verified Arch payload as
+`fcitx-vinpst-bin` on AUR. Nix is distributed through Cachix rather than as a
 file in that flat GitHub bundle.
 
 Run the workflow with `workflow_dispatch` for a non-publishing release-candidate

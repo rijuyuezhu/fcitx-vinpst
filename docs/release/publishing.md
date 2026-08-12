@@ -9,7 +9,7 @@ This procedure publishes a checked Vinpst release without rebuilding or replacin
 - The upstream comparison baseline and user-capability audit are current.
 - A non-publishing `workflow_dispatch` run of `.github/workflows/release.yml` succeeds on the exact release commit.
 - The downloaded `checked-release-bundle` passes manifest, checksum, provenance, package-install, diagnostics, and required desktop checks.
-- The repository secret `CACHIX_AUTH_TOKEN` is configured for the public `fcitx-vinpst` cache, and `cliff.toml` is present for generated GitHub release notes.
+- `CACHIX_AUTH_TOKEN` and the AUR secrets `AUR_USERNAME`, `AUR_EMAIL`, and `AUR_SSH_PRIVATE_KEY` are configured; `cliff.toml` is present for generated GitHub release notes.
 
 ## Rehearse without publishing
 
@@ -65,9 +65,10 @@ The tag workflow:
 7. generates release notes from conventional commits with git-cliff;
 8. creates or reuses only a draft GitHub Release;
 9. uploads the exact checked bundle and compares every remote asset name, size, and GitHub-reported SHA-256 digest with the local bundle;
-10. publishes the draft only after the inventory matches.
+10. publishes the draft only after the inventory matches;
+11. publishes `fcitx-vinpst-bin` to AUR from the verified public Arch artifact.
 
-A rerun may replace assets only while the release is still a draft. The workflow refuses to mutate an already-public release.
+A rerun may replace assets only while the GitHub Release is still a draft. The workflow refuses to mutate an already-public release. AUR publication can be retried independently for an existing public tag with `gh workflow run aur.yml --ref main -f tag=v<version>`.
 
 Nix is intentionally published as a binary-cache channel rather than as a `.nix` file in the GitHub Release. The GitHub bundle therefore records the source archive, bundled Linux tarball, native packages, and Flatpak bundle, while the release DAG separately requires the Cachix closure publication to succeed.
 

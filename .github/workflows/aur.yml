@@ -1,0 +1,124 @@
+name: AUR
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      AUR_USERNAME:
+        required: true
+      AUR_EMAIL:
+        required: true
+      AUR_SSH_PRIVATE_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published Vinpst release tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'rijuyuezhu/fcitx-vinpst'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          path: release-source
+      - name: Verify published release and generate AUR package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          [[ "${tag}" == v* ]] || {
+            echo "AUR publication requires a version tag, got ${tag@Q}" >&2
+            exit 1
+          }
+          version="${tag#v}"
+          tagged_version="$(release-source/scripts/release/check-release-metadata.sh \
+            --tag "${tag}" --print-version)"
+          [[ "${tagged_version}" == "${version}" ]] || {
+            echo "release tag version does not match tagged source" >&2
+            exit 1
+          }
+
+          release_json="$(mktemp)"
+          gh release view "${tag}" \
+            --repo "${GH_REPO}" \
+            --json tagName,isDraft,isPrerelease,assets >"${release_json}"
+          jq -e --arg tag "${tag}" \
+            '.tagName == $tag and (.isDraft | not) and (.isPrerelease | not)' \
+            "${release_json}" >/dev/null
+
+          package_name="fcitx-vinpst-${version}-1-x86_64.pkg.tar.zst"
+          [[ "$(jq --arg name "${package_name}" '[.assets[] | select(.name == $name)] | length' "${release_json}")" == 1 ]] || {
+            echo "public release does not contain exactly one ${package_name}" >&2
+            exit 1
+          }
+          remote_digest="$(jq -r --arg name "${package_name}" \
+            '.assets[] | select(.name == $name) | .digest // empty' \
+            "${release_json}")"
+          [[ "${remote_digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "public Arch package is missing a GitHub SHA-256 digest" >&2
+            exit 1
+          }
+
+          mkdir -p dist/aur
+          gh release download "${tag}" \
+            --repo "${GH_REPO}" \
+            --pattern "${package_name}" \
+            --dir dist
+          local_digest="sha256:$(sha256sum "dist/${package_name}" | cut -d ' ' -f1)"
+          [[ "${local_digest}" == "${remote_digest}" ]] || {
+            echo "downloaded Arch package digest does not match GitHub" >&2
+            exit 1
+          }
+
+          scripts/release/render-aur-pkgbuild.py \
+            --version "${version}" \
+            --package-sha256 "${local_digest#sha256:}" \
+            --output dist/aur/PKGBUILD
+          cp release-source/packaging/arch/fcitx-vinpst.install \
+            dist/aur/fcitx-vinpst.install
+          bash -n dist/aur/PKGBUILD
+      - name: Require AUR publishing credentials
+        shell: bash
+        env:
+          AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
+          AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "${AUR_USERNAME}" ]] || { echo 'missing AUR_USERNAME' >&2; exit 1; }
+          [[ -n "${AUR_EMAIL}" ]] || { echo 'missing AUR_EMAIL' >&2; exit 1; }
+          [[ -n "${AUR_SSH_PRIVATE_KEY}" ]] || { echo 'missing AUR_SSH_PRIVATE_KEY' >&2; exit 1; }
+      - name: Publish AUR package
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.3
+        with:
+          pkgname: fcitx-vinpst-bin
+          pkgbuild: dist/aur/PKGBUILD
+          assets: dist/aur/fcitx-vinpst.install
+          test: true
+          test_flags: --clean --cleanbuild --nodeps --noconfirm
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Update fcitx-vinpst-bin to ${{ inputs.tag }}
+          ssh_keyscan_types: rsa,ecdsa,ed25519
