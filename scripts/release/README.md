@@ -94,12 +94,13 @@ They are product lifecycle code, not developer convenience scripts.
 ## Publication boundary
 
 The release-bundle job creates GitHub/Sigstore provenance attestations for every
-checked GitHub asset. A version tag uses `RELEASE_NOTES.md` when its heading
-matches the release version and otherwise falls back to conventional-commit
-notes from git-cliff. It creates or reuses only a draft GitHub Release, uploads the complete checked bundle, compares the remote
+checked GitHub asset. A version tag generates conventional-commit release notes
+with git-cliff, creates or reuses only a draft GitHub Release, uploads the
+complete checked bundle, compares the remote
 asset names, sizes, and GitHub-reported SHA-256 digests with the local bundle,
 and publishes only after they match. The workflow refuses to replace assets on
-an already-public release. Nix is distributed through Cachix rather than as a
+an already-public release, then publishes the verified Arch payload as
+`fcitx-vinpst-bin` on AUR. Nix is distributed through Cachix rather than as a
 file in that flat GitHub bundle.
 
 Run the workflow with `workflow_dispatch` for a non-publishing release-candidate

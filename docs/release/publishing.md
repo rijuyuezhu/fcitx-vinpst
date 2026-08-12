@@ -9,7 +9,7 @@ This procedure publishes a checked Vinpst release without rebuilding or replacin
 - The upstream comparison baseline and user-capability audit are current.
 - A non-publishing `workflow_dispatch` run of `.github/workflows/release.yml` succeeds on the exact release commit.
 - The downloaded `checked-release-bundle` passes manifest, checksum, provenance, package-install, diagnostics, and required desktop checks.
-- The repository secret `CACHIX_AUTH_TOKEN` is configured for the public `fcitx-vinpst` cache, and `cliff.toml` is present for generated GitHub release notes.
+- `CACHIX_AUTH_TOKEN` and the AUR secrets `AUR_USERNAME`, `AUR_EMAIL`, and `AUR_SSH_PRIVATE_KEY` are configured; `cliff.toml` is present for generated GitHub release notes.
 
 ## Rehearse without publishing
 
@@ -62,13 +62,13 @@ The tag workflow:
 4. builds that same extracted source through the locked Nix package smoke and publishes the resulting closure to Cachix;
 5. verifies package transactions and assembles the checked GitHub release bundle;
 6. creates signed GitHub/Sigstore provenance attestations;
-7. uses `RELEASE_NOTES.md` when its top-level heading matches `# Vinpst <release-version>`; otherwise it generates release notes from conventional commits with git-cliff;
+7. generates release notes from conventional commits with git-cliff;
 8. creates or reuses only a draft GitHub Release;
 9. uploads the exact checked bundle and compares every remote asset name, size, and GitHub-reported SHA-256 digest with the local bundle;
-10. publishes the draft only after the inventory matches.
+10. publishes the draft only after the inventory matches;
+11. publishes `fcitx-vinpst-bin` to AUR from the verified Arch artifact.
 
-A rerun may replace assets only while the release is still a draft. The workflow refuses to mutate an already-public release.
-
+A rerun may replace assets only while the GitHub Release is still a draft. The workflow refuses to mutate an already-public release.
 Nix is intentionally published as a binary-cache channel rather than as a `.nix` file in the GitHub Release. The GitHub bundle therefore records the source archive, bundled Linux tarball, native packages, and Flatpak bundle, while the release DAG separately requires the Cachix closure publication to succeed.
 
 ## Post-publication verification

@@ -847,27 +847,12 @@ jobs:
         with:
           name: checked-release-bundle
           path: release
-      - name: Select release notes source
-        id: release_notes_source
-        shell: bash
-        run: |
-          set -euo pipefail
-          version='${{ needs.source-archive.outputs.version }}'
-          expected_heading="# Vinpst ${version}"
-          if [[ -f RELEASE_NOTES.md ]] && [[ "$(head -n 1 RELEASE_NOTES.md)" == "${expected_heading}" ]]; then
-            cp RELEASE_NOTES.md release-notes.md
-            echo 'curated=true' >>"${GITHUB_OUTPUT}"
-          else
-            echo 'curated=false' >>"${GITHUB_OUTPUT}"
-          fi
       - name: Generate release notes
-        if: steps.release_notes_source.outputs.curated != 'true'
         uses: orhun/git-cliff-action@v4
         with:
           args: --latest --strip header --output release-notes-body.md
           github_token: ${{ github.token }}
       - name: Bind generated notes to the release version
-        if: steps.release_notes_source.outputs.curated != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -893,3 +878,43 @@ jobs:
             --bundle-dir release \
             --notes-file release-notes.md \
             --repo "${GH_REPO}"
+
+  aur:
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'rijuyuezhu/fcitx-vinpst'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-arch-x86_64
+          path: dist/release
+      - name: Generate AUR PKGBUILD
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          package="$(find dist/release -maxdepth 1 -type f -name '*.pkg.tar.zst' -print -quit)"
+          test -n "${package}"
+          package_sha256="$(sha256sum "${package}" | cut -d ' ' -f1)"
+          mkdir -p dist/aur
+          while IFS= read -r line; do
+            line="${line//@VINPST_PKGVER@/${version}}"
+            line="${line//@VINPST_PACKAGE_SHA256@/${package_sha256}}"
+            printf '%s\n' "${line}"
+          done < packaging/aur/PKGBUILD.template > dist/aur/PKGBUILD
+          cp packaging/arch/fcitx-vinpst.install dist/aur/fcitx-vinpst.install
+      - name: Publish AUR package
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.3
+        with:
+          pkgname: fcitx-vinpst-bin
+          pkgbuild: dist/aur/PKGBUILD
+          assets: dist/aur/fcitx-vinpst.install
+          test: true
+          test_flags: --clean --cleanbuild --nodeps --noconfirm
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Update fcitx-vinpst-bin to ${{ github.ref_name }}
+          ssh_keyscan_types: rsa,ecdsa,ed25519

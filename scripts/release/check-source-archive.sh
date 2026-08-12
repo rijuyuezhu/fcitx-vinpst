@@ -28,8 +28,6 @@ grep -Eq '^fcitx-vinpst-0.1.0/(\./)?Cargo.toml$' "${check_root}/listing"
 grep -Eq '^fcitx-vinpst-0.1.0/(\./)?Cargo.lock$' "${check_root}/listing"
 grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/create-source-archive.sh$' \
   "${check_root}/listing"
-grep -Eq '^fcitx-vinpst-0.1.0/(\./)?RELEASE_NOTES.md$' \
-  "${check_root}/listing"
 grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/check-release-metadata.sh$' \
   "${check_root}/listing"
 grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/publish-github-release.sh$' \
@@ -53,7 +51,6 @@ extracted_source="$(scripts/release/extract-source-archive.py \
 test -f "${extracted_source}/Cargo.toml"
 test -f "${extracted_source}/Cargo.lock"
 test -x "${extracted_source}/scripts/release/create-source-archive.sh"
-test -f "${extracted_source}/RELEASE_NOTES.md"
 test -x "${extracted_source}/scripts/release/check-release-metadata.sh"
 test -x "${extracted_source}/scripts/release/publish-github-release.sh"
 

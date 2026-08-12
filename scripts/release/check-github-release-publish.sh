@@ -57,28 +57,34 @@ case "${command_name}" in
       fi
       exit 0
     fi
-    [[ "${endpoint}" == "repos/example/fcitx-vinpst/releases/tags/v0.1.0" ]]
+    [[ "${endpoint}" == "repos/example/fcitx-vinpst/releases?per_page=100" ]]
+    [[ "${2:-}" == --paginate && "${3:-}" == --slurp ]]
+    case "${FAKE_GH_API_ERROR:-none}" in
+      none)
+        ;;
+      server)
+        echo "gh: Server Error (HTTP 500)" >&2
+        exit 1
+        ;;
+      auth)
+        echo "gh: Resource not accessible (HTTP 403)" >&2
+        exit 1
+        ;;
+      *)
+        echo "unsupported fake API error" >&2
+        exit 2
+        ;;
+    esac
     if [[ ! -f "${state_dir}/release-state" ]]; then
-      case "${FAKE_GH_API_ERROR:-not-found}" in
-        not-found)
-          echo "gh: Not Found (HTTP 404)" >&2
-          exit 1
-          ;;
-        server)
-          echo "gh: Server Error (HTTP 500)" >&2
-          exit 1
-          ;;
-        auth)
-          echo "gh: Resource not accessible (HTTP 403)" >&2
-          exit 1
-          ;;
-        *)
-          echo "unsupported fake API error" >&2
-          exit 2
-          ;;
-      esac
+      printf '[[]]\n'
+      exit 0
     fi
-    write_release_json
+    release_json="$(write_release_json)"
+    if [[ "${FAKE_GH_TARGET_PAGE:-1}" == 2 ]]; then
+      printf '[[{"tag_name":"v9.9.9","draft":false,"assets":[]}],[%s]]\n' "${release_json}"
+    else
+      printf '[[%s]]\n' "${release_json}"
+    fi
     ;;
   release)
     subcommand="${1:-}"
@@ -208,6 +214,14 @@ printf 'draft\n' >"${existing_state}/release-state"
 run_publisher "${existing_state}"
 [[ "$(cat "${existing_state}/release-state")" == public ]]
 [[ "$(tr '\n' ' ' <"${existing_state}/events")" == "edit-draft upload publish " ]]
+paged_state="${check_root}/paged-state"
+mkdir -p "${paged_state}"
+printf 'draft\n' >"${paged_state}/release-state"
+: >"${paged_state}/assets.tsv"
+run_publisher "${paged_state}" FAKE_GH_TARGET_PAGE=2
+[[ "$(cat "${paged_state}/release-state")" == public ]]
+[[ "$(tr '\n' ' ' <"${paged_state}/events")" == "edit-draft upload publish " ]]
+
 
 public_state="${check_root}/public-state"
 mkdir -p "${public_state}"
@@ -228,7 +242,7 @@ for api_error in server auth; do
     echo "publisher treated a GitHub ${api_error} failure as a missing release" >&2
     exit 1
   fi
-  grep -Fq 'failed to query existing GitHub Release' "${check_root}/${api_error}.err"
+  grep -Fq 'failed to query GitHub Releases' "${check_root}/${api_error}.err"
   [[ ! -e "${error_state}/release-state" && ! -e "${error_state}/events" ]]
 done
 

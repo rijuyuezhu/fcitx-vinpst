@@ -17,6 +17,14 @@ Download the package for your distribution from [GitHub Releases](https://github
 
 ### Arch Linux
 
+Install the prebuilt AUR package with an AUR helper:
+
+```sh
+paru -S fcitx-vinpst-bin
+```
+
+Or install the native package downloaded from GitHub Releases directly:
+
 ```sh
 sudo pacman -U ./fcitx-vinpst-*-x86_64.pkg.tar.zst
 ```

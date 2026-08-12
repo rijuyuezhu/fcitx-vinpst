@@ -96,32 +96,47 @@ manifest_name="$(jq -r '.package.name' "${bundle_dir}/manifest.json")"
 work_root="$(mktemp -d)"
 trap 'rm -rf "${work_root}"' EXIT
 release_json="${work_root}/release.json"
+release_list_json="${work_root}/release-list.json"
 release_error="${work_root}/release.error"
-release_endpoint="repos/${repo}/releases/tags/${tag}"
+release_list_endpoint="repos/${repo}/releases?per_page=100"
 release_exists=false
 
-# Prove that the repository itself is visible before interpreting a release-tag
-# 404 as "no release". GitHub may otherwise use 404 for an inaccessible or
-# misspelled private repository as well.
+lookup_release() {
+  if ! gh api "${release_list_endpoint}" --paginate --slurp \
+    >"${release_list_json}" 2>"${release_error}"; then
+    cat "${release_error}" >&2
+    echo "failed to query GitHub Releases for ${tag}; refusing to create or modify a release" >&2
+    exit 1
+  fi
+  local match_count
+  match_count="$(jq --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)] | length' "${release_list_json}")"
+  case "${match_count}" in
+    0)
+      release_exists=false
+      : >"${release_json}"
+      ;;
+    1)
+      release_exists=true
+      jq --arg tag "${tag}" '.[][] | select(.tag_name == $tag)' "${release_list_json}" >"${release_json}"
+      ;;
+    *)
+      echo "GitHub returned ${match_count} releases for tag ${tag}; refusing ambiguous mutation" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# Prove that the repository itself is visible before interpreting an empty
+# release list as "no release". Draft releases are intentionally discovered
+# through the authenticated release-list endpoint: GitHub's release-by-tag
+# endpoint does not expose drafts.
 remote_repo="$(gh api "repos/${repo}" --jq '.full_name')"
 [[ "${remote_repo}" == "${repo}" ]] || {
   echo "GitHub repository lookup returned unexpected name ${remote_repo@Q}" >&2
   exit 1
 }
 
-if gh api "${release_endpoint}" >"${release_json}" 2>"${release_error}"; then
-  release_exists=true
-else
-  # Only a confirmed 404 means that the tag has no release. Authentication,
-  # rate-limit, network, and GitHub service failures must stop publication.
-  if grep -Eq '(^|[^0-9])404([^0-9]|$)|Not Found' "${release_error}"; then
-    release_exists=false
-  else
-    cat "${release_error}" >&2
-    echo "failed to query existing GitHub Release ${tag}; refusing to create or modify a release" >&2
-    exit 1
-  fi
-fi
+lookup_release
 
 if [[ "${release_exists}" == true ]]; then
   remote_tag="$(jq -r '.tag_name // empty' "${release_json}")"
@@ -179,7 +194,11 @@ for asset in "${assets[@]}"; do
     "$(sha256sum "${asset}" | cut -d ' ' -f1)"
 done | LC_ALL=C sort >"${expected_assets}"
 
-gh api "${release_endpoint}" >"${release_json}"
+lookup_release
+[[ "${release_exists}" == true ]] || {
+  echo "GitHub Release ${tag} disappeared after upload; refusing further mutation" >&2
+  exit 1
+}
 post_upload_draft="$(jq -r '.draft' "${release_json}")"
 [[ "${post_upload_draft}" == true ]] || {
   echo "GitHub Release ${tag} is no longer a draft after upload; refusing further mutation" >&2
