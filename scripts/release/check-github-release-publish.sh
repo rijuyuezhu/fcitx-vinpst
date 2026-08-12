@@ -57,28 +57,30 @@ case "${command_name}" in
       fi
       exit 0
     fi
-    [[ "${endpoint}" == "repos/example/fcitx-vinpst/releases/tags/v0.1.0" ]]
+    [[ "${endpoint}" == "repos/example/fcitx-vinpst/releases?per_page=100" ]]
+    case "${FAKE_GH_API_ERROR:-none}" in
+      none)
+        ;;
+      server)
+        echo "gh: Server Error (HTTP 500)" >&2
+        exit 1
+        ;;
+      auth)
+        echo "gh: Resource not accessible (HTTP 403)" >&2
+        exit 1
+        ;;
+      *)
+        echo "unsupported fake API error" >&2
+        exit 2
+        ;;
+    esac
     if [[ ! -f "${state_dir}/release-state" ]]; then
-      case "${FAKE_GH_API_ERROR:-not-found}" in
-        not-found)
-          echo "gh: Not Found (HTTP 404)" >&2
-          exit 1
-          ;;
-        server)
-          echo "gh: Server Error (HTTP 500)" >&2
-          exit 1
-          ;;
-        auth)
-          echo "gh: Resource not accessible (HTTP 403)" >&2
-          exit 1
-          ;;
-        *)
-          echo "unsupported fake API error" >&2
-          exit 2
-          ;;
-      esac
+      printf '[]\n'
+      exit 0
     fi
+    printf '['
     write_release_json
+    printf ']\n'
     ;;
   release)
     subcommand="${1:-}"
@@ -228,7 +230,7 @@ for api_error in server auth; do
     echo "publisher treated a GitHub ${api_error} failure as a missing release" >&2
     exit 1
   fi
-  grep -Fq 'failed to query existing GitHub Release' "${check_root}/${api_error}.err"
+  grep -Fq 'failed to query GitHub Releases' "${check_root}/${api_error}.err"
   [[ ! -e "${error_state}/release-state" && ! -e "${error_state}/events" ]]
 done
 
