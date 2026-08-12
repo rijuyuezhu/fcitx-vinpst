@@ -55,7 +55,7 @@ compiling a duplicate payload.
 
 The Arch path builds the checked runtime bundle, formal package, and synthetic
 upgrade archive, then runs isolated pacman transaction/repository/signing tests
-and promotes a verified release candidate. The tag workflow selects only the
+and assembles verified release assets. The tag workflow selects only the
 formal unsigned `pkgrel=1` package; temporary signatures, keys, repository
 metadata, and `pkgrel=2` remain test evidence. The Debian Docker matrix builds release
 1 and synthetic release 2 for Debian 12 and Ubuntu 24.04, performs real `dpkg`

@@ -26,7 +26,7 @@ Vinpst is an independent project. Its executables, package names, addon, D-Bus s
 
 ## Development
 
-The [documentation map](docs/development-index.md) separates user guides from architecture, development, migration, and evidence records. Contributors should start with [AGENTS.md](AGENTS.md) and [docs/development.md](docs/development.md).
+Contributors should start with [AGENTS.md](AGENTS.md), [docs/development.md](docs/development.md), and the [architecture contracts](docs/architecture/README.md).
 
 ```sh
 just fmt-check

@@ -2,13 +2,12 @@
 
 Before working in this repository, read:
 
-1. `docs/development-index.md` — documentation map and source-of-truth rules.
-2. `docs/development.md` — workflow, validation tiers, and commit style.
-3. `docs/migration/function-gap-audit.md` — current Rust-versus-legacy status.
-4. `docs/migration/e2e-capability-matrix.md` — detailed capability and evidence matrix.
-5. `docs/migration/live-desktop-validation.md` — real-session validation procedure.
-6. `docs/architecture/README.md` — stable contract index; then read the contract for the touched subsystem.
-7. `docs/legacy/README.md` and `docs/legacy/source-annotations.md` — legacy source map when behavior comparison is needed.
+1. `docs/development.md` — workflow, validation tiers, and commit style.
+2. `docs/migration/function-gap-audit.md` — current Rust-versus-legacy status.
+3. `docs/migration/e2e-capability-matrix.md` — detailed capability and evidence matrix.
+4. `docs/migration/live-desktop-validation.md` — real-session validation procedure.
+5. `docs/architecture/README.md` — stable contract index; then read the contract for the touched subsystem.
+6. `docs/legacy/README.md` and `docs/legacy/source-annotations.md` — legacy source map when behavior comparison is needed.
 
 Rules:
 

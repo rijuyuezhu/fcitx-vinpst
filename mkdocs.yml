@@ -32,7 +32,6 @@ not_in_nav: |
   migration/**
   release/**
   user/**
-  development-index.md
   live-toolkit-debugging.md
 
 theme:
