@@ -6,7 +6,7 @@ Library=fcitx5-vinpst
 Type=SharedLibrary
 OnDemand=False
 Configurable=True
-Version=@PROJECT_VERSION@
+Version=@VINPST_PROJECT_VERSION@
 
 [Addon/Dependencies]
 0=dbus

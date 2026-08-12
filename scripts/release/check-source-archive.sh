@@ -15,7 +15,6 @@ cd "${repo_root}"
 
 release_version="$(scripts/release/check-release-metadata.sh --print-version)"
 source_root="fcitx-vinpst-${release_version}"
-source_root_regex="${source_root//./\\.}"
 check_root="${repo_root}/target/tmp/source-archive-check"
 archive_one="${check_root}/fcitx-vinpst-${release_version}-one.tar.gz"
 archive_two="${check_root}/fcitx-vinpst-${release_version}-two.tar.gz"
@@ -27,14 +26,17 @@ scripts/release/create-source-archive.sh "${archive_two}" "${release_version}" >
 cmp "${archive_one}" "${archive_two}"
 
 tar -tzf "${archive_one}" >"${check_root}/listing"
-grep -Eq "^${source_root_regex}/(\\./)?Cargo.toml$" "${check_root}/listing"
-grep -Eq "^${source_root_regex}/(\\./)?Cargo.lock$" "${check_root}/listing"
-grep -Eq "^${source_root_regex}/(\\./)?scripts/release/create-source-archive.sh$" \
-  "${check_root}/listing"
-grep -Eq "^${source_root_regex}/(\\./)?scripts/release/check-release-metadata.sh$" \
-  "${check_root}/listing"
-grep -Eq "^${source_root_regex}/(\\./)?scripts/release/publish-github-release.sh$" \
-  "${check_root}/listing"
+for required_path in \
+  Cargo.toml \
+  Cargo.lock \
+  scripts/release/create-source-archive.sh \
+  scripts/release/check-release-metadata.sh \
+  scripts/release/publish-github-release.sh; do
+  grep -Fqx \
+    -e "${source_root}/${required_path}" \
+    -e "${source_root}/./${required_path}" \
+    "${check_root}/listing"
+done
 if grep -Eq '(^|/)(\.git|target|dist|__pycache__|\.ruff_cache|\.cache)(/|$)' \
   "${check_root}/listing"; then
   echo "source archive includes excluded build or VCS state" >&2
