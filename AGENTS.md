@@ -3,7 +3,7 @@
 Before working in this repository, read:
 
 1. `docs/development.md` — workflow, validation tiers, and commit style.
-2. `docs/migration/function-gap-audit.md` — current Rust-versus-legacy status.
+2. `docs/migration/function-gap-audit.md` — historical Rust-versus-upstream audit.
 3. `docs/migration/e2e-capability-matrix.md` — detailed capability and evidence matrix.
 4. `docs/migration/live-desktop-validation.md` — real-session validation procedure.
 5. `docs/architecture/README.md` — stable contract index; then read the contract for the touched subsystem.
