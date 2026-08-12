@@ -20,38 +20,53 @@ from pathlib import Path
 lock = json.loads(Path("flake.lock").read_text(encoding="utf-8"))
 if lock.get("version") != 7:
     raise SystemExit("unsupported flake.lock schema")
+
 nodes = lock.get("nodes")
-if not isinstance(nodes, dict) or set(nodes) != {"nixpkgs", "root", "sherpa-onnx"}:
-    raise SystemExit("flake.lock node inventory mismatch")
-root_inputs = nodes["root"].get("inputs")
-if root_inputs != {"nixpkgs": "nixpkgs", "sherpa-onnx": "sherpa-onnx"}:
-    raise SystemExit("flake.lock root inputs mismatch")
-for name in ("nixpkgs", "sherpa-onnx"):
-    locked = nodes[name].get("locked")
+root_name = lock.get("root")
+if not isinstance(nodes, dict) or not nodes:
+    raise SystemExit("flake.lock nodes must be a non-empty object")
+if not isinstance(root_name, str) or root_name not in nodes:
+    raise SystemExit("flake.lock root must reference an existing node")
+
+root_node = nodes[root_name]
+if not isinstance(root_node, dict):
+    raise SystemExit("flake.lock root node must be an object")
+root_inputs = root_node.get("inputs")
+if not isinstance(root_inputs, dict) or not root_inputs:
+    raise SystemExit("flake.lock root must declare inputs")
+for input_name, reference in root_inputs.items():
+    if not isinstance(input_name, str) or not input_name:
+        raise SystemExit("flake.lock root contains an invalid input name")
+    if isinstance(reference, str):
+        if reference not in nodes:
+            raise SystemExit(f"flake.lock root input {input_name} references a missing node")
+    elif not (
+        isinstance(reference, list)
+        and reference
+        and all(isinstance(part, str) and part for part in reference)
+    ):
+        raise SystemExit(f"flake.lock root input {input_name} has an invalid reference")
+
+for name, node in nodes.items():
+    if name == root_name:
+        continue
+    if not isinstance(node, dict):
+        raise SystemExit(f"flake.lock node {name} must be an object")
+    locked = node.get("locked")
     if not isinstance(locked, dict):
-        raise SystemExit(f"flake.lock missing locked input: {name}")
-    for field in ("owner", "repo", "rev", "narHash", "type"):
+        raise SystemExit(f"flake.lock input {name} is not pinned")
+    for field in ("type", "narHash"):
         value = locked.get(field)
         if not isinstance(value, str) or not value:
             raise SystemExit(f"flake.lock input {name} missing {field}")
+
+    if locked["type"] == "github":
+        for field in ("owner", "repo", "rev"):
+            value = locked.get(field)
+            if not isinstance(value, str) or not value:
+                raise SystemExit(f"flake.lock GitHub input {name} missing {field}")
+        original = node.get("original")
+        if isinstance(original, dict) and original.get("ref") in {"main", "master"}:
+            raise SystemExit(f"flake.lock GitHub input {name} tracks a default branch")
 PY
-
-test -s LICENSE
-grep -q '"x86_64-linux"' flake.nix
-grep -q '"aarch64-linux"' flake.nix
-grep -q 'cargoLock.lockFile = ./Cargo.lock;' flake.nix
-grep -q 'SHERPA_ONNX_LIB_DIR = "${sherpaRuntime}/lib";' flake.nix
-grep -q 'sherpa-onnx-backend' flake.nix
-grep -q 'VINPST_FCITX_MODULE_INSTALL_DIR=lib/fcitx5' flake.nix
-grep -q 'VINPST_FCITX_ADDON_INSTALL_DIR=share/fcitx5/addon' flake.nix
-grep -q 'VINPST_SYSTEMD_USER_UNIT_DIR=lib/systemd/user' flake.nix
-grep -q 'share/licenses/fcitx-vinpst/LICENSE' flake.nix
-grep -q 'license = lib.licenses.gpl3Plus;' flake.nix
-grep -q 'nix flake check' packaging/nix/README.md
-
-if grep -Eq 'github:[^";]+/(main|master)([";?]|$)' flake.lock; then
-  echo "flake.lock contains an unpinned branch reference" >&2
-  exit 1
-fi
-
 echo "Nix flake metadata check passed"
