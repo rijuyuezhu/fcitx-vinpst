@@ -102,13 +102,14 @@ release_list_endpoint="repos/${repo}/releases?per_page=100"
 release_exists=false
 
 lookup_release() {
-  if ! gh api "${release_list_endpoint}" >"${release_list_json}" 2>"${release_error}"; then
+  if ! gh api "${release_list_endpoint}" --paginate --slurp \
+    >"${release_list_json}" 2>"${release_error}"; then
     cat "${release_error}" >&2
     echo "failed to query GitHub Releases for ${tag}; refusing to create or modify a release" >&2
     exit 1
   fi
   local match_count
-  match_count="$(jq --arg tag "${tag}" '[.[] | select(.tag_name == $tag)] | length' "${release_list_json}")"
+  match_count="$(jq --arg tag "${tag}" '[.[][] | select(.tag_name == $tag)] | length' "${release_list_json}")"
   case "${match_count}" in
     0)
       release_exists=false
@@ -116,7 +117,7 @@ lookup_release() {
       ;;
     1)
       release_exists=true
-      jq --arg tag "${tag}" '.[] | select(.tag_name == $tag)' "${release_list_json}" >"${release_json}"
+      jq --arg tag "${tag}" '.[][] | select(.tag_name == $tag)' "${release_list_json}" >"${release_json}"
       ;;
     *)
       echo "GitHub returned ${match_count} releases for tag ${tag}; refusing ambiguous mutation" >&2

@@ -58,6 +58,7 @@ case "${command_name}" in
       exit 0
     fi
     [[ "${endpoint}" == "repos/example/fcitx-vinpst/releases?per_page=100" ]]
+    [[ "${2:-}" == --paginate && "${3:-}" == --slurp ]]
     case "${FAKE_GH_API_ERROR:-none}" in
       none)
         ;;
@@ -75,12 +76,15 @@ case "${command_name}" in
         ;;
     esac
     if [[ ! -f "${state_dir}/release-state" ]]; then
-      printf '[]\n'
+      printf '[[]]\n'
       exit 0
     fi
-    printf '['
-    write_release_json
-    printf ']\n'
+    release_json="$(write_release_json)"
+    if [[ "${FAKE_GH_TARGET_PAGE:-1}" == 2 ]]; then
+      printf '[[{"tag_name":"v9.9.9","draft":false,"assets":[]}],[%s]]\n' "${release_json}"
+    else
+      printf '[[%s]]\n' "${release_json}"
+    fi
     ;;
   release)
     subcommand="${1:-}"
@@ -210,6 +214,14 @@ printf 'draft\n' >"${existing_state}/release-state"
 run_publisher "${existing_state}"
 [[ "$(cat "${existing_state}/release-state")" == public ]]
 [[ "$(tr '\n' ' ' <"${existing_state}/events")" == "edit-draft upload publish " ]]
+paged_state="${check_root}/paged-state"
+mkdir -p "${paged_state}"
+printf 'draft\n' >"${paged_state}/release-state"
+: >"${paged_state}/assets.tsv"
+run_publisher "${paged_state}" FAKE_GH_TARGET_PAGE=2
+[[ "$(cat "${paged_state}/release-state")" == public ]]
+[[ "$(tr '\n' ' ' <"${paged_state}/events")" == "edit-draft upload publish " ]]
+
 
 public_state="${check_root}/public-state"
 mkdir -p "${public_state}"
