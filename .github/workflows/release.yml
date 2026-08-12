@@ -847,27 +847,12 @@ jobs:
         with:
           name: checked-release-bundle
           path: release
-      - name: Select release notes source
-        id: release_notes_source
-        shell: bash
-        run: |
-          set -euo pipefail
-          version='${{ needs.source-archive.outputs.version }}'
-          expected_heading="# Vinpst ${version}"
-          if [[ -f RELEASE_NOTES.md ]] && [[ "$(head -n 1 RELEASE_NOTES.md)" == "${expected_heading}" ]]; then
-            cp RELEASE_NOTES.md release-notes.md
-            echo 'curated=true' >>"${GITHUB_OUTPUT}"
-          else
-            echo 'curated=false' >>"${GITHUB_OUTPUT}"
-          fi
       - name: Generate release notes
-        if: steps.release_notes_source.outputs.curated != 'true'
         uses: orhun/git-cliff-action@v4
         with:
           args: --latest --strip header --output release-notes-body.md
           github_token: ${{ github.token }}
       - name: Bind generated notes to the release version
-        if: steps.release_notes_source.outputs.curated != 'true'
         shell: bash
         run: |
           set -euo pipefail
