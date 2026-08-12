@@ -456,8 +456,11 @@ fn hotword_edit_rejects_missing_file_config_and_remote_provider() {
             "providers": [{"id":"local","type":"local"}]
           },
           "scenes": {
-            "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "active_scene": "__raw__",
+            "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
+            ]
           }
         }
         "#,
@@ -503,8 +506,11 @@ fn hotword_fixture_json() -> &'static str {
         ]
       },
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#

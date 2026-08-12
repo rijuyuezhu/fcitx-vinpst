@@ -346,6 +346,14 @@ impl fmt::Debug for LlmAdapterConfig {
             .field("args_count", &self.args.len())
             .field("env_count", &self.env.len())
             .field("has_working_dir", &self.working_dir.is_some())
+            .field(
+                "has_managed_script_sha256",
+                &self.managed_script_sha256.is_some(),
+            )
+            .field(
+                "has_managed_script_rollback_sha256",
+                &self.managed_script_rollback_sha256.is_some(),
+            )
             .finish()
     }
 }

@@ -659,8 +659,6 @@ fn optional_trimmed(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     fn adapter() -> LlmAdapterConfig {

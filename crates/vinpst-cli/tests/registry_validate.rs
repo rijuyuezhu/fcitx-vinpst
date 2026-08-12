@@ -425,8 +425,11 @@ fn registry_plan_uses_custom_config_mirrors() {
             "providers": [{"id":"p","type":"local"}]
           },
           "scenes": {
-            "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "active_scene": "__raw__",
+            "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
+            ]
           }
         }
         "#,
@@ -455,7 +458,7 @@ fn registry_install_plan_rejects_invalid_config_mirrors() {
         r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
     );
     let config_path = write_temp_config(
-        r#"{"version":1,"registry":{"base_urls":[""]},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+        r#"{"version":1,"registry":{"base_urls":[""]},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"__raw__","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]}}"#,
     );
 
     let output = vinpst_command()
@@ -477,7 +480,7 @@ fn registry_install_plan_uses_custom_config_mirrors() {
         r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
     );
     let config_path = write_temp_config(
-        r#"{"version":1,"registry":{"base_urls":["mirror"]},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+        r#"{"version":1,"registry":{"base_urls":["mirror"]},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"__raw__","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]}}"#,
     );
 
     let output = vinpst_command()
@@ -501,7 +504,7 @@ fn registry_plan_rejects_invalid_config_mirrors() {
         r#"{"version":1,"models":[{"id":"m","label":"M","provider":"p","assets":[{"path":"models/m.tar"}]}]}"#,
     );
     let config_path = write_temp_config(
-        r#"{"version":1,"registry":{"base_urls":[""]},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+        r#"{"version":1,"registry":{"base_urls":[""]},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"__raw__","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]}}"#,
     );
 
     let output = vinpst_command()

@@ -87,8 +87,11 @@ fn audio_devices_preserves_configured_capture_target_object() {
             "providers": [{"id":"p","type":"local"}]
           },
           "scenes": {
-            "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "active_scene": "__raw__",
+            "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
+            ]
           }
         }
         "#,
@@ -161,6 +164,13 @@ fn diagnostics_discover_user_config_before_bundled_default() {
               "type": "local",
               "model": "fixture"
             }]
+          },
+          "scenes": {
+            "active_scene": "__raw__",
+            "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
+            ]
           }
         }"#,
     )
@@ -313,6 +323,13 @@ fn doctor_reports_ready_when_the_active_backend_is_usable() {
               "type": "local",
               "model": "fixture"
             }]
+          },
+          "scenes": {
+            "active_scene": "__raw__",
+            "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
+            ]
           }
         }"#,
     );
@@ -388,6 +405,13 @@ fn doctor_distinguishes_command_and_native_timeout_enforcement() {
               "command": "helper",
               "timeout_ms": 250
             }]
+          },
+          "scenes": {
+            "active_scene": "__raw__",
+            "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
+            ]
           }
         }"#,
     );
@@ -419,6 +443,13 @@ fn doctor_distinguishes_command_and_native_timeout_enforcement() {
               "model": "/tmp/missing-native-model",
               "timeout_ms": 250
             }]
+          },
+          "scenes": {
+            "active_scene": "__raw__",
+            "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
+            ]
           }
         }"#,
     );

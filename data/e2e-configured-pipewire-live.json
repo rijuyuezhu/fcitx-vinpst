@@ -32,10 +32,20 @@
     "active_scene": "live-postprocess",
     "definitions": [
       {
+        "id": "__raw__",
+        "label": "__label_raw__",
+        "candidate_count": 0
+      },
+      {
+        "id": "__command__",
+        "label": "__label_command__",
+        "candidate_count": 1
+      },
+      {
         "id": "live-postprocess",
         "label": "Live postprocess",
         "prompt": "Postprocess the live PipeWire ASR result.",
-        "candidate_count": 0
+        "candidate_count": 1
       }
     ]
   }

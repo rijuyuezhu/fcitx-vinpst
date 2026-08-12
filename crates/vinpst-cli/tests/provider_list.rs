@@ -1646,8 +1646,11 @@ fn live_provider_config_fixture_json() -> &'static str {
         ]
       },
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#
@@ -1662,8 +1665,11 @@ fn empty_live_provider_config_fixture_json() -> &'static str {
         "providers": [{"id":"base","type":"local","model":"base"}]
       },
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#
@@ -1681,8 +1687,11 @@ fn user_defined_live_provider_config_fixture_json() -> &'static str {
         ]
       },
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#
@@ -1738,8 +1747,11 @@ fn editable_provider_config_json(script_path: &Path) -> String {
             }]
         },
         "scenes": {
-            "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "active_scene": "__raw__",
+            "definitions": [
+                {"id":"__raw__","label":"Raw","candidate_count":0},
+                {"id":"__command__","label":"Command","candidate_count":1}
+            ]
         }
     }))
     .expect("serialize editable provider config")
@@ -1758,8 +1770,11 @@ fn provider_fixture_json() -> &'static str {
         ]
       },
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#

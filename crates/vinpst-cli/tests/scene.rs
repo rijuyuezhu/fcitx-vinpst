@@ -438,16 +438,6 @@ fn scene_mutations_reject_invalid_inputs() {
     let stderr = String::from_utf8(missing.stderr).expect("stderr should be utf8");
     assert!(stderr.contains("scene `missing` not found"));
 
-    let implicit_builtin = vinpst_command()
-        .args(["scene", "edit", "__raw__", "--label", "Raw", "--config"])
-        .arg(&path)
-        .arg("--dry-run")
-        .output()
-        .expect("run vinpst scene edit implicit builtin id");
-    assert!(!implicit_builtin.status.success());
-    let stderr = String::from_utf8(implicit_builtin.stderr).expect("stderr should be utf8");
-    assert!(stderr.contains("scene `__raw__` is not explicitly configured"));
-
     let noop = vinpst_command()
         .args(["scene", "edit", "rewrite", "--config"])
         .arg(&path)
@@ -690,7 +680,9 @@ fn scene_fixture_json() -> &'static str {
         "definitions": [
           {"id":"raw","label":"Raw","candidate_count":0},
           {"id":"rewrite","label":"Rewrite","prompt":"Polish text","provider_id":"openai","model":"gpt-scene","candidate_count":2,"timeout_ms":2500,"context_lines":4},
-          {"id":"command","label":"Command","prompt":"Apply command","candidate_count":1}
+          {"id":"command","label":"Command","prompt":"Apply command","candidate_count":1},
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
         ]
       }
     }

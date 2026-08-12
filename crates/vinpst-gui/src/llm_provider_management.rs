@@ -789,10 +789,7 @@ mod preservation_tests;
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        sync::{Arc, Mutex},
-    };
+    use std::sync::{Arc, Mutex};
 
     use vinpst_text::{OpenAiCompatibleChatRequest, TextError};
 

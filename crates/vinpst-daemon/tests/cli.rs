@@ -399,21 +399,19 @@ fn print_config_summary_omits_sensitive_config_details() {
               "base_url":"https://llm-leak-marker.example.invalid/v1",
               "api_key":"llm-key-leak-marker",
               "model":"llm-model-leak-marker",
-              "extra_body":{"trace":"llm-extra-leak-marker"},
-              "future_field":"provider-extra-leak-marker"
+              "extra_body":{"trace":"llm-extra-leak-marker"}
             }],
             "adapters": [{
               "id":"adapter",
               "command":"vinpst-text-helper",
               "args":["--flag", "adapter-arg-leak-marker"],
               "env":{"ADAPTER_KEY":"adapter-env-leak-marker"},
-              "working_dir":"/tmp/adapter-workdir-leak-marker",
-              "adapter_field":"adapter-extra-leak-marker"
+              "working_dir":"/tmp/adapter-workdir-leak-marker"
             }]
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -442,8 +440,6 @@ fn print_config_summary_omits_sensitive_config_details() {
         "command",
         "working_dir",
         "extra_body",
-        "future_field",
-        "adapter_field",
     ] {
         assert!(
             !stdout.contains(&format!("\"{forbidden_key}\"")),
@@ -556,7 +552,7 @@ fn audio_devices_preserves_configured_capture_target_object() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -630,7 +626,7 @@ fn once_pipewire_backend_reports_recorder_setup_error_with_plan() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -716,7 +712,7 @@ fn asr_state_uses_config_file() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -744,7 +740,7 @@ fn asr_state_preserves_remote_endpoint() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -778,7 +774,7 @@ fn asr_state_preserves_command_provider_metadata() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -867,13 +863,12 @@ fn text_adapters_uses_config_file() {
               "command":"helper-leak-marker",
               "args":["arg-leak-marker"],
               "env":{"ADAPTER_FLAG":"env-leak-marker"},
-              "working_dir":"/tmp/workdir-leak-marker",
-              "future_field":"extra-leak-marker"
+              "working_dir":"/tmp/workdir-leak-marker"
             }]
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -897,7 +892,7 @@ fn text_adapters_uses_config_file() {
     assert_eq!(value["adapters"][0]["has_working_dir"], true);
 
     let stdout = serde_json::to_string(&value).unwrap();
-    for forbidden_key in ["command", "args", "env", "working_dir", "future_field"] {
+    for forbidden_key in ["command", "args", "env", "working_dir"] {
         assert!(
             !stdout.contains(&format!("\"{forbidden_key}\":")),
             "text adapter diagnostics must not expose {forbidden_key}"
@@ -908,7 +903,6 @@ fn text_adapters_uses_config_file() {
         "arg-leak-marker",
         "env-leak-marker",
         "workdir-leak-marker",
-        "extra-leak-marker",
     ] {
         assert!(
             !stdout.contains(marker),
@@ -950,7 +944,7 @@ fn once_can_use_configured_backends() {
           },
           "scenes": {
             "active_scene": "needs-adapter",
-            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1}]
+            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -994,15 +988,19 @@ fn once_can_use_configured_openai_provider_over_http() {
         },
         "scenes": {
             "active_scene": "needs-provider",
-            "definitions": [{
-                "id": "needs-provider",
-                "label": "Needs provider",
-                "prompt": "Polish: {{ asr }}",
-                "provider_id": "openai",
-                "model": "scene-model",
-                "candidate_count": 1,
-                "timeout_ms": 2000
-            }]
+            "definitions": [
+                {
+                    "id": "needs-provider",
+                    "label": "Needs provider",
+                    "prompt": "Polish: {{ asr }}",
+                    "provider_id": "openai",
+                    "model": "scene-model",
+                    "candidate_count": 1,
+                    "timeout_ms": 2000
+                },
+                {"id": "__raw__", "label": "Raw", "candidate_count": 0},
+                {"id": "__command__", "label": "Command", "candidate_count": 1}
+            ]
         }
     });
     let config = TempConfig::write("configured-openai-once", &config_json.to_string());
@@ -1064,7 +1062,7 @@ fn once_can_read_pcm_file_into_configured_command_pipeline() {
           },
           "scenes": {
             "active_scene": "needs-adapter",
-            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1}]
+            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1108,7 +1106,7 @@ fn once_can_read_wav_file_into_configured_command_asr() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1266,7 +1264,7 @@ fn once_reports_ambiguous_configured_text_adapters() {
           },
           "scenes": {
             "active_scene": "needs-adapter",
-            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1}]
+            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1298,7 +1296,7 @@ fn once_reports_missing_configured_text_adapter() {
           },
           "scenes": {
             "active_scene": "needs-adapter",
-            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1}]
+            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1336,7 +1334,7 @@ fn text_adapters_reports_configured_adapter_summary() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1376,7 +1374,7 @@ fn text_adapters_reports_empty_adapter_summary() {
           "asr": {"active_provider":""},
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1412,7 +1410,7 @@ fn text_adapters_reports_multiple_adapter_ids() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1463,7 +1461,11 @@ fn remote_text_server_command_serves_health() {
             },
             "scenes":{
                 "active_scene":"raw",
-                "definitions":[{"id":"raw","label":"Raw","candidate_count":0}]
+                "definitions":[
+                    {"id":"raw","label":"Raw","candidate_count":0},
+                    {"id":"__raw__","label":"Raw","candidate_count":0},
+                    {"id":"__command__","label":"Command","candidate_count":1}
+                ]
             }
         }))
         .expect("serialize remote text server config"),
