@@ -566,6 +566,44 @@ mod tests {
     }
 
     #[test]
+    fn pending_menu_session_remains_cancellable_without_visible_items() {
+        let mut session = MenuSessionState::default();
+        session.open();
+        assert_eq!(
+            session.handle_key(MenuSessionKeyInput {
+                key: MenuSemanticKey::Escape,
+                visible_item_count: 0,
+                ..MenuSessionKeyInput::default()
+            }),
+            Some(MenuKeyAction::CloseAndConsume)
+        );
+        assert!(!session.is_open());
+
+        session.open();
+        assert_eq!(
+            session.handle_key(MenuSessionKeyInput {
+                key: MenuSemanticKey::Other,
+                visible_item_count: 0,
+                ..MenuSessionKeyInput::default()
+            }),
+            Some(MenuKeyAction::CloseAndPass)
+        );
+        assert!(!session.is_open());
+
+        session.open();
+        assert_eq!(
+            session.handle_key(MenuSessionKeyInput {
+                release: true,
+                key: MenuSemanticKey::Passive,
+                visible_item_count: 0,
+                ..MenuSessionKeyInput::default()
+            }),
+            Some(MenuKeyAction::Consume)
+        );
+        assert!(session.is_open());
+    }
+
+    #[test]
     fn session_uses_owned_page_and_closes_on_terminal_actions() {
         let mut session = MenuSessionState::default();
         assert_eq!(session.handle_key(MenuSessionKeyInput::default()), None);

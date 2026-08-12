@@ -94,17 +94,26 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
   auto &session = menu.session;
   const auto projection = menu.projection;
   const auto open = session.is_open();
-  if (!open.has_value() || !*open || input_context == nullptr || !projection) {
+  if (!open.has_value() || !*open || input_context == nullptr) {
     return false;
   }
-  const auto item_count = projection->size();
-  if (!item_count.has_value()) {
-    hide_menu();
-    return false;
+
+  std::size_t item_count = 0;
+  std::shared_ptr<fcitx::CandidateList> candidate_list;
+  fcitx::CursorMovableCandidateList *cursor = nullptr;
+  int current_selection = -1;
+  if (projection) {
+    const auto projection_size = projection->size();
+    if (!projection_size.has_value()) {
+      hide_menu();
+      return false;
+    }
+    item_count = *projection_size;
+    candidate_list = input_context->inputPanel().candidateList();
+    cursor = candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
+    current_selection = CurrentMenuSelectionIndex(candidate_list.get());
   }
-  auto candidate_list = input_context->inputPanel().candidateList();
-  auto *cursor =
-      candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
+
   const auto filter_active = session.active();
   if (!filter_active.has_value()) {
     hide_menu();
@@ -115,7 +124,7 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
                       settings.page_next_keys);
   const auto decision =
       session.HandleKey(event.isRelease(), semantic_key, cursor != nullptr,
-                        CurrentMenuSelectionIndex(candidate_list.get()), *item_count);
+                        current_selection, item_count);
   if (!decision.has_value()) {
     hide_menu();
     return false;
@@ -135,6 +144,10 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
     event.filterAndAccept();
     return true;
   case MenuKeyAction::Rebuild:
+    if (!projection) {
+      event.filterAndAccept();
+      return true;
+    }
     if (decision->value < std::numeric_limits<int>::min() ||
         decision->value > std::numeric_limits<int>::max()) {
       hide_menu();
@@ -158,8 +171,8 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
     cursor->nextCandidate();
     break;
   case MenuKeyAction::Select:
-    if (decision->value < 0 ||
-        static_cast<std::uint64_t>(decision->value) >= *item_count) {
+    if (!projection || decision->value < 0 ||
+        static_cast<std::uint64_t>(decision->value) >= item_count) {
       hide_menu();
       event.filterAndAccept();
       return true;
