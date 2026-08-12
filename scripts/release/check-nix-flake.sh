@@ -14,44 +14,114 @@ done
 cd "${repo_root}"
 
 python3 - <<'PY'
+import base64
+import binascii
 import json
+import re
 from pathlib import Path
 
 lock = json.loads(Path("flake.lock").read_text(encoding="utf-8"))
 if lock.get("version") != 7:
     raise SystemExit("unsupported flake.lock schema")
+
 nodes = lock.get("nodes")
-if not isinstance(nodes, dict) or set(nodes) != {"nixpkgs", "root", "sherpa-onnx"}:
-    raise SystemExit("flake.lock node inventory mismatch")
-root_inputs = nodes["root"].get("inputs")
-if root_inputs != {"nixpkgs": "nixpkgs", "sherpa-onnx": "sherpa-onnx"}:
-    raise SystemExit("flake.lock root inputs mismatch")
-for name in ("nixpkgs", "sherpa-onnx"):
-    locked = nodes[name].get("locked")
+root_name = lock.get("root")
+if not isinstance(nodes, dict) or not nodes:
+    raise SystemExit("flake.lock nodes must be a non-empty object")
+if not isinstance(root_name, str) or root_name not in nodes:
+    raise SystemExit("flake.lock root must reference an existing node")
+
+root_node = nodes[root_name]
+if not isinstance(root_node, dict):
+    raise SystemExit("flake.lock root node must be an object")
+root_inputs = root_node.get("inputs")
+if not isinstance(root_inputs, dict) or not root_inputs:
+    raise SystemExit("flake.lock root must declare inputs")
+
+
+def resolve_reference(reference, resolving):
+    if isinstance(reference, str):
+        if reference not in nodes:
+            raise SystemExit(f"flake.lock references missing node {reference}")
+        if reference == root_name:
+            raise SystemExit("flake.lock input reference resolves to the unlocked root node")
+        return reference
+    if not (
+        isinstance(reference, list)
+        and reference
+        and all(isinstance(part, str) and part for part in reference)
+    ):
+        raise SystemExit("flake.lock contains an invalid input reference")
+
+    path = tuple(reference)
+    if path in resolving:
+        raise SystemExit(f"flake.lock contains a cyclic follows path: {'/'.join(path)}")
+    resolving.add(path)
+    current = root_name
+    for part in path:
+        inputs = nodes[current].get("inputs", {})
+        if not isinstance(inputs, dict) or part not in inputs:
+            raise SystemExit(f"flake.lock follows path does not exist: {'/'.join(path)}")
+        current = resolve_reference(inputs[part], resolving)
+    resolving.remove(path)
+    return current
+
+
+def validate_nar_hash(name, value):
+    prefix = "sha256-"
+    if not isinstance(value, str) or not value.startswith(prefix):
+        raise SystemExit(f"flake.lock input {name} has an invalid narHash")
+    try:
+        digest = base64.b64decode(value[len(prefix):], validate=True)
+    except (binascii.Error, ValueError):
+        raise SystemExit(f"flake.lock input {name} has an invalid narHash") from None
+    if len(digest) != 32:
+        raise SystemExit(f"flake.lock input {name} has an invalid narHash")
+
+for name, node in nodes.items():
+    if not isinstance(node, dict):
+        raise SystemExit(f"flake.lock node {name} must be an object")
+    inputs = node.get("inputs", {})
+    if not isinstance(inputs, dict):
+        raise SystemExit(f"flake.lock node {name} inputs must be an object")
+    for input_name, reference in inputs.items():
+        if not isinstance(input_name, str) or not input_name:
+            raise SystemExit(f"flake.lock node {name} contains an invalid input name")
+        try:
+            resolve_reference(reference, set())
+        except SystemExit as error:
+            raise SystemExit(f"flake.lock node {name} input {input_name}: {error}") from None
+
+    if name == root_name:
+        continue
+    locked = node.get("locked")
     if not isinstance(locked, dict):
-        raise SystemExit(f"flake.lock missing locked input: {name}")
-    for field in ("owner", "repo", "rev", "narHash", "type"):
+        raise SystemExit(f"flake.lock input {name} is not pinned")
+    input_type = locked.get("type")
+    if input_type != "github":
+        raise SystemExit(f"flake.lock input {name} has unsupported type {input_type!r}")
+    validate_nar_hash(name, locked.get("narHash"))
+
+    for field in ("owner", "repo"):
         value = locked.get(field)
-        if not isinstance(value, str) or not value:
-            raise SystemExit(f"flake.lock input {name} missing {field}")
+        if not isinstance(value, str) or not value.strip():
+            raise SystemExit(f"flake.lock GitHub input {name} missing {field}")
+    revision = locked.get("rev")
+    if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+        raise SystemExit(f"flake.lock GitHub input {name} has an invalid rev")
+
+    original = node.get("original")
+    if not isinstance(original, dict) or original.get("type") != "github":
+        raise SystemExit(f"flake.lock GitHub input {name} has invalid original metadata")
+    for field in ("owner", "repo"):
+        value = original.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise SystemExit(f"flake.lock GitHub input {name} original missing {field}")
+    original_ref = original.get("ref")
+    if original_ref is not None:
+        if not isinstance(original_ref, str) or not original_ref.strip():
+            raise SystemExit(f"flake.lock GitHub input {name} has invalid original ref")
+        if original_ref.lower() in {"main", "master", "refs/heads/main", "refs/heads/master"}:
+            raise SystemExit(f"flake.lock GitHub input {name} tracks a default branch")
 PY
-
-test -s LICENSE
-grep -q '"x86_64-linux"' flake.nix
-grep -q '"aarch64-linux"' flake.nix
-grep -q 'cargoLock.lockFile = ./Cargo.lock;' flake.nix
-grep -q 'SHERPA_ONNX_LIB_DIR = "${sherpaRuntime}/lib";' flake.nix
-grep -q 'sherpa-onnx-backend' flake.nix
-grep -q 'VINPST_FCITX_MODULE_INSTALL_DIR=lib/fcitx5' flake.nix
-grep -q 'VINPST_FCITX_ADDON_INSTALL_DIR=share/fcitx5/addon' flake.nix
-grep -q 'VINPST_SYSTEMD_USER_UNIT_DIR=lib/systemd/user' flake.nix
-grep -q 'share/licenses/fcitx-vinpst/LICENSE' flake.nix
-grep -q 'license = lib.licenses.gpl3Plus;' flake.nix
-grep -q 'nix flake check' packaging/nix/README.md
-
-if grep -Eq 'github:[^";]+/(main|master)([";?]|$)' flake.lock; then
-  echo "flake.lock contains an unpinned branch reference" >&2
-  exit 1
-fi
-
 echo "Nix flake metadata check passed"

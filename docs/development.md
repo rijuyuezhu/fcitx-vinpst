@@ -63,6 +63,8 @@ just docs
 
 `just ci` is the deterministic project gate. It includes Rust checks, D-Bus integration, retained-addon checks, staged integration, temporary-HOME user-install smokes, and lightweight Arch, Debian, Nix, RPM, source-archive, and release metadata validation. Live desktop, microphone, and full package builds are excluded by design.
 
+Hosted routine CI exposes only `docs` and `checks`. The `checks` job runs `just ci` plus the staged IME activation, deterministic IME end-to-end, adapter lifecycle, and optional PipeWire checks; release-grade package construction remains outside pull-request CI.
+
 ## Validation tiers
 
 ### Documentation-only changes
@@ -167,7 +169,9 @@ just deb-package-smoke
 just nix-package-smoke
 ```
 
-The Debian gate builds and transaction-tests Debian 12 and Ubuntu 24.04 packages inside Docker. The Nix gate evaluates the locked flake, builds the closure, runs the display-independent GUI binary/config check, and validates the addon and activation metadata. Both are release-grade build gates. The Release workflow additionally runs the same Nix smoke from the checked release source and publishes the resulting closure to the public Cachix cache before GitHub bundle assembly proceeds.
+The Debian gate builds and transaction-tests Debian 12 and Ubuntu 24.04 packages inside Docker. The Nix gate evaluates the locked flake without updating it, builds the closure, runs the display-independent GUI binary/config check, and validates the addon and activation metadata. Both commands are explicit local/release-grade build gates and are not part of routine pull-request CI. `just ci` keeps only lightweight deterministic package metadata checks, including semantic `flake.lock` pinning validation; it does not evaluate or build the Nix package.
+
+The Release workflow runs the full Nix package smoke once from the checked release source archive and publishes that resulting closure to the public Cachix cache before GitHub bundle assembly proceeds. `.github/workflows/nix-cache.yml` retains the same full smoke as an explicit manual cache-publication workflow.
 
 ### Native ASR evidence
 

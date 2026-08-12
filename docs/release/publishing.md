@@ -61,7 +61,7 @@ git push origin "${tag}"
 The tag workflow:
 
 1. rejects a tag that does not match the workspace version;
-2. runs the reusable quality gates;
+2. runs the reusable routine quality gates (`docs` and `checks`, without a full package build);
 3. builds the bundled Linux tarball, Arch, Debian 12, Ubuntu 24.04, Fedora 43 RPM, openSUSE Leap 16.0 RPM, and Flatpak release artifacts from one checked source archive or its already transaction-tested Ubuntu payload;
 4. builds that same extracted source through the locked Nix package smoke and publishes the resulting closure to Cachix;
 5. verifies package transactions and assembles the checked GitHub release bundle;

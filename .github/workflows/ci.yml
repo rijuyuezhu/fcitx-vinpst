@@ -27,7 +27,7 @@ jobs:
       - name: Build documentation strictly
         run: mkdocs build --strict
 
-  rust:
+  checks:
     runs-on: ubuntu-latest
     # Cold hosted runners execute the full deterministic gate plus staged IME,
     # adapter, and PipeWire feature checks in this job.
@@ -63,20 +63,3 @@ jobs:
         run: scripts/tests/daemon/run-dbus-adapter-lifecycle-smoke.sh
       - name: Run optional PipeWire checks
         run: scripts/tests/pipewire-check.sh
-
-  nix:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: DeterminateSystems/nix-installer-action@v18
-      - name: Restore Nix build cache
-        uses: DeterminateSystems/magic-nix-cache-action@v14
-        with:
-          diagnostic-endpoint: ""
-          use-flakehub: false
-      - name: Build and inspect locked Nix package
-        run: scripts/release/run-nix-package-smoke.sh
