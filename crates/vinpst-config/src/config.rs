@@ -1,5 +1,12 @@
 use std::{fs, path::Path};
 
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct ConfigVersionEnvelope {
+    version: u32,
+}
+
 use crate::{
     CURRENT_CONFIG_VERSION, ConfigError, SceneDefinition, VinpstConfig, VinpstConfigSummary,
     validation::validate_config,
@@ -8,9 +15,9 @@ use crate::{
 impl VinpstConfig {
     /// Parses config from JSON.
     pub fn from_json_str(input: &str) -> Result<Self, ConfigError> {
-        let config = serde_json::from_str::<Self>(input)?;
-        config.validate_schema_version()?;
-        Ok(config)
+        let envelope = serde_json::from_str::<ConfigVersionEnvelope>(input)?;
+        validate_schema_version(envelope.version)?;
+        Ok(serde_json::from_str::<Self>(input)?)
     }
 
     /// Reads and parses config from a JSON file.
@@ -36,13 +43,7 @@ impl VinpstConfig {
     }
 
     fn validate_schema_version(&self) -> Result<(), ConfigError> {
-        if self.version != CURRENT_CONFIG_VERSION {
-            return Err(ConfigError::UnsupportedSchemaVersion {
-                found: self.version,
-                supported: CURRENT_CONFIG_VERSION,
-            });
-        }
-        Ok(())
+        validate_schema_version(self.version)
     }
 
     /// Builds a compact summary for CLI and diagnostics.
@@ -67,4 +68,14 @@ impl VinpstConfig {
             .iter()
             .find(|scene| scene.id == self.scenes.active_scene)
     }
+}
+
+fn validate_schema_version(version: u32) -> Result<(), ConfigError> {
+    if version != CURRENT_CONFIG_VERSION {
+        return Err(ConfigError::UnsupportedSchemaVersion {
+            found: version,
+            supported: CURRENT_CONFIG_VERSION,
+        });
+    }
+    Ok(())
 }

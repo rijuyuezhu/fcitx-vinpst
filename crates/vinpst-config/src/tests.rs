@@ -116,10 +116,11 @@ fn parser_rejects_zero_schema_version() {
 }
 
 #[test]
-fn parser_rejects_future_schema_versions() {
+fn parser_rejects_future_schema_versions_before_strict_field_validation() {
     let error = VinpstConfig::from_json_str(
         r#"{
           "version": 2,
+          "future_top_level": {"new_schema_field": true},
           "asr": {
             "active_provider": "p",
             "providers": [{"id":"p","type":"local"}]
