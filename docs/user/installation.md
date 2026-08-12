@@ -1,10 +1,8 @@
 # Installation
 
-Vinpst is preparing its first `0.1.0` release. Public release packages are not published yet, so files under `target/` and CI fixtures are not end-user packages.
-
 ## Release packages
 
-The first release is being prepared for:
+Vinpst publishes:
 
 - a bundled Linux x86_64 tarball for manual integration;
 - Arch Linux x86_64;
@@ -13,9 +11,9 @@ The first release is being prepared for:
 - Fedora 43 x86_64;
 - openSUSE Leap 16.0 x86_64;
 - a public x86_64 Nix/Cachix channel;
-- an x86_64 Flatpak extension preview for `org.fcitx.Fcitx5//stable`.
+- an x86_64 Flatpak extension for `org.fcitx.Fcitx5//stable`.
 
-When those artifacts are published, install the package built for your distribution.
+Download the package for your distribution from [GitHub Releases](https://github.com/rijuyuezhu/fcitx-vinpst/releases).
 
 ### Arch Linux
 
@@ -70,7 +68,7 @@ It is primarily for manual integration, inspection, or environments that cannot
 consume a native package; prefer the native package for normal desktops because
 tarball extraction is not tracked by a package manager.
 
-### Flatpak preview
+### Flatpak
 
 The Flatpak build extends the Fcitx Flatpak; it does not attach to a system-installed Fcitx. If you use the system Fcitx package, prefer the native Vinpst package for your distribution.
 
@@ -132,7 +130,7 @@ systemctl --user enable --now vinpst-daemon.service
 fcitx5 -r
 ```
 
-The Flatpak preview already performs the equivalent initialization and service bootstrap in the steps above. Then follow the [Quick start](quick-start.md) to install a model and try dictation.
+The Flatpak steps above perform the equivalent initialization and service bootstrap. Then follow the [Quick start](quick-start.md) to install a model and try dictation.
 
 ## Uninstall
 

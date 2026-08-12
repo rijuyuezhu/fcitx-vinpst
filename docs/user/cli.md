@@ -58,7 +58,7 @@ The CLI distinguishes managed registry resources from custom configuration:
 - `model install`, `provider install`, and `adapter install` resolve registry metadata and publish managed files; the upstream-compatible `add` spelling remains accepted for all three managed installs;
 - `provider create` and `adapter create` create explicit custom configuration entries, while `provider configure` edits typed provider configuration; `llm add` keeps its upstream configuration-management meaning.
 
-Review the subcommand help before running a mutation. Pre-release Vinpst does not promise command-line compatibility with another project.
+Review the subcommand help before running a mutation. Vinpst is versioned independently from other voice-input projects.
 
 ## Exit behavior
 

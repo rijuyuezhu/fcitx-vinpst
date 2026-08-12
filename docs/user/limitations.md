@@ -1,10 +1,6 @@
 # Known limitations
 
-This page distinguishes missing product capability from evidence that has not yet been collected in a real deployment.
-
-## Release status
-
-Vinpst has not published `0.1.0` yet. The selected GitHub matrix is source, bundled Linux x86_64 tarball, Arch Linux x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, Fedora 43 x86_64 RPM, openSUSE Leap 16.0 x86_64 RPM, and a Flatpak x86_64 preview; the same release publishes the locked x86_64 Nix closure through the public `fcitx-vinpst` Cachix cache. GitHub release assets use a checked manifest, `SHA256SUMS`, and GitHub/Sigstore provenance attestations; public download links appear only after the final release candidate passes.
+This page describes current product and support boundaries.
 
 ## Desktop and application behavior
 
@@ -53,4 +49,4 @@ The GUI does not expose a platform assistive-technology semantic tree, so screen
 
 ## Compatibility policy
 
-Vinpst uses its own package, executable, addon, D-Bus, service, and XDG identities. It does not migrate or replace another voice-input package. Interfaces created during pre-release development may change before `0.1.0` when doing so improves the product.
+Vinpst uses its own package, executable, addon, D-Bus, service, and XDG identities. It does not migrate or replace another voice-input package. Compatibility commitments apply to published Vinpst releases; schema or interface migrations are introduced explicitly when needed.
