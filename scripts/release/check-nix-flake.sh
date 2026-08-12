@@ -34,24 +34,49 @@ if not isinstance(root_node, dict):
 root_inputs = root_node.get("inputs")
 if not isinstance(root_inputs, dict) or not root_inputs:
     raise SystemExit("flake.lock root must declare inputs")
-for input_name, reference in root_inputs.items():
-    if not isinstance(input_name, str) or not input_name:
-        raise SystemExit("flake.lock root contains an invalid input name")
+
+
+def resolve_reference(reference, resolving):
     if isinstance(reference, str):
         if reference not in nodes:
-            raise SystemExit(f"flake.lock root input {input_name} references a missing node")
-    elif not (
+            raise SystemExit(f"flake.lock references missing node {reference}")
+        return reference
+    if not (
         isinstance(reference, list)
         and reference
         and all(isinstance(part, str) and part for part in reference)
     ):
-        raise SystemExit(f"flake.lock root input {input_name} has an invalid reference")
+        raise SystemExit("flake.lock contains an invalid input reference")
+
+    path = tuple(reference)
+    if path in resolving:
+        raise SystemExit(f"flake.lock contains a cyclic follows path: {'/'.join(path)}")
+    resolving.add(path)
+    current = root_name
+    for part in path:
+        inputs = nodes[current].get("inputs", {})
+        if not isinstance(inputs, dict) or part not in inputs:
+            raise SystemExit(f"flake.lock follows path does not exist: {'/'.join(path)}")
+        current = resolve_reference(inputs[part], resolving)
+    resolving.remove(path)
+    return current
 
 for name, node in nodes.items():
-    if name == root_name:
-        continue
     if not isinstance(node, dict):
         raise SystemExit(f"flake.lock node {name} must be an object")
+    inputs = node.get("inputs", {})
+    if not isinstance(inputs, dict):
+        raise SystemExit(f"flake.lock node {name} inputs must be an object")
+    for input_name, reference in inputs.items():
+        if not isinstance(input_name, str) or not input_name:
+            raise SystemExit(f"flake.lock node {name} contains an invalid input name")
+        try:
+            resolve_reference(reference, set())
+        except SystemExit as error:
+            raise SystemExit(f"flake.lock node {name} input {input_name}: {error}") from None
+
+    if name == root_name:
+        continue
     locked = node.get("locked")
     if not isinstance(locked, dict):
         raise SystemExit(f"flake.lock input {name} is not pinned")
