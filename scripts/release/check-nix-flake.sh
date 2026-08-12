@@ -14,7 +14,10 @@ done
 cd "${repo_root}"
 
 python3 - <<'PY'
+import base64
+import binascii
 import json
+import re
 from pathlib import Path
 
 lock = json.loads(Path("flake.lock").read_text(encoding="utf-8"))
@@ -61,6 +64,18 @@ def resolve_reference(reference, resolving):
     resolving.remove(path)
     return current
 
+
+def validate_nar_hash(name, value):
+    prefix = "sha256-"
+    if not isinstance(value, str) or not value.startswith(prefix):
+        raise SystemExit(f"flake.lock input {name} has an invalid narHash")
+    try:
+        digest = base64.b64decode(value[len(prefix):], validate=True)
+    except (binascii.Error, ValueError):
+        raise SystemExit(f"flake.lock input {name} has an invalid narHash") from None
+    if len(digest) != 32:
+        raise SystemExit(f"flake.lock input {name} has an invalid narHash")
+
 for name, node in nodes.items():
     if not isinstance(node, dict):
         raise SystemExit(f"flake.lock node {name} must be an object")
@@ -80,18 +95,22 @@ for name, node in nodes.items():
     locked = node.get("locked")
     if not isinstance(locked, dict):
         raise SystemExit(f"flake.lock input {name} is not pinned")
-    for field in ("type", "narHash"):
-        value = locked.get(field)
-        if not isinstance(value, str) or not value:
-            raise SystemExit(f"flake.lock input {name} missing {field}")
+    input_type = locked.get("type")
+    if not isinstance(input_type, str) or not input_type:
+        raise SystemExit(f"flake.lock input {name} missing type")
+    validate_nar_hash(name, locked.get("narHash"))
 
-    if locked["type"] == "github":
-        for field in ("owner", "repo", "rev"):
+    if input_type == "github":
+        for field in ("owner", "repo"):
             value = locked.get(field)
             if not isinstance(value, str) or not value:
                 raise SystemExit(f"flake.lock GitHub input {name} missing {field}")
+        revision = locked.get("rev")
+        if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+            raise SystemExit(f"flake.lock GitHub input {name} has an invalid rev")
         original = node.get("original")
-        if isinstance(original, dict) and original.get("ref") in {"main", "master"}:
+        original_ref = original.get("ref") if isinstance(original, dict) else None
+        if isinstance(original_ref, str) and original_ref.lower() in {"main", "master"}:
             raise SystemExit(f"flake.lock GitHub input {name} tracks a default branch")
 PY
 echo "Nix flake metadata check passed"
