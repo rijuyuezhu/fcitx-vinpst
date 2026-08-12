@@ -25,18 +25,20 @@ gh run list --workflow release.yml --branch main --limit 5
 After the run succeeds, download the resulting `checked-release-bundle` and verify it:
 
 ```sh
+version="$(scripts/release/check-release-metadata.sh --print-version)"
+release_dir="./fcitx-vinpst-${version}-release"
 gh run download <run-id> \
   --name checked-release-bundle \
-  --dir ./fcitx-vinpst-0.1.0-release
-scripts/release/release_manifest.py verify ./fcitx-vinpst-0.1.0-release
-cd ./fcitx-vinpst-0.1.0-release
+  --dir "${release_dir}"
+scripts/release/release_manifest.py verify "${release_dir}"
+cd "${release_dir}"
 sha256sum -c SHA256SUMS
 ```
 
 Verify representative assets against the release workflow identity:
 
 ```sh
-gh attestation verify ./fcitx-vinpst-0.1.0.tar.gz \
+gh attestation verify "./fcitx-vinpst-${version}.tar.gz" \
   --repo rijuyuezhu/fcitx-vinpst \
   --signer-workflow rijuyuezhu/fcitx-vinpst/.github/workflows/release.yml
 ```
@@ -50,8 +52,10 @@ Create and push an annotated tag for the reviewed `main` commit:
 ```sh
 git switch main
 git pull --ff-only origin main
-git tag -a v0.1.0 -m "Vinpst 0.1.0"
-git push origin v0.1.0
+version="$(scripts/release/check-release-metadata.sh --print-version)"
+tag="v${version}"
+git tag -a "${tag}" -m "Vinpst ${version}"
+git push origin "${tag}"
 ```
 
 The tag workflow:
@@ -76,14 +80,17 @@ Nix is intentionally published as a binary-cache channel rather than as a `.nix`
 Download a fresh copy from the public GitHub Release and repeat:
 
 ```sh
-mkdir -p ./fcitx-vinpst-0.1.0-public
-gh release download v0.1.0 \
+version="$(scripts/release/check-release-metadata.sh --print-version)"
+tag="v${version}"
+public_dir="./fcitx-vinpst-${version}-public"
+mkdir -p "${public_dir}"
+gh release download "${tag}" \
   --repo rijuyuezhu/fcitx-vinpst \
-  --dir ./fcitx-vinpst-0.1.0-public
-cd ./fcitx-vinpst-0.1.0-public
+  --dir "${public_dir}"
+cd "${public_dir}"
 ../scripts/release/release_manifest.py verify .
 sha256sum -c SHA256SUMS
-gh attestation verify ./fcitx-vinpst-0.1.0.tar.gz \
+gh attestation verify "./fcitx-vinpst-${version}.tar.gz" \
   --repo rijuyuezhu/fcitx-vinpst \
   --signer-workflow rijuyuezhu/fcitx-vinpst/.github/workflows/release.yml
 ```
@@ -106,13 +113,15 @@ Complete normal dictation, selected-text command replacement, restart/reload, on
 Fix the release commit and use a new tag/version when the release contents or code changed. A failed draft can be deleted:
 
 ```sh
-gh release delete v0.1.0 --repo rijuyuezhu/fcitx-vinpst --yes
+version="$(scripts/release/check-release-metadata.sh --print-version)"
+tag="v${version}"
+gh release delete "${tag}" --repo rijuyuezhu/fcitx-vinpst --yes
 ```
 
 Delete the remote tag only when it has never represented a public release and the team has explicitly abandoned that candidate:
 
 ```sh
-git push origin :refs/tags/v0.1.0
+git push origin ":refs/tags/${tag}"
 ```
 
 Do not move a tag to a different commit.
@@ -121,4 +130,4 @@ Do not move a tag to a different commit.
 
 Do not clobber assets, move the tag, or reuse the version. Add a visible warning when immediate mitigation is necessary, then publish a corrected patch release.
 
-For a compromised or unsafe artifact, remove the affected public assets or release only as an emergency containment measure, record what was removed and why, and publish a new version with fresh checksums and attestations. Consumers should be directed to the fixed version rather than to a rewritten `v0.1.0`.
+For a compromised or unsafe artifact, remove the affected public assets or release only as an emergency containment measure, record what was removed and why, and publish a new version with fresh checksums and attestations. Consumers should be directed to the fixed version rather than to a rewritten published tag.

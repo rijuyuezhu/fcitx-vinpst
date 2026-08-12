@@ -18,5 +18,7 @@ else
   cmake_args+=(-DVINPST_FCITX_BRIDGE_ENABLE_FCITX_DEPS=OFF)
 fi
 cmake "${cmake_args[@]}"
+addon_version="$(cargo pkgid -p vinpst-fcitx-ffi --locked | sed 's/^.*#//')"
+grep -Fxq "Version=${addon_version}" "${build_dir}/vinpst-addon.conf"
 ln -sfn "${build_dir}/compile_commands.json" compile_commands.json
 cmake --build "${build_dir}" --parallel

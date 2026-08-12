@@ -13,25 +13,30 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
+release_version="$(scripts/release/check-release-metadata.sh --print-version)"
+source_root="fcitx-vinpst-${release_version}"
 check_root="${repo_root}/target/tmp/source-archive-check"
-archive_one="${check_root}/fcitx-vinpst-0.1.0-one.tar.gz"
-archive_two="${check_root}/fcitx-vinpst-0.1.0-two.tar.gz"
+archive_one="${check_root}/fcitx-vinpst-${release_version}-one.tar.gz"
+archive_two="${check_root}/fcitx-vinpst-${release_version}-two.tar.gz"
 rm -rf "${check_root}"
 mkdir -p "${check_root}"
 
-scripts/release/create-source-archive.sh "${archive_one}" 0.1.0 >/dev/null
-scripts/release/create-source-archive.sh "${archive_two}" 0.1.0 >/dev/null
+scripts/release/create-source-archive.sh "${archive_one}" "${release_version}" >/dev/null
+scripts/release/create-source-archive.sh "${archive_two}" "${release_version}" >/dev/null
 cmp "${archive_one}" "${archive_two}"
 
 tar -tzf "${archive_one}" >"${check_root}/listing"
-grep -Eq '^fcitx-vinpst-0.1.0/(\./)?Cargo.toml$' "${check_root}/listing"
-grep -Eq '^fcitx-vinpst-0.1.0/(\./)?Cargo.lock$' "${check_root}/listing"
-grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/create-source-archive.sh$' \
-  "${check_root}/listing"
-grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/check-release-metadata.sh$' \
-  "${check_root}/listing"
-grep -Eq '^fcitx-vinpst-0.1.0/(\./)?scripts/release/publish-github-release.sh$' \
-  "${check_root}/listing"
+for required_path in \
+  Cargo.toml \
+  Cargo.lock \
+  scripts/release/create-source-archive.sh \
+  scripts/release/check-release-metadata.sh \
+  scripts/release/publish-github-release.sh; do
+  grep -Fqx \
+    -e "${source_root}/${required_path}" \
+    -e "${source_root}/./${required_path}" \
+    "${check_root}/listing"
+done
 if grep -Eq '(^|/)(\.git|target|dist|__pycache__|\.ruff_cache|\.cache)(/|$)' \
   "${check_root}/listing"; then
   echo "source archive includes excluded build or VCS state" >&2
@@ -45,9 +50,9 @@ fi
 extracted_root="${check_root}/extracted"
 extracted_source="$(scripts/release/extract-source-archive.py \
   --archive "${archive_one}" \
-  --version 0.1.0 \
+  --version "${release_version}" \
   --output-root "${extracted_root}")"
-[[ "${extracted_source}" == "${extracted_root}/fcitx-vinpst-0.1.0" ]]
+[[ "${extracted_source}" == "${extracted_root}/${source_root}" ]]
 test -f "${extracted_source}/Cargo.toml"
 test -f "${extracted_source}/Cargo.lock"
 test -x "${extracted_source}/scripts/release/create-source-archive.sh"
@@ -59,7 +64,8 @@ extracted_manifest="${extracted_source}/target/tmp/source-archive-flatpak-manife
 (
   cd "${extracted_source}"
   cargo metadata --no-deps --format-version 1 \
-    | jq -e '.packages[] | select(.name == "vinpst-cli" and .version == "0.1.0")' \
+    | jq -e --arg version "${release_version}" \
+      '.packages[] | select(.name == "vinpst-cli" and .version == $version)' \
       >/dev/null
   scripts/release/check-deb-package.sh >/dev/null
   mkdir -p "$(dirname "${extracted_manifest}")"
@@ -75,7 +81,7 @@ jq -e --arg digest "${source_sha256}" \
 
 if scripts/release/extract-source-archive.py \
   --archive "${archive_one}" \
-  --version 0.1.0 \
+  --version "${release_version}" \
   --output-root "${extracted_root}" \
   >"${check_root}/existing-output.out" 2>&1; then
   echo "source archive extractor replaced an existing destination" >&2
@@ -87,7 +93,7 @@ outside_output="${repo_root}/../fcitx-vinpst-source-extract-outside"
 rm -rf "${outside_output}"
 if scripts/release/extract-source-archive.py \
   --archive "${archive_one}" \
-  --version 0.1.0 \
+  --version "${release_version}" \
   --output-root "${outside_output}" \
   >"${check_root}/outside-output.out" 2>&1; then
   echo "source archive extractor accepted an output outside target or dist" >&2
@@ -99,7 +105,7 @@ grep -q 'output must be under target/ or dist/' "${check_root}/outside-output.ou
 ln -s "${archive_one}" "${check_root}/archive-link.tar.gz"
 if scripts/release/extract-source-archive.py \
   --archive "${check_root}/archive-link.tar.gz" \
-  --version 0.1.0 \
+  --version "${release_version}" \
   --output-root "${check_root}/linked-output" \
   >"${check_root}/archive-link.out" 2>&1; then
   echo "source archive extractor accepted a symbolic-link archive" >&2
@@ -111,7 +117,7 @@ input_symlink="${repo_root}/source-archive-symlink-fixture"
 rm -f "${input_symlink}"
 ln -s README.md "${input_symlink}"
 if scripts/release/create-source-archive.sh \
-  "${check_root}/symlink-input.tar.gz" 0.1.0 \
+  "${check_root}/symlink-input.tar.gz" "${release_version}" \
   >"${check_root}/symlink-input.out" 2>&1; then
   rm -f "${input_symlink}"
   echo "source archive creator accepted an unignored symbolic-link input" >&2
@@ -120,13 +126,14 @@ fi
 rm -f "${input_symlink}"
 grep -q 'input must not be a symbolic link' "${check_root}/symlink-input.out"
 
-python3 - "${check_root}" <<'PY'
+python3 - "${check_root}" "${release_version}" <<'PY'
 import io
 import sys
 import tarfile
 from pathlib import Path
 
 root = Path(sys.argv[1])
+source_root = f"fcitx-vinpst-{sys.argv[2]}"
 
 
 def write_archive(name: str, members: list[tuple[str, bytes | None, str]]) -> None:
@@ -144,16 +151,16 @@ def write_archive(name: str, members: list[tuple[str, bytes | None, str]]) -> No
 
 
 required = [
-    ("fcitx-vinpst-0.1.0/Cargo.toml", b"[workspace]\n", "file"),
-    ("fcitx-vinpst-0.1.0/Cargo.lock", b"", "file"),
+    (f"{source_root}/Cargo.toml", b"[workspace]\n", "file"),
+    (f"{source_root}/Cargo.lock", b"", "file"),
 ]
 write_archive(
     "traversal.tar.gz",
-    required + [("fcitx-vinpst-0.1.0/../../escape", b"bad", "file")],
+    required + [(f"{source_root}/../../escape", b"bad", "file")],
 )
 write_archive(
     "symlink-member.tar.gz",
-    required + [("fcitx-vinpst-0.1.0/link", None, "symlink")],
+    required + [(f"{source_root}/link", None, "symlink")],
 )
 write_archive(
     "wrong-root.tar.gz",
@@ -164,7 +171,7 @@ PY
 for fixture in traversal symlink-member wrong-root; do
   if scripts/release/extract-source-archive.py \
     --archive "${check_root}/${fixture}.tar.gz" \
-    --version 0.1.0 \
+    --version "${release_version}" \
     --output-root "${check_root}/${fixture}-output" \
     >"${check_root}/${fixture}.out" 2>&1; then
     echo "source archive extractor accepted unsafe fixture: ${fixture}" >&2
@@ -173,10 +180,11 @@ for fixture in traversal symlink-member wrong-root; do
 done
 grep -q 'unsafe source archive member path' "${check_root}/traversal.out"
 grep -q 'unsupported source archive member type' "${check_root}/symlink-member.out"
-grep -q 'outside fcitx-vinpst-0.1.0/' "${check_root}/wrong-root.out"
+grep -Fq "outside ${source_root}/" "${check_root}/wrong-root.out"
 
 if scripts/release/create-source-archive.sh \
-  "${repo_root}/README-source.tar.gz" 0.1.0 >"${check_root}/unsafe.out" 2>&1; then
+  "${repo_root}/README-source.tar.gz" "${release_version}" \
+  >"${check_root}/unsafe.out" 2>&1; then
   echo "source archive creator accepted an unsafe output location" >&2
   exit 1
 fi

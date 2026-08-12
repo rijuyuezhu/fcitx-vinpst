@@ -256,12 +256,14 @@ scripts/release/prepare-arch-release-candidate.sh \
 scripts/release/verify-arch-release-candidate.sh \
   "${candidate}" "${public_key}" "${fingerprint}"
 test "$(find "${candidate}" -maxdepth 1 -type f | wc -l)" -eq 14
-jq -e '
+jq -e --arg synthetic_upgrade "${version}-2" '
   (.artifacts | length) == 11 and
   ([.artifacts[].role] | all(test("test"; "i") | not)) and
-  ([.artifacts[].name] | all(test("0.1.0-2|test|synthetic"; "i") | not))
+  ([.artifacts[].name] | all((contains($synthetic_upgrade) or test("test|synthetic"; "i")) | not))
 ' "${candidate}/manifest.json" >/dev/null
 ! find "${candidate}" -maxdepth 1 -type f -printf '%f\n' |
-  grep -Eq '(\.old($|\.)|private|secret|trustdb|revocation|0\.1\.0-2)'
+  grep -Eq '(\.old($|\.)|private|secret|trustdb|revocation)'
+! find "${candidate}" -maxdepth 1 -type f -printf '%f\n' |
+  grep -Fq "${version}-2"
 
 echo "Arch release artifact bundle smoke passed: ${bundle}"

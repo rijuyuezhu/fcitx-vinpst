@@ -1,6 +1,28 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(vinpst_fcitx_bridge VERSION 0.1.0 LANGUAGES CXX)
+get_filename_component(
+  VINPST_REPOSITORY_ROOT
+  "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+  ABSOLUTE
+)
+find_program(CARGO_EXECUTABLE cargo REQUIRED)
+execute_process(
+  COMMAND "${CARGO_EXECUTABLE}" pkgid -p vinpst-fcitx-ffi --locked
+  WORKING_DIRECTORY "${VINPST_REPOSITORY_ROOT}"
+  RESULT_VARIABLE VINPST_PKGID_STATUS
+  OUTPUT_VARIABLE VINPST_FCITX_PACKAGE_ID
+  ERROR_VARIABLE VINPST_PKGID_ERROR
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT VINPST_PKGID_STATUS EQUAL 0)
+  message(FATAL_ERROR "failed to resolve Vinpst package version: ${VINPST_PKGID_ERROR}")
+endif()
+string(REGEX REPLACE "^.*#" "" VINPST_PROJECT_VERSION "${VINPST_FCITX_PACKAGE_ID}")
+if(NOT VINPST_PROJECT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+([+-][0-9A-Za-z.-]+)?$")
+  message(FATAL_ERROR "invalid Vinpst package version: ${VINPST_PROJECT_VERSION}")
+endif()
+
+project(vinpst_fcitx_bridge LANGUAGES CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -24,12 +46,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_program(CARGO_EXECUTABLE cargo REQUIRED)
-get_filename_component(
-  VINPST_REPOSITORY_ROOT
-  "${CMAKE_CURRENT_SOURCE_DIR}/../.."
-  ABSOLUTE
-)
 set(
   VINPST_FCITX_RUST_TARGET_DIR
   "${VINPST_REPOSITORY_ROOT}/target"
