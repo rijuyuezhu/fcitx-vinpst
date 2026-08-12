@@ -1195,15 +1195,8 @@ fn process_command_asr_runner_rejects_missing_final_text_response() {
 }
 
 #[test]
-fn command_asr_response_accepts_failure_alias() {
-    let response: CommandAsrResponse =
-        serde_json::from_str(r#"{"failure":"legacy failed"}"#).unwrap();
-    let events = response.into_events().unwrap();
-    let error = events_to_payload(&events).unwrap_err();
-    assert!(matches!(
-        error,
-        AsrError::Backend(message) if message == "legacy failed"
-    ));
+fn command_asr_response_rejects_unpublished_failure_alias() {
+    assert!(serde_json::from_str::<CommandAsrResponse>(r#"{"failure":"old failure"}"#).is_err());
 }
 
 #[test]

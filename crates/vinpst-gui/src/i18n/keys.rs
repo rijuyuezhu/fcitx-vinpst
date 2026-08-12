@@ -167,7 +167,6 @@ pub(crate) enum GuiText {
     TextAdapter,
     Credential,
     ExtraBodyFields,
-    ExtensionFields,
     WorkingDirectory,
     NotConfigured,
     Configured,
@@ -290,7 +289,7 @@ pub(crate) enum GuiText {
 }
 #[cfg(test)]
 impl GuiText {
-    pub(super) const ALL: [Self; 285] = [
+    pub(super) const ALL: [Self; 284] = [
         Self::ApplicationTitle,
         Self::Control,
         Self::Resources,
@@ -456,7 +455,6 @@ impl GuiText {
         Self::TextAdapter,
         Self::Credential,
         Self::ExtraBodyFields,
-        Self::ExtensionFields,
         Self::WorkingDirectory,
         Self::NotConfigured,
         Self::Configured,

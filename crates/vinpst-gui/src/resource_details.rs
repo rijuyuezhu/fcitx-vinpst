@@ -350,10 +350,6 @@ fn llm_provider_detail(locale: GuiLocale, provider: &LlmProviderConfig) -> Resou
                 .map_or(0, serde_json::Map::len)
                 .to_string(),
         )
-        .field(
-            locale.text(GuiText::ExtensionFields),
-            provider.extra.len().to_string(),
-        )
 }
 
 fn llm_adapter_detail(locale: GuiLocale, adapter: &LlmAdapterConfig) -> ResourceDetail {
@@ -373,10 +369,6 @@ fn llm_adapter_detail(locale: GuiLocale, adapter: &LlmAdapterConfig) -> Resource
         .field(
             locale.text(GuiText::WorkingDirectory),
             configured(locale, adapter.working_dir.is_some()),
-        )
-        .field(
-            locale.text(GuiText::ExtensionFields),
-            adapter.extra.len().to_string(),
         )
 }
 
@@ -540,7 +532,6 @@ mod tests {
             api_key: "api-secret".to_owned(),
             model: Some("fixture-model".to_owned()),
             extra_body: json!({"private": "body-secret"}),
-            extra: HashMap::from([("header".to_owned(), json!("extra-secret"))]),
         };
         let adapter = LlmAdapterConfig {
             id: "adapter".to_owned(),
@@ -548,7 +539,8 @@ mod tests {
             args: vec!["argument-secret".to_owned()],
             env: HashMap::from([("TOKEN".to_owned(), "environment-secret".to_owned())]),
             working_dir: Some("/private/working-secret".to_owned()),
-            extra: HashMap::from([("private".to_owned(), json!("extension-secret"))]),
+            managed_script_sha256: Some("managed-revision".to_owned()),
+            managed_script_rollback_sha256: None,
         };
 
         let provider_detail = llm_provider_detail(GuiLocale::EnUs, &provider);
@@ -556,19 +548,17 @@ mod tests {
         let debug = format!("{provider_detail:?}\n{adapter_detail:?}");
 
         assert!(debug.contains("example.test"));
-        assert_eq!(provider_detail.fields.len(), 5);
-        assert_eq!(adapter_detail.fields.len(), 5);
+        assert_eq!(provider_detail.fields.len(), 4);
+        assert_eq!(adapter_detail.fields.len(), 4);
         for secret in [
             "pass",
             "provider-secret",
             "api-secret",
             "body-secret",
-            "extra-secret",
             "adapter-secret",
             "argument-secret",
             "environment-secret",
             "working-secret",
-            "extension-secret",
         ] {
             assert!(!debug.contains(secret));
         }

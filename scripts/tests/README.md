@@ -6,7 +6,7 @@ reusable semantics instead of growing shell/Python harnesses. The main entry
 points are:
 
 - `check.sh`: complete deterministic gate used by `just check` and `just ci`;
-- `scripts-lint.sh`: shell syntax/ShellCheck, Python Ruff/bytecode checks, and source-layout limits;
+- `scripts-lint.sh`: shell syntax/ShellCheck and Python Ruff/bytecode checks;
 - `lint.sh`: Rust Clippy and retained C++ clang-tidy;
 - `test.sh`: Rust workspace/D-Bus tests and retained-addon CTest suite;
 - `addon-install-smoke.sh`: staged addon, D-Bus, and systemd metadata install;
@@ -24,4 +24,4 @@ Management-GUI interaction is an exception: window/widget/focus/dialog/visual
 acceptance is manual-only, while semantic behavior is tested inside
 `vinpst-gui` below the Iced window/widget boundary.
 
-Production Rust/C++ files are limited to 1200 lines, while fixture-heavy test files have a 3000-line ceiling. These are regression guards against monolithic modules, not targets to fill.
+Repository checks intentionally avoid source-file ownership, exact file-name, line-count, and documentation-wording assertions. Structural refactors should be judged through review plus behavior, ABI, build, and artifact evidence.

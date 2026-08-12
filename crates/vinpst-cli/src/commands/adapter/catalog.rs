@@ -504,7 +504,6 @@ fn adapter_summary_json(adapter: &vinpst_config::LlmAdapterConfig) -> serde_json
         "args_count": adapter.args.len(),
         "env_count": adapter.env.len(),
         "working_dir_configured": adapter.working_dir.as_ref().is_some_and(|value| !value.trim().is_empty()),
-        "extra_field_count": adapter.extra.len(),
     })
 }
 

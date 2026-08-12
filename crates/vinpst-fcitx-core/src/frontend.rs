@@ -728,6 +728,29 @@ mod tests {
     }
 
     #[test]
+    fn recognition_result_wins_over_a_late_stop_failure() {
+        let mut controller = FrontendController::default();
+        assert_eq!(
+            controller.start_normal(Some("polish")),
+            FrontendStep::CallReady
+        );
+        assert_eq!(
+            controller.complete(true, "").kind(),
+            FrontendOutcomeKind::Preedit
+        );
+        assert_eq!(controller.stop("fallback"), FrontendStep::CallReady);
+
+        let result = controller.complete_recognition_result(
+            r#"{"commit_text":"first","candidates":[{"text":"raw","source":"raw"},{"text":"first","source":"llm"},{"text":"second","source":"llm"},{"text":"third","source":"llm"}]}"#,
+        );
+        assert_eq!(result.kind(), FrontendOutcomeKind::CandidateMenu);
+        assert!(controller.pending_call().is_none());
+
+        let late_failure = controller.complete(false, "D-Bus call timed out");
+        assert_eq!(late_failure.kind(), FrontendOutcomeKind::None);
+    }
+
+    #[test]
     fn invalid_and_cancel_payloads_clear_with_captured_mode() {
         let invalid = FrontendOutcome::from_payload("not json", true);
         assert_eq!(invalid.kind(), FrontendOutcomeKind::Clear);

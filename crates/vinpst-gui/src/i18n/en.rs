@@ -239,7 +239,6 @@ const fn english_resources(key: GuiText) -> &'static str {
         GuiText::TextAdapter => "Text adapter",
         GuiText::Credential => "Credential",
         GuiText::ExtraBodyFields => "Extra body fields",
-        GuiText::ExtensionFields => "Extension fields",
         GuiText::WorkingDirectory => "Working directory",
         GuiText::NotConfigured => "not configured",
         GuiText::Configured => "configured",

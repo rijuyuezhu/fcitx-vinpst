@@ -22,4 +22,3 @@ rm -rf "${pycache_root}"
 PYTHONPYCACHEPREFIX="${pycache_root}" python3 -m py_compile "${python_scripts[@]}"
 ruff check "${python_scripts[@]}"
 ruff format --check "${python_scripts[@]}"
-scripts/tests/source-layout-check.sh

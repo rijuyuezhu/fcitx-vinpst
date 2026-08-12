@@ -678,7 +678,6 @@ mod tests {
     use std::{fs, path::Path};
 
     use super::*;
-    use vinpst_config::MANAGED_SCRIPT_REVISION_KEY;
     use vinpst_registry::{LiveScriptEntry, RegistryAssetSource, sha256_hex};
 
     struct FixtureTextSource(&'static str);
@@ -1116,10 +1115,7 @@ mod tests {
             Some("")
         );
         assert_eq!(
-            adapter
-                .extra
-                .get(MANAGED_SCRIPT_REVISION_KEY)
-                .and_then(serde_json::Value::as_str),
+            adapter.managed_script_sha256.as_deref(),
             Some(sha256_hex(b"#!/usr/bin/env python3\nprint('ok')\n").as_str())
         );
     }

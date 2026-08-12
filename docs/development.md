@@ -34,7 +34,7 @@ Keep public facades thin and place use-case logic behind domain modules:
 - the retained Fcitx addon separates recording/daemon integration from Scene/ASR menu implementation; do not move backend policy into C++.
 - `scripts/` is grouped by deterministic tests, release operations, installation, fixtures, opt-in live evidence, and developer tools. Keep shell/Python here short and functional: reusable behavior and semantic test logic belong in Rust crates whenever practical, while `scripts/tests/` is reserved for process/package integration that cannot be expressed cleanly as crate tests. The `justfile` is a thin facade for broad workflows; specialized gates are invoked directly from their documented script paths.
 
-`scripts/tests/source-layout-check.sh` prevents production Rust/C++ files from growing beyond 1200 lines and gives fixture-heavy tests a 3000-line ceiling. Treat the limits as regression guards, not as targets: split earlier when data, orchestration, transport, formatting, or platform integration form distinct reasons to change.
+Source organization is reviewed as design rather than enforced through file-name or line-count gates. Split modules when responsibilities diverge, and use behavior, ABI, build, and artifact checks to prove correctness.
 
 ## Coding rules
 
@@ -80,10 +80,9 @@ The upstream source/callable inventory is generated separately from a clean C++ 
 ```sh
 scripts/tools/generate-upstream-inventory.py \
   --upstream-root /path/to/fcitx5-vinput
-scripts/tests/check-upstream-inventory.py
 ```
 
-The JSON inventory detects source and callable drift. Human review groups those entries by user-visible capability in [`migration/user-capability-audit.md`](migration/user-capability-audit.md); it does not require one Rust function per C++ function.
+The generated JSON is audit evidence, not a per-PR structural gate. The scheduled upstream-drift workflow can regenerate and compare it when the upstream baseline changes; human review groups meaningful deltas by user-visible capability in [`migration/user-capability-audit.md`](migration/user-capability-audit.md).
 
 ### Rust and core behavior
 

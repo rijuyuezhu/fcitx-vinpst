@@ -1,9 +1,6 @@
 //! Supervised command text adapter process lifecycle.
 
-use vinpst_config::{
-    LlmAdapterConfig, MANAGED_SCRIPT_REVISION_KEY, MANAGED_SCRIPT_ROLLBACK_REVISION_KEY,
-    VinpstConfig,
-};
+use vinpst_config::{LlmAdapterConfig, VinpstConfig};
 use vinpst_registry::managed_script_rollback_path;
 use vinpst_text::{
     AdapterProcessSpec, AdapterRuntimePaths, AdapterStopOutcome, StartedAdapterProcess, TextError,
@@ -262,14 +259,8 @@ fn adapter_rollback_spec(
     let Some(next) = next else {
         return spec;
     };
-    let current_revision = current
-        .extra
-        .get(MANAGED_SCRIPT_REVISION_KEY)
-        .and_then(serde_json::Value::as_str);
-    let rollback_revision = next
-        .extra
-        .get(MANAGED_SCRIPT_ROLLBACK_REVISION_KEY)
-        .and_then(serde_json::Value::as_str);
+    let current_revision = current.managed_script_sha256.as_deref();
+    let rollback_revision = next.managed_script_rollback_sha256.as_deref();
     let revision_matches = rollback_revision.is_some()
         && (current_revision.is_none() || rollback_revision == current_revision);
     if revision_matches && current.args.len() == 1 && next.args == current.args {

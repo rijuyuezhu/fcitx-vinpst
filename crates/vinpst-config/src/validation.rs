@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use crate::{
-    AsrConfig, AsrProviderConfig, AsrProviderKind, ConfigError, GlobalConfig, LlmAdapterConfig,
-    LlmConfig, LlmProviderConfig, RegistryConfig, SceneDefinition, ScenesConfig, VadConfig,
-    VinpstConfig,
+    AsrConfig, AsrProviderConfig, AsrProviderKind, COMMAND_SCENE_ID, ConfigError, GlobalConfig,
+    LlmAdapterConfig, LlmConfig, LlmProviderConfig, RAW_SCENE_ID, RegistryConfig, SceneDefinition,
+    ScenesConfig, VadConfig, VinpstConfig,
 };
 
 pub(crate) fn validate_config(config: &VinpstConfig) -> Result<(), ConfigError> {
@@ -49,6 +49,12 @@ fn validate_scenes(scenes: &ScenesConfig, llm: &LlmConfig) -> Result<(), ConfigE
     let mut scene_ids = HashSet::new();
     for scene in &scenes.definitions {
         validate_scene_definition(scene, &mut scene_ids, llm)?;
+    }
+
+    for required in [RAW_SCENE_ID, COMMAND_SCENE_ID] {
+        if !scene_ids.contains(required) {
+            return Err(ConfigError::MissingBuiltinScene(required.to_owned()));
+        }
     }
 
     if !scene_ids.contains(scenes.active_scene.as_str()) {

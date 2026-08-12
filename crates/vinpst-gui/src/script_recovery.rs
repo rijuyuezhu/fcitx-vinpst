@@ -254,10 +254,7 @@ mod tests {
             .find(|adapter| adapter.id == plan.entry.id)
             .expect("recovered adapter");
         assert_eq!(
-            adapter
-                .extra
-                .get(vinpst_config::MANAGED_SCRIPT_REVISION_KEY)
-                .and_then(serde_json::Value::as_str),
+            adapter.managed_script_sha256.as_deref(),
             Some(vinpst_registry::sha256_hex(bytes).as_str())
         );
     }

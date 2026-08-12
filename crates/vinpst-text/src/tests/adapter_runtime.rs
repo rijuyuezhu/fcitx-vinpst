@@ -108,16 +108,19 @@ fn adapter_runtime_paths_build_safe_pid_paths() {
 }
 
 #[test]
-fn adapter_runtime_paths_roundtrip_legacy_pid_files() {
+fn adapter_runtime_paths_reject_pid_only_files() {
     let runtime_dir = unique_runtime_dir("runtime");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    std::fs::write(runtime_dir.join("adapter.demo.pid"), "12345").unwrap();
     let paths = AdapterRuntimePaths::new(&runtime_dir);
 
-    let pid_path = paths.write_pid("adapter.demo", 12345).unwrap();
-    assert_eq!(pid_path, runtime_dir.join("adapter.demo.pid"));
-    assert_eq!(paths.read_pid("adapter.demo").unwrap(), Some(12345));
+    let error = paths.read_pid("adapter.demo").unwrap_err();
+    assert!(matches!(
+        error,
+        TextError::InvalidAdapterPid(message)
+            if message.contains("invalid fingerprinted pid record")
+    ));
     assert!(paths.remove_pid("adapter.demo").unwrap());
-    assert_eq!(paths.read_pid("adapter.demo").unwrap(), None);
-    assert!(!paths.remove_pid("adapter.demo").unwrap());
     std::fs::remove_dir_all(runtime_dir).unwrap();
 }
 
@@ -130,7 +133,7 @@ fn adapter_runtime_paths_reject_malformed_pid_files() {
 
     let error = paths.read_pid("adapter.demo").unwrap_err();
     assert!(
-        matches!(error, TextError::InvalidAdapterPid(message) if message.contains("not-a-pid") || message.contains("invalid digit"))
+        matches!(error, TextError::InvalidAdapterPid(message) if message.contains("invalid fingerprinted pid record"))
     );
     std::fs::remove_dir_all(runtime_dir).unwrap();
 }
@@ -158,7 +161,8 @@ fn adapter_process_spec_copies_typed_config() {
         args: vec!["--serve".to_owned()],
         env: std::collections::HashMap::from([("MODE".to_owned(), "serve".to_owned())]),
         working_dir: Some("/tmp/vinpst-adapter".to_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
 
     assert_eq!(spec.id, "cmd-adapter");
@@ -268,22 +272,20 @@ fn start_adapter_process_rejects_matching_live_fingerprint() {
 }
 
 #[test]
-fn start_adapter_process_rejects_legacy_pid_until_stop_clears_it() {
-    let runtime_dir = unique_runtime_dir("legacy-block");
+fn start_adapter_process_rejects_pid_only_state_until_it_is_explicitly_removed() {
+    let runtime_dir = unique_runtime_dir("pid-only-block");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
     let paths = AdapterRuntimePaths::new(&runtime_dir);
     let spec = sleep_adapter_spec(vec!["-c".to_owned(), "sleep 30".to_owned()]);
-    paths.write_pid("cmd-adapter", 12345).unwrap();
+    std::fs::write(paths.pid_path("cmd-adapter").unwrap(), "12345").unwrap();
 
     let error = start_adapter_process(&spec, &paths).unwrap_err();
     assert!(matches!(
         error,
         TextError::InvalidAdapterPid(message)
-            if message.contains("legacy PID-only record") && message.contains("stop before start")
+            if message.contains("invalid fingerprinted pid record")
     ));
-    assert_eq!(
-        stop_adapter_process("cmd-adapter", &paths).unwrap(),
-        AdapterStopOutcome::NotRunning
-    );
+    assert!(paths.remove_pid("cmd-adapter").unwrap());
     let mut started = start_adapter_process(&spec, &paths).unwrap();
     stop_started_adapter_process(&mut started, &paths).unwrap();
     std::fs::remove_dir_all(runtime_dir).unwrap();
@@ -355,20 +357,39 @@ fn start_adapter_process_reports_immediate_exit_stderr_without_pid_file() {
 #[test]
 fn started_adapter_process_drains_lines_and_flushes_partial_stderr_on_exit() {
     let runtime_dir = unique_runtime_dir("stderr-lines");
+    let release_path = runtime_dir.join("release");
     let paths = AdapterRuntimePaths::new(&runtime_dir);
-    let spec = sleep_adapter_spec(vec![
+    let mut spec = sleep_adapter_spec(vec![
         "-c".to_owned(),
-        "printf ' first \\nsecond\\npartial' >&2; sleep 0.5; exit 0".to_owned(),
+        "printf ' first \\nsecond\\npartial' >&2; while [ ! -e \"$VINPST_TEST_RELEASE\" ]; do sleep 0.01; done"
+            .to_owned(),
     ]);
+    spec.env.insert(
+        "VINPST_TEST_RELEASE".to_owned(),
+        release_path.to_string_lossy().into_owned(),
+    );
     let mut started = start_adapter_process(&spec, &paths).unwrap();
 
-    assert_eq!(
-        started.drain_stderr_lines(false).unwrap(),
-        ["first".to_owned(), "second".to_owned()]
-    );
+    let stderr_deadline = Instant::now() + Duration::from_secs(2);
+    let mut complete_lines = Vec::new();
+    while complete_lines.len() < 2 && Instant::now() < stderr_deadline {
+        complete_lines.extend(started.drain_stderr_lines(false).unwrap());
+        if complete_lines.len() < 2 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    assert_eq!(complete_lines, ["first".to_owned(), "second".to_owned()]);
     assert!(started.try_wait_and_cleanup().unwrap().is_none());
-    std::thread::sleep(Duration::from_millis(400));
-    assert!(started.try_wait_and_cleanup().unwrap().is_some());
+
+    std::fs::write(&release_path, b"release").unwrap();
+    let exit_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if started.try_wait_and_cleanup().unwrap().is_some() {
+            break;
+        }
+        assert!(Instant::now() < exit_deadline, "adapter did not exit");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     assert_eq!(
         started.drain_stderr_lines(true).unwrap(),
         ["partial".to_owned()]
@@ -459,8 +480,9 @@ fn stop_adapter_process_terminates_untracked_fingerprinted_group() {
 }
 
 #[test]
-fn legacy_pid_file_is_removed_without_signaling_reused_pid() {
-    let runtime_dir = unique_runtime_dir("legacy-stale");
+fn pid_only_state_is_rejected_without_signaling_reused_pid() {
+    let runtime_dir = unique_runtime_dir("pid-only-stale");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
     let paths = AdapterRuntimePaths::new(&runtime_dir);
     let mut unrelated = Command::new("sleep")
         .arg("30")
@@ -469,14 +491,21 @@ fn legacy_pid_file_is_removed_without_signaling_reused_pid() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    paths.write_pid("cmd-adapter", unrelated.id()).unwrap();
+    std::fs::write(
+        paths.pid_path("cmd-adapter").unwrap(),
+        unrelated.id().to_string(),
+    )
+    .unwrap();
 
-    assert_eq!(
-        stop_adapter_process("cmd-adapter", &paths).unwrap(),
-        AdapterStopOutcome::NotRunning
-    );
+    let error = stop_adapter_process("cmd-adapter", &paths).unwrap_err();
+    assert!(matches!(
+        error,
+        TextError::InvalidAdapterPid(message)
+            if message.contains("invalid fingerprinted pid record")
+    ));
     assert!(unrelated.try_wait().unwrap().is_none());
-    assert_eq!(paths.read_pid("cmd-adapter").unwrap(), None);
+    assert!(paths.pid_path("cmd-adapter").unwrap().exists());
+    assert!(paths.remove_pid("cmd-adapter").unwrap());
     unrelated.kill().unwrap();
     unrelated.wait().unwrap();
     std::fs::remove_dir_all(runtime_dir).unwrap();

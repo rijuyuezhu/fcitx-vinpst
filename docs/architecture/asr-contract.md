@@ -75,7 +75,7 @@ A helper can also return an ASR-level error without a non-zero process exit:
 {"error":"asr failed"}
 ```
 
-The deprecated `failure` response key is accepted as an alias for `error`. Non-zero exits, invalid JSON, missing final text, timeout, output-read, and output-limit paths are surfaced as backend errors. Overflow diagnostics identify stdout or stderr and the 1 MiB limit without including captured helper output.
+Command ASR JSON response objects use `error` for helper-level failures. The unpublished `failure` key is rejected rather than treated as an alias. Non-zero exits, invalid JSON, missing final text, timeout, output-read, and output-limit paths are surfaced as backend errors. Overflow diagnostics identify stdout or stderr and the 1 MiB limit without including captured helper output.
 
 The repository also ships `scripts/fixtures/command-asr-wav-helper.py` for external ASR CLIs that consume WAV files rather than the raw legacy PCM or vinpst JSON request directly. The helper reads `CommandAsrRequest` JSON from stdin, writes the request PCM as a temporary WAV file, exposes that path as `VINPST_ASR_WAV`, runs the command after `--`, and emits `{"text":...}` from trimmed stdout or `{"error":...}` for helper-level failures. It also exports `VINPST_ASR_PROVIDER_ID`, `VINPST_ASR_MODEL_ID`, `VINPST_ASR_HOTWORDS_FILE`, `VINPST_ASR_SAMPLE_RATE_HZ`, and `VINPST_ASR_CHANNELS` for wrapper scripts. This keeps real command-ASR integration usable with tools such as whisper.cpp or sherpa CLIs without adding a hard runtime dependency.
 

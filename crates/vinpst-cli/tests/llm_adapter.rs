@@ -65,7 +65,13 @@ fn llm_list_json_reports_provider_metadata_without_secrets() {
     assert_eq!(providers[0]["api_key_configured"], true);
     assert_eq!(providers[0]["model"], "gpt-4o-mini");
     assert_eq!(providers[0]["extra_body_configured"], true);
-    assert_eq!(providers[0]["extra_field_count"], 0);
+    assert!(
+        providers[0]
+            .as_object()
+            .expect("provider object")
+            .get("extra_field_count")
+            .is_none()
+    );
     assert_eq!(providers[1]["id"], "local");
     assert_eq!(providers[1]["api_key_configured"], false);
 }
@@ -527,12 +533,12 @@ fn llm_remove_in_place_writes_backup() {
 }
 
 #[test]
-fn llm_remove_clears_scene_binding_and_preserves_unknown_fields() {
+fn llm_remove_clears_scene_binding_and_preserves_current_scene_fields() {
     let root = unique_temp_dir("vinpst-llm-remove-scene-binding");
     let config_path = root.join("config.json");
     let mut config: serde_json::Value = serde_json::from_str(llm_fixture_json()).unwrap();
     config["scenes"]["definitions"][0]["model"] = serde_json::json!("scene-model");
-    config["scenes"]["definitions"][0]["future_field"] = serde_json::json!({"keep": true});
+    config["scenes"]["definitions"][0]["context_lines"] = serde_json::json!(2);
     fs::write(
         &config_path,
         serde_json::to_vec_pretty(&config).expect("serialize scene-bound config"),
@@ -554,7 +560,9 @@ fn llm_remove_clears_scene_binding_and_preserves_unknown_fields() {
         .expect("scene object");
     assert!(scene.get("provider_id").is_none());
     assert!(scene.get("model").is_none());
-    assert_eq!(scene["future_field"], serde_json::json!({"keep": true}));
+    assert_eq!(scene["context_lines"], serde_json::json!(2));
+    assert_eq!(scene["label"], serde_json::json!("Raw"));
+    assert_eq!(scene["candidate_count"], serde_json::json!(0));
     assert!(
         updated["llm"]["providers"]
             .as_array()
@@ -2138,8 +2146,11 @@ fn managed_adapter_config_fixture_json(script_path: &std::path::Path) -> String 
             }]
         },
         "scenes": {
-            "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "active_scene": "__raw__",
+            "definitions": [
+                {"id":"__raw__","label":"Raw","candidate_count":0},
+                {"id":"__command__","label":"Command","candidate_count":1}
+            ]
         }
     }))
     .expect("serialize managed adapter config fixture")
@@ -2165,8 +2176,11 @@ fn live_adapter_config_fixture_json() -> &'static str {
         ]
       },
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#
@@ -2182,8 +2196,11 @@ fn empty_adapter_config_fixture_json() -> &'static str {
       },
       "llm": {"providers": [], "adapters": []},
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#
@@ -2208,8 +2225,11 @@ fn user_defined_adapter_config_fixture_json() -> &'static str {
         ]
       },
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#
@@ -2316,8 +2336,11 @@ fn llm_fixture_json() -> &'static str {
         ]
       },
       "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id":"raw","label":"Raw","provider_id":"openai","candidate_count":0}]
+        "active_scene": "__raw__",
+        "definitions": [
+          {"id":"__raw__","label":"Raw","provider_id":"openai","candidate_count":0},
+          {"id":"__command__","label":"Command","candidate_count":1}
+        ]
       }
     }
     "#

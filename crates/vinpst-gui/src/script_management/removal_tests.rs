@@ -166,7 +166,8 @@ fn user_defined_adapter_removal_is_rejected_without_mutation() {
         args: vec!["/tmp/user-adapter.py".to_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let document = ConfigDocument {
         path: directory.path().join("config.json"),

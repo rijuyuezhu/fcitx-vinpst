@@ -32,6 +32,16 @@
     "active_scene": "demo-postprocess",
     "definitions": [
       {
+        "id": "__raw__",
+        "label": "__label_raw__",
+        "candidate_count": 0
+      },
+      {
+        "id": "__command__",
+        "label": "__label_command__",
+        "candidate_count": 1
+      },
+      {
         "id": "demo-postprocess",
         "label": "Demo postprocess",
         "prompt": "Postprocess the ASR result for the demo.",

@@ -103,7 +103,7 @@ fn config_validate_prints_summary_for_valid_config() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -130,8 +130,7 @@ fn config_validate_rejects_future_schema_without_output() {
     let path = write_temp_config(
         r#"
         {
-          "version": 2,
-          "future_state": {"sentinel": "preserve-user-config"}
+          "version": 2
         }
         "#,
     );
@@ -148,7 +147,7 @@ fn config_validate_rejects_future_schema_without_output() {
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).expect("future-schema stderr is UTF-8");
     assert!(stderr.contains("unsupported config schema version 2"));
-    assert!(stderr.contains("supports up to 1"));
+    assert!(stderr.contains("requires version 1"));
 }
 
 #[test]
@@ -176,21 +175,19 @@ fn config_validate_summary_omits_sensitive_config_details() {
               "base_url":"https://llm-leak-marker.example.invalid/v1",
               "api_key":"llm-key-leak-marker",
               "model":"llm-model-leak-marker",
-              "extra_body":{"trace":"llm-extra-leak-marker"},
-              "future_field":"provider-extra-leak-marker"
+              "extra_body":{"trace":"llm-extra-leak-marker"}
             }],
             "adapters": [{
               "id":"adapter",
               "command":"vinpst-text-helper",
               "args":["--flag", "adapter-arg-leak-marker"],
               "env":{"ADAPTER_KEY":"adapter-env-leak-marker"},
-              "working_dir":"/tmp/adapter-workdir-leak-marker",
-              "adapter_field":"adapter-extra-leak-marker"
+              "working_dir":"/tmp/adapter-workdir-leak-marker"
             }]
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -270,7 +267,7 @@ fn config_validate_accepts_object_llm_provider_extra_body() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -299,6 +296,8 @@ fn config_validate_fails_for_duplicate_scene_ids() {
           "scenes": {
             "active_scene": "raw",
             "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1},
               {"id":"raw","label":"Raw","candidate_count":0},
               {"id":"raw","label":"Raw again","candidate_count":0}
             ]
@@ -332,7 +331,7 @@ fn config_validate_fails_for_empty_registry_mirror() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -365,7 +364,7 @@ fn config_validate_fails_for_duplicate_provider_ids() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -395,7 +394,7 @@ fn config_validate_fails_for_unknown_active_provider() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -425,7 +424,7 @@ fn config_validate_fails_for_unknown_active_scene() {
           },
           "scenes": {
             "active_scene": "missing",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -462,7 +461,7 @@ fn config_validate_fails_for_invalid_vad_values() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -495,7 +494,7 @@ fn config_validate_fails_for_duplicate_registry_mirrors() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -525,7 +524,7 @@ fn config_validate_summary_only_matches_summary_shape() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -557,7 +556,7 @@ fn config_validate_fails_for_empty_provider_ids() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -578,7 +577,7 @@ fn config_validate_fails_for_empty_provider_ids() {
 #[test]
 fn config_validate_fails_for_empty_capture_device() {
     let path = write_temp_config(
-        r#"{"version":1,"global":{"capture_device":"   "},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+        r#"{"version":1,"global":{"capture_device":"   "},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
     );
 
     let output = vinpst_command()
@@ -596,7 +595,7 @@ fn config_validate_fails_for_empty_capture_device() {
 #[test]
 fn config_validate_fails_for_whitespace_active_provider() {
     let path = write_temp_config(
-        r#"{"version":1,"asr":{"active_provider":"   ","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+        r#"{"version":1,"asr":{"active_provider":"   ","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
     );
 
     let output = vinpst_command()
@@ -614,7 +613,7 @@ fn config_validate_fails_for_whitespace_active_provider() {
 #[test]
 fn config_validate_fails_for_empty_default_language() {
     let path = write_temp_config(
-        r#"{"version":1,"global":{"default_language":"   "},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
+        r#"{"version":1,"global":{"default_language":"   "},"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]}}"#,
     );
 
     let output = vinpst_command()
@@ -632,7 +631,7 @@ fn config_validate_fails_for_empty_default_language() {
 #[test]
 fn config_validate_fails_for_empty_scene_ids() {
     let path = write_temp_config(
-        r#"{"version":1,"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"","definitions":[{"id":"   ","label":"Raw","candidate_count":0}]}}"#,
+        r#"{"version":1,"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"   ","label":"Raw","candidate_count":0}]}}"#,
     );
 
     let output = vinpst_command()
@@ -650,7 +649,7 @@ fn config_validate_fails_for_empty_scene_ids() {
 #[test]
 fn config_validate_fails_for_empty_scene_labels() {
     let path = write_temp_config(
-        r#"{"version":1,"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"raw","label":"   ","candidate_count":0}]}}"#,
+        r#"{"version":1,"asr":{"active_provider":"p","providers":[{"id":"p","type":"local"}]},"scenes":{"active_scene":"raw","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"   ","candidate_count":0}]}}"#,
     );
 
     let output = vinpst_command()
@@ -677,7 +676,7 @@ fn config_validate_fails_for_too_many_candidates() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":33}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":33}]
           }
         }
         "#,
@@ -707,7 +706,7 @@ fn config_validate_fails_for_too_many_context_lines() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0,"context_lines":33}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0,"context_lines":33}]
           }
         }
         "#,
@@ -737,7 +736,7 @@ fn config_validate_fails_for_zero_scene_timeout() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0,"timeout_ms":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0,"timeout_ms":0}]
           }
         }
         "#,
@@ -767,7 +766,7 @@ fn config_validate_fails_for_empty_scene_model() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0,"model":"   "}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0,"model":"   "}]
           }
         }
         "#,
@@ -797,7 +796,7 @@ fn config_validate_fails_for_empty_scene_prompt() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0,"prompt":"   "}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0,"prompt":"   "}]
           }
         }
         "#,
@@ -833,7 +832,7 @@ fn config_validate_fails_for_duplicate_llm_adapter_ids() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -865,7 +864,7 @@ fn config_validate_fails_for_empty_llm_adapter_id() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -897,7 +896,7 @@ fn config_validate_fails_for_empty_llm_adapter_env_key() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -930,7 +929,7 @@ fn config_validate_fails_for_empty_llm_adapter_command() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -962,7 +961,7 @@ fn config_validate_fails_for_empty_llm_adapter_working_dir() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -988,7 +987,7 @@ fn config_validate_fails_for_empty_llm_provider_id() {
           "version": 1,
           "asr": {"active_provider":"p","providers":[{"id":"p","type":"local"}]},
           "llm": {"providers":[{"id":"   ","base_url":"https://example.invalid/v1"}]},
-          "scenes": {"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}
+          "scenes": {"active_scene":"raw","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]}
         }
         "#,
     );
@@ -1018,7 +1017,7 @@ fn config_validate_fails_for_duplicate_llm_provider_ids() {
               {"id":"llm","base_url":"https://example.invalid/v1"}
             ]
           },
-          "scenes": {"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}
+          "scenes": {"active_scene":"raw","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]}
         }
         "#,
     );
@@ -1043,7 +1042,7 @@ fn config_validate_fails_for_empty_llm_provider_base_url() {
           "version": 1,
           "asr": {"active_provider":"p","providers":[{"id":"p","type":"local"}]},
           "llm": {"providers":[{"id":"llm","base_url":"   "}]},
-          "scenes": {"active_scene":"raw","definitions":[{"id":"raw","label":"Raw","candidate_count":0}]}
+          "scenes": {"active_scene":"raw","definitions":[{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]}
         }
         "#,
     );
@@ -1074,7 +1073,7 @@ fn config_validate_fails_for_empty_llm_provider_model() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1107,7 +1106,7 @@ fn config_validate_fails_for_non_object_llm_provider_extra_body() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1141,6 +1140,8 @@ fn config_validate_fails_for_unknown_scene_provider() {
           "scenes": {
             "active_scene": "rewrite",
             "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1},
               {"id":"raw","label":"Raw","candidate_count":0},
               {"id":"rewrite","label":"Rewrite","provider_id":"missing","candidate_count":1}
             ]
@@ -1195,7 +1196,7 @@ fn asr_state_reports_unselected_provider() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1228,7 +1229,7 @@ fn asr_state_reports_mock_provider_ready() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1261,7 +1262,7 @@ fn asr_state_reports_unavailable_provider() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1298,7 +1299,7 @@ fn asr_state_reports_remote_provider_endpoint() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1333,7 +1334,7 @@ fn asr_state_reports_command_provider_skeleton_ready() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1368,7 +1369,7 @@ fn config_validate_fails_for_empty_asr_provider_model() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1397,7 +1398,7 @@ fn config_validate_accepts_positive_asr_provider_timeout() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1427,7 +1428,7 @@ fn config_validate_fails_for_empty_asr_provider_hotwords_file() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1456,7 +1457,7 @@ fn config_validate_fails_for_empty_asr_provider_command() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1486,7 +1487,7 @@ fn config_validate_fails_for_empty_asr_provider_endpoint() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1516,7 +1517,7 @@ fn config_validate_fails_for_empty_asr_provider_env_key() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1545,7 +1546,7 @@ fn config_validate_fails_for_zero_asr_provider_timeout() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1580,7 +1581,7 @@ fn config_validate_accepts_command_asr_provider() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1608,7 +1609,7 @@ fn config_validate_fails_for_command_provider_without_command() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,
@@ -1652,7 +1653,7 @@ fn config_validate_fails_for_remote_provider_without_endpoint() {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1},{"id":"raw","label":"Raw","candidate_count":0}]
           }
         }
         "#,

@@ -94,17 +94,26 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
   auto &session = menu.session;
   const auto projection = menu.projection;
   const auto open = session.is_open();
-  if (!open.has_value() || !*open || input_context == nullptr || !projection) {
+  if (!open.has_value() || !*open || input_context == nullptr) {
     return false;
   }
-  const auto item_count = projection->size();
-  if (!item_count.has_value()) {
-    hide_menu();
-    return false;
+
+  std::size_t item_count = 0;
+  std::shared_ptr<fcitx::CandidateList> candidate_list;
+  fcitx::CursorMovableCandidateList *cursor = nullptr;
+  int current_selection = -1;
+  if (projection) {
+    const auto projection_size = projection->size();
+    if (!projection_size.has_value()) {
+      hide_menu();
+      return false;
+    }
+    item_count = *projection_size;
+    candidate_list = input_context->inputPanel().candidateList();
+    cursor = candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
+    current_selection = CurrentMenuSelectionIndex(candidate_list.get());
   }
-  auto candidate_list = input_context->inputPanel().candidateList();
-  auto *cursor =
-      candidate_list != nullptr ? candidate_list->toCursorMovable() : nullptr;
+
   const auto filter_active = session.active();
   if (!filter_active.has_value()) {
     hide_menu();
@@ -115,7 +124,7 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
                       settings.page_next_keys);
   const auto decision =
       session.HandleKey(event.isRelease(), semantic_key, cursor != nullptr,
-                        CurrentMenuSelectionIndex(candidate_list.get()), *item_count);
+                        current_selection, item_count);
   if (!decision.has_value()) {
     hide_menu();
     return false;
@@ -135,6 +144,10 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
     event.filterAndAccept();
     return true;
   case MenuKeyAction::Rebuild:
+    if (!projection) {
+      event.filterAndAccept();
+      return true;
+    }
     if (decision->value < std::numeric_limits<int>::min() ||
         decision->value > std::numeric_limits<int>::max()) {
       hide_menu();
@@ -158,8 +171,8 @@ bool HandleProjectedMenuKeyEvent(fcitx::KeyEvent &event, bool trigger_key,
     cursor->nextCandidate();
     break;
   case MenuKeyAction::Select:
-    if (decision->value < 0 ||
-        static_cast<std::uint64_t>(decision->value) >= *item_count) {
+    if (!projection || decision->value < 0 ||
+        static_cast<std::uint64_t>(decision->value) >= item_count) {
       hide_menu();
       event.filterAndAccept();
       return true;
@@ -372,9 +385,6 @@ void FcitxVinpstAddon::ShowSceneMenu(fcitx::InputContext *ic) {
   HideAsrMenu();
   scene_menu_.input_context = ic;
   scene_menu_.session.Open();
-  if (scene_menu_controller_.Project(scene_menu_.session)) {
-    RebuildSceneMenu();
-  }
   RequestSceneMenuStateRefresh(ic);
 }
 
@@ -409,12 +419,10 @@ void FcitxVinpstAddon::RequestSceneMenuStateRefresh(fcitx::InputContext *ic) {
     return;
   }
   const auto seq = ++scene_menu_refresh_seq_;
-  const bool had_cached_projection = scene_menu_.projection != nullptr;
   auto ic_ref = ic->watch();
   std::weak_ptr<bool> lifetime = menu_refresh_lifetime_;
   auto dispatcher = menu_refresh_dispatcher_;
-  std::thread([this, seq, had_cached_projection, ic_ref = std::move(ic_ref), lifetime,
-               dispatcher]() mutable {
+  std::thread([this, seq, ic_ref = std::move(ic_ref), lifetime, dispatcher]() mutable {
     auto refreshed = std::make_shared<SceneMenuController>();
     std::string error;
     auto client = SdBusDaemonClient::ConnectSession(&error);
@@ -423,16 +431,16 @@ void FcitxVinpstAddon::RequestSceneMenuStateRefresh(fcitx::InputContext *ic) {
     if (lifetime.expired()) {
       return;
     }
-    dispatcher->schedule([this, seq, had_cached_projection, ic_ref = std::move(ic_ref),
-                          lifetime, refreshed = std::move(refreshed),
-                          error = std::move(error), ok]() mutable {
+    dispatcher->schedule([this, seq, ic_ref = std::move(ic_ref), lifetime,
+                          refreshed = std::move(refreshed), error = std::move(error),
+                          ok]() mutable {
       if (lifetime.expired() || scene_menu_refresh_seq_.load() != seq ||
           !ic_ref.isValid()) {
         return;
       }
       if (!ok) {
         NoteDaemonSyncFailure();
-        if (scene_menu_.input_context == ic_ref.get() && !had_cached_projection) {
+        if (scene_menu_.input_context == ic_ref.get()) {
           HideSceneMenu();
           ApplyDaemonUnavailable(ic_ref.get(), std::move(error));
         }
@@ -469,19 +477,6 @@ void FcitxVinpstAddon::ShowAsrMenu(fcitx::InputContext *ic) {
   HideSceneMenu();
   asr_menu_.input_context = ic;
   asr_menu_.session.Open();
-  const auto local = FrontendText("Local");
-  const auto remote = FrontendText("Remote");
-  const auto command = FrontendText("Command");
-  const auto loading_suffix = FrontendText(" (loading)");
-  const auto unavailable = FrontendText("unavailable");
-  const auto loading_prefix = FrontendText("Loading: ");
-  const auto error_prefix = FrontendText("Error: ");
-  const AsrMenuLocalization localization{local,          remote,      command,
-                                         loading_suffix, unavailable, loading_prefix,
-                                         error_prefix};
-  if (asr_menu_controller_.Project(asr_menu_.session, localization)) {
-    RebuildAsrMenu();
-  }
   RequestAsrMenuStateRefresh(ic);
 }
 
@@ -512,12 +507,10 @@ void FcitxVinpstAddon::RequestAsrMenuStateRefresh(fcitx::InputContext *ic) {
     return;
   }
   const auto seq = ++asr_menu_refresh_seq_;
-  const bool had_cached_projection = asr_menu_.projection != nullptr;
   auto ic_ref = ic->watch();
   std::weak_ptr<bool> lifetime = menu_refresh_lifetime_;
   auto dispatcher = menu_refresh_dispatcher_;
-  std::thread([this, seq, had_cached_projection, ic_ref = std::move(ic_ref), lifetime,
-               dispatcher]() mutable {
+  std::thread([this, seq, ic_ref = std::move(ic_ref), lifetime, dispatcher]() mutable {
     auto refreshed = std::make_shared<AsrMenuController>();
     std::string error;
     auto client = SdBusDaemonClient::ConnectSession(&error);
@@ -526,16 +519,16 @@ void FcitxVinpstAddon::RequestAsrMenuStateRefresh(fcitx::InputContext *ic) {
     if (lifetime.expired()) {
       return;
     }
-    dispatcher->schedule([this, seq, had_cached_projection, ic_ref = std::move(ic_ref),
-                          lifetime, refreshed = std::move(refreshed),
-                          error = std::move(error), ok]() mutable {
+    dispatcher->schedule([this, seq, ic_ref = std::move(ic_ref), lifetime,
+                          refreshed = std::move(refreshed), error = std::move(error),
+                          ok]() mutable {
       if (lifetime.expired() || asr_menu_refresh_seq_.load() != seq ||
           !ic_ref.isValid()) {
         return;
       }
       if (!ok) {
         NoteDaemonSyncFailure();
-        if (asr_menu_.input_context == ic_ref.get() && !had_cached_projection) {
+        if (asr_menu_.input_context == ic_ref.get()) {
           HideAsrMenu();
           ApplyDaemonUnavailable(ic_ref.get(), std::move(error));
         }

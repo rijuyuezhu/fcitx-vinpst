@@ -1,6 +1,6 @@
 //! Typed configuration contract for Vinpst.
 //!
-//! This crate owns schema parsing, compatibility normalization, validation,
+//! This crate owns schema parsing, field defaults, strict validation,
 //! secret-safe diagnostics, user-path resolution, and atomic persistence so
 //! CLI, daemon, and GUI callers share one configuration boundary.
 
@@ -24,6 +24,6 @@ pub use persistence::{
 pub use schema::{
     AsrConfig, AsrProviderConfig, AsrProviderKind, COMMAND_SCENE_ID, CURRENT_CONFIG_VERSION,
     DEFAULT_SCENE_TIMEOUT_MS, GlobalConfig, LlmAdapterConfig, LlmConfig, LlmProviderConfig,
-    MANAGED_SCRIPT_REVISION_KEY, MANAGED_SCRIPT_ROLLBACK_REVISION_KEY, RAW_SCENE_ID,
-    RegistryConfig, SceneDefinition, ScenesConfig, VadConfig, VinpstConfig, VinpstConfigSummary,
+    RAW_SCENE_ID, RegistryConfig, SceneDefinition, ScenesConfig, VadConfig, VinpstConfig,
+    VinpstConfigSummary,
 };

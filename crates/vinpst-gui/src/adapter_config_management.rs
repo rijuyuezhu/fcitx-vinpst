@@ -237,7 +237,8 @@ impl AdapterConfigEditorState {
             args: Vec::new(),
             env: HashMap::new(),
             working_dir: None,
-            extra: HashMap::new(),
+            managed_script_sha256: None,
+            managed_script_rollback_sha256: None,
         });
         id.clone_into(&mut adapter.id);
         command.clone_into(&mut adapter.command);
@@ -658,8 +659,6 @@ fn optional_trimmed(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     fn adapter() -> LlmAdapterConfig {
@@ -669,12 +668,13 @@ mod tests {
             args: vec!["--json".to_owned()],
             env: HashMap::from([("TOKEN".to_owned(), "secret".to_owned())]),
             working_dir: Some("/srv/adapter".to_owned()),
-            extra: HashMap::from([("future".to_owned(), json!({"enabled": true}))]),
+            managed_script_sha256: Some("current-revision".to_owned()),
+            managed_script_rollback_sha256: Some("rollback-revision".to_owned()),
         }
     }
 
     #[test]
-    fn editor_preserves_identity_and_extra_while_updating_typed_fields() {
+    fn editor_preserves_identity_and_managed_revisions_while_updating_typed_fields() {
         let original = adapter();
         let mut editor = AdapterConfigEditorState::edit(&original);
         editor.update(
@@ -696,7 +696,14 @@ mod tests {
 
         let updated = editor.adapter().expect("adapter should validate");
         assert_eq!(updated.id, original.id);
-        assert_eq!(updated.extra, original.extra);
+        assert_eq!(
+            updated.managed_script_sha256,
+            original.managed_script_sha256
+        );
+        assert_eq!(
+            updated.managed_script_rollback_sha256,
+            original.managed_script_rollback_sha256
+        );
         assert_eq!(updated.command, "/opt/adapter");
         assert_eq!(updated.args, ["--stream", "--lang=en"]);
         assert_eq!(
@@ -776,7 +783,8 @@ mod tests {
             .expect("custom adapter should be added");
         assert_eq!(added.command, "/opt/custom-adapter");
         assert_eq!(added.args, ["--json"]);
-        assert!(added.extra.is_empty());
+        assert!(added.managed_script_sha256.is_none());
+        assert!(added.managed_script_rollback_sha256.is_none());
 
         assert!(upsert_adapter_config(&updated, &editor).is_err());
     }

@@ -264,7 +264,7 @@ fn configured_command_runtime() -> anyhow::Result<RuntimeState> {
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -458,7 +458,7 @@ fn configured_command_text_runtime() -> anyhow::Result<RuntimeState> {
           },
           "scenes": {
             "active_scene": "needs-adapter",
-            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1}]
+            "definitions": [{"id":"needs-adapter","label":"Needs adapter","prompt":"polish","candidate_count":1},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1357,7 +1357,6 @@ async fn configured_llm_scene_emits_postprocessing_status() -> anyhow::Result<()
         api_key: "test-key".to_owned(),
         model: Some("test-model".to_owned()),
         extra_body: serde_json::json!({}),
-        extra: std::collections::HashMap::new(),
     });
     config.scenes.active_scene = "bus-postprocess".to_owned();
     config
@@ -1716,7 +1715,7 @@ async fn configured_adapter_supervision_roundtrips_through_session_bus() -> anyh
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1787,7 +1786,7 @@ async fn immediate_adapter_exit_returns_stderr_without_publishing_pid() -> anyho
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1836,7 +1835,7 @@ async fn adapter_stderr_is_emitted_as_raw_daemon_notification() -> anyhow::Resul
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,
@@ -1903,7 +1902,7 @@ async fn exited_adapter_is_reaped_from_dbus_diagnostics() -> anyhow::Result<()> 
           },
           "scenes": {
             "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "definitions": [{"id":"raw","label":"Raw","candidate_count":0},{"id":"__raw__","label":"Raw","candidate_count":0},{"id":"__command__","label":"Command","candidate_count":1}]
           }
         }
         "#,

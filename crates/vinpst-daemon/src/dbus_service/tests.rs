@@ -110,8 +110,11 @@ fn remote_lifecycle_config(port: u16) -> VinpstConfig {
                 }]
             },
             "scenes":{
-                "active_scene":"raw",
-                "definitions":[{"id":"raw","label":"Raw","candidate_count":0}]
+                "active_scene":"__raw__",
+                "definitions":[
+                    {"id":"__raw__","label":"Raw","candidate_count":0},
+                    {"id":"__command__","label":"Command","candidate_count":1}
+                ]
             }
         }))
         .expect("serialize remote lifecycle config"),
@@ -504,7 +507,7 @@ async fn dbus_facade_exercises_timeout_mock_flow() {
             prompt: None,
             provider_id: None,
             model: None,
-            candidate_count: 0,
+            candidate_count: 1,
             timeout_ms: Some(2500),
             context_lines: 0,
         });
@@ -617,7 +620,8 @@ async fn dbus_facade_uses_configured_text_adapter() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let service = VinpstDbusService::new(RuntimeState::with_configured_backends(config).unwrap());
 
@@ -713,7 +717,8 @@ async fn dbus_facade_supervises_configured_adapter() {
         args: vec!["30".to_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let runtime = RuntimeState::new(config)
         .unwrap()
@@ -762,7 +767,8 @@ async fn dbus_facade_reload_stops_adapter_removed_from_config_file() {
         args: vec!["30".to_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
     let mut runtime = RuntimeState::new(config.clone())
@@ -816,10 +822,8 @@ async fn dbus_facade_reload_restarts_adapter_when_managed_revision_changes() {
         args: vec!["30".to_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::from([(
-            "x-vinpst-managed-script-sha256".to_owned(),
-            serde_json::json!("revision-1"),
-        )]),
+        managed_script_sha256: Some("revision-1".to_owned()),
+        managed_script_rollback_sha256: None,
     });
     std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
     let mut runtime = RuntimeState::new(config.clone())
@@ -834,10 +838,7 @@ async fn dbus_facade_reload_restarts_adapter_when_managed_revision_changes() {
         .unwrap()
         .expect("old adapter pid");
 
-    config.llm.adapters[0].extra.insert(
-        "x-vinpst-managed-script-sha256".to_owned(),
-        serde_json::json!("revision-2"),
-    );
+    config.llm.adapters[0].managed_script_sha256 = Some("revision-2".to_owned());
     config.validate().unwrap();
     std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
     service.reload_asr_backend().await.unwrap();
@@ -863,7 +864,8 @@ async fn dbus_facade_returns_text_adapter_state_json() {
         args: vec!["--json".to_owned()],
         env: std::collections::HashMap::from([("TOKEN".to_owned(), "secret".to_owned())]),
         working_dir: Some("/tmp/adapter-work".to_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let service = VinpstDbusService::new(RuntimeState::new(config).unwrap());
     let state_json = service.get_text_adapter_state().await.unwrap();

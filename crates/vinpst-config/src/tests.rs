@@ -4,7 +4,7 @@ use crate::{
 use vinpst_protocol::CandidateSource;
 
 #[test]
-fn config_file_parses_and_normalizes() {
+fn config_file_parses_current_schema_without_repair() {
     let path = std::env::temp_dir().join(format!(
         "vinpst-config-test-{}-file.json",
         std::process::id()
@@ -18,8 +18,11 @@ fn config_file_parses_and_normalizes() {
             "providers": [{"id":"p","type":"local"}]
           },
           "scenes": {
-            "active_scene": "raw",
-            "definitions": [{"id":"raw","label":"Raw","candidate_count":0}]
+            "active_scene": "__raw__",
+            "definitions": [
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
+            ]
           }
         }"#,
     )
@@ -62,8 +65,37 @@ fn parser_requires_explicit_schema_version() {
 }
 
 #[test]
-fn normalization_promotes_legacy_zero_version_to_one() {
-    let config = VinpstConfig::from_json_str(
+fn parser_rejects_unknown_config_and_provider_fields() {
+    assert!(
+        VinpstConfig::from_json_str(
+            r#"{
+              "version": 1,
+              "unexpected": true
+            }"#,
+        )
+        .is_err()
+    );
+
+    assert!(
+        VinpstConfig::from_json_str(
+            r#"{
+              "version": 1,
+              "llm": {
+                "providers": [{
+                  "id": "openai",
+                  "base_url": "https://example.invalid/v1",
+                  "future_field": "must be rejected"
+                }]
+              }
+            }"#,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn parser_rejects_zero_schema_version() {
+    let error = VinpstConfig::from_json_str(
         r#"{
           "version": 0,
           "asr": {
@@ -72,18 +104,23 @@ fn normalization_promotes_legacy_zero_version_to_one() {
           }
         }"#,
     )
-    .unwrap();
+    .unwrap_err();
 
-    config.validate().unwrap();
-    assert_eq!(config.version, 1);
-    assert_eq!(config.scenes.active_scene, RAW_SCENE_ID);
+    assert!(matches!(
+        error,
+        crate::ConfigError::UnsupportedSchemaVersion {
+            found: 0,
+            supported: crate::CURRENT_CONFIG_VERSION
+        }
+    ));
 }
 
 #[test]
-fn parser_rejects_future_schema_versions() {
+fn parser_rejects_future_schema_versions_before_strict_field_validation() {
     let error = VinpstConfig::from_json_str(
         r#"{
           "version": 2,
+          "future_top_level": {"new_schema_field": true},
           "asr": {
             "active_provider": "p",
             "providers": [{"id":"p","type":"local"}]
@@ -116,7 +153,7 @@ fn validation_rejects_manually_constructed_future_schema_versions() {
 }
 
 #[test]
-fn normalization_inserts_legacy_builtin_scenes_for_minimal_configs() {
+fn validation_rejects_missing_builtin_scenes_instead_of_repairing_them() {
     let config = VinpstConfig::from_json_str(
         r#"{
           "version": 1,
@@ -128,139 +165,68 @@ fn normalization_inserts_legacy_builtin_scenes_for_minimal_configs() {
     )
     .unwrap();
 
-    config.validate().unwrap();
-    assert_eq!(config.scenes.active_scene, RAW_SCENE_ID);
-    let raw = config
-        .scenes
-        .definitions
-        .iter()
-        .find(|scene| scene.id == RAW_SCENE_ID)
-        .unwrap();
-    let command = config
-        .scenes
-        .definitions
-        .iter()
-        .find(|scene| scene.id == COMMAND_SCENE_ID)
-        .unwrap();
-    assert_eq!(raw.label, "__label_raw__");
-    assert_eq!(raw.candidate_count, 0);
-    assert_eq!(command.label, "__label_command__");
-    assert_eq!(command.candidate_count, 1);
-    assert!(command.prompt.as_deref().is_some_and(|prompt| {
-        prompt.contains("<vinput-selected>") && prompt.contains("{{asr}}")
-    }));
+    assert!(matches!(
+        config.validate(),
+        Err(ConfigError::MissingBuiltinScene(id)) if id == RAW_SCENE_ID
+    ));
 }
 
 #[test]
-fn normalization_defaults_blank_active_scene_to_raw() {
+fn validation_rejects_blank_active_scene_instead_of_repairing_it() {
+    let mut config = VinpstConfig::bundled_default().unwrap();
+    config.scenes.active_scene.clear();
+
+    assert!(matches!(
+        config.validate(),
+        Err(ConfigError::UnknownActiveScene(id)) if id.is_empty()
+    ));
+}
+
+#[test]
+fn omitted_active_scene_uses_the_schema_default_without_mutating_definitions() {
     let config = VinpstConfig::from_json_str(
         r#"{
           "version": 1,
-          "asr": {
-            "active_provider": "p",
-            "providers": [{"id":"p","type":"local"}]
-          },
           "scenes": {
-            "active_scene": "",
             "definitions": [
-              {"id":"__raw__","label":"Custom Raw","candidate_count":2}
+              {"id":"__raw__","label":"Raw","candidate_count":0},
+              {"id":"__command__","label":"Command","candidate_count":1}
             ]
           }
         }"#,
     )
     .unwrap();
 
-    config.validate().unwrap();
-    assert_eq!(config.scenes.active_scene, RAW_SCENE_ID);
-    assert_eq!(config.active_scene().unwrap().label, "Custom Raw");
-}
-
-#[test]
-fn normalization_defaults_missing_active_scene_to_raw_with_existing_definitions() {
-    let config = VinpstConfig::from_json_str(
-        r#"{
-          "version": 1,
-          "asr": {
-            "active_provider": "p",
-            "providers": [{"id":"p","type":"local"}]
-          },
-          "scenes": {
-            "definitions": [
-              {"id":"__command__","label":"Custom Command","candidate_count":3}
-            ]
-          }
-        }"#,
-    )
-    .unwrap();
-
-    config.validate().unwrap();
     assert_eq!(config.scenes.active_scene, RAW_SCENE_ID);
     assert_eq!(config.scenes.definitions.len(), 2);
-    let command = config
-        .scenes
-        .definitions
-        .iter()
-        .find(|scene| scene.id == COMMAND_SCENE_ID)
-        .unwrap();
-    let raw = config
-        .scenes
-        .definitions
-        .iter()
-        .find(|scene| scene.id == RAW_SCENE_ID)
-        .unwrap();
-    assert_eq!(command.label, "Custom Command");
-    assert_eq!(command.candidate_count, 3);
-    assert_eq!(raw.label, "__label_raw__");
 }
 
 #[test]
-fn normalization_inserts_missing_builtin_scene_without_replacing_existing_one() {
+fn validation_rejects_one_missing_builtin_scene_instead_of_inserting_it() {
     let config = VinpstConfig::from_json_str(
         r#"{
           "version": 1,
-          "asr": {
-            "active_provider": "p",
-            "providers": [{"id":"p","type":"local"}]
-          },
           "scenes": {
             "active_scene": "__raw__",
             "definitions": [
-              {"id":"__raw__","label":"Custom Raw","candidate_count":2}
+              {"id":"__raw__","label":"Raw","candidate_count":0}
             ]
           }
         }"#,
     )
     .unwrap();
 
-    config.validate().unwrap();
-    assert_eq!(config.scenes.definitions.len(), 2);
-    let raw = config
-        .scenes
-        .definitions
-        .iter()
-        .find(|scene| scene.id == RAW_SCENE_ID)
-        .unwrap();
-    let command = config
-        .scenes
-        .definitions
-        .iter()
-        .find(|scene| scene.id == COMMAND_SCENE_ID)
-        .unwrap();
-    assert_eq!(raw.label, "Custom Raw");
-    assert_eq!(raw.candidate_count, 2);
-    assert_eq!(command.label, "__label_command__");
-    assert_eq!(command.candidate_count, 1);
+    assert!(matches!(
+        config.validate(),
+        Err(ConfigError::MissingBuiltinScene(id)) if id == COMMAND_SCENE_ID
+    ));
 }
 
 #[test]
-fn normalization_preserves_existing_builtin_scene_definitions() {
+fn parser_preserves_existing_scene_definitions_without_normalizing_them() {
     let config = VinpstConfig::from_json_str(
         r#"{
           "version": 1,
-          "asr": {
-            "active_provider": "p",
-            "providers": [{"id":"p","type":"local"}]
-          },
           "scenes": {
             "active_scene": "__raw__",
             "definitions": [
@@ -272,7 +238,6 @@ fn normalization_preserves_existing_builtin_scene_definitions() {
     )
     .unwrap();
 
-    config.validate().unwrap();
     assert_eq!(config.scenes.definitions.len(), 2);
     assert_eq!(config.scenes.definitions[0].label, "Custom Raw");
     assert_eq!(config.scenes.definitions[0].candidate_count, 2);
@@ -305,6 +270,43 @@ fn bundled_default_parses_and_validates() {
     assert_eq!(config.asr.providers[0].kind, AsrProviderKind::Local);
     assert_eq!(config.scenes.active_scene, RAW_SCENE_ID);
     assert_eq!(config.active_scene().unwrap().id, RAW_SCENE_ID);
+    assert_eq!(
+        config
+            .scenes
+            .definitions
+            .iter()
+            .find(|scene| scene.id == COMMAND_SCENE_ID)
+            .unwrap()
+            .candidate_count,
+        1
+    );
+}
+
+#[test]
+fn omitted_scene_candidate_count_defaults_to_one_but_explicit_zero_is_preserved() {
+    let omitted = VinpstConfig::from_json_str(
+        r#"{
+          "version": 1,
+          "scenes": {
+            "active_scene": "rewrite",
+            "definitions": [{"id":"rewrite","label":"Rewrite"}]
+          }
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(omitted.active_scene().unwrap().candidate_count, 1);
+
+    let explicit_zero = VinpstConfig::from_json_str(
+        r#"{
+          "version": 1,
+          "scenes": {
+            "active_scene": "disabled",
+            "definitions": [{"id":"disabled","label":"Disabled","candidate_count":0}]
+          }
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(explicit_zero.active_scene().unwrap().candidate_count, 0);
 }
 
 #[test]
@@ -458,10 +460,6 @@ fn summary_serialization_omits_secret_bearing_fields() {
         api_key: "llm-secret-token".to_owned(),
         model: Some("gpt-test".to_owned()),
         extra_body: serde_json::json!({"trace": "extra-body-secret"}),
-        extra: std::collections::HashMap::from([(
-            "future_secret".to_owned(),
-            serde_json::json!("provider-extra-secret"),
-        )]),
     });
     config.llm.adapters.push(crate::LlmAdapterConfig {
         id: "adapter".to_owned(),
@@ -472,10 +470,8 @@ fn summary_serialization_omits_secret_bearing_fields() {
             "adapter-env-secret".to_owned(),
         )]),
         working_dir: Some("/tmp/vinpst-secret-workdir".to_owned()),
-        extra: std::collections::HashMap::from([(
-            "adapter_secret".to_owned(),
-            serde_json::json!("adapter-extra-secret"),
-        )]),
+        managed_script_sha256: Some("managed-revision".to_owned()),
+        managed_script_rollback_sha256: None,
     });
 
     let json = serde_json::to_string(&config.summary()).unwrap();
@@ -579,10 +575,6 @@ fn config_debug_redacts_sensitive_provider_adapter_scene_and_registry_values() {
         api_key: "private-llm-api-key".to_owned(),
         model: Some("model-id".to_owned()),
         extra_body: serde_json::json!({"secret":"private-extra-body"}),
-        extra: std::collections::HashMap::from([(
-            "x-secret".to_owned(),
-            serde_json::json!("private-provider-extra"),
-        )]),
     };
     let adapter = crate::LlmAdapterConfig {
         id: "adapter".to_owned(),
@@ -593,10 +585,8 @@ fn config_debug_redacts_sensitive_provider_adapter_scene_and_registry_values() {
             "private-adapter-env".to_owned(),
         )]),
         working_dir: Some("private-working-dir".to_owned()),
-        extra: std::collections::HashMap::from([(
-            "x-secret".to_owned(),
-            serde_json::json!("private-adapter-extra"),
-        )]),
+        managed_script_sha256: Some("managed-revision".to_owned()),
+        managed_script_rollback_sha256: None,
     };
     let scene = crate::SceneDefinition {
         id: "scene".to_owned(),
@@ -667,18 +657,19 @@ fn validation_rejects_empty_default_language() {
 }
 
 #[test]
-fn output_ducking_defaults_and_normalization_match_legacy() {
+fn output_ducking_defaults_are_stable_and_out_of_range_values_are_not_repaired() {
     let defaults = crate::GlobalConfig::default();
     assert!(!defaults.duck_output_while_recording);
     assert!((defaults.duck_output_volume - 0.25).abs() < f32::EPSILON);
 
-    let low = VinpstConfig::from_json_str(r#"{"version":1,"global":{"duck_output_volume":-0.5}}"#)
-        .unwrap();
-    assert!(low.global.duck_output_volume.abs() < f32::EPSILON);
-
-    let high = VinpstConfig::from_json_str(r#"{"version":1,"global":{"duck_output_volume":1.5}}"#)
-        .unwrap();
-    assert!((high.global.duck_output_volume - 1.0).abs() < f32::EPSILON);
+    for value in [-0.5, 1.5] {
+        let mut config = VinpstConfig::bundled_default().unwrap();
+        config.global.duck_output_volume = value;
+        assert!(matches!(
+            config.validate(),
+            Err(ConfigError::InvalidDuckOutputVolume(found)) if (found - value).abs() < f32::EPSILON
+        ));
+    }
 }
 
 #[test]
@@ -779,8 +770,7 @@ fn typed_llm_and_command_provider_config_parses() {
             "base_url": "https://example.invalid/v1",
             "api_key": "env:OPENAI_API_KEY",
             "model": "gpt-test",
-            "extra_body": { "temperature": 0.2 },
-            "future_field": "preserved"
+            "extra_body": { "temperature": 0.2 }
           }
         ],
         "adapters": [
@@ -817,10 +807,6 @@ fn typed_llm_and_command_provider_config_parses() {
     assert_eq!(provider.id, "openai");
     assert_eq!(provider.model.as_deref(), Some("gpt-test"));
     assert_eq!(provider.extra_body["temperature"], serde_json::json!(0.2));
-    assert_eq!(
-        provider.extra["future_field"],
-        serde_json::json!("preserved")
-    );
 
     let adapter = &config.llm.adapters[0];
     assert_eq!(adapter.command, "vinpst-adapter");
@@ -963,7 +949,6 @@ fn validation_accepts_object_llm_provider_extra_body() {
         api_key: String::new(),
         model: None,
         extra_body: serde_json::json!({"temperature": 0.1}),
-        extra: std::collections::HashMap::default(),
     });
 
     config.validate().unwrap();
@@ -978,7 +963,6 @@ fn validation_rejects_invalid_llm_entries() {
         api_key: String::new(),
         model: None,
         extra_body: serde_json::json!({}),
-        extra: std::collections::HashMap::default(),
     });
     let error = config.validate().unwrap_err();
     assert!(matches!(
@@ -993,7 +977,6 @@ fn validation_rejects_invalid_llm_entries() {
         api_key: String::new(),
         model: Some("  ".to_owned()),
         extra_body: serde_json::json!({}),
-        extra: std::collections::HashMap::default(),
     });
     let error = config.validate().unwrap_err();
     assert!(matches!(
@@ -1007,7 +990,6 @@ fn validation_rejects_invalid_llm_entries() {
         api_key: String::new(),
         model: None,
         extra_body: serde_json::json!(["not", "object"]),
-        extra: std::collections::HashMap::default(),
     });
     let error = config.validate().unwrap_err();
     assert!(matches!(
@@ -1022,7 +1004,8 @@ fn validation_rejects_invalid_llm_entries() {
         args: Vec::new(),
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let error = config.validate().unwrap_err();
     assert!(matches!(
@@ -1037,7 +1020,8 @@ fn validation_rejects_invalid_llm_entries() {
         args: Vec::new(),
         env: std::collections::HashMap::default(),
         working_dir: Some("  ".to_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let error = config.validate().unwrap_err();
     assert!(matches!(
@@ -1134,7 +1118,8 @@ fn validation_rejects_scene_provider_that_only_matches_adapter() {
         args: Vec::new(),
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     config.scenes.definitions[0].provider_id = Some("adapter-only".to_owned());
 

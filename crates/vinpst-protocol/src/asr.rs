@@ -23,30 +23,23 @@ pub enum RequestedAsrBackendStatus {
 
 /// Snapshot returned by the legacy `GetAsrBackendState` method.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct AsrBackendState {
     /// Provider requested by config.
-    #[serde(default)]
     pub target_provider_id: String,
     /// Model requested by config.
-    #[serde(default)]
     pub target_model_id: String,
     /// Provider currently loaded by the daemon.
-    #[serde(default)]
     pub effective_provider_id: String,
     /// Model currently loaded by the daemon.
-    #[serde(default)]
     pub effective_model_id: String,
     /// Last reload or runtime error, if any.
-    #[serde(default)]
     pub last_error: String,
     /// Whether a reload worker is currently replacing the backend.
-    #[serde(default)]
     pub reload_in_progress: bool,
     /// Whether the daemon has a usable backend.
-    #[serde(default)]
     pub has_effective_backend: bool,
     /// Remote ASR endpoint labels known to the daemon.
-    #[serde(default)]
     pub remote_endpoints: Vec<String>,
 }
 
@@ -133,12 +126,14 @@ mod tests {
     use super::{AsrBackendState, RequestedAsrBackendStatus};
 
     #[test]
-    fn missing_fields_default_for_legacy_tolerance() {
-        let state: AsrBackendState =
-            serde_json::from_str(r#"{"target_provider_id":"sherpa-onnx"}"#).unwrap();
-        assert_eq!(state.target_provider_id, "sherpa-onnx");
-        assert!(!state.has_effective_backend);
-        assert!(state.remote_endpoints.is_empty());
+    fn diagnostic_json_rejects_missing_or_unknown_fields() {
+        assert!(
+            serde_json::from_str::<AsrBackendState>(r#"{"target_provider_id":"sherpa-onnx"}"#)
+                .is_err()
+        );
+        let mut value = serde_json::to_value(AsrBackendState::default()).unwrap();
+        value["unexpected"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<AsrBackendState>(value).is_err());
     }
 
     #[test]

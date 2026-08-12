@@ -126,7 +126,10 @@ jq -n \
     },
     scenes: {
       active_scene: "__raw__",
-      definitions: [{id: "__raw__", label: "Raw", candidate_count: 0}]
+      definitions: [
+        {id: "__raw__", label: "Raw", candidate_count: 0},
+        {id: "__command__", label: "Command", candidate_count: 1}
+      ]
     }
   }
 ' >"${asr_config}"

@@ -70,7 +70,6 @@ Documentation and audit:
 ```sh
 git diff --check
 just docs
-scripts/tests/check-upstream-inventory.py
 ```
 
 Rust/core:

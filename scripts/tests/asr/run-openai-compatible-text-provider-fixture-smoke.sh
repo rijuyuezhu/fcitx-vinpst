@@ -64,7 +64,13 @@ jq -n \
     version: 1,
     asr: {active_provider: ""},
     llm: {providers: [{id: "fixture", base_url: $base_url, api_key: $api_key, model: $model, extra_body: {}}]},
-    scenes: {active_scene: "raw", definitions: [{id: "raw", label: "Raw", candidate_count: 0}]}
+    scenes: {
+      active_scene: "__raw__",
+      definitions: [
+        {id: "__raw__", label: "Raw", candidate_count: 0},
+        {id: "__command__", label: "Command", candidate_count: 1}
+      ]
+    }
   }
 ' >"${config_file}"
 
@@ -120,7 +126,13 @@ jq -n \
     version: 1,
     asr: {active_provider: ""},
     llm: {providers: [{id: "fixture", base_url: $base_url, api_key: $api_key, model: $model, extra_body: {}}]},
-    scenes: {active_scene: "raw", definitions: [{id: "raw", label: "Raw", candidate_count: 0}]}
+    scenes: {
+      active_scene: "__raw__",
+      definitions: [
+        {id: "__raw__", label: "Raw", candidate_count: 0},
+        {id: "__command__", label: "Command", candidate_count: 1}
+      ]
+    }
   }
 ' >"${failure_config_file}"
 

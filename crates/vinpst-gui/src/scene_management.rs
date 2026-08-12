@@ -760,7 +760,6 @@ mod tests {
             api_key: String::new(),
             model: Some("provider-default".to_owned()),
             extra_body: serde_json::json!({}),
-            extra: std::collections::HashMap::new(),
         });
 
         assert_eq!(
