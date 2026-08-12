@@ -1,39 +1,20 @@
 # fcitx-vinpst
 
-Voice input for Fcitx 5, built around a Rust daemon, CLI, and management GUI with a thin C++ Fcitx addon.
+Voice input and voice-driven text editing for Fcitx 5.
 
-Vinpst supports local, command, and OpenAI-compatible remote ASR; normal dictation; selected-text command editing; scenes and LLM post-processing; model/provider/adapter registries; configurable audio and VAD behavior; and English/zh_CN frontend localization.
+**Vinpst** is a portmanteau of <u>vinp</u>ut and ru<u>st</u>.
 
-> **Release status:** the project is preparing its first `0.1.0` release. The selected release set is source, bundled Linux x86_64 tarball, Arch x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, Fedora 43 x86_64, openSUSE Leap 16.0 x86_64, Flatpak x86_64, plus a public x86_64 Nix/Cachix channel; final candidate and post-publication checks remain before public artifacts are announced.
+Vinpst provides local and remote speech recognition, normal dictation, selected-text command editing, scenes and LLM post-processing, resource management, and a Rust management GUI with a thin Fcitx frontend.
 
-## Get started
+**Documentation:** <https://project.rijuyuezhu.top/fcitx-vinpst/>
 
-- [Installation](docs/user/installation.md)
-- [Quick start](docs/user/quick-start.md)
-- [Dictation and command mode](docs/user/usage.md)
-- [ASR models and providers](docs/user/asr.md)
-- [Scenes and text processing](docs/user/scenes.md)
-- [Settings](docs/user/settings.md)
-- [Troubleshooting](docs/user/troubleshooting.md)
-- [Known limitations](docs/user/limitations.md)
-- [0.1.0 release notes](RELEASE_NOTES.md)
+The documentation covers installation, quick start, ASR providers and models, scenes, settings, CLI usage, troubleshooting, accessibility, and current limitations.
 
-The documentation is also built as a MkDocs site. Run `just docs` for a strict local build or `just docs-serve` for a preview server.
-
-## Vinpst identity
-
-Vinpst is an independent project. Its executables, package names, addon, D-Bus service, systemd unit, configuration, data, and cache paths use `vinpst` or `fcitx-vinpst`. It does not replace or migrate another voice-input package.
+Vinpst is a Rust rewrite inspired by the upstream C++ project [xifan2333/fcitx5-vinput](https://github.com/xifan2333/fcitx5-vinput).
 
 ## Development
 
-The [documentation map](docs/development-index.md) separates user guides from architecture, development, migration, and evidence records. Contributors should start with [AGENTS.md](AGENTS.md) and [docs/development.md](docs/development.md).
-
-```sh
-just fmt-check
-just lint
-just test
-just ci
-```
+Contributor workflow and architecture notes live in [docs/development.md](docs/development.md) and [docs/architecture/README.md](docs/architecture/README.md). Repository-specific agent instructions are in [AGENTS.md](AGENTS.md).
 
 ## License
 

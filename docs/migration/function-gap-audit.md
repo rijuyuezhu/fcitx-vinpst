@@ -2,7 +2,7 @@
 
 Reviewed: 2026-08-07
 
-This document is the current implementation/readiness summary. The generated source/callable baseline is tracked under [`../legacy/`](../legacy/README.md), user-task mappings live in [`user-capability-audit.md`](user-capability-audit.md), detailed evidence lives in [`e2e-capability-matrix.md`](e2e-capability-matrix.md), and priorities live in [`e2e-replication-plan.md`](e2e-replication-plan.md).
+This document records the implementation/readiness audit that led to the first public release. The generated source/callable baseline is tracked under [`../legacy/`](../legacy/README.md), user-task mappings live in [`user-capability-audit.md`](user-capability-audit.md), and detailed evidence lives in [`e2e-capability-matrix.md`](e2e-capability-matrix.md). Current priorities belong in issues and milestones.
 
 ## Review baseline
 

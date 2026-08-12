@@ -1,8 +1,8 @@
 # Accessibility
 
-## 0.1.0 support policy
+## Support policy
 
-Vinpst `0.1.0` supports complete keyboard operation of the Rust management GUI. It does **not** support screen-reader navigation or expose a platform assistive-technology semantic tree.
+Vinpst supports complete keyboard operation of the Rust management GUI. It does **not** support screen-reader navigation or expose a platform assistive-technology semantic tree.
 
 This is an explicit support boundary, not an unverified claim. The current Iced 0.14 GUI has no stable platform accessibility-tree integration, so Vinpst does not claim Orca, AT-SPI, or equivalent screen-reader compatibility for the management window.
 
@@ -100,4 +100,4 @@ The packaged GUI reports the same policy without opening a window:
 vinpst-gui --check --offline | jq '.interaction'
 ```
 
-The snapshot reports the missing accessibility tree, the unsupported `0.1.0` screen-reader policy, the supported keyboard capabilities, and the fallback command surfaces. It contains no provider secrets.
+The snapshot reports the missing accessibility tree, the unsupported screen-reader policy, the supported keyboard capabilities, and the fallback command surfaces. It contains no provider secrets.

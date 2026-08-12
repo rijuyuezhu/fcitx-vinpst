@@ -23,8 +23,8 @@ fn bundled_snapshot_is_redacted_and_has_legacy_pages() {
         false
     );
     assert_eq!(
-        snapshot["interaction"]["assistive_technology"]["release_policy"],
-        "unsupported-in-0.1.0"
+        snapshot["interaction"]["assistive_technology"]["support_policy"],
+        "unsupported"
     );
     assert_eq!(
         snapshot["interaction"]["assistive_technology"]["fallbacks"]["management_command"],

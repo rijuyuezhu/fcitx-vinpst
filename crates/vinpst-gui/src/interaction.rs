@@ -40,7 +40,7 @@ pub(crate) fn capability_snapshot() -> Value {
         },
         "assistive_technology": {
             "screen_reader_supported": false,
-            "release_policy": "unsupported-in-0.1.0",
+            "support_policy": "unsupported",
             "fallbacks": {
                 "management_command": "vinpst",
                 "fcitx_configuration_command": "fcitx5-configtool",
@@ -239,8 +239,8 @@ mod tests {
             false
         );
         assert_eq!(
-            snapshot["assistive_technology"]["release_policy"],
-            "unsupported-in-0.1.0"
+            snapshot["assistive_technology"]["support_policy"],
+            "unsupported"
         );
         assert_eq!(
             snapshot["assistive_technology"]["fallbacks"]["management_command"],

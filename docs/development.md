@@ -1,6 +1,6 @@
 # Development guide
 
-This file defines repository workflow, validation tiers, and commit style. Progress belongs in [`migration/function-gap-audit.md`](migration/function-gap-audit.md); priorities belong in [`migration/e2e-replication-plan.md`](migration/e2e-replication-plan.md).
+This file defines repository workflow, validation tiers, and commit style. Historical migration status and evidence remain under [`migration/`](migration/function-gap-audit.md); current priorities belong in issues and milestones.
 
 ## Project boundaries
 
@@ -46,7 +46,6 @@ Source organization is reviewed as design rather than enforced through file-name
 - Keep code, comments, test names, documentation identifiers, and commit messages in English.
 - Prefer milestone-enabling work over generic cleanup.
 - Never treat deterministic seams as live desktop proof.
-- Never commit files under ignored `docs/plan/`.
 
 ## Local workflow
 
@@ -82,7 +81,7 @@ scripts/tools/generate-upstream-inventory.py \
   --upstream-root /path/to/fcitx5-vinput
 ```
 
-The generated JSON is audit evidence, not a per-PR structural gate. The scheduled upstream-drift workflow can regenerate and compare it when the upstream baseline changes; human review groups meaningful deltas by user-visible capability in [`migration/user-capability-audit.md`](migration/user-capability-audit.md).
+The generated JSON is audit evidence, not an automated structural gate. Refresh it only during an intentional upstream review, then group meaningful deltas by user-visible capability in [`migration/user-capability-audit.md`](migration/user-capability-audit.md).
 
 ### Rust and core behavior
 

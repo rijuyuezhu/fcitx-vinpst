@@ -2,7 +2,7 @@
 
 Reviewed: 2026-08-07
 
-This audit maps user-visible capabilities from the upstream C++ project to Vinpst. It is the review layer above the generated [`../legacy/upstream-source-inventory.json`](../legacy/upstream-source-inventory.json), which records 164 production files and 1,559 callable occurrences at upstream commit `6cdcac8b4300ff347ad3157bf61cd09a5302f7a9`. The upstream default branch was refreshed on 2026-08-07 and still points to that exact commit, so there are no source or callable deltas to classify for the release candidate.
+This frozen audit maps user-visible capabilities from the upstream C++ project to Vinpst at reviewed upstream commit `6cdcac8b4300ff347ad3157bf61cd09a5302f7a9`. The generated [`../legacy/upstream-source-inventory.json`](../legacy/upstream-source-inventory.json) records that baseline as 164 production files and 1,559 callable occurrences. Later upstream movement is tracked separately by [`../legacy/upstream-sync.json`](../legacy/upstream-sync.json) and is not silently folded into this audit.
 
 ## Scope and non-goals
 
@@ -38,7 +38,7 @@ A row may list both implementation and evidence, for example `implemented; live-
 | Qt GUI | 23 | 4,031 | User management tasks to reproduce in the Rust GUI, not toolkit/layout details. |
 | Shared common library | 55 | 7,342 | Config, D-Bus payloads, registry/resource safety, i18n, and shared models. |
 
-Every file is present in [`../legacy/source-annotations.md`](../legacy/source-annotations.md). Function/prototype/signal/slot entries are reviewed through the user journeys below; source additions are detected by the scheduled inventory drift workflow.
+Every file is present in [`../legacy/source-annotations.md`](../legacy/source-annotations.md). Function/prototype/signal/slot entries were reviewed through the user journeys below; future upstream refreshes are explicit maintainer reviews rather than scheduled source-layout gates.
 
 ## User journeys
 

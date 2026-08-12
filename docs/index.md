@@ -27,8 +27,4 @@ vinpst doctor
 - Hotwords for supported ASR backends.
 - A management GUI for everyday setup and a CLI for scripting and advanced configuration.
 
-## Release status
-
-Vinpst is preparing its first `0.1.0` release. Until public release packages are published, use the development-install instructions only if you are intentionally testing the current checkout.
-
-Contributor, architecture, migration, and release-maintenance documents are under the **Development** section of this site; they are not required for normal use.
+Release packages and checksums are published on [GitHub Releases](https://github.com/rijuyuezhu/fcitx-vinpst/releases).

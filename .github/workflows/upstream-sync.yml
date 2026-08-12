@@ -1,0 +1,77 @@
+name: Upstream sync watch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-sync-watch
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check reviewed upstream commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          repository="$(jq -r '.repository' docs/legacy/upstream-sync.json)"
+          reviewed="$(jq -r '.last_reviewed_commit' docs/legacy/upstream-sync.json)"
+          default_branch="$(gh api "repos/${repository}" --jq '.default_branch')"
+          latest="$(gh api "repos/${repository}/commits/${default_branch}" --jq '.sha')"
+          title="chore: review upstream fcitx5-vinput changes"
+          issue_number="$(
+            gh issue list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --limit 100 \
+              --json number,title \
+              --jq ".[] | select(.title == \"${title}\") | .number" \
+              | head -n1
+          )"
+
+          if [[ "${latest}" == "${reviewed}" ]]; then
+            echo "Upstream is unchanged at ${reviewed}."
+            if [[ -n "${issue_number}" ]]; then
+              gh issue comment "${issue_number}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --body "The recorded reviewed upstream commit now matches the upstream default branch. Closing this sync reminder."
+              gh issue close "${issue_number}" --repo "${GITHUB_REPOSITORY}"
+            fi
+            exit 0
+          fi
+
+          compare_url="https://github.com/${repository}/compare/${reviewed}...${latest}"
+          body="$(cat <<EOF
+          The upstream default branch has moved since the last reviewed sync point.
+
+          - Repository: \`${repository}\`
+          - Last reviewed: \`${reviewed}\`
+          - Current upstream: \`${latest}\`
+          - Compare: ${compare_url}
+
+          Review user-visible changes and intentionally migrate anything relevant. After the review is complete, update \`docs/legacy/upstream-sync.json\` in the normal PR that records the sync. Do not update the marker merely to silence this reminder.
+          EOF
+          )"
+
+          if [[ -n "${issue_number}" ]]; then
+            gh issue edit "${issue_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "${body}"
+            echo "Updated upstream sync issue #${issue_number}."
+          else
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body "${body}"
+          fi

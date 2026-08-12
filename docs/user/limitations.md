@@ -1,10 +1,6 @@
 # Known limitations
 
-This page distinguishes missing product capability from evidence that has not yet been collected in a real deployment.
-
-## Release status
-
-Vinpst has not published `0.1.0` yet. The selected GitHub matrix is source, bundled Linux x86_64 tarball, Arch Linux x86_64, Debian 12 amd64, Ubuntu 24.04 amd64, Fedora 43 x86_64 RPM, openSUSE Leap 16.0 x86_64 RPM, and a Flatpak x86_64 preview; the same release publishes the locked x86_64 Nix closure through the public `fcitx-vinpst` Cachix cache. GitHub release assets use a checked manifest, `SHA256SUMS`, and GitHub/Sigstore provenance attestations; public download links appear only after the final release candidate passes.
+This page describes current product and support boundaries.
 
 ## Desktop and application behavior
 
@@ -37,7 +33,7 @@ The HTTP/WebSocket runtime and a same-host browser path are implemented. A succe
 
 ## Languages
 
-The retained Fcitx frontend provides English fallback and zh_CN localization. Additional interface languages are not currently part of the `0.1.0` parity target.
+The retained Fcitx frontend provides English fallback and zh_CN localization. Additional interface languages are not currently part of the supported interface set.
 
 Recognition languages depend on the selected model/provider, not only on the interface locale.
 
@@ -47,10 +43,10 @@ Repeated and bounded soak tests exist, including multi-cycle real-desktop runs. 
 
 ## GUI accessibility
 
-Vinpst `0.1.0` implements keyboard focus, action activation, value adjustment, page shortcuts, clipboard editing, and input-method handling in the Rust management GUI. These behaviors are covered by deterministic widget/state tests. Positional live collectors that inferred controls by counting `Tab` or `Shift+Tab` steps are not retained as evidence.
+Vinpst implements keyboard focus, action activation, value adjustment, page shortcuts, clipboard editing, and input-method handling in the Rust management GUI. These behaviors are covered by deterministic widget/state tests. Positional live collectors that inferred controls by counting `Tab` or `Shift+Tab` steps are not retained as evidence.
 
-The GUI does not expose a platform assistive-technology semantic tree, so screen-reader navigation is not supported or claimed for `0.1.0`. Use the `vinpst` CLI for application management and diagnostics. For Fcitx-only trigger keys and trigger mode, use `fcitx5-configtool` or the documented guarded terminal configuration-file fallback. See [Accessibility](accessibility.md) for the complete fallback matrix.
+The GUI does not expose a platform assistive-technology semantic tree, so screen-reader navigation is not supported or claimed. Use the `vinpst` CLI for application management and diagnostics. For Fcitx-only trigger keys and trigger mode, use `fcitx5-configtool` or the documented guarded terminal configuration-file fallback. See [Accessibility](accessibility.md) for the complete fallback matrix.
 
 ## Compatibility policy
 
-Vinpst uses its own package, executable, addon, D-Bus, service, and XDG identities. It does not migrate or replace another voice-input package. Interfaces created during pre-release development may change before `0.1.0` when doing so improves the product.
+Vinpst uses its own package, executable, addon, D-Bus, service, and XDG identities. It does not migrate or replace another voice-input package. Compatibility commitments apply to published Vinpst releases; schema or interface migrations are introduced explicitly when needed.

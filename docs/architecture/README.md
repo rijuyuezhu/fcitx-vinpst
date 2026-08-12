@@ -1,6 +1,6 @@
 # Architecture contracts
 
-This directory contains tracked architecture and compatibility contracts for the Rust rewrite. Read [`../development.md`](../development.md), [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), [`../migration/e2e-capability-matrix.md`](../migration/e2e-capability-matrix.md), and [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md) first, then use this index to choose the subsystem document relevant to the task.
+This directory contains tracked architecture and compatibility contracts for Vinpst. Read [`../development.md`](../development.md), then use this index to choose the subsystem document relevant to the task. Historical migration evidence remains under [`../migration/`](../migration/function-gap-audit.md).
 
 ## Reading order
 
@@ -19,12 +19,9 @@ This directory contains tracked architecture and compatibility contracts for the
    - [`gui-contract.md`](gui-contract.md): implemented Rust/Iced management baseline, package integration, and remaining parity criteria.
 4. [`../migration/function-gap-audit.md`](../migration/function-gap-audit.md), for current parity baseline.
 5. [`../migration/e2e-capability-matrix.md`](../migration/e2e-capability-matrix.md), for detailed native runtime/frontend/user-flow parity gaps.
-6. [`../migration/e2e-replication-plan.md`](../migration/e2e-replication-plan.md), for active migration direction.
-7. `../plan/`, when present locally, for ignored scratch notes only.
 
 ## Maintenance rules
 
 - These files are tracked and should describe stable contracts or explicit compatibility targets.
-- Do not use these files as scratch planning space; use ignored `docs/plan/` for that.
-- Delete or ignore stale review snapshots after consolidating their conclusions into tracked `docs/migration/` or these contract docs.
+- Delete stale review snapshots after consolidating conclusions into tracked migration evidence or these contract docs.
 - Keep statements precise: distinguish `implemented`, `mock/seam only`, `configured behind an explicit flag`, and `future work`.

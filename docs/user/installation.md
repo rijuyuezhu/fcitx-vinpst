@@ -1,10 +1,8 @@
 # Installation
 
-Vinpst is preparing its first `0.1.0` release. Public release packages are not published yet, so files under `target/` and CI fixtures are not end-user packages.
-
 ## Release packages
 
-The first release is being prepared for:
+Vinpst publishes:
 
 - a bundled Linux x86_64 tarball for manual integration;
 - Arch Linux x86_64;
@@ -13,55 +11,56 @@ The first release is being prepared for:
 - Fedora 43 x86_64;
 - openSUSE Leap 16.0 x86_64;
 - a public x86_64 Nix/Cachix channel;
-- an x86_64 Flatpak extension preview for `org.fcitx.Fcitx5//stable`.
+- an x86_64 Flatpak extension for `org.fcitx.Fcitx5//stable`.
 
-When those artifacts are published, install the package built for your distribution.
+Download the package for your distribution from [GitHub Releases](https://github.com/rijuyuezhu/fcitx-vinpst/releases).
 
 ### Arch Linux
 
 ```sh
-sudo pacman -U ./fcitx-vinpst-0.1.0-1-x86_64.pkg.tar.zst
+sudo pacman -U ./fcitx-vinpst-*-x86_64.pkg.tar.zst
 ```
 
 ### Debian 12
 
 ```sh
-sudo apt install ./fcitx-vinpst_0.1.0-1_debian12_amd64.deb
+sudo apt install ./fcitx-vinpst_*_debian12_amd64.deb
 ```
 
 ### Ubuntu 24.04
 
 ```sh
-sudo apt install ./fcitx-vinpst_0.1.0-1_ubuntu24.04_amd64.deb
+sudo apt install ./fcitx-vinpst_*_ubuntu24.04_amd64.deb
 ```
 
 ### Fedora 43
 
 ```sh
-sudo dnf install ./fcitx-vinpst-0.1.0-1-fedora43-x86_64.rpm
+sudo dnf install ./fcitx-vinpst-*-fedora43-x86_64.rpm
 ```
 
 ### openSUSE Leap 16.0
 
 ```sh
-sudo zypper install ./fcitx-vinpst-0.1.0-1-opensuse16.0-x86_64.rpm
+sudo zypper install ./fcitx-vinpst-*-opensuse16.0-x86_64.rpm
 ```
 
 ### Nix / Cachix
 
 The release workflow publishes the locked `x86_64-linux` closure to the public
-`fcitx-vinpst` Cachix cache. Once the cache is public, `cachix use
-fcitx-vinpst` configures the substituter and its managed signing key; the flake
-itself remains the source of the package definition:
+`fcitx-vinpst` Cachix cache. `cachix use fcitx-vinpst` configures the
+substituter and its managed signing key. Set `release_tag` to a tag shown on
+GitHub Releases (for example `v0.1.0`), then build the flake:
 
 ```sh
+release_tag=v0.1.0
 cachix use fcitx-vinpst
-nix build github:rijuyuezhu/fcitx-vinpst/v0.1.0#fcitx-vinpst
+nix build "github:rijuyuezhu/fcitx-vinpst/${release_tag}#fcitx-vinpst"
 ```
 
 ### Bundled Linux tarball
 
-`fcitx-vinpst_0.1.0-1_linux_x86_64_bundled.tar.gz` contains the same `/usr`
+The bundled Linux tarball contains the same `/usr`
 payload as the transaction-tested Ubuntu release package, including the private
 sherpa-onnx/ONNX Runtime libraries. It does not bundle ordinary host libraries
 or desktop services: a compatible Linux system still needs the normal Fcitx,
@@ -70,13 +69,13 @@ It is primarily for manual integration, inspection, or environments that cannot
 consume a native package; prefer the native package for normal desktops because
 tarball extraction is not tracked by a package manager.
 
-### Flatpak preview
+### Flatpak
 
 The Flatpak build extends the Fcitx Flatpak; it does not attach to a system-installed Fcitx. If you use the system Fcitx package, prefer the native Vinpst package for your distribution.
 
 ```sh
 flatpak info --user org.fcitx.Fcitx5
-flatpak install --user --bundle ./fcitx-vinpst-0.1.0-x86_64.flatpak
+flatpak install --user --bundle ./fcitx-vinpst-*-x86_64.flatpak
 ```
 
 Grant the Fcitx Flatpak the runtime paths used by audio capture, the per-user systemd service, and Vinpst caches, then restart that Flatpak instance so the new permissions take effect:
@@ -132,7 +131,7 @@ systemctl --user enable --now vinpst-daemon.service
 fcitx5 -r
 ```
 
-The Flatpak preview already performs the equivalent initialization and service bootstrap in the steps above. Then follow the [Quick start](quick-start.md) to install a model and try dictation.
+The Flatpak steps above perform the equivalent initialization and service bootstrap. Then follow the [Quick start](quick-start.md) to install a model and try dictation.
 
 ## Uninstall
 

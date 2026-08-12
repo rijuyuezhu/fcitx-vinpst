@@ -49,7 +49,7 @@ gh attestation verify ./fcitx-vinpst-0.1.0.tar.gz \
 ## Important support boundaries
 
 - Vinpst uses its own package, executable, addon, D-Bus, service, and XDG identities. It does not replace, import, or migrate another voice-input installation.
-- Native packages are the primary 0.1.0 desktop path. The Flatpak extension is a preview and requires the matching Fcitx Flatpak runtime.
+- Native packages are the primary 0.1.0 desktop path. The Flatpak extension requires the matching Fcitx Flatpak runtime.
 - The management GUI supports keyboard operation, but 0.1.0 does not claim screen-reader or assistive-technology semantic-tree support. CLI and Fcitx configuration fallbacks are documented.
 - English and Simplified Chinese are the supported interface locales for 0.1.0.
 - OpenAI-compatible provider behavior is covered by deterministic and loopback tests, but compatibility with every hosted vendor, enterprise proxy, credential policy, or outage mode is not guaranteed.
@@ -66,4 +66,4 @@ fcitx5 -r
 vinpst doctor
 ```
 
-Then install and select an ASR model through `vinpst-gui` or the `vinpst model` commands. The Flatpak preview has a different host-service bootstrap boundary and does not put these commands on the host `PATH`; follow the Flatpak steps on the Installation page instead. See the Quick start, Troubleshooting, and Known limitations pages in the user guide.
+Then install and select an ASR model through `vinpst-gui` or the `vinpst model` commands. Flatpak has a different host-service bootstrap boundary and does not put these commands on the host `PATH`; follow the Flatpak steps on the Installation page instead. See the Quick start, Troubleshooting, and Known limitations pages in the user guide.

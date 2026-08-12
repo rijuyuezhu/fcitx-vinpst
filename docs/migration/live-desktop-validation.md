@@ -346,7 +346,7 @@ These checks are intentionally outside `just ci`. Capture the selected target, S
 
 ## Completion criteria
 
-Real desktop native alpha requires one documented profile where:
+Real desktop validation requires one documented profile where:
 
 - Fcitx5 loads the addon after restart;
 - D-Bus activation starts the installed Rust daemon through `vinpst-daemon-with-vinpst-env.sh`;
