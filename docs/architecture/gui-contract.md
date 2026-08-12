@@ -36,7 +36,7 @@ Iced 0.14 is the current implementation toolkit. The application uses its typed 
 
 The upstream Qt GUI fills unset `QT_IM_MODULE=fcitx` and `XMODIFIERS=@im=fcitx` before constructing `QApplication` so Chinese input works in its Qt/X11 path. Vinpst does not copy that startup mutation mechanically: `QT_IM_MODULE` is Qt-specific, current Iced uses winit's native Wayland text-input and X11 XIM discovery, and Rust 2024 process-environment mutation requires an unsafe block while ordinary GUI code forbids unsafe. Management-GUI acceptance must therefore include manual Chinese preedit/commit in editable fields on the normal Wayland path and on X11/Xwayland. If that manual check exposes a winit/XIM defect, fix it at the toolkit/backend boundary rather than introducing an unsafe Qt-era environment workaround.
 
-The `0.1.0` support policy is therefore explicit: complete keyboard operation is supported, while screen-reader navigation and a platform assistive-technology semantic tree are unsupported. Every ordinary management and diagnostic task has a `vinpst` CLI path; frontend-only trigger keys and trigger mode remain available through `fcitx5-configtool`. The headless capability snapshot reports this policy and the CLI, Fcitx form, terminal configuration-file, and reload fallbacks without opening a window. Revisit semantic-tree support when Iced provides a stable platform tree/event boundary or when a deliberate toolkit switch is approved; do not add an application-local parallel widget tree.
+The support policy is therefore explicit: complete keyboard operation is supported, while screen-reader navigation and a platform assistive-technology semantic tree are unsupported. Every ordinary management and diagnostic task has a `vinpst` CLI path; frontend-only trigger keys and trigger mode remain available through `fcitx5-configtool`. The headless capability snapshot reports this policy and the CLI, Fcitx form, terminal configuration-file, and reload fallbacks without opening a window. Revisit semantic-tree support when Iced provides a stable platform tree/event boundary or when a deliberate toolkit switch is approved; do not add an application-local parallel widget tree.
 
 The initial spike has proven:
 
@@ -50,9 +50,9 @@ The first mutation slice additionally proves typed form state, dirty/reset handl
 
 ## Remaining work
 
-No ordinary upstream management task is known to be missing from the Rust GUI or its documented CLI/Fcitx fallbacks. Deterministic coverage is the retained evidence for the `0.1.0` management surface. Management-GUI desktop automation is intentionally not retained; interaction and visual acceptance are performed manually, while deterministic coverage stays below the Iced window/widget boundary.
+No ordinary upstream management task is known to be missing from the Rust GUI or its documented CLI/Fcitx fallbacks. Deterministic coverage is the retained evidence for the management surface. Management-GUI desktop automation is intentionally not retained; interaction and visual acceptance are performed manually, while deterministic coverage stays below the Iced window/widget boundary.
 
-Post-0.1.0 work is:
+Future work is:
 
 1. refine resource-specific error titles and recovery actions when concrete user reports expose an unclear outcome;
 2. revisit assistive-technology semantic-tree support only through a toolkit-supported bridge or an approved toolkit switch;
@@ -60,7 +60,7 @@ Post-0.1.0 work is:
 
 Command-mode selected-text acquisition remains owned by the retained Fcitx frontend, where it is already implemented and live-proven. The legacy standalone Qt management GUI exposed no command-recording or selection action, so duplicating that frontend behavior in `vinpst-gui` is not a parity requirement.
 
-Documentation may describe the GUI as the supported 0.1.0 management application, but must continue to state that screen-reader navigation and a platform semantic tree are unsupported.
+Documentation may describe the GUI as the supported management application, but must continue to state that screen-reader navigation and a platform semantic tree are unsupported.
 
 ## Testing rules
 

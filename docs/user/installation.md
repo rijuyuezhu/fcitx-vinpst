@@ -18,31 +18,31 @@ Download the package for your distribution from [GitHub Releases](https://github
 ### Arch Linux
 
 ```sh
-sudo pacman -U ./fcitx-vinpst-0.1.0-1-x86_64.pkg.tar.zst
+sudo pacman -U ./fcitx-vinpst-*-x86_64.pkg.tar.zst
 ```
 
 ### Debian 12
 
 ```sh
-sudo apt install ./fcitx-vinpst_0.1.0-1_debian12_amd64.deb
+sudo apt install ./fcitx-vinpst_*_debian12_amd64.deb
 ```
 
 ### Ubuntu 24.04
 
 ```sh
-sudo apt install ./fcitx-vinpst_0.1.0-1_ubuntu24.04_amd64.deb
+sudo apt install ./fcitx-vinpst_*_ubuntu24.04_amd64.deb
 ```
 
 ### Fedora 43
 
 ```sh
-sudo dnf install ./fcitx-vinpst-0.1.0-1-fedora43-x86_64.rpm
+sudo dnf install ./fcitx-vinpst-*-fedora43-x86_64.rpm
 ```
 
 ### openSUSE Leap 16.0
 
 ```sh
-sudo zypper install ./fcitx-vinpst-0.1.0-1-opensuse16.0-x86_64.rpm
+sudo zypper install ./fcitx-vinpst-*-opensuse16.0-x86_64.rpm
 ```
 
 ### Nix / Cachix
@@ -54,12 +54,12 @@ itself remains the source of the package definition:
 
 ```sh
 cachix use fcitx-vinpst
-nix build github:rijuyuezhu/fcitx-vinpst/v0.1.0#fcitx-vinpst
+nix build github:rijuyuezhu/fcitx-vinpst/vX.Y.Z#fcitx-vinpst
 ```
 
 ### Bundled Linux tarball
 
-`fcitx-vinpst_0.1.0-1_linux_x86_64_bundled.tar.gz` contains the same `/usr`
+The bundled Linux tarball contains the same `/usr`
 payload as the transaction-tested Ubuntu release package, including the private
 sherpa-onnx/ONNX Runtime libraries. It does not bundle ordinary host libraries
 or desktop services: a compatible Linux system still needs the normal Fcitx,
@@ -74,7 +74,7 @@ The Flatpak build extends the Fcitx Flatpak; it does not attach to a system-inst
 
 ```sh
 flatpak info --user org.fcitx.Fcitx5
-flatpak install --user --bundle ./fcitx-vinpst-0.1.0-x86_64.flatpak
+flatpak install --user --bundle ./fcitx-vinpst-*-x86_64.flatpak
 ```
 
 Grant the Fcitx Flatpak the runtime paths used by audio capture, the per-user systemd service, and Vinpst caches, then restart that Flatpak instance so the new permissions take effect:

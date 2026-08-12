@@ -33,7 +33,7 @@ The HTTP/WebSocket runtime and a same-host browser path are implemented. A succe
 
 ## Languages
 
-The retained Fcitx frontend provides English fallback and zh_CN localization. Additional interface languages are not currently part of the `0.1.0` parity target.
+The retained Fcitx frontend provides English fallback and zh_CN localization. Additional interface languages are not currently part of the supported interface set.
 
 Recognition languages depend on the selected model/provider, not only on the interface locale.
 
@@ -43,9 +43,9 @@ Repeated and bounded soak tests exist, including multi-cycle real-desktop runs. 
 
 ## GUI accessibility
 
-Vinpst `0.1.0` implements keyboard focus, action activation, value adjustment, page shortcuts, clipboard editing, and input-method handling in the Rust management GUI. These behaviors are covered by deterministic widget/state tests. Positional live collectors that inferred controls by counting `Tab` or `Shift+Tab` steps are not retained as evidence.
+Vinpst implements keyboard focus, action activation, value adjustment, page shortcuts, clipboard editing, and input-method handling in the Rust management GUI. These behaviors are covered by deterministic widget/state tests. Positional live collectors that inferred controls by counting `Tab` or `Shift+Tab` steps are not retained as evidence.
 
-The GUI does not expose a platform assistive-technology semantic tree, so screen-reader navigation is not supported or claimed for `0.1.0`. Use the `vinpst` CLI for application management and diagnostics. For Fcitx-only trigger keys and trigger mode, use `fcitx5-configtool` or the documented guarded terminal configuration-file fallback. See [Accessibility](accessibility.md) for the complete fallback matrix.
+The GUI does not expose a platform assistive-technology semantic tree, so screen-reader navigation is not supported or claimed. Use the `vinpst` CLI for application management and diagnostics. For Fcitx-only trigger keys and trigger mode, use `fcitx5-configtool` or the documented guarded terminal configuration-file fallback. See [Accessibility](accessibility.md) for the complete fallback matrix.
 
 ## Compatibility policy
 
