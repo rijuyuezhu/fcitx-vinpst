@@ -38,7 +38,7 @@ A row may list both implementation and evidence, for example `implemented; live-
 | Qt GUI | 23 | 4,031 | User management tasks to reproduce in the Rust GUI, not toolkit/layout details. |
 | Shared common library | 55 | 7,342 | Config, D-Bus payloads, registry/resource safety, i18n, and shared models. |
 
-Every file is present in [`../legacy/source-annotations.md`](../legacy/source-annotations.md). Function/prototype/signal/slot entries are reviewed through the user journeys below; source additions are detected by the scheduled inventory drift workflow.
+Every file is present in [`../legacy/source-annotations.md`](../legacy/source-annotations.md). Function/prototype/signal/slot entries were reviewed through the user journeys below; future upstream refreshes are explicit maintainer reviews rather than scheduled source-layout gates.
 
 ## User journeys
 

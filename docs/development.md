@@ -81,7 +81,7 @@ scripts/tools/generate-upstream-inventory.py \
   --upstream-root /path/to/fcitx5-vinput
 ```
 
-The generated JSON is audit evidence, not a per-PR structural gate. The scheduled upstream-drift workflow can regenerate and compare it when the upstream baseline changes; human review groups meaningful deltas by user-visible capability in [`migration/user-capability-audit.md`](migration/user-capability-audit.md).
+The generated JSON is audit evidence, not an automated structural gate. Refresh it only during an intentional upstream review, then group meaningful deltas by user-visible capability in [`migration/user-capability-audit.md`](migration/user-capability-audit.md).
 
 ### Rust and core behavior
 

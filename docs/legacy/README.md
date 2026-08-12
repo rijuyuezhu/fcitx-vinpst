@@ -14,6 +14,6 @@ scripts/tools/generate-upstream-inventory.py \
 
 The generated file is reviewed as audit evidence rather than enforced by a source-path/layout CI checker.
 
-The scheduled `Upstream parity drift` workflow checks the latest upstream default branch against the tracked inventory. A failure means the review baseline must be refreshed; it does not imply that every new low-level function requires a one-to-one Rust port.
+The inventory is a frozen review baseline. When an upstream refresh is intentionally reviewed, regenerate it from a clean checkout and classify meaningful deltas by user-visible capability rather than by one-to-one source structure.
 
 These files are intentionally tracked because they are part of the migration record.
