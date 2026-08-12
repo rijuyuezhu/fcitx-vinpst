@@ -2,7 +2,7 @@
 
 Reviewed: 2026-08-07
 
-This audit maps user-visible capabilities from the upstream C++ project to Vinpst. It is the review layer above the generated [`../legacy/upstream-source-inventory.json`](../legacy/upstream-source-inventory.json), which records 164 production files and 1,559 callable occurrences at upstream commit `6cdcac8b4300ff347ad3157bf61cd09a5302f7a9`. The upstream default branch was refreshed on 2026-08-07 and still points to that exact commit, so there are no source or callable deltas to classify for the release candidate.
+This frozen audit maps user-visible capabilities from the upstream C++ project to Vinpst at reviewed upstream commit `6cdcac8b4300ff347ad3157bf61cd09a5302f7a9`. The generated [`../legacy/upstream-source-inventory.json`](../legacy/upstream-source-inventory.json) records that baseline as 164 production files and 1,559 callable occurrences. Later upstream movement is tracked separately by [`../legacy/upstream-sync.json`](../legacy/upstream-sync.json) and is not silently folded into this audit.
 
 ## Scope and non-goals
 
