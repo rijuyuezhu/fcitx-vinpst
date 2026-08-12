@@ -4223,7 +4223,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vinpst-asr"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
  "reqwest",
@@ -4242,7 +4242,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-audio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pipewire",
  "schemars",
@@ -4254,7 +4254,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -4273,7 +4273,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "insta",
  "schemars",
@@ -4287,7 +4287,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-daemon"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4315,21 +4315,21 @@ dependencies = [
 
 [[package]]
 name = "vinpst-daemon-control"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "vinpst-fcitx-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "vinpst-protocol",
 ]
 
 [[package]]
 name = "vinpst-fcitx-dbus"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -4341,7 +4341,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-fcitx-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "tempfile",
  "vinpst-config",
@@ -4352,7 +4352,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-gui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "iced",
  "rfd",
@@ -4374,7 +4374,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-http"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "reqwest",
  "tempfile",
@@ -4383,7 +4383,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-process"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
  "thiserror 2.0.18",
@@ -4391,7 +4391,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-protocol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "insta",
  "schemars",
@@ -4403,7 +4403,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-registry"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bzip2",
  "reqwest",
@@ -4421,7 +4421,7 @@ dependencies = [
 
 [[package]]
 name = "vinpst-text"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "regex",
  "reqwest",
