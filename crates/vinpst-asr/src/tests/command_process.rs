@@ -1196,9 +1196,7 @@ fn process_command_asr_runner_rejects_missing_final_text_response() {
 
 #[test]
 fn command_asr_response_rejects_unpublished_failure_alias() {
-    assert!(
-        serde_json::from_str::<CommandAsrResponse>(r#"{\"failure\":\"old failure\"}"#).is_err()
-    );
+    assert!(serde_json::from_str::<CommandAsrResponse>(r#"{"failure":"old failure"}"#).is_err());
 }
 
 #[test]

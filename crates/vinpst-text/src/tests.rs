@@ -2192,9 +2192,7 @@ fn command_text_response_prefers_payload_over_text() {
 
 #[test]
 fn command_text_response_rejects_unpublished_failure_alias() {
-    assert!(
-        serde_json::from_str::<CommandTextResponse>(r#"{\"failure\":\"adapter boom\"}"#).is_err()
-    );
+    assert!(serde_json::from_str::<CommandTextResponse>(r#"{"failure":"adapter boom"}"#).is_err());
 }
 
 #[test]

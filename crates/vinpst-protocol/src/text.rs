@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn diagnostic_json_rejects_missing_and_unknown_fields() {
-        assert!(serde_json::from_str::<TextAdapterState>(r#"{\"adapter_count\":0}"#).is_err());
+        assert!(serde_json::from_str::<TextAdapterState>(r#"{"adapter_count":0}"#).is_err());
 
         let mut state = serde_json::to_value(TextAdapterState::default()).unwrap();
         state["unexpected"] = serde_json::json!(true);
