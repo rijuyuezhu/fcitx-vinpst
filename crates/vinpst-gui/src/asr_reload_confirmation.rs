@@ -17,6 +17,14 @@ pub(crate) fn reload_asr_backend() -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Reloads the daemon's persisted configuration through the legacy upstream
+/// `ReloadAsrBackend` method. Vinpst keeps that D-Bus name for compatibility,
+/// while the daemon synchronizes the complete runtime config before queuing
+/// any asynchronous ASR backend replacement.
+pub(crate) fn reload_daemon_config() -> Result<(), String> {
+    reload_asr_backend()
+}
+
 pub(crate) fn reload_asr_backend_and_wait(expected_provider_id: &str) -> Result<String, String> {
     reload_asr_backend()?;
     wait_for_requested_asr_backend(expected_provider_id)

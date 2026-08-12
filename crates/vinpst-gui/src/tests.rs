@@ -61,7 +61,8 @@ fn adapter_rows_never_expose_commands_or_environment() {
         args: vec!["--api-key".to_owned(), "another-secret".to_owned()],
         env: HashMap::from([("TOKEN".to_owned(), "env-secret".to_owned())]),
         working_dir: None,
-        extra: HashMap::new(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
 
     let rows = llm_adapter_rows(&config).join("\n");
@@ -211,7 +212,6 @@ fn llm_provider_forms_and_mutations_reject_dirty_control_draft() {
         api_key: String::new(),
         model: None,
         extra_body: serde_json::json!({}),
-        extra: HashMap::new(),
     });
     let mut app = crate::test_support::GuiHarness::with_config(
         config.clone(),
@@ -789,7 +789,6 @@ fn app_debug_reports_structure_without_user_or_error_text() {
             api_key: String::new(),
             model: Some("debug-model".to_owned()),
             extra_body: json!({"token": "app-body-secret"}),
-            extra: std::collections::HashMap::new(),
         });
 
     let app_ref: &App = &app;

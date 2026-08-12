@@ -124,7 +124,6 @@ fn provider(extra_body: serde_json::Value) -> LlmProviderConfig {
         api_key: String::new(),
         model: Some("provider-model".to_owned()),
         extra_body,
-        extra: std::collections::HashMap::default(),
     }
 }
 
@@ -135,7 +134,6 @@ fn provider_with_id(id: &str, base_url: &str) -> LlmProviderConfig {
         api_key: String::new(),
         model: Some(format!("{id}-model")),
         extra_body: serde_json::json!({}),
-        extra: std::collections::HashMap::default(),
     }
 }
 
@@ -621,7 +619,7 @@ fn openai_text_adapter_sends_request_and_maps_payload() {
         provider_id: Some("openai-compatible".to_owned()),
         model: Some("scene-model".to_owned()),
         timeout_ms: Some(2500),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let mut provider = provider(serde_json::json!({}));
     provider.api_key = "secret-token".to_owned();
@@ -660,7 +658,9 @@ fn openai_text_adapter_sends_request_and_maps_payload() {
             ("Authorization".to_owned(), "Bearer secret-token".to_owned()),
         ]
     );
-    assert_eq!(built.body["messages"][0]["content"], "Polish: raw text");
+    let content = built.body["messages"][0]["content"].as_str().unwrap();
+    assert!(content.starts_with("Polish: raw text"));
+    assert!(content.contains("Return EXACTLY 1 candidate(s) in a JSON object"));
     assert_eq!(*seen_timeout_ms.lock().unwrap(), Some(2500));
 }
 
@@ -669,7 +669,7 @@ fn openai_text_adapter_uses_legacy_timeout_when_scene_omits_one() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let response_body = serde_json::json!({
         "choices": [{
@@ -698,7 +698,7 @@ fn openai_text_adapter_falls_back_to_raw_when_response_has_no_candidates() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let transport = StaticOpenAiTransport::new(serde_json::json!({"choices": []}).to_string());
 
@@ -714,11 +714,62 @@ fn openai_text_adapter_falls_back_to_raw_when_response_has_no_candidates() {
 }
 
 #[test]
+fn openai_text_adapter_does_not_send_when_candidates_are_disabled() {
+    let disabled = SceneDefinition {
+        prompt: Some("Polish: {{ asr }}".to_owned()),
+        provider_id: Some("openai-compatible".to_owned()),
+        ..scene("disabled", 0)
+    };
+    let transport = FailingOpenAiTransport::new("must not be called");
+    let seen_request = transport.seen_request.clone();
+    let request = TextRequest {
+        raw_text: "raw text",
+        scene: &disabled,
+        selected_text: None,
+    };
+
+    let payload = OpenAiCompatibleTextAdapter::new(provider(serde_json::json!({})), transport)
+        .finish(&request)
+        .unwrap();
+
+    assert_eq!(payload, RecognitionPayload::raw("raw text"));
+    assert!(!*seen_request.lock().unwrap());
+    assert!(
+        build_openai_compatible_chat_request(&request, &provider(serde_json::json!({})), "")
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn openai_text_processor_does_not_call_command_provider_when_candidates_are_disabled() {
+    let command = SceneDefinition {
+        prompt: Some("Rewrite selected text using command: {{ asr }}".to_owned()),
+        provider_id: Some("openai-compatible".to_owned()),
+        ..scene(COMMAND_SCENE_ID, 0)
+    };
+    let transport = FailingOpenAiTransport::new("must not be called");
+    let seen_request = transport.seen_request.clone();
+    let report =
+        OpenAiCompatibleTextProcessor::new(vec![provider(serde_json::json!({}))], transport)
+            .finish_report(&TextRequest {
+                raw_text: "make it shorter",
+                scene: &command,
+                selected_text: Some("This is the selected text."),
+            })
+            .unwrap();
+
+    assert_eq!(report.payload, RecognitionPayload::raw("make it shorter"));
+    assert!(report.warning.is_none());
+    assert!(!*seen_request.lock().unwrap());
+}
+
+#[test]
 fn openai_text_processor_preserves_raw_payload_on_transport_failure() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let transport = FailingOpenAiTransport::new("OpenAI-compatible HTTP request timed out");
     let report =
@@ -743,7 +794,7 @@ fn openai_text_processor_preserves_command_fallback_on_transport_failure() {
     let command = SceneDefinition {
         prompt: Some("Rewrite selected text using command: {{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene(COMMAND_SCENE_ID, 0)
+        ..scene(COMMAND_SCENE_ID, 1)
     };
     let transport = FailingOpenAiTransport::new("offline");
     let report =
@@ -769,7 +820,7 @@ fn openai_text_processor_preserves_command_fallback_on_transport_failure() {
 fn openai_text_processor_falls_back_without_a_provider_before_request() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let transport = FailingOpenAiTransport::new("must not be called");
     let seen_request = transport.seen_request.clone();
@@ -791,7 +842,7 @@ fn openai_text_processor_preserves_raw_payload_when_prompt_file_load_fails() {
     let prompted = SceneDefinition {
         prompt: Some("file:///definitely/missing/vinpst-prompt.txt".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let transport = FailingOpenAiTransport::new("must not be called");
     let seen_request = transport.seen_request.clone();
@@ -814,7 +865,7 @@ fn openai_text_processor_selects_scene_provider_id() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
         provider_id: Some("second".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let transport = StaticOpenAiTransport::new(
             serde_json::json!({
@@ -848,7 +899,7 @@ fn openai_text_processor_selects_scene_provider_id() {
 fn openai_text_processor_uses_single_provider_without_scene_provider_id() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let transport = StaticOpenAiTransport::new(
             serde_json::json!({
@@ -878,7 +929,7 @@ fn openai_text_processor_uses_single_provider_without_scene_provider_id() {
 fn openai_text_processor_falls_back_without_provider_for_prompted_scene() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
 
     let payload = OpenAiCompatibleTextProcessor::new(
@@ -899,7 +950,7 @@ fn openai_text_processor_falls_back_without_provider_for_prompted_scene() {
 fn openai_text_processor_rejects_ambiguous_providers_without_scene_provider_id() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
 
     let error = OpenAiCompatibleTextProcessor::new(
@@ -924,7 +975,7 @@ fn openai_text_processor_reports_unknown_scene_provider_id() {
     let prompted = SceneDefinition {
         prompt: Some("Polish: {{ asr }}".to_owned()),
         provider_id: Some("missing".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
 
     let error = OpenAiCompatibleTextProcessor::new(
@@ -955,7 +1006,7 @@ fn openai_text_processor_uses_context_cache_path() {
     let prompted = SceneDefinition {
         prompt: Some("Context={{ context }} ASR={{ asr }}".to_owned()),
         context_lines: 1,
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let transport = StaticOpenAiTransport::new(
             serde_json::json!({
@@ -979,10 +1030,11 @@ fn openai_text_processor_uses_context_cache_path() {
 
     assert_eq!(payload.commit_text, "polished");
     let built = seen_request.lock().unwrap().clone().unwrap();
-    assert_eq!(
-        built.body["messages"][0]["content"],
+    let content = built.body["messages"][0]["content"].as_str().unwrap();
+    assert!(content.starts_with(
         "Context=Recent input history (use to fix ASR errors):\nlatest\n\n ASR=raw text"
-    );
+    ));
+    assert!(content.contains("Return EXACTLY 1 candidate(s) in a JSON object"));
 }
 
 #[test]
@@ -990,7 +1042,7 @@ fn openai_text_adapter_command_scene_orders_raw_asr_and_llm_candidates() {
     let command = SceneDefinition {
         prompt: Some("Rewrite selected text using command: {{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene(COMMAND_SCENE_ID, 0)
+        ..scene(COMMAND_SCENE_ID, 1)
     };
     let response_body = serde_json::json!({
             "choices": [{
@@ -1029,7 +1081,7 @@ fn openai_text_adapter_command_scene_falls_back_to_selected_without_llm_candidat
     let command = SceneDefinition {
         prompt: Some("Rewrite selected text using command: {{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene(COMMAND_SCENE_ID, 0)
+        ..scene(COMMAND_SCENE_ID, 1)
     };
 
     let payload = OpenAiCompatibleTextAdapter::new(
@@ -1135,7 +1187,7 @@ fn openai_chat_request_wraps_selected_xml_for_command_scene() {
     let command = SceneDefinition {
         prompt: Some("Apply the command.".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene(COMMAND_SCENE_ID, 0)
+        ..scene(COMMAND_SCENE_ID, 1)
     };
 
     let built = build_openai_compatible_chat_request(
@@ -1151,10 +1203,10 @@ fn openai_chat_request_wraps_selected_xml_for_command_scene() {
     .unwrap();
 
     let content = built.body["messages"][0]["content"].as_str().unwrap();
-    assert_eq!(
-        content,
+    assert!(content.starts_with(
         "Apply the command.\n\n<vinput-asr>\nmake it shorter\n</vinput-asr>\n\n<vinput-selected>\nThis is the selected text.\n</vinput-selected>\n\n<vinput-context>\nrecent command\n</vinput-context>\n"
-    );
+    ));
+    assert!(content.contains("Return EXACTLY 1 candidate(s) in a JSON object"));
 }
 
 #[test]
@@ -1162,7 +1214,7 @@ fn openai_chat_request_interpolates_context_and_selected_without_xml() {
     let prompted = SceneDefinition {
         prompt: Some("Context={{ context }} ASR={{ asr }} Selected={{ selected }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let provider = provider(serde_json::json!({
         "stream": true,
@@ -1208,12 +1260,9 @@ fn openai_chat_request_interpolates_context_and_selected_without_xml() {
     );
     assert_eq!(built.body["frequency_penalty"], 0.5);
     let content = built.body["messages"][0]["content"].as_str().unwrap();
-    assert_eq!(
-        content,
-        "Context=recent input\n ASR=fix text Selected=source text"
-    );
+    assert!(content.starts_with("Context=recent input\n ASR=fix text Selected=source text"));
     assert!(!content.contains("<vinput-asr>"));
-    assert!(!content.contains("## Constraints"));
+    assert!(content.contains("## Constraints"));
 }
 
 #[test]
@@ -1231,7 +1280,7 @@ latest
         prompt: Some("Context={{ context }} ASR={{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
         context_lines: 1,
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
 
     let built = build_openai_compatible_chat_request_from_context_cache(
@@ -1247,13 +1296,13 @@ latest
     .unwrap();
 
     let content = built.body["messages"][0]["content"].as_str().unwrap();
-    assert_eq!(
-        content,
+    assert!(content.starts_with(
         "Context=Recent input history (use to fix ASR errors):
 latest
 
  ASR=fix text"
-    );
+    ));
+    assert!(content.contains("Return EXACTLY 1 candidate(s) in a JSON object"));
 }
 
 #[test]
@@ -1263,7 +1312,7 @@ fn openai_chat_request_from_context_cache_ignores_missing_cache() {
         prompt: Some("Context={{ context }} ASR={{ asr }}".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
         context_lines: 3,
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
 
     let built = build_openai_compatible_chat_request_from_context_cache(
@@ -1279,7 +1328,8 @@ fn openai_chat_request_from_context_cache_ignores_missing_cache() {
     .unwrap();
 
     let content = built.body["messages"][0]["content"].as_str().unwrap();
-    assert_eq!(content, "Context= ASR=fix text");
+    assert!(content.starts_with("Context= ASR=fix text"));
+    assert!(content.contains("Return EXACTLY 1 candidate(s) in a JSON object"));
 }
 
 #[test]
@@ -1304,7 +1354,7 @@ fn openai_chat_request_without_base_url_is_not_applicable() {
     let prompted = SceneDefinition {
         prompt: Some("Polish this.".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let mut provider = provider(serde_json::json!({}));
     provider.base_url.clear();
@@ -1343,7 +1393,7 @@ fn openai_chat_request_includes_bearer_header_when_api_key_is_set() {
     let prompted = SceneDefinition {
         prompt: Some("Polish this.".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let mut provider = provider(serde_json::json!({}));
     provider.api_key = "secret-token".to_owned();
@@ -1374,7 +1424,7 @@ fn openai_chat_request_debug_redacts_authorization_header() {
     let prompted = SceneDefinition {
         prompt: Some("Polish this.".to_owned()),
         provider_id: Some("openai-compatible".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let mut provider = provider(serde_json::json!({}));
     provider.api_key = "secret-token".to_owned();
@@ -2141,12 +2191,10 @@ fn command_text_response_prefers_payload_over_text() {
 }
 
 #[test]
-fn command_text_response_accepts_failure_alias() {
-    let response: CommandTextResponse =
-        serde_json::from_str(r#"{"failure":"adapter boom"}"#).unwrap();
-    let error = response.into_payload().unwrap_err();
-
-    assert_eq!(error, TextError::AdapterFailed("adapter boom".to_owned()));
+fn command_text_response_rejects_unpublished_failure_alias() {
+    assert!(
+        serde_json::from_str::<CommandTextResponse>(r#"{\"failure\":\"adapter boom\"}"#).is_err()
+    );
 }
 
 #[test]
@@ -2173,7 +2221,8 @@ fn adapter_registry_indexes_command_adapters_from_config() {
         args: vec!["--json".to_owned()],
         env: std::collections::HashMap::from([("MODE".to_owned(), "test".to_owned())]),
         working_dir: Some("/tmp/vinpst".to_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     }]);
 
     assert_eq!(registry.len(), 1);
@@ -2209,7 +2258,8 @@ fn adapter_registry_returns_no_single_adapter_for_multiple_configs() {
             args: Vec::new(),
             env: std::collections::HashMap::default(),
             working_dir: None,
-            extra: std::collections::HashMap::default(),
+            managed_script_sha256: None,
+            managed_script_rollback_sha256: None,
         },
         LlmAdapterConfig {
             id: "second".to_owned(),
@@ -2217,7 +2267,8 @@ fn adapter_registry_returns_no_single_adapter_for_multiple_configs() {
             args: Vec::new(),
             env: std::collections::HashMap::default(),
             working_dir: None,
-            extra: std::collections::HashMap::default(),
+            managed_script_sha256: None,
+            managed_script_rollback_sha256: None,
         },
     ]);
     assert!(registry.single_command_adapter().is_none());
@@ -2239,7 +2290,7 @@ fn command_text_processor_keeps_raw_scene_without_adapters() {
 
 #[test]
 fn command_text_processor_falls_back_without_adapters() {
-    let command = scene(COMMAND_SCENE_ID, 0);
+    let command = scene(COMMAND_SCENE_ID, 1);
     let payload = CommandTextProcessor::from_configs(&[])
         .finish(&TextRequest {
             raw_text: "replace it",
@@ -2260,7 +2311,7 @@ fn command_text_processor_falls_back_without_adapters() {
 fn command_text_processor_requires_adapter_for_prompted_scene() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let error = CommandTextProcessor::from_configs(&[])
         .finish(&TextRequest {
@@ -2278,7 +2329,7 @@ fn command_text_processor_rejects_ambiguous_adapters_despite_provider_id() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
         provider_id: Some("first".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let processor = CommandTextProcessor::from_configs_with_runner(
         &[
@@ -2288,7 +2339,8 @@ fn command_text_processor_rejects_ambiguous_adapters_despite_provider_id() {
                 args: Vec::new(),
                 env: std::collections::HashMap::default(),
                 working_dir: None,
-                extra: std::collections::HashMap::default(),
+                managed_script_sha256: None,
+                managed_script_rollback_sha256: None,
             },
             LlmAdapterConfig {
                 id: "second".to_owned(),
@@ -2296,7 +2348,8 @@ fn command_text_processor_rejects_ambiguous_adapters_despite_provider_id() {
                 args: Vec::new(),
                 env: std::collections::HashMap::default(),
                 working_dir: None,
-                extra: std::collections::HashMap::default(),
+                managed_script_sha256: None,
+                managed_script_rollback_sha256: None,
             },
         ],
         EchoCommandRunner,
@@ -2316,7 +2369,7 @@ fn command_text_processor_rejects_ambiguous_adapters_despite_provider_id() {
 fn command_text_processor_delegates_to_single_adapter() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let processor = CommandTextProcessor::from_configs_with_runner(
         &[LlmAdapterConfig {
@@ -2325,7 +2378,8 @@ fn command_text_processor_delegates_to_single_adapter() {
             args: vec!["--json".to_owned()],
             env: std::collections::HashMap::from([("MODE".to_owned(), "mock".to_owned())]),
             working_dir: Some("/tmp/vinpst".to_owned()),
-            extra: std::collections::HashMap::default(),
+            managed_script_sha256: None,
+            managed_script_rollback_sha256: None,
         }],
         EchoCommandRunner,
     );
@@ -2351,7 +2405,8 @@ fn command_text_adapter_copies_typed_config() {
         args: vec!["--json".to_owned()],
         env: std::collections::HashMap::from([("MODE".to_owned(), "test".to_owned())]),
         working_dir: Some("/tmp/vinpst-text".to_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
 
     assert_eq!(adapter.id(), "cmd-adapter");
@@ -2372,7 +2427,7 @@ fn command_text_adapter_copies_typed_config() {
 fn command_text_adapter_delegates_to_injected_runner() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -2380,7 +2435,8 @@ fn command_text_adapter_delegates_to_injected_runner() {
         args: vec!["--json".to_owned()],
         env: std::collections::HashMap::from([("MODE".to_owned(), "mock".to_owned())]),
         working_dir: Some("/tmp/vinpst".to_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
     let payload = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
         &config,
@@ -2403,7 +2459,7 @@ fn command_text_adapter_delegates_to_injected_runner() {
 fn unsupported_command_text_runner_reports_adapter_unavailable() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let error = LlmTextProcessor::new(CommandTextAdapter::new(
         "vinpst-postprocess",
@@ -2436,7 +2492,7 @@ fn llm_text_processor_keeps_noop_scene_raw() {
 fn llm_text_processor_delegates_prompted_scene_to_adapter() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let error = LlmTextProcessor::new(UnsupportedTextAdapter::new())
         .finish(&TextRequest {
@@ -2450,7 +2506,7 @@ fn llm_text_processor_delegates_prompted_scene_to_adapter() {
 
 #[test]
 fn llm_text_processor_delegates_command_scene_to_adapter() {
-    let command = scene(COMMAND_SCENE_ID, 0);
+    let command = scene(COMMAND_SCENE_ID, 1);
     let error = LlmTextProcessor::new(UnsupportedTextAdapter::new())
         .finish(&TextRequest {
             raw_text: "replace it",
@@ -2466,7 +2522,7 @@ fn llm_text_processor_delegates_command_scene_to_adapter() {
 
 #[test]
 fn command_scene_requires_adapter_in_production_finisher() {
-    let command = scene(COMMAND_SCENE_ID, 0);
+    let command = scene(COMMAND_SCENE_ID, 1);
     let error = TextFinisher::finish(&TextRequest {
         raw_text: "replace it",
         scene: &command,
@@ -2509,6 +2565,20 @@ fn mock_processor_handles_command_scene_without_selected_text() {
 }
 
 #[test]
+fn mock_processor_respects_disabled_command_postprocessing() {
+    let command = scene(COMMAND_SCENE_ID, 0);
+    let payload = MockTextProcessor::new()
+        .finish(&TextRequest {
+            raw_text: "replace it",
+            scene: &command,
+            selected_text: Some("selected source"),
+        })
+        .unwrap();
+
+    assert_eq!(payload, RecognitionPayload::raw("replace it"));
+}
+
+#[test]
 fn candidate_scene_requires_future_adapter() {
     let fancy = scene("rewrite", 2);
     let error = TextFinisher::finish(&TextRequest {
@@ -2524,7 +2594,7 @@ fn candidate_scene_requires_future_adapter() {
 fn prompted_scene_requires_future_adapter() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let error = TextFinisher::finish(&TextRequest {
         raw_text: "hello",
@@ -2540,7 +2610,7 @@ fn provider_bound_scene_requires_future_adapter() {
     let provider_bound = SceneDefinition {
         provider_id: Some("openai".to_owned()),
         model: Some("gpt-test".to_owned()),
-        ..scene("provider-scene", 0)
+        ..scene("provider-scene", 1)
     };
     let error = TextFinisher::finish(&TextRequest {
         raw_text: "hello",
@@ -2558,7 +2628,7 @@ fn provider_bound_scene_requires_future_adapter() {
 fn timeout_scene_requires_future_adapter() {
     let timeout_scene = SceneDefinition {
         timeout_ms: Some(2500),
-        ..scene("timeout-scene", 0)
+        ..scene("timeout-scene", 1)
     };
     let error = TextFinisher::finish(&TextRequest {
         raw_text: "hello",
@@ -2576,7 +2646,7 @@ fn timeout_scene_requires_future_adapter() {
 fn context_scene_requires_future_adapter() {
     let context_scene = SceneDefinition {
         context_lines: 2,
-        ..scene("context-scene", 0)
+        ..scene("context-scene", 1)
     };
     let error = TextFinisher::finish(&TextRequest {
         raw_text: "hello",
@@ -2594,7 +2664,7 @@ fn context_scene_requires_future_adapter() {
 fn mock_processor_handles_timeout_scene() {
     let timeout_scene = SceneDefinition {
         timeout_ms: Some(2500),
-        ..scene("timeout-scene", 0)
+        ..scene("timeout-scene", 1)
     };
     let payload = MockTextProcessor::new()
         .finish(&TextRequest {

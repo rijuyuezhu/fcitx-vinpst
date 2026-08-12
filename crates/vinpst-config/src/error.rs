@@ -8,8 +8,8 @@ pub enum ConfigError {
     /// JSON parsing failed.
     #[error("invalid config JSON: {0}")]
     Json(#[from] serde_json::Error),
-    /// Config schema is newer than this binary understands.
-    #[error("unsupported config schema version {found}; this binary supports up to {supported}")]
+    /// Config schema does not exactly match the format understood by this binary.
+    #[error("unsupported config schema version {found}; this binary requires version {supported}")]
     UnsupportedSchemaVersion {
         /// Version found in the config document.
         found: u32,
@@ -46,6 +46,9 @@ pub enum ConfigError {
     /// Active scene is not listed in scene definitions.
     #[error("active scene `{0}` is not defined")]
     UnknownActiveScene(String),
+    /// Required built-in scene is missing from the configuration.
+    #[error("required built-in scene `{0}` is not defined")]
+    MissingBuiltinScene(String),
     /// Active ASR provider id is empty.
     #[error("invalid empty active ASR provider id")]
     InvalidActiveAsrProviderId,

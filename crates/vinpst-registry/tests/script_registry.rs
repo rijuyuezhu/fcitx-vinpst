@@ -194,7 +194,7 @@ fn materializes_new_adapter_with_blank_registry_envs() {
 }
 
 #[test]
-fn updates_managed_adapter_without_losing_env_or_extra_fields() {
+fn updates_managed_adapter_without_losing_env_or_revision_fields() {
     let registry = LiveScriptRegistry::from_json_str(ADAPTER_REGISTRY, LiveScriptKind::LlmAdapter)
         .expect("parse adapter registry");
     let script_path = Path::new("/tmp/vinpst/adapters/mtranserver/proxy");
@@ -207,7 +207,8 @@ fn updates_managed_adapter_without_losing_env_or_extra_fields() {
             ("CUSTOM".to_owned(), "also-preserve".to_owned()),
         ]),
         working_dir: Some("/tmp/work".to_owned()),
-        extra: HashMap::from([("future".to_owned(), serde_json::json!(true))]),
+        managed_script_sha256: Some("current-revision".to_owned()),
+        managed_script_rollback_sha256: Some("rollback-revision".to_owned()),
     };
 
     let outcome = materialize_llm_adapter(&registry.items[0], script_path, Some(&existing))
@@ -219,7 +220,14 @@ fn updates_managed_adapter_without_losing_env_or_extra_fields() {
     assert_eq!(outcome.adapter.env["MTRAN_URL"], "");
     assert_eq!(outcome.adapter.env["CUSTOM"], "also-preserve");
     assert_eq!(outcome.adapter.working_dir.as_deref(), Some("/tmp/work"));
-    assert_eq!(outcome.adapter.extra["future"], serde_json::json!(true));
+    assert_eq!(
+        outcome.adapter.managed_script_sha256.as_deref(),
+        Some("current-revision")
+    );
+    assert_eq!(
+        outcome.adapter.managed_script_rollback_sha256.as_deref(),
+        Some("rollback-revision")
+    );
 }
 
 #[test]
@@ -232,7 +240,8 @@ fn refuses_to_replace_user_defined_adapter() {
         args: vec!["--serve".to_owned()],
         env: HashMap::new(),
         working_dir: None,
-        extra: HashMap::new(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let error = materialize_llm_adapter(

@@ -208,7 +208,6 @@ const fn simplified_chinese_resources(key: GuiText) -> &'static str {
         GuiText::TextAdapter => "文本适配器",
         GuiText::Credential => "凭据",
         GuiText::ExtraBodyFields => "额外请求体字段",
-        GuiText::ExtensionFields => "扩展字段",
         GuiText::WorkingDirectory => "工作目录",
         GuiText::NotConfigured => "未配置",
         GuiText::Configured => "已配置",

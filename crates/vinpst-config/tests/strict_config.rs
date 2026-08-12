@@ -1,4 +1,4 @@
-//! Golden tests for explicit legacy config compatibility policy decisions.
+//! Golden tests for the strict Vinpst configuration contract.
 
 use std::collections::HashMap;
 
@@ -18,7 +18,6 @@ fn llm_provider(id: &str) -> LlmProviderConfig {
         api_key: String::new(),
         model: None,
         extra_body: serde_json::json!({}),
-        extra: HashMap::new(),
     }
 }
 
@@ -29,7 +28,8 @@ fn llm_adapter(id: &str) -> LlmAdapterConfig {
         args: Vec::new(),
         env: HashMap::new(),
         working_dir: None,
-        extra: HashMap::new(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     }
 }
 
@@ -48,7 +48,7 @@ fn command_asr_provider(id: &str, command: Option<&str>) -> AsrProviderConfig {
 }
 
 #[test]
-fn legacy_registry_mirror_repair_is_not_implicit() {
+fn registry_mirrors_are_strictly_validated() {
     let mut duplicate = bundled();
     let mirror = duplicate.registry.base_urls[0].clone();
     duplicate.registry.base_urls.push(mirror.clone());
@@ -66,7 +66,7 @@ fn legacy_registry_mirror_repair_is_not_implicit() {
 }
 
 #[test]
-fn legacy_provider_and_adapter_id_repair_is_not_implicit() {
+fn provider_and_adapter_ids_are_strictly_validated() {
     let mut duplicate_llm_provider = bundled();
     duplicate_llm_provider
         .llm
@@ -123,7 +123,7 @@ fn legacy_provider_and_adapter_id_repair_is_not_implicit() {
 }
 
 #[test]
-fn legacy_command_asr_without_command_is_strictly_rejected() {
+fn command_asr_without_command_is_strictly_rejected() {
     let mut config = bundled();
     config.asr.active_provider = "cmd".to_owned();
     config.asr.providers.push(command_asr_provider("cmd", None));
@@ -135,7 +135,7 @@ fn legacy_command_asr_without_command_is_strictly_rejected() {
 }
 
 #[test]
-fn legacy_scene_bounds_are_strict_not_clamped() {
+fn scene_bounds_are_strict_not_clamped() {
     let mut candidates = bundled();
     candidates.scenes.definitions[0].candidate_count = 33;
     assert!(matches!(
@@ -161,7 +161,7 @@ fn legacy_scene_bounds_are_strict_not_clamped() {
 }
 
 #[test]
-fn legacy_unknown_active_scene_and_provider_are_strictly_rejected() {
+fn unknown_active_scene_and_provider_are_strictly_rejected() {
     let mut scene = bundled();
     scene.scenes.active_scene = "missing".to_owned();
     assert!(matches!(
@@ -184,14 +184,14 @@ fn legacy_unknown_active_scene_and_provider_are_strictly_rejected() {
 }
 
 #[test]
-fn legacy_empty_active_provider_is_valid_unselected_state() {
+fn empty_active_provider_is_valid_unselected_state() {
     let mut config = bundled();
     config.asr.active_provider.clear();
     config.validate().unwrap();
 }
 
 #[test]
-fn legacy_scene_provider_prompt_and_model_policy_is_explicit() {
+fn scene_provider_prompt_and_model_policy_is_explicit() {
     let mut unknown_provider = bundled();
     unknown_provider.scenes.definitions[0].provider_id = Some("missing".to_owned());
     assert!(matches!(

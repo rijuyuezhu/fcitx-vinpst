@@ -541,6 +541,9 @@ AppliedOutcome FcitxVinpstAddon::ApplyDaemonUnavailable(fcitx::InputContext *ic,
 
 AppliedOutcome FcitxVinpstAddon::ApplyBridgeOutcome(fcitx::InputContext *ic,
                                                     const BridgeOutcome &outcome) {
+  if (outcome.kind == BridgeOutcome::Kind::None) {
+    return AppliedOutcome::None;
+  }
   HideResultMenu();
   ApplyContextHistory(outcome);
   ClearRemoteDaemonStatus();

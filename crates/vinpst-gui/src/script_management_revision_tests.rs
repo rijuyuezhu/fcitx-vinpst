@@ -2,7 +2,6 @@ use crate::GuiLocale;
 use std::path::Path;
 
 use super::*;
-use vinpst_config::MANAGED_SCRIPT_REVISION_KEY;
 use vinpst_registry::{RegistryAssetSource, RegistryTextSource, sha256_hex};
 
 struct FixtureTextSource(&'static str);
@@ -67,8 +66,9 @@ fn adapter_update_changes_managed_script_revision() {
     );
     assert!(matches!(first, ScriptInstallOutcome::Installed(_)));
     let first_config = VinpstConfig::from_json_file(&config_path).expect("first config");
-    let first_revision = first_config.llm.adapters[0].extra[MANAGED_SCRIPT_REVISION_KEY]
-        .as_str()
+    let first_revision = first_config.llm.adapters[0]
+        .managed_script_sha256
+        .as_deref()
         .expect("first revision")
         .to_owned();
 
@@ -95,8 +95,9 @@ fn adapter_update_changes_managed_script_revision() {
     );
     assert!(matches!(second, ScriptInstallOutcome::Installed(_)));
     let second_config = VinpstConfig::from_json_file(&config_path).expect("second config");
-    let second_revision = second_config.llm.adapters[0].extra[MANAGED_SCRIPT_REVISION_KEY]
-        .as_str()
+    let second_revision = second_config.llm.adapters[0]
+        .managed_script_sha256
+        .as_deref()
         .expect("second revision");
 
     assert_eq!(first_revision, sha256_hex(first_bytes));
@@ -104,10 +105,7 @@ fn adapter_update_changes_managed_script_revision() {
     assert_ne!(first_revision, second_revision);
     let adapter = &second_config.llm.adapters[0];
     assert_eq!(
-        adapter
-            .extra
-            .get(vinpst_config::MANAGED_SCRIPT_ROLLBACK_REVISION_KEY)
-            .and_then(serde_json::Value::as_str),
+        adapter.managed_script_rollback_sha256.as_deref(),
         Some(first_revision.as_str())
     );
     assert_eq!(

@@ -13,7 +13,7 @@ fn process_command_text_runner_writes_request_and_reads_response() {
     ));
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -27,7 +27,8 @@ fn process_command_text_runner_writes_request_and_reads_response() {
             capture_path.to_string_lossy().into_owned(),
         )]),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let payload = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -59,7 +60,7 @@ fn process_command_text_runner_times_out_and_kills_descendants() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
         timeout_ms: Some(100),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -73,7 +74,8 @@ fn process_command_text_runner_times_out_and_kills_descendants() {
             child_pid_path.to_string_lossy().into_owned(),
         )]),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let started = std::time::Instant::now();
@@ -124,7 +126,7 @@ fn process_command_text_runner_times_out_while_helper_ignores_stdin() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
         timeout_ms: Some(100),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -132,7 +134,8 @@ fn process_command_text_runner_times_out_while_helper_ignores_stdin() {
         args: vec!["-c".to_owned(), "sleep 30".to_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
     let raw_text = "x".repeat(1024 * 1024);
 
@@ -160,7 +163,7 @@ fn process_command_text_runner_drains_large_stderr_without_deadlock() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
         timeout_ms: Some(2_000),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -172,7 +175,8 @@ fn process_command_text_runner_drains_large_stderr_without_deadlock() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let payload = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -194,7 +198,7 @@ fn process_command_text_runner_rejects_oversized_stdout() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
         timeout_ms: Some(5_000),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -205,7 +209,8 @@ fn process_command_text_runner_rejects_oversized_stdout() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let started = std::time::Instant::now();
@@ -234,7 +239,7 @@ fn process_command_text_runner_rejects_oversized_stderr() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
         timeout_ms: Some(5_000),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -245,7 +250,8 @@ fn process_command_text_runner_rejects_oversized_stderr() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let started = std::time::Instant::now();
@@ -273,7 +279,7 @@ fn process_command_text_runner_rejects_oversized_stderr() {
 fn process_command_text_runner_reports_nonzero_exit() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -284,7 +290,8 @@ fn process_command_text_runner_reports_nonzero_exit() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let error = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -309,7 +316,7 @@ fn process_command_text_runner_reports_nonzero_exit() {
 fn process_command_text_runner_reports_missing_program() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -317,7 +324,8 @@ fn process_command_text_runner_reports_missing_program() {
         args: Vec::new(),
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let error = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -342,7 +350,7 @@ fn process_command_text_runner_reports_missing_program() {
 fn process_command_text_runner_rejects_bad_json() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -353,7 +361,8 @@ fn process_command_text_runner_rejects_bad_json() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let error = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -378,7 +387,7 @@ fn process_command_text_runner_rejects_bad_json() {
 fn process_command_text_runner_maps_helper_error_response() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -389,7 +398,8 @@ fn process_command_text_runner_maps_helper_error_response() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let error = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -410,7 +420,7 @@ fn process_command_text_runner_maps_helper_error_response() {
 fn process_command_text_runner_reads_payload_response() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
             id: "cmd-adapter".to_owned(),
@@ -421,7 +431,8 @@ fn process_command_text_runner_reads_payload_response() {
             ],
             env: std::collections::HashMap::default(),
             working_dir: None,
-            extra: std::collections::HashMap::default(),
+            managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
         };
 
     let payload = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -444,7 +455,7 @@ fn process_command_text_runner_reads_payload_response() {
 fn process_command_text_runner_reports_early_exit() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -455,7 +466,8 @@ fn process_command_text_runner_reports_early_exit() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let error = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -482,7 +494,7 @@ fn process_command_text_runner_reports_early_exit() {
 fn process_command_text_runner_reports_empty_stderr_exit_cleanly() {
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -490,7 +502,8 @@ fn process_command_text_runner_reports_empty_stderr_exit_cleanly() {
         args: vec!["-c".to_owned(), "cat >/dev/null; exit 7".to_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let error = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(
@@ -534,7 +547,7 @@ fn process_command_text_runner_uses_working_dir() {
     ));
     let prompted = SceneDefinition {
         prompt: Some("polish".to_owned()),
-        ..scene("polish", 0)
+        ..scene("polish", 1)
     };
     let config = LlmAdapterConfig {
         id: "cmd-adapter".to_owned(),
@@ -548,7 +561,8 @@ fn process_command_text_runner_uses_working_dir() {
             capture_path.to_string_lossy().into_owned(),
         )]),
         working_dir: Some(work_dir.to_string_lossy().into_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     };
 
     let payload = LlmTextProcessor::new(CommandTextAdapter::with_adapter_config(

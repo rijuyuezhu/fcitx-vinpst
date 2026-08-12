@@ -337,6 +337,9 @@ pub fn build_openai_compatible_chat_request(
     provider: &LlmProviderConfig,
     context_prefix: &str,
 ) -> Result<Option<OpenAiCompatibleChatRequest>, TextError> {
+    if request.scene.candidate_count == 0 {
+        return Ok(None);
+    }
     let Some(url) = build_openai_compatible_chat_url(&provider.base_url) else {
         return Ok(None);
     };

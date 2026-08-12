@@ -872,7 +872,6 @@ fn llm_provider_summary_json(provider: &vinpst_config::LlmProviderConfig) -> ser
         "api_key_configured": !provider.api_key.trim().is_empty(),
         "model": provider.model.as_deref(),
         "extra_body_configured": provider.extra_body.as_object().is_some_and(|object| !object.is_empty()),
-        "extra_field_count": provider.extra.len(),
     })
 }
 

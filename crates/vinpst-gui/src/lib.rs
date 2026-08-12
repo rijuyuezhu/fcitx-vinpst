@@ -72,7 +72,7 @@ pub use asr_provider_management::{
     AsrProviderEditorField, AsrProviderMessage, AsrProviderMutationOutcome,
 };
 pub(crate) use asr_reload_confirmation::{
-    reload_asr_backend, reload_asr_backend_and_wait, wait_for_requested_asr_backend,
+    reload_asr_backend_and_wait, reload_daemon_config, wait_for_requested_asr_backend,
 };
 use audio_devices::AudioDeviceState;
 pub use audio_devices::CaptureDeviceChoice;
@@ -1052,7 +1052,7 @@ pub(crate) fn save_updated_config_with_daemon(
     }
     let mut outcome = persist_updated_config(document, updated)?;
     outcome.daemon_reload = match daemon {
-        Ok(_) => reload_daemon_after_config_save(document, reload_asr_backend)?,
+        Ok(_) => reload_daemon_after_config_save(document, reload_daemon_config)?,
         Err(error) => format!("config saved; daemon reload skipped: {error}"),
     };
     Ok(outcome)

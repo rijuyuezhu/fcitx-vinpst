@@ -305,7 +305,6 @@ mod tests {
             api_key: String::new(),
             model: Some("model".to_owned()),
             extra_body: serde_json::json!({}),
-            extra: std::collections::HashMap::new(),
         });
         let mut app = crate::test_support::GuiHarness::with_config(
             config,

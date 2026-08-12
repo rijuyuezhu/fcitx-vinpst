@@ -124,6 +124,7 @@ impl CommandAsrRequest {
 
 /// Response returned by a command-backed ASR helper.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CommandAsrResponse {
     /// Optional streaming partial text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -132,7 +133,7 @@ pub struct CommandAsrResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     /// Backend error message produced by the helper.
-    #[serde(default, alias = "failure", skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 

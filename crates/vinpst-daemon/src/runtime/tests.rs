@@ -109,7 +109,8 @@ fn config_with_sleep_adapter(adapter_id: &str) -> VinpstConfig {
         args: vec!["30".to_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     config
 }
@@ -793,7 +794,6 @@ fn llm_scene_exposes_postprocessing_before_text_finishing() {
         api_key: "test-key".to_owned(),
         model: Some("test-model".to_owned()),
         extra_body: serde_json::json!({}),
-        extra: std::collections::HashMap::new(),
     });
     config.scenes.active_scene = "postprocess-scene".to_owned();
     config
@@ -884,7 +884,8 @@ fn configured_text_adapters_index_runtime_config() {
         args: vec!["--json".to_owned()],
         env: std::collections::HashMap::from([("TOKEN".to_owned(), "secret".to_owned())]),
         working_dir: Some("/tmp/adapter-work".to_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let runtime = RuntimeState::new(config).unwrap();
     let registry = runtime.configured_text_adapters();
@@ -927,7 +928,8 @@ fn text_adapter_state_json_redacts_env_and_working_dir_values() {
             "dummy-secret-token".to_owned(),
         )]),
         working_dir: Some("/tmp/vinpst-secret-workdir".to_owned()),
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let state = RuntimeState::configured_text_adapter_state(&config);
 
@@ -979,7 +981,8 @@ fn configured_text_adapter_state_preserves_multiple_config_order() {
         args: Vec::new(),
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     config.llm.adapters.push(vinpst_config::LlmAdapterConfig {
         id: "second".to_owned(),
@@ -987,7 +990,8 @@ fn configured_text_adapter_state_preserves_multiple_config_order() {
         args: vec!["--json".to_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
 
     let state = RuntimeState::configured_text_adapter_state(&config);
@@ -1090,10 +1094,7 @@ fn configured_reload_restarts_adapter_when_only_managed_revision_changes() {
 
     let old_pid = runtime.start_text_adapter("cmd-adapter").unwrap();
     let mut updated = config;
-    updated.llm.adapters[0].extra.insert(
-        "x-vinpst-managed-script-sha256".to_owned(),
-        serde_json::json!("revision-2"),
-    );
+    updated.llm.adapters[0].managed_script_sha256 = Some("revision-2".to_owned());
     updated.validate().unwrap();
     assert!(runtime.queue_configured_asr_reload(updated).unwrap());
 
@@ -1177,10 +1178,8 @@ fn configured_reload_rolls_back_from_preserved_script_when_replacement_start_fai
         args: vec![script_path.to_string_lossy().into_owned()],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::from([(
-            vinpst_config::MANAGED_SCRIPT_REVISION_KEY.to_owned(),
-            serde_json::json!("revision-1"),
-        )]),
+        managed_script_sha256: Some("revision-1".to_owned()),
+        managed_script_rollback_sha256: None,
     });
     let mut runtime = RuntimeState::new(config.clone())
         .unwrap()
@@ -1195,14 +1194,8 @@ fn configured_reload_rolls_back_from_preserved_script_when_replacement_start_fai
     .unwrap();
     let mut updated = config;
     updated.llm.adapters[0].command = "/definitely/missing/vinpst-adapter".to_owned();
-    updated.llm.adapters[0].extra.insert(
-        vinpst_config::MANAGED_SCRIPT_REVISION_KEY.to_owned(),
-        serde_json::json!("revision-2"),
-    );
-    updated.llm.adapters[0].extra.insert(
-        vinpst_config::MANAGED_SCRIPT_ROLLBACK_REVISION_KEY.to_owned(),
-        serde_json::json!("revision-1"),
-    );
+    updated.llm.adapters[0].managed_script_sha256 = Some("revision-2".to_owned());
+    updated.llm.adapters[0].managed_script_rollback_sha256 = Some("revision-1".to_owned());
     updated.validate().unwrap();
 
     let error = runtime
@@ -1246,7 +1239,8 @@ fn refresh_text_adapters_reaps_exited_processes_and_descendants() {
             child_pid_path.to_string_lossy().into_owned(),
         )]),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let mut runtime = RuntimeState::new(config)
         .unwrap()
@@ -1297,7 +1291,8 @@ fn text_adapter_notifications_preserve_lines_and_flush_partial_on_exit() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let mut runtime = RuntimeState::new(config)
         .unwrap()
@@ -1675,7 +1670,8 @@ fn queued_configured_reload_updates_idle_runtime_config_and_text_policy() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     updated.validate().unwrap();
 
@@ -2694,7 +2690,8 @@ fn configured_text_adapter_processes_prompted_scene() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let backend = MockAsrBackend::streaming("mock partial", "mock recognition result");
     let audio = super::default_mock_audio_source();
@@ -2727,7 +2724,6 @@ fn configured_text_openai_provider_processes_prompted_scene_over_http() {
         api_key: "secret-token".to_owned(),
         model: Some("provider-model".to_owned()),
         extra_body: serde_json::json!({}),
-        extra: std::collections::HashMap::new(),
     });
     config
         .scenes
@@ -2807,7 +2803,8 @@ fn configured_backends_process_prompted_scene_with_mock_asr() {
         ],
         env: std::collections::HashMap::default(),
         working_dir: None,
-        extra: std::collections::HashMap::default(),
+        managed_script_sha256: None,
+        managed_script_rollback_sha256: None,
     });
     let mut runtime = RuntimeState::with_configured_backends(config).unwrap();
 
@@ -2831,7 +2828,7 @@ fn timeout_scene_finish_error_returns_runtime_to_idle() {
             prompt: None,
             provider_id: None,
             model: None,
-            candidate_count: 0,
+            candidate_count: 1,
             timeout_ms: Some(2500),
             context_lines: 0,
         });
@@ -2865,7 +2862,6 @@ fn failed_text_finishing_returns_runtime_to_idle() {
         api_key: String::new(),
         model: None,
         extra_body: serde_json::json!({}),
-        extra: std::collections::HashMap::new(),
     });
     config
         .scenes

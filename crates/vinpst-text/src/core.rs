@@ -101,10 +101,9 @@ impl TextAdapter for UnsupportedTextAdapter {
 
 /// Production-safe fallback used when no configured post-processor is selected.
 ///
-/// It only commits raw/no-op scenes that do not require post-processing.
-/// Command scenes, prompted scenes, provider/model-bound scenes, candidate
-/// scenes, context-aware scenes, and timeout-bound scenes return a typed error
-/// instead of fabricating mock text.
+/// It only commits raw/no-op scenes whose candidate count disables
+/// post-processing. Any non-raw scene with a positive candidate count returns
+/// a typed error instead of fabricating mock text.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TextFinisher;
 
@@ -144,14 +143,11 @@ impl MockTextProcessor {
 
 impl TextProcessor for MockTextProcessor {
     fn finish(&self, request: &TextRequest<'_>) -> Result<RecognitionPayload, TextError> {
-        if request.scene.id == RAW_SCENE_ID {
+        if request.scene.id == RAW_SCENE_ID || !scene_needs_postprocessing(request.scene) {
             return Ok(RecognitionPayload::raw(request.raw_text));
         }
         if request.scene.id == COMMAND_SCENE_ID {
             return Ok(RecognitionPayload::raw(command_placeholder_text(request)));
-        }
-        if request.scene.candidate_count == 0 && !scene_needs_postprocessing(request.scene) {
-            return Ok(RecognitionPayload::raw(request.raw_text));
         }
         Ok(RecognitionPayload::raw(
             PromptTemplate::new("mock postprocess result: {raw_text}").render_request(request),
@@ -160,22 +156,7 @@ impl TextProcessor for MockTextProcessor {
 }
 
 pub(crate) fn scene_needs_postprocessing(scene: &SceneDefinition) -> bool {
-    scene.id == COMMAND_SCENE_ID
-        || scene.candidate_count > 0
-        || scene.context_lines > 0
-        || scene.timeout_ms.is_some()
-        || scene
-            .prompt
-            .as_deref()
-            .is_some_and(|prompt| !prompt.trim().is_empty())
-        || scene
-            .provider_id
-            .as_deref()
-            .is_some_and(|provider_id| !provider_id.trim().is_empty())
-        || scene
-            .model
-            .as_deref()
-            .is_some_and(|model| !model.trim().is_empty())
+    scene.candidate_count > 0
 }
 
 fn command_placeholder_text(request: &TextRequest<'_>) -> String {

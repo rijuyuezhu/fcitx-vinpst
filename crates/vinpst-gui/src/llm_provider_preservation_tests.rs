@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use super::*;
 
 fn provider(id: &str) -> LlmProviderConfig {
@@ -9,7 +7,6 @@ fn provider(id: &str) -> LlmProviderConfig {
         api_key: "api-secret".to_owned(),
         model: Some("model-a".to_owned()),
         extra_body: serde_json::json!({"temperature": 0.2}),
-        extra: HashMap::from([("future".to_owned(), serde_json::json!({"v": 1}))]),
     }
 }
 

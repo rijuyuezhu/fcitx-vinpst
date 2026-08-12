@@ -5,18 +5,15 @@ use serde::{Deserialize, Serialize};
 
 /// Snapshot of configured text adapter diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TextAdapterState {
     /// Number of configured text adapters.
-    #[serde(default)]
     pub adapter_count: usize,
     /// Configured adapter ids in config order.
-    #[serde(default)]
     pub adapter_ids: Vec<String>,
     /// Adapter id when exactly one adapter is configured.
-    #[serde(default)]
     pub single_adapter_id: Option<String>,
     /// Sanitized adapter summaries in config order.
-    #[serde(default)]
     pub adapters: Vec<TextAdapterSummary>,
 }
 
@@ -42,27 +39,21 @@ impl TextAdapterState {
 
 /// Sanitized summary for one configured text adapter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TextAdapterSummary {
     /// Stable adapter id.
-    #[serde(default)]
     pub id: String,
     /// Adapter implementation kind.
-    #[serde(default)]
     pub kind: String,
     /// Number of configured adapter arguments without exposing values.
-    #[serde(default)]
     pub args_count: usize,
     /// Number of configured environment entries without exposing keys or values.
-    #[serde(default)]
     pub env_count: usize,
     /// Whether the daemon currently supervises this adapter as running.
-    #[serde(default)]
     pub is_running: bool,
     /// Supervised process id when the adapter is running.
-    #[serde(default)]
     pub pid: Option<u32>,
     /// Whether a custom working directory is configured without exposing its path.
-    #[serde(default)]
     pub has_working_dir: bool,
 }
 
@@ -144,54 +135,15 @@ mod tests {
     }
 
     #[test]
-    fn legacy_adapter_detail_fields_are_ignored_on_read() {
-        let state: TextAdapterState = serde_json::from_str(
-            r#"
-            {
-              "adapter_count": 1,
-              "adapter_ids": ["cmd"],
-              "single_adapter_id": "cmd",
-              "adapters": [{
-                "id": "cmd",
-                "kind": "command",
-                "command": "legacy-command-secret",
-                "args": ["--token", "legacy-arg-secret"],
-                "env": {"TOKEN":"legacy-env-secret"},
-                "working_dir": "/tmp/legacy-working-dir-secret",
-                "env_count": 2,
-                "has_working_dir": true
-              }]
-            }
-            "#,
-        )
-        .unwrap();
+    fn diagnostic_json_rejects_missing_and_unknown_fields() {
+        assert!(serde_json::from_str::<TextAdapterState>(r#"{\"adapter_count\":0}"#).is_err());
 
-        assert_eq!(state.adapter_count, 1);
-        assert_eq!(state.adapter_ids, ["cmd"]);
-        assert_eq!(state.single_adapter_id.as_deref(), Some("cmd"));
-        assert_eq!(state.adapters[0].id, "cmd");
-        assert_eq!(state.adapters[0].kind, "command");
-        assert_eq!(state.adapters[0].args_count, 0);
-        assert_eq!(state.adapters[0].env_count, 2);
-        assert!(state.adapters[0].has_working_dir);
+        let mut state = serde_json::to_value(TextAdapterState::default()).unwrap();
+        state["unexpected"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<TextAdapterState>(state).is_err());
 
-        let debug = format!("{state:?}");
-        for secret in [
-            "legacy-command-secret",
-            "legacy-arg-secret",
-            "legacy-env-secret",
-            "legacy-working-dir-secret",
-        ] {
-            assert!(!debug.contains(secret));
-        }
-    }
-
-    #[test]
-    fn missing_fields_default_for_legacy_tolerance() {
-        let state: TextAdapterState = serde_json::from_str(r#"{"adapter_count":0}"#).unwrap();
-        assert_eq!(state.adapter_count, 0);
-        assert!(state.adapter_ids.is_empty());
-        assert!(state.adapters.is_empty());
-        assert!(state.single_adapter_id.is_none());
+        let mut summary = serde_json::to_value(TextAdapterSummary::default()).unwrap();
+        summary["command"] = serde_json::json!("must-not-be-accepted");
+        assert!(serde_json::from_value::<TextAdapterSummary>(summary).is_err());
     }
 }

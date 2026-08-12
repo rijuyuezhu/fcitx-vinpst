@@ -6,24 +6,18 @@ use vinpst_protocol::CandidateSource;
 
 use crate::defaults::{
     default_active_scene, default_asr_provider, default_capture_device, default_duck_output_volume,
-    default_input_gain, default_json_object, default_language, default_true,
-    default_vad_min_silence_duration, default_vad_min_speech_duration, default_vad_speech_pad_ms,
-    default_vad_threshold,
+    default_input_gain, default_json_object, default_language, default_scene_candidate_count,
+    default_true, default_vad_min_silence_duration, default_vad_min_speech_duration,
+    default_vad_speech_pad_ms, default_vad_threshold,
 };
 
-/// Forward-compatible extra key containing the installed managed script SHA-256.
-pub const MANAGED_SCRIPT_REVISION_KEY: &str = "x-vinpst-managed-script-sha256";
-
-/// Forward-compatible extra key identifying the script revision stored in the rollback artifact.
-pub const MANAGED_SCRIPT_ROLLBACK_REVISION_KEY: &str = "x-vinpst-managed-script-rollback-sha256";
-
-/// Built-in raw scene id used by the legacy project.
+/// Built-in raw scene id used by the upstream project.
 pub const RAW_SCENE_ID: &str = "__raw__";
 
-/// Built-in command scene id used by the legacy project.
+/// Built-in command scene id used by the upstream project.
 pub const COMMAND_SCENE_ID: &str = "__command__";
 
-/// Legacy-compatible request timeout used when a scene omits `timeout_ms`.
+/// Upstream request timeout used when a scene omits `timeout_ms`.
 pub const DEFAULT_SCENE_TIMEOUT_MS: u64 = 4_000;
 
 /// Highest configuration schema version supported by this binary.
@@ -31,6 +25,7 @@ pub const CURRENT_CONFIG_VERSION: u32 = 1;
 
 /// Complete config document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct VinpstConfig {
     /// Config schema version.
     pub version: u32,
@@ -53,6 +48,7 @@ pub struct VinpstConfig {
 
 /// Compact config summary for CLI and diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct VinpstConfigSummary {
     /// Whether validation succeeded.
     pub ok: bool,
@@ -72,6 +68,7 @@ pub struct VinpstConfigSummary {
 
 /// Registry mirror settings.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct RegistryConfig {
     /// Ordered registry base URLs.
     #[serde(default)]
@@ -96,6 +93,7 @@ impl fmt::Debug for RegistryConfig {
 
 /// Global daemon/UI defaults.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct GlobalConfig {
     /// Default recognition language.
     #[serde(default = "default_language")]
@@ -124,6 +122,7 @@ impl Default for GlobalConfig {
 
 /// ASR settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AsrConfig {
     /// Selected provider id.
     #[serde(default = "default_asr_provider")]
@@ -156,6 +155,7 @@ impl Default for AsrConfig {
 
 /// VAD settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct VadConfig {
     /// Whether VAD trimming is enabled.
     #[serde(default = "default_true")]
@@ -200,6 +200,7 @@ pub enum AsrProviderKind {
 
 /// ASR provider config entry.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AsrProviderConfig {
     /// Stable provider id.
     pub id: String,
@@ -254,6 +255,7 @@ impl fmt::Debug for AsrProviderConfig {
 
 /// LLM provider/adapter config.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct LlmConfig {
     /// Provider entries used by scene and command post-processing.
     #[serde(default)]
@@ -265,6 +267,7 @@ pub struct LlmConfig {
 
 /// OpenAI-compatible or adapter-backed LLM provider config.
 #[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LlmProviderConfig {
     /// Stable provider id.
     pub id: String,
@@ -280,9 +283,6 @@ pub struct LlmProviderConfig {
     /// Extra JSON body merged into provider requests.
     #[serde(default = "default_json_object")]
     pub extra_body: serde_json::Value,
-    /// Forward-compatible unknown provider fields.
-    #[serde(default, flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
 }
 
 impl fmt::Debug for LlmProviderConfig {
@@ -300,13 +300,13 @@ impl fmt::Debug for LlmProviderConfig {
                 "extra_body_keys",
                 &self.extra_body.as_object().map(serde_json::Map::len),
             )
-            .field("extra_keys", &self.extra.len())
             .finish()
     }
 }
 
 /// External text adapter process config.
 #[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LlmAdapterConfig {
     /// Stable adapter id.
     pub id: String,
@@ -321,9 +321,20 @@ pub struct LlmAdapterConfig {
     /// Optional working directory for the adapter process.
     #[serde(default)]
     pub working_dir: Option<String>,
-    /// Forward-compatible unknown adapter fields.
-    #[serde(default, flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+    /// Installed managed-script revision, when the adapter is registry-managed.
+    #[serde(
+        default,
+        rename = "x-vinpst-managed-script-sha256",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub managed_script_sha256: Option<String>,
+    /// Previous managed-script revision retained for rollback.
+    #[serde(
+        default,
+        rename = "x-vinpst-managed-script-rollback-sha256",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub managed_script_rollback_sha256: Option<String>,
 }
 
 impl fmt::Debug for LlmAdapterConfig {
@@ -335,13 +346,13 @@ impl fmt::Debug for LlmAdapterConfig {
             .field("args_count", &self.args.len())
             .field("env_count", &self.env.len())
             .field("has_working_dir", &self.working_dir.is_some())
-            .field("extra_keys", &self.extra.len())
             .finish()
     }
 }
 
 /// Scene collection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ScenesConfig {
     /// Selected scene id.
     #[serde(default = "default_active_scene")]
@@ -362,6 +373,7 @@ impl Default for ScenesConfig {
 
 /// A post-processing scene definition.
 #[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SceneDefinition {
     /// Stable scene id.
     pub id: String,
@@ -377,7 +389,7 @@ pub struct SceneDefinition {
     #[serde(default)]
     pub model: Option<String>,
     /// Number of result candidates to ask the post-processor for.
-    #[serde(default)]
+    #[serde(default = "default_scene_candidate_count")]
     pub candidate_count: u8,
     /// Optional per-scene timeout in milliseconds.
     #[serde(default)]
@@ -404,7 +416,7 @@ impl fmt::Debug for SceneDefinition {
 }
 
 impl SceneDefinition {
-    /// Returns the explicit timeout or the legacy 4000 ms scene default.
+    /// Returns the explicit timeout or the upstream 4000 ms scene default.
     #[must_use]
     pub fn effective_timeout_ms(&self) -> u64 {
         self.timeout_ms.unwrap_or(DEFAULT_SCENE_TIMEOUT_MS)

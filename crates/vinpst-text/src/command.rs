@@ -121,6 +121,7 @@ impl CommandTextScene {
 
 /// JSON response returned by command-backed text adapter helpers.
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommandTextResponse {
     /// Full recognition payload returned by the helper.
     #[serde(default)]
@@ -129,7 +130,7 @@ pub struct CommandTextResponse {
     #[serde(default)]
     pub text: Option<String>,
     /// Error message returned by the helper.
-    #[serde(default, alias = "failure")]
+    #[serde(default)]
     pub error: Option<String>,
 }
 

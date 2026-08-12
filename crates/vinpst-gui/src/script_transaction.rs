@@ -8,9 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use vinpst_config::{
-    MANAGED_SCRIPT_REVISION_KEY, MANAGED_SCRIPT_ROLLBACK_REVISION_KEY, VinpstConfig,
-};
+use vinpst_config::VinpstConfig;
 use vinpst_registry::{LiveScriptKind, managed_script_rollback_path, sha256_hex};
 
 use crate::script_install::ScriptInstallOutcome;
@@ -101,19 +99,13 @@ pub(crate) fn apply_managed_script_revision(
         .ok_or_else(|| {
             format!("Installed text adapter `{resource_id}` is missing from prepared config.")
         })?;
-    adapter.extra.insert(
-        MANAGED_SCRIPT_REVISION_KEY.to_owned(),
-        serde_json::Value::String(sha256_hex(&bytes)),
-    );
+    adapter.managed_script_sha256 = Some(sha256_hex(&bytes));
     match rollback {
         Some(rollback) => {
-            adapter.extra.insert(
-                MANAGED_SCRIPT_ROLLBACK_REVISION_KEY.to_owned(),
-                serde_json::Value::String(rollback.revision.clone()),
-            );
+            adapter.managed_script_rollback_sha256 = Some(rollback.revision.clone());
         }
         None => {
-            adapter.extra.remove(MANAGED_SCRIPT_ROLLBACK_REVISION_KEY);
+            adapter.managed_script_rollback_sha256 = None;
         }
     }
     Ok(())

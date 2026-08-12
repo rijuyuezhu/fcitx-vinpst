@@ -111,7 +111,6 @@ pub(super) struct LlmProviderEditorState {
     base_url_secure: bool,
     baseline: LlmProviderEditorFields,
     fields: LlmProviderEditorFields,
-    preserved_extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl fmt::Debug for LlmProviderEditorState {
@@ -129,7 +128,6 @@ impl fmt::Debug for LlmProviderEditorState {
             .field("base_url_secure", &self.base_url_secure)
             .field("baseline", &self.baseline)
             .field("fields", &self.fields)
-            .field("preserved_extra_count", &self.preserved_extra.len())
             .finish()
     }
 }
@@ -149,7 +147,6 @@ impl LlmProviderEditorState {
             base_url_secure: false,
             baseline: fields.clone(),
             fields,
-            preserved_extra: std::collections::HashMap::new(),
         }
     }
 
@@ -168,7 +165,6 @@ impl LlmProviderEditorState {
             base_url_secure: base_url_input_is_secure(&provider.base_url),
             baseline: fields.clone(),
             fields,
-            preserved_extra: provider.extra.clone(),
         }
     }
 
@@ -249,7 +245,6 @@ impl LlmProviderEditorState {
             api_key,
             model,
             extra_body,
-            extra: self.preserved_extra.clone(),
         })
     }
 }
@@ -865,7 +860,6 @@ mod tests {
             api_key: "api-secret".to_owned(),
             model: Some("model-a".to_owned()),
             extra_body: serde_json::json!({"secret": "body-secret"}),
-            extra: HashMap::from([("future".to_owned(), serde_json::json!({"v": 1}))]),
         }
     }
 
@@ -959,7 +953,7 @@ mod tests {
     }
 
     #[test]
-    fn edit_provider_keeps_id_and_forward_compatible_fields() {
+    fn edit_provider_keeps_immutable_id_while_updating_model() {
         let mut config = VinpstConfig::bundled_default().expect("bundled config");
         config.llm.providers.push(provider("cloud"));
         let configured = config.llm.providers.last().expect("configured provider");
@@ -981,7 +975,6 @@ mod tests {
             .find(|provider| provider.id == "cloud")
             .expect("edited provider");
         assert_eq!(edited.model.as_deref(), Some("model-b"));
-        assert_eq!(edited.extra["future"], serde_json::json!({"v": 1}));
         assert!(
             !updated
                 .llm

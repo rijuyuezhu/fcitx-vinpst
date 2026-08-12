@@ -1,14 +1,14 @@
 use std::{fs, path::Path};
 
 use crate::{
-    CURRENT_CONFIG_VERSION, ConfigError, RAW_SCENE_ID, SceneDefinition, VinpstConfig,
-    VinpstConfigSummary, defaults::ensure_builtin_scenes, validation::validate_config,
+    CURRENT_CONFIG_VERSION, ConfigError, SceneDefinition, VinpstConfig, VinpstConfigSummary,
+    validation::validate_config,
 };
 
 impl VinpstConfig {
     /// Parses config from JSON.
     pub fn from_json_str(input: &str) -> Result<Self, ConfigError> {
-        let config = serde_json::from_str::<Self>(input)?.normalized();
+        let config = serde_json::from_str::<Self>(input)?;
         config.validate_schema_version()?;
         Ok(config)
     }
@@ -28,22 +28,6 @@ impl VinpstConfig {
         Self::from_json_str(include_str!("../../../data/default-config.json"))
     }
 
-    /// Applies non-destructive defaults for optional sections.
-    #[must_use]
-    pub fn normalized(mut self) -> Self {
-        if self.version == 0 {
-            self.version = 1;
-        }
-        if self.global.duck_output_volume.is_finite() {
-            self.global.duck_output_volume = self.global.duck_output_volume.clamp(0.0, 1.0);
-        }
-        if self.scenes.active_scene.is_empty() {
-            RAW_SCENE_ID.clone_into(&mut self.scenes.active_scene);
-        }
-        ensure_builtin_scenes(&mut self.scenes.definitions);
-        self
-    }
-
     /// Validates cross-field invariants that serde cannot express.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.validate_schema_version()?;
@@ -52,7 +36,7 @@ impl VinpstConfig {
     }
 
     fn validate_schema_version(&self) -> Result<(), ConfigError> {
-        if self.version > CURRENT_CONFIG_VERSION {
+        if self.version != CURRENT_CONFIG_VERSION {
             return Err(ConfigError::UnsupportedSchemaVersion {
                 found: self.version,
                 supported: CURRENT_CONFIG_VERSION,

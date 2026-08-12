@@ -46,12 +46,6 @@ struct AdapterPidRecord {
     start_time_ticks: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StoredAdapterPid {
-    Legacy(u32),
-    Fingerprinted(AdapterPidRecord),
-}
-
 /// Filesystem layout helper for supervised text adapter runtime state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterRuntimePaths {
@@ -85,30 +79,9 @@ impl AdapterRuntimePaths {
         Ok(self.runtime_dir.join(adapter_pid_file_name(adapter_id)?))
     }
 
-    /// Writes a legacy PID-only file and returns its path.
-    ///
-    /// New supervised starts use a fingerprinted record instead. This method is
-    /// retained for compatibility tests and migration tooling.
-    pub fn write_pid(&self, adapter_id: &str, pid: u32) -> Result<PathBuf, TextError> {
-        let path = self.pid_path(adapter_id)?;
-        self.ensure_runtime_dir()?;
-        fs::write(&path, pid.to_string()).map_err(|error| {
-            TextError::AdapterRuntimeIo(format!(
-                "failed to write adapter pid file `{}`: {error}",
-                path.display()
-            ))
-        })?;
-        Ok(path)
-    }
-
-    /// Reads either a fingerprinted or legacy PID file. Missing files are `None`.
+    /// Reads a fingerprinted PID record. Missing files are `None`.
     pub fn read_pid(&self, adapter_id: &str) -> Result<Option<u32>, TextError> {
-        Ok(self
-            .read_stored_pid(adapter_id)?
-            .map(|stored| match stored {
-                StoredAdapterPid::Legacy(pid) => pid,
-                StoredAdapterPid::Fingerprinted(record) => record.pid,
-            }))
+        Ok(self.read_pid_record(adapter_id)?.map(|record| record.pid))
     }
 
     /// Removes an adapter pid file. Missing files return `Ok(false)`.
@@ -178,7 +151,7 @@ impl AdapterRuntimePaths {
         Ok(path)
     }
 
-    fn read_stored_pid(&self, adapter_id: &str) -> Result<Option<StoredAdapterPid>, TextError> {
+    fn read_pid_record(&self, adapter_id: &str) -> Result<Option<AdapterPidRecord>, TextError> {
         let path = self.pid_path(adapter_id)?;
         let content = match fs::read_to_string(&path) {
             Ok(content) => content,
@@ -190,35 +163,22 @@ impl AdapterRuntimePaths {
                 )));
             }
         };
-        let trimmed = content.trim();
-        if trimmed.starts_with('{') {
-            let record = serde_json::from_str::<AdapterPidRecord>(trimmed).map_err(|error| {
-                TextError::InvalidAdapterPid(format!(
-                    "invalid fingerprinted pid record in `{}`: {error}",
-                    path.display()
-                ))
-            })?;
-            if record.version != ADAPTER_PID_RECORD_VERSION
-                || record.pid == 0
-                || record.start_time_ticks == 0
-            {
-                return Err(TextError::InvalidAdapterPid(format!(
-                    "unsupported or incomplete pid record in `{}`",
-                    path.display()
-                )));
-            }
-            return Ok(Some(StoredAdapterPid::Fingerprinted(record)));
+        let record = serde_json::from_str::<AdapterPidRecord>(content.trim()).map_err(|error| {
+            TextError::InvalidAdapterPid(format!(
+                "invalid fingerprinted pid record in `{}`: {error}",
+                path.display()
+            ))
+        })?;
+        if record.version != ADAPTER_PID_RECORD_VERSION
+            || record.pid == 0
+            || record.start_time_ticks == 0
+        {
+            return Err(TextError::InvalidAdapterPid(format!(
+                "unsupported or incomplete pid record in `{}`",
+                path.display()
+            )));
         }
-        trimmed
-            .parse::<u32>()
-            .map(StoredAdapterPid::Legacy)
-            .map(Some)
-            .map_err(|error| {
-                TextError::InvalidAdapterPid(format!(
-                    "invalid pid in `{}`: {error}",
-                    path.display()
-                ))
-            })
+        Ok(Some(record))
     }
 }
 
@@ -323,19 +283,11 @@ pub enum AdapterStopOutcome {
 }
 
 /// Stops a text adapter from a fingerprinted pid file.
-///
-/// Legacy PID-only files are removed without signaling because they cannot
-/// distinguish the original process from an unrelated process that reused the
-/// same PID.
 pub fn stop_adapter_process(
     adapter_id: &str,
     paths: &AdapterRuntimePaths,
 ) -> Result<AdapterStopOutcome, TextError> {
-    let Some(stored) = paths.read_stored_pid(adapter_id)? else {
-        return Ok(AdapterStopOutcome::NotRunning);
-    };
-    let StoredAdapterPid::Fingerprinted(record) = stored else {
-        paths.remove_pid(adapter_id)?;
+    let Some(record) = paths.read_pid_record(adapter_id)? else {
         return Ok(AdapterStopOutcome::NotRunning);
     };
     match process_record_state(record)? {
@@ -656,24 +608,17 @@ fn prepare_adapter_pid_slot(
     adapter_id: &str,
     paths: &AdapterRuntimePaths,
 ) -> Result<(), TextError> {
-    let Some(stored) = paths.read_stored_pid(adapter_id)? else {
+    let Some(record) = paths.read_pid_record(adapter_id)? else {
         return Ok(());
     };
-    match stored {
-        StoredAdapterPid::Legacy(pid) => Err(TextError::InvalidAdapterPid(format!(
-            "legacy PID-only record for `{adapter_id}` (pid {pid}) must be cleared with stop before start"
-        ))),
-        StoredAdapterPid::Fingerprinted(record) => match process_record_state(record)? {
-            ProcessRecordState::Running => {
-                Err(TextError::AdapterAlreadyRunning(adapter_id.to_owned()))
-            }
-            ProcessRecordState::Exited
-            | ProcessRecordState::Missing
-            | ProcessRecordState::Mismatched => {
-                paths.remove_pid(adapter_id)?;
-                Ok(())
-            }
-        },
+    match process_record_state(record)? {
+        ProcessRecordState::Running => Err(TextError::AdapterAlreadyRunning(adapter_id.to_owned())),
+        ProcessRecordState::Exited
+        | ProcessRecordState::Missing
+        | ProcessRecordState::Mismatched => {
+            paths.remove_pid(adapter_id)?;
+            Ok(())
+        }
     }
 }
 

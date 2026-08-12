@@ -1,10 +1,10 @@
 # Config contract
 
-`vinpst-config` owns config parsing, normalization, defaults, and validation. CLI and daemon diagnostics consume the same typed config so file-backed checks stay deterministic.
+`vinpst-config` owns config parsing, field defaults, validation, secret-safe diagnostics, and persistence. CLI, daemon, and GUI callers consume the same typed config so file-backed behavior stays deterministic. Vinpst has no released historical config format to migrate: parsed user values are never silently repaired or rewritten.
 
 ## Baseline fixture
 
-`data/default-config.json` is the committed compatibility baseline aligned with the current upstream defaults. It is also the stable smoke fixture for explicit config CLI paths:
+`data/default-config.json` is the committed Vinpst baseline aligned with the current upstream defaults. It is also the stable smoke fixture for explicit config CLI paths:
 
 ```sh
 cargo run -q -p vinpst-cli -- config validate data/default-config.json --summary-only
@@ -15,7 +15,7 @@ Daemon config resolution uses the canonical Vinpst XDG path. An explicit `--conf
 
 Integration tests consume the same committed fixture directly, so changes to config parsing or defaults must keep the CLI summary and ASR diagnostics contracts stable.
 
-The committed baseline intentionally fixes these compatibility fields:
+The committed baseline intentionally fixes these fields:
 
 - output ducking disabled by default, with a `duck_output_volume` multiplier of `0.25` when enabled;
 - ASR provider `sherpa-onnx` as the active local provider placeholder.
@@ -24,26 +24,23 @@ The committed baseline intentionally fixes these compatibility fields:
 
 Runtime availability is not implied by the fixture; local `sherpa-onnx` requires the feature-gated native backend and a compatible installed model.
 
-## Legacy compatibility policy
+## Strict config policy
 
-The legacy C++ project accepted or repaired some malformed user config shapes more loosely. The Rust contract is intentionally explicit: parsing may normalize missing builtin scenes and blank/missing `active_scene` to `__raw__`. Missing `__command__`, an empty command prompt, the former free-form command prompt, and the former short-tag `<selected>/<asr>` prompt are upgraded to the current upstream scoped interpolation prompt. The one numeric compatibility repair retained here is `global.duck_output_volume`, which clamps finite parsed values to `0.0..=1.0` like legacy. Validation still rejects programmatically constructed non-finite values and does not silently deduplicate or drop invalid entries.
+Vinpst v0.1.0 is the first release, so the config parser does not carry migration or repair code for unpublished development snapshots. The contract is fail-closed:
 
-Config-file failure behavior intentionally differs from upstream where fail-closed handling protects user data. Both projects fall back to the bundled default only when the normal user config file is absent. With an existing malformed JSON file, the compiled upstream CLI reports the parse failure but exits successfully with a partially defaulted config; Vinpst returns an error instead. The compiled upstream CLI also accepts an unknown future `version`, while Vinpst rejects schema versions newer than `CURRENT_CONFIG_VERSION`. This prevents an older binary from silently reading or later rewriting a config format it does not understand.
+- `version` must exactly equal `CURRENT_CONFIG_VERSION`. Older, newer, or zero versions are rejected rather than upgraded or partially interpreted.
+- Serde defaults apply only when a field is intentionally defined as optional/defaulted by the current schema. After parsing, Vinpst does not clamp, rename, insert, deduplicate, or otherwise repair user-supplied values.
+- Both built-in scenes, `__raw__` and `__command__`, must be present. Missing built-ins are rejected instead of synthesized. A blank or unknown `active_scene` is rejected.
+- Omitted scene `candidate_count` uses the current upstream default `1`. An explicit `0` is preserved and disables post-processing; it is never rewritten to `1`.
+- Numeric values such as output ducking volume, input gain, VAD controls, scene candidate count/context limits, and explicit timeouts are range-checked. Out-of-range values are errors, not values to clamp or repair.
+- Duplicate/blank registry mirrors, provider ids, adapter ids, malformed provider definitions, and invalid scene references are rejected rather than dropped or normalized.
+- An existing malformed or invalid user config is an error. Only an absent user config file falls back to the bundled default.
 
-Pinned decisions, covered by `crates/vinpst-config/tests/legacy_compat.rs`:
+The strict behavior is pinned by `crates/vinpst-config/tests/strict_config.rs`. If the schema changes after a public release, any future migration policy must be designed explicitly for that released version; pre-release Vinpst snapshots do not justify compatibility shims.
 
-- duplicate or blank registry mirrors are rejected, not deduplicated or dropped.
-- duplicate or blank LLM provider, LLM adapter, and ASR provider ids are rejected.
-- command ASR providers must configure a non-empty `command`.
-- `global.duck_output_while_recording` defaults to `false`; `global.duck_output_volume` defaults to `0.25`, finite parsed values are clamped to `0.0..=1.0`, and non-finite runtime values are rejected.
-- VAD threshold and duration values are strictly range-checked instead of silently clamped: threshold `0.05..=0.95`, minimum speech `0.05..=2.0` seconds, minimum silence `0.05..=5.0` seconds, and speech padding at most `2000` ms.
-- omitted scene `timeout_ms` uses the legacy 4000 ms request deadline; an explicitly provided zero remains invalid rather than being repaired. Scene `candidate_count` and `context_lines` limits are strict and are not clamped after invalid values are provided.
-- missing active scene references are rejected. Unknown non-empty active ASR provider references are rejected when an explicit provider list is present; minimal diagnostics configs that omit providers retain the historical placeholder behavior. The exact empty string is a valid legacy-compatible "no provider selected" state, while whitespace-only ids remain invalid.
-- unknown scene `provider_id`, blank scene `model`, and blank scene `prompt` are rejected. Non-empty `model` or `prompt` without a provider remains accepted by the current validation contract.
+Some defaults and wire behavior intentionally match the current upstream C++ project, including the 4000 ms effective scene timeout when `timeout_ms` is omitted, the empty-string "no ASR provider selected" state, and the built-in scene ids. Those are current product semantics, not migration repairs.
 
-These tests document compatibility policy rather than feature parity: future migration work may choose to implement more legacy-style repair, but it must update the tests and this document deliberately.
-
-Provider removal follows the legacy config lifecycle: local providers are retained, removing the active non-local provider clears `asr.active_provider`, and the resulting config remains valid but has no runtime backend selected. Configured runtime construction reports that state as unavailable instead of choosing another provider implicitly.
+Provider removal retains local providers; removing the active non-local provider clears `asr.active_provider`, and the resulting config remains valid with no runtime backend selected. Configured runtime construction reports that state as unavailable instead of choosing another provider implicitly.
 
 ## Offline VAD fields
 

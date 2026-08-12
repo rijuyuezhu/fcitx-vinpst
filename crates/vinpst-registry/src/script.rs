@@ -400,7 +400,8 @@ pub fn materialize_llm_adapter(
             args: vec![script_path.clone()],
             env: HashMap::new(),
             working_dir: None,
-            extra: HashMap::new(),
+            managed_script_sha256: None,
+            managed_script_rollback_sha256: None,
         },
     };
     adapter.id.clone_from(&entry.id);
