@@ -96,21 +96,30 @@ for name, node in nodes.items():
     if not isinstance(locked, dict):
         raise SystemExit(f"flake.lock input {name} is not pinned")
     input_type = locked.get("type")
-    if not isinstance(input_type, str) or not input_type:
-        raise SystemExit(f"flake.lock input {name} missing type")
+    if input_type != "github":
+        raise SystemExit(f"flake.lock input {name} has unsupported type {input_type!r}")
     validate_nar_hash(name, locked.get("narHash"))
 
-    if input_type == "github":
-        for field in ("owner", "repo"):
-            value = locked.get(field)
-            if not isinstance(value, str) or not value:
-                raise SystemExit(f"flake.lock GitHub input {name} missing {field}")
-        revision = locked.get("rev")
-        if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
-            raise SystemExit(f"flake.lock GitHub input {name} has an invalid rev")
-        original = node.get("original")
-        original_ref = original.get("ref") if isinstance(original, dict) else None
-        if isinstance(original_ref, str) and original_ref.lower() in {"main", "master"}:
+    for field in ("owner", "repo"):
+        value = locked.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise SystemExit(f"flake.lock GitHub input {name} missing {field}")
+    revision = locked.get("rev")
+    if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+        raise SystemExit(f"flake.lock GitHub input {name} has an invalid rev")
+
+    original = node.get("original")
+    if not isinstance(original, dict) or original.get("type") != "github":
+        raise SystemExit(f"flake.lock GitHub input {name} has invalid original metadata")
+    for field in ("owner", "repo"):
+        value = original.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise SystemExit(f"flake.lock GitHub input {name} original missing {field}")
+    original_ref = original.get("ref")
+    if original_ref is not None:
+        if not isinstance(original_ref, str) or not original_ref.strip():
+            raise SystemExit(f"flake.lock GitHub input {name} has invalid original ref")
+        if original_ref.lower() in {"main", "master", "refs/heads/main", "refs/heads/master"}:
             raise SystemExit(f"flake.lock GitHub input {name} tracks a default branch")
 PY
 echo "Nix flake metadata check passed"
