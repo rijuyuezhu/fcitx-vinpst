@@ -70,8 +70,11 @@ base = {
     "version": 1,
     "global": {"default_language": "en-US", "capture_device": "default"},
     "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id": "raw", "label": "Raw", "candidate_count": 0}],
+        "active_scene": "__raw__",
+        "definitions": [
+            {"id": "__raw__", "label": "Raw", "candidate_count": 0},
+            {"id": "__command__", "label": "Command", "candidate_count": 1},
+        ],
     },
 }
 initial = dict(base)

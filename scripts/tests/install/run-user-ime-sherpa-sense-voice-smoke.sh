@@ -258,7 +258,8 @@ assert provider["type"] == "local", provider
 assert provider["model"] == str(model_dir), provider
 assert provider["hotwords_file"] == str(model_dir / "hotwords.txt"), provider
 assert provider["timeout_ms"] == 7000, provider
-assert config["scenes"]["active_scene"] == "raw", config
+assert config["scenes"]["active_scene"] == "__raw__", config
+assert {scene["id"] for scene in config["scenes"]["definitions"]} >= {"__raw__", "__command__"}, config
 if command_adapter:
     assert config["llm"]["adapters"] == [
         {

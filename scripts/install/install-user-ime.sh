@@ -279,8 +279,11 @@ config = {
         ],
     },
     "scenes": {
-        "active_scene": "raw",
-        "definitions": [{"id": "raw", "label": "Raw", "candidate_count": 0}],
+        "active_scene": "__raw__",
+        "definitions": [
+            {"id": "__raw__", "label": "Raw", "candidate_count": 0},
+            {"id": "__command__", "label": "Command", "candidate_count": 1},
+        ],
     },
 }
 output_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -358,7 +361,10 @@ if timeout_arg:
         raise SystemExit("VINPST_USER_SHERPA_TIMEOUT_MS must be positive")
     provider["timeout_ms"] = timeout_ms
 
-scenes = [{"id": "raw", "label": "Raw", "candidate_count": 0}]
+scenes = [
+    {"id": "__raw__", "label": "Raw", "candidate_count": 0},
+    {"id": "__command__", "label": "Command", "candidate_count": 1},
+]
 config = {
     "version": 1,
     "asr": {
@@ -375,7 +381,7 @@ config = {
         "providers": [provider],
     },
     "scenes": {
-        "active_scene": "raw",
+        "active_scene": "__raw__",
         "definitions": scenes,
     },
 }
@@ -396,14 +402,7 @@ if command_adapter:
             }
         ]
     }
-    scenes.append(
-        {
-            "id": "__command__",
-            "label": "Command",
-            "prompt": "Apply the recognized command to the selected text.",
-            "candidate_count": 1,
-        }
-    )
+    scenes[1]["prompt"] = "Apply the recognized command to the selected text."
 output_path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 PY
 }

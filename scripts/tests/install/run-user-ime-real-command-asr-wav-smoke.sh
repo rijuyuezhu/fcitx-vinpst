@@ -156,7 +156,8 @@ assert provider["command"] == sys.argv[2], provider
 assert provider["args"] == ["--timeout-ms", "5000", "--", "sh", "-c", "$VINPST_REAL_ASR_COMMAND"], provider
 assert provider["env"] == {"VINPST_REAL_ASR_COMMAND": sys.argv[3]}, provider
 assert provider["timeout_ms"] == 7000, provider
-assert config["scenes"]["active_scene"] == "raw", config
+assert config["scenes"]["active_scene"] == "__raw__", config
+assert {scene["id"] for scene in config["scenes"]["definitions"]} >= {"__raw__", "__command__"}, config
 PY
 
 request='{"provider_id":"real-command-asr-wav","timeout_ms":5000,"pcm":{"sample_rate_hz":16000,"channels":1},"context":{"mode":"normal","selected_text":null},"samples":[0,1000,-1000,2000,-2000,3000]}'

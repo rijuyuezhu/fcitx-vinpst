@@ -321,7 +321,7 @@ model = sys.argv[3]
 if runtime.get("text_adapters", {}).get("adapter_ids"):
     raise SystemExit("external HTTP text runtime unexpectedly retained command adapters")
 config = runtime.get("config", {})
-if config.get("active_scene") != "raw":
+if config.get("active_scene") != "__raw__":
     raise SystemExit(f"external text setup changed active scene: {config.get('active_scene')!r}")
 print(json.dumps({"provider": provider_id, "model": model, "ok": True}))
 PY

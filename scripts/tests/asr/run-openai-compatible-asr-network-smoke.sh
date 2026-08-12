@@ -110,8 +110,11 @@ write_config() {
         }]
       },
       scenes: {
-        active_scene: "raw",
-        definitions: [{id: "raw", label: "Raw", candidate_count: 0}]
+        active_scene: "__raw__",
+        definitions: [
+          {id: "__raw__", label: "Raw", candidate_count: 0},
+          {id: "__command__", label: "Command", candidate_count: 1}
+        ]
       }
     }
   ' >"${config_file}"
