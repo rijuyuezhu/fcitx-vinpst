@@ -43,6 +43,8 @@ def resolve_reference(reference, resolving):
     if isinstance(reference, str):
         if reference not in nodes:
             raise SystemExit(f"flake.lock references missing node {reference}")
+        if reference == root_name:
+            raise SystemExit("flake.lock input reference resolves to the unlocked root node")
         return reference
     if not (
         isinstance(reference, list)
