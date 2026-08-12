@@ -1,6 +1,6 @@
 # Config contract
 
-`vinpst-config` owns config parsing, field defaults, validation, secret-safe diagnostics, and persistence. CLI, daemon, and GUI callers consume the same typed config so file-backed behavior stays deterministic. Vinpst has no released historical config format to migrate: parsed user values are never silently repaired or rewritten.
+`vinpst-config` owns config parsing, field defaults, validation, secret-safe diagnostics, persistence, and versioned migration policy. CLI, daemon, and GUI callers consume the same typed config so file-backed behavior stays deterministic. Parsed user values are never silently repaired or rewritten.
 
 ## Baseline fixture
 
@@ -26,7 +26,7 @@ Runtime availability is not implied by the fixture; local `sherpa-onnx` requires
 
 ## Strict config policy
 
-Vinpst v0.1.0 is the first release, so the config parser does not carry migration or repair code for unpublished development snapshots. The contract is fail-closed:
+The config contract is fail-closed:
 
 - `version` must exactly equal `CURRENT_CONFIG_VERSION`. Older, newer, or zero versions are rejected rather than upgraded or partially interpreted.
 - Serde defaults apply only when a field is intentionally defined as optional/defaulted by the current schema. After parsing, Vinpst does not clamp, rename, insert, deduplicate, or otherwise repair user-supplied values.
@@ -36,7 +36,7 @@ Vinpst v0.1.0 is the first release, so the config parser does not carry migratio
 - Duplicate/blank registry mirrors, provider ids, adapter ids, malformed provider definitions, and invalid scene references are rejected rather than dropped or normalized.
 - An existing malformed or invalid user config is an error. Only an absent user config file falls back to the bundled default.
 
-The strict behavior is pinned by `crates/vinpst-config/tests/strict_config.rs`. If the schema changes after a public release, any future migration policy must be designed explicitly for that released version; pre-release Vinpst snapshots do not justify compatibility shims.
+The strict behavior is pinned by `crates/vinpst-config/tests/strict_config.rs`. Schema migration policy is designed explicitly between published versions; development snapshots that were never released do not justify compatibility shims.
 
 Some defaults and wire behavior intentionally match the current upstream C++ project, including the 4000 ms effective scene timeout when `timeout_ms` is omitted, the empty-string "no ASR provider selected" state, and the built-in scene ids. Those are current product semantics, not migration repairs.
 

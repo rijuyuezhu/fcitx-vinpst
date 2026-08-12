@@ -1,6 +1,6 @@
 # Project identity contract
 
-`fcitx-vinpst` is the only supported project identity. This is an explicit product boundary: Vinpst does not reuse or migrate upstream identities, and unreleased pre-0.1.0 internal names do not receive compatibility aliases.
+`fcitx-vinpst` is the only supported project identity. This is an explicit product boundary: Vinpst does not reuse or migrate upstream identities, and identifiers that were never part of a public Vinpst release do not receive compatibility aliases.
 
 ## Canonical names
 

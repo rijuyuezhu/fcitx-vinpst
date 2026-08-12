@@ -124,4 +124,4 @@ The Rust service pins these current Vinpst behaviors with unit and D-Bus integra
 
 ## Change rule
 
-Every current Vinpst client must agree on the same service contract. Before 0.1.0, a method, path, status, signal, payload, or error may change when it improves the product, but the protocol crate, daemon, retained frontend, CLI/GUI clients, activation metadata, tests, and documentation must change atomically. Do not retain aliases solely for unreleased internal compatibility.
+Every current Vinpst client must agree on the same service contract. Changes to methods, paths, statuses, signals, payloads, or errors must update the protocol crate, daemon, retained frontend, CLI/GUI clients, activation metadata, tests, and documentation atomically. Compatibility with published clients requires an explicit versioning or migration decision; unreleased internal spellings do not receive aliases automatically.

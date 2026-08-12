@@ -41,7 +41,7 @@ gh attestation verify ./fcitx-vinpst-0.1.0.tar.gz \
   --signer-workflow rijuyuezhu/fcitx-vinpst/.github/workflows/release.yml
 ```
 
-The rehearsal is the release candidate. Do not create the tag when any selected job, package transaction, Nix/Cachix publication, manifest check, attestation, installation check, or required desktop check is incomplete.
+Do not create the tag when any selected job, package transaction, Nix/Cachix publication, manifest check, attestation, installation check, or required desktop check is incomplete.
 
 ## Publish
 
@@ -119,12 +119,6 @@ Do not move a tag to a different commit.
 
 ### After publication
 
-Do not clobber assets, move the tag, or reuse the version. Mark the release as a prerelease and add a visible warning when immediate mitigation is necessary, then publish a corrected patch release:
-
-```sh
-gh release edit v0.1.0 \
-  --repo rijuyuezhu/fcitx-vinpst \
-  --prerelease
-```
+Do not clobber assets, move the tag, or reuse the version. Add a visible warning when immediate mitigation is necessary, then publish a corrected patch release.
 
 For a compromised or unsafe artifact, remove the affected public assets or release only as an emergency containment measure, record what was removed and why, and publish a new version with fresh checksums and attestations. Consumers should be directed to the fixed version rather than to a rewritten `v0.1.0`.

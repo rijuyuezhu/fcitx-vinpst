@@ -12,9 +12,6 @@
 *.swo
 .DS_Store
 
-# Local planning scratch
-/docs/plan/
-
 # C++ tooling
 /compile_commands.json
 
