@@ -357,20 +357,39 @@ fn start_adapter_process_reports_immediate_exit_stderr_without_pid_file() {
 #[test]
 fn started_adapter_process_drains_lines_and_flushes_partial_stderr_on_exit() {
     let runtime_dir = unique_runtime_dir("stderr-lines");
+    let release_path = runtime_dir.join("release");
     let paths = AdapterRuntimePaths::new(&runtime_dir);
-    let spec = sleep_adapter_spec(vec![
+    let mut spec = sleep_adapter_spec(vec![
         "-c".to_owned(),
-        "printf ' first \\nsecond\\npartial' >&2; sleep 0.5; exit 0".to_owned(),
+        "printf ' first \\nsecond\\npartial' >&2; while [ ! -e \"$VINPST_TEST_RELEASE\" ]; do sleep 0.01; done"
+            .to_owned(),
     ]);
+    spec.env.insert(
+        "VINPST_TEST_RELEASE".to_owned(),
+        release_path.to_string_lossy().into_owned(),
+    );
     let mut started = start_adapter_process(&spec, &paths).unwrap();
 
-    assert_eq!(
-        started.drain_stderr_lines(false).unwrap(),
-        ["first".to_owned(), "second".to_owned()]
-    );
+    let stderr_deadline = Instant::now() + Duration::from_secs(2);
+    let mut complete_lines = Vec::new();
+    while complete_lines.len() < 2 && Instant::now() < stderr_deadline {
+        complete_lines.extend(started.drain_stderr_lines(false).unwrap());
+        if complete_lines.len() < 2 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    assert_eq!(complete_lines, ["first".to_owned(), "second".to_owned()]);
     assert!(started.try_wait_and_cleanup().unwrap().is_none());
-    std::thread::sleep(Duration::from_millis(400));
-    assert!(started.try_wait_and_cleanup().unwrap().is_some());
+
+    std::fs::write(&release_path, b"release").unwrap();
+    let exit_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if started.try_wait_and_cleanup().unwrap().is_some() {
+            break;
+        }
+        assert!(Instant::now() < exit_deadline, "adapter did not exit");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     assert_eq!(
         started.drain_stderr_lines(true).unwrap(),
         ["partial".to_owned()]
