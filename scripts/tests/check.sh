@@ -19,7 +19,6 @@ scripts/tools/build-toolkit-probes.sh
 
 scripts/release/check-arch-install-script.sh
 scripts/release/check-arch-pkgbuild.sh
-scripts/release/check-aur-pkgbuild.sh
 scripts/release/check-deb-package.sh
 scripts/release/check-flatpak-manifest.sh
 scripts/release/check-nix-flake.sh

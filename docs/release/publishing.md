@@ -66,10 +66,9 @@ The tag workflow:
 8. creates or reuses only a draft GitHub Release;
 9. uploads the exact checked bundle and compares every remote asset name, size, and GitHub-reported SHA-256 digest with the local bundle;
 10. publishes the draft only after the inventory matches;
-11. publishes `fcitx-vinpst-bin` to AUR from the verified public Arch artifact.
+11. publishes `fcitx-vinpst-bin` to AUR from the verified Arch artifact.
 
-A rerun may replace assets only while the GitHub Release is still a draft. The workflow refuses to mutate an already-public release. AUR publication can be retried independently for an existing public tag with `gh workflow run aur.yml --ref main -f tag=v<version>`.
-
+A rerun may replace assets only while the GitHub Release is still a draft. The workflow refuses to mutate an already-public release.
 Nix is intentionally published as a binary-cache channel rather than as a `.nix` file in the GitHub Release. The GitHub bundle therefore records the source archive, bundled Linux tarball, native packages, and Flatpak bundle, while the release DAG separately requires the Cachix closure publication to succeed.
 
 ## Post-publication verification
