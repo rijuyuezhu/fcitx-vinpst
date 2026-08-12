@@ -13,7 +13,7 @@ while [[ ! -f "${repo_root}/Cargo.toml" || ! -d "${repo_root}/scripts" ]]; do
 done
 cd "${repo_root}"
 
-for command in bsdtar fakeroot pacman sha256sum; do
+for command in bsdtar fakeroot jq pacman sha256sum; do
   command -v "${command}" >/dev/null
 done
 
@@ -87,19 +87,28 @@ assert_user_config_unchanged() {
 
 assert_future_config_rejected() {
   local phase="$1"
-  local stderr_path="${transaction_root}/${phase}-future-config.stderr"
-  local stdout_path="${transaction_root}/${phase}-future-config.stdout"
+  local installed_default="${pacman_root}/usr/share/fcitx-vinpst/default-config.json"
+  local probe_path="${transaction_root}/${phase}-future-config.json"
+  local current_stdout="${transaction_root}/${phase}-current-config.stdout"
+  local current_stderr="${transaction_root}/${phase}-current-config.stderr"
+  local future_stdout="${transaction_root}/${phase}-future-config.stdout"
+  local future_stderr="${transaction_root}/${phase}-future-config.stderr"
   local status
+
+  "${pacman_root}/usr/bin/vinpst" config validate "${installed_default}" --json \
+    >"${current_stdout}" 2>"${current_stderr}"
+  test -s "${current_stdout}"
+  test ! -s "${current_stderr}"
+
+  jq '.version = 2' "${installed_default}" >"${probe_path}"
   set +e
-  "${pacman_root}/usr/bin/vinpst" config validate "${user_config}" --json \
-    >"${stdout_path}" 2>"${stderr_path}"
+  "${pacman_root}/usr/bin/vinpst" config validate "${probe_path}" --json \
+    >"${future_stdout}" 2>"${future_stderr}"
   status=$?
   set -e
   test "${status}" -ne 0
-  test ! -s "${stdout_path}"
-  grep -Fq \
-    'unsupported config schema version 2; this binary supports up to 1' \
-    "${stderr_path}"
+  test ! -s "${future_stdout}"
+  test -s "${future_stderr}"
   assert_user_config_unchanged
 }
 
