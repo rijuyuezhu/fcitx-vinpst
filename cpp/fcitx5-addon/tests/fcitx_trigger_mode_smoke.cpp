@@ -60,6 +60,23 @@ int main() {
   assert(both.FirePendingStop() == TriggerModeAction::StopActive);
   both.RecordingStopped();
 
+  TriggerModeController result_during_release_tail(TriggerMode::Both);
+  assert(result_during_release_tail.OnPress(TriggerKind::Normal, normal, base, false) ==
+         TriggerModeAction::StartNormal);
+  result_during_release_tail.ConfirmStart(true);
+  assert(result_during_release_tail.OnRelease(
+             TriggerKind::Normal, normal, base + 100ms) == TriggerModeAction::Consume);
+  assert(result_during_release_tail.OnPress(TriggerKind::Normal, normal, base + 1s,
+                                            true) == TriggerModeAction::StopActive);
+  assert(result_during_release_tail.OnRelease(TriggerKind::Normal, normal,
+                                              base + 1100ms) ==
+         TriggerModeAction::ScheduleStop);
+  result_during_release_tail.RecordingStopped();
+  assert(result_during_release_tail.FirePendingStop() == TriggerModeAction::None);
+  assert(result_during_release_tail.OnPress(TriggerKind::Normal, normal, base + 2s,
+                                            false) == TriggerModeAction::StartNormal);
+  result_during_release_tail.ConfirmStart(false);
+
   TriggerModeController debounce(TriggerMode::Tap);
   assert(debounce.OnPress(TriggerKind::Normal, normal, base, false) ==
          TriggerModeAction::StartNormal);
