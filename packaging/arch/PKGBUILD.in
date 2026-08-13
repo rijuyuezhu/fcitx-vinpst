@@ -9,7 +9,6 @@ depends=(
   'coreutils'
   'fcitx5'
   'fontconfig'
-  'glib2'
   'glibc'
   'libgcc'
   'libpipewire'
@@ -95,12 +94,6 @@ package() {
     "${pkgdir}/usr/bin/vinpst-daemon"
   install -Dm755 "${srcdir}/cargo-target/release/vinpst-gui" \
     "${pkgdir}/usr/bin/vinpst-gui"
-  install -Dm644 scripts/release/package-session-common.sh \
-    "${pkgdir}/usr/lib/fcitx-vinpst/package-session-common.sh"
-  install -Dm755 scripts/release/package-upgrade-handoff.sh \
-    "${pkgdir}/usr/lib/fcitx-vinpst/package-upgrade-handoff"
-  install -Dm755 scripts/release/package-remove-handoff.sh \
-    "${pkgdir}/usr/lib/fcitx-vinpst/package-remove-handoff"
 
   install -Dm755 \
     "${srcdir}/${_sherpa_onnx_archive_root}/lib/libsherpa-onnx-c-api.so" \

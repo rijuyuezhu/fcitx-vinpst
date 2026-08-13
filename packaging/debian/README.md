@@ -3,8 +3,9 @@
 The checked Debian package is assembled by
 `scripts/release/build-deb-package.sh`. It builds the Rust CLI, daemon, and
 Iced GUI plus the retained Fcitx addon, then installs the same private
-checksum-pinned sherpa-onnx/ONNX Runtime bundle and lifecycle helpers used by
-the Arch and RPM packages.
+checksum-pinned sherpa-onnx/ONNX Runtime bundle used by the Arch and RPM
+packages. Maintainer scripts only print short lifecycle guidance; they do not
+inspect or mutate live desktop sessions.
 
 The release targets currently proved by Docker are:
 

@@ -25,10 +25,7 @@ Source3:        onnxruntime-LICENSE-@VINPST_ONNXRUNTIME_VERSION@
 ExclusiveArch:  @VINPST_PACKAGE_ARCH@
 Requires:       fcitx5
 Requires:       /usr/bin/env
-Requires:       /usr/bin/gdbus
-Requires:       /usr/bin/getent
 Requires:       /usr/bin/kill
-Requires:       /usr/sbin/runuser
 Requires:       /usr/bin/systemctl
 
 @VINPST_BUILD_REQUIRES@
@@ -86,13 +83,6 @@ install -Dm755 "%{vinpst_cargo_target}/release/vinpst-daemon" \
 install -Dm755 "%{vinpst_cargo_target}/release/vinpst-gui" \
   "%{buildroot}%{_bindir}/vinpst-gui"
 
-install -Dm644 scripts/release/package-session-common.sh \
-  "%{buildroot}/usr/lib/fcitx-vinpst/package-session-common.sh"
-install -Dm755 scripts/release/package-upgrade-handoff.sh \
-  "%{buildroot}/usr/lib/fcitx-vinpst/package-upgrade-handoff"
-install -Dm755 scripts/release/package-remove-handoff.sh \
-  "%{buildroot}/usr/lib/fcitx-vinpst/package-remove-handoff"
-
 install -Dm755 "%{_builddir}/%{vinpst_sherpa_archive_root}/lib/libsherpa-onnx-c-api.so" \
   "%{buildroot}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so"
 install -Dm755 "%{_builddir}/%{vinpst_sherpa_archive_root}/lib/libonnxruntime.so" \
@@ -123,15 +113,7 @@ install -Dm644 "%{SOURCE3}" \
   "%{buildroot}%{_licensedir}/%{name}/onnxruntime-LICENSE"
 
 %post -p /bin/bash
-if [[ "$1" -gt 1 && -x /usr/lib/fcitx-vinpst/package-upgrade-handoff ]]; then
-  /usr/lib/fcitx-vinpst/package-upgrade-handoff
-fi
-printf '%s\n' 'Restart or reload Fcitx5 in each active desktop session to load the vinpst addon.'
-
-%preun -p /bin/bash
-if [[ "$1" -eq 0 && -x /usr/lib/fcitx-vinpst/package-remove-handoff ]]; then
-  /usr/lib/fcitx-vinpst/package-remove-handoff
-fi
+printf '%s\n' 'Reload Fcitx5 in active desktop sessions: fcitx5 -r'
 
 %postun -p /bin/bash
 if [[ "$1" -eq 0 ]]; then

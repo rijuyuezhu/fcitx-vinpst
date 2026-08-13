@@ -5,8 +5,7 @@ case "${1:-}" in
 remove | purge)
   printf '%s\n' \
     'fcitx-vinpst was removed.' \
-    'User configuration, models, and cache were intentionally preserved.' \
-    'Reload Fcitx5 to unload the removed addon:' \
-    '  fcitx5 -r'
+    'User configuration, models, and cache were preserved.' \
+    'Reload Fcitx5 in active desktop sessions: fcitx5 -r'
   ;;
 esac

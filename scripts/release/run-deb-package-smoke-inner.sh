@@ -51,9 +51,6 @@ required_files=(
   usr/bin/vinpst
   usr/bin/vinpst-daemon
   usr/bin/vinpst-gui
-  usr/lib/fcitx-vinpst/package-session-common.sh
-  usr/lib/fcitx-vinpst/package-upgrade-handoff
-  usr/lib/fcitx-vinpst/package-remove-handoff
   usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so
   usr/lib/fcitx-vinpst/libonnxruntime.so
   usr/lib/systemd/user/vinpst-daemon.service
@@ -73,13 +70,11 @@ done
 addon="$(find "${extract_root}/usr/lib" -path '*/fcitx5/fcitx5-vinpst.so' -type f -print -quit)"
 test -n "${addon}"
 
-for script in postinst prerm postrm; do
+for script in postinst postrm; do
   test -x "${control_root}/${script}"
   bash -n "${control_root}/${script}"
 done
-grep -q 'package-upgrade-handoff' "${control_root}/postinst"
-grep -q 'package-remove-handoff' "${control_root}/prerm"
-grep -q 'intentionally preserved' "${control_root}/postrm"
+test ! -e "${control_root}/prerm"
 
 for binary in vinpst vinpst-daemon vinpst-gui; do
   if ldd "${extract_root}/usr/bin/${binary}" | grep -q 'not found'; then
@@ -121,7 +116,6 @@ for path in \
   /usr/bin/vinpst \
   /usr/bin/vinpst-daemon \
   /usr/bin/vinpst-gui \
-  /usr/lib/fcitx-vinpst/package-upgrade-handoff \
   /usr/lib/systemd/user/vinpst-daemon.service \
   /usr/share/applications/vinpst-gui.desktop; do
   test -e "${path}"

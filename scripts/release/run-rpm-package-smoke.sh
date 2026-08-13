@@ -189,23 +189,12 @@ test "$(rpm --dbpath "${verify_db}" -qp --qf '%{LICENSE}' "${initial_rpm}")" = \
 ! rpm --dbpath "${verify_db}" -qp --conflicts "${initial_rpm}" | grep -q .
 ! rpm --dbpath "${verify_db}" -qp --obsoletes "${initial_rpm}" | grep -q .
 rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx 'fcitx5'
-rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx '/usr/bin/gdbus'
 rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" | grep -qx '/usr/bin/systemctl'
 if rpm --dbpath "${verify_db}" -qp --requires "${initial_rpm}" |
   grep -Eq '^lib(onnxruntime|sherpa-onnx-c-api)\.so'; then
   echo "RPM exposes private native runtime libraries as package dependencies" >&2
   exit 1
 fi
-rpm --dbpath "${verify_db}" -qp --scripts "${initial_rpm}" >"${stage_root}/scriptlets.txt"
-grep -Fq '/usr/lib/fcitx-vinpst/package-upgrade-handoff' \
-  "${stage_root}/scriptlets.txt"
-grep -Fq '/usr/lib/fcitx-vinpst/package-remove-handoff' \
-  "${stage_root}/scriptlets.txt"
-# shellcheck disable=SC2016
-grep -Fq '[[ "$1" -gt 1' "${stage_root}/scriptlets.txt"
-# shellcheck disable=SC2016
-grep -Fq '[[ "$1" -eq 0' "${stage_root}/scriptlets.txt"
-
 (
   cd "${package_root}"
   rpm2cpio "${initial_rpm}" | cpio -idm --quiet
@@ -214,9 +203,6 @@ required_files=(
   usr/bin/vinpst
   usr/bin/vinpst-daemon
   usr/bin/vinpst-gui
-  usr/lib/fcitx-vinpst/package-session-common.sh
-  usr/lib/fcitx-vinpst/package-upgrade-handoff
-  usr/lib/fcitx-vinpst/package-remove-handoff
   usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so
   usr/lib/fcitx-vinpst/libonnxruntime.so
   usr/lib64/fcitx5/fcitx5-vinpst.so

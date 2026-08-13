@@ -121,9 +121,6 @@ assert_package_files_present() {
     /usr/bin/vinpst \
     /usr/bin/vinpst-daemon \
     /usr/bin/vinpst-gui \
-    /usr/lib/fcitx-vinpst/package-session-common.sh \
-    /usr/lib/fcitx-vinpst/package-upgrade-handoff \
-    /usr/lib/fcitx-vinpst/package-remove-handoff \
     /usr/lib/fcitx5/fcitx5-vinpst.so \
     /usr/lib/systemd/user/vinpst-daemon.service \
     /usr/share/applications/vinpst-gui.desktop \

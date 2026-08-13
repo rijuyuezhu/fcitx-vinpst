@@ -56,21 +56,10 @@ the gate then promotes only `pkgrel=1` into a test-role-free candidate and
 rebuilds repository metadata around that package. Production key custody and
 independent fingerprint/public-key distribution are not part of the repository.
 
-The renderer also copies `fcitx-vinpst.install` beside the generated
-PKGBUILD. The package installs a shared trusted-session helper plus guarded
-upgrade and removal dispatchers. After installing a local package, each desktop
-user should run:
+The renderer also copies `fcitx-vinpst.install` beside the generated PKGBUILD. Package lifecycle hooks do not inspect user sessions, contact D-Bus, or start/stop daemon services; they only print short guidance. D-Bus activation routes daemon startup through the packaged systemd user unit, so package installation does not enable or start that unit explicitly. Reload Fcitx5 in an active desktop session after installing or upgrading the addon:
 
 ```sh
-systemctl --user enable --now vinpst-daemon.service
 fcitx5 -r
 ```
 
-After an upgrade, the package scans only ownership-verified live session buses.
-Sessions without an existing daemon owner are skipped. For each existing owner,
-it runs the guarded `vinpst daemon handoff` as that user: current owners are
-unchanged, while stale systemd/direct owners are handled only after the CLI's
-identity and idle checks. A failed session causes the package hook to report an
-error and that user can retry `vinpst daemon handoff`. Removal uses the separate
-two-phase guarded preflight and leaves user config, models, and cache intact;
-reload Fcitx5 afterward with `fcitx5 -r`.
+Upgrades rely on the daemon's executable-replacement watcher and normal D-Bus/systemd activation behavior; package hooks do not perform a daemon handoff. Removal similarly does not run a pre-remove daemon operation. User config, models, and cache remain outside package ownership.
