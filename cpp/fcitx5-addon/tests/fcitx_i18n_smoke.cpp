@@ -22,6 +22,7 @@ int main() {
   assert(FrontendText("Hold") == "长按");
   assert(FrontendText("Both") == "两者");
   assert(FrontendText("Unknown error.") == "未知错误。");
+  assert(FrontendText("... Starting ...") == "... 正在启动 ...");
   assert(FrontendText("... Recording ...") == "... 正在录音 ...");
   assert(FrontendText("... Commanding ...") == "... 正在命令 ...");
   assert(FrontendText("... Recognizing ...") == "... 正在识别 ...");
