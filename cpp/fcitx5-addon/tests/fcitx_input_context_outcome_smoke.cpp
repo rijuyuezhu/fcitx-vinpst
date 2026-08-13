@@ -112,6 +112,25 @@ int main() {
 
   {
     TestInputContext input_context(manager);
+    assert(
+        ApplyBridgeOutcomeToInputContext(CommandCandidateOutcome(), &input_context) ==
+        AppliedOutcome::CandidateMenu);
+    const auto aux_up = input_context.inputPanel().auxUp().toString();
+    BridgeOutcome outcome;
+    outcome.kind = BridgeOutcome::Kind::Preedit;
+    outcome.text = "... Commanding ...";
+
+    assert(ApplyBridgeOutcomeToInputContext(outcome, &input_context) ==
+           AppliedOutcome::Preedit);
+    assert(input_context.inputPanel().preedit().toString() == "... Commanding ...");
+    assert(input_context.inputPanel().auxUp().toString() == aux_up);
+    auto candidate_list = input_context.inputPanel().candidateList();
+    assert(candidate_list != nullptr);
+    assert(candidate_list->size() == 2);
+  }
+
+  {
+    TestInputContext input_context(manager);
     input_context.surroundingText().setText("head selected", 5, 13);
 
     BridgeOutcome outcome;
