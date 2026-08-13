@@ -128,6 +128,7 @@ private:
   ContextHistoryBridge context_history_;
   FrontendSettings frontend_settings_;
   FcitxKeyTriggerPolicy trigger_policy_;
+  TriggerEventTimeMapper trigger_event_time_mapper_;
   TriggerModeController trigger_mode_controller_;
   mutable std::unique_ptr<VinpstFrontendConfig> frontend_config_;
   SceneMenuController scene_menu_controller_;

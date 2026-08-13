@@ -56,6 +56,37 @@ bool SchedulesStart(TriggerModeAction action) {
 
 } // namespace
 
+TriggerEventTimeMapper::TimePoint
+TriggerEventTimeMapper::Resolve(int event_time_ms, TimePoint observed_at) {
+  if (event_time_ms == 0) {
+    last_event_time_ms_.reset();
+    return observed_at;
+  }
+
+  const auto raw_time = static_cast<std::uint32_t>(event_time_ms);
+  if (!last_event_time_ms_.has_value()) {
+    last_event_time_ms_ = raw_time;
+    last_mapped_at_ = observed_at;
+    return observed_at;
+  }
+
+  const auto elapsed_ms = static_cast<std::uint32_t>(raw_time - *last_event_time_ms_);
+  auto mapped_at = last_mapped_at_ + std::chrono::milliseconds(elapsed_ms);
+
+  // Re-anchor if the event timestamp source jumps or restarts. A queued event may
+  // legitimately map far into the past, but it should not map materially into
+  // the future relative to the time at which fcitx delivers it. Likewise, a
+  // very large lag indicates that the 32-bit source clock wrapped between rare
+  // trigger events or that the frontend changed its timestamp domain.
+  if (mapped_at > observed_at + std::chrono::seconds(1) ||
+      mapped_at + std::chrono::minutes(1) < observed_at) {
+    mapped_at = observed_at;
+  }
+  last_event_time_ms_ = raw_time;
+  last_mapped_at_ = mapped_at;
+  return mapped_at;
+}
+
 TriggerModeController::TriggerModeController(TriggerMode mode)
     : state_(StateHandle::Adopt(
           vinpst_fcitx_trigger_state_new(static_cast<std::uint8_t>(mode)))) {}
