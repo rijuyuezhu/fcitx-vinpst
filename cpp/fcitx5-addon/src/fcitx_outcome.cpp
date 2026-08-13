@@ -19,7 +19,6 @@ void ClearCandidateMenu(fcitx::InputContext *input_context) {
 }
 
 void SetPreedit(fcitx::InputContext *input_context, std::string_view text) {
-  ClearCandidateMenu(input_context);
   fcitx::Text preedit;
   if (!text.empty()) {
     preedit.append(std::string(text));
