@@ -100,6 +100,11 @@ int main() {
          TriggerModeAction::Consume);
 
   assert(event_time_mapper.Resolve(0, base + 20s) == base + 20s);
+  const auto reanchored_after_zero =
+      event_time_mapper.Resolve(1200, base + 20s + 100ms);
+  assert(reanchored_after_zero == base + 20s + 100ms);
+  assert(event_time_mapper.Resolve(1250, base + 20s + 200ms) - reanchored_after_zero ==
+         50ms);
 
   TriggerEventTimeMapper wrapping_event_time_mapper;
   const auto before_wrap = wrapping_event_time_mapper.Resolve(-16, base + 30s);

@@ -59,6 +59,7 @@ bool SchedulesStart(TriggerModeAction action) {
 TriggerEventTimeMapper::TimePoint
 TriggerEventTimeMapper::Resolve(int event_time_ms, TimePoint observed_at) {
   if (event_time_ms == 0) {
+    last_event_time_ms_.reset();
     return observed_at;
   }
 
