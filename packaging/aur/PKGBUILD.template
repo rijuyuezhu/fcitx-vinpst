@@ -10,7 +10,6 @@ depends=(
   'coreutils'
   'fcitx5'
   'fontconfig'
-  'glib2'
   'glibc'
   'libgcc'
   'libpipewire'

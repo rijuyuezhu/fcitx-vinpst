@@ -205,12 +205,6 @@ for release in "${releases[@]}"; do
   install -Dm755 "${cargo_target}/release/vinpst" "${package_root}/usr/bin/vinpst"
   install -Dm755 "${cargo_target}/release/vinpst-daemon" "${package_root}/usr/bin/vinpst-daemon"
   install -Dm755 "${cargo_target}/release/vinpst-gui" "${package_root}/usr/bin/vinpst-gui"
-  install -Dm644 scripts/release/package-session-common.sh \
-    "${package_root}/usr/lib/fcitx-vinpst/package-session-common.sh"
-  install -Dm755 scripts/release/package-upgrade-handoff.sh \
-    "${package_root}/usr/lib/fcitx-vinpst/package-upgrade-handoff"
-  install -Dm755 scripts/release/package-remove-handoff.sh \
-    "${package_root}/usr/lib/fcitx-vinpst/package-remove-handoff"
   install -Dm755 "${runtime_libdir}/libsherpa-onnx-c-api.so" \
     "${package_root}/usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so"
   install -Dm755 "${runtime_libdir}/libonnxruntime.so" \
@@ -247,7 +241,7 @@ for release in "${releases[@]}"; do
     --release "${release}" \
     --architecture "${architecture}" \
     --output "${package_root}/DEBIAN/control"
-  for script in postinst prerm postrm; do
+  for script in postinst postrm; do
     install -Dm755 "packaging/debian/${script}" "${package_root}/DEBIAN/${script}"
   done
   (

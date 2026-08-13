@@ -45,12 +45,8 @@ opensuse_query="$(rpmspec -q --qf '%{NAME}\n%{VERSION}\n%{RELEASE}\n%{ARCH}\n' "
 test "${opensuse_query}" = $'fcitx-vinpst\n'"${version}"$'\n1\nx86_64'
 ! rpmspec -q --provides "${spec}" | grep -Eq '^fcitx5-vinpst = '
 rpmspec -q --requires "${spec}" | grep -qx 'fcitx5'
-rpmspec -q --requires "${spec}" | grep -qx '/usr/bin/gdbus'
-rpmspec -q --requires "${spec}" | grep -qx '/usr/sbin/runuser'
 rpmspec -q --requires "${spec}" | grep -qx '/usr/bin/systemctl'
 ! rpmspec -q --requires "${spec}" | grep -Eq '^lib(onnxruntime|sherpa-onnx-c-api)\.so'
-rpmspec -q --requires "${opensuse_spec}" | grep -qx '/usr/bin/gdbus'
-rpmspec -q --requires "${opensuse_spec}" | grep -qx '/usr/sbin/runuser'
 rpmspec -q --requires "${opensuse_spec}" | grep -qx '/usr/bin/systemctl'
 ! rpmspec -q --requires "${opensuse_spec}" | grep -Eq '^lib(onnxruntime|sherpa-onnx-c-api)\.so'
 fedora_buildrequires="$(rpmspec -q --buildrequires "${spec}")"
@@ -63,12 +59,9 @@ for rpm_spec in "${spec}" "${opensuse_spec}"; do
   test "$(rpmspec -q --qf '%{LICENSE}' "${rpm_spec}")" = \
     'GPL-3.0-or-later AND Apache-2.0 AND MIT'
   test "$(rpmspec -q --qf '%{POSTINPROG}' "${rpm_spec}")" = /bin/bash
-  test "$(rpmspec -q --qf '%{PREUNPROG}' "${rpm_spec}")" = /bin/bash
+  test "$(rpmspec -q --qf '%{PREUNPROG}' "${rpm_spec}")" = '(none)'
   test "$(rpmspec -q --qf '%{POSTUNPROG}' "${rpm_spec}")" = /bin/bash
-  post_script="$(rpmspec -q --qf '%{POSTIN}' "${rpm_spec}")"
-  preun_script="$(rpmspec -q --qf '%{PREUN}' "${rpm_spec}")"
-  grep -Fq '/usr/lib/fcitx-vinpst/package-upgrade-handoff' <<<"${post_script}"
-  grep -Fq '/usr/lib/fcitx-vinpst/package-remove-handoff' <<<"${preun_script}"
+  test "$(rpmspec -q --qf '%{PREUN}' "${rpm_spec}")" = '(none)'
 done
 if grep -Fq '@VINPST_' "${spec}"; then
   echo "RPM spec still contains unresolved placeholders" >&2

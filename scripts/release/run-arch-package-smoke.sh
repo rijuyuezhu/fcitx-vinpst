@@ -154,23 +154,13 @@ package_archive="$(find "${build_root}" -maxdepth 1 -type f \
 test -n "${package_archive}"
 packaged_install="${stage_root}/packaged.INSTALL"
 bsdtar -xOf "${package_archive}" .INSTALL >"${packaged_install}"
-grep -q '^post_install()' "${packaged_install}"
-grep -q '^post_upgrade()' "${packaged_install}"
-grep -q '^post_remove()' "${packaged_install}"
-grep -q '^pre_remove()' "${packaged_install}"
-grep -q 'vinpst daemon handoff' "${packaged_install}"
-grep -q 'package-upgrade-handoff' "${packaged_install}"
-grep -q 'package-remove-handoff' "${packaged_install}"
-grep -q 'intentionally preserved' "${packaged_install}"
+bash -n "${packaged_install}"
 bsdtar -xf "${package_archive}" -C "${package_root}"
 
 required_files=(
   usr/bin/vinpst
   usr/bin/vinpst-daemon
   usr/bin/vinpst-gui
-  usr/lib/fcitx-vinpst/package-session-common.sh
-  usr/lib/fcitx-vinpst/package-upgrade-handoff
-  usr/lib/fcitx-vinpst/package-remove-handoff
   usr/lib/fcitx-vinpst/libsherpa-onnx-c-api.so
   usr/lib/fcitx-vinpst/libonnxruntime.so
   usr/lib/fcitx5/fcitx5-vinpst.so

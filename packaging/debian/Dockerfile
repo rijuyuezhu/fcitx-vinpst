@@ -41,7 +41,6 @@ RUN set -eux; \
       jq \
       libfcitx5core-dev \
       libfontconfig1-dev \
-      libglib2.0-bin \
       libpipewire-0.3-dev \
       libsystemd-dev \
       libwayland-dev \
@@ -55,7 +54,6 @@ RUN set -eux; \
       systemd \
       tar \
       util-linux \
-      util-linux-extra \
       xz-utils'; \
     apt_options='-o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60'; \
     apt-get ${apt_options} update; \

@@ -5,7 +5,7 @@ Priority: optional
 Architecture: @VINPST_ARCHITECTURE@
 Maintainer: Vinpst Maintainers <maintainers@example.invalid>
 Homepage: https://github.com/rijuyuezhu/fcitx-vinpst
-Depends: bash, coreutils, dbus-user-session, fcitx5, libfontconfig1, libglib2.0-bin, libpipewire-0.3-0, libsystemd0, libwayland-client0, libx11-6, libxkbcommon0, procps, systemd, util-linux-extra
+Depends: bash, coreutils, dbus-user-session, fcitx5, libfontconfig1, libpipewire-0.3-0, libsystemd0, libwayland-client0, libx11-6, libxkbcommon0, procps, systemd
 Recommends: wireplumber
 Description: Rust voice-input addon and daemon for Fcitx 5
  The package contains the command-line management tool,

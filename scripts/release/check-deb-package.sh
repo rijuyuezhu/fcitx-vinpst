@@ -27,24 +27,21 @@ grep -qx 'Package: fcitx-vinpst' "${check_root}/control"
 grep -qx 'Version: 0.1.0-1' "${check_root}/control"
 grep -qx 'Architecture: amd64' "${check_root}/control"
 grep -q '^Depends: .*fcitx5' "${check_root}/control"
-grep -q '^Depends: .*libglib2.0-bin' "${check_root}/control"
 grep -q '^Depends: .*procps' "${check_root}/control"
 grep -q '^Depends: .*systemd' "${check_root}/control"
-grep -q '^Depends: .*util-linux-extra' "${check_root}/control"
+! grep -q '^Depends: .*libglib2.0-bin' "${check_root}/control"
+! grep -q '^Depends: .*util-linux-extra' "${check_root}/control"
 ! grep -qE '^(Provides|Conflicts|Replaces):' "${check_root}/control"
 if grep -Eq '@[A-Z0-9_]+@' "${check_root}/control"; then
   echo "Debian control still contains placeholders" >&2
   exit 1
 fi
 
-for script in postinst prerm postrm; do
+for script in postinst postrm; do
   bash -n "packaging/debian/${script}"
   test -x "packaging/debian/${script}"
 done
-
-grep -q 'package-upgrade-handoff' packaging/debian/postinst
-grep -q 'package-remove-handoff' packaging/debian/prerm
-grep -q 'intentionally preserved' packaging/debian/postrm
+test ! -e packaging/debian/prerm
 grep -q 'License: GPL-3+' packaging/debian/copyright
 test -s LICENSE
 tool_injection_root="${check_root}/tool-injection"

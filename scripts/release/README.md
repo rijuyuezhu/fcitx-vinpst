@@ -83,13 +83,7 @@ builders change directories. Cargo target directories, CMake trees, and package
 outputs remain under `target/tmp` and are intentionally excluded from this
 cross-run source cache.
 
-The package lifecycle contract installs three cooperating files:
-
-- `package-session-common.sh`: ownership-verified session-bus discovery and minimal user environment construction;
-- `package-upgrade-handoff.sh`: existing-owner-only dispatch into `vinpst daemon handoff`;
-- `package-remove-handoff.sh`: all-session removal preflight, guarded mutation, and activation rollback.
-
-They are product lifecycle code, not developer convenience scripts.
+The package lifecycle contract is intentionally hint-only. Arch `.INSTALL`, Debian maintainer scripts, and RPM scriptlets may print concise guidance, but they do not discover user sessions, contact D-Bus, switch users, or mutate daemon/service state. Explicit daemon maintenance remains in the `vinpst` CLI rather than package-manager hooks.
 
 ## Publication boundary
 
