@@ -65,15 +65,14 @@ int main() {
          TriggerModeAction::StartNormal);
   result_during_release_tail.ConfirmStart(true);
   assert(result_during_release_tail.OnRelease(
-             TriggerKind::Normal, normal, base + 100ms) == TriggerModeAction::Consume);
-  assert(result_during_release_tail.OnPress(TriggerKind::Normal, normal, base + 1s,
+             TriggerKind::Normal, normal, base + 50ms) == TriggerModeAction::Consume);
+  assert(result_during_release_tail.OnPress(TriggerKind::Normal, normal, base + 150ms,
                                             true) == TriggerModeAction::StopActive);
-  assert(result_during_release_tail.OnRelease(TriggerKind::Normal, normal,
-                                              base + 1100ms) ==
-         TriggerModeAction::ScheduleStop);
+  assert(result_during_release_tail.OnRelease(
+             TriggerKind::Normal, normal, base + 200ms) == TriggerModeAction::Consume);
   result_during_release_tail.RecordingStopped();
   assert(result_during_release_tail.FirePendingStop() == TriggerModeAction::None);
-  assert(result_during_release_tail.OnPress(TriggerKind::Normal, normal, base + 2s,
+  assert(result_during_release_tail.OnPress(TriggerKind::Normal, normal, base + 240ms,
                                             false) == TriggerModeAction::StartNormal);
   result_during_release_tail.ConfirmStart(false);
 
