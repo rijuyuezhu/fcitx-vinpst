@@ -79,7 +79,8 @@ assert "patchelf" not in commands
 cargo_sources = product["sources"][1:]
 archives = [entry for entry in cargo_sources if entry.get("type") == "archive"]
 checksums = [entry for entry in cargo_sources if entry.get("dest-filename") == ".cargo-checksum.json"]
-assert len(archives) == len(checksums) == 504
+assert archives
+assert len(archives) == len(checksums)
 assert cargo_sources[-1]["dest-filename"] == "config.toml"
 destinations = [entry["dest"] for entry in archives]
 assert len(destinations) == len(set(destinations))

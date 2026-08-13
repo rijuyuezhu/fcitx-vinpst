@@ -25,7 +25,7 @@ repository = "https://github.com/rijuyuezhu/fcitx-vinpst"
 rust-version = "1.88"
 
 [workspace.dependencies]
-axum = { version = "=0.8.4", features = ["ws"] }
+axum = { version = "=0.8.9", features = ["ws"] }
 bzip2 = "0.4.4"
 anyhow = "1.0.98"
 clap = { version = "4.5.40", features = ["derive", "env"] }
