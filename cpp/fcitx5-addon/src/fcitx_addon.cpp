@@ -863,13 +863,14 @@ void FcitxVinpstAddon::HandleKeyEvent(fcitx::Event &event) {
   const bool normal = action == FcitxTriggerAction::StartNormal ||
                       action == FcitxTriggerAction::StopNormal;
   const auto kind = normal ? TriggerKind::Normal : TriggerKind::Command;
+  const auto trigger_time = trigger_event_time_mapper_.Resolve(
+      key_event.time(), TriggerModeController::Clock::now());
   TriggerModeAction mode_action = TriggerModeAction::None;
   if (key_event.isRelease()) {
-    mode_action = trigger_mode_controller_.OnRelease(
-        kind, key_event.key(), TriggerModeController::Clock::now());
+    mode_action =
+        trigger_mode_controller_.OnRelease(kind, key_event.key(), trigger_time);
   } else {
-    mode_action = trigger_mode_controller_.OnPress(kind, key_event.key(),
-                                                   TriggerModeController::Clock::now(),
+    mode_action = trigger_mode_controller_.OnPress(kind, key_event.key(), trigger_time,
                                                    bridge_.recording());
     if (mode_action != TriggerModeAction::None &&
         mode_action != TriggerModeAction::Consume) {

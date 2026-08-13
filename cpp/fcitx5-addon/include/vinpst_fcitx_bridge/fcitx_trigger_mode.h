@@ -33,6 +33,18 @@ enum class TriggerModeAction : std::uint8_t {
   ScheduleStop,
 };
 
+class TriggerEventTimeMapper {
+public:
+  using Clock = std::chrono::steady_clock;
+  using TimePoint = Clock::time_point;
+
+  TimePoint Resolve(int event_time_ms, TimePoint observed_at);
+
+private:
+  std::optional<std::uint32_t> last_event_time_ms_;
+  TimePoint last_mapped_at_;
+};
+
 class TriggerModeController {
 public:
   using Clock = std::chrono::steady_clock;

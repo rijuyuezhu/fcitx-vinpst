@@ -5,6 +5,7 @@
 
 int main() {
   using namespace std::chrono_literals;
+  using vinpst_fcitx_bridge::TriggerEventTimeMapper;
   using vinpst_fcitx_bridge::TriggerKind;
   using vinpst_fcitx_bridge::TriggerMode;
   using vinpst_fcitx_bridge::TriggerModeAction;
@@ -82,6 +83,28 @@ int main() {
   modifier_release.ConfirmStart(true);
   assert(modifier_release.OnRelease(TriggerKind::Normal, fcitx::Key(FcitxKey_Control_R),
                                     base + 400ms) == TriggerModeAction::ScheduleStop);
+
+  TriggerEventTimeMapper event_time_mapper;
+  const auto delayed_press_observed_at = base + 10s;
+  const auto physical_press_at =
+      event_time_mapper.Resolve(1000, delayed_press_observed_at);
+  const auto physical_release_at =
+      event_time_mapper.Resolve(1100, delayed_press_observed_at + 500ms);
+  assert(physical_release_at - physical_press_at == 100ms);
+
+  TriggerModeController delayed_tap(TriggerMode::Both);
+  assert(delayed_tap.OnPress(TriggerKind::Normal, normal, physical_press_at, false) ==
+         TriggerModeAction::StartNormal);
+  delayed_tap.ConfirmStart(true);
+  assert(delayed_tap.OnRelease(TriggerKind::Normal, normal, physical_release_at) ==
+         TriggerModeAction::Consume);
+
+  assert(event_time_mapper.Resolve(0, base + 20s) == base + 20s);
+
+  TriggerEventTimeMapper wrapping_event_time_mapper;
+  const auto before_wrap = wrapping_event_time_mapper.Resolve(-16, base + 30s);
+  const auto after_wrap = wrapping_event_time_mapper.Resolve(16, base + 30s + 32ms);
+  assert(after_wrap - before_wrap == 32ms);
 
   return 0;
 }
