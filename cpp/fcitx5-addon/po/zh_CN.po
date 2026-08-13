@@ -110,6 +110,9 @@ msgstr "保存前端配置失败。"
 msgid "Unknown error."
 msgstr "未知错误。"
 
+msgid "... Starting ..."
+msgstr "... 正在启动 ..."
+
 msgid "... Recording ..."
 msgstr "... 正在录音 ..."
 

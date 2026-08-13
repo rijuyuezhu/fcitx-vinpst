@@ -529,7 +529,12 @@ AppliedOutcome FcitxVinpstAddon::DispatchPreparedDaemonCall(fcitx::InputContext 
     return AppliedOutcome::None;
   } else {
     pending_start_call_slot_ = std::move(pending);
-    return ApplyBridgeOutcome(ic, bridge_.Complete(true, {}));
+    const auto started = bridge_.Complete(true, {});
+    if (started.kind != BridgeOutcome::Kind::Preedit) {
+      return ApplyBridgeOutcome(ic, started);
+    }
+    return ApplyBridgeOutcome(
+        ic, BuildPreeditOutcome("... Starting ...", started.replace_selection));
   }
 }
 

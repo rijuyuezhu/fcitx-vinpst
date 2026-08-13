@@ -297,11 +297,17 @@ int main() {
                                                       : FcitxTriggerAction::StartNormal,
                                          selected_text);
         start_attempted = true;
+        if (input_context.inputPanel().preedit().toString() != "... Starting ...") {
+          fail(
+              "native addon did not preserve pending-start preedit until async status");
+          return false;
+        }
         partial_check = signal_loop.addTimeEvent(
             CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 500'000, 0,
             [&](fcitx::EventSourceTime *, std::uint64_t) {
               const auto current = input_context.inputPanel().preedit().toString();
-              partial_seen = !current.empty() && current != "... Recording ..." &&
+              partial_seen = !current.empty() && current != "... Starting ..." &&
+                             current != "... Recording ..." &&
                              current != "... Commanding ..." &&
                              current != "... Recognizing ..." &&
                              current != "... Postprocessing ...";

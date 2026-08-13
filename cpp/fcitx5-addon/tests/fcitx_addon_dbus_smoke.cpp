@@ -239,9 +239,10 @@ int main() {
             [&](fcitx::EventSourceTime *event, std::uint64_t) {
               if (!ExpectApplied(command_start, AppliedOutcome::Preedit,
                                  "command start dispatch") ||
-                  !OutcomeSeen(BridgeOutcome::Kind::Preedit, "... Commanding ...",
+                  !OutcomeSeen(BridgeOutcome::Kind::Preedit, "... Starting ...",
                                false)) {
-                fail("addon command trigger did not enter command recording mode");
+                fail("addon command trigger did not preserve pending-start "
+                     "presentation");
                 return false;
               }
               if (!ExpectIgnoredTrigger(&addon, FcitxTriggerAction::StartCommand,
