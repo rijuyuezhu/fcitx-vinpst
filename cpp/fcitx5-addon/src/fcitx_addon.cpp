@@ -343,6 +343,10 @@ void FcitxVinpstAddon::HandleRecognitionResult(std::string_view payload) {
   awaiting_result_terminal_status_ = true;
   auto *ic = active_trigger_ic_.get();
   static_cast<void>(ApplyBridgeOutcome(ic, bridge_.CompleteRecognitionResult(payload)));
+  CancelTriggerStart();
+  CancelTriggerStop();
+  trigger_mode_controller_.RecordingStopped();
+  active_trigger_ic_.unwatch();
 }
 
 void FcitxVinpstAddon::HandleRecognitionPartial(std::string_view partial_text) {
