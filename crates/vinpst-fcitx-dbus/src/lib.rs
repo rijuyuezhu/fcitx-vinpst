@@ -63,10 +63,10 @@ pub enum DaemonResponse {
 pub enum DaemonError {
     /// Failed to connect to the user session bus.
     #[error("connect to session D-Bus: {0}")]
-    Connect(#[source] zbus::Error),
+    Connect(#[source] Box<zbus::Error>),
     /// Failed to create the daemon service proxy.
     #[error("create daemon D-Bus proxy: {0}")]
-    Proxy(#[source] zbus::Error),
+    Proxy(#[source] Box<zbus::Error>),
     /// A daemon method call failed.
     #[error("call daemon D-Bus method {method}: {source}")]
     Call {
@@ -74,7 +74,7 @@ pub enum DaemonError {
         method: &'static str,
         /// Underlying transport or daemon error.
         #[source]
-        source: zbus::Error,
+        source: Box<zbus::Error>,
     },
 }
 
@@ -101,11 +101,11 @@ impl DaemonClient {
 
     fn connect_session_with_timeout(timeout: Duration) -> Result<Self, DaemonError> {
         Builder::session()
-            .map_err(DaemonError::Connect)?
+            .map_err(|source| DaemonError::Connect(Box::new(source)))?
             .method_timeout(timeout)
             .build()
             .map(|connection| Self { connection })
-            .map_err(DaemonError::Connect)
+            .map_err(|source| DaemonError::Connect(Box::new(source)))
     }
 
     /// Executes one typed daemon operation.
@@ -184,7 +184,7 @@ impl DaemonClient {
             dbus::SERVICE_OBJECT_PATH,
             dbus::SERVICE_INTERFACE,
         )
-        .map_err(DaemonError::Proxy)
+        .map_err(|source| DaemonError::Proxy(Box::new(source)))
     }
 
     fn call_unit<B>(proxy: &Proxy<'_>, method: &'static str, body: &B) -> Result<(), DaemonError>
@@ -219,7 +219,10 @@ impl DaemonClient {
     {
         proxy
             .call(method, body)
-            .map_err(|source| DaemonError::Call { method, source })
+            .map_err(|source| DaemonError::Call {
+                method,
+                source: Box::new(source),
+            })
     }
 }
 
@@ -387,10 +390,11 @@ mod tests {
         assert!(started.elapsed() < Duration::from_millis(250));
         assert!(matches!(
             error,
-            DaemonError::Call {
-                source: zbus::Error::InputOutput(ref error),
-                ..
-            } if error.kind() == io::ErrorKind::TimedOut
+            DaemonError::Call { source, .. }
+                if matches!(
+                    source.as_ref(),
+                    zbus::Error::InputOutput(error) if error.kind() == io::ErrorKind::TimedOut
+                )
         ));
 
         stop_tx.send(()).expect("stop slow daemon");
