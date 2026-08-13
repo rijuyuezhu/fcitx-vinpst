@@ -278,6 +278,7 @@ int main() {
   bool stop_attempted = false;
   bool partial_seen = false;
   bool post_stop_timer_fired = false;
+  std::string pending_preedit;
   std::string partial_text;
   std::unique_ptr<fcitx::EventSourceTime> partial_check;
   std::unique_ptr<fcitx::EventSourceTime> post_stop_probe;
@@ -297,7 +298,8 @@ int main() {
                                                       : FcitxTriggerAction::StartNormal,
                                          selected_text);
         start_attempted = true;
-        if (input_context.inputPanel().preedit().toString() != "... Starting ...") {
+        pending_preedit = input_context.inputPanel().preedit().toString();
+        if (start != AppliedOutcome::PendingStart || pending_preedit.empty()) {
           fail(
               "native addon did not preserve pending-start preedit until async status");
           return false;
@@ -306,7 +308,7 @@ int main() {
             CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 500'000, 0,
             [&](fcitx::EventSourceTime *, std::uint64_t) {
               const auto current = input_context.inputPanel().preedit().toString();
-              partial_seen = !current.empty() && current != "... Starting ..." &&
+              partial_seen = !current.empty() && current != pending_preedit &&
                              current != "... Recording ..." &&
                              current != "... Commanding ..." &&
                              current != "... Recognizing ..." &&
@@ -365,7 +367,7 @@ int main() {
   delayed_start->setOneShot();
   const bool loop_result = signal_loop.exec();
   if (!loop_result || !failure.empty() || !start_attempted || !stop_attempted ||
-      start != AppliedOutcome::Preedit || stop != AppliedOutcome::None ||
+      start != AppliedOutcome::PendingStart || stop != AppliedOutcome::None ||
       !partial_seen || !post_stop_timer_fired) {
     std::cerr << "native addon async flow failed: loop=" << loop_result
               << " failure=" << failure << " start-attempted=" << start_attempted

@@ -14,6 +14,7 @@ namespace vinpst_fcitx_bridge {
 enum class AppliedOutcome : std::uint8_t {
   None,
   Preedit,
+  PendingStart,
   Clear,
   Commit,
   CandidateMenu

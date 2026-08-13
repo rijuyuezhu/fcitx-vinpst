@@ -533,8 +533,9 @@ AppliedOutcome FcitxVinpstAddon::DispatchPreparedDaemonCall(fcitx::InputContext 
     if (started.kind != BridgeOutcome::Kind::Preedit) {
       return ApplyBridgeOutcome(ic, started);
     }
-    return ApplyBridgeOutcome(
+    const auto applied = ApplyBridgeOutcome(
         ic, BuildPreeditOutcome("... Starting ...", started.replace_selection));
+    return applied == AppliedOutcome::Preedit ? AppliedOutcome::PendingStart : applied;
   }
 }
 

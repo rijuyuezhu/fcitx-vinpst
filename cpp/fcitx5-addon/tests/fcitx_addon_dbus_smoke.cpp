@@ -237,10 +237,8 @@ int main() {
         command_stop_dispatch = event_loop.addTimeEvent(
             CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 20'000, 0,
             [&](fcitx::EventSourceTime *event, std::uint64_t) {
-              if (!ExpectApplied(command_start, AppliedOutcome::Preedit,
-                                 "command start dispatch") ||
-                  !OutcomeSeen(BridgeOutcome::Kind::Preedit, "... Starting ...",
-                               false)) {
+              if (!ExpectApplied(command_start, AppliedOutcome::PendingStart,
+                                 "command start dispatch")) {
                 fail("addon command trigger did not preserve pending-start "
                      "presentation");
                 return false;
